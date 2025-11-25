@@ -1,21 +1,6 @@
+import type { Member } from "@/lib/types";
 import { useEffect, useState } from "react";
-
-interface Member {
-  uid: number;
-  code: string;
-  name: string;
-  main_color?: string;
-  sub_color?: string;
-  oshi_mark?: string;
-  url_twitter?: string;
-  url_youtube?: string;
-  url_chzzk?: string;
-  birth_date?: string;
-  debut_date?: string;
-  unit_name?: string;
-  fan_name?: string;
-  is_deprecated?: string;
-}
+import { CardMember } from "./card-member";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -35,12 +20,13 @@ export const DailySchedule = () => {
 
   return (
     <div className="flex flex-col flex-1 justify-center items-center">
-      <div className="flex flex-col gap-2">
+      <h1 className="text-3xl font-bold">
+        {new Date().toLocaleDateString()} 스케쥴
+      </h1>
+      <div className="flex gap-2">
         {members.length > 0 ? (
           members.map((member) => (
-            <div key={member.uid} style={{ color: member.main_color }}>
-              {member.name} {member.oshi_mark}
-            </div>
+            <CardMember key={member.uid} member={member} />
           ))
         ) : (
           <div>Loading...</div>
