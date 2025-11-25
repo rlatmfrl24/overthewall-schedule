@@ -19,9 +19,20 @@ function App() {
           <nav aria-label="menu" className="flex items-center mt-2 ml-4">
             <Button variant="ghost">오늘 스케쥴표</Button>
             <Button variant="ghost">주간 스케쥴표</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                window.open(
+                  "https://multiview-overthewall.vercel.app/",
+                  "_blank"
+                );
+              }}
+            >
+              오버더월 멀티뷰
+            </Button>
           </nav>
         </div>
-        <div aria-label="">
+        <div aria-label="" className="mr-4">
           <SignedOut>
             <SignInButton />
           </SignedOut>
