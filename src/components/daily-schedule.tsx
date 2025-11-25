@@ -5,12 +5,16 @@ interface Member {
   code: string;
   name: string;
   main_color?: string;
+  sub_color?: string;
   oshi_mark?: string;
   url_twitter?: string;
   url_youtube?: string;
   url_chzzk?: string;
   birth_date?: string;
   debut_date?: string;
+  unit_name?: string;
+  fan_name?: string;
+  is_deprecated?: string;
 }
 
 export const DailySchedule = () => {
@@ -19,7 +23,13 @@ export const DailySchedule = () => {
   useEffect(() => {
     fetch("/api/members")
       .then((res) => res.json())
-      .then((data) => setMembers(data as Member[]))
+      .then((data) =>
+        setMembers(
+          (data as Member[]).filter(
+            (member) => member.is_deprecated === "false"
+          )
+        )
+      )
       .catch((err) => console.error("Failed to fetch members:", err));
   }, []);
 
