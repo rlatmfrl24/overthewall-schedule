@@ -12,7 +12,15 @@
 	},
 	"observability": {
 		"enabled": true
-	}
+	},
+	"d1_databases": [
+		{
+			"binding": "otw_db",
+			"database_name": "otw-db",
+			"database_id": "133b980d-1701-427e-93fd-8c9dcca1132e",
+			"remote": true
+		}
+	]
 	/**
 	 * Smart Placement
 	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
