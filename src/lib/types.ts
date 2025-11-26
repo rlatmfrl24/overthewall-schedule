@@ -16,13 +16,13 @@ interface Member {
 }
 
 // 스케줄 상태: 방송, 휴방, 게릴라
-type ScheduleStatus = "방송" | "휴방" | "게릴라";
+type ScheduleStatus = "방송" | "휴방" | "게릴라" | "미정";
 
 interface ScheduleItem {
+  id?: number;
   status: ScheduleStatus;
-  uid: number;
   member_uid: number;
-  date?: string;
+  date: string;
   start_time?: string;
   title?: string;
 }

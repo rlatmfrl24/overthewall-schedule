@@ -15,7 +15,7 @@ export function makeRandomSchedule(
   }
 
   const schedule: ScheduleItem[] = [];
-  const statuses: ScheduleStatus[] = ["방송", "휴방", "게릴라"];
+  const statuses: ScheduleStatus[] = ["방송", "휴방", "게릴라", "미정"];
   const broadcastTitles = [
     "Just Chatting",
     "Minecraft",

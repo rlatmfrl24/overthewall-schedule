@@ -10,6 +10,59 @@ export default {
       return Response.json(results);
     }
 
+    if (url.pathname.startsWith("/api/schedules")) {
+      if (request.method === "GET") {
+        const date = url.searchParams.get("date");
+        if (!date) {
+          return new Response("Date parameter is required", { status: 400 });
+        }
+        const { results } = await env.otw_db
+          .prepare("SELECT * FROM schedules WHERE date = ?")
+          .bind(date)
+          .all();
+        return Response.json(results);
+      }
+
+      if (request.method === "POST") {
+        const body = (await request.json()) as any;
+        const { member_uid, date, start_time, title, status } = body;
+
+        if (!member_uid || !date || !status) {
+          return new Response("Missing required fields", { status: 400 });
+        }
+
+        const { success } = await env.otw_db
+          .prepare(
+            "INSERT INTO schedules (member_uid, date, start_time, title, status) VALUES (?, ?, ?, ?, ?)"
+          )
+          .bind(member_uid, date, start_time, title, status)
+          .run();
+
+        if (success) {
+          return new Response("Created", { status: 201 });
+        } else {
+          return new Response("Failed to create", { status: 500 });
+        }
+      }
+
+      if (request.method === "DELETE") {
+        const id = url.searchParams.get("id");
+        if (!id) {
+          return new Response("ID parameter is required", { status: 400 });
+        }
+        const { success } = await env.otw_db
+          .prepare("DELETE FROM schedules WHERE id = ?")
+          .bind(id)
+          .run();
+
+        if (success) {
+          return new Response("Deleted", { status: 200 });
+        } else {
+          return new Response("Failed to delete", { status: 500 });
+        }
+      }
+    }
+
     if (url.pathname.startsWith("/api/")) {
       return Response.json({
         name: "Cloudflare",
