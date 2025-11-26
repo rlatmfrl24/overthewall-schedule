@@ -5,6 +5,7 @@ import {
   UserButton,
 } from "@clerk/clerk-react";
 import { Button } from "./ui/button";
+import { ExternalLinkIcon } from "lucide-react";
 
 export const Header = () => {
   return (
@@ -26,7 +27,7 @@ export const Header = () => {
               );
             }}
           >
-            오버더월 멀티뷰
+            오버더월 멀티뷰 <ExternalLinkIcon />
           </Button>
         </nav>
       </div>

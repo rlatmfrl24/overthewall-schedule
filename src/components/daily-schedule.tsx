@@ -1,15 +1,17 @@
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { CardMember } from "./card-member";
 import { CardSchedule } from "./card-schedule";
+import { ScheduleDialog } from "./schedule-dialog";
+import { format } from "date-fns";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date();
 
   const fetchSchedules = () => {
-    fetch(`/api/schedules?date=${today}`)
+    fetch(`/api/schedules?date=${format(today, "yyyy-MM-dd")}`)
       .then((res) => res.json())
       .then((data) => setSchedules(data as ScheduleItem[]))
       .catch((err) => console.error("Failed to fetch schedules:", err));
@@ -30,27 +32,21 @@ export const DailySchedule = () => {
     fetchSchedules();
   }, []);
 
-  const handleAddSchedule = async (memberUid: number) => {
-    const title = prompt("스케쥴 내용을 입력하세요");
-    if (!title) return;
-    const startTime = prompt("시작 시간을 입력하세요 (예: 20:00)");
-
-    // Simple status selection for testing
-    const status = confirm("휴방인가요?") ? "휴방" : "방송";
-
-    const newSchedule = {
-      member_uid: memberUid,
-      date: today,
-      start_time: status === "휴방" ? null : startTime,
-      title: title,
-      status: status,
-    };
-
+  const handleAddSchedule = async (data: {
+    member_uid: number;
+    date: Date;
+    start_time: string | null;
+    title: string;
+    status: ScheduleStatus;
+  }) => {
     try {
       const res = await fetch("/api/schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSchedule),
+        body: JSON.stringify({
+          ...data,
+          date: format(data.date, "yyyy-MM-dd"),
+        }),
       });
       if (res.ok) {
         fetchSchedules();
@@ -64,8 +60,10 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 justify-center items-center container">
-      <h1 className="text-3xl font-bold mb-4">{today} 스케쥴</h1>
+    <div className="flex flex-col flex-1 justify-center items-center container relative">
+      <h1 className="text-3xl font-bold mb-4">
+        {today.toLocaleDateString()} 스케쥴
+      </h1>
       <div
         className="grid gap-4 w-full"
         style={{
@@ -79,7 +77,6 @@ export const DailySchedule = () => {
             const memberSchedules = schedules.filter(
               (s) => s.member_uid === member.uid
             );
-            const isDayOff = memberSchedules.some((s) => s.status === "휴방");
 
             return (
               <div key={member.uid} className="flex flex-col gap-2">
@@ -98,15 +95,6 @@ export const DailySchedule = () => {
                     미정
                   </div>
                 )}
-
-                {!isDayOff && (
-                  <button
-                    onClick={() => handleAddSchedule(member.uid)}
-                    className="p-2 mt-2 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    추가
-                  </button>
-                )}
               </div>
             );
           })
@@ -114,6 +102,12 @@ export const DailySchedule = () => {
           <div>Loading...</div>
         )}
       </div>
+
+      <ScheduleDialog
+        onSubmit={handleAddSchedule}
+        members={members}
+        initialDate={today}
+      />
     </div>
   );
 };

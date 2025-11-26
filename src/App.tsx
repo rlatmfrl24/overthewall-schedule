@@ -3,7 +3,7 @@ import { Header } from "./components/header";
 
 function App() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen w-screen font-sans">
+    <div className="flex flex-col items-center justify-center h-screen w-full font-sans">
       <Header />
       <DailySchedule />
       <footer className="w-full p-2 border-t flex items-center justify-center">
