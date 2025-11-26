@@ -6,7 +6,7 @@ import { makeRandomSchedule } from "@/lib/utils";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
-  const schedules = makeRandomSchedule(members, 30);
+  const schedules = makeRandomSchedule(members, 12);
 
   useEffect(() => {
     fetch("/api/members")
@@ -36,7 +36,7 @@ export const DailySchedule = () => {
       >
         {members.length > 0 ? (
           members.map((member) => (
-            <div key={member.uid} className="flex flex-col gap-4">
+            <div key={member.uid} className="flex flex-col gap-2">
               <CardMember member={member} />
               {schedules
                 .filter((schedule) => schedule.member_uid === member.uid)
