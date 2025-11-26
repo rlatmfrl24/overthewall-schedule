@@ -15,12 +15,16 @@ interface Member {
   is_deprecated?: string;
 }
 
+// 스케줄 상태: 방송, 휴방, 게릴라
+type ScheduleStatus = "방송" | "휴방" | "게릴라";
+
 interface ScheduleItem {
+  status: ScheduleStatus;
   uid: number;
   member_uid: number;
-  date: string;
-  start_time: string;
-  title: string;
+  date?: string;
+  start_time?: string;
+  title?: string;
 }
 
-export type { Member, ScheduleItem };
+export type { Member, ScheduleItem, ScheduleStatus };

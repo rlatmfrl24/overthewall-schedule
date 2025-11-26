@@ -6,7 +6,7 @@ import { makeRandomSchedule } from "@/lib/utils";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
-  const schedules = makeRandomSchedule(members);
+  const schedules = makeRandomSchedule(members, 30);
 
   useEffect(() => {
     fetch("/api/members")
