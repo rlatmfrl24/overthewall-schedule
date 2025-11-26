@@ -20,7 +20,7 @@ export const DailySchedule = () => {
 
   return (
     <div className="flex flex-col flex-1 justify-center items-center">
-      <h1 className="text-3xl font-bold">
+      <h1 className="text-3xl font-bold mb-4">
         {new Date().toLocaleDateString()} 스케쥴
       </h1>
       <div className="flex gap-2">

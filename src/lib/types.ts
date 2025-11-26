@@ -15,4 +15,12 @@ interface Member {
   is_deprecated?: string;
 }
 
-export type { Member };
+interface ScheduleItem {
+  uid: number;
+  member_uid: number;
+  date: string;
+  start_time: string;
+  title: string;
+}
+
+export type { Member, ScheduleItem };
