@@ -40,6 +40,28 @@ export const DailySchedule = () => {
     status: ScheduleStatus;
   }) => {
     try {
+      if (data.status === "휴방" || data.status === "미정") {
+        const dateStr = format(data.date, "yyyy-MM-dd");
+        const res = await fetch(`/api/schedules?date=${dateStr}`);
+        if (res.ok) {
+          const existingSchedules = (await res.json()) as ScheduleItem[];
+          const memberSchedules = existingSchedules.filter(
+            (s) => s.member_uid === data.member_uid
+          );
+
+          await Promise.all(
+            memberSchedules.map((s) =>
+              fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+            )
+          );
+        }
+
+        if (data.status === "미정") {
+          fetchSchedules();
+          return;
+        }
+      }
+
       const res = await fetch("/api/schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -61,9 +83,16 @@ export const DailySchedule = () => {
 
   return (
     <div className="flex flex-col flex-1 justify-center items-center container relative">
-      <h1 className="text-3xl font-bold mb-4">
-        {today.toLocaleDateString()} 스케쥴
-      </h1>
+      <div className="flex w-full mb-4">
+        <h1 className="text-3xl flex-1 text-center font-bold ml-12">
+          {today.toLocaleDateString()} 스케쥴
+        </h1>
+        <ScheduleDialog
+          onSubmit={handleAddSchedule}
+          members={members}
+          initialDate={today}
+        />
+      </div>
       <div
         className="grid gap-4 w-full"
         style={{
@@ -102,12 +131,6 @@ export const DailySchedule = () => {
           <div>Loading...</div>
         )}
       </div>
-
-      <ScheduleDialog
-        onSubmit={handleAddSchedule}
-        members={members}
-        initialDate={today}
-      />
     </div>
   );
 };

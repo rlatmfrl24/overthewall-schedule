@@ -17,15 +17,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Field, FieldGroup, FieldLabel } from "./ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "./ui/field";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Calendar } from "./ui/calendar";
 import { Input } from "./ui/input";
-import {
-  ButtonGroup,
-  ButtonGroupSeparator,
-  ButtonGroupText,
-} from "./ui/button-group";
+import { ButtonGroup, ButtonGroupSeparator } from "./ui/button-group";
 
 interface ScheduleDialogProps {
   onSubmit: (data: {
@@ -114,6 +110,15 @@ export const ScheduleDialog = ({
               </Field>
               <Field>
                 <FieldLabel>상태</FieldLabel>
+                {status === "휴방" ||
+                status === "미정" ||
+                status === "게릴라" ? (
+                  <FieldDescription>
+                    휴방, 미정, 게릴라 입력 시 다른 일정은 모두 삭제되니
+                    주의해주세요.
+                  </FieldDescription>
+                ) : null}
+
                 <ButtonGroup>
                   <Button
                     type="button"
@@ -126,7 +131,11 @@ export const ScheduleDialog = ({
                   <Button
                     type="button"
                     variant={status === "휴방" ? "default" : "outline"}
-                    onClick={() => setStatus("휴방")}
+                    onClick={() => {
+                      setStatus("휴방");
+                      setStartTime("");
+                      setTitle("휴방");
+                    }}
                   >
                     휴방
                   </Button>
@@ -134,7 +143,11 @@ export const ScheduleDialog = ({
                   <Button
                     type="button"
                     variant={status === "미정" ? "default" : "outline"}
-                    onClick={() => setStatus("미정")}
+                    onClick={() => {
+                      setStatus("미정");
+                      setStartTime("");
+                      setTitle("미정");
+                    }}
                   >
                     미정
                   </Button>
@@ -142,7 +155,11 @@ export const ScheduleDialog = ({
                   <Button
                     type="button"
                     variant={status === "게릴라" ? "default" : "outline"}
-                    onClick={() => setStatus("게릴라")}
+                    onClick={() => {
+                      setStatus("게릴라");
+                      setStartTime("");
+                      setTitle("게릴라");
+                    }}
                   >
                     게릴라
                   </Button>
