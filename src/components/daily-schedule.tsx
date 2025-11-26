@@ -36,14 +36,22 @@ export const DailySchedule = () => {
       >
         {members.length > 0 ? (
           members.map((member) => (
-            <CardMember key={member.uid} member={member} />
+            <div key={member.uid} className="flex flex-col gap-4">
+              <CardMember member={member} />
+              {schedules
+                .filter((schedule) => schedule.member_uid === member.uid)
+                .map((schedule) => (
+                  <CardSchedule
+                    key={schedule.uid}
+                    schedule={schedule}
+                    member={member}
+                  />
+                ))}
+            </div>
           ))
         ) : (
           <div>Loading...</div>
         )}
-        {schedules.map((schedule) => (
-          <CardSchedule key={schedule.uid} schedule={schedule} />
-        ))}
       </div>
     </div>
   );
