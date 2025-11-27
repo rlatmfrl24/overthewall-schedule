@@ -82,7 +82,7 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto px-4">
       <div className="container mx-auto flex flex-col items-center py-8 relative">
         <div className="flex w-full mb-4">
           <h1 className="text-3xl flex-1 text-center font-bold ml-12">
