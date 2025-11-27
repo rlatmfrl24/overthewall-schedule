@@ -1,11 +1,11 @@
-import { DailySchedule } from "./components/daily-schedule";
-import { Header } from "./components/header";
+import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { Header } from "@/components/header";
 
-function App() {
-  return (
+export const Route = createRootRoute({
+  component: () => (
     <div className="flex flex-col items-center h-screen w-full font-sans overflow-hidden">
       <Header />
-      <DailySchedule />
+      <Outlet />
       <footer className="w-full py-2 border-t bg-muted/20 mt-auto">
         <div className="container mx-auto px-4 flex flex-col items-center justify-center gap-1 text-center">
           <p className="text-sm text-muted-foreground">
@@ -18,7 +18,5 @@ function App() {
         </div>
       </footer>
     </div>
-  );
-}
-
-export default App;
+  ),
+});

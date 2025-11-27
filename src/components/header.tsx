@@ -4,6 +4,7 @@ import {
   SignedIn,
   UserButton,
 } from "@clerk/clerk-react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "./ui/button";
 import { ExternalLinkIcon, Menu, X } from "lucide-react";
 import { useState } from "react";
@@ -30,8 +31,12 @@ export const Header = () => {
           aria-label="menu"
           className="hidden lg:flex items-center gap-1 absolute left-1/2 transform -translate-x-1/2"
         >
-          <Button variant="ghost">오늘 스케쥴표</Button>
-          <Button variant="ghost">주간 스케쥴표</Button>
+          <Link to="/" className="[&.active]:font-bold">
+            <Button variant="ghost">오늘 스케쥴표</Button>
+          </Link>
+          <Link to="/weekly" className="[&.active]:font-bold">
+            <Button variant="ghost">주간 스케쥴표</Button>
+          </Link>
           <Button
             variant="ghost"
             onClick={() => {
@@ -92,18 +97,30 @@ export const Header = () => {
       {isMenuOpen && (
         <div className="lg:hidden absolute top-16 left-0 w-full bg-background border-b shadow-lg animate-in slide-in-from-top-2">
           <nav aria-label="mobile-menu" className="flex flex-col p-4 gap-2">
-            <Button
-              variant="ghost"
-              className="justify-start h-12 text-lg rounded-xl"
+            <Link
+              to="/"
+              className="w-full"
+              onClick={() => setIsMenuOpen(false)}
             >
-              오늘 스케쥴표
-            </Button>
-            <Button
-              variant="ghost"
-              className="justify-start h-12 text-lg rounded-xl"
+              <Button
+                variant="ghost"
+                className="justify-start h-12 text-lg rounded-xl w-full"
+              >
+                오늘 스케쥴표
+              </Button>
+            </Link>
+            <Link
+              to="/weekly"
+              className="w-full"
+              onClick={() => setIsMenuOpen(false)}
             >
-              주간 스케쥴표
-            </Button>
+              <Button
+                variant="ghost"
+                className="justify-start h-12 text-lg rounded-xl w-full"
+              >
+                주간 스케쥴표
+              </Button>
+            </Link>
             <Button
               variant="ghost"
               className="justify-start h-12 text-lg rounded-xl"

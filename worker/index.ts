@@ -13,6 +13,17 @@ export default {
     if (url.pathname.startsWith("/api/schedules")) {
       if (request.method === "GET") {
         const date = url.searchParams.get("date");
+        const startDate = url.searchParams.get("startDate");
+        const endDate = url.searchParams.get("endDate");
+
+        if (startDate && endDate) {
+          const { results } = await env.otw_db
+            .prepare("SELECT * FROM schedules WHERE date BETWEEN ? AND ?")
+            .bind(startDate, endDate)
+            .all();
+          return Response.json(results);
+        }
+
         if (!date) {
           return new Response("Date parameter is required", { status: 400 });
         }
