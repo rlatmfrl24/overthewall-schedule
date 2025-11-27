@@ -45,8 +45,8 @@ export const WeeklySchedule = () => {
   const fetchSchedules = async () => {
     setLoading(true);
     try {
-      const start = startOfWeek(currentDate, { weekStartsOn: 0 }); // Sunday start
-      const end = endOfWeek(currentDate, { weekStartsOn: 0 });
+      const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Sunday start
+      const end = endOfWeek(currentDate, { weekStartsOn: 1 });
 
       const startDateStr = format(start, "yyyy-MM-dd");
       const endDateStr = format(end, "yyyy-MM-dd");
@@ -67,7 +67,7 @@ export const WeeklySchedule = () => {
   const prevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const goToday = () => setCurrentDate(new Date());
 
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 });
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekDays = Array.from({ length: 7 }).map((_, i) =>
     addDays(weekStart, i)
   );
@@ -172,6 +172,7 @@ export const WeeklySchedule = () => {
                       (m) => m.uid === schedule.member_uid
                     );
                     const color = member?.main_color || "var(--otw-3)";
+                    const sub_color = member?.sub_color || "var(--otw-3)";
 
                     return (
                       <div
@@ -186,7 +187,7 @@ export const WeeklySchedule = () => {
 
                         <div
                           className="w-1.5 h-8 rounded-full shrink-0 z-10"
-                          style={{ backgroundColor: color }}
+                          style={{ backgroundColor: sub_color }}
                         />
                         <div className="flex flex-col min-w-0 flex-1 z-10">
                           <div className="flex items-center gap-2">
