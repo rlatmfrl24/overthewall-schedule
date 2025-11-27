@@ -51,7 +51,6 @@ export function makeRandomSchedule(
 
     schedule.push({
       status,
-      uid: i + 1,
       member_uid: member.uid,
       date: new Date().toISOString(),
       start_time,
