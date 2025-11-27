@@ -5,6 +5,15 @@ import { ScheduleDialog } from "./schedule-dialog";
 import { format } from "date-fns";
 import { CalendarDays, Plus } from "lucide-react";
 import { Button } from "./ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -13,6 +22,8 @@ export const DailySchedule = () => {
     null
   );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
   const today = new Date();
 
   const fetchSchedules = () => {
@@ -112,11 +123,13 @@ export const DailySchedule = () => {
         setIsEditDialogOpen(false);
         setEditingSchedule(null);
       } else {
-        alert("스케쥴 저장 실패");
+        setAlertMessage("스케쥴 저장 실패");
+        setAlertOpen(true);
       }
     } catch (e) {
       console.error(e);
-      alert("오류 발생");
+      setAlertMessage("오류 발생");
+      setAlertOpen(true);
     }
   };
 
@@ -131,7 +144,8 @@ export const DailySchedule = () => {
         setEditingSchedule(null);
         setIsEditDialogOpen(false);
       } else {
-        alert("스케쥴 삭제 실패");
+        setAlertMessage("스케쥴 삭제 실패");
+        setAlertOpen(true);
       }
     } catch (e) {
       console.error(e);
@@ -214,6 +228,20 @@ export const DailySchedule = () => {
         initialDate={today}
         schedule={editingSchedule}
       />
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>알림</AlertDialogTitle>
+            <AlertDialogDescription>{alertMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setAlertOpen(false)}>
+              확인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

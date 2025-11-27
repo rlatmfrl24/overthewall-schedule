@@ -2,6 +2,16 @@ import { useState, useEffect } from "react";
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ChevronDownIcon, Trash2 } from "lucide-react";
 import {
   Select,
@@ -55,6 +65,9 @@ export const ScheduleDialog = ({
   const [status, setStatus] = useState<ScheduleStatus>("방송");
   const [startTime, setStartTime] = useState("");
   const [title, setTitle] = useState("");
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (schedule) {
@@ -78,7 +91,8 @@ export const ScheduleDialog = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (memberUid === "") {
-      alert("멤버를 선택해주세요.");
+      setAlertMessage("멤버를 선택해주세요.");
+      setAlertOpen(true);
       return;
     }
     onSubmit({
@@ -97,13 +111,18 @@ export const ScheduleDialog = ({
 
   const handleDelete = () => {
     if (schedule?.id && onDelete) {
-      if (confirm("정말 삭제하시겠습니까?")) {
-        onDelete(schedule.id);
-        if (!controlledOpen) {
-          setIsOpen(false);
-        }
+      setConfirmOpen(true);
+    }
+  };
+
+  const onConfirmDelete = () => {
+    if (schedule?.id && onDelete) {
+      onDelete(schedule.id);
+      if (!controlledOpen) {
+        setIsOpen(false);
       }
     }
+    setConfirmOpen(false);
   };
 
   return (
@@ -268,6 +287,39 @@ export const ScheduleDialog = ({
           </FieldGroup>
         </form>
       </DialogContent>
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>알림</AlertDialogTitle>
+            <AlertDialogDescription>{alertMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setAlertOpen(false)}>
+              확인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
+            <AlertDialogDescription>
+              정말 삭제하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmOpen(false)}>
+              취소
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirmDelete}>
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 };
