@@ -45,6 +45,28 @@ export default {
         }
       }
 
+      if (request.method === "PUT") {
+        const body = (await request.json()) as any;
+        const { id, member_uid, date, start_time, title, status } = body;
+
+        if (!id || !member_uid || !date || !status) {
+          return new Response("Missing required fields", { status: 400 });
+        }
+
+        const { success } = await env.otw_db
+          .prepare(
+            "UPDATE schedules SET member_uid = ?, date = ?, start_time = ?, title = ?, status = ? WHERE id = ?"
+          )
+          .bind(member_uid, date, start_time, title, status, id)
+          .run();
+
+        if (success) {
+          return new Response("Updated", { status: 200 });
+        } else {
+          return new Response("Failed to update", { status: 500 });
+        }
+      }
+
       if (request.method === "DELETE") {
         const id = url.searchParams.get("id");
         if (!id) {

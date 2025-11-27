@@ -1,14 +1,8 @@
-import { useState } from "react";
-import type { Member, ScheduleStatus } from "@/lib/types";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "./ui/dialog";
+import { useState, useEffect } from "react";
+import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
-import { ChevronDownIcon, Plus } from "lucide-react";
+import { ChevronDownIcon, Trash2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -25,22 +19,34 @@ import { ButtonGroup, ButtonGroupSeparator } from "./ui/button-group";
 
 interface ScheduleDialogProps {
   onSubmit: (data: {
+    id?: number;
     member_uid: number;
     date: Date;
     start_time: string | null;
     title: string;
     status: ScheduleStatus;
   }) => void;
+  onDelete?: (id: number) => void;
   members: Member[];
   initialDate?: Date;
+  schedule?: ScheduleItem | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export const ScheduleDialog = ({
   onSubmit,
+  onDelete,
   members,
   initialDate,
+  schedule,
+  open: controlledOpen,
+  onOpenChange: setControlledOpen,
 }: ScheduleDialogProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = controlledOpen ?? internalOpen;
+  const setIsOpen = setControlledOpen ?? setInternalOpen;
+
   const [memberUid, setMemberUid] = useState<number | "">("");
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [date, setDate] = useState(
@@ -50,6 +56,25 @@ export const ScheduleDialog = ({
   const [startTime, setStartTime] = useState("");
   const [title, setTitle] = useState("");
 
+  useEffect(() => {
+    if (schedule) {
+      setMemberUid(schedule.member_uid);
+      setDate(new Date(schedule.date));
+      setStatus(schedule.status);
+      setStartTime(schedule.start_time || "");
+      setTitle(schedule.title || "");
+    } else {
+      // Reset form when opening in "add" mode or when closed
+      if (!isOpen) {
+        setMemberUid("");
+        setDate(initialDate ? new Date(initialDate) : new Date());
+        setStatus("방송");
+        setStartTime("");
+        setTitle("");
+      }
+    }
+  }, [schedule, isOpen, initialDate]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (memberUid === "") {
@@ -57,6 +82,7 @@ export const ScheduleDialog = ({
       return;
     }
     onSubmit({
+      id: schedule?.id,
       member_uid: Number(memberUid),
       date,
       status,
@@ -64,174 +90,184 @@ export const ScheduleDialog = ({
       title,
     });
 
-    setMemberUid("");
-    setDate(new Date());
-    setStatus("방송");
-    setStartTime("");
-    setTitle("");
-    setIsCalendarOpen(false);
-    setIsOpen(false);
+    if (!controlledOpen) {
+      setIsOpen(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (schedule?.id && onDelete) {
+      if (confirm("정말 삭제하시겠습니까?")) {
+        onDelete(schedule.id);
+        if (!controlledOpen) {
+          setIsOpen(false);
+        }
+      }
+    }
   };
 
   return (
-    <>
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogTrigger asChild>
-          <Button
-            variant="default"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-6"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            스케쥴 추가
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>스케쥴 추가</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit}>
-            <FieldGroup>
-              <Field>
-                <FieldLabel>멤버</FieldLabel>
-                <Select onValueChange={(value) => setMemberUid(Number(value))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="멤버 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {members.map((member) => (
-                        <SelectItem
-                          key={member.uid}
-                          value={member.uid.toString()}
-                        >
-                          {member.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field>
-                <FieldLabel>상태</FieldLabel>
-                {status === "휴방" ||
-                status === "미정" ||
-                status === "게릴라" ? (
-                  <FieldDescription>
-                    휴방, 미정, 게릴라 입력 시 다른 일정은 모두 삭제되니
-                    주의해주세요.
-                  </FieldDescription>
-                ) : null}
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{schedule ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>멤버</FieldLabel>
+              <Select
+                value={memberUid.toString()}
+                onValueChange={(value) => setMemberUid(Number(value))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="멤버 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {members.map((member) => (
+                      <SelectItem
+                        key={member.uid}
+                        value={member.uid.toString()}
+                      >
+                        {member.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel>상태</FieldLabel>
+              {status === "휴방" || status === "미정" || status === "게릴라" ? (
+                <FieldDescription>
+                  휴방, 미정, 게릴라 입력 시 다른 일정은 모두 삭제되니
+                  주의해주세요.
+                </FieldDescription>
+              ) : null}
 
-                <ButtonGroup>
-                  <Button
-                    type="button"
-                    variant={status === "방송" ? "default" : "outline"}
-                    onClick={() => setStatus("방송")}
-                  >
-                    방송
-                  </Button>
-                  <ButtonGroupSeparator />
-                  <Button
-                    type="button"
-                    variant={status === "휴방" ? "default" : "outline"}
-                    onClick={() => {
-                      setStatus("휴방");
-                      setStartTime("");
-                      setTitle("휴방");
-                    }}
-                  >
-                    휴방
-                  </Button>
-                  <ButtonGroupSeparator />
-                  <Button
-                    type="button"
-                    variant={status === "미정" ? "default" : "outline"}
-                    onClick={() => {
-                      setStatus("미정");
-                      setStartTime("");
-                      setTitle("미정");
-                    }}
-                  >
-                    미정
-                  </Button>
-                  <ButtonGroupSeparator />
-                  <Button
-                    type="button"
-                    variant={status === "게릴라" ? "default" : "outline"}
-                    onClick={() => {
-                      setStatus("게릴라");
-                      setStartTime("");
-                      setTitle("게릴라");
-                    }}
-                  >
-                    게릴라
-                  </Button>
-                </ButtonGroup>
-              </Field>
-              {status == "방송" && (
-                <>
-                  <Field>
-                    <FieldLabel>제목</FieldLabel>
-                    <Input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>날짜 & 시간</FieldLabel>
-                    <div className="flex gap-1">
-                      <Popover
-                        open={isCalendarOpen}
-                        onOpenChange={setIsCalendarOpen}
-                      >
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            id="date"
-                            className="w-48 justify-between font-normal flex-1"
-                          >
-                            {date ? date.toLocaleDateString() : "Select date"}
-                            <ChevronDownIcon />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          className="w-auto overflow-hidden p-0"
-                          align="start"
+              <ButtonGroup>
+                <Button
+                  type="button"
+                  variant={status === "방송" ? "default" : "outline"}
+                  onClick={() => setStatus("방송")}
+                >
+                  방송
+                </Button>
+                <ButtonGroupSeparator />
+                <Button
+                  type="button"
+                  variant={status === "휴방" ? "default" : "outline"}
+                  onClick={() => {
+                    setStatus("휴방");
+                    setStartTime("");
+                    setTitle("휴방");
+                  }}
+                >
+                  휴방
+                </Button>
+                <ButtonGroupSeparator />
+                <Button
+                  type="button"
+                  variant={status === "미정" ? "default" : "outline"}
+                  onClick={() => {
+                    setStatus("미정");
+                    setStartTime("");
+                    setTitle("미정");
+                  }}
+                >
+                  미정
+                </Button>
+                <ButtonGroupSeparator />
+                <Button
+                  type="button"
+                  variant={status === "게릴라" ? "default" : "outline"}
+                  onClick={() => {
+                    setStatus("게릴라");
+                    setStartTime("");
+                    setTitle("게릴라");
+                  }}
+                >
+                  게릴라
+                </Button>
+              </ButtonGroup>
+            </Field>
+            {status == "방송" && (
+              <>
+                <Field>
+                  <FieldLabel>제목</FieldLabel>
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>날짜 & 시간</FieldLabel>
+                  <div className="flex gap-1">
+                    <Popover
+                      open={isCalendarOpen}
+                      onOpenChange={setIsCalendarOpen}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          id="date"
+                          className="w-48 justify-between font-normal flex-1"
                         >
-                          <Calendar
-                            mode="single"
-                            selected={date}
-                            captionLayout="dropdown"
-                            onSelect={(date) => {
-                              if (!date) return;
-                              setDate(date);
-                              setIsCalendarOpen(false);
-                            }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <Input
-                        type="time"
-                        className="flex-1"
-                        value={startTime}
-                        onChange={(e) => setStartTime(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setDate(new Date())}
+                          {date ? date.toLocaleDateString() : "Select date"}
+                          <ChevronDownIcon />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        className="w-auto overflow-hidden p-0"
+                        align="start"
                       >
-                        오늘
-                      </Button>
-                    </div>
-                  </Field>
-                </>
+                        <Calendar
+                          mode="single"
+                          selected={date}
+                          captionLayout="dropdown"
+                          onSelect={(date) => {
+                            if (!date) return;
+                            setDate(date);
+                            setIsCalendarOpen(false);
+                          }}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    <Input
+                      type="time"
+                      className="flex-1"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setDate(new Date())}
+                    >
+                      오늘
+                    </Button>
+                  </div>
+                </Field>
+              </>
+            )}
+            <div className="flex gap-2">
+              <Button type="submit" className="flex-1">
+                {schedule ? "수정" : "추가"}
+              </Button>
+              {schedule && onDelete && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               )}
-              <Button type="submit">추가</Button>
-            </FieldGroup>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+            </div>
+          </FieldGroup>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 };

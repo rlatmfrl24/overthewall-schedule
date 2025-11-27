@@ -3,11 +3,16 @@ import { useEffect, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
 import { format } from "date-fns";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
+import { Button } from "./ui/button";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
+    null
+  );
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const today = new Date();
 
   const fetchSchedules = () => {
@@ -32,7 +37,8 @@ export const DailySchedule = () => {
     fetchSchedules();
   }, []);
 
-  const handleAddSchedule = async (data: {
+  const handleSaveSchedule = async (data: {
+    id?: number;
     member_uid: number;
     date: Date;
     start_time: string | null;
@@ -40,55 +46,92 @@ export const DailySchedule = () => {
     status: ScheduleStatus;
   }) => {
     try {
-      if (data.status === "휴방" || data.status === "미정") {
-        const dateStr = format(data.date, "yyyy-MM-dd");
-        const res = await fetch(`/api/schedules?date=${dateStr}`);
-        if (res.ok) {
-          const existingSchedules = (await res.json()) as ScheduleItem[];
-          const memberSchedules = existingSchedules.filter(
-            (s) => s.member_uid === data.member_uid
-          );
+      // 1. Fetch existing schedules for the target date to check for conflicts
+      const dateStr = format(data.date, "yyyy-MM-dd");
+      const res = await fetch(`/api/schedules?date=${dateStr}`);
+      if (!res.ok) throw new Error("Failed to fetch schedules");
 
-          await Promise.all(
-            memberSchedules.map((s) =>
-              fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-            )
-          );
-        }
+      const existingSchedules = (await res.json()) as ScheduleItem[];
+      const memberSchedules = existingSchedules.filter(
+        (s) => s.member_uid === data.member_uid
+      );
 
-        if (data.status === "미정") {
-          fetchSchedules();
-          return;
-        }
-      } else if (data.status === "방송") {
-        const dateStr = format(data.date, "yyyy-MM-dd");
-        const res = await fetch(`/api/schedules?date=${dateStr}`);
-        if (res.ok) {
-          const existingSchedules = (await res.json()) as ScheduleItem[];
-          const memberOffSchedules = existingSchedules.filter(
-            (s) => s.member_uid === data.member_uid && s.status === "휴방"
-          );
-
-          await Promise.all(
-            memberOffSchedules.map((s) =>
-              fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-            )
-          );
-        }
+      // 2. Handle "Undecided" (미정) - Delete ALL schedules for this member on this date
+      if (data.status === "미정") {
+        await Promise.all(
+          memberSchedules.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+        fetchSchedules();
+        setIsEditDialogOpen(false);
+        setEditingSchedule(null);
+        return;
       }
 
-      const res = await fetch("/api/schedules", {
-        method: "POST",
+      // 3. Handle conflicts based on status
+      if (data.status === "휴방" || data.status === "게릴라") {
+        // If Off or Guerrilla, delete all other schedules for this member
+        const schedulesToDelete = memberSchedules.filter(
+          (s) => s.id !== data.id
+        );
+        await Promise.all(
+          schedulesToDelete.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+      } else if (data.status === "방송") {
+        // If Broadcast, delete any conflicting exclusive statuses (Off, Guerrilla, Undecided)
+        const conflictingSchedules = memberSchedules.filter(
+          (s) =>
+            s.id !== data.id &&
+            (s.status === "휴방" ||
+              s.status === "게릴라" ||
+              s.status === "미정")
+        );
+        await Promise.all(
+          conflictingSchedules.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+      }
+
+      // 4. Create or Update
+      const method = data.id ? "PUT" : "POST";
+      const saveRes = await fetch("/api/schedules", {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
           date: format(data.date, "yyyy-MM-dd"),
         }),
       });
+
+      if (saveRes.ok) {
+        fetchSchedules();
+        setIsEditDialogOpen(false);
+        setEditingSchedule(null);
+      } else {
+        alert("스케쥴 저장 실패");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("오류 발생");
+    }
+  };
+
+  const handleDeleteSchedule = async (id: number) => {
+    try {
+      const res = await fetch(`/api/schedules?id=${id}`, {
+        method: "DELETE",
+      });
+
       if (res.ok) {
         fetchSchedules();
+        setEditingSchedule(null);
+        setIsEditDialogOpen(false);
       } else {
-        alert("스케쥴 추가 실패");
+        alert("스케쥴 삭제 실패");
       }
     } catch (e) {
       console.error(e);
@@ -114,11 +157,17 @@ export const DailySchedule = () => {
               </p>
             </div>
           </div>
-          <ScheduleDialog
-            onSubmit={handleAddSchedule}
-            members={members}
-            initialDate={today}
-          />
+          <Button
+            variant="default"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-6"
+            onClick={() => {
+              setEditingSchedule(null);
+              setIsEditDialogOpen(true);
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            스케쥴 추가
+          </Button>
         </div>
 
         {/* Grid Section */}
@@ -134,6 +183,10 @@ export const DailySchedule = () => {
                   key={member.uid}
                   member={member}
                   schedules={memberSchedules}
+                  onScheduleClick={(schedule) => {
+                    setEditingSchedule(schedule);
+                    setIsEditDialogOpen(true);
+                  }}
                 />
               );
             })
@@ -147,6 +200,20 @@ export const DailySchedule = () => {
           )}
         </div>
       </div>
+
+      {/* Edit Dialog */}
+      <ScheduleDialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) setEditingSchedule(null);
+        }}
+        onSubmit={handleSaveSchedule}
+        onDelete={handleDeleteSchedule}
+        members={members}
+        initialDate={today}
+        schedule={editingSchedule}
+      />
     </div>
   );
 };
