@@ -1,9 +1,9 @@
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { CardMember } from "./card-member";
-import { CardSchedule } from "./card-schedule";
 import { ScheduleDialog } from "./schedule-dialog";
 import { format } from "date-fns";
+import { CalendarDays } from "lucide-react";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -97,19 +97,32 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto px-4">
-      <div className="container mx-auto flex flex-col items-center py-8 relative">
-        <div className="flex w-full mb-4">
-          <h1 className="text-3xl flex-1 text-center font-bold ml-12">
-            {today.toLocaleDateString()} 스케쥴
-          </h1>
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-gray-50/50">
+      <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-white rounded-2xl shadow-sm border">
+              <CalendarDays className="w-6 h-6 text-indigo-600" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-2xl font-bold text-gray-900">
+                오늘의 스케쥴
+              </h1>
+              <p className="text-sm text-gray-500">
+                {today.toLocaleDateString()}
+              </p>
+            </div>
+          </div>
           <ScheduleDialog
             onSubmit={handleAddSchedule}
             members={members}
             initialDate={today}
           />
         </div>
-        <div className="grid gap-4 w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
+
+        {/* Grid Section */}
+        <div className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {members.length > 0 ? (
             members.map((member) => {
               const memberSchedules = schedules.filter(
@@ -117,27 +130,20 @@ export const DailySchedule = () => {
               );
 
               return (
-                <div key={member.uid} className="flex flex-col gap-2">
-                  <CardMember member={member} />
-
-                  {memberSchedules.length > 0 ? (
-                    memberSchedules.map((schedule) => (
-                      <CardSchedule
-                        key={schedule.id}
-                        schedule={schedule}
-                        member={member}
-                      />
-                    ))
-                  ) : (
-                    <div className="p-2 text-center text-gray-500 border rounded-lg">
-                      미정
-                    </div>
-                  )}
-                </div>
+                <CardMember
+                  key={member.uid}
+                  member={member}
+                  schedules={memberSchedules}
+                />
               );
             })
           ) : (
-            <div>Loading...</div>
+            <div className="col-span-full flex justify-center py-12">
+              <div className="animate-pulse flex flex-col items-center gap-4">
+                <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
+                <div className="h-4 w-48 bg-gray-200 rounded"></div>
+              </div>
+            </div>
           )}
         </div>
       </div>

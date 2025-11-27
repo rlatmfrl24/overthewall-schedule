@@ -76,9 +76,12 @@ export const ScheduleDialog = ({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        <DialogTrigger>
-          <Button variant={"default"}>
-            <Plus />
+        <DialogTrigger asChild>
+          <Button
+            variant="default"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-6"
+          >
+            <Plus className="mr-2 h-4 w-4" />
             스케쥴 추가
           </Button>
         </DialogTrigger>
