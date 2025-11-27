@@ -5,6 +5,7 @@ import { ko } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 export const WeeklySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -157,20 +158,13 @@ export const WeeklySchedule = () => {
                 >
                   {/* Member Column */}
                   <div className="p-3 border-r flex items-center gap-3 sticky left-0 bg-white z-10">
-                    <div
-                      className="w-10 h-10 rounded-full border-2 overflow-hidden shrink-0"
+                    <Avatar
+                      className="border-2 overflow-hidden shrink-0"
                       style={{ borderColor: member.main_color }}
                     >
-                      <img
-                        src={`/members/${member.code}.webp`}
-                        alt={member.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src =
-                            "/members/unknown.webp";
-                        }}
-                      />
-                    </div>
+                      <AvatarImage src={`/profile/${member.code}.webp`} />
+                      <AvatarFallback>{member.name[0]}</AvatarFallback>
+                    </Avatar>
                     <span className="font-medium text-sm text-gray-900 truncate">
                       {member.name}
                     </span>
