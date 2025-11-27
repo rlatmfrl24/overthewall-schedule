@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
@@ -13,6 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ChevronDownIcon, Trash2 } from "lucide-react";
+import { Checkbox } from "./ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -63,7 +65,12 @@ export const ScheduleDialog = ({
     initialDate ? new Date(initialDate) : new Date()
   );
   const [status, setStatus] = useState<ScheduleStatus>("방송");
-  const [startTime, setStartTime] = useState("");
+
+  // Time picker states
+  const [isTimeUndecided, setIsTimeUndecided] = useState(false);
+  const [startHour, setStartHour] = useState("00");
+  const [startMinute, setStartMinute] = useState("00");
+
   const [title, setTitle] = useState("");
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
@@ -74,7 +81,18 @@ export const ScheduleDialog = ({
       setMemberUid(schedule.member_uid);
       setDate(new Date(schedule.date));
       setStatus(schedule.status);
-      setStartTime(schedule.start_time || "");
+
+      if (schedule.start_time) {
+        setIsTimeUndecided(false);
+        const [h, m] = schedule.start_time.split(":");
+        setStartHour(h);
+        setStartMinute(m);
+      } else {
+        setIsTimeUndecided(true);
+        setStartHour("00");
+        setStartMinute("00");
+      }
+
       setTitle(schedule.title || "");
     } else {
       // Reset form when opening in "add" mode or when closed
@@ -82,7 +100,9 @@ export const ScheduleDialog = ({
         setMemberUid("");
         setDate(initialDate ? new Date(initialDate) : new Date());
         setStatus("방송");
-        setStartTime("");
+        setIsTimeUndecided(false);
+        setStartHour("00");
+        setStartMinute("00");
         setTitle("");
       }
     }
@@ -95,12 +115,18 @@ export const ScheduleDialog = ({
       setAlertOpen(true);
       return;
     }
+
+    let finalStartTime: string | null = null;
+    if (status === "방송" && !isTimeUndecided) {
+      finalStartTime = `${startHour}:${startMinute}`;
+    }
+
     onSubmit({
       id: schedule?.id,
       member_uid: Number(memberUid),
       date,
       status,
-      start_time: status === "휴방" ? null : startTime,
+      start_time: finalStartTime,
       title,
     });
 
@@ -179,7 +205,9 @@ export const ScheduleDialog = ({
                   variant={status === "휴방" ? "default" : "outline"}
                   onClick={() => {
                     setStatus("휴방");
-                    setStartTime("");
+                    setIsTimeUndecided(true);
+                    setStartHour("00");
+                    setStartMinute("00");
                     setTitle("휴방");
                   }}
                 >
@@ -191,7 +219,9 @@ export const ScheduleDialog = ({
                   variant={status === "미정" ? "default" : "outline"}
                   onClick={() => {
                     setStatus("미정");
-                    setStartTime("");
+                    setIsTimeUndecided(true);
+                    setStartHour("00");
+                    setStartMinute("00");
                     setTitle("미정");
                   }}
                 >
@@ -203,7 +233,9 @@ export const ScheduleDialog = ({
                   variant={status === "게릴라" ? "default" : "outline"}
                   onClick={() => {
                     setStatus("게릴라");
-                    setStartTime("");
+                    setIsTimeUndecided(true);
+                    setStartHour("00");
+                    setStartMinute("00");
                     setTitle("게릴라");
                   }}
                 >
@@ -222,7 +254,7 @@ export const ScheduleDialog = ({
                 </Field>
                 <Field>
                   <FieldLabel>날짜 & 시간</FieldLabel>
-                  <div className="flex gap-1">
+                  <div className="flex flex-col gap-3">
                     <Popover
                       open={isCalendarOpen}
                       onOpenChange={setIsCalendarOpen}
@@ -231,10 +263,13 @@ export const ScheduleDialog = ({
                         <Button
                           variant="outline"
                           id="date"
-                          className="w-48 justify-between font-normal flex-1"
+                          className={cn(
+                            "w-full justify-between text-left font-normal",
+                            !date && "text-muted-foreground"
+                          )}
                         >
-                          {date ? date.toLocaleDateString() : "Select date"}
-                          <ChevronDownIcon />
+                          {date ? date.toLocaleDateString() : "날짜 선택"}
+                          <ChevronDownIcon className="h-4 w-4 opacity-50" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent
@@ -253,19 +288,70 @@ export const ScheduleDialog = ({
                         />
                       </PopoverContent>
                     </Popover>
-                    <Input
-                      type="time"
-                      className="flex-1"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setDate(new Date())}
-                    >
-                      오늘
-                    </Button>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 flex items-center gap-2">
+                        <Select
+                          disabled={isTimeUndecided}
+                          value={startHour}
+                          onValueChange={setStartHour}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="시" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 24 }).map((_, i) => (
+                              <SelectItem
+                                key={i}
+                                value={i.toString().padStart(2, "0")}
+                              >
+                                {i.toString().padStart(2, "0")}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-muted-foreground">:</span>
+                        <Select
+                          disabled={isTimeUndecided}
+                          value={startMinute}
+                          onValueChange={setStartMinute}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="분" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 12 }).map((_, i) => (
+                              <SelectItem
+                                key={i}
+                                value={(i * 5).toString().padStart(2, "0")}
+                              >
+                                {(i * 5).toString().padStart(2, "0")}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-center space-x-2 min-w-fit">
+                        <Checkbox
+                          id="time-undecided"
+                          checked={isTimeUndecided}
+                          onCheckedChange={(checked) => {
+                            setIsTimeUndecided(checked === true);
+                            if (checked) {
+                              setStartHour("00");
+                              setStartMinute("00");
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor="time-undecided"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        >
+                          시간 미정
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </Field>
               </>
