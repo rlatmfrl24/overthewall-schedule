@@ -16,14 +16,32 @@ import {
   Loader2,
   Clock,
 } from "lucide-react";
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
+import { Button } from "./ui/button";
+import { Plus } from "lucide-react";
+import { ScheduleDialog } from "./schedule-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const WeeklySchedule = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
+    null
+  );
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertMessage, setAlertMessage] = useState("");
 
   useEffect(() => {
     fetchMembers();
@@ -68,6 +86,111 @@ export const WeeklySchedule = () => {
   const prevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const goToday = () => setCurrentDate(new Date());
 
+  const handleSaveSchedule = async (data: {
+    id?: number;
+    member_uid: number;
+    date: Date;
+    start_time: string | null;
+    title: string;
+    status: ScheduleStatus;
+  }) => {
+    try {
+      // 1. Fetch existing schedules for the target date to check for conflicts
+      const dateStr = format(data.date, "yyyy-MM-dd");
+      const res = await fetch(`/api/schedules?date=${dateStr}`);
+      if (!res.ok) throw new Error("Failed to fetch schedules");
+
+      const existingSchedules = (await res.json()) as ScheduleItem[];
+      const memberSchedules = existingSchedules.filter(
+        (s) => s.member_uid === data.member_uid
+      );
+
+      // 2. Handle "Undecided" (미정) - Delete ALL schedules for this member on this date
+      if (data.status === "미정") {
+        await Promise.all(
+          memberSchedules.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+        fetchSchedules();
+        setIsEditDialogOpen(false);
+        setEditingSchedule(null);
+        return;
+      }
+
+      // 3. Handle conflicts based on status
+      if (data.status === "휴방" || data.status === "게릴라") {
+        // If Off or Guerrilla, delete all other schedules for this member
+        const schedulesToDelete = memberSchedules.filter(
+          (s) => s.id !== data.id
+        );
+        await Promise.all(
+          schedulesToDelete.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+      } else if (data.status === "방송") {
+        // If Broadcast, delete any conflicting exclusive statuses (Off, Guerrilla, Undecided)
+        const conflictingSchedules = memberSchedules.filter(
+          (s) =>
+            s.id !== data.id &&
+            (s.status === "휴방" ||
+              s.status === "게릴라" ||
+              s.status === "미정")
+        );
+        await Promise.all(
+          conflictingSchedules.map((s) =>
+            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+          )
+        );
+      }
+
+      // 4. Create or Update
+      const method = data.id ? "PUT" : "POST";
+      const saveRes = await fetch("/api/schedules", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...data,
+          date: format(data.date, "yyyy-MM-dd"),
+        }),
+      });
+
+      if (saveRes.ok) {
+        fetchSchedules();
+        setIsEditDialogOpen(false);
+        setEditingSchedule(null);
+      } else {
+        setAlertMessage("스케쥴 저장 실패");
+        setAlertOpen(true);
+      }
+    } catch (e) {
+      console.error(e);
+      setAlertMessage("오류 발생");
+      setAlertOpen(true);
+    }
+  };
+
+  const handleDeleteSchedule = async (id: number) => {
+    try {
+      const res = await fetch(`/api/schedules?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        fetchSchedules();
+        setEditingSchedule(null);
+        setIsEditDialogOpen(false);
+      } else {
+        setAlertMessage("스케쥴 삭제 실패");
+        setAlertOpen(true);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("오류 발생");
+    }
+  };
+
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekDays = Array.from({ length: 7 }).map((_, i) =>
     addDays(weekStart, i)
@@ -94,25 +217,38 @@ export const WeeklySchedule = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
-              <button
-                onClick={prevWeek}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-4 h-10"
+                onClick={() => {
+                  setEditingSchedule(null);
+                  setIsEditDialogOpen(true);
+                }}
               >
-                <ChevronLeft className="w-5 h-5 text-gray-600" />
-              </button>
-              <button
-                onClick={goToday}
-                className="px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                오늘
-              </button>
-              <button
-                onClick={nextWeek}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                <ChevronRight className="w-5 h-5 text-gray-600" />
-              </button>
+                <Plus className="h-4 w-4 mr-2" />
+                일정 추가
+              </Button>
+              <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
+                <button
+                  onClick={prevWeek}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5 text-gray-600" />
+                </button>
+                <button
+                  onClick={goToday}
+                  className="px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  오늘
+                </button>
+                <button
+                  onClick={nextWeek}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -251,7 +387,11 @@ export const WeeklySchedule = () => {
                               return (
                                 <div
                                   key={idx}
-                                  className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white shadow-sm border border-gray-100/50 hover:scale-[1.02] transition-transform max-w-[180px] truncate text-ellipsis"
+                                  className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white shadow-sm border border-gray-100/50 hover:scale-[1.02] transition-transform max-w-[180px] truncate text-ellipsis cursor-pointer"
+                                  onClick={() => {
+                                    setEditingSchedule(schedule);
+                                    setIsEditDialogOpen(true);
+                                  }}
                                 >
                                   <div className="flex items-center justify-between gap-1">
                                     <span
@@ -303,6 +443,34 @@ export const WeeklySchedule = () => {
           </div>
         </div>
       </div>
+
+      {/* Edit Dialog */}
+      <ScheduleDialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) setEditingSchedule(null);
+        }}
+        onSubmit={handleSaveSchedule}
+        onDelete={handleDeleteSchedule}
+        members={members}
+        initialDate={currentDate}
+        schedule={editingSchedule}
+      />
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>알림</AlertDialogTitle>
+            <AlertDialogDescription>{alertMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setAlertOpen(false)}>
+              확인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

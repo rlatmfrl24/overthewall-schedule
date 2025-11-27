@@ -243,6 +243,39 @@ export const ScheduleDialog = ({
                 </Button>
               </ButtonGroup>
             </Field>
+            <Field>
+              <FieldLabel>날짜</FieldLabel>
+              <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    id="date"
+                    className={cn(
+                      "w-full justify-between text-left font-normal",
+                      !date && "text-muted-foreground"
+                    )}
+                  >
+                    {date ? date.toLocaleDateString() : "날짜 선택"}
+                    <ChevronDownIcon className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto overflow-hidden p-0"
+                  align="start"
+                >
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    captionLayout="dropdown"
+                    onSelect={(date) => {
+                      if (!date) return;
+                      setDate(date);
+                      setIsCalendarOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </Field>
             {status == "방송" && (
               <>
                 <Field>
@@ -253,104 +286,68 @@ export const ScheduleDialog = ({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel>날짜 & 시간</FieldLabel>
-                  <div className="flex flex-col gap-3">
-                    <Popover
-                      open={isCalendarOpen}
-                      onOpenChange={setIsCalendarOpen}
-                    >
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          id="date"
-                          className={cn(
-                            "w-full justify-between text-left font-normal",
-                            !date && "text-muted-foreground"
-                          )}
-                        >
-                          {date ? date.toLocaleDateString() : "날짜 선택"}
-                          <ChevronDownIcon className="h-4 w-4 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        className="w-auto overflow-hidden p-0"
-                        align="start"
+                  <FieldLabel>시간</FieldLabel>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 flex items-center gap-2">
+                      <Select
+                        disabled={isTimeUndecided}
+                        value={startHour}
+                        onValueChange={setStartHour}
                       >
-                        <Calendar
-                          mode="single"
-                          selected={date}
-                          captionLayout="dropdown"
-                          onSelect={(date) => {
-                            if (!date) return;
-                            setDate(date);
-                            setIsCalendarOpen(false);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="시" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 24 }).map((_, i) => (
+                            <SelectItem
+                              key={i}
+                              value={i.toString().padStart(2, "0")}
+                            >
+                              {i.toString().padStart(2, "0")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-muted-foreground">:</span>
+                      <Select
+                        disabled={isTimeUndecided}
+                        value={startMinute}
+                        onValueChange={setStartMinute}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="분" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 12 }).map((_, i) => (
+                            <SelectItem
+                              key={i}
+                              value={(i * 5).toString().padStart(2, "0")}
+                            >
+                              {(i * 5).toString().padStart(2, "0")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 flex items-center gap-2">
-                        <Select
-                          disabled={isTimeUndecided}
-                          value={startHour}
-                          onValueChange={setStartHour}
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="시" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 24 }).map((_, i) => (
-                              <SelectItem
-                                key={i}
-                                value={i.toString().padStart(2, "0")}
-                              >
-                                {i.toString().padStart(2, "0")}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <span className="text-muted-foreground">:</span>
-                        <Select
-                          disabled={isTimeUndecided}
-                          value={startMinute}
-                          onValueChange={setStartMinute}
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="분" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 12 }).map((_, i) => (
-                              <SelectItem
-                                key={i}
-                                value={(i * 5).toString().padStart(2, "0")}
-                              >
-                                {(i * 5).toString().padStart(2, "0")}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex items-center space-x-2 min-w-fit">
-                        <Checkbox
-                          id="time-undecided"
-                          checked={isTimeUndecided}
-                          onCheckedChange={(checked) => {
-                            setIsTimeUndecided(checked === true);
-                            if (checked) {
-                              setStartHour("00");
-                              setStartMinute("00");
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor="time-undecided"
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                        >
-                          시간 미정
-                        </label>
-                      </div>
+                    <div className="flex items-center space-x-2 min-w-fit">
+                      <Checkbox
+                        id="time-undecided"
+                        checked={isTimeUndecided}
+                        onCheckedChange={(checked) => {
+                          setIsTimeUndecided(checked === true);
+                          if (checked) {
+                            setStartHour("00");
+                            setStartMinute("00");
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="time-undecided"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        시간 미정
+                      </label>
                     </div>
                   </div>
                 </Field>
