@@ -82,54 +82,49 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 justify-center items-center container relative">
-      <div className="flex w-full mb-4">
-        <h1 className="text-3xl flex-1 text-center font-bold ml-12">
-          {today.toLocaleDateString()} 스케쥴
-        </h1>
-        <ScheduleDialog
-          onSubmit={handleAddSchedule}
-          members={members}
-          initialDate={today}
-        />
-      </div>
-      <div
-        className="grid gap-4 w-full"
-        style={{
-          gridTemplateColumns: `repeat(${
-            members.length > 0 ? members.length : 1
-          }, 1fr)`,
-        }}
-      >
-        {members.length > 0 ? (
-          members.map((member) => {
-            const memberSchedules = schedules.filter(
-              (s) => s.member_uid === member.uid
-            );
+    <div className="flex flex-col flex-1 w-full overflow-y-auto">
+      <div className="container mx-auto flex flex-col items-center py-8 relative">
+        <div className="flex w-full mb-4">
+          <h1 className="text-3xl flex-1 text-center font-bold ml-12">
+            {today.toLocaleDateString()} 스케쥴
+          </h1>
+          <ScheduleDialog
+            onSubmit={handleAddSchedule}
+            members={members}
+            initialDate={today}
+          />
+        </div>
+        <div className="grid gap-4 w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-9">
+          {members.length > 0 ? (
+            members.map((member) => {
+              const memberSchedules = schedules.filter(
+                (s) => s.member_uid === member.uid
+              );
 
-            return (
-              <div key={member.uid} className="flex flex-col gap-2">
-                <CardMember member={member} />
+              return (
+                <div key={member.uid} className="flex flex-col gap-2">
+                  <CardMember member={member} />
 
-                {memberSchedules.length > 0 ? (
-                  memberSchedules.map((schedule) => (
-                    <CardSchedule
-                      key={schedule.id}
-                      schedule={schedule}
-                      member={member}
-                    />
-                  ))
-                ) : (
-                  <div className="p-2 text-center text-gray-500 border rounded-lg">
-                    미정
-                  </div>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <div>Loading...</div>
-        )}
+                  {memberSchedules.length > 0 ? (
+                    memberSchedules.map((schedule) => (
+                      <CardSchedule
+                        key={schedule.id}
+                        schedule={schedule}
+                        member={member}
+                      />
+                    ))
+                  ) : (
+                    <div className="p-2 text-center text-gray-500 border rounded-lg">
+                      미정
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div>Loading...</div>
+          )}
+        </div>
       </div>
     </div>
   );
