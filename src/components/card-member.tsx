@@ -1,6 +1,5 @@
 import type { Member, ScheduleItem } from "@/lib/types";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
-import { Radio } from "lucide-react";
 import { CardSchedule } from "./card-schedule";
 
 interface CardMemberProps {
@@ -15,7 +14,6 @@ export const CardMember = ({
   onScheduleClick,
 }: CardMemberProps) => {
   const hasSchedule = schedules.length > 0;
-  const isBroadcasting = schedules.some((s) => s.status === "방송");
 
   // Colors
   const mainColor = member.main_color || "#e5e7eb";
@@ -54,14 +52,6 @@ export const CardMember = ({
           >
             {member.unit_name}
           </span>
-        )}
-
-        {/* Broadcasting Indicator (if active) */}
-        {isBroadcasting && (
-          <div className="flex items-center gap-1 rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm backdrop-blur-sm animate-pulse">
-            <Radio size={10} />
-            <span>LIVE</span>
-          </div>
         )}
       </div>
 

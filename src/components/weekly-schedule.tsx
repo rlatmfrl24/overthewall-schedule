@@ -9,20 +9,21 @@ import {
   subWeeks,
 } from "date-fns";
 import { ko } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Calendar, Loader2 } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Loader2,
+  Clock,
+} from "lucide-react";
 import type { Member, ScheduleItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 
 export const WeeklySchedule = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // Colors from index.css
-  // --otw-1: rgb(246, 100, 121);
-  // --otw-2: rgb(49, 164, 169);
-  // --otw-3: rgb(255, 177, 78);
 
   useEffect(() => {
     fetchMembers();
@@ -73,152 +74,228 @@ export const WeeklySchedule = () => {
   );
 
   return (
-    <div className="flex flex-col w-full h-full p-4 sm:p-6 lg:p-8 overflow-y-auto container">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-white rounded-2xl shadow-sm border border-[var(--otw-1)]/20">
-            <Calendar className="w-6 h-6 text-[var(--otw-1)]" />
+    <div className="flex flex-col flex-1 w-full overflow-hidden bg-gray-50/50">
+      <div className="flex flex-col h-full container mx-auto">
+        {/* Header Control Section */}
+        <div className="flex-none px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-white rounded-2xl shadow-sm border border-indigo-100">
+                <CalendarDays className="w-6 h-6 text-indigo-600" />
+              </div>
+              <div className="flex flex-col">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  주간 통합 일정표
+                </h1>
+                <p className="text-sm text-gray-500">
+                  {format(weekStart, "yyyy년 M월 d일", { locale: ko })} -{" "}
+                  {format(addDays(weekStart, 6), "M월 d일", { locale: ko })}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
+              <button
+                onClick={prevWeek}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5 text-gray-600" />
+              </button>
+              <button
+                onClick={goToday}
+                className="px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                오늘
+              </button>
+              <button
+                onClick={nextWeek}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <ChevronRight className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <h1 className="text-2xl font-bold text-gray-900">주간 스케쥴</h1>
-            <p className="text-sm text-gray-500">
-              {format(weekStart, "yyyy년 M월 d일", { locale: ko })} -{" "}
-              {format(addDays(weekStart, 6), "M월 d일", { locale: ko })}
-            </p>
+        </div>
+
+        {/* Loading State */}
+        {loading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+            <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
           </div>
-        </div>
+        )}
 
-        <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
-          <button
-            onClick={prevWeek}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <button
-            onClick={goToday}
-            className="px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            오늘
-          </button>
-          <button
-            onClick={nextWeek}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <ChevronRight className="w-5 h-5 text-gray-600" />
-          </button>
-        </div>
-      </div>
-
-      {/* Loading State */}
-      {loading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm">
-          <Loader2 className="w-10 h-10 animate-spin text-[var(--otw-2)]" />
-        </div>
-      )}
-
-      {/* Bento Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4 auto-rows-fr">
-        {weekDays.map((day) => {
-          const isToday = isSameDay(day, new Date());
-          const dateStr = format(day, "yyyy-MM-dd");
-          const daySchedules = schedules.filter((s) => s.date === dateStr);
-
-          // Sort schedules: items with time first, then by time, then others
-          daySchedules.sort((a, b) => {
-            if (a.start_time && b.start_time)
-              return a.start_time.localeCompare(b.start_time);
-            if (a.start_time) return -1;
-            if (b.start_time) return 1;
-            return 0;
-          });
-
-          return (
-            <div
-              key={day.toISOString()}
-              className={cn(
-                "flex flex-col bg-white rounded-3xl p-5 shadow-sm border transition-all hover:shadow-md",
-                isToday
-                  ? "ring-2 ring-[var(--otw-2)] ring-offset-2"
-                  : "border-gray-100"
-              )}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <span
-                  className={cn(
-                    "text-lg font-bold",
-                    isToday ? "text-[var(--otw-2)]" : "text-gray-700"
-                  )}
-                >
-                  {format(day, "E", { locale: ko })}
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-medium px-2 py-1 rounded-full",
-                    isToday
-                      ? "bg-[var(--otw-2)]/10 text-[var(--otw-2)]"
-                      : "text-gray-400 bg-gray-50"
-                  )}
-                >
-                  {format(day, "M/d")}
-                </span>
+        {/* Integrated Table Section */}
+        <div className="flex-1 overflow-auto px-4 sm:px-6 lg:px-8 pb-8">
+          <div className="container mx-auto pb-4">
+            {" "}
+            {/* Minimum width to prevent crushing */}
+            <div className="grid grid-cols-[120px_repeat(7,1fr)] gap-2">
+              {/* Table Header: Dates */}
+              <div className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur-sm pt-2 pb-0 grid grid-cols-[120px_repeat(7,1fr)] gap-2 col-span-full">
+                <div className="flex items-center justify-center">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                    Member
+                  </span>
+                </div>
+                {weekDays.map((day) => {
+                  const isToday = isSameDay(day, new Date());
+                  return (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        "flex flex-col items-center justify-center p-3 rounded-2xl transition-colors",
+                        isToday
+                          ? "bg-indigo-600 text-white shadow-md"
+                          : "bg-white text-gray-600 shadow-sm border border-gray-100"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "text-xs font-medium uppercase",
+                          isToday ? "text-indigo-100" : "text-gray-400"
+                        )}
+                      >
+                        {format(day, "EEE", { locale: ko })}
+                      </span>
+                      <span className="text-lg font-bold leading-none mt-1">
+                        {format(day, "d")}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
 
-              <div className="flex flex-col gap-2 flex-1">
-                {daySchedules.length > 0 ? (
-                  daySchedules.map((schedule) => {
-                    const member = members.find(
-                      (m) => m.uid === schedule.member_uid
-                    );
-                    const color = member?.main_color || "var(--otw-3)";
-                    const sub_color = member?.sub_color || "var(--otw-3)";
+              {/* Table Body: Member Rows */}
+              {members.map((member) => {
+                const mainColor = member.main_color || "#e5e7eb";
+                const subColor =
+                  member.sub_color || member.main_color || "#f3f4f6";
+                const bgTint = hexToRgba(subColor, 0.05);
 
-                    return (
+                return (
+                  <div key={member.uid} className="contents group">
+                    {/* Member Column */}
+                    <div className="sticky left-0 z-10 flex flex-col items-center justify-center">
                       <div
-                        key={schedule.id}
-                        className="relative group flex items-center gap-3 p-2.5 rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] overflow-hidden"
+                        className="relative w-full overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 group-hover:shadow-md group-hover:scale-105 group-hover:border-gray-200 border"
+                        style={{ borderColor: mainColor }}
                       >
-                        {/* Background with opacity */}
+                        <div className="relative w-full aspect-[2/1]">
+                          <img
+                            src={`/profile/${member.code}.webp`}
+                            alt={member.name}
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        </div>
                         <div
-                          className="absolute inset-0 opacity-[0.08]"
-                          style={{ backgroundColor: color }}
-                        />
-
-                        <div
-                          className="w-1.5 h-8 rounded-full shrink-0 z-10"
-                          style={{ backgroundColor: sub_color }}
-                        />
-                        <div className="flex flex-col min-w-0 flex-1 z-10">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="text-xs font-bold truncate"
-                              style={{ color: color }}
-                            >
-                              {member?.name || "Unknown"}
-                            </span>
-                            {schedule.start_time && (
-                              <span className="text-[10px] text-gray-500 font-medium bg-white/80 px-1.5 rounded-md">
-                                {schedule.start_time}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-sm font-medium text-gray-900 truncate">
-                            {schedule.title || schedule.status}
+                          className="flex items-center justify-center py-1 px-2"
+                          style={{ backgroundColor: mainColor }}
+                        >
+                          <span
+                            className="text-xs font-bold truncate w-full text-center"
+                            style={{ color: getContrastColor(mainColor) }}
+                          >
+                            {member.name}
                           </span>
                         </div>
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-gray-300 text-sm font-medium border-2 border-dashed border-gray-100 rounded-2xl min-h-[100px]">
-                    일정 없음
+                    </div>
+
+                    {/* Day Columns */}
+                    {weekDays.map((day) => {
+                      const dateStr = format(day, "yyyy-MM-dd");
+                      const daySchedules = schedules.filter(
+                        (s) => s.member_uid === member.uid && s.date === dateStr
+                      );
+
+                      // Sort: Time -> Title
+                      daySchedules.sort((a, b) => {
+                        if (a.start_time && b.start_time)
+                          return a.start_time.localeCompare(b.start_time);
+                        if (a.start_time) return -1;
+                        if (b.start_time) return 1;
+                        return 0;
+                      });
+
+                      const hasSchedule = daySchedules.length > 0;
+
+                      return (
+                        <div
+                          key={day.toISOString()}
+                          className={cn(
+                            "flex flex-col gap-1 p-1.5 rounded-2xl min-h-[72px] transition-all",
+                            hasSchedule
+                              ? "bg-white shadow-sm border border-gray-100"
+                              : "bg-gray-50/50 border border-transparent dashed-border"
+                          )}
+                          style={hasSchedule ? { backgroundColor: bgTint } : {}}
+                        >
+                          {hasSchedule ? (
+                            daySchedules.map((schedule, idx) => {
+                              const isBroadcast = schedule.status === "방송";
+                              const isOff = schedule.status === "휴방";
+
+                              if (isOff) {
+                                return (
+                                  <div
+                                    key={idx}
+                                    className="flex items-center justify-center p-3 rounded-xl bg-gray-100/80 border border-gray-200 text-gray-400 font-bold text-sm"
+                                  >
+                                    휴방
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={idx}
+                                  className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-white shadow-sm border border-gray-100/50 hover:scale-[1.02] transition-transform max-w-[180px] truncate text-ellipsis"
+                                >
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold leading-none shrink-0",
+                                        isBroadcast
+                                          ? "text-white"
+                                          : "text-gray-600 bg-gray-100"
+                                      )}
+                                      style={
+                                        isBroadcast
+                                          ? { backgroundColor: mainColor }
+                                          : {}
+                                      }
+                                    >
+                                      {schedule.status === "방송"
+                                        ? "ON"
+                                        : schedule.status}
+                                    </span>
+                                    {schedule.start_time && (
+                                      <span className="text-xs font-medium text-gray-500 flex items-center">
+                                        <Clock size={12} className="mr-1" />
+                                        {schedule.start_time}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-sm font-bold text-gray-900 line-clamp-2 leading-snug mt-0.5">
+                                    {schedule.title || "-"}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="flex-1 flex items-center justify-center">
+                              <div className="w-1 h-1 rounded-full bg-gray-200" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        </div>
       </div>
     </div>
   );
