@@ -179,7 +179,7 @@ export const DailySchedule = () => {
               setIsEditDialogOpen(true);
             }}
           >
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="h-4 w-4" />
             스케쥴 추가
           </Button>
         </div>
