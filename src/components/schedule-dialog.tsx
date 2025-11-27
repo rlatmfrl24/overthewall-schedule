@@ -41,6 +41,7 @@ interface ScheduleDialogProps {
   onDelete?: (id: number) => void;
   members: Member[];
   initialDate?: Date;
+  initialMemberUid?: number;
   schedule?: ScheduleItem | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -51,6 +52,7 @@ export const ScheduleDialog = ({
   onDelete,
   members,
   initialDate,
+  initialMemberUid,
   schedule,
   open: controlledOpen,
   onOpenChange: setControlledOpen,
@@ -94,19 +96,17 @@ export const ScheduleDialog = ({
       }
 
       setTitle(schedule.title || "");
-    } else {
-      // Reset form when opening in "add" mode or when closed
-      if (!isOpen) {
-        setMemberUid("");
-        setDate(initialDate ? new Date(initialDate) : new Date());
-        setStatus("방송");
-        setIsTimeUndecided(false);
-        setStartHour("00");
-        setStartMinute("00");
-        setTitle("");
-      }
+    } else if (isOpen) {
+      // Initialize form when opening in "add" mode
+      setMemberUid(initialMemberUid || "");
+      setDate(initialDate ? new Date(initialDate) : new Date());
+      setStatus("방송");
+      setIsTimeUndecided(false);
+      setStartHour("00");
+      setStartMinute("00");
+      setTitle("");
     }
-  }, [schedule, isOpen, initialDate]);
+  }, [schedule, isOpen, initialDate, initialMemberUid]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

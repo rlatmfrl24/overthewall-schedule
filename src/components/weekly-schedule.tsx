@@ -39,6 +39,10 @@ export const WeeklySchedule = () => {
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null
   );
+  const [initialMemberUid, setInitialMemberUid] = useState<number | undefined>(
+    undefined
+  );
+  const [dialogDate, setDialogDate] = useState<Date | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
@@ -223,10 +227,12 @@ export const WeeklySchedule = () => {
                 className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-4 h-10"
                 onClick={() => {
                   setEditingSchedule(null);
+                  setInitialMemberUid(undefined);
+                  setDialogDate(currentDate);
                   setIsEditDialogOpen(true);
                 }}
               >
-                <Plus className="h-4 w-4 mr-2" />
+                <Plus className="h-4 w-4" />
                 일정 추가
               </Button>
               <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
@@ -429,8 +435,18 @@ export const WeeklySchedule = () => {
                               );
                             })
                           ) : (
-                            <div className="flex-1 flex items-center justify-center">
-                              <div className="w-1 h-1 rounded-full bg-gray-200" />
+                            <div
+                              className="flex-1 flex items-center justify-center cursor-pointer group/slot"
+                              onClick={() => {
+                                setEditingSchedule(null);
+                                setInitialMemberUid(member.uid);
+                                setDialogDate(day);
+                                setIsEditDialogOpen(true);
+                              }}
+                            >
+                              <div className="w-1 h-1 rounded-full bg-gray-200 group-hover/slot:w-6 group-hover/slot:h-6 group-hover/slot:bg-indigo-100 group-hover/slot:text-indigo-600 transition-all flex items-center justify-center">
+                                <Plus className="w-0 h-0 group-hover/slot:w-4 group-hover/slot:h-4 transition-all" />
+                              </div>
                             </div>
                           )}
                         </div>
@@ -449,12 +465,16 @@ export const WeeklySchedule = () => {
         open={isEditDialogOpen}
         onOpenChange={(open) => {
           setIsEditDialogOpen(open);
-          if (!open) setEditingSchedule(null);
+          if (!open) {
+            setEditingSchedule(null);
+            setInitialMemberUid(undefined);
+          }
         }}
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
         members={members}
-        initialDate={currentDate}
+        initialDate={dialogDate || currentDate}
+        initialMemberUid={initialMemberUid}
         schedule={editingSchedule}
       />
 
