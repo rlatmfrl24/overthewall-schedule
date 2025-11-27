@@ -175,26 +175,28 @@ export const WeeklySchedule = () => {
                 return (
                   <div key={member.uid} className="contents group">
                     {/* Member Column */}
-                    <div className="sticky left-0 z-10 flex flex-col items-center justify-center">
+                    <div className="sticky left-0 z-10 h-full">
                       <div
-                        className="relative w-full overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 group-hover:shadow-md group-hover:scale-105 group-hover:border-gray-200 border"
-                        style={{ borderColor: mainColor }}
+                        className="relative w-full h-full overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-300 group-hover:shadow-md border border-gray-100 flex flex-col"
+                        style={{ backgroundColor: bgTint }}
                       >
-                        <div className="relative w-full aspect-[2/1]">
-                          <img
-                            src={`/profile/${member.code}.webp`}
-                            alt={member.name}
-                            className="absolute inset-0 w-full h-full object-cover"
-                          />
-                        </div>
+                        {/* Top Accent Bar */}
                         <div
-                          className="flex items-center justify-center py-1 px-2"
+                          className="h-1.5 w-full shrink-0"
                           style={{ backgroundColor: mainColor }}
-                        >
-                          <span
-                            className="text-xs font-bold truncate w-full text-center"
-                            style={{ color: getContrastColor(mainColor) }}
-                          >
+                        />
+
+                        {/* Content */}
+                        <div className="flex-1 flex flex-col items-center justify-center p-2 gap-2">
+                          <div className="relative shrink-0">
+                            <img
+                              src={`/profile/${member.code}.webp`}
+                              alt={member.name}
+                              className="w-full h-full rounded-full object-cover border-2 shadow-sm"
+                              style={{ borderColor: mainColor }}
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-center text-gray-900 break-keep leading-tight">
                             {member.name}
                           </span>
                         </div>
@@ -261,7 +263,11 @@ export const WeeklySchedule = () => {
                                       )}
                                       style={
                                         isBroadcast
-                                          ? { backgroundColor: mainColor }
+                                          ? {
+                                              backgroundColor: mainColor,
+                                              color:
+                                                getContrastColor(mainColor),
+                                            }
                                           : {}
                                       }
                                     >
