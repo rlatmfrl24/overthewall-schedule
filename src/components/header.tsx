@@ -27,7 +27,7 @@ export const Header = () => {
         {/* Desktop Navigation */}
         <nav
           aria-label="menu"
-          className="hidden md:flex items-center gap-2 absolute left-1/2 transform -translate-x-1/2"
+          className="hidden lg:flex items-center gap-2 absolute left-1/2 transform -translate-x-1/2"
         >
           <Button variant="ghost">오늘 스케쥴표</Button>
           <Button variant="ghost">주간 스케쥴표</Button>
@@ -45,7 +45,6 @@ export const Header = () => {
         </nav>
 
         <div className="flex items-center gap-4">
-          {/* Desktop Auth */}
           {/* Auth */}
           <div aria-label="auth">
             <SignedOut>
@@ -59,7 +58,7 @@ export const Header = () => {
           </div>
 
           {/* Mobile Menu Toggle */}
-          <div className="md:hidden">
+          <div className="lg:hidden">
             <Button
               variant="ghost"
               size="icon"
@@ -78,7 +77,7 @@ export const Header = () => {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="md:hidden border-t p-4 flex flex-col gap-4 bg-background">
+        <div className="lg:hidden border-t p-4 flex flex-col gap-4 bg-background">
           <nav aria-label="mobile-menu" className="flex flex-col gap-2">
             <Button variant="ghost" className="justify-start">
               오늘 스케쥴표

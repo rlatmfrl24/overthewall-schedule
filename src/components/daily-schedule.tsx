@@ -60,6 +60,21 @@ export const DailySchedule = () => {
           fetchSchedules();
           return;
         }
+      } else if (data.status === "방송") {
+        const dateStr = format(data.date, "yyyy-MM-dd");
+        const res = await fetch(`/api/schedules?date=${dateStr}`);
+        if (res.ok) {
+          const existingSchedules = (await res.json()) as ScheduleItem[];
+          const memberOffSchedules = existingSchedules.filter(
+            (s) => s.member_uid === data.member_uid && s.status === "휴방"
+          );
+
+          await Promise.all(
+            memberOffSchedules.map((s) =>
+              fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
+            )
+          );
+        }
       }
 
       const res = await fetch("/api/schedules", {

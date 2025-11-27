@@ -166,54 +166,63 @@ export const ScheduleDialog = ({
                 </ButtonGroup>
               </Field>
               {status == "방송" && (
-                <Field>
-                  <FieldLabel>날짜 & 시간</FieldLabel>
-                  <div className="flex gap-1">
-                    <Popover
-                      open={isCalendarOpen}
-                      onOpenChange={setIsCalendarOpen}
-                    >
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          id="date"
-                          className="w-48 justify-between font-normal flex-1"
-                        >
-                          {date ? date.toLocaleDateString() : "Select date"}
-                          <ChevronDownIcon />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        className="w-auto overflow-hidden p-0"
-                        align="start"
-                      >
-                        <Calendar
-                          mode="single"
-                          selected={date}
-                          captionLayout="dropdown"
-                          onSelect={(date) => {
-                            if (!date) return;
-                            setDate(date);
-                            setIsCalendarOpen(false);
-                          }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                <>
+                  <Field>
+                    <FieldLabel>제목</FieldLabel>
                     <Input
-                      type="time"
-                      className="flex-1"
-                      value={startTime}
-                      onChange={(e) => setStartTime(e.target.value)}
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
                     />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setDate(new Date())}
-                    >
-                      오늘
-                    </Button>
-                  </div>
-                </Field>
+                  </Field>
+                  <Field>
+                    <FieldLabel>날짜 & 시간</FieldLabel>
+                    <div className="flex gap-1">
+                      <Popover
+                        open={isCalendarOpen}
+                        onOpenChange={setIsCalendarOpen}
+                      >
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            id="date"
+                            className="w-48 justify-between font-normal flex-1"
+                          >
+                            {date ? date.toLocaleDateString() : "Select date"}
+                            <ChevronDownIcon />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="w-auto overflow-hidden p-0"
+                          align="start"
+                        >
+                          <Calendar
+                            mode="single"
+                            selected={date}
+                            captionLayout="dropdown"
+                            onSelect={(date) => {
+                              if (!date) return;
+                              setDate(date);
+                              setIsCalendarOpen(false);
+                            }}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <Input
+                        type="time"
+                        className="flex-1"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setDate(new Date())}
+                      >
+                        오늘
+                      </Button>
+                    </div>
+                  </Field>
+                </>
               )}
               <Button type="submit">추가</Button>
             </FieldGroup>
