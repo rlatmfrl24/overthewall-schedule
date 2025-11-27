@@ -4,7 +4,7 @@ import { format, startOfWeek, addDays, endOfWeek } from "date-fns";
 import { ko } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "./ui/button";
-import { cn, hexToRgba } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 export const WeeklySchedule = () => {
@@ -58,169 +58,255 @@ export const WeeklySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-hidden bg-[#fdfcff]">
-      <div className="container mx-auto flex flex-col h-full py-4 px-2 sm:px-4">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-center justify-between mb-4 gap-2">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-[#1a1c1e]">주간 스케쥴</h1>
-            <div className="flex items-center gap-1 bg-white rounded-full border border-[#e0e2e5] p-1 pl-3 pr-1 shadow-sm">
-              <span className="text-sm font-medium text-[#43474e] min-w-[120px] text-center">
-                {format(weekStart, "M월 d일", { locale: ko })} -{" "}
-                {format(weekEnd, "M월 d일", { locale: ko })}
-              </span>
-              <div className="flex gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handlePrevWeek}
-                  className="h-7 w-7 rounded-full hover:bg-[#f0f4f8]"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleNextWeek}
-                  className="h-7 w-7 rounded-full hover:bg-[#f0f4f8]"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+    <div className="flex flex-col flex-1 w-full h-full bg-white/50 p-4 sm:p-6 overflow-hidden">
+      <div className="flex flex-col h-full container mx-auto w-full gap-6">
+        {/* Header Section */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shadow-indigo-200">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-6 h-6 text-white"
+              >
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
             </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
+                Weekly Schedule
+              </h1>
+              <p className="text-sm text-slate-500 font-medium">
+                {format(weekStart, "yyyy.MM.dd")} -{" "}
+                {format(weekEnd, "yyyy.MM.dd")}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={handleToday}
-              className="rounded-full px-4 h-8 text-xs font-medium border-[#747775] text-[#43474e] hover:bg-[#f0f4f8]"
+              variant="ghost"
+              size="icon"
+              onClick={handlePrevWeek}
+              className="h-9 w-9 rounded-xl hover:bg-slate-50 text-slate-600"
             >
-              오늘
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={handleToday}
+              className="h-9 px-4 rounded-xl hover:bg-slate-50 text-sm font-semibold text-slate-600"
+            >
+              Today
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNextWeek}
+              className="h-9 w-9 rounded-xl hover:bg-slate-50 text-slate-600"
+            >
+              <ChevronRight className="h-5 w-5" />
             </Button>
           </div>
         </div>
 
-        {/* Table Container */}
-        <div className="flex-1 overflow-auto bg-white rounded-[24px] border border-[#e0e2e5] shadow-sm relative">
+        {/* Schedule Grid */}
+        <div className="flex-1 overflow-hidden bg-white rounded-[32px] shadow-xl shadow-slate-200/50 border border-slate-100 relative flex flex-col">
           {loading && (
-            <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 backdrop-blur-sm">
-              <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+            <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-50">
+              <Loader2 className="h-10 w-10 animate-spin text-indigo-600" />
             </div>
           )}
 
-          <div className="w-full h-full flex flex-col">
-            {/* Table Header */}
-            <div className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-[#e0e2e5] bg-[#f0f4f8] sticky top-0 z-20">
-              <div className="p-2 font-semibold text-[#43474e] text-xs flex items-center justify-center border-r border-[#e0e2e5]">
-                멤버
-              </div>
-              {weekDays.map((day) => {
-                const isToday =
-                  format(day, "yyyy-MM-dd") ===
-                  format(new Date(), "yyyy-MM-dd");
-                return (
-                  <div
-                    key={day.toString()}
+          {/* Grid Header (Days) */}
+          <div className="grid grid-cols-[80px_repeat(7,1fr)] gap-1 p-4 pb-2 border-b border-slate-50 bg-white z-20">
+            <div className="flex items-center justify-center">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Member
+              </span>
+            </div>
+            {weekDays.map((day, i) => {
+              const isToday =
+                format(day, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd");
+              const isWeekend = i === 5 || i === 6; // Sat or Sun
+
+              return (
+                <div
+                  key={day.toString()}
+                  className={cn(
+                    "relative flex flex-col items-center justify-center py-3 rounded-2xl transition-all duration-300",
+                    isToday
+                      ? "bg-indigo-600 shadow-lg shadow-indigo-200 scale-105 z-10"
+                      : "hover:bg-slate-50"
+                  )}
+                >
+                  <span
                     className={cn(
-                      "p-2 text-center border-r border-[#e0e2e5] last:border-r-0 flex flex-col items-center justify-center gap-1",
-                      isToday && "bg-[#dbe4f9]"
+                      "text-[10px] font-bold uppercase tracking-widest mb-1",
+                      isToday
+                        ? "text-indigo-200"
+                        : isWeekend
+                        ? "text-rose-400"
+                        : "text-slate-400"
                     )}
                   >
-                    <span className="text-[10px] text-[#43474e] font-medium">
-                      {format(day, "E", { locale: ko })}
-                    </span>
-                    <span
+                    {format(day, "EEE", { locale: ko })}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-lg font-black leading-none",
+                      isToday ? "text-white" : "text-slate-700"
+                    )}
+                  >
+                    {format(day, "d")}
+                  </span>
+                  {isToday && (
+                    <div className="absolute -bottom-1 w-1 h-1 bg-white rounded-full opacity-50" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Grid Body */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pt-2 space-y-3">
+            {members.map((member) => (
+              <div
+                key={member.uid}
+                className="grid grid-cols-[80px_repeat(7,1fr)] gap-2 items-stretch group"
+              >
+                {/* Member Profile */}
+                <div className="flex flex-col items-center justify-center gap-2 py-2">
+                  <img src={`/profile/${member.code}.webp`} alt={member.name} />
+                </div>
+
+                {/* Schedule Cells */}
+                {weekDays.map((day) => {
+                  const schedule = getScheduleForMemberAndDate(member.uid, day);
+                  const isToday =
+                    format(day, "yyyy-MM-dd") ===
+                    format(new Date(), "yyyy-MM-dd");
+
+                  const mainColor = member.main_color || "#6366f1";
+
+                  // Dynamic Styles
+                  const hasSchedule =
+                    schedule &&
+                    schedule.status !== "휴방" &&
+                    schedule.status !== "미정";
+                  const isRest = schedule?.status === "휴방";
+                  const isGuerrilla = schedule?.status === "게릴라";
+
+                  return (
+                    <div
+                      key={day.toString()}
                       className={cn(
-                        "text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full",
-                        isToday ? "bg-[#3d69ce] text-white" : "text-[#1a1c1e]"
+                        "relative min-h-[100px] rounded-2xl transition-all duration-300 flex flex-col overflow-hidden",
+                        "hover:scale-[1.02] hover:z-10 hover:shadow-lg",
+                        !schedule &&
+                          "bg-slate-50/50 border border-slate-100 border-dashed",
+                        isRest &&
+                          "bg-gradient-to-br from-slate-100 to-slate-200",
+                        hasSchedule && "shadow-md"
                       )}
+                      style={
+                        hasSchedule
+                          ? {
+                              background: `linear-gradient(135deg, ${mainColor}15 0%, ${mainColor}05 100%)`,
+                              border: `1px solid ${mainColor}30`,
+                            }
+                          : isRest
+                          ? {}
+                          : {
+                              borderColor: isToday
+                                ? `${mainColor}20`
+                                : undefined,
+                            }
+                      }
                     >
-                      {format(day, "d")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                      {/* Today Highlight Border */}
+                      {isToday && !hasSchedule && !isRest && (
+                        <div className="absolute inset-0 border-2 border-indigo-100 rounded-2xl pointer-events-none" />
+                      )}
 
-            {/* Table Body */}
-            <div className="divide-y divide-[#e0e2e5] flex-1">
-              {members.map((member) => (
-                <div
-                  key={member.uid}
-                  className="grid grid-cols-[80px_repeat(7,1fr)] hover:bg-[#f0f4f8]/30 transition-colors min-h-[80px]"
-                >
-                  {/* Member Column */}
-                  <div className="p-2 border-r border-[#e0e2e5] flex flex-col items-center justify-center gap-1 sticky left-0 bg-white z-10">
-                    <Avatar
-                      className="h-8 w-8 border-2 overflow-hidden shrink-0"
-                      style={{ borderColor: member.main_color }}
-                    >
-                      <AvatarImage src={`/profile/${member.code}.webp`} />
-                      <AvatarFallback>{member.name[0]}</AvatarFallback>
-                    </Avatar>
-                    <span className="font-medium text-[10px] text-[#1a1c1e] truncate w-full text-center">
-                      {member.name}
-                    </span>
-                  </div>
-
-                  {/* Schedule Columns */}
-                  {weekDays.map((day) => {
-                    const schedule = getScheduleForMemberAndDate(
-                      member.uid,
-                      day
-                    );
-                    const isToday =
-                      format(day, "yyyy-MM-dd") ===
-                      format(new Date(), "yyyy-MM-dd");
-
-                    const mainColor = member.main_color || "#000000";
-                    const bgColor = hexToRgba(mainColor, 0.08);
-                    const borderColor = hexToRgba(mainColor, 0.2);
-                    const textColor = mainColor;
-
-                    return (
-                      <div
-                        key={day.toString()}
-                        className={cn(
-                          "p-1 border-r border-[#e0e2e5] last:border-r-0 relative group flex flex-col",
-                          isToday && "bg-[#dbe4f9]/10"
-                        )}
-                      >
-                        {schedule ? (
-                          <div
-                            className="h-full w-full rounded-xl p-1.5 border flex flex-col gap-0.5 transition-all hover:shadow-md cursor-default overflow-hidden"
-                            style={{
-                              backgroundColor: bgColor,
-                              borderColor: borderColor,
-                              color: textColor,
-                            }}
-                          >
-                            <div className="font-bold text-[10px] flex items-center justify-between opacity-90">
-                              <span>{schedule.status}</span>
-                              {schedule.start_time && (
-                                <span className="opacity-75 text-[9px]">
-                                  {schedule.start_time}
+                      {schedule ? (
+                        <>
+                          {/* Status Badge */}
+                          <div className="flex items-center justify-between p-2.5 pb-1">
+                            {isRest ? (
+                              <div className="w-full h-full flex items-center justify-center absolute inset-0">
+                                <span
+                                  className="text-4xl font-black opacity-20 select-none"
+                                  style={{ color: mainColor }}
+                                >
+                                  X
                                 </span>
-                              )}
-                            </div>
-                            {schedule.title && (
-                              <div className="text-[10px] font-medium leading-tight line-clamp-3 opacity-80">
-                                {schedule.title}
+                              </div>
+                            ) : (
+                              <div
+                                className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white shadow-sm"
+                                style={{
+                                  backgroundColor: isGuerrilla
+                                    ? "#ef4444"
+                                    : mainColor,
+                                }}
+                              >
+                                {schedule.status}
                               </div>
                             )}
+
+                            {schedule.start_time && (
+                              <span
+                                className="text-[10px] font-bold bg-white/80 px-1.5 py-0.5 rounded-md backdrop-blur-sm"
+                                style={{ color: mainColor }}
+                              >
+                                {schedule.start_time}
+                              </span>
+                            )}
                           </div>
-                        ) : (
-                          <div className="h-full w-full rounded-xl border border-dashed border-[#e0e2e5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="text-[10px] text-[#8e918f]">
-                              -
-                            </span>
+
+                          {/* Content */}
+                          {!isRest && (
+                            <div className="flex-1 p-2.5 pt-1 flex flex-col gap-1">
+                              {schedule.title && (
+                                <p
+                                  className="text-[11px] font-semibold leading-snug line-clamp-3"
+                                  style={{ color: "#1e293b" }}
+                                >
+                                  {schedule.title}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Decorative Gradient Bar */}
+                          {hasSchedule && (
+                            <div
+                              className="absolute bottom-0 left-0 right-0 h-1 opacity-50"
+                              style={{ backgroundColor: mainColor }}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                            <span className="text-xs">+</span>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
       </div>
