@@ -2,8 +2,8 @@ import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
-import { format } from "date-fns";
-import { CalendarDays, Plus } from "lucide-react";
+import { format, addDays, subDays, isSameDay } from "date-fns";
+import { CalendarDays, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   AlertDialog,
@@ -24,10 +24,14 @@ export const DailySchedule = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
-  const today = new Date();
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const handlePrevDay = () => setCurrentDate((prev) => subDays(prev, 1));
+  const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
+  const handleToday = () => setCurrentDate(new Date());
 
   const fetchSchedules = () => {
-    fetch(`/api/schedules?date=${format(today, "yyyy-MM-dd")}`)
+    fetch(`/api/schedules?date=${format(currentDate, "yyyy-MM-dd")}`)
       .then((res) => res.json())
       .then((data) => setSchedules(data as ScheduleItem[]))
       .catch((err) => console.error("Failed to fetch schedules:", err));
@@ -46,7 +50,7 @@ export const DailySchedule = () => {
       .catch((err) => console.error("Failed to fetch members:", err));
 
     fetchSchedules();
-  }, []);
+  }, [currentDate]);
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -167,21 +171,48 @@ export const DailySchedule = () => {
                 오늘의 스케쥴
               </h1>
               <p className="text-sm text-muted-foreground">
-                {today.toLocaleDateString()}
+                {format(currentDate, "yyyy년 M월 d일")}
               </p>
             </div>
           </div>
-          <Button
-            variant="default"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-6"
-            onClick={() => {
-              setEditingSchedule(null);
-              setIsEditDialogOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            스케쥴 추가
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="default"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10"
+              onClick={() => {
+                setEditingSchedule(null);
+                setIsEditDialogOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              스케쥴 추가
+            </Button>
+            <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
+              <button
+                onClick={handlePrevDay}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+              </button>
+              <button
+                onClick={handleToday}
+                disabled={isSameDay(currentDate, new Date())}
+                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                  isSameDay(currentDate, new Date())
+                    ? "text-muted-foreground cursor-not-allowed opacity-50"
+                    : "text-foreground hover:bg-muted"
+                }`}
+              >
+                오늘로 이동
+              </button>
+              <button
+                onClick={handleNextDay}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Grid Section */}
@@ -225,7 +256,7 @@ export const DailySchedule = () => {
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
         members={members}
-        initialDate={today}
+        initialDate={currentDate}
         schedule={editingSchedule}
       />
 

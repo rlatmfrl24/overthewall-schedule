@@ -1,4 +1,4 @@
-import { format, addDays, startOfWeek } from "date-fns";
+import { format, addDays, startOfWeek, isSameWeek } from "date-fns";
 import { ko } from "date-fns/locale";
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,16 @@ export const WeeklyHeader = ({
             </button>
             <button
               onClick={onToday}
-              className="px-4 py-1.5 text-sm font-medium text-foreground hover:bg-muted rounded-full transition-colors"
+              disabled={isSameWeek(currentDate, new Date(), {
+                weekStartsOn: 1,
+              })}
+              className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                isSameWeek(currentDate, new Date(), { weekStartsOn: 1 })
+                  ? "text-muted-foreground cursor-not-allowed opacity-50"
+                  : "text-foreground hover:bg-muted"
+              }`}
             >
-              오늘
+              이번주로 이동
             </button>
             <button
               onClick={onNextWeek}
