@@ -21,7 +21,7 @@ export const WeeklyHeader = ({
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
 
   return (
-    <div className="flex-none px-4 sm:px-6 lg:px-8 py-6">
+    <div className="flex-none px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
