@@ -2,8 +2,8 @@ import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
-import { format } from "date-fns";
-import { CalendarDays, Plus } from "lucide-react";
+import { format, addDays, subDays, isSameDay } from "date-fns";
+import { CalendarDays, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "./ui/button";
 import {
   AlertDialog,
@@ -24,10 +24,14 @@ export const DailySchedule = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
-  const today = new Date();
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const handlePrevDay = () => setCurrentDate((prev) => subDays(prev, 1));
+  const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
+  const handleToday = () => setCurrentDate(new Date());
 
   const fetchSchedules = () => {
-    fetch(`/api/schedules?date=${format(today, "yyyy-MM-dd")}`)
+    fetch(`/api/schedules?date=${format(currentDate, "yyyy-MM-dd")}`)
       .then((res) => res.json())
       .then((data) => setSchedules(data as ScheduleItem[]))
       .catch((err) => console.error("Failed to fetch schedules:", err));
@@ -46,7 +50,7 @@ export const DailySchedule = () => {
       .catch((err) => console.error("Failed to fetch members:", err));
 
     fetchSchedules();
-  }, []);
+  }, [currentDate]);
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -154,34 +158,61 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-gray-50/50">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-white rounded-2xl shadow-sm border">
+            <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
               <CalendarDays className="w-6 h-6 text-indigo-600" />
             </div>
             <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 오늘의 스케쥴
               </h1>
-              <p className="text-sm text-gray-500">
-                {today.toLocaleDateString()}
+              <p className="text-sm text-muted-foreground">
+                {format(currentDate, "yyyy년 M월 d일")}
               </p>
             </div>
           </div>
-          <Button
-            variant="default"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full px-6"
-            onClick={() => {
-              setEditingSchedule(null);
-              setIsEditDialogOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            스케쥴 추가
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="default"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10"
+              onClick={() => {
+                setEditingSchedule(null);
+                setIsEditDialogOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              스케쥴 추가
+            </Button>
+            <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
+              <button
+                onClick={handlePrevDay}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <ChevronLeft className="w-5 h-5 text-muted-foreground" />
+              </button>
+              <button
+                onClick={handleToday}
+                disabled={isSameDay(currentDate, new Date())}
+                className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                  isSameDay(currentDate, new Date())
+                    ? "text-muted-foreground cursor-not-allowed opacity-50"
+                    : "text-foreground hover:bg-muted"
+                }`}
+              >
+                오늘로 이동
+              </button>
+              <button
+                onClick={handleNextDay}
+                className="p-2 hover:bg-muted rounded-full transition-colors"
+              >
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Grid Section */}
@@ -207,8 +238,8 @@ export const DailySchedule = () => {
           ) : (
             <div className="col-span-full flex justify-center py-12">
               <div className="animate-pulse flex flex-col items-center gap-4">
-                <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
-                <div className="h-4 w-48 bg-gray-200 rounded"></div>
+                <div className="h-12 w-12 bg-muted rounded-full"></div>
+                <div className="h-4 w-48 bg-muted rounded"></div>
               </div>
             </div>
           )}
@@ -225,7 +256,7 @@ export const DailySchedule = () => {
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
         members={members}
-        initialDate={today}
+        initialDate={currentDate}
         schedule={editingSchedule}
       />
 

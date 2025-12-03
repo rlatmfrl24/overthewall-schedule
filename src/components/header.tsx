@@ -8,12 +8,13 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "./ui/button";
 import { ExternalLinkIcon, Menu, X } from "lucide-react";
 import { useState } from "react";
+import { ModeToggle } from "./mode-toggle";
 
 export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-border">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo & Title */}
         <div className="flex items-center gap-3">
@@ -53,6 +54,7 @@ export const Header = () => {
         {/* Right Actions */}
         <div className="flex items-center gap-2">
           {/* Auth */}
+          <ModeToggle />
           <div aria-label="auth">
             <SignedOut>
               <SignInButton
@@ -95,7 +97,7 @@ export const Header = () => {
 
       {/* Mobile Menu - Overlay/Drawer style */}
       {isMenuOpen && (
-        <div className="lg:hidden absolute top-16 left-0 w-full bg-background border-b shadow-lg animate-in slide-in-from-top-2">
+        <div className="lg:hidden absolute top-16 left-0 w-full bg-background border-b border-border shadow-lg animate-in slide-in-from-top-2">
           <nav aria-label="mobile-menu" className="flex flex-col p-4 gap-2">
             <Link
               to="/"

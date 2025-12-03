@@ -40,7 +40,7 @@ export const WeeklySchedule = () => {
   } = useWeeklySchedule();
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-hidden bg-gray-50/50">
+    <div className="flex flex-col flex-1 w-full overflow-hidden bg-background">
       <div className="flex flex-col h-full container mx-auto">
         {/* Header Control Section */}
         <WeeklyHeader
@@ -53,7 +53,7 @@ export const WeeklySchedule = () => {
 
         {/* Loading State */}
         {loading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm">
             <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
           </div>
         )}

@@ -1,6 +1,9 @@
 import type { Member, ScheduleItem } from "@/lib/types";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
+import iconX from "@/assets/icon_x.svg";
+import iconYoutube from "@/assets/icon_youtube.svg";
+import iconChzzk from "@/assets/icon_chzzk.png";
 
 interface CardMemberProps {
   member: Member;
@@ -30,7 +33,7 @@ export const CardMember = ({
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
         "hover:shadow-xl hover:-translate-y-1",
-        "h-full min-h-[260px] bg-white"
+        "h-full min-h-[260px] bg-card"
       )}
       style={{
         border: `1px solid ${borderColor}`,
@@ -53,6 +56,55 @@ export const CardMember = ({
             {member.unit_name}
           </span>
         )}
+
+        {/* Social Media Icons - Button Group */}
+        <div className="flex items-center gap-1 z-20">
+          {member.url_twitter && (
+            <a
+              href={member.url_twitter}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="Twitter"
+            >
+              <img
+                src={iconX}
+                alt="Twitter"
+                className="w-3 h-3 object-contain opacity-70 transition-all duration-300 group-hover/icon:opacity-100"
+              />
+            </a>
+          )}
+          {member.url_youtube && (
+            <a
+              href={member.url_youtube}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="YouTube"
+            >
+              <img
+                src={iconYoutube}
+                alt="YouTube"
+                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+              />
+            </a>
+          )}
+          {member.url_chzzk && (
+            <a
+              href={member.url_chzzk}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="Chzzk"
+            >
+              <img
+                src={iconChzzk}
+                alt="Chzzk"
+                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+              />
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Profile Image (Overlapping) */}
@@ -78,7 +130,7 @@ export const CardMember = ({
       >
         {/* Member Name */}
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-gray-900 leading-none">
+          <h2 className="text-xl font-extrabold text-foreground leading-none">
             {member.name}
           </h2>
         </div>
@@ -95,8 +147,10 @@ export const CardMember = ({
               />
             ))
           ) : (
-            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-gray-300/50 bg-white/40 p-4">
-              <p className="text-sm font-medium text-gray-400">일정 없음</p>
+            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                일정 없음
+              </p>
             </div>
           )}
         </div>
