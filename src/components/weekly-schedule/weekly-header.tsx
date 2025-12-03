@@ -24,14 +24,14 @@ export const WeeklyHeader = ({
     <div className="flex-none px-4 sm:px-6 lg:px-8 py-6">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-white rounded-2xl shadow-sm border border-indigo-100">
+          <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
             <CalendarDays className="w-6 h-6 text-indigo-600" />
           </div>
           <div className="flex flex-col">
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-2xl font-bold text-foreground">
               주간 통합 일정표
             </h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-muted-foreground">
               {format(weekStart, "yyyy년 M월 d일", { locale: ko })} -{" "}
               {format(addDays(weekStart, 6), "M월 d일", { locale: ko })}
             </p>
@@ -47,24 +47,24 @@ export const WeeklyHeader = ({
             <Plus className="h-4 w-4" />
             일정 추가
           </Button>
-          <div className="flex items-center gap-2 bg-white p-1 rounded-full shadow-sm border">
+          <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
             <button
               onClick={onPrevWeek}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
             >
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
+              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
             </button>
             <button
               onClick={onToday}
-              className="px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
+              className="px-4 py-1.5 text-sm font-medium text-foreground hover:bg-muted rounded-full transition-colors"
             >
               오늘
             </button>
             <button
               onClick={onNextWeek}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 hover:bg-muted rounded-full transition-colors"
             >
-              <ChevronRight className="w-5 h-5 text-gray-600" />
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </button>
           </div>
         </div>

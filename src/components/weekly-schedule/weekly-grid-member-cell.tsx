@@ -10,9 +10,9 @@ export const WeeklyGridMemberCell = ({
   mainColor,
 }: WeeklyGridMemberCellProps) => {
   return (
-    <div className="sticky left-0 z-20 bg-white border-r border-gray-200 border-b border-gray-100 group-last:border-b-0">
+    <div className="sticky left-0 z-20 bg-card border-r border-border border-b border-border group-last:border-b-0">
       <div
-        className="w-full h-full flex flex-col items-center justify-center p-1 md:p-2 gap-1 md:gap-2 transition-colors hover:bg-gray-50"
+        className="w-full h-full flex flex-col items-center justify-center p-1 md:p-2 gap-1 md:gap-2 transition-colors hover:bg-muted/50"
         style={{
           borderLeft: `4px solid ${mainColor}`,
         }}
@@ -25,7 +25,7 @@ export const WeeklyGridMemberCell = ({
             style={{ borderColor: mainColor }}
           />
         </div>
-        <span className="text-[10px] md:text-xs font-bold text-center text-gray-900 break-keep leading-tight">
+        <span className="text-[10px] md:text-xs font-bold text-center text-foreground break-keep leading-tight">
           {member.name}
         </span>
       </div>

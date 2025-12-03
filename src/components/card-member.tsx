@@ -30,7 +30,7 @@ export const CardMember = ({
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
         "hover:shadow-xl hover:-translate-y-1",
-        "h-full min-h-[260px] bg-white"
+        "h-full min-h-[260px] bg-card"
       )}
       style={{
         border: `1px solid ${borderColor}`,
@@ -78,7 +78,7 @@ export const CardMember = ({
       >
         {/* Member Name */}
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-gray-900 leading-none">
+          <h2 className="text-xl font-extrabold text-foreground leading-none">
             {member.name}
           </h2>
         </div>
@@ -95,8 +95,10 @@ export const CardMember = ({
               />
             ))
           ) : (
-            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-gray-300/50 bg-white/40 p-4">
-              <p className="text-sm font-medium text-gray-400">일정 없음</p>
+            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                일정 없음
+              </p>
             </div>
           )}
         </div>

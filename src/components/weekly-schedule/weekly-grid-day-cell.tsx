@@ -38,8 +38,8 @@ export const WeeklyGridDayCell = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 p-1 md:p-1.5 min-h-[60px] md:min-h-[72px] transition-all border-b border-r border-gray-100 last:border-r-0 group-last:border-b-0",
-        hasSchedule ? "bg-white" : "bg-gray-50/30"
+        "flex flex-col gap-1 p-1 md:p-1.5 min-h-[60px] md:min-h-[72px] transition-all border-b border-r border-border last:border-r-0 group-last:border-b-0",
+        hasSchedule ? "bg-card" : "bg-muted/30"
       )}
       style={hasSchedule ? { backgroundColor: bgTint } : {}}
     >
@@ -54,10 +54,10 @@ export const WeeklyGridDayCell = ({
         ))
       ) : (
         <div
-          className="flex-1 flex items-center justify-center cursor-pointer group/slot hover:bg-black/5 rounded-lg transition-colors"
+          className="flex-1 flex items-center justify-center cursor-pointer group/slot hover:bg-muted rounded-lg transition-colors"
           onClick={() => onAddSchedule(day, member.uid)}
         >
-          <Plus className="w-4 h-4 text-gray-300 group-hover/slot:text-gray-500 transition-colors" />
+          <Plus className="w-4 h-4 text-muted-foreground/50 group-hover/slot:text-muted-foreground transition-colors" />
         </div>
       )}
     </div>

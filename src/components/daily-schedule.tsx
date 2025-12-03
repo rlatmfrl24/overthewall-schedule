@@ -154,19 +154,19 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-gray-50/50">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         {/* Header Section */}
         <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-white rounded-2xl shadow-sm border">
+            <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
               <CalendarDays className="w-6 h-6 text-indigo-600" />
             </div>
             <div className="flex flex-col">
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-foreground">
                 오늘의 스케쥴
               </h1>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-muted-foreground">
                 {today.toLocaleDateString()}
               </p>
             </div>
@@ -207,8 +207,8 @@ export const DailySchedule = () => {
           ) : (
             <div className="col-span-full flex justify-center py-12">
               <div className="animate-pulse flex flex-col items-center gap-4">
-                <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
-                <div className="h-4 w-48 bg-gray-200 rounded"></div>
+                <div className="h-12 w-12 bg-muted rounded-full"></div>
+                <div className="h-4 w-48 bg-muted rounded"></div>
               </div>
             </div>
           )}
