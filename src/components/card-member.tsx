@@ -1,6 +1,9 @@
 import type { Member, ScheduleItem } from "@/lib/types";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
+import iconX from "@/assets/icon_x.svg";
+import iconYoutube from "@/assets/icon_youtube.svg";
+import iconChzzk from "@/assets/icon_chzzk.png";
 
 interface CardMemberProps {
   member: Member;
@@ -53,6 +56,55 @@ export const CardMember = ({
             {member.unit_name}
           </span>
         )}
+
+        {/* Social Media Icons - Button Group */}
+        <div className="flex items-center gap-1 z-20">
+          {member.url_twitter && (
+            <a
+              href={member.url_twitter}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="Twitter"
+            >
+              <img
+                src={iconX}
+                alt="Twitter"
+                className="w-3 h-3 object-contain opacity-70 transition-all duration-300 group-hover/icon:opacity-100"
+              />
+            </a>
+          )}
+          {member.url_youtube && (
+            <a
+              href={member.url_youtube}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="YouTube"
+            >
+              <img
+                src={iconYoutube}
+                alt="YouTube"
+                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+              />
+            </a>
+          )}
+          {member.url_chzzk && (
+            <a
+              href={member.url_chzzk}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+              title="Chzzk"
+            >
+              <img
+                src={iconChzzk}
+                alt="Chzzk"
+                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+              />
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Profile Image (Overlapping) */}
