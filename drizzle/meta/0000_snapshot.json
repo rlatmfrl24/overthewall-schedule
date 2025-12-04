@@ -1,0 +1,201 @@
+{
+  "id": "00000000-0000-0000-0000-000000000000",
+  "prevId": "",
+  "version": "6",
+  "dialect": "sqlite",
+  "tables": {
+    "members": {
+      "name": "members",
+      "columns": {
+        "uid": {
+          "autoincrement": true,
+          "name": "uid",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": false
+        },
+        "code": {
+          "autoincrement": false,
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "autoincrement": false,
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "main_color": {
+          "autoincrement": false,
+          "name": "main_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "oshi_mark": {
+          "autoincrement": false,
+          "name": "oshi_mark",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "url_twitter": {
+          "autoincrement": false,
+          "name": "url_twitter",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "url_youtube": {
+          "autoincrement": false,
+          "name": "url_youtube",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "url_chzzk": {
+          "autoincrement": false,
+          "name": "url_chzzk",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "birth_date": {
+          "autoincrement": false,
+          "name": "birth_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "debut_date": {
+          "autoincrement": false,
+          "name": "debut_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sub_color": {
+          "autoincrement": false,
+          "name": "sub_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unit_name": {
+          "autoincrement": false,
+          "name": "unit_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fan_name": {
+          "autoincrement": false,
+          "name": "fan_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_deprecated": {
+          "autoincrement": false,
+          "name": "is_deprecated",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "compositePrimaryKeys": {},
+      "indexes": {},
+      "foreignKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "schedules_check_1": {
+          "name": "schedules_check_1",
+          "value": "status IN ('방송', '휴방', '게릴라'"
+        }
+      }
+    },
+    "schedules": {
+      "name": "schedules",
+      "columns": {
+        "id": {
+          "autoincrement": true,
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": false
+        },
+        "member_uid": {
+          "autoincrement": false,
+          "name": "member_uid",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "autoincrement": false,
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_time": {
+          "autoincrement": false,
+          "name": "start_time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "autoincrement": false,
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "autoincrement": false,
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "default": "(CURRENT_TIMESTAMP)",
+          "autoincrement": false,
+          "name": "created_at",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "compositePrimaryKeys": {},
+      "indexes": {
+        "idx_schedules_date": {
+          "name": "idx_schedules_date",
+          "columns": [
+            "date"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "schedules_check_1": {
+          "name": "schedules_check_1",
+          "value": "status IN ('방송', '휴방', '게릴라'"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  }
+}
