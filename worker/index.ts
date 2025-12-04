@@ -1,6 +1,12 @@
 import { between, eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { members, schedules } from "../src/db/schema";
+import { members, schedules, type NewSchedule } from "../src/db/schema";
+
+type SchedulePayload = Pick<
+  NewSchedule,
+  "member_uid" | "date" | "start_time" | "title" | "status"
+>;
+type UpdateSchedulePayload = SchedulePayload & { id: number | string };
 
 export default {
   async fetch(request, env) {
@@ -38,7 +44,7 @@ export default {
       }
 
       if (request.method === "POST") {
-        const body = (await request.json()) as any;
+        const body = (await request.json()) as Partial<SchedulePayload>;
         const { member_uid, date, start_time, title, status } = body;
 
         if (!member_uid || !date || !status) {
@@ -61,7 +67,7 @@ export default {
       }
 
       if (request.method === "PUT") {
-        const body = (await request.json()) as any;
+        const body = (await request.json()) as Partial<UpdateSchedulePayload>;
         const { id, member_uid, date, start_time, title, status } = body;
 
         if (!id || !member_uid || !date || !status) {
