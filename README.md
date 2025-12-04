@@ -51,6 +51,28 @@
 - **State Management**: React Hooks
 - **Routing**: TanStack Router
 
+## ⚙️ Cloudflare D1 & Drizzle 설정
+
+1. `.env.local` 또는 `.env` 파일에 아래 환경 변수를 정의합니다. (CLI 실행 시 `DRIZZLE_ENV_FILE`를 지정하면 해당 파일이 우선 로드됩니다.)
+
+```
+CLOUDFLARE_ACCOUNT_ID=<your-account-id>
+CLOUDFLARE_DATABASE_ID=<your-d1-database-id>
+CLOUDFLARE_D1_TOKEN=<api-token-with-d1-access>
+```
+
+2. 최신 DB 스키마를 가져오거나 배포 환경에 반영하려면 아래 명령을 사용하세요.
+
+```
+# 원격 D1 스키마를 기반으로 현재 모델을 업데이트
+pnpm drizzle-kit introspect
+
+# Drizzle 스키마 변경사항을 Cloudflare D1에 적용
+pnpm drizzle-kit push
+```
+
+3. Cloudflare에 배포하거나 로컬에서 Worker를 실행할 땐 Wrangler가 `drizzle.config.ts`에서 정의한 경로(`./src/db/schema.ts`)와 마이그레이션 디렉터리(`./drizzle`)를 그대로 활용합니다. `wrangler d1 migrations apply <database>` 명령으로도 동일한 마이그레이션을 적용할 수 있습니다.
+
 ### 5. 추가 예정 콘텐츠
 
 - **치지직 API 연동을 통한 방송 정보 표시**: 실시간 방송 상태 및 시청자 수 정보 연동.

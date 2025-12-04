@@ -1,13 +1,15 @@
+import { between, eq } from "drizzle-orm";
+import { getDb } from "./db";
+import { members, schedules } from "../src/db/schema";
+
 export default {
   async fetch(request, env) {
-    console.log("Worker Env:", env);
     const url = new URL(request.url);
+    const db = getDb(env);
 
     if (url.pathname.startsWith("/api/members")) {
-      const { results } = await env.otw_db
-        .prepare("SELECT * FROM members")
-        .all();
-      return Response.json(results);
+      const data = await db.select().from(members);
+      return Response.json(data);
     }
 
     if (url.pathname.startsWith("/api/schedules")) {
@@ -17,21 +19,22 @@ export default {
         const endDate = url.searchParams.get("endDate");
 
         if (startDate && endDate) {
-          const { results } = await env.otw_db
-            .prepare("SELECT * FROM schedules WHERE date BETWEEN ? AND ?")
-            .bind(startDate, endDate)
-            .all();
-          return Response.json(results);
+          const data = await db
+            .select()
+            .from(schedules)
+            .where(between(schedules.date, startDate, endDate));
+          return Response.json(data);
         }
 
         if (!date) {
           return new Response("Date parameter is required", { status: 400 });
         }
-        const { results } = await env.otw_db
-          .prepare("SELECT * FROM schedules WHERE date = ?")
-          .bind(date)
-          .all();
-        return Response.json(results);
+
+        const data = await db
+          .select()
+          .from(schedules)
+          .where(eq(schedules.date, date));
+        return Response.json(data);
       }
 
       if (request.method === "POST") {
@@ -42,14 +45,15 @@ export default {
           return new Response("Missing required fields", { status: 400 });
         }
 
-        const { success } = await env.otw_db
-          .prepare(
-            "INSERT INTO schedules (member_uid, date, start_time, title, status) VALUES (?, ?, ?, ?, ?)"
-          )
-          .bind(member_uid, date, start_time, title, status)
-          .run();
+        const result = await db.insert(schedules).values({
+          member_uid,
+          date,
+          start_time,
+          title,
+          status,
+        });
 
-        if (success) {
+        if (result.success) {
           return new Response("Created", { status: 201 });
         } else {
           return new Response("Failed to create", { status: 500 });
@@ -64,14 +68,23 @@ export default {
           return new Response("Missing required fields", { status: 400 });
         }
 
-        const { success } = await env.otw_db
-          .prepare(
-            "UPDATE schedules SET member_uid = ?, date = ?, start_time = ?, title = ?, status = ? WHERE id = ?"
-          )
-          .bind(member_uid, date, start_time, title, status, id)
-          .run();
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
 
-        if (success) {
+        const result = await db
+          .update(schedules)
+          .set({
+            member_uid,
+            date,
+            start_time,
+            title,
+            status,
+          })
+          .where(eq(schedules.id, numericId));
+
+        if (result.success) {
           return new Response("Updated", { status: 200 });
         } else {
           return new Response("Failed to update", { status: 500 });
@@ -83,12 +96,16 @@ export default {
         if (!id) {
           return new Response("ID parameter is required", { status: 400 });
         }
-        const { success } = await env.otw_db
-          .prepare("DELETE FROM schedules WHERE id = ?")
-          .bind(id)
-          .run();
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
 
-        if (success) {
+        const result = await db
+          .delete(schedules)
+          .where(eq(schedules.id, numericId));
+
+        if (result.success) {
           return new Response("Deleted", { status: 200 });
         } else {
           return new Response("Failed to delete", { status: 500 });
