@@ -169,7 +169,7 @@ export const DailySchedule = () => {
 
   const handleCopySnapshot = async () => {
     if (!scheduleRef.current) {
-      setAlertMessage("스냅샷 대상을 찾을 수 없습니다.");
+      setAlertMessage("일정표 복사 대상을 찾을 수 없습니다.");
       setAlertOpen(true);
       return;
     }
@@ -179,7 +179,7 @@ export const DailySchedule = () => {
       !navigator.clipboard ||
       typeof ClipboardItem === "undefined"
     ) {
-      setAlertMessage("현재 환경에서 스냅샷 복사를 지원하지 않습니다.");
+      setAlertMessage("현재 환경에서 일정표 복사를 지원하지 않습니다.");
       setAlertOpen(true);
       return;
     }
@@ -218,11 +218,11 @@ export const DailySchedule = () => {
         new ClipboardItem({ "image/png": blob }),
       ]);
 
-      setAlertMessage("스케쥴 스냅샷을 클립보드에 복사했습니다.");
+      setAlertMessage("스케쥴 일정표를 클립보드에 복사했습니다.");
       setAlertOpen(true);
     } catch (error) {
       console.error("Failed to copy snapshot", error);
-      setAlertMessage("스냅샷 복사 실패");
+      setAlertMessage("일정표 복사 실패");
       setAlertOpen(true);
     } finally {
       setIsCopyingSnapshot(false);
@@ -259,7 +259,7 @@ export const DailySchedule = () => {
                 disabled={isCopyingSnapshot}
               >
                 <Copy className="h-4 w-4" />
-                {isCopyingSnapshot ? "복사 중..." : "스냅샷 복사"}
+                {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
               </Button>
               <Button
                 variant="default"
