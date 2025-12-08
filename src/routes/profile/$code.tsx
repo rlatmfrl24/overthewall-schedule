@@ -145,19 +145,12 @@ function ProfilePage() {
 
           {/* 2. Photo Card (Medium) */}
           <div className="md:col-span-3 lg:col-span-4 row-span-2 relative rounded-[32px] overflow-hidden group bg-card border border-border/50 shadow-sm hover:shadow-xl transition-all duration-300">
-            <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/30 z-10" />
+            <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 z-10" />
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
               className="w-full h-full object-cover transform transition-transform duration-700 group-hover:scale-105"
             />
-            <div className="absolute bottom-0 left-0 p-6 z-20 w-full">
-              <div className="backdrop-blur-md bg-white/10 dark:bg-black/40 p-4 rounded-2xl border border-white/20">
-                <p className="text-white font-bold text-lg">
-                  Official Portrait
-                </p>
-              </div>
-            </div>
           </div>
 
           {/* 3. Info Block: Basic (Small) */}
