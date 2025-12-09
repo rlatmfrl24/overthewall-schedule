@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import type { Member } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,34 @@ import { format } from "date-fns";
 export const Route = createFileRoute("/profile/$code")({
   component: ProfilePage,
 });
+
+const LoadingAnimation = () => {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="flex gap-2">
+        {["var(--otw-1)", "var(--otw-2)", "var(--otw-3)"].map(
+          (color, index) => (
+            <motion.div
+              key={index}
+              className="w-4 h-4 rounded-full"
+              style={{ backgroundColor: color }}
+              animate={{
+                y: ["0%", "-50%", "0%"],
+                opacity: [0.5, 1, 0.5],
+              }}
+              transition={{
+                duration: 0.8,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: index * 0.2,
+              }}
+            />
+          )
+        )}
+      </div>
+    </div>
+  );
+};
 
 function ProfilePage() {
   const { code } = Route.useParams();
@@ -50,14 +79,7 @@ function ProfilePage() {
   }, [code]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="h-16 w-16 bg-muted rounded-full"></div>
-          <p className="text-muted-foreground">멤버 정보를 불러오는 중...</p>
-        </div>
-      </div>
-    );
+    return <LoadingAnimation />;
   }
 
   if (error || !member) {
@@ -93,7 +115,20 @@ function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <motion.div
+        className="max-w-7xl mx-auto space-y-6"
+        initial="hidden"
+        animate="visible"
+        variants={{
+          hidden: { opacity: 0 },
+          visible: {
+            opacity: 1,
+            transition: {
+              staggerChildren: 0.1,
+            },
+          },
+        }}
+      >
         {/* Navigation */}
         <div className="flex items-center justify-between">
           <Link to="/">
@@ -110,12 +145,16 @@ function ProfilePage() {
         {/* Bento Grid */}
         <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-4 auto-rows-[minmax(180px,auto)]">
           {/* 1. Hero Profile Card (Large) */}
-          <div
+          <motion.div
             className="md:col-span-6 lg:col-span-8 md:row-span-2 relative overflow-hidden rounded-[32px] p-8 flex flex-col justify-between group transition-all duration-500 hover:shadow-2xl"
             style={{
               backgroundColor: mainColor,
               color: contrastText,
               boxShadow: `0 20px 40px -10px ${hexToRgba(mainColor, 0.4)}`,
+            }}
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
             }}
           >
             <div className="relative z-10 flex flex-col h-full justify-between">
@@ -125,7 +164,7 @@ function ProfilePage() {
                     {member.unit_name}
                   </span>
                 )}
-                <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-none">
+                <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent">
                   {member.name}
                 </h1>
                 <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2"></p>
@@ -157,20 +196,32 @@ function ProfilePage() {
                 </div>
               </div>
             )}
-          </div>
+          </motion.div>
 
           {/* 2. Photo Card (Medium) */}
-          <div className="md:col-span-3 lg:col-span-4 row-span-2 relative rounded-[32px] overflow-hidden group bg-card border border-border/50 shadow-sm hover:shadow-xl transition-all duration-300">
+          <motion.div
+            className="md:col-span-3 lg:col-span-4 row-span-2 relative rounded-[32px] overflow-hidden group bg-card border border-border/50 shadow-sm hover:shadow-xl transition-all duration-300"
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+            }}
+          >
             <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 z-10" />
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
               className="w-full h-full object-cover transform transition-transform duration-700 group-hover:scale-105"
             />
-          </div>
+          </motion.div>
 
           {/* 3. Info Block: Basic (Small) */}
-          <div className="md:col-span-3 lg:col-span-4 bg-card rounded-[32px] p-6 flex flex-col justify-between border border-border/50 shadow-sm hover:shadow-lg transition-all duration-300 group">
+          <motion.div
+            className="md:col-span-3 lg:col-span-4 bg-card rounded-[32px] p-6 flex flex-col justify-between border border-border/50 shadow-sm hover:shadow-lg transition-all duration-300 group"
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+            }}
+          >
             <div className="flex items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
               <Calendar className="w-6 h-6" />
               <span className="font-semibold uppercase text-xs tracking-wider">
@@ -199,12 +250,16 @@ function ProfilePage() {
                 </span>
               </div>
             </div>
-          </div>
+          </motion.div>
 
           {/* 4. Info Block: Fan (Small) */}
-          <div
+          <motion.div
             className="md:col-span-3 lg:col-span-4 rounded-[32px] p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 relative overflow-hidden"
             style={{ backgroundColor: subColor, color: subContrastText }}
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+            }}
           >
             <div className="relative z-10">
               <div className="flex items-center gap-2 opacity-80 mb-6">
@@ -224,10 +279,16 @@ function ProfilePage() {
             <div className="absolute -right-4 -bottom-4 opacity-10 rotate-[-15deg]">
               <Music className="w-32 h-32" />
             </div>
-          </div>
+          </motion.div>
 
           {/* 5. Social Links (Row) */}
-          <div className="md:col-span-6 lg:col-span-4 flex gap-4">
+          <motion.div
+            className="md:col-span-6 lg:col-span-4 flex gap-4"
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+            }}
+          >
             {/* Twitter */}
             {member.url_twitter && (
               <a
@@ -265,9 +326,9 @@ function ProfilePage() {
                 />
               </a>
             )}
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
