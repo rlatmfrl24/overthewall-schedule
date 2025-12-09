@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import { getContrastColor, hexToRgba } from "@/lib/utils";
 import iconChzzk from "@/assets/icon_chzzk.png";
+import logoHiBlueming from "@/assets/logo_hiblueming.png";
+import logoLuvdia from "@/assets/logo_luvdia.webp";
+import logoStardays from "@/assets/logo_stardays.png";
+import { format } from "date-fns";
 
 export const Route = createFileRoute("/profile/$code")({
   component: ProfilePage,
@@ -75,6 +79,18 @@ function ProfilePage() {
   const contrastText = getContrastColor(mainColor);
   const subContrastText = getContrastColor(subColor);
 
+  // Unit Logo Logic
+  const getUnitLogo = (unitName?: string) => {
+    if (!unitName) return null;
+    const name = unitName.toLowerCase().replace(/\s+/g, "");
+    if (name.includes("하이블루밍")) return logoHiBlueming;
+    if (name.includes("러브다이아")) return logoLuvdia;
+    if (name.includes("스타데이즈")) return logoStardays;
+    return null;
+  };
+
+  const unitLogo = getUnitLogo(member.unit_name);
+
   return (
     <div className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -109,15 +125,10 @@ function ProfilePage() {
                     {member.unit_name}
                   </span>
                 )}
-                <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-none">
+                <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-none">
                   {member.name}
                 </h1>
-                <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2">
-                  {member.oshi_mark}{" "}
-                  <span className="text-sm font-normal opacity-75 uppercase tracking-wide">
-                    Member Profile
-                  </span>
-                </p>
+                <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2"></p>
               </div>
 
               <div className="space-y-1">
@@ -125,22 +136,27 @@ function ProfilePage() {
                   Introduction
                 </p>
                 <p className="text-lg font-medium leading-relaxed max-w-2xl text-pretty opacity-90">
-                  이 세계의 벽을 넘어, 여러분에게 닿기를.
+                  {member.introduction}
                 </p>
               </div>
             </div>
 
-            {/* Background Decorative Image/Pattern */}
-            <div className="absolute right-[-10%] bottom-[-10%] w-[60%] h-[60%] opacity-20 rotate-12 transition-transform duration-700 group-hover:rotate-6 group-hover:scale-110">
-              <img
-                src={`/profile/${member.code}.webp`}
-                alt=""
-                className="w-full h-full object-contain drop-shadow-2xl"
-              />
-            </div>
-            <div className="absolute top-0 right-0 p-8 opacity-10">
+            <div className="absolute bottom-0 right-0 p-8 opacity-10">
               <Sparkles className="w-24 h-24" />
             </div>
+
+            {/* Unit Logo */}
+            {unitLogo && (
+              <div className="absolute top-8 right-8 z-20">
+                <div className="bg-white/90 backdrop-blur-sm p-3 rounded-2xl shadow-lg transform transition-transform duration-300 hover:scale-105">
+                  <img
+                    src={unitLogo}
+                    alt={`${member.unit_name} Logo`}
+                    className="h-12 w-auto object-contain max-w-[120px]"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2. Photo Card (Medium) */}
@@ -167,7 +183,9 @@ function ProfilePage() {
                   Birthday
                 </span>
                 <span className="text-lg font-bold">
-                  {member.birth_date || "Unknown"}
+                  {member.birth_date
+                    ? format(new Date(member.birth_date), "M월 d일")
+                    : "Unknown"}
                 </span>
               </div>
               <div className="flex justify-between items-end">
@@ -175,7 +193,9 @@ function ProfilePage() {
                   Debut
                 </span>
                 <span className="text-lg font-bold">
-                  {member.debut_date || "Unknown"}
+                  {member.debut_date
+                    ? format(new Date(member.debut_date), "yyyy년 M월 d일")
+                    : "Unknown"}
                 </span>
               </div>
             </div>
@@ -195,6 +215,7 @@ function ProfilePage() {
               </div>
               <p className="text-3xl font-black tracking-tight">
                 {member.fan_name || "Fan"}
+                {member.oshi_mark}
               </p>
               <p className="opacity-70 text-sm mt-1 font-medium">
                 Official Fan Name
