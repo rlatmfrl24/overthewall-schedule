@@ -22,6 +22,7 @@ export const members = sqliteTable("members", {
   debut_date: text("debut_date"),
   unit_name: text("unit_name"),
   fan_name: text("fan_name"),
+  introduction: text("introduction"),
   is_deprecated: numeric("is_deprecated"),
 });
 
@@ -38,7 +39,10 @@ export const schedules = sqliteTable(
   },
   (table) => [
     index("idx_schedules_date").on(table.date),
-    check("schedules_status_check", sql`status IN ('방송', '휴방', '게릴라', '미정')`),
+    check(
+      "schedules_status_check",
+      sql`status IN ('방송', '휴방', '게릴라', '미정')`
+    ),
   ]
 );
 
@@ -46,4 +50,3 @@ export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
 export type Schedule = typeof schedules.$inferSelect;
 export type NewSchedule = typeof schedules.$inferInsert;
-

@@ -12,6 +12,7 @@ interface Member {
   debut_date?: string;
   unit_name?: string;
   fan_name?: string;
+  introduction?: string;
   is_deprecated?: string;
 }
 

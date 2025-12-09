@@ -4,6 +4,9 @@ import { CardSchedule } from "./card-schedule";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
+import { useNavigate } from "@tanstack/react-router";
+import { Button } from "./ui/button";
+import { User } from "lucide-react";
 
 interface CardMemberProps {
   member: Member;
@@ -16,6 +19,7 @@ export const CardMember = ({
   schedules,
   onScheduleClick,
 }: CardMemberProps) => {
+  const navigate = useNavigate();
   const hasSchedule = schedules.length > 0;
 
   // Colors
@@ -58,12 +62,13 @@ export const CardMember = ({
         )}
 
         {/* Social Media Icons - Button Group */}
-        <div className="flex items-center gap-1 z-20">
+        <div className="flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           {member.url_twitter && (
             <a
               href={member.url_twitter}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
               title="Twitter"
             >
@@ -79,6 +84,7 @@ export const CardMember = ({
               href={member.url_youtube}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
               title="YouTube"
             >
@@ -94,6 +100,7 @@ export const CardMember = ({
               href={member.url_chzzk}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
               title="Chzzk"
             >
@@ -129,10 +136,26 @@ export const CardMember = ({
         style={{ backgroundColor: bodyBgColor }}
       >
         {/* Member Name */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between relative">
           <h2 className="text-xl font-extrabold text-foreground leading-none">
             {member.name}
           </h2>
+
+          <Button
+            size="sm"
+            className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-4 group-hover:translate-x-0 h-8 px-3 rounded-full shadow-sm text-xs font-bold"
+            style={{
+              backgroundColor: mainColor,
+              color: headerTextColor,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate({ to: "/profile/$code", params: { code: member.code } });
+            }}
+          >
+            <span>프로필</span>
+            <User className="h-3 w-3 ml-1.5" />
+          </Button>
         </div>
 
         {/* Schedules */}

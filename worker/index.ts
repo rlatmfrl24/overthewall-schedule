@@ -14,6 +14,23 @@ export default {
     const db = getDb(env);
 
     if (url.pathname.startsWith("/api/members")) {
+      const pathParts = url.pathname.split("/");
+      const code = pathParts[3]; // /api/members/:code
+
+      if (code) {
+        const data = await db
+          .select()
+          .from(members)
+          .where(eq(members.code, code))
+          .limit(1);
+
+        if (data.length === 0) {
+          return new Response("Member not found", { status: 404 });
+        }
+
+        return Response.json(data[0]);
+      }
+
       const data = await db.select().from(members);
       return Response.json(data);
     }

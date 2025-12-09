@@ -15,7 +15,10 @@ export const CardSchedule = ({
 }: CardScheduleProps) => {
   return (
     <div
-      onClick={() => onClick?.(schedule)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(schedule);
+      }}
       className={cn(
         "group/schedule relative flex flex-col gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all duration-200",
         "hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]",

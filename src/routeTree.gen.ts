@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
@@ -22,31 +23,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProfileCodeRoute = ProfileCodeRouteImport.update({
+  id: '/profile/$code',
+  path: '/profile/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/weekly': typeof WeeklyRoute
+  '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/weekly': typeof WeeklyRoute
+  '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/weekly': typeof WeeklyRoute
+  '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/weekly'
+  fullPaths: '/' | '/weekly' | '/profile/$code'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/weekly'
-  id: '__root__' | '/' | '/weekly'
+  to: '/' | '/weekly' | '/profile/$code'
+  id: '__root__' | '/' | '/weekly' | '/profile/$code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WeeklyRoute: typeof WeeklyRoute
+  ProfileCodeRoute: typeof ProfileCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile/$code': {
+      id: '/profile/$code'
+      path: '/profile/$code'
+      fullPath: '/profile/$code'
+      preLoaderRoute: typeof ProfileCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WeeklyRoute: WeeklyRoute,
+  ProfileCodeRoute: ProfileCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
