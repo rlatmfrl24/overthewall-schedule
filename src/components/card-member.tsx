@@ -5,6 +5,8 @@ import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import { useNavigate } from "@tanstack/react-router";
+import { Button } from "./ui/button";
+import { User } from "lucide-react";
 
 interface CardMemberProps {
   member: Member;
@@ -32,12 +34,9 @@ export const CardMember = ({
 
   return (
     <div
-      onClick={() =>
-        navigate({ to: "/profile/$code", params: { code: member.code } })
-      }
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
-        "hover:shadow-xl hover:-translate-y-1 cursor-pointer",
+        "hover:shadow-xl hover:-translate-y-1",
         "h-full min-h-[260px] bg-card"
       )}
       style={{
@@ -63,7 +62,7 @@ export const CardMember = ({
         )}
 
         {/* Social Media Icons - Button Group */}
-        <div className="flex items-center gap-1 z-20">
+        <div className="flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           {member.url_twitter && (
             <a
               href={member.url_twitter}
@@ -137,10 +136,26 @@ export const CardMember = ({
         style={{ backgroundColor: bodyBgColor }}
       >
         {/* Member Name */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between relative">
           <h2 className="text-xl font-extrabold text-foreground leading-none">
             {member.name}
           </h2>
+
+          <Button
+            size="sm"
+            className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-4 group-hover:translate-x-0 h-8 px-3 rounded-full shadow-sm text-xs font-bold"
+            style={{
+              backgroundColor: mainColor,
+              color: headerTextColor,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate({ to: "/profile/$code", params: { code: member.code } });
+            }}
+          >
+            <span>프로필</span>
+            <User className="h-3 w-3 ml-1.5" />
+          </Button>
         </div>
 
         {/* Schedules */}
