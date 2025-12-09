@@ -153,8 +153,12 @@ function ProfilePage() {
               boxShadow: `0 20px 40px -10px ${hexToRgba(mainColor, 0.4)}`,
             }}
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+              hidden: { opacity: 0, x: -50 },
+              visible: {
+                opacity: 1,
+                x: 0,
+                transition: { type: "spring", stiffness: 260, damping: 20 },
+              },
             }}
           >
             <div className="relative z-10 flex flex-col h-full justify-between">
@@ -202,8 +206,12 @@ function ProfilePage() {
           <motion.div
             className="md:col-span-3 lg:col-span-4 row-span-2 relative rounded-[32px] overflow-hidden group bg-card border border-border/50 shadow-sm hover:shadow-xl transition-all duration-300"
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+              hidden: { opacity: 0, x: 50 },
+              visible: {
+                opacity: 1,
+                x: 0,
+                transition: { type: "spring", stiffness: 260, damping: 20 },
+              },
             }}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 z-10" />
@@ -218,8 +226,12 @@ function ProfilePage() {
           <motion.div
             className="md:col-span-3 lg:col-span-4 bg-card rounded-[32px] p-6 flex flex-col justify-between border border-border/50 shadow-sm hover:shadow-lg transition-all duration-300 group"
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+              hidden: { opacity: 0, y: 50 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                transition: { type: "spring", stiffness: 260, damping: 20 },
+              },
             }}
           >
             <div className="flex items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
@@ -257,8 +269,12 @@ function ProfilePage() {
             className="md:col-span-3 lg:col-span-4 rounded-[32px] p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 relative overflow-hidden"
             style={{ backgroundColor: subColor, color: subContrastText }}
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+              hidden: { opacity: 0, x: 50 },
+              visible: {
+                opacity: 1,
+                x: 0,
+                transition: { type: "spring", stiffness: 260, damping: 20 },
+              },
             }}
           >
             <div className="relative z-10">
@@ -285,8 +301,12 @@ function ProfilePage() {
           <motion.div
             className="md:col-span-6 lg:col-span-4 flex gap-4"
             variants={{
-              hidden: { opacity: 0, y: 20 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+              hidden: { opacity: 0, y: 50 },
+              visible: {
+                opacity: 1,
+                y: 0,
+                transition: { type: "spring", stiffness: 260, damping: 20 },
+              },
             }}
           >
             {/* Twitter */}
