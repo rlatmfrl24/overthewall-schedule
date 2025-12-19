@@ -168,7 +168,7 @@ function ProfilePage() {
                     {member.unit_name}
                   </span>
                 )}
-                <h1 className="text-3xl sm:text-4xl md:text-7xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent break-keep">
+                <h1 className="text-2xl sm:text-4xl md:text-7xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent break-keep">
                   {member.name}
                 </h1>
                 <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2"></p>
@@ -178,7 +178,7 @@ function ProfilePage() {
                 <p className="text-xs md:text-sm font-bold opacity-60 uppercase tracking-widest">
                   Introduction
                 </p>
-                <p className="text-base md:text-lg font-medium leading-relaxed max-w-2xl text-pretty opacity-90">
+                <p className="text-sm md:text-lg font-medium leading-relaxed max-w-2xl text-pretty opacity-90">
                   {member.introduction}
                 </p>
               </div>
