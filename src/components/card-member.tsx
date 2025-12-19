@@ -37,7 +37,7 @@ export const CardMember = ({
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
         "hover:shadow-xl hover:-translate-y-1",
-        "h-full min-h-[260px] bg-card"
+        "h-full min-h-[240px] md:min-h-[260px] bg-card"
       )}
       style={{
         border: `1px solid ${borderColor}`,
@@ -115,7 +115,7 @@ export const CardMember = ({
       </div>
 
       {/* Profile Image (Overlapping) */}
-      <div className="absolute top-12 left-4 z-10">
+      <div className="absolute top-14 md:top-12 left-4 z-10">
         <div className="relative">
           <div
             className="absolute -inset-1 rounded-full opacity-20 blur-sm"
@@ -124,7 +124,7 @@ export const CardMember = ({
           <img
             src={`/profile/${member.code}.webp`}
             alt={member.name}
-            className="relative h-20 w-20 rounded-full border-[4px] object-cover shadow-md transition-transform duration-300 group-hover:scale-105"
+            className="relative h-16 w-16 md:h-20 md:w-20 rounded-full border-[4px] object-cover shadow-md transition-transform duration-300 group-hover:scale-105"
             style={{ borderColor: "white" }}
           />
         </div>

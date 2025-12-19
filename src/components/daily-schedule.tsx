@@ -230,17 +230,17 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
+    <div className="flex flex-col flex-1 w-full bg-background">
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         <div ref={scheduleRef} className="flex flex-col gap-8">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 w-full md:w-auto">
               <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
                 <CalendarDays className="w-6 h-6 text-indigo-600" />
               </div>
               <div className="flex flex-col">
-                <h1 className="text-2xl font-bold text-foreground">
+                <h1 className="text-xl md:text-2xl font-bold text-foreground">
                   오늘의 스케쥴
                 </h1>
                 <p className="text-sm text-muted-foreground">
@@ -249,7 +249,7 @@ export const DailySchedule = () => {
               </div>
             </div>
             <div
-              className="flex items-center gap-2"
+              className="flex flex-wrap items-center gap-2 w-full md:w-auto"
               data-snapshot-exclude="true"
             >
               <Button
@@ -259,7 +259,10 @@ export const DailySchedule = () => {
                 disabled={isCopyingSnapshot}
               >
                 <Copy className="h-4 w-4" />
-                {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
+                <span className="hidden xs:inline">
+                  {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
+                </span>
+                <span className="inline xs:hidden">복사</span>
               </Button>
               <Button
                 variant="default"

@@ -40,7 +40,7 @@ export const WeeklySchedule = () => {
   } = useWeeklySchedule();
 
   return (
-    <div className="flex flex-col flex-1 w-full overflow-hidden bg-background">
+    <div className="flex flex-col flex-1 w-full bg-background">
       <div className="flex flex-col h-full container mx-auto">
         {/* Header Control Section */}
         <WeeklyHeader
