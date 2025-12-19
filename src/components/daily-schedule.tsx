@@ -234,13 +234,16 @@ export const DailySchedule = () => {
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         <div ref={scheduleRef} className="flex flex-col gap-8">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3 w-full md:w-auto">
+          <div
+            aria-label="Daily Schedule Header"
+            className="flex flex-col md:flex-row items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3">
               <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
                 <CalendarDays className="w-6 h-6 text-indigo-600" />
               </div>
               <div className="flex flex-col">
-                <h1 className="text-xl md:text-2xl font-bold text-foreground">
+                <h1 className="text-2xl font-bold text-foreground">
                   오늘의 스케쥴
                 </h1>
                 <p className="text-sm text-muted-foreground">
@@ -249,12 +252,12 @@ export const DailySchedule = () => {
               </div>
             </div>
             <div
-              className="flex flex-wrap items-center gap-2 w-full md:w-auto"
+              className="flex flex-wrap items-center justify-center gap-2"
               data-snapshot-exclude="true"
             >
               <Button
                 variant="outline"
-                className="rounded-full h-10 text-foreground"
+                className="rounded-full h-10 px-4 text-foreground"
                 onClick={handleCopySnapshot}
                 disabled={isCopyingSnapshot}
               >
@@ -266,7 +269,7 @@ export const DailySchedule = () => {
               </Button>
               <Button
                 variant="default"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
                 onClick={() => {
                   setEditingSchedule(null);
                   setIsEditDialogOpen(true);
@@ -304,7 +307,10 @@ export const DailySchedule = () => {
           </div>
 
           {/* Grid Section */}
-          <div className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div
+            aria-label="Daily Schedule Grid"
+            className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+          >
             {members.length > 0 ? (
               members.map((member) => {
                 const memberSchedules = schedules.filter(
