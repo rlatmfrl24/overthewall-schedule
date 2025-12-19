@@ -20,10 +20,10 @@ export const WeeklyGrid = ({
   onEditSchedule,
 }: WeeklyGridProps) => {
   return (
-    <div className="flex-1 overflow-hidden px-4 sm:px-6 lg:px-8 pb-8 flex flex-col">
-      <div className="pb-4 flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 lg:px-8 pb-8 flex flex-col">
+      <div className="pb-4 flex-1 min-h-0 flex flex-col overflow-hidden">
         {/* Scrollable Container */}
-        <div className="flex-1 overflow-auto rounded-2xl border border-border bg-card shadow-sm relative">
+        <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-border bg-card shadow-sm relative">
           {/* Minimum width to prevent crushing */}
           <div className="grid grid-cols-[80px_repeat(7,1fr)] md:grid-cols-[120px_repeat(7,1fr)] min-w-[800px] md:min-w-full min-h-full">
             <WeeklyGridHeader weekDays={weekDays} />

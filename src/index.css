@@ -119,7 +119,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html,
   body {
-    @apply min-h-screen bg-background text-foreground;
+    @apply h-full w-full overflow-hidden bg-background text-foreground;
+  }
+  #root {
+    @apply h-full w-full;
   }
 }

@@ -230,7 +230,7 @@ export const DailySchedule = () => {
   };
 
   return (
-    <div className="flex flex-col flex-1 w-full bg-background">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         <div ref={scheduleRef} className="flex flex-col gap-8">
           {/* Header Section */}

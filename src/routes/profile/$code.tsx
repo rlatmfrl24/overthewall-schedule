@@ -114,7 +114,7 @@ function ProfilePage() {
   const unitLogo = getUnitLogo(member.unit_name);
 
   return (
-    <div className="flex flex-col flex-1 w-full bg-background p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">
       <motion.div
         className="max-w-7xl mx-auto space-y-6"
         initial="hidden"

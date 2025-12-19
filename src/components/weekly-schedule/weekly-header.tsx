@@ -45,7 +45,7 @@ export const WeeklyHeader = ({
             onClick={onAddSchedule}
           >
             <Plus className="h-4 w-4" />
-            일정 추가
+            스케쥴 추가
           </Button>
           <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
             <button
