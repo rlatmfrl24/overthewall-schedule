@@ -7,14 +7,28 @@
       "version": "6",
       "when": 1764829941414,
       "tag": "0000_flaky_spyke",
-      "breakpoints": true
+      "breakpoints": false
     },
     {
       "idx": 1,
       "version": "6",
       "when": 1765234885136,
       "tag": "0001_pink_whirlwind",
-      "breakpoints": true
+      "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1767568083891,
+      "tag": "0002_powerful_absorbing_man",
+      "breakpoints": false
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1767570346294,
+      "tag": "0003_volatile_smiling_tiger",
+      "breakpoints": false
     }
   ]
 }

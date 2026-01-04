@@ -46,7 +46,24 @@ export const schedules = sqliteTable(
   ]
 );
 
+export const notices = sqliteTable(
+  "notices",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    content: text().notNull(),
+    url: text(),
+    type: text("type").notNull().default("notice"),
+    is_active: numeric("is_active").default("1"),
+    started_at: text("started_at"),
+    ended_at: text("ended_at"),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
+);
+
 export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
 export type Schedule = typeof schedules.$inferSelect;
 export type NewSchedule = typeof schedules.$inferInsert;
+export type Notice = typeof notices.$inferSelect;
+export type NewNotice = typeof notices.$inferInsert;

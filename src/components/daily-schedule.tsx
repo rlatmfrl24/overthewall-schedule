@@ -2,6 +2,7 @@ import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
+import { NoticeBanner } from "./notice-banner";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -305,6 +306,8 @@ export const DailySchedule = () => {
               </div>
             </div>
           </div>
+
+          <NoticeBanner />
 
           {/* Grid Section */}
           <div

@@ -1,6 +1,38 @@
 import { between, eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { members, schedules, type NewSchedule } from "../src/db/schema";
+import {
+  members,
+  schedules,
+  notices,
+  type NewSchedule,
+} from "../src/db/schema";
+
+const NOTICE_TYPES = ["notice", "event"] as const;
+type NoticeType = (typeof NOTICE_TYPES)[number];
+
+const normalizeNoticeType = (value?: string): NoticeType => {
+  if (value && NOTICE_TYPES.includes(value as NoticeType)) {
+    return value as NoticeType;
+  }
+  return "notice";
+};
+
+const normalizeIsActive = (value?: string | number | boolean): "1" | "0" => {
+  if (value === "0" || value === 0 || value === false || value === "false") {
+    return "0";
+  }
+  return "1";
+};
+
+type NoticePayload = {
+  id?: number | string;
+  content?: string;
+  url?: string;
+  type?: string;
+  is_active?: string | number | boolean;
+  started_at?: string;
+  ended_at?: string;
+};
 
 type SchedulePayload = Pick<
   NewSchedule,
@@ -133,6 +165,101 @@ export default {
         } else {
           return new Response("Failed to delete", { status: 500 });
         }
+      }
+    }
+
+    if (url.pathname.startsWith("/api/notices")) {
+      if (request.method === "GET") {
+        const typeFilter = url.searchParams.get("type");
+        const includeInactive = url.searchParams.get("includeInactive") === "1";
+        let statement = db.select().from(notices).orderBy(notices.id);
+        if (!includeInactive) {
+          statement = statement.where(eq(notices.is_active, "1"));
+        }
+        if (typeFilter) {
+          if (!NOTICE_TYPES.includes(typeFilter as NoticeType)) {
+            return new Response("Invalid type filter", { status: 400 });
+          }
+          statement = statement.where(eq(notices.type, typeFilter));
+        }
+        const data = await statement;
+        return Response.json(data);
+      }
+
+      if (request.method === "POST") {
+        const body = (await request.json()) as NoticePayload;
+        const { content, url: noticeUrl, type, is_active, started_at, ended_at } =
+          body;
+        if (!content?.trim()) {
+          return new Response("Content is required", { status: 400 });
+        }
+
+        const result = await db.insert(notices).values({
+          content: content.trim(),
+          url: noticeUrl?.trim() || null,
+          type: normalizeNoticeType(type),
+          is_active: normalizeIsActive(is_active),
+          started_at: started_at?.trim() || null,
+          ended_at: ended_at?.trim() || null,
+        });
+
+        if (result.success) {
+          return new Response("Created", { status: 201 });
+        }
+        return new Response("Failed to create", { status: 500 });
+      }
+
+      if (request.method === "PUT") {
+        const body = (await request.json()) as NoticePayload;
+        const id = body.id;
+        if (!id) {
+          return new Response("ID is required for update", { status: 400 });
+        }
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
+
+        if (!body.content?.trim()) {
+          return new Response("Content is required", { status: 400 });
+        }
+
+        const result = await db
+          .update(notices)
+          .set({
+            content: body.content.trim(),
+            url: body.url?.trim() || null,
+            type: normalizeNoticeType(body.type),
+            is_active: normalizeIsActive(body.is_active),
+            started_at: body.started_at?.trim() || null,
+            ended_at: body.ended_at?.trim() || null,
+          })
+          .where(eq(notices.id, numericId));
+
+        if (result.success) {
+          return new Response("Updated", { status: 200 });
+        }
+        return new Response("Failed to update", { status: 500 });
+      }
+
+      if (request.method === "DELETE") {
+        const id = url.searchParams.get("id");
+        if (!id) {
+          return new Response("ID parameter is required", { status: 400 });
+        }
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
+
+        const result = await db
+          .delete(notices)
+          .where(eq(notices.id, numericId));
+
+        if (result.success) {
+          return new Response("Deleted", { status: 200 });
+        }
+        return new Response("Failed to delete", { status: 500 });
       }
     }
 
