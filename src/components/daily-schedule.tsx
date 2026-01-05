@@ -15,9 +15,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  List,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "./ui/button";
+import { ChronologicalScheduleList } from "./chronological-schedule-list";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +44,7 @@ export const DailySchedule = () => {
   const [alertMessage, setAlertMessage] = useState("");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isCopyingSnapshot, setIsCopyingSnapshot] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const scheduleRef = useRef<HTMLDivElement | null>(null);
   const SNAPSHOT_PADDING = 12;
 
@@ -255,8 +258,27 @@ export const DailySchedule = () => {
             className="flex flex-col md:flex-row items-center justify-between gap-4"
           >
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
-                <CalendarDays className="w-6 h-6 text-indigo-600" />
+              <div
+                className={cn(
+                  "p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
+                  viewMode === "grid"
+                    ? "bg-card hover:bg-muted"
+                    : "bg-indigo-50 border-indigo-200"
+                )}
+                onClick={() =>
+                  setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"))
+                }
+                title={
+                  viewMode === "grid"
+                    ? "지금은 그리드 뷰입니다. 시간순 보기로 전환하려면 클릭하세요."
+                    : "지금은 시간순 보기입니다. 그리드 뷰로 전환하려면 클릭하세요."
+                }
+              >
+                {viewMode === "grid" ? (
+                  <CalendarDays className="w-6 h-6 text-indigo-600" />
+                ) : (
+                  <List className="w-6 h-6 text-indigo-600" />
+                )}
               </div>
               <div className="flex flex-col">
                 <h1 className="text-2xl font-bold text-foreground">
@@ -396,37 +418,48 @@ export const DailySchedule = () => {
           </div>
 
           {/* Grid Section */}
-          <div
-            aria-label="Daily Schedule Grid"
-            className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-          >
-            {members.length > 0 ? (
-              members.map((member) => {
-                const memberSchedules = schedules.filter(
-                  (s) => s.member_uid === member.uid
-                );
+          {viewMode === "grid" ? (
+            <div
+              aria-label="Daily Schedule Grid"
+              className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+            >
+              {members.length > 0 ? (
+                members.map((member) => {
+                  const memberSchedules = schedules.filter(
+                    (s) => s.member_uid === member.uid
+                  );
 
-                return (
-                  <CardMember
-                    key={member.uid}
-                    member={member}
-                    schedules={memberSchedules}
-                    onScheduleClick={(schedule) => {
-                      setEditingSchedule(schedule);
-                      setIsEditDialogOpen(true);
-                    }}
-                  />
-                );
-              })
-            ) : (
-              <div className="col-span-full flex justify-center py-12">
-                <div className="animate-pulse flex flex-col items-center gap-4">
-                  <div className="h-12 w-12 bg-muted rounded-full"></div>
-                  <div className="h-4 w-48 bg-muted rounded"></div>
+                  return (
+                    <CardMember
+                      key={member.uid}
+                      member={member}
+                      schedules={memberSchedules}
+                      onScheduleClick={(schedule) => {
+                        setEditingSchedule(schedule);
+                        setIsEditDialogOpen(true);
+                      }}
+                    />
+                  );
+                })
+              ) : (
+                <div className="col-span-full flex justify-center py-12">
+                  <div className="animate-pulse flex flex-col items-center gap-4">
+                    <div className="h-12 w-12 bg-muted rounded-full"></div>
+                    <div className="h-4 w-48 bg-muted rounded"></div>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          ) : (
+            <ChronologicalScheduleList
+              members={members}
+              schedules={schedules}
+              onScheduleClick={(schedule) => {
+                setEditingSchedule(schedule);
+                setIsEditDialogOpen(true);
+              }}
+            />
+          )}
         </div>
       </div>
 
