@@ -1,7 +1,13 @@
-import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type {
+  Member,
+  ScheduleItem,
+  ScheduleStatus,
+  DDayItem,
+} from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
+import { NoticeBanner } from "./notice-banner";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -21,10 +27,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
+import { cn } from "@/lib/utils";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null
   );
@@ -48,6 +57,11 @@ export const DailySchedule = () => {
   }, [currentDate]);
 
   useEffect(() => {
+    fetch("/api/ddays")
+      .then((res) => res.json())
+      .then((data) => setDDays(data as DDayItem[]))
+      .catch((err) => console.error("Failed to fetch d-days:", err));
+
     fetch("/api/members")
       .then((res) => res.json())
       .then((data) =>
@@ -61,6 +75,8 @@ export const DailySchedule = () => {
 
     fetchSchedules();
   }, [currentDate, fetchSchedules]);
+
+  const ddayForToday = getDDaysForDate(ddays, currentDate);
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -234,7 +250,10 @@ export const DailySchedule = () => {
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
         <div ref={scheduleRef} className="flex flex-col gap-8">
           {/* Header Section */}
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div
+            aria-label="Daily Schedule Header"
+            className="flex flex-col md:flex-row items-center justify-between gap-4"
+          >
             <div className="flex items-center gap-3">
               <div className="p-3 bg-card rounded-2xl shadow-sm border border-border">
                 <CalendarDays className="w-6 h-6 text-indigo-600" />
@@ -249,21 +268,24 @@ export const DailySchedule = () => {
               </div>
             </div>
             <div
-              className="flex items-center gap-2"
+              className="flex flex-wrap items-center justify-center gap-2"
               data-snapshot-exclude="true"
             >
               <Button
                 variant="outline"
-                className="rounded-full h-10 text-foreground"
+                className="rounded-full h-10 px-4 text-foreground"
                 onClick={handleCopySnapshot}
                 disabled={isCopyingSnapshot}
               >
                 <Copy className="h-4 w-4" />
-                {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
+                <span className="hidden xs:inline">
+                  {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
+                </span>
+                <span className="inline xs:hidden">복사</span>
               </Button>
               <Button
                 variant="default"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
                 onClick={() => {
                   setEditingSchedule(null);
                   setIsEditDialogOpen(true);
@@ -300,8 +322,87 @@ export const DailySchedule = () => {
             </div>
           </div>
 
+          {/* D-Day & Notice Row */}
+          <div className="flex flex-col gap-4 lg:flex-row">
+            {ddayForToday.length > 0 && (
+              <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
+                <div className="flex flex-col gap-2 w-full">
+                  {ddayForToday.map((dday) => {
+                    const palette =
+                      (dday.colors?.length ? dday.colors : undefined) ||
+                      (dday.color ? [dday.color] : []);
+                    const primary = palette[0];
+                    const gradient =
+                      palette.length > 1
+                        ? `linear-gradient(90deg, ${palette.join(", ")})`
+                        : primary;
+                    const cardStyle =
+                      dday.isToday && gradient
+                        ? {
+                            background: gradient,
+                            boxShadow: primary
+                              ? `0 10px 25px ${primary}66`
+                              : undefined,
+                          }
+                        : !dday.isToday && primary
+                        ? { borderColor: primary, color: primary }
+                        : undefined;
+
+                    return (
+                      <div
+                        key={dday.id}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-sm text-sm font-semibold",
+                          dday.isToday
+                            ? dday.colors?.length
+                              ? "text-white"
+                              : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                            : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
+                        )}
+                        style={cardStyle}
+                      >
+                        <span
+                          className={cn(
+                            "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                            dday.isToday
+                              ? "bg-white/25"
+                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
+                          )}
+                        >
+                          {formatDDayLabel(dday.daysUntil)}
+                        </span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate">
+                            {dday.title}
+                            {dday.anniversaryLabel
+                              ? ` · ${dday.anniversaryLabel}`
+                              : ""}
+                          </span>
+                          <span className="text-xs font-medium text-white/80 dark:text-amber-100/80 truncate">
+                            {dday.type === "event"
+                              ? "이벤트"
+                              : dday.type === "debut"
+                              ? "데뷔일"
+                              : "생일"}{" "}
+                            · {dday.targetDate.replace(/-/g, ".")}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="w-full h-full flex-1">
+              <NoticeBanner />
+            </div>
+          </div>
+
           {/* Grid Section */}
-          <div className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div
+            aria-label="Daily Schedule Grid"
+            className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+          >
             {members.length > 0 ? (
               members.map((member) => {
                 const memberSchedules = schedules.filter(

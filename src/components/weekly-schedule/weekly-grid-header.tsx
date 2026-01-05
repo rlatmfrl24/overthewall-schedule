@@ -1,14 +1,23 @@
 import { format, isSameDay } from "date-fns";
 import { ko } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import type { DDayItem } from "@/lib/types";
+import { getDDaysForDate } from "@/lib/dday";
 
 interface WeeklyGridHeaderProps {
   weekDays: Date[];
+  ddays: DDayItem[];
 }
 
-export const WeeklyGridHeader = ({ weekDays }: WeeklyGridHeaderProps) => {
+export const WeeklyGridHeader = ({
+  weekDays,
+  ddays,
+}: WeeklyGridHeaderProps) => {
   return (
-    <div className="sticky top-0 z-30 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 grid grid-cols-subgrid col-span-full">
+    <div
+      aria-label="Weekly Schedule Header"
+      className="sticky top-0 z-30 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 grid grid-cols-subgrid col-span-full"
+    >
       <div className="sticky left-0 z-40 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur-sm flex items-center justify-center border-r border-gray-200 dark:border-gray-800">
         <span className="text-[10px] md:text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           Member
@@ -16,6 +25,7 @@ export const WeeklyGridHeader = ({ weekDays }: WeeklyGridHeaderProps) => {
       </div>
       {weekDays.map((day) => {
         const isToday = isSameDay(day, new Date());
+        const ddayMatches = getDDaysForDate(ddays, day);
         return (
           <div
             key={day.toISOString()}
@@ -44,6 +54,53 @@ export const WeeklyGridHeader = ({ weekDays }: WeeklyGridHeaderProps) => {
             >
               {format(day, "d")}
             </span>
+            {ddayMatches.length > 0 && (
+              <div className="flex flex-col gap-1 w-full mt-1">
+                {ddayMatches.map((dday) => {
+                  const palette =
+                    (dday.colors?.length ? dday.colors : undefined) ||
+                    (dday.color ? [dday.color] : []);
+                  const primary = palette[0];
+                  const gradient =
+                    palette.length > 1
+                      ? `linear-gradient(90deg, ${palette.join(", ")})`
+                      : primary;
+                  const cardStyle =
+                    dday.isToday && gradient
+                      ? {
+                          background: gradient,
+                          boxShadow: primary
+                            ? `0 6px 18px ${primary}55`
+                            : undefined,
+                        }
+                      : !dday.isToday && primary
+                      ? { borderColor: primary, color: primary }
+                      : undefined;
+
+                  return (
+                    <div
+                      key={dday.id}
+                      className={cn(
+                        "w-full rounded-md px-2 py-1 text-[11px] font-bold leading-tight flex justify-center items-center gap-2 shadow-sm border",
+                        dday.isToday
+                          ? dday.colors?.length
+                            ? "text-white"
+                            : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                          : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
+                      )}
+                      style={cardStyle}
+                    >
+                      <span className="truncate">
+                        {dday.title}
+                        {dday.anniversaryLabel
+                          ? ` · ${dday.anniversaryLabel}`
+                          : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}

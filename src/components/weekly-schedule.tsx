@@ -12,12 +12,14 @@ import {
 import { useWeeklySchedule } from "@/hooks/use-weekly-schedule";
 import { WeeklyHeader } from "./weekly-schedule/weekly-header";
 import { WeeklyGrid } from "./weekly-schedule/weekly-grid";
+import { NoticeBanner } from "./notice-banner";
 
 export const WeeklySchedule = () => {
   const {
     currentDate,
     members,
     schedules,
+    ddays,
     loading,
     editingSchedule,
     initialMemberUid,
@@ -51,6 +53,11 @@ export const WeeklySchedule = () => {
           onAddSchedule={() => openAddDialog(currentDate)}
         />
 
+        {/* Notice Banner */}
+        <div className="container mx-auto mb-4 px-8">
+          <NoticeBanner />
+        </div>
+
         {/* Loading State */}
         {loading && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm">
@@ -63,6 +70,7 @@ export const WeeklySchedule = () => {
           members={members}
           weekDays={weekDays}
           schedules={schedules}
+          ddays={ddays}
           onAddSchedule={openAddDialog}
           onEditSchedule={openEditDialog}
         />

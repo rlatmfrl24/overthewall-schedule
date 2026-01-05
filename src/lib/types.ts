@@ -28,4 +28,16 @@ interface ScheduleItem {
   title?: string;
 }
 
-export type { Member, ScheduleItem, ScheduleStatus };
+type DDayType = "debut" | "birthday" | "event";
+
+interface DDayItem {
+  id?: number;
+  title: string;
+  date: string; // YYYY-MM-DD (연도 포함)
+  description?: string;
+  color?: string | null;
+  colors?: string[];
+  type: DDayType;
+}
+
+export type { Member, ScheduleItem, ScheduleStatus, DDayItem, DDayType };

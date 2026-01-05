@@ -46,7 +46,43 @@ export const schedules = sqliteTable(
   ]
 );
 
+export const notices = sqliteTable(
+  "notices",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    content: text().notNull(),
+    url: text(),
+    type: text("type").notNull().default("notice"),
+    is_active: numeric("is_active").default("1"),
+    started_at: text("started_at"),
+    ended_at: text("ended_at"),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
+);
+
+export const ddays = sqliteTable(
+  "ddays",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    title: text().notNull(),
+    date: text().notNull(),
+    description: text(),
+    color: text(),
+    type: text("type").notNull().default("event"),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_ddays_date").on(table.date),
+    check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
+  ]
+);
+
 export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
 export type Schedule = typeof schedules.$inferSelect;
 export type NewSchedule = typeof schedules.$inferInsert;
+export type Notice = typeof notices.$inferSelect;
+export type NewNotice = typeof notices.$inferInsert;
+export type DDay = typeof ddays.$inferSelect;
+export type NewDDay = typeof ddays.$inferInsert;

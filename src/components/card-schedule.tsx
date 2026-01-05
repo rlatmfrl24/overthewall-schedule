@@ -46,7 +46,7 @@ export const CardSchedule = ({
         )}
       </div>
       <p className="text-sm font-bold text-foreground line-clamp-2 leading-snug group-hover/schedule:text-foreground transition-colors">
-        {schedule.title}
+        {schedule.title || "방송 예정"}
       </p>
     </div>
   );

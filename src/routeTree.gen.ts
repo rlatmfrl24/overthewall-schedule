@@ -10,12 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
+import { Route as NoticeRouteImport } from './routes/notice'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NoticeRoute = NoticeRouteImport.update({
+  id: '/notice',
+  path: '/notice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -31,30 +43,38 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
+  '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/weekly' | '/profile/$code'
+  fullPaths: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/weekly' | '/profile/$code'
-  id: '__root__' | '/' | '/weekly' | '/profile/$code'
+  to: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
+  id: '__root__' | '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
+  NoticeRoute: typeof NoticeRoute
   WeeklyRoute: typeof WeeklyRoute
   ProfileCodeRoute: typeof ProfileCodeRoute
 }
@@ -66,6 +86,20 @@ declare module '@tanstack/react-router' {
       path: '/weekly'
       fullPath: '/weekly'
       preLoaderRoute: typeof WeeklyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notice': {
+      id: '/notice'
+      path: '/notice'
+      fullPath: '/notice'
+      preLoaderRoute: typeof NoticeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -87,6 +121,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
+  NoticeRoute: NoticeRoute,
   WeeklyRoute: WeeklyRoute,
   ProfileCodeRoute: ProfileCodeRoute,
 }

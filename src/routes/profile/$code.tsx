@@ -24,7 +24,7 @@ export const Route = createFileRoute("/profile/$code")({
 
 const LoadingAnimation = () => {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
+    <div className="flex items-center justify-center flex-col flex-1 w-full bg-background">
       <div className="flex gap-2">
         {["var(--otw-1)", "var(--otw-2)", "var(--otw-3)"].map(
           (color, index) => (
@@ -84,7 +84,7 @@ function ProfilePage() {
 
   if (error || !member) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-background">
+      <div className="flex flex-col items-center justify-center flex-1 w-full gap-4 bg-background">
         <p className="text-xl font-medium text-destructive">
           {error || "멤버를 찾을 수 없습니다"}
         </p>
@@ -114,7 +114,7 @@ function ProfilePage() {
   const unitLogo = getUnitLogo(member.unit_name);
 
   return (
-    <div className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
+    <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">
       <motion.div
         className="max-w-7xl mx-auto space-y-6"
         initial="hidden"
@@ -143,10 +143,10 @@ function ProfilePage() {
         </div>
 
         {/* Bento Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-4 auto-rows-[minmax(180px,auto)]">
+        <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-4 auto-rows-[minmax(160px,auto)]">
           {/* 1. Hero Profile Card (Large) */}
           <motion.div
-            className="md:col-span-6 lg:col-span-8 md:row-span-2 relative overflow-hidden rounded-[32px] p-8 flex flex-col justify-between group transition-all duration-500 hover:shadow-2xl"
+            className="md:col-span-6 lg:col-span-8 md:row-span-2 relative overflow-hidden rounded-[24px] md:rounded-[32px] p-6 md:p-8 flex flex-col justify-between group transition-all duration-500 hover:shadow-2xl"
             style={{
               backgroundColor: mainColor,
               color: contrastText,
@@ -161,24 +161,24 @@ function ProfilePage() {
               },
             }}
           >
-            <div className="relative z-10 flex flex-col h-full justify-between">
+            <div className="relative z-10 flex flex-col h-full justify-between gap-4">
               <div className="space-y-2">
                 {member.unit_name && (
-                  <span className="inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest bg-black/10 backdrop-blur-sm self-start">
+                  <span className="inline-block px-3 py-1 rounded-full text-[10px] md:text-xs font-bold uppercase tracking-widest bg-black/10 backdrop-blur-sm self-start">
                     {member.unit_name}
                   </span>
                 )}
-                <h1 className="text-4xl md:text-7xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent">
+                <h1 className="text-2xl sm:text-4xl md:text-7xl font-black tracking-tight leading-none bg-linear-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent break-keep">
                   {member.name}
                 </h1>
                 <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2"></p>
               </div>
 
               <div className="space-y-1">
-                <p className="text-sm font-bold opacity-60 uppercase tracking-widest">
+                <p className="text-xs md:text-sm font-bold opacity-60 uppercase tracking-widest">
                   Introduction
                 </p>
-                <p className="text-lg font-medium leading-relaxed max-w-2xl text-pretty opacity-90">
+                <p className="text-sm md:text-lg font-medium leading-relaxed max-w-2xl text-pretty opacity-90">
                   {member.introduction}
                 </p>
               </div>
@@ -214,7 +214,7 @@ function ProfilePage() {
               },
             }}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 z-10" />
+            <div className="absolute inset-0 bg-linear-to-br from-transparent to-black/10 z-10" />
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
@@ -299,7 +299,7 @@ function ProfilePage() {
 
           {/* 5. Social Links (Row) */}
           <motion.div
-            className="md:col-span-6 lg:col-span-4 flex gap-4"
+            className="md:col-span-6 lg:col-span-4 flex flex-wrap md:flex-nowrap gap-4"
             variants={{
               hidden: { opacity: 0, y: 50 },
               visible: {
