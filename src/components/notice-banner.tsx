@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Notice } from "@/db/schema";
-import { ArrowUpRight, Megaphone } from "lucide-react";
+import { Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const noticeTypeConfigs = {
   notice: {
@@ -27,7 +28,7 @@ const resolveNoticeType = (value?: string): NoticeTypeKey => {
 export function NoticeBanner() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-
+  const navigate = useNavigate();
   const loadNotices = useCallback(async () => {
     try {
       const response = await fetch("/api/notices");
@@ -82,27 +83,33 @@ export function NoticeBanner() {
         <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
 
         <div className="flex items-center gap-2 py-2.5 px-3 sm:px-4">
-          <div className="shrink-0">
-            <div className="p-1.5 bg-primary/10 rounded-lg group-hover/banner:bg-primary/20 transition-colors">
-              <Megaphone className="w-4 h-4 text-primary" />
-            </div>
-          </div>
-
-          <Link
-            to="/notice"
-            title="전체 공지사항 보러가기"
-            aria-label="전체 공지사항 보러가기"
-            className="flex items-center justify-center w-8 h-8 rounded-full text-primary transition-colors hover:bg-primary/10"
-          >
-            <ArrowUpRight className="w-4 h-4" />
-          </Link>
+          <Tooltip>
+            <TooltipTrigger>
+              <Link
+                to="/notice"
+                title="전체 공지사항 보러가기"
+                aria-label="전체 공지사항 보러가기"
+                className="shrink-0"
+              >
+                <div className="p-1.5 bg-primary/10 rounded-lg group-hover/banner:bg-primary/20 transition-colors">
+                  <Megaphone className="w-4 h-4 text-primary" />
+                </div>
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>전체 공지사항 보러가기</p>
+            </TooltipContent>
+          </Tooltip>
 
           <div
             className={cn(
               "flex-1 overflow-hidden h-5 relative",
               hasLink ? "cursor-pointer" : "cursor-default"
             )}
-            onClick={handleNoticeClick}
+            onClick={() => {
+              //Go to notice page
+              navigate({ to: "/notice" });
+            }}
           >
             <AnimatePresence mode="wait">
               <motion.div
@@ -111,8 +118,9 @@ export function NoticeBanner() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -15, opacity: 0 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
+                onClick={handleNoticeClick}
                 className={cn(
-                  "absolute w-full truncate text-[13.5px] font-bold text-foreground",
+                  "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
                   hasLink &&
                     "hover:underline decoration-primary/30 underline-offset-4"
                 )}
