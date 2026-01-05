@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
 import { cn, hexToRgba } from "@/lib/utils";
 import { Clock, Radio, GripHorizontal } from "lucide-react";
 import { motion } from "motion/react";
@@ -8,12 +8,14 @@ interface ChronologicalScheduleListProps {
   members: Member[];
   schedules: ScheduleItem[];
   onScheduleClick: (schedule: ScheduleItem) => void;
+  liveStatuses?: ChzzkLiveStatusMap;
 }
 
 export const ChronologicalScheduleList = ({
   members,
   schedules,
   onScheduleClick,
+  liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
   // 1. Filter & Sort Logic
   const { timelineItems, otherItems } = useMemo(() => {
@@ -53,6 +55,7 @@ export const ChronologicalScheduleList = ({
                 schedule={schedule}
                 member={getMember(schedule.member_uid)}
                 onClick={onScheduleClick}
+                liveStatus={liveStatuses[schedule.member_uid]}
                 isTimeline
               />
             ))}
@@ -84,6 +87,7 @@ export const ChronologicalScheduleList = ({
                 schedule={schedule}
                 member={getMember(schedule.member_uid)}
                 onClick={onScheduleClick}
+                liveStatus={liveStatuses[schedule.member_uid]}
               />
             ))}
           </div>
@@ -98,19 +102,30 @@ const ScheduleCard = ({
   member,
   onClick,
   isTimeline = false,
+  liveStatus,
 }: {
   schedule: ScheduleItem;
   member?: Member;
   onClick: (schedule: ScheduleItem) => void;
   isTimeline?: boolean;
+  liveStatus?: ChzzkLiveStatusMap[number];
 }) => {
   if (!member) return null;
 
   const mainColor = member.main_color || "#e5e7eb";
+  const isLive = liveStatus?.status === "OPEN";
 
   // Status Badge Logic
   const isGuerrilla = schedule.status === "게릴라";
   const badgeColor = isGuerrilla ? "#ef4444" : mainColor;
+
+  const handleClick = () => {
+    if (isLive && member.url_chzzk) {
+      window.open(member.url_chzzk, "_blank", "noreferrer");
+      return;
+    }
+    onClick(schedule);
+  };
 
   return (
     <motion.div
@@ -118,7 +133,7 @@ const ScheduleCard = ({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       whileHover={{ scale: 1.005, backgroundColor: hexToRgba(mainColor, 0.08) }}
       whileTap={{ scale: 0.99 }}
-      onClick={() => onClick(schedule)}
+      onClick={handleClick}
       className={cn(
         "group relative flex items-center gap-5 p-5 rounded-3xl bg-card border border-border/60 shadow-sm cursor-pointer overflow-hidden transition-all duration-300",
         "hover:shadow-lg hover:border-transparent"
@@ -184,18 +199,21 @@ const ScheduleCard = ({
             {member.name}
           </span>
 
-          {(isGuerrilla ||
+          {(isLive ||
+            isGuerrilla ||
             schedule.status === "미정" ||
             schedule.status === "휴방") && (
             <span
               className={cn(
                 "px-2 py-[2px] text-[10px] font-bold rounded-full border",
-                isGuerrilla
+                isLive
+                  ? "bg-red-600 text-white border-red-500"
+                  : isGuerrilla
                   ? "bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
                   : "bg-muted text-muted-foreground border-border"
               )}
             >
-              {schedule.status}
+              {isLive ? "LIVE" : schedule.status}
             </span>
           )}
         </div>

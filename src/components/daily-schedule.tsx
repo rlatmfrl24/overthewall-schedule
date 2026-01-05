@@ -3,6 +3,7 @@ import type {
   ScheduleItem,
   ScheduleStatus,
   DDayItem,
+  ChzzkLiveStatusMap,
 } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
@@ -31,7 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
-import { cn } from "@/lib/utils";
+import { cn, extractChzzkChannelId } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 export const DailySchedule = () => {
@@ -48,6 +49,7 @@ export const DailySchedule = () => {
   const [isCopyingSnapshot, setIsCopyingSnapshot] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
+  const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
   const scheduleRef = useRef<HTMLDivElement | null>(null);
   const SNAPSHOT_PADDING = 12;
 
@@ -72,6 +74,59 @@ export const DailySchedule = () => {
   const handlePrevDay = () => setCurrentDate((prev) => subDays(prev, 1));
   const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
   const handleToday = () => setCurrentDate(new Date());
+
+  const fetchLiveStatuses = useCallback(async (targetMembers: Member[]) => {
+    const channelPairs = targetMembers
+      .map((member) => {
+        const channelId = extractChzzkChannelId(member.url_chzzk);
+        return channelId ? { channelId, memberUid: member.uid } : null;
+      })
+      .filter(
+        (value): value is { channelId: string; memberUid: number } =>
+          value !== null
+      );
+
+    if (channelPairs.length === 0) {
+      setLiveStatuses({});
+      return;
+    }
+
+    const channelToMembers = channelPairs.reduce<Record<string, number[]>>(
+      (acc, { channelId, memberUid }) => {
+        if (!acc[channelId]) acc[channelId] = [];
+        acc[channelId].push(memberUid);
+        return acc;
+      },
+      {}
+    );
+
+    const uniqueChannelIds = Object.keys(channelToMembers);
+
+    try {
+      const res = await fetch(
+        `/api/live-status?channelIds=${uniqueChannelIds.join(",")}`
+      );
+      if (!res.ok) throw new Error("live status request failed");
+      const data = (await res.json()) as {
+        items?: {
+          channelId: string;
+          content: ChzzkLiveStatusMap[number];
+        }[];
+      };
+
+      const nextMap: ChzzkLiveStatusMap = {};
+      data.items?.forEach(({ channelId, content }) => {
+        const memberUids = channelToMembers[channelId] || [];
+        memberUids.forEach((uid) => {
+          nextMap[uid] = content ?? null;
+        });
+      });
+
+      setLiveStatuses(nextMap);
+    } catch (err) {
+      console.error("Failed to fetch live statuses", err);
+    }
+  }, []);
 
   const fetchSchedules = useCallback(() => {
     fetch(`/api/schedules?date=${format(currentDate, "yyyy-MM-dd")}`)
@@ -99,6 +154,13 @@ export const DailySchedule = () => {
 
     fetchSchedules();
   }, [currentDate, fetchSchedules]);
+
+  useEffect(() => {
+    if (members.length === 0) return;
+    fetchLiveStatuses(members);
+    const timer = setInterval(() => fetchLiveStatuses(members), 60_000);
+    return () => clearInterval(timer);
+  }, [members, fetchLiveStatuses]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
 
@@ -320,7 +382,7 @@ export const DailySchedule = () => {
                       }}
                       className="absolute left-0 top-full mt-3 w-56 z-30 pointer-events-none"
                     >
-                      <div className="bg-indigo-600 text-white p-4 rounded-2xl shadow-xl flex flex-col gap-2 relative pointer-events-auto after:content-[''] after:absolute after:bottom-full after:left-6 after:border-[8px] after:border-transparent after:border-b-indigo-600">
+                      <div className="bg-indigo-600 text-white p-4 rounded-2xl shadow-xl flex flex-col gap-2 relative pointer-events-auto after:content-[''] after:absolute after:bottom-full after:left-6 after:border-8 after:border-transparent after:border-b-indigo-600">
                         <div className="flex flex-col gap-0.5">
                           <span className="text-indigo-200 text-xs font-semibold uppercase tracking-wider">
                             New Feature
@@ -499,6 +561,7 @@ export const DailySchedule = () => {
                       key={member.uid}
                       member={member}
                       schedules={memberSchedules}
+                      liveStatus={liveStatuses[member.uid]}
                       onScheduleClick={(schedule) => {
                         setEditingSchedule(schedule);
                         setIsEditDialogOpen(true);
@@ -519,6 +582,7 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
+              liveStatuses={liveStatuses}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
                 setIsEditDialogOpen(true);

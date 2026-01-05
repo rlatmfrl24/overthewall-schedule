@@ -16,6 +16,33 @@ interface Member {
   is_deprecated?: string;
 }
 
+interface ChzzkLiveStatus {
+  code: number;
+  message: string;
+  content: {
+    status: "OPEN" | "CLOSE";
+    liveTitle: string;
+    liveCategory: string;
+    liveImageUrl: string;
+    defaultThumbnailImageUrl: string;
+    concurrentUserCount: number;
+    accumulateCount: number;
+    openDate: string;
+    adult: boolean;
+    chatChannelId: string;
+    categoryType: string;
+    liveId: number;
+    livePollingStatusJson: string;
+    channelId: string;
+    channelName: string;
+    channelImageUrl: string;
+    verifiedMark: boolean;
+    channelType: string;
+  } | null;
+}
+
+type ChzzkLiveStatusMap = Record<number, ChzzkLiveStatus["content"] | null>;
+
 // 스케줄 상태: 방송, 휴방, 게릴라
 type ScheduleStatus = "방송" | "휴방" | "게릴라" | "미정";
 
@@ -40,4 +67,12 @@ interface DDayItem {
   type: DDayType;
 }
 
-export type { Member, ScheduleItem, ScheduleStatus, DDayItem, DDayType };
+export type {
+  Member,
+  ScheduleItem,
+  ScheduleStatus,
+  DDayItem,
+  DDayType,
+  ChzzkLiveStatus,
+  ChzzkLiveStatusMap,
+};

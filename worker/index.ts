@@ -8,6 +8,50 @@ import {
   ddays,
 } from "../src/db/schema";
 
+type CachedLiveStatus = {
+  fetchedAt: number;
+  content: {
+    status: "OPEN" | "CLOSE";
+    liveTitle: string;
+    concurrentUserCount: number;
+    liveImageUrl: string;
+    defaultThumbnailImageUrl: string;
+    channelId: string;
+    channelName: string;
+    channelImageUrl: string;
+  } | null;
+};
+
+const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
+const LIVE_STATUS_TTL_MS = 60_000;
+
+const fetchChzzkLiveStatus = async (channelId: string) => {
+  const cached = LIVE_STATUS_CACHE.get(channelId);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
+    return cached.content;
+  }
+
+  const url = `https://api.chzzk.naver.com/polling/v2/channels/${channelId}/live-status`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch chzzk live status", channelId, res.status);
+    return null;
+  }
+
+  const data = (await res.json()) as {
+    code: number;
+    content: CachedLiveStatus["content"];
+  };
+
+  const content = data?.content ?? null;
+  LIVE_STATUS_CACHE.set(channelId, {
+    fetchedAt: now,
+    content,
+  });
+  return content;
+};
+
 const NOTICE_TYPES = ["notice", "event"] as const;
 type NoticeType = (typeof NOTICE_TYPES)[number];
 
@@ -64,6 +108,38 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const db = getDb(env);
+
+    if (url.pathname.startsWith("/api/live-status")) {
+      if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405 });
+      }
+
+      const channelIdsParam = url.searchParams.get("channelIds");
+      if (!channelIdsParam) {
+        return new Response("channelIds query required", { status: 400 });
+      }
+
+      const channelIds = channelIdsParam
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+
+      if (channelIds.length === 0) {
+        return new Response("No valid channelIds", { status: 400 });
+      }
+
+      const items = await Promise.all(
+        channelIds.map(async (channelId) => ({
+          channelId,
+          content: await fetchChzzkLiveStatus(channelId),
+        }))
+      );
+
+      return Response.json({
+        updatedAt: new Date().toISOString(),
+        items,
+      });
+    }
 
     if (url.pathname.startsWith("/api/members")) {
       const pathParts = url.pathname.split("/");

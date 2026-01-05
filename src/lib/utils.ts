@@ -103,3 +103,20 @@ export function adjustBrightness(hex: string, percent: number): string {
       .slice(1)
   );
 }
+
+export function extractChzzkChannelId(urlChzzk?: string | null): string | null {
+  if (!urlChzzk) return null;
+  try {
+    const parsed = new URL(urlChzzk);
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment) return lastSegment.split("?")[0];
+  } catch {
+    // Fallback for malformed URLs
+    const cleaned = urlChzzk.trim().replace(/^https?:\/\//i, "");
+    const segments = cleaned.split(/[/?#]/).filter(Boolean);
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment) return lastSegment;
+  }
+  return null;
+}
