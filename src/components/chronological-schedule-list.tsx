@@ -42,7 +42,7 @@ export const ChronologicalScheduleList = ({
   const getMember = (uid: number) => members.find((m) => m.uid === uid);
 
   return (
-    <div className="flex flex-col gap-6 w-full">
+    <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto">
       {/* Timeline Section */}
       <div className="flex flex-col gap-4">
         {timelineItems.length > 0 ? (

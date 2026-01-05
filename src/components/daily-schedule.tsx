@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
@@ -279,26 +280,32 @@ export const DailySchedule = () => {
           >
             <div className="flex items-center gap-3">
               <div className="relative z-20">
-                <div
-                  className={cn(
-                    "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
-                    viewMode === "grid"
-                      ? "bg-card hover:bg-muted"
-                      : "bg-indigo-50 border-indigo-200"
-                  )}
-                  onClick={handleToggleView}
-                  title={
-                    viewMode === "grid"
-                      ? "지금은 그리드 뷰입니다. 시간순 보기로 전환하려면 클릭하세요."
-                      : "지금은 시간순 보기입니다. 그리드 뷰로 전환하려면 클릭하세요."
-                  }
-                >
-                  {viewMode === "grid" ? (
-                    <CalendarDays className="w-6 h-6 text-indigo-600" />
-                  ) : (
-                    <List className="w-6 h-6 text-indigo-600" />
-                  )}
-                </div>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <div
+                      className={cn(
+                        "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
+                        viewMode === "grid"
+                          ? "bg-card hover:bg-muted"
+                          : "bg-indigo-50 border-indigo-200"
+                      )}
+                      onClick={handleToggleView}
+                    >
+                      {viewMode === "grid" ? (
+                        <CalendarDays className="w-6 h-6 text-indigo-600" />
+                      ) : (
+                        <List className="w-6 h-6 text-indigo-600" />
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>
+                      {viewMode === "grid"
+                        ? "시간순 보기 전환"
+                        : "그리드 뷰 전환"}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
 
                 <AnimatePresence>
                   {showViewToggleTooltip && (
