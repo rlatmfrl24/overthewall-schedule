@@ -78,11 +78,11 @@ export function NoticeBanner() {
   if (visibleNotices.length === 0) return null;
 
   return (
-    <div className="container mx-auto">
-      <div className="relative overflow-hidden rounded-xl bg-card border border-border shadow-sm backdrop-blur-md group/banner">
+    <div className="container mx-auto h-full">
+      <div className="relative h-full overflow-hidden rounded-xl bg-card border border-border shadow-sm backdrop-blur-md group/banner">
         <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
 
-        <div className="flex items-center gap-2 py-2.5 px-3 sm:px-4">
+        <div className="flex items-center gap-2 py-2.5 px-3 sm:px-4 h-full">
           <Tooltip>
             <TooltipTrigger>
               <Link

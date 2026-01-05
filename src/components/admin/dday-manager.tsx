@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DDayFormDialog, type DDayFormValues } from "./dday-form-dialog";
 import { cn } from "@/lib/utils";
+import { normalizeDDayColors } from "@/lib/dday";
 
 export function DDayManager() {
   const [ddays, setDDays] = useState<DDay[]>([]);
@@ -65,10 +66,14 @@ export function DDayManager() {
   const handleSubmit = async (data: DDayFormValues) => {
     setIsSaving(true);
     try {
+      const parsedColors = normalizeDDayColors(data.colors);
+      const colors = parsedColors.length ? parsedColors : ["#f97316"];
       const payload = {
-        ...data,
+        title: data.title,
+        date: data.date,
         description: data.description || undefined,
-        color: data.color || undefined,
+        color: colors.join(","),
+        type: data.type,
       };
 
       const response = await fetch("/api/ddays", {
@@ -124,6 +129,14 @@ export function DDayManager() {
         ) : (
           <div className="flex flex-col divide-y rounded-2xl border bg-card">
             {sortedDDays.map((dday) => {
+              const colors = normalizeDDayColors(
+                (dday as { colors?: string[] }).colors ?? dday.color
+              );
+              const primaryColor = colors[0] ?? "#f59e0b";
+              const swatchBackground =
+                colors.length > 1
+                  ? `linear-gradient(90deg, ${colors.join(", ")})`
+                  : primaryColor;
               const isAnnual =
                 dday.type === "debut" || dday.type === "birthday";
               const typeLabel =
@@ -142,8 +155,8 @@ export function DDayManager() {
                       <span
                         className="inline-flex h-6 w-6 rounded-full border shadow-sm"
                         style={{
-                          backgroundColor: dday.color || "#f59e0b",
-                          borderColor: dday.color || "#f59e0b",
+                          background: swatchBackground,
+                          borderColor: primaryColor,
                         }}
                       />
                       <div className="flex flex-col min-w-0">

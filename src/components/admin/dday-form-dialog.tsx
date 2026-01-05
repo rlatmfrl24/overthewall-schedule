@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, useFieldArray } from "react-hook-form";
 import { type DDay } from "@/db/schema";
 import {
   Dialog,
@@ -21,14 +21,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { FieldError, FieldLabel } from "@/components/ui/field";
-import { Loader2 } from "lucide-react";
+import { normalizeDDayColors } from "@/lib/dday";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 
 export interface DDayFormValues {
   id?: number;
   title: string;
   date: string;
   description: string;
-  color: string;
+  colors: string[];
   type: "debut" | "birthday" | "event";
 }
 
@@ -52,28 +53,34 @@ export function DDayFormDialog({
     handleSubmit,
     reset,
     control,
-    getValues,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<DDayFormValues>({
     defaultValues: {
       title: "",
       date: "",
       description: "",
-      color: "#f97316",
+      colors: ["#f97316"],
       type: "event",
     },
   });
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "colors",
+  });
+  const colors = watch("colors") || [];
 
   useEffect(() => {
     if (open) {
       if (initialValues) {
+        const parsedColors = normalizeDDayColors(initialValues.color);
         reset({
           id: initialValues.id,
           title: initialValues.title ?? "",
           date: initialValues.date ?? "",
           description: initialValues.description ?? "",
-          color: initialValues.color ?? "#f97316",
+          colors: parsedColors.length ? parsedColors : ["#f97316"],
           type: (initialValues.type as DDayFormValues["type"]) ?? "event",
         });
       } else {
@@ -81,7 +88,7 @@ export function DDayFormDialog({
           title: "",
           date: "",
           description: "",
-          color: "#f97316",
+          colors: ["#f97316"],
           type: "event",
         });
       }
@@ -125,31 +132,67 @@ export function DDayFormDialog({
               <FieldError errors={[errors.date]} />
             </div>
             <div className="space-y-2">
-              <FieldLabel htmlFor="color">포인트 색상</FieldLabel>
-              <Controller
-                name="color"
-                control={control}
-                render={({ field }) => (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="color"
-                      type="color"
-                      className="h-10 w-20 p-1"
-                      value={field.value}
-                      onChange={field.onChange}
-                    />
-                    <Input
-                      type="text"
-                      placeholder="#f97316"
-                      className="flex-1"
-                      value={field.value}
-                      onChange={field.onChange}
-                    />
-                  </div>
-                )}
-              />
+              <FieldLabel htmlFor="color-0">포인트 색상</FieldLabel>
+              <div className="space-y-2">
+                {fields.map((field, index) => {
+                  const value = colors?.[index] ?? "";
+                  return (
+                    <div
+                      key={field.id}
+                      className="flex items-center gap-2"
+                      data-testid={`color-row-${index}`}
+                    >
+                      <Input
+                        id={`color-${index}`}
+                        type="color"
+                        className="h-10 w-20 p-1"
+                        value={value || "#f97316"}
+                        onChange={(event) =>
+                          setValue(`colors.${index}`, event.target.value, {
+                            shouldDirty: true,
+                          })
+                        }
+                      />
+                      <Input
+                        type="text"
+                        placeholder="#f97316"
+                        className="flex-1"
+                        value={value}
+                        onChange={(event) =>
+                          setValue(`colors.${index}`, event.target.value, {
+                            shouldDirty: true,
+                          })
+                        }
+                      />
+                      {fields.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => remove(index)}
+                          aria-label="색상 삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() =>
+                    append(colors?.[colors.length - 1] ?? "#f97316")
+                  }
+                >
+                  <Plus className="h-4 w-4" />
+                  색상 추가
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
-                D-Day 배지 테두리/하이라이트에 사용됩니다.
+                여러 색상을 추가하면 순서대로 그라데이션으로 표시됩니다.
               </p>
             </div>
           </div>

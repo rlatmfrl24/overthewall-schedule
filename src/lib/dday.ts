@@ -12,12 +12,23 @@ export interface DDayMatch {
   title: string;
   description?: string;
   color?: string;
+  colors: string[];
   targetDate: string;
   daysUntil: number;
   isToday: boolean;
   type: DDayItem["type"];
   anniversaryLabel?: string;
 }
+
+export const normalizeDDayColors = (
+  value?: string | string[] | null
+): string[] => {
+  if (!value) return [];
+  const raw = Array.isArray(value) ? value : value.split(",");
+  return raw
+    .map((color) => color.trim())
+    .filter((color) => color.length > 0);
+};
 
 const resolveOccurrence = (dday: DDayItem, referenceDate: Date) => {
   const baseDate = parseISO(dday.date);
@@ -60,12 +71,15 @@ export const getDDaysForDate = (
 
       const { occurrence, diff, isAnnual, anniversaryLabel } = resolved;
       const targetDate = occurrence.toISOString().split("T")[0];
+      const colors = normalizeDDayColors(dday.colors ?? dday.color);
+      const primaryColor = colors[0];
 
       return {
         id: String(dday.id ?? `${dday.title}-${targetDate}`),
         title: dday.title,
         description: dday.description,
-        color: dday.color,
+        color: primaryColor,
+        colors,
         targetDate,
         daysUntil: diff,
         isToday: diff === 0,

@@ -35,7 +35,8 @@ interface DDayItem {
   title: string;
   date: string; // YYYY-MM-DD (연도 포함)
   description?: string;
-  color?: string;
+  color?: string | null;
+  colors?: string[];
   type: DDayType;
 }
 

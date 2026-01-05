@@ -56,34 +56,49 @@ export const WeeklyGridHeader = ({
             </span>
             {ddayMatches.length > 0 && (
               <div className="flex flex-col gap-1 w-full mt-1">
-                {ddayMatches.map((dday) => (
-                  <div
-                    key={dday.id}
-                    className={cn(
-                      "w-full rounded-md px-2 py-1 text-[11px] font-bold leading-tight flex justify-center items-center gap-2 shadow-sm border",
-                      dday.isToday
-                        ? "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                        : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
-                    )}
-                    style={
-                      dday.color && !dday.isToday
-                        ? {
-                            borderColor: dday.color,
-                            color: dday.color,
-                          }
-                        : dday.color && dday.isToday
-                        ? { boxShadow: `0 6px 18px ${dday.color}55` }
-                        : undefined
-                    }
-                  >
-                    <span className="truncate">
-                      {dday.title}
-                      {dday.anniversaryLabel
-                        ? ` · ${dday.anniversaryLabel}`
-                        : ""}
-                    </span>
-                  </div>
-                ))}
+                {ddayMatches.map((dday) => {
+                  const palette =
+                    (dday.colors?.length ? dday.colors : undefined) ||
+                    (dday.color ? [dday.color] : []);
+                  const primary = palette[0];
+                  const gradient =
+                    palette.length > 1
+                      ? `linear-gradient(90deg, ${palette.join(", ")})`
+                      : primary;
+                  const cardStyle =
+                    dday.isToday && gradient
+                      ? {
+                          background: gradient,
+                          boxShadow: primary
+                            ? `0 6px 18px ${primary}55`
+                            : undefined,
+                        }
+                      : !dday.isToday && primary
+                      ? { borderColor: primary, color: primary }
+                      : undefined;
+
+                  return (
+                    <div
+                      key={dday.id}
+                      className={cn(
+                        "w-full rounded-md px-2 py-1 text-[11px] font-bold leading-tight flex justify-center items-center gap-2 shadow-sm border",
+                        dday.isToday
+                          ? dday.colors?.length
+                            ? "text-white"
+                            : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                          : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
+                      )}
+                      style={cardStyle}
+                    >
+                      <span className="truncate">
+                        {dday.title}
+                        {dday.anniversaryLabel
+                          ? ` · ${dday.anniversaryLabel}`
+                          : ""}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
