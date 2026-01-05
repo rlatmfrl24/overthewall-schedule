@@ -326,7 +326,7 @@ export const DailySchedule = () => {
           <div className="flex flex-col gap-4 lg:flex-row">
             {ddayForToday.length > 0 && (
               <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
-                <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-col gap-2 w-full flex-1 h-full">
                   {ddayForToday.map((dday) => {
                     const palette =
                       (dday.colors?.length ? dday.colors : undefined) ||
@@ -349,7 +349,7 @@ export const DailySchedule = () => {
                       <div
                         key={dday.id}
                         className={cn(
-                          "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-sm text-sm font-semibold",
+                          "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
                           dday.isToday
                             ? dday.colors?.length
                               ? "text-white"
@@ -375,14 +375,14 @@ export const DailySchedule = () => {
                               ? ` · ${dday.anniversaryLabel}`
                               : ""}
                           </span>
-                          <span className="text-xs font-medium text-white/80 dark:text-amber-100/80 truncate">
+                          {/* <span className="text-xs font-medium text-white/80 dark:text-amber-100/80 truncate">
                             {dday.type === "event"
                               ? "이벤트"
                               : dday.type === "debut"
                               ? "데뷔일"
                               : "생일"}{" "}
                             · {dday.targetDate.replace(/-/g, ".")}
-                          </span>
+                          </span> */}
                         </div>
                       </div>
                     );
