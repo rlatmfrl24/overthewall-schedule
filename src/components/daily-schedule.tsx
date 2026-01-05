@@ -323,9 +323,9 @@ export const DailySchedule = () => {
           </div>
 
           {/* D-Day & Notice Row */}
-          <div className="flex gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row">
             {ddayForToday.length > 0 && (
-              <div className="flex flex-col gap-2 lg:min-w-[300px] lg:max-w-[460px] h-full">
+              <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
                 <div className="flex flex-col gap-2 w-full">
                   {ddayForToday.map((dday) => {
                     const palette =
@@ -393,7 +393,7 @@ export const DailySchedule = () => {
                 </div>
               </div>
             )}
-            <div className="w-full h-full">
+            <div className="w-full h-full flex-1">
               <NoticeBanner />
             </div>
           </div>

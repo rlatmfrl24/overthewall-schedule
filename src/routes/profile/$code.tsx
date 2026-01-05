@@ -168,7 +168,7 @@ function ProfilePage() {
                     {member.unit_name}
                   </span>
                 )}
-                <h1 className="text-2xl sm:text-4xl md:text-7xl font-black tracking-tight leading-none bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent break-keep">
+                <h1 className="text-2xl sm:text-4xl md:text-7xl font-black tracking-tight leading-none bg-linear-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent break-keep">
                   {member.name}
                 </h1>
                 <p className="text-xl md:text-2xl font-medium opacity-90 flex items-center gap-2"></p>
@@ -214,7 +214,7 @@ function ProfilePage() {
               },
             }}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-transparent to-black/10 z-10" />
+            <div className="absolute inset-0 bg-linear-to-br from-transparent to-black/10 z-10" />
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}

@@ -124,7 +124,7 @@ export const CardMember = ({
           <img
             src={`/profile/${member.code}.webp`}
             alt={member.name}
-            className="relative h-16 w-16 md:h-20 md:w-20 rounded-full border-[4px] object-cover shadow-md transition-transform duration-300 group-hover:scale-105"
+            className="relative h-16 w-16 md:h-20 md:w-20 rounded-full border-4 object-cover shadow-md transition-transform duration-300 group-hover:scale-105"
             style={{ borderColor: "white" }}
           />
         </div>
