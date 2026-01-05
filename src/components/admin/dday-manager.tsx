@@ -156,7 +156,6 @@ export function DDayManager() {
                         className="inline-flex h-6 w-6 rounded-full border shadow-sm"
                         style={{
                           background: swatchBackground,
-                          borderColor: primaryColor,
                         }}
                       />
                       <div className="flex flex-col min-w-0">
