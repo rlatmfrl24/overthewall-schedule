@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "./ui/button";
+import { motion, AnimatePresence } from "motion/react";
 import { ChronologicalScheduleList } from "./chronological-schedule-list";
 import {
   AlertDialog,
@@ -45,8 +46,27 @@ export const DailySchedule = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isCopyingSnapshot, setIsCopyingSnapshot] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
+  const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
   const scheduleRef = useRef<HTMLDivElement | null>(null);
   const SNAPSHOT_PADDING = 12;
+
+  // Check if user has seen the new feature
+  useEffect(() => {
+    const hasUsed = localStorage.getItem("hasUsedChronologicalToggle");
+    if (!hasUsed) {
+      // Small delay to make it appear naturally after load
+      const timer = setTimeout(() => setShowViewToggleTooltip(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleToggleView = () => {
+    setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"));
+    if (showViewToggleTooltip) {
+      setShowViewToggleTooltip(false);
+      localStorage.setItem("hasUsedChronologicalToggle", "true");
+    }
+  };
 
   const handlePrevDay = () => setCurrentDate((prev) => subDays(prev, 1));
   const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
@@ -258,27 +278,65 @@ export const DailySchedule = () => {
             className="flex flex-col md:flex-row items-center justify-between gap-4"
           >
             <div className="flex items-center gap-3">
-              <div
-                className={cn(
-                  "p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
-                  viewMode === "grid"
-                    ? "bg-card hover:bg-muted"
-                    : "bg-indigo-50 border-indigo-200"
-                )}
-                onClick={() =>
-                  setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"))
-                }
-                title={
-                  viewMode === "grid"
-                    ? "지금은 그리드 뷰입니다. 시간순 보기로 전환하려면 클릭하세요."
-                    : "지금은 시간순 보기입니다. 그리드 뷰로 전환하려면 클릭하세요."
-                }
-              >
-                {viewMode === "grid" ? (
-                  <CalendarDays className="w-6 h-6 text-indigo-600" />
-                ) : (
-                  <List className="w-6 h-6 text-indigo-600" />
-                )}
+              <div className="relative z-20">
+                <div
+                  className={cn(
+                    "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
+                    viewMode === "grid"
+                      ? "bg-card hover:bg-muted"
+                      : "bg-indigo-50 border-indigo-200"
+                  )}
+                  onClick={handleToggleView}
+                  title={
+                    viewMode === "grid"
+                      ? "지금은 그리드 뷰입니다. 시간순 보기로 전환하려면 클릭하세요."
+                      : "지금은 시간순 보기입니다. 그리드 뷰로 전환하려면 클릭하세요."
+                  }
+                >
+                  {viewMode === "grid" ? (
+                    <CalendarDays className="w-6 h-6 text-indigo-600" />
+                  ) : (
+                    <List className="w-6 h-6 text-indigo-600" />
+                  )}
+                </div>
+
+                <AnimatePresence>
+                  {showViewToggleTooltip && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 400,
+                        damping: 25,
+                      }}
+                      className="absolute left-0 top-full mt-3 w-56 z-30 pointer-events-none"
+                    >
+                      <div className="bg-indigo-600 text-white p-4 rounded-2xl shadow-xl flex flex-col gap-2 relative pointer-events-auto after:content-[''] after:absolute after:bottom-full after:left-6 after:border-[8px] after:border-transparent after:border-b-indigo-600">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-indigo-200 text-xs font-semibold uppercase tracking-wider">
+                            New Feature
+                          </span>
+                          <span className="font-bold text-[15px] leading-tight">
+                            시간순으로 일정을
+                            <br />
+                            확인해보세요!
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleView();
+                          }}
+                          className="self-start text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg transition-colors font-medium"
+                        >
+                          전환해보기
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
               <div className="flex flex-col">
                 <h1 className="text-2xl font-bold text-foreground">
