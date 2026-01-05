@@ -42,7 +42,7 @@ export const ChronologicalScheduleList = ({
   const getMember = (uid: number) => members.find((m) => m.uid === uid);
 
   return (
-    <div className="flex flex-col gap-8 w-full max-w-3xl mx-auto px-1 sm:px-4">
+    <div className="flex flex-col gap-6 w-full">
       {/* Timeline Section */}
       <div className="flex flex-col gap-4">
         {timelineItems.length > 0 ? (
@@ -110,34 +110,52 @@ const ScheduleCard = ({
 
   // Status Badge Logic
   const isGuerrilla = schedule.status === "게릴라";
-  const badgeColor = isGuerrilla ? "#ef4444" : mainColor; // Red for Guerrilla, member color for others
+  const badgeColor = isGuerrilla ? "#ef4444" : mainColor;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.01, transition: { duration: 0.2 } }}
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      whileHover={{ scale: 1.005, backgroundColor: hexToRgba(mainColor, 0.08) }}
+      whileTap={{ scale: 0.99 }}
       onClick={() => onClick(schedule)}
       className={cn(
-        "group relative flex items-center gap-4 p-4 rounded-2xl bg-card border border-border shadow-sm cursor-pointer overflow-hidden transition-all",
-        "hover:shadow-md hover:border-primary/20 hover:bg-muted/30"
+        "group relative flex items-center gap-5 p-5 rounded-3xl bg-card border border-border/60 shadow-sm cursor-pointer overflow-hidden transition-all duration-300",
+        "hover:shadow-lg hover:border-transparent"
       )}
+      style={{
+        borderLeft: `6px solid ${badgeColor}`,
+      }}
     >
+      {/* Dynamic Background Gradient */}
+      <div
+        className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity"
+        style={{
+          background: `linear-gradient(120deg, ${hexToRgba(
+            mainColor,
+            0.2
+          )} 0%, transparent 60%)`,
+        }}
+      />
+
       {/* Left Side: Time or Icon */}
-      <div className="flex flex-col items-center justify-center w-16 shrink-0">
+      <div className="relative z-10 flex flex-col items-center justify-center w-16 shrink-0">
         {isTimeline ? (
-          <div className="flex flex-col items-center">
-            <span className="text-lg font-black text-foreground tracking-tight">
+          <div className="flex flex-col items-center gap-1">
+            <span
+              className="text-xl font-black tracking-tight"
+              style={{ color: badgeColor }}
+            >
               {schedule.start_time?.substring(0, 5)}
             </span>
-            <span className="text-[10px] font-medium text-muted-foreground uppercase">
+            <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">
               KST
             </span>
           </div>
         ) : (
           <div
-            className="flex items-center justify-center w-10 h-10 rounded-full"
-            style={{ backgroundColor: hexToRgba(badgeColor, 0.1) }}
+            className="flex items-center justify-center w-11 h-11 rounded-2xl shadow-inner"
+            style={{ backgroundColor: hexToRgba(badgeColor, 0.15) }}
           >
             {isGuerrilla ? (
               <Radio className="w-5 h-5" style={{ color: badgeColor }} />
@@ -148,54 +166,59 @@ const ScheduleCard = ({
         )}
       </div>
 
-      {/* Separator Line */}
-      <div className="w-px h-10 bg-border/60" />
-
       {/* Content */}
-      <div className="flex flex-col flex-1 min-w-0 gap-1">
-        {/* Member Info */}
-        <div className="flex items-center gap-2">
-          <div className="relative w-6 h-6 rounded-full overflow-hidden border border-border/50">
+      <div className="relative z-10 flex flex-col flex-1 min-w-0 gap-1.5">
+        {/* Member Info & Status */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative w-6 h-6 rounded-full overflow-hidden shadow-sm ring-2 ring-white/50 dark:ring-black/50">
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
               className="w-full h-full object-cover"
             />
           </div>
-          <span className="text-xs font-bold text-muted-foreground">
+          <span
+            className="text-sm font-bold opacity-80"
+            style={{ color: mainColor }}
+          >
             {member.name}
           </span>
 
-          {/* Status Badge (if needed) */}
-          <span
-            className={cn(
-              "px-2 py-0.5 text-[10px] font-bold rounded-full",
-              isGuerrilla || schedule.status === "미정"
-                ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
-                : "bg-muted text-muted-foreground"
-            )}
-            style={
-              !isGuerrilla && schedule.status !== "미정"
-                ? {
-                    backgroundColor: hexToRgba(mainColor, 0.1),
-                    color: mainColor,
-                  }
-                : undefined
-            }
-          >
-            {schedule.status}
-          </span>
+          {(isGuerrilla ||
+            schedule.status === "미정" ||
+            schedule.status === "휴방") && (
+            <span
+              className={cn(
+                "px-2 py-[2px] text-[10px] font-bold rounded-full border",
+                isGuerrilla
+                  ? "bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
+                  : "bg-muted text-muted-foreground border-border"
+              )}
+            >
+              {schedule.status}
+            </span>
+          )}
         </div>
 
         {/* Title */}
-        <h3 className="text-base font-bold text-foreground leading-tight truncate pr-2">
+        <h3
+          className={cn(
+            "text-lg font-bold text-foreground/90 leading-snug truncate pr-2 transition-colors group-hover:text-foreground"
+          )}
+        >
           {schedule.title || "방송 예정"}
         </h3>
       </div>
 
-      {/* Right Arrow (Visual Cue) */}
-      <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-4">
-        {/* Can add chevron right here if desired */}
+      {/* Right Side: Decorative or arrow */}
+      <div className="relative z-10 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0">
+        <div className="p-2 rounded-full bg-background/50 backdrop-blur-sm shadow-sm">
+          {/* Using a simple arrow or dot */}
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: mainColor }}
+          />
+        </div>
       </div>
     </motion.div>
   );
