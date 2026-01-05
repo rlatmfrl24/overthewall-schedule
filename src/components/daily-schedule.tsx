@@ -1,4 +1,9 @@
-import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type {
+  Member,
+  ScheduleItem,
+  ScheduleStatus,
+  DDayItem,
+} from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
 import { ScheduleDialog } from "./schedule-dialog";
@@ -22,10 +27,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
+import { cn } from "@/lib/utils";
 
 export const DailySchedule = () => {
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null
   );
@@ -49,6 +57,11 @@ export const DailySchedule = () => {
   }, [currentDate]);
 
   useEffect(() => {
+    fetch("/api/ddays")
+      .then((res) => res.json())
+      .then((data) => setDDays(data as DDayItem[]))
+      .catch((err) => console.error("Failed to fetch d-days:", err));
+
     fetch("/api/members")
       .then((res) => res.json())
       .then((data) =>
@@ -62,6 +75,8 @@ export const DailySchedule = () => {
 
     fetchSchedules();
   }, [currentDate, fetchSchedules]);
+
+  const ddayForToday = getDDaysForDate(ddays, currentDate);
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -251,6 +266,56 @@ export const DailySchedule = () => {
                   {format(currentDate, "yyyy년 M월 d일")}
                 </p>
               </div>
+
+              {ddayForToday.length > 0 && (
+                <div className="flex flex-col gap-2 w-full">
+                  {ddayForToday.map((dday) => (
+                    <div
+                      key={dday.id}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-sm text-sm font-semibold",
+                        dday.isToday
+                          ? "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                          : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
+                      )}
+                      style={
+                        dday.color && !dday.isToday
+                          ? { borderColor: dday.color, color: dday.color }
+                          : dday.color && dday.isToday
+                          ? { boxShadow: `0 10px 25px ${dday.color}66` }
+                          : undefined
+                      }
+                    >
+                      <span
+                        className={cn(
+                          "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                          dday.isToday
+                            ? "bg-white/25"
+                            : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
+                        )}
+                      >
+                        {formatDDayLabel(dday.daysUntil)}
+                      </span>
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">
+                          {dday.title}
+                          {dday.anniversaryLabel
+                            ? ` · ${dday.anniversaryLabel}`
+                            : ""}
+                        </span>
+                        <span className="text-xs font-medium text-white/80 dark:text-amber-100/80 truncate">
+                          {dday.type === "event"
+                            ? "이벤트"
+                            : dday.type === "debut"
+                            ? "데뷔일"
+                            : "생일"}{" "}
+                          · {dday.targetDate.replace(/-/g, ".")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div
               className="flex flex-wrap items-center justify-center gap-2"

@@ -1,0 +1,90 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "d9a5d1a1-9f3f-4b77-9b3d-1c2a5f2d8d55",
+  "prevId": "c40c8c54-7f26-4f6c-8e9c-6d6e18f0f9ba",
+  "tables": {
+    "members": {
+      "name": "members",
+      "columns": {
+        "uid": { "name": "uid", "type": "integer", "primaryKey": true, "notNull": true, "autoincrement": true },
+        "code": { "name": "code", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "name": { "name": "name", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "main_color": { "name": "main_color", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "sub_color": { "name": "sub_color", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "oshi_mark": { "name": "oshi_mark", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "url_twitter": { "name": "url_twitter", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "url_youtube": { "name": "url_youtube", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "url_chzzk": { "name": "url_chzzk", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "birth_date": { "name": "birth_date", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "debut_date": { "name": "debut_date", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "unit_name": { "name": "unit_name", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "fan_name": { "name": "fan_name", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "introduction": { "name": "introduction", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "is_deprecated": { "name": "is_deprecated", "type": "numeric", "primaryKey": false, "notNull": false, "autoincrement": false }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "notices": {
+      "name": "notices",
+      "columns": {
+        "id": { "name": "id", "type": "integer", "primaryKey": true, "notNull": true, "autoincrement": true },
+        "content": { "name": "content", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "url": { "name": "url", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "type": { "name": "type", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false, "default": "'notice'" },
+        "is_active": { "name": "is_active", "type": "numeric", "primaryKey": false, "notNull": false, "autoincrement": false, "default": "'1'" },
+        "started_at": { "name": "started_at", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "ended_at": { "name": "ended_at", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "created_at": { "name": "created_at", "type": "numeric", "primaryKey": false, "notNull": false, "autoincrement": false, "default": "CURRENT_TIMESTAMP" }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": { "notices_type_check": { "name": "notices_type_check", "value": "type IN ('notice', 'event')" } }
+    },
+    "schedules": {
+      "name": "schedules",
+      "columns": {
+        "id": { "name": "id", "type": "integer", "primaryKey": true, "notNull": true, "autoincrement": true },
+        "member_uid": { "name": "member_uid", "type": "integer", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "date": { "name": "date", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "start_time": { "name": "start_time", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "title": { "name": "title", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "status": { "name": "status", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "created_at": { "name": "created_at", "type": "numeric", "primaryKey": false, "notNull": false, "autoincrement": false, "default": "CURRENT_TIMESTAMP" }
+      },
+      "indexes": { "idx_schedules_date": { "name": "idx_schedules_date", "columns": ["date"], "isUnique": false } },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": { "schedules_status_check": { "name": "schedules_status_check", "value": "status IN ('방송', '휴방', '게릴라', '미정')" } }
+    },
+    "ddays": {
+      "name": "ddays",
+      "columns": {
+        "id": { "name": "id", "type": "integer", "primaryKey": true, "notNull": true, "autoincrement": true },
+        "title": { "name": "title", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "date": { "name": "date", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "description": { "name": "description", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "color": { "name": "color", "type": "text", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "type": { "name": "type", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false, "default": "'event'" },
+        "created_at": { "name": "created_at", "type": "numeric", "primaryKey": false, "notNull": false, "autoincrement": false, "default": "CURRENT_TIMESTAMP" }
+      },
+      "indexes": { "idx_ddays_date": { "name": "idx_ddays_date", "columns": ["date"], "isUnique": false } },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": { "ddays_type_check": { "name": "ddays_type_check", "value": "type IN ('debut', 'birthday', 'event')" } }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": { "schemas": {}, "tables": {}, "columns": {} },
+  "internal": { "indexes": {} }
+}
+

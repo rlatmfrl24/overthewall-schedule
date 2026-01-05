@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { Member, ScheduleItem, DDayItem } from "@/lib/types";
 import { WeeklyGridHeader } from "./weekly-grid-header";
 import { WeeklyGridMemberCell } from "./weekly-grid-member-cell";
 import { WeeklyGridDayCell } from "./weekly-grid-day-cell";
@@ -8,6 +8,7 @@ interface WeeklyGridProps {
   members: Member[];
   weekDays: Date[];
   schedules: ScheduleItem[];
+  ddays: DDayItem[];
   onAddSchedule: (date: Date, memberUid: number) => void;
   onEditSchedule: (schedule: ScheduleItem) => void;
 }
@@ -16,6 +17,7 @@ export const WeeklyGrid = ({
   members,
   weekDays,
   schedules,
+  ddays,
   onAddSchedule,
   onEditSchedule,
 }: WeeklyGridProps) => {
@@ -26,7 +28,7 @@ export const WeeklyGrid = ({
         <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-border bg-card shadow-sm relative">
           {/* Minimum width to prevent crushing */}
           <div className="grid grid-cols-[80px_repeat(7,1fr)] md:grid-cols-[120px_repeat(7,1fr)] min-w-[800px] md:min-w-full min-h-full">
-            <WeeklyGridHeader weekDays={weekDays} />
+            <WeeklyGridHeader weekDays={weekDays} ddays={ddays} />
 
             {/* Table Body: Member Rows */}
             {members.map((member) => {

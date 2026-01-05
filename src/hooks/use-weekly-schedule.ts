@@ -7,12 +7,18 @@ import {
   subWeeks,
   format,
 } from "date-fns";
-import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type {
+  Member,
+  ScheduleItem,
+  ScheduleStatus,
+  DDayItem,
+} from "@/lib/types";
 
 export function useWeeklySchedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [members, setMembers] = useState<Member[]>([]);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Dialog & Alert State
@@ -63,6 +69,16 @@ export function useWeeklySchedule() {
     }
   }, [currentDate]);
 
+  const fetchDDays = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ddays");
+      const data = await res.json();
+      setDDays(data as DDayItem[]);
+    } catch (error) {
+      console.error("Failed to fetch d-days:", error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchMembers();
   }, [fetchMembers]);
@@ -70,6 +86,10 @@ export function useWeeklySchedule() {
   useEffect(() => {
     fetchSchedules();
   }, [fetchSchedules]);
+
+  useEffect(() => {
+    fetchDDays();
+  }, [fetchDDays]);
 
   const nextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
   const prevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
@@ -197,6 +217,7 @@ export function useWeeklySchedule() {
     currentDate,
     members,
     schedules,
+    ddays,
     loading,
     editingSchedule,
     initialMemberUid,

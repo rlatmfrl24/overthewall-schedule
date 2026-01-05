@@ -19,6 +19,7 @@ export const WeeklySchedule = () => {
     currentDate,
     members,
     schedules,
+    ddays,
     loading,
     editingSchedule,
     initialMemberUid,
@@ -69,6 +70,7 @@ export const WeeklySchedule = () => {
           members={members}
           weekDays={weekDays}
           schedules={schedules}
+          ddays={ddays}
           onAddSchedule={openAddDialog}
           onEditSchedule={openEditDialog}
         />

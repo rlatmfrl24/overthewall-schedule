@@ -5,6 +5,7 @@ import {
   schedules,
   notices,
   type NewSchedule,
+  ddays,
 } from "../src/db/schema";
 
 const NOTICE_TYPES = ["notice", "event"] as const;
@@ -39,6 +40,25 @@ type SchedulePayload = Pick<
   "member_uid" | "date" | "start_time" | "title" | "status"
 >;
 type UpdateSchedulePayload = SchedulePayload & { id: number | string };
+
+type DDayPayload = {
+  id?: number | string;
+  title?: string;
+  date?: string;
+  description?: string;
+  color?: string;
+  type?: string;
+};
+
+const DDAY_TYPES = ["debut", "birthday", "event"] as const;
+type DDayType = (typeof DDAY_TYPES)[number];
+
+const normalizeDDayType = (value?: string): DDayType => {
+  if (value && DDAY_TYPES.includes(value as DDayType)) {
+    return value as DDayType;
+  }
+  return "event";
+};
 
 export default {
   async fetch(request, env) {
@@ -268,6 +288,85 @@ export default {
         const result = await db
           .delete(notices)
           .where(eq(notices.id, numericId));
+
+        if (result.success) {
+          return new Response("Deleted", { status: 200 });
+        }
+        return new Response("Failed to delete", { status: 500 });
+      }
+    }
+
+    if (url.pathname.startsWith("/api/ddays")) {
+      if (request.method === "GET") {
+        const data = await db.select().from(ddays).orderBy(ddays.date);
+        return Response.json(data);
+      }
+
+      if (request.method === "POST") {
+        const body = (await request.json()) as DDayPayload;
+        if (!body.title?.trim() || !body.date?.trim()) {
+          return new Response("title and date are required", { status: 400 });
+        }
+        const type = normalizeDDayType(body.type);
+
+        const result = await db.insert(ddays).values({
+          title: body.title.trim(),
+          date: body.date.trim(),
+          description: body.description?.trim() || null,
+          color: body.color?.trim() || null,
+          type,
+        });
+
+        if (result.success) {
+          return new Response("Created", { status: 201 });
+        }
+        return new Response("Failed to create", { status: 500 });
+      }
+
+      if (request.method === "PUT") {
+        const body = (await request.json()) as DDayPayload;
+        if (!body.id) {
+          return new Response("ID is required", { status: 400 });
+        }
+
+        const numericId = Number(body.id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
+
+        if (!body.title?.trim() || !body.date?.trim()) {
+          return new Response("title and date are required", { status: 400 });
+        }
+        const type = normalizeDDayType(body.type);
+
+        const result = await db
+          .update(ddays)
+          .set({
+            title: body.title.trim(),
+            date: body.date.trim(),
+            description: body.description?.trim() || null,
+            color: body.color?.trim() || null,
+            type,
+          })
+          .where(eq(ddays.id, numericId));
+
+        if (result.success) {
+          return new Response("Updated", { status: 200 });
+        }
+        return new Response("Failed to update", { status: 500 });
+      }
+
+      if (request.method === "DELETE") {
+        const id = url.searchParams.get("id");
+        if (!id) {
+          return new Response("ID parameter is required", { status: 400 });
+        }
+        const numericId = Number(id);
+        if (!Number.isFinite(numericId)) {
+          return new Response("Invalid id", { status: 400 });
+        }
+
+        const result = await db.delete(ddays).where(eq(ddays.id, numericId));
 
         if (result.success) {
           return new Response("Deleted", { status: 200 });

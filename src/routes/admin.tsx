@@ -12,6 +12,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { AdminLayout } from "@/components/admin/admin-layout";
 import { NoticeManager } from "@/components/admin/notice-manager";
+import { DDayManager } from "@/components/admin/dday-manager";
 
 export const Route = createFileRoute("/admin")({
   component: RouteComponent,
@@ -87,7 +88,10 @@ function RouteComponent() {
 
   return (
     <AdminLayout>
-      <NoticeManager />
+      <div className="space-y-10">
+        <NoticeManager />
+        <DDayManager />
+      </div>
     </AdminLayout>
   );
 }

@@ -54,7 +54,7 @@ export const WeeklyScheduleItem = ({
         )}
       </div>
       <span className="text-xs md:text-sm font-bold text-foreground line-clamp-2 leading-snug mt-0.5">
-        {schedule.title || "-"}
+        {schedule.title || "방송 예정"}
       </span>
     </div>
   );

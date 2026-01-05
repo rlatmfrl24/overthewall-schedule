@@ -29,6 +29,41 @@
       "when": 1767570346294,
       "tag": "0003_volatile_smiling_tiger",
       "breakpoints": false
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1767650400000,
+      "tag": "0004_radiant_dday",
+      "breakpoints": false
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1767654000000,
+      "tag": "0005_kind_dday_type",
+      "breakpoints": false
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1767657600000,
+      "tag": "0006_fix_idx_schedules_date",
+      "breakpoints": false
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1767661200000,
+      "tag": "0007_drop_ddays_idx",
+      "breakpoints": false
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1767664800000,
+      "tag": "0008_reset_ddays",
+      "breakpoints": false
     }
   ]
 }
