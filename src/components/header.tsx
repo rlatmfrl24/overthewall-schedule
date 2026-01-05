@@ -3,15 +3,19 @@ import {
   SignInButton,
   SignedIn,
   UserButton,
+  useUser,
 } from "@clerk/clerk-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "./ui/button";
 import { ExternalLinkIcon, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { ModeToggle } from "./mode-toggle";
+import { isAdminUser } from "@/lib/admin";
 
 export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { isLoaded, user } = useUser();
+  const isAdmin = isLoaded && isAdminUser(user?.id);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border-border">
@@ -38,6 +42,11 @@ export const Header = () => {
           <Link to="/weekly" className="[&.active]:font-bold">
             <Button variant="ghost">주간 스케쥴표</Button>
           </Link>
+          {isAdmin ? (
+            <Link to="/admin" className="[&.active]:font-bold">
+              <Button variant="ghost">관리자</Button>
+            </Link>
+          ) : null}
           <Button
             variant="ghost"
             onClick={() => {
@@ -123,6 +132,20 @@ export const Header = () => {
                 주간 스케쥴표
               </Button>
             </Link>
+            {isAdmin ? (
+              <Link
+                to="/admin"
+                className="w-full"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Button
+                  variant="ghost"
+                  className="justify-start h-12 text-lg rounded-xl w-full"
+                >
+                  관리자
+                </Button>
+              </Link>
+            ) : null}
             <Button
               variant="ghost"
               className="justify-start h-12 text-lg rounded-xl"

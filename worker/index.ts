@@ -1,4 +1,4 @@
-import { between, eq } from "drizzle-orm";
+import { SQL, and, between, eq } from "drizzle-orm";
 import { getDb } from "./db";
 import {
   members,
@@ -172,24 +172,37 @@ export default {
       if (request.method === "GET") {
         const typeFilter = url.searchParams.get("type");
         const includeInactive = url.searchParams.get("includeInactive") === "1";
-        let statement = db.select().from(notices).orderBy(notices.id);
+        const filters: SQL[] = [];
         if (!includeInactive) {
-          statement = statement.where(eq(notices.is_active, "1"));
+          filters.push(eq(notices.is_active, "1"));
         }
         if (typeFilter) {
           if (!NOTICE_TYPES.includes(typeFilter as NoticeType)) {
             return new Response("Invalid type filter", { status: 400 });
           }
-          statement = statement.where(eq(notices.type, typeFilter));
+          filters.push(eq(notices.type, typeFilter));
         }
-        const data = await statement;
+
+        const baseStatement = db.select().from(notices);
+        const filteredStatement =
+          filters.length > 0
+            ? baseStatement.where(and(...filters))
+            : baseStatement;
+
+        const data = await filteredStatement.orderBy(notices.id);
         return Response.json(data);
       }
 
       if (request.method === "POST") {
         const body = (await request.json()) as NoticePayload;
-        const { content, url: noticeUrl, type, is_active, started_at, ended_at } =
-          body;
+        const {
+          content,
+          url: noticeUrl,
+          type,
+          is_active,
+          started_at,
+          ended_at,
+        } = body;
         if (!content?.trim()) {
           return new Response("Content is required", { status: 400 });
         }
