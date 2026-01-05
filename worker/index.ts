@@ -25,6 +25,16 @@ type CachedLiveStatus = {
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
 const LIVE_STATUS_TTL_MS = 60_000;
 
+const json = (data: unknown, status = 200) => Response.json(data, { status });
+const badRequest = (message: string) => new Response(message, { status: 400 });
+const methodNotAllowed = () =>
+  new Response("Method not allowed", { status: 405 });
+
+const parseNumericId = (value?: string | number | null) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
 const fetchChzzkLiveStatus = async (channelId: string) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
@@ -111,12 +121,12 @@ export default {
 
     if (url.pathname.startsWith("/api/live-status")) {
       if (request.method !== "GET") {
-        return new Response("Method not allowed", { status: 405 });
+        return methodNotAllowed();
       }
 
       const channelIdsParam = url.searchParams.get("channelIds");
       if (!channelIdsParam) {
-        return new Response("channelIds query required", { status: 400 });
+        return badRequest("channelIds query required");
       }
 
       const channelIds = channelIdsParam
@@ -125,7 +135,7 @@ export default {
         .filter(Boolean);
 
       if (channelIds.length === 0) {
-        return new Response("No valid channelIds", { status: 400 });
+        return badRequest("No valid channelIds");
       }
 
       const items = await Promise.all(
@@ -135,7 +145,7 @@ export default {
         }))
       );
 
-      return Response.json({
+      return json({
         updatedAt: new Date().toISOString(),
         items,
       });
@@ -178,7 +188,7 @@ export default {
         }
 
         if (!date) {
-          return new Response("Date parameter is required", { status: 400 });
+          return badRequest("Date parameter is required");
         }
 
         const data = await db
@@ -193,7 +203,7 @@ export default {
         const { member_uid, date, start_time, title, status } = body;
 
         if (!member_uid || !date || !status) {
-          return new Response("Missing required fields", { status: 400 });
+          return badRequest("Missing required fields");
         }
 
         const result = await db.insert(schedules).values({
@@ -216,13 +226,11 @@ export default {
         const { id, member_uid, date, start_time, title, status } = body;
 
         if (!id || !member_uid || !date || !status) {
-          return new Response("Missing required fields", { status: 400 });
+          return badRequest("Missing required fields");
         }
 
-        const numericId = Number(id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(id);
+        if (numericId === null) return badRequest("Invalid id");
 
         const result = await db
           .update(schedules)
@@ -245,12 +253,10 @@ export default {
       if (request.method === "DELETE") {
         const id = url.searchParams.get("id");
         if (!id) {
-          return new Response("ID parameter is required", { status: 400 });
+          return badRequest("ID parameter is required");
         }
-        const numericId = Number(id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(id);
+        if (numericId === null) return badRequest("Invalid id");
 
         const result = await db
           .delete(schedules)
@@ -274,7 +280,7 @@ export default {
         }
         if (typeFilter) {
           if (!NOTICE_TYPES.includes(typeFilter as NoticeType)) {
-            return new Response("Invalid type filter", { status: 400 });
+            return badRequest("Invalid type filter");
           }
           filters.push(eq(notices.type, typeFilter));
         }
@@ -300,7 +306,7 @@ export default {
           ended_at,
         } = body;
         if (!content?.trim()) {
-          return new Response("Content is required", { status: 400 });
+          return badRequest("Content is required");
         }
 
         const result = await db.insert(notices).values({
@@ -322,15 +328,13 @@ export default {
         const body = (await request.json()) as NoticePayload;
         const id = body.id;
         if (!id) {
-          return new Response("ID is required for update", { status: 400 });
+          return badRequest("ID is required for update");
         }
-        const numericId = Number(id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(id);
+        if (numericId === null) return badRequest("Invalid id");
 
         if (!body.content?.trim()) {
-          return new Response("Content is required", { status: 400 });
+          return badRequest("Content is required");
         }
 
         const result = await db
@@ -354,12 +358,10 @@ export default {
       if (request.method === "DELETE") {
         const id = url.searchParams.get("id");
         if (!id) {
-          return new Response("ID parameter is required", { status: 400 });
+          return badRequest("ID parameter is required");
         }
-        const numericId = Number(id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(id);
+        if (numericId === null) return badRequest("Invalid id");
 
         const result = await db
           .delete(notices)
@@ -381,7 +383,7 @@ export default {
       if (request.method === "POST") {
         const body = (await request.json()) as DDayPayload;
         if (!body.title?.trim() || !body.date?.trim()) {
-          return new Response("title and date are required", { status: 400 });
+          return badRequest("title and date are required");
         }
         const type = normalizeDDayType(body.type);
 
@@ -402,16 +404,14 @@ export default {
       if (request.method === "PUT") {
         const body = (await request.json()) as DDayPayload;
         if (!body.id) {
-          return new Response("ID is required", { status: 400 });
+          return badRequest("ID is required");
         }
 
-        const numericId = Number(body.id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(body.id);
+        if (numericId === null) return badRequest("Invalid id");
 
         if (!body.title?.trim() || !body.date?.trim()) {
-          return new Response("title and date are required", { status: 400 });
+          return badRequest("title and date are required");
         }
         const type = normalizeDDayType(body.type);
 
@@ -435,12 +435,10 @@ export default {
       if (request.method === "DELETE") {
         const id = url.searchParams.get("id");
         if (!id) {
-          return new Response("ID parameter is required", { status: 400 });
+          return badRequest("ID parameter is required");
         }
-        const numericId = Number(id);
-        if (!Number.isFinite(numericId)) {
-          return new Response("Invalid id", { status: 400 });
-        }
+        const numericId = parseNumericId(id);
+        if (numericId === null) return badRequest("Invalid id");
 
         const result = await db.delete(ddays).where(eq(ddays.id, numericId));
 

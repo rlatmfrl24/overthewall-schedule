@@ -7,18 +7,15 @@ import {
   subWeeks,
   format,
 } from "date-fns";
-import type {
-  Member,
-  ScheduleItem,
-  ScheduleStatus,
-  DDayItem,
-} from "@/lib/types";
+import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
+import { useScheduleData } from "./use-schedule-data";
+import { fetchSchedulesInRange, deleteSchedule } from "@/lib/api/schedules";
+import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 
 export function useWeeklySchedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [members, setMembers] = useState<Member[]>([]);
+  const { members, ddays } = useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Dialog & Alert State
@@ -38,16 +35,6 @@ export function useWeeklySchedule() {
     addDays(weekStart, i)
   );
 
-  const fetchMembers = useCallback(async () => {
-    try {
-      const res = await fetch("/api/members");
-      const data = await res.json();
-      setMembers((data as Member[]).filter((m) => m.is_deprecated === "false"));
-    } catch (error) {
-      console.error("Failed to fetch members:", error);
-    }
-  }, []);
-
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
     try {
@@ -57,11 +44,8 @@ export function useWeeklySchedule() {
       const startDateStr = format(start, "yyyy-MM-dd");
       const endDateStr = format(end, "yyyy-MM-dd");
 
-      const res = await fetch(
-        `/api/schedules?startDate=${startDateStr}&endDate=${endDateStr}`
-      );
-      const data = await res.json();
-      setSchedules(data as ScheduleItem[]);
+      const data = await fetchSchedulesInRange(startDateStr, endDateStr);
+      setSchedules(data);
     } catch (error) {
       console.error("Failed to fetch schedules:", error);
     } finally {
@@ -69,27 +53,9 @@ export function useWeeklySchedule() {
     }
   }, [currentDate]);
 
-  const fetchDDays = useCallback(async () => {
-    try {
-      const res = await fetch("/api/ddays");
-      const data = await res.json();
-      setDDays(data as DDayItem[]);
-    } catch (error) {
-      console.error("Failed to fetch d-days:", error);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
-
-  useEffect(() => {
-    fetchSchedules();
+    void fetchSchedules();
   }, [fetchSchedules]);
-
-  useEffect(() => {
-    fetchDDays();
-  }, [fetchDDays]);
 
   const nextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
   const prevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
@@ -104,99 +70,26 @@ export function useWeeklySchedule() {
     status: ScheduleStatus;
   }) => {
     try {
-      // 1. Fetch existing schedules for the target date to check for conflicts
-      const dateStr = format(data.date, "yyyy-MM-dd");
-      const res = await fetch(`/api/schedules?date=${dateStr}`);
-      if (!res.ok) throw new Error("Failed to fetch schedules");
-
-      const existingSchedules = (await res.json()) as ScheduleItem[];
-      const memberSchedules = existingSchedules.filter(
-        (s) => s.member_uid === data.member_uid
-      );
-
-      // 2. Handle "Undecided" (미정) - Delete ALL schedules for this member on this date
-      if (data.status === "미정") {
-        await Promise.all(
-          memberSchedules.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-        fetchSchedules();
-        setIsEditDialogOpen(false);
-        setEditingSchedule(null);
-        return;
-      }
-
-      // 3. Handle conflicts based on status
-      if (data.status === "휴방" || data.status === "게릴라") {
-        // If Off or Guerrilla, delete all other schedules for this member
-        const schedulesToDelete = memberSchedules.filter(
-          (s) => s.id !== data.id
-        );
-        await Promise.all(
-          schedulesToDelete.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-      } else if (data.status === "방송") {
-        // If Broadcast, delete any conflicting exclusive statuses (Off, Guerrilla, Undecided)
-        const conflictingSchedules = memberSchedules.filter(
-          (s) =>
-            s.id !== data.id &&
-            (s.status === "휴방" ||
-              s.status === "게릴라" ||
-              s.status === "미정")
-        );
-        await Promise.all(
-          conflictingSchedules.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-      }
-
-      // 4. Create or Update
-      const method = data.id ? "PUT" : "POST";
-      const saveRes = await fetch("/api/schedules", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...data,
-          date: format(data.date, "yyyy-MM-dd"),
-        }),
-      });
-
-      if (saveRes.ok) {
-        fetchSchedules();
-        setIsEditDialogOpen(false);
-        setEditingSchedule(null);
-      } else {
-        setAlertMessage("스케쥴 저장 실패");
-        setAlertOpen(true);
-      }
+      await saveScheduleWithConflicts(data);
+      await fetchSchedules();
+      setIsEditDialogOpen(false);
+      setEditingSchedule(null);
     } catch (e) {
       console.error(e);
-      setAlertMessage("오류 발생");
+      setAlertMessage("스케쥴 저장 실패");
       setAlertOpen(true);
     }
   };
 
   const handleDeleteSchedule = async (id: number) => {
     try {
-      const res = await fetch(`/api/schedules?id=${id}`, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
-        fetchSchedules();
-        setEditingSchedule(null);
-        setIsEditDialogOpen(false);
-      } else {
-        setAlertMessage("스케쥴 삭제 실패");
-        setAlertOpen(true);
-      }
+      await deleteSchedule(id);
+      await fetchSchedules();
+      setEditingSchedule(null);
+      setIsEditDialogOpen(false);
     } catch (e) {
       console.error(e);
-      setAlertMessage("오류 발생");
+      setAlertMessage("스케쥴 삭제 실패");
       setAlertOpen(true);
     }
   };

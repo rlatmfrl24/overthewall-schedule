@@ -1,8 +1,6 @@
 import type {
-  Member,
   ScheduleItem,
   ScheduleStatus,
-  DDayItem,
   ChzzkLiveStatusMap,
 } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,13 +30,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
-import { cn, extractChzzkChannelId } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { useScheduleData } from "@/hooks/use-schedule-data";
+import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
+import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
+import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 
 export const DailySchedule = () => {
-  const [members, setMembers] = useState<Member[]>([]);
+  const { members, ddays } = useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null
   );
@@ -75,90 +76,43 @@ export const DailySchedule = () => {
   const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
   const handleToday = () => setCurrentDate(new Date());
 
-  const fetchLiveStatuses = useCallback(async (targetMembers: Member[]) => {
-    const channelPairs = targetMembers
-      .map((member) => {
-        const channelId = extractChzzkChannelId(member.url_chzzk);
-        return channelId ? { channelId, memberUid: member.uid } : null;
-      })
-      .filter(
-        (value): value is { channelId: string; memberUid: number } =>
-          value !== null
-      );
+  const fetchLiveStatuses = useCallback(
+    async (targetMembers: typeof members = members) => {
+      if (targetMembers.length === 0) {
+        setLiveStatuses({});
+        return;
+      }
+      try {
+        const nextMap = await fetchLiveStatusesForMembers(targetMembers);
+        setLiveStatuses(nextMap);
+      } catch (err) {
+        console.error("Failed to fetch live statuses", err);
+      }
+    },
+    [members]
+  );
 
-    if (channelPairs.length === 0) {
-      setLiveStatuses({});
-      return;
-    }
-
-    const channelToMembers = channelPairs.reduce<Record<string, number[]>>(
-      (acc, { channelId, memberUid }) => {
-        if (!acc[channelId]) acc[channelId] = [];
-        acc[channelId].push(memberUid);
-        return acc;
-      },
-      {}
-    );
-
-    const uniqueChannelIds = Object.keys(channelToMembers);
-
+  const fetchSchedules = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/live-status?channelIds=${uniqueChannelIds.join(",")}`
+      const data = await fetchSchedulesByDate(
+        format(currentDate, "yyyy-MM-dd")
       );
-      if (!res.ok) throw new Error("live status request failed");
-      const data = (await res.json()) as {
-        items?: {
-          channelId: string;
-          content: ChzzkLiveStatusMap[number];
-        }[];
-      };
-
-      const nextMap: ChzzkLiveStatusMap = {};
-      data.items?.forEach(({ channelId, content }) => {
-        const memberUids = channelToMembers[channelId] || [];
-        memberUids.forEach((uid) => {
-          nextMap[uid] = content ?? null;
-        });
-      });
-
-      setLiveStatuses(nextMap);
+      setSchedules(data);
     } catch (err) {
-      console.error("Failed to fetch live statuses", err);
+      console.error("Failed to fetch schedules:", err);
     }
-  }, []);
-
-  const fetchSchedules = useCallback(() => {
-    fetch(`/api/schedules?date=${format(currentDate, "yyyy-MM-dd")}`)
-      .then((res) => res.json())
-      .then((data) => setSchedules(data as ScheduleItem[]))
-      .catch((err) => console.error("Failed to fetch schedules:", err));
   }, [currentDate]);
 
   useEffect(() => {
-    fetch("/api/ddays")
-      .then((res) => res.json())
-      .then((data) => setDDays(data as DDayItem[]))
-      .catch((err) => console.error("Failed to fetch d-days:", err));
-
-    fetch("/api/members")
-      .then((res) => res.json())
-      .then((data) =>
-        setMembers(
-          (data as Member[]).filter(
-            (member) => member.is_deprecated === "false"
-          )
-        )
-      )
-      .catch((err) => console.error("Failed to fetch members:", err));
-
-    fetchSchedules();
-  }, [currentDate, fetchSchedules]);
+    void fetchSchedules();
+  }, [fetchSchedules]);
 
   useEffect(() => {
     if (members.length === 0) return;
-    fetchLiveStatuses(members);
-    const timer = setInterval(() => fetchLiveStatuses(members), 60_000);
+    void fetchLiveStatuses();
+    const timer = setInterval(() => {
+      void fetchLiveStatuses();
+    }, 60_000);
     return () => clearInterval(timer);
   }, [members, fetchLiveStatuses]);
 
@@ -173,99 +127,27 @@ export const DailySchedule = () => {
     status: ScheduleStatus;
   }) => {
     try {
-      // 1. Fetch existing schedules for the target date to check for conflicts
-      const dateStr = format(data.date, "yyyy-MM-dd");
-      const res = await fetch(`/api/schedules?date=${dateStr}`);
-      if (!res.ok) throw new Error("Failed to fetch schedules");
-
-      const existingSchedules = (await res.json()) as ScheduleItem[];
-      const memberSchedules = existingSchedules.filter(
-        (s) => s.member_uid === data.member_uid
-      );
-
-      // 2. Handle "Undecided" (미정) - Delete ALL schedules for this member on this date
-      if (data.status === "미정") {
-        await Promise.all(
-          memberSchedules.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-        fetchSchedules();
-        setIsEditDialogOpen(false);
-        setEditingSchedule(null);
-        return;
-      }
-
-      // 3. Handle conflicts based on status
-      if (data.status === "휴방" || data.status === "게릴라") {
-        // If Off or Guerrilla, delete all other schedules for this member
-        const schedulesToDelete = memberSchedules.filter(
-          (s) => s.id !== data.id
-        );
-        await Promise.all(
-          schedulesToDelete.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-      } else if (data.status === "방송") {
-        // If Broadcast, delete any conflicting exclusive statuses (Off, Guerrilla, Undecided)
-        const conflictingSchedules = memberSchedules.filter(
-          (s) =>
-            s.id !== data.id &&
-            (s.status === "휴방" ||
-              s.status === "게릴라" ||
-              s.status === "미정")
-        );
-        await Promise.all(
-          conflictingSchedules.map((s) =>
-            fetch(`/api/schedules?id=${s.id}`, { method: "DELETE" })
-          )
-        );
-      }
-
-      // 4. Create or Update
-      const method = data.id ? "PUT" : "POST";
-      const saveRes = await fetch("/api/schedules", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...data,
-          date: format(data.date, "yyyy-MM-dd"),
-        }),
-      });
-
-      if (saveRes.ok) {
-        fetchSchedules();
-        setIsEditDialogOpen(false);
-        setEditingSchedule(null);
-      } else {
-        setAlertMessage("스케쥴 저장 실패");
-        setAlertOpen(true);
-      }
+      await saveScheduleWithConflicts(data);
+      await fetchSchedules();
+      setIsEditDialogOpen(false);
+      setEditingSchedule(null);
     } catch (e) {
       console.error(e);
-      setAlertMessage("오류 발생");
+      setAlertMessage("스케쥴 저장 실패");
       setAlertOpen(true);
     }
   };
 
   const handleDeleteSchedule = async (id: number) => {
     try {
-      const res = await fetch(`/api/schedules?id=${id}`, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
-        fetchSchedules();
-        setEditingSchedule(null);
-        setIsEditDialogOpen(false);
-      } else {
-        setAlertMessage("스케쥴 삭제 실패");
-        setAlertOpen(true);
-      }
+      await deleteSchedule(id);
+      await fetchSchedules();
+      setEditingSchedule(null);
+      setIsEditDialogOpen(false);
     } catch (e) {
       console.error(e);
-      alert("오류 발생");
+      setAlertMessage("스케쥴 삭제 실패");
+      setAlertOpen(true);
     }
   };
 
@@ -524,14 +406,6 @@ export const DailySchedule = () => {
                               ? ` · ${dday.anniversaryLabel}`
                               : ""}
                           </span>
-                          {/* <span className="text-xs font-medium text-white/80 dark:text-amber-100/80 truncate">
-                            {dday.type === "event"
-                              ? "이벤트"
-                              : dday.type === "debut"
-                              ? "데뷔일"
-                              : "생일"}{" "}
-                            · {dday.targetDate.replace(/-/g, ".")}
-                          </span> */}
                         </div>
                       </div>
                     );
