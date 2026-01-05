@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useForm, Controller, useFieldArray } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { type DDay } from "@/db/schema";
 import {
   Dialog,
@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -65,11 +64,11 @@ export function DDayFormDialog({
       type: "event",
     },
   });
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "colors",
-  });
   const colors = watch("colors") || [];
+  const addColor = () => {
+    const fallback = colors[colors.length - 1] ?? "#f97316";
+    setValue("colors", [...colors, fallback], { shouldDirty: true });
+  };
 
   useEffect(() => {
     if (open) {
@@ -83,6 +82,28 @@ export function DDayFormDialog({
           colors: parsedColors.length ? parsedColors : ["#f97316"],
           type: (initialValues.type as DDayFormValues["type"]) ?? "event",
         });
+        // #region agent log
+        fetch(
+          "http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: "debug-session",
+              runId: "initial",
+              hypothesisId: "H1",
+              location: "src/components/admin/dday-form-dialog.tsx:75",
+              message: "initial values colors",
+              timestamp: Date.now(),
+              data: {
+                colors: parsedColors,
+                fallback: "#f97316",
+                branch: "initialValues",
+              },
+            }),
+          }
+        ).catch(() => {});
+        // #endregion
       } else {
         reset({
           title: "",
@@ -91,6 +112,27 @@ export function DDayFormDialog({
           colors: ["#f97316"],
           type: "event",
         });
+        // #region agent log
+        fetch(
+          "http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId: "debug-session",
+              runId: "initial",
+              hypothesisId: "H1",
+              location: "src/components/admin/dday-form-dialog.tsx:90",
+              message: "default colors reset",
+              timestamp: Date.now(),
+              data: {
+                colors: ["#f97316"],
+                branch: "resetDefaults",
+              },
+            }),
+          }
+        ).catch(() => {});
+        // #endregion
       }
     }
   }, [open, initialValues, reset]);
@@ -134,11 +176,11 @@ export function DDayFormDialog({
             <div className="space-y-2">
               <FieldLabel htmlFor="color-0">포인트 색상</FieldLabel>
               <div className="space-y-2">
-                {fields.map((field, index) => {
-                  const value = colors?.[index] ?? "";
+                {colors.map((value, index) => {
+                  const currentValue = value ?? "";
                   return (
                     <div
-                      key={field.id}
+                      key={`${index}-${currentValue}`}
                       className="flex items-center gap-2"
                       data-testid={`color-row-${index}`}
                     >
@@ -146,7 +188,7 @@ export function DDayFormDialog({
                         id={`color-${index}`}
                         type="color"
                         className="h-10 w-20 p-1"
-                        value={value || "#f97316"}
+                        value={currentValue || "#f97316"}
                         onChange={(event) =>
                           setValue(`colors.${index}`, event.target.value, {
                             shouldDirty: true,
@@ -157,19 +199,28 @@ export function DDayFormDialog({
                         type="text"
                         placeholder="#f97316"
                         className="flex-1"
-                        value={value}
+                        value={currentValue}
                         onChange={(event) =>
                           setValue(`colors.${index}`, event.target.value, {
                             shouldDirty: true,
                           })
                         }
                       />
-                      {fields.length > 1 && (
+                      {colors.length > 1 && (
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={() => remove(index)}
+                          onClick={() => {
+                            const nextColors = colors.filter(
+                              (_, idx) => idx !== index
+                            );
+                            setValue(
+                              "colors",
+                              nextColors.length ? nextColors : ["#f97316"],
+                              { shouldDirty: true }
+                            );
+                          }}
                           aria-label="색상 삭제"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -183,9 +234,7 @@ export function DDayFormDialog({
                   variant="outline"
                   size="sm"
                   className="gap-1"
-                  onClick={() =>
-                    append(colors?.[colors.length - 1] ?? "#f97316")
-                  }
+                  onClick={addColor}
                 >
                   <Plus className="h-4 w-4" />
                   색상 추가
@@ -247,4 +296,3 @@ export function DDayFormDialog({
     </Dialog>
   );
 }
-

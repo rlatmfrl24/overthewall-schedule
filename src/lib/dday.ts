@@ -32,6 +32,26 @@ export const normalizeDDayColors = (
 
 const resolveOccurrence = (dday: DDayItem, referenceDate: Date) => {
   const baseDate = parseISO(dday.date);
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId: "debug-session",
+      runId: "initial",
+      hypothesisId: "H2",
+      location: "src/lib/dday.ts:33",
+      message: "resolveOccurrence entry",
+      timestamp: Date.now(),
+      data: {
+        id: dday.id,
+        type: dday.type,
+        date: dday.date,
+        referenceDate: referenceDate.toISOString(),
+      },
+    }),
+  }).catch(() => {});
+  // #endregion
   if (!isValid(baseDate)) return null;
 
   const isAnnual = dday.type === "debut" || dday.type === "birthday";
@@ -64,31 +84,75 @@ export const getDDaysForDate = (
   ddays: DDayItem[],
   date: Date
 ): DDayMatch[] => {
-  return ddays
-    .map((dday) => {
-      const resolved = resolveOccurrence(dday, date);
-      if (!resolved) return null;
+  const mappedMatches: (DDayMatch | null)[] = ddays.map((dday) => {
+    const resolved = resolveOccurrence(dday, date);
+    if (!resolved) return null;
 
-      const { occurrence, diff, isAnnual, anniversaryLabel } = resolved;
-      const targetDate = occurrence.toISOString().split("T")[0];
-      const colors = normalizeDDayColors(dday.colors ?? dday.color);
-      const primaryColor = colors[0];
+    const { occurrence, diff, isAnnual, anniversaryLabel } = resolved;
+    const targetDate = occurrence.toISOString().split("T")[0];
+    const colors = normalizeDDayColors(dday.colors ?? dday.color);
+    const primaryColor = colors[0];
 
-      return {
-        id: String(dday.id ?? `${dday.title}-${targetDate}`),
-        title: dday.title,
-        description: dday.description,
-        color: primaryColor,
-        colors,
-        targetDate,
-        daysUntil: diff,
-        isToday: diff === 0,
-        type: dday.type,
-        anniversaryLabel,
-      } satisfies DDayMatch;
-    })
-    .filter((item): item is DDayMatch => Boolean(item))
-    .sort((a, b) => a.daysUntil - b.daysUntil);
+    // #region agent log
+    fetch("http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "debug-session",
+        runId: "initial",
+        hypothesisId: "H2",
+        location: "src/lib/dday.ts:78",
+        message: "mapped resolved D-Day",
+        timestamp: Date.now(),
+        data: {
+          id: dday.id,
+          isAnnual,
+          diff,
+          colors,
+        },
+      }),
+    }).catch(() => {});
+    // #endregion
+
+    return {
+      id: String(dday.id ?? `${dday.title}-${targetDate}`),
+      title: dday.title,
+      description: dday.description,
+      color: primaryColor,
+      colors,
+      targetDate,
+      daysUntil: diff,
+      isToday: diff === 0,
+      type: dday.type,
+      anniversaryLabel,
+    } satisfies DDayMatch;
+  });
+
+  const filteredMatches = mappedMatches.filter(
+    (item): item is DDayMatch => Boolean(item)
+  );
+
+  // #region agent log
+  fetch("http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sessionId: "debug-session",
+      runId: "initial",
+      hypothesisId: "H2",
+      location: "src/lib/dday.ts:103",
+      message: "filtered D-Day matches",
+      timestamp: Date.now(),
+      data: {
+        mappedCount: mappedMatches.length,
+        filteredCount: filteredMatches.length,
+        nullCount: mappedMatches.length - filteredMatches.length,
+      },
+    }),
+  }).catch(() => {});
+  // #endregion
+
+  return filteredMatches.sort((a, b) => a.daysUntil - b.daysUntil);
 };
 
 export const formatDDayLabel = (daysUntil: number) =>
