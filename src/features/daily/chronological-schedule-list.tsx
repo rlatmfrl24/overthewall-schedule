@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, hexToRgba } from "@/lib/utils";
+import { cn, hexToRgba, convertChzzkToLiveUrl } from "@/lib/utils";
 import { Clock, Radio, GripHorizontal } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -77,7 +77,7 @@ export const ChronologicalScheduleList = ({
             <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
               Other Broadcasts
             </h4>
-            <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+            <div className="h-px flex-1 bg-linear-to-r from-border to-transparent" />
           </div>
 
           <div className="grid gap-3">
@@ -121,7 +121,10 @@ const ScheduleCard = ({
 
   const handleClick = () => {
     if (isLive && member.url_chzzk) {
-      window.open(member.url_chzzk, "_blank", "noreferrer");
+      const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
+      if (liveUrl) {
+        window.open(liveUrl, "_blank", "noreferrer");
+      }
       return;
     }
     onClick(schedule);

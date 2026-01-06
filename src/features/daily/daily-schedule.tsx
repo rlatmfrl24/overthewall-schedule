@@ -31,7 +31,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
@@ -291,7 +295,7 @@ export const DailySchedule = () => {
               </div>
               <div className="flex flex-col">
                 <h1 className="text-2xl font-bold text-foreground">
-                  오늘의 스케쥴
+                  오늘의 {viewMode === "grid" ? "스케쥴" : "편성표"}
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {format(currentDate, "yyyy년 M월 d일")}

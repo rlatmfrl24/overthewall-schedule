@@ -64,3 +64,33 @@ export function extractChzzkChannelId(urlChzzk?: string | null): string | null {
   }
   return null;
 }
+
+/**
+ * CHZZK 채널 URL을 라이브 링크로 변환합니다.
+ * 예: https://chzzk.naver.com/29a1ed5c0829fa620fab900dba7e011b
+ *  -> https://chzzk.naver.com/live/29a1ed5c0829fa620fab900dba7e011b
+ */
+export function convertChzzkToLiveUrl(urlChzzk?: string | null): string | null {
+  if (!urlChzzk) return null;
+  
+  try {
+    const url = new URL(urlChzzk);
+    // 이미 /live/ 경로가 포함되어 있으면 그대로 반환
+    if (url.pathname.includes("/live/")) {
+      return urlChzzk;
+    }
+    
+    // https://chzzk.naver.com/채널ID 형식을 /live/채널ID로 변환
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    if (pathSegments.length > 0 && !pathSegments.includes("live")) {
+      const channelId = pathSegments[pathSegments.length - 1];
+      url.pathname = `/live/${channelId}`;
+      return url.toString();
+    }
+    
+    return urlChzzk;
+  } catch {
+    // URL 파싱 실패 시 원본 반환
+    return urlChzzk;
+  }
+}
