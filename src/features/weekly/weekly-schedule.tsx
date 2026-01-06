@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { ScheduleDialog } from "./schedule-dialog";
+import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,9 +10,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useWeeklySchedule } from "@/hooks/use-weekly-schedule";
-import { WeeklyHeader } from "./weekly-schedule/weekly-header";
-import { WeeklyGrid } from "./weekly-schedule/weekly-grid";
-import { NoticeBanner } from "./notice-banner";
+import { WeeklyHeader } from "./components/weekly-header";
+import { WeeklyGrid } from "./components/weekly-grid";
+import { NoticeBanner } from "@/shared/notice/notice-banner";
 
 export const WeeklySchedule = () => {
   const {

@@ -31,7 +31,7 @@ export async function saveScheduleWithConflicts(input: SaveScheduleInput) {
     return;
   }
 
-  if (isExclusiveStatus(input.status) && input.status !== "방송") {
+  if (isExclusiveStatus(input.status)) {
     const schedulesToDelete = memberSchedules.filter((s) => s.id !== input.id);
     await deleteSchedules(schedulesToDelete);
   } else if (input.status === "방송") {

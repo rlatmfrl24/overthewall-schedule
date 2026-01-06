@@ -14,6 +14,12 @@ import { Badge } from "@/components/ui/badge";
 import { DDayFormDialog, type DDayFormValues } from "./dday-form-dialog";
 import { cn } from "@/lib/utils";
 import { normalizeDDayColors } from "@/lib/dday";
+import {
+  createDDay,
+  deleteDDay,
+  fetchDDays,
+  updateDDay,
+} from "@/lib/api/ddays";
 
 export function DDayManager() {
   const [ddays, setDDays] = useState<DDay[]>([]);
@@ -25,9 +31,7 @@ export function DDayManager() {
   const loadDDays = useCallback(async () => {
     setIsFetching(true);
     try {
-      const response = await fetch("/api/ddays");
-      if (!response.ok) throw new Error("Failed to load d-days");
-      const data = await response.json();
+      const data = await fetchDDays();
       setDDays(data);
     } catch (error) {
       console.error("Failed to load d-days:", error);
@@ -53,10 +57,7 @@ export function DDayManager() {
   const handleDelete = async (id: number) => {
     if (!window.confirm("정말로 이 D-Day를 삭제하시겠습니까?")) return;
     try {
-      const response = await fetch(`/api/ddays?id=${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete");
+      await deleteDDay(id);
       await loadDDays();
     } catch (error) {
       console.error("Delete failed:", error);
@@ -76,15 +77,11 @@ export function DDayManager() {
         type: data.type,
       };
 
-      const response = await fetch("/api/ddays", {
-        method: editingDDay ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          editingDDay ? { ...payload, id: editingDDay.id } : payload
-        ),
-      });
-
-      if (!response.ok) throw new Error("Failed to save d-day");
+      if (editingDDay?.id) {
+        await updateDDay({ ...payload, id: editingDDay.id });
+      } else {
+        await createDDay(payload);
+      }
 
       await loadDDays();
       setIsDialogOpen(false);

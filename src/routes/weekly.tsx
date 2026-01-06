@@ -1,4 +1,4 @@
-import { WeeklySchedule } from "@/components/weekly-schedule";
+import { WeeklySchedule } from "@/features/weekly/weekly-schedule";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/weekly")({

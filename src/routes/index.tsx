@@ -1,4 +1,4 @@
-import { DailySchedule } from "@/components/daily-schedule";
+import { DailySchedule } from "@/features/daily/daily-schedule";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({

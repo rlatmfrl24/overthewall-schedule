@@ -5,7 +5,7 @@ import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import { useNavigate } from "@tanstack/react-router";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 import { User } from "lucide-react";
 
 interface CardMemberProps {

@@ -5,8 +5,8 @@ import type {
 } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
-import { ScheduleDialog } from "./schedule-dialog";
-import { NoticeBanner } from "./notice-banner";
+import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
+import { NoticeBanner } from "@/shared/notice/notice-banner";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -17,7 +17,7 @@ import {
   List,
 } from "lucide-react";
 import { toPng } from "html-to-image";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "motion/react";
 import { ChronologicalScheduleList } from "./chronological-schedule-list";
 import {
@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { type Notice } from "@/db/schema";
 import { ArrowLeft, Calendar, ExternalLink, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchNotices } from "@/lib/api/notices";
 
 const noticeTypeConfigs = {
   notice: {
@@ -34,9 +35,7 @@ function NoticePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/notices");
-      if (!response.ok) throw new Error("공지사항을 불러오지 못했습니다.");
-      const data = (await response.json()) as Notice[];
+      const data = await fetchNotices();
       setNotices(data);
     } catch (err) {
       setError(
