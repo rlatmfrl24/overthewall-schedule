@@ -80,7 +80,7 @@ export const CardMember = ({
         )}
 
         {/* Social Media Icons - Button Group */}
-        <div className="flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
           {member.url_twitter && (
             <a
               href={member.url_twitter}

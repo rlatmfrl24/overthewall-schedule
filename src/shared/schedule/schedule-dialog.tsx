@@ -1,7 +1,13 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -156,6 +162,7 @@ export const ScheduleDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{schedule ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
+          <DialogDescription>스케쥴을 추가하거나 수정합니다.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <FieldGroup>
