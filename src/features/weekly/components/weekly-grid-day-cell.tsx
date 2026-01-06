@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Plus } from "lucide-react";
 import { cn, hexToRgba } from "@/lib/utils";
 import type { Member, ScheduleItem } from "@/lib/types";
@@ -25,13 +26,15 @@ export const WeeklyGridDayCell = ({
   const bgTint = hexToRgba(subColor, 0.05);
 
   // Sort: Time -> Title
-  const sortedSchedules = [...schedules].sort((a, b) => {
-    if (a.start_time && b.start_time)
-      return a.start_time.localeCompare(b.start_time);
-    if (a.start_time) return -1;
-    if (b.start_time) return 1;
-    return 0;
-  });
+  const sortedSchedules = useMemo(() => {
+    return [...schedules].sort((a, b) => {
+      if (a.start_time && b.start_time)
+        return a.start_time.localeCompare(b.start_time);
+      if (a.start_time) return -1;
+      if (b.start_time) return 1;
+      return 0;
+    });
+  }, [schedules]);
 
   const hasSchedule = sortedSchedules.length > 0;
 

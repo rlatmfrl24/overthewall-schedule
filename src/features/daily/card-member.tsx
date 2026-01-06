@@ -1,22 +1,24 @@
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import { useNavigate } from "@tanstack/react-router";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 import { User } from "lucide-react";
 
 interface CardMemberProps {
   member: Member;
   schedules: ScheduleItem[];
+  liveStatus?: ChzzkLiveStatusMap[number];
   onScheduleClick?: (schedule: ScheduleItem) => void;
 }
 
 export const CardMember = ({
   member,
   schedules,
+  liveStatus,
   onScheduleClick,
 }: CardMemberProps) => {
   const navigate = useNavigate();
@@ -31,6 +33,8 @@ export const CardMember = ({
   const bodyBgColor = hexToRgba(subColor, 0.15); // Very light tint of sub color
   const borderColor = hexToRgba(mainColor, 0.3);
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
+  const isLive = liveStatus?.status === "OPEN";
+  const viewerCount = liveStatus?.concurrentUserCount;
 
   return (
     <div
@@ -48,6 +52,20 @@ export const CardMember = ({
         className="relative h-24 flex items-start justify-between p-4 transition-colors duration-300"
         style={{ backgroundColor: mainColor }}
       >
+        {isLive && (
+          <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+            <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-600 text-white text-[10px] font-black shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              LIVE
+            </span>
+            {typeof viewerCount === "number" && (
+              <span className="text-[10px] font-semibold text-white/90 bg-black/30 px-2 py-1 rounded-full backdrop-blur-sm">
+                {viewerCount.toLocaleString()} 시청중
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Unit Name Badge */}
         {member.unit_name && (
           <span
@@ -62,7 +80,7 @@ export const CardMember = ({
         )}
 
         {/* Social Media Icons - Button Group */}
-        <div className="flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
           {member.url_twitter && (
             <a
               href={member.url_twitter}

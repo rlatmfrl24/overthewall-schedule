@@ -4,7 +4,8 @@ import { Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { fetchNotices } from "@/lib/api/notices";
 
 const noticeTypeConfigs = {
   notice: {
@@ -31,11 +32,7 @@ export function NoticeBanner() {
   const navigate = useNavigate();
   const loadNotices = useCallback(async () => {
     try {
-      const response = await fetch("/api/notices");
-      if (!response.ok) {
-        throw new Error("Failed to load notices");
-      }
-      const data = (await response.json()) as Notice[];
+      const data = await fetchNotices();
       setNotices(data);
     } catch (error) {
       console.error("Failed to load notices:", error);

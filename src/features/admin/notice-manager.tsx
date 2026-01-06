@@ -19,6 +19,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { NoticeFormDialog, type NoticeFormValues } from "./notice-form-dialog";
 import { cn } from "@/lib/utils";
+import {
+  createNotice,
+  deleteNotice,
+  fetchNotices,
+  updateNotice,
+} from "@/lib/api/notices";
 
 const noticeTypeConfigs = {
   notice: {
@@ -45,9 +51,7 @@ export function NoticeManager() {
   const loadNotices = useCallback(async () => {
     setIsFetching(true);
     try {
-      const response = await fetch("/api/notices?includeInactive=1");
-      if (!response.ok) throw new Error("Failed to load notices");
-      const data = await response.json();
+      const data = await fetchNotices({ includeInactive: true });
       setNotices(data);
     } catch (error) {
       console.error("Failed to load notices:", error);
@@ -73,10 +77,7 @@ export function NoticeManager() {
   const handleDelete = async (id: number) => {
     if (!window.confirm("정말로 이 공지사항을 삭제하시겠습니까?")) return;
     try {
-      const response = await fetch(`/api/notices?id=${id}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to delete");
+      await deleteNotice(id);
       await loadNotices();
     } catch (error) {
       console.error("Delete failed:", error);
@@ -88,21 +89,17 @@ export function NoticeManager() {
     try {
       const payload = {
         ...data,
-        is_active: data.is_active ? "1" : "0",
+        is_active: data.is_active,
         url: data.url || undefined,
         started_at: data.started_at || undefined,
         ended_at: data.ended_at || undefined,
       };
 
-      const response = await fetch("/api/notices", {
-        method: editingNotice ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          editingNotice ? { ...payload, id: editingNotice.id } : payload
-        ),
-      });
-
-      if (!response.ok) throw new Error("Failed to save notice");
+      if (editingNotice?.id) {
+        await updateNotice({ ...payload, id: editingNotice.id });
+      } else {
+        await createNotice(payload);
+      }
 
       await loadNotices();
       setIsDialogOpen(false);

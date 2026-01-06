@@ -69,12 +69,9 @@ export const WeeklyGridHeader = ({
                     dday.isToday && gradient
                       ? {
                           background: gradient,
-                          boxShadow: primary
-                            ? `0 6px 18px ${primary}55`
-                            : undefined,
                         }
                       : !dday.isToday && primary
-                      ? { borderColor: primary, color: primary }
+                      ? { color: primary }
                       : undefined;
 
                   return (
@@ -86,7 +83,7 @@ export const WeeklyGridHeader = ({
                           ? dday.colors?.length
                             ? "text-white"
                             : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                          : "bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/40 dark:text-amber-50 dark:border-amber-800"
+                          : "bg-white text-foreground border-border dark:bg-card dark:border-border"
                       )}
                       style={cardStyle}
                     >

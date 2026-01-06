@@ -102,7 +102,7 @@ function ProfilePage() {
   const subContrastText = getContrastColor(subColor);
 
   // Unit Logo Logic
-  const getUnitLogo = (unitName?: string) => {
+const getUnitLogo = (unitName?: string | null) => {
     if (!unitName) return null;
     const name = unitName.toLowerCase().replace(/\s+/g, "");
     if (name.includes("하이블루밍")) return logoHiBlueming;

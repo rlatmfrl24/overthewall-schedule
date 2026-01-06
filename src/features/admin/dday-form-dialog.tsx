@@ -82,28 +82,6 @@ export function DDayFormDialog({
           colors: parsedColors.length ? parsedColors : ["#f97316"],
           type: (initialValues.type as DDayFormValues["type"]) ?? "event",
         });
-        // #region agent log
-        fetch(
-          "http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId: "debug-session",
-              runId: "initial",
-              hypothesisId: "H1",
-              location: "src/components/admin/dday-form-dialog.tsx:75",
-              message: "initial values colors",
-              timestamp: Date.now(),
-              data: {
-                colors: parsedColors,
-                fallback: "#f97316",
-                branch: "initialValues",
-              },
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
       } else {
         reset({
           title: "",
@@ -112,27 +90,6 @@ export function DDayFormDialog({
           colors: ["#f97316"],
           type: "event",
         });
-        // #region agent log
-        fetch(
-          "http://127.0.0.1:7242/ingest/2e596b27-7c29-45f4-8f96-6c9ebb37b20a",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId: "debug-session",
-              runId: "initial",
-              hypothesisId: "H1",
-              location: "src/components/admin/dday-form-dialog.tsx:90",
-              message: "default colors reset",
-              timestamp: Date.now(),
-              data: {
-                colors: ["#f97316"],
-                branch: "resetDefaults",
-              },
-            }),
-          }
-        ).catch(() => {});
-        // #endregion
       }
     }
   }, [open, initialValues, reset]);

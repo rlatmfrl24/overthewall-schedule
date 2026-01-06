@@ -1,8 +1,14 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ChevronDownIcon, Trash2 } from "lucide-react";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -22,12 +28,12 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "./ui/select";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "./ui/field";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Calendar } from "./ui/calendar";
-import { Input } from "./ui/input";
-import { ButtonGroup, ButtonGroupSeparator } from "./ui/button-group";
+} from "@/components/ui/select";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { ButtonGroup, ButtonGroupSeparator } from "@/components/ui/button-group";
 
 interface ScheduleDialogProps {
   onSubmit: (data: {
@@ -156,6 +162,7 @@ export const ScheduleDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{schedule ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
+          <DialogDescription>스케쥴을 추가하거나 수정합니다.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <FieldGroup>

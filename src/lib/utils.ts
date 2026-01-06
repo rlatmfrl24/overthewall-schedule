@@ -1,64 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { Member, ScheduleItem, ScheduleStatus } from "./types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-export function makeRandomSchedule(
-  members: Member[],
-  size: number
-): ScheduleItem[] {
-  if (members.length === 0) {
-    return [];
-  }
-
-  const schedule: ScheduleItem[] = [];
-  const statuses: ScheduleStatus[] = ["방송", "휴방", "게릴라", "미정"];
-  const broadcastTitles = [
-    "Just Chatting",
-    "Minecraft",
-    "Valorant",
-    "Singing",
-    "Talk",
-    "League of Legends",
-    "Cooking",
-    "Study",
-  ];
-
-  for (let i = 0; i < size; i++) {
-    const member = members[Math.floor(Math.random() * members.length)];
-    // Randomly select a status
-    const status = statuses[Math.floor(Math.random() * statuses.length)];
-
-    let title: string;
-    let start_time: string | undefined;
-
-    if (status === "방송") {
-      title =
-        broadcastTitles[Math.floor(Math.random() * broadcastTitles.length)];
-      // Random time between 10:00 and 23:59
-      const hour = Math.floor(Math.random() * 14) + 10;
-      const minute = Math.floor(Math.random() * 6) * 10;
-      start_time = `${hour.toString().padStart(2, "0")}:${minute
-        .toString()
-        .padStart(2, "0")}`;
-    } else {
-      title = status;
-      start_time = undefined;
-    }
-
-    schedule.push({
-      status,
-      member_uid: member.uid,
-      date: new Date().toISOString(),
-      start_time,
-      title,
-    });
-  }
-
-  return schedule;
 }
 
 export function hexToRgba(hex: string | undefined, alpha: number) {
@@ -102,4 +46,51 @@ export function adjustBrightness(hex: string, percent: number): string {
       .toString(16)
       .slice(1)
   );
+}
+
+export function extractChzzkChannelId(urlChzzk?: string | null): string | null {
+  if (!urlChzzk) return null;
+  try {
+    const parsed = new URL(urlChzzk);
+    const pathSegments = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = pathSegments[pathSegments.length - 1];
+    if (lastSegment) return lastSegment.split("?")[0];
+  } catch {
+    // Fallback for malformed URLs
+    const cleaned = urlChzzk.trim().replace(/^https?:\/\//i, "");
+    const segments = cleaned.split(/[/?#]/).filter(Boolean);
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment) return lastSegment;
+  }
+  return null;
+}
+
+/**
+ * CHZZK 채널 URL을 라이브 링크로 변환합니다.
+ * 예: https://chzzk.naver.com/29a1ed5c0829fa620fab900dba7e011b
+ *  -> https://chzzk.naver.com/live/29a1ed5c0829fa620fab900dba7e011b
+ */
+export function convertChzzkToLiveUrl(urlChzzk?: string | null): string | null {
+  if (!urlChzzk) return null;
+  
+  try {
+    const url = new URL(urlChzzk);
+    // 이미 /live/ 경로가 포함되어 있으면 그대로 반환
+    if (url.pathname.includes("/live/")) {
+      return urlChzzk;
+    }
+    
+    // https://chzzk.naver.com/채널ID 형식을 /live/채널ID로 변환
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    if (pathSegments.length > 0 && !pathSegments.includes("live")) {
+      const channelId = pathSegments[pathSegments.length - 1];
+      url.pathname = `/live/${channelId}`;
+      return url.toString();
+    }
+    
+    return urlChzzk;
+  } catch {
+    // URL 파싱 실패 시 원본 반환
+    return urlChzzk;
+  }
 }

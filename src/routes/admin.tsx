@@ -10,9 +10,9 @@ import {
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Loader2, ShieldAlert } from "lucide-react";
-import { AdminLayout } from "@/components/admin/admin-layout";
-import { NoticeManager } from "@/components/admin/notice-manager";
-import { DDayManager } from "@/components/admin/dday-manager";
+import { AdminLayout } from "@/features/admin/admin-layout";
+import { NoticeManager } from "@/features/admin/notice-manager";
+import { DDayManager } from "@/features/admin/dday-manager";
 
 export const Route = createFileRoute("/admin")({
   component: RouteComponent,
