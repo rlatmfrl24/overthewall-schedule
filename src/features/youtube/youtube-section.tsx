@@ -3,7 +3,6 @@ import type { Member } from "@/lib/types";
 import { useYouTubeVideos, useFilteredYouTubeVideos } from "@/hooks/use-youtube-videos";
 import { MemberFilterChips } from "./member-filter-chips";
 import { YouTubePlaylist } from "./youtube-playlist";
-import { Youtube } from "lucide-react";
 import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 
 interface YouTubeSectionProps {
@@ -35,13 +34,7 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
   }
 
   return (
-    <section className="space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-center gap-3">
-        <Youtube className="w-6 h-6 text-red-500" />
-        <h1 className="text-2xl font-bold text-foreground">YouTube 업로드</h1>
-      </div>
-
+    <div className="space-y-6">
       {/* 멤버 필터 */}
       <MemberFilterChips
         members={membersWithYouTube}
@@ -81,6 +74,6 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
           />
         </div>
       )}
-    </section>
+    </div>
   );
 };

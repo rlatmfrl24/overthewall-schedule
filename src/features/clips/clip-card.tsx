@@ -48,6 +48,27 @@ function formatRelativeDate(dateString: string): string {
   return `${Math.floor(diffDays / 365)}년 전`;
 }
 
+/**
+ * 날짜를 MM.DD 형식으로 변환
+ * 클립 createdDate 형식: "2026-01-28 06:50:55"
+ */
+function formatAbsoluteDate(dateString: string): string {
+  const date = new Date(dateString.replace(" ", "T"));
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}.${day}`;
+}
+
+/**
+ * 상대 시간 + 절대 날짜 조합
+ * 예: "3일 전 · 01.25"
+ */
+function formatDateCombined(dateString: string): string {
+  const relative = formatRelativeDate(dateString);
+  const absolute = formatAbsoluteDate(dateString);
+  return `${relative} · ${absolute}`;
+}
+
 export const ClipCard = ({ clip, member }: ClipCardProps) => {
   const clipUrl = `https://chzzk.naver.com/clips/${clip.clipUID}`;
   const accentColor = member?.main_color;
@@ -122,7 +143,7 @@ export const ClipCard = ({ clip, member }: ClipCardProps) => {
           </span>
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
-            {formatRelativeDate(clip.createdDate)}
+            {formatDateCombined(clip.createdDate)}
           </span>
         </div>
       </div>
