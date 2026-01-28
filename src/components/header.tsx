@@ -147,7 +147,7 @@ export const Header = () => {
                 variant="ghost"
                 className="justify-start h-12 text-lg rounded-xl w-full"
               >
-                다시보기 & 유튜브
+                VOD & 클립
               </Button>
             </Link>
             {isAdmin ? (
