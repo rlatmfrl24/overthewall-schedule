@@ -5,6 +5,7 @@ import type {
 } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CardMember } from "./card-member";
+import { CardMemberSkeleton } from "./card-member-skeleton";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
 import { NoticeBanner } from "@/shared/notice/notice-banner";
 import { format, addDays, subDays, isSameDay } from "date-fns";
@@ -339,11 +340,10 @@ export const DailySchedule = () => {
                 <button
                   onClick={handleToday}
                   disabled={isSameDay(currentDate, new Date())}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                    isSameDay(currentDate, new Date())
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${isSameDay(currentDate, new Date())
                       ? "text-muted-foreground cursor-not-allowed opacity-50"
                       : "text-foreground hover:bg-muted"
-                  }`}
+                    }`}
                 >
                   오늘로 이동
                 </button>
@@ -374,11 +374,11 @@ export const DailySchedule = () => {
                     const cardStyle =
                       dday.isToday && gradient
                         ? {
-                            background: gradient,
-                          }
+                          background: gradient,
+                        }
                         : !dday.isToday && primary
-                        ? { color: primary }
-                        : undefined;
+                          ? { color: primary }
+                          : undefined;
 
                     return (
                       <div
@@ -448,12 +448,11 @@ export const DailySchedule = () => {
                   );
                 })
               ) : (
-                <div className="col-span-full flex justify-center py-12">
-                  <div className="animate-pulse flex flex-col items-center gap-4">
-                    <div className="h-12 w-12 bg-muted rounded-full"></div>
-                    <div className="h-4 w-48 bg-muted rounded"></div>
-                  </div>
-                </div>
+                <>
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <CardMemberSkeleton key={i} />
+                  ))}
+                </>
               )}
             </div>
           ) : (

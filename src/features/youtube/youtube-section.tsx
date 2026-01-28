@@ -3,7 +3,8 @@ import type { Member } from "@/lib/types";
 import { useYouTubeVideos, useFilteredYouTubeVideos } from "@/hooks/use-youtube-videos";
 import { MemberFilterChips } from "./member-filter-chips";
 import { YouTubePlaylist } from "./youtube-playlist";
-import { Loader2, Youtube } from "lucide-react";
+import { Youtube } from "lucide-react";
+import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 
 interface YouTubeSectionProps {
   members: Member[];
@@ -49,12 +50,7 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
       />
 
       {/* 로딩 상태 */}
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-12 gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">YouTube 동영상을 불러오는 중...</p>
-        </div>
-      )}
+      {loading && <YouTubeSectionSkeleton />}
 
       {/* 에러 상태 */}
       {error && !loading && (

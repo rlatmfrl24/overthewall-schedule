@@ -2,7 +2,8 @@ import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
 import { VodCard } from "./vod-card";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
-import { ChevronRight, Loader2, VideoOff, MonitorPlay } from "lucide-react";
+import { ChevronRight, VideoOff, MonitorPlay } from "lucide-react";
+import { VodsGridSkeleton } from "./vod-section-skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { YouTubeSection } from "@/features/youtube/youtube-section";
@@ -19,7 +20,7 @@ export const VodsOverview = () => {
 
   return (
     <div className="flex flex-1 w-full overflow-y-auto">
-      <div className="container mx-auto px-4 py-8 space-y-12">
+      <div className="container mx-auto px-4 pt-8 pb-16 space-y-12">
         {/* YouTube 섹션 */}
         <YouTubeSection members={members} />
 
@@ -33,10 +34,7 @@ export const VodsOverview = () => {
           </div>
 
           {showInitialLoading ? (
-            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 w-full">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              <p className="text-muted-foreground">다시보기를 불러오는 중...</p>
-            </div>
+            <VodsGridSkeleton />
           ) : membersWithChzzk.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 w-full">
               <VideoOff className="w-12 h-12 text-muted-foreground" />
