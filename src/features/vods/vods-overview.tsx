@@ -1,5 +1,6 @@
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
+import { useAllMembersClips } from "@/hooks/use-chzzk-clips";
 import { VodCard } from "./vod-card";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { ChevronRight, VideoOff, MonitorPlay } from "lucide-react";
@@ -7,10 +8,12 @@ import { VodsGridSkeleton } from "./vod-section-skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { YouTubeSection } from "@/features/youtube/youtube-section";
+import { ChzzkClipsPlaylist } from "@/features/clips/chzzk-clips-playlist";
 
 export const VodsOverview = () => {
   const { members, loading: membersLoading } = useScheduleData();
   const { vods, loading: vodsLoading } = useAllMembersLatestVods(members);
+  const { clips, loading: clipsLoading } = useAllMembersClips(members, 10);
 
   const loading = membersLoading || vodsLoading;
   const showInitialLoading = loading && members.length === 0;
@@ -23,6 +26,13 @@ export const VodsOverview = () => {
       <div className="container mx-auto px-4 pt-8 pb-8 space-y-12">
         {/* YouTube 섹션 */}
         <YouTubeSection members={members} />
+
+        {/* 치지직 클립 섹션 */}
+        <ChzzkClipsPlaylist
+          clips={clips}
+          members={members}
+          loading={clipsLoading && clips.length === 0}
+        />
 
         {/* 치지직 섹션 */}
         <section className="space-y-6">

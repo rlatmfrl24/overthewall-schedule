@@ -58,6 +58,36 @@ type CachedChzzkVideos = {
 const CHZZK_VIDEOS_CACHE = new Map<string, CachedChzzkVideos>();
 const CHZZK_VIDEOS_TTL_MS = 60_000;
 
+// Chzzk Clips Cache
+type CachedChzzkClips = {
+  fetchedAt: number;
+  content: {
+    size: number;
+    page: {
+      next: { clipUID: string } | null;
+      prev: { clipUID: string } | null;
+    };
+    data: Array<{
+      clipUID: string;
+      videoId: string;
+      clipTitle: string;
+      ownerChannelId: string;
+      thumbnailImageUrl: string | null;
+      categoryType: string;
+      clipCategory: string;
+      duration: number;
+      adult: boolean;
+      createdDate: string;
+      readCount: number;
+      blindType: string | null;
+    }>;
+    hasStreamerClips: boolean;
+  } | null;
+};
+
+const CHZZK_CLIPS_CACHE = new Map<string, CachedChzzkClips>();
+const CHZZK_CLIPS_TTL_MS = 60_000;
+
 // YouTube API Types and Cache
 type YouTubeVideoItem = {
   videoId: string;
@@ -102,7 +132,7 @@ const parseISO8601Duration = (duration: string): number => {
 // YouTube API: 채널의 uploads 플레이리스트 ID 가져오기 (캐싱 포함)
 const fetchYouTubeUploadsPlaylistId = async (
   channelId: string,
-  apiKey: string
+  apiKey: string,
 ): Promise<string | null> => {
   // 캐시 확인
   const cached = YOUTUBE_PLAYLIST_ID_CACHE.get(channelId);
@@ -112,14 +142,14 @@ const fetchYouTubeUploadsPlaylistId = async (
   }
 
   const url = `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`;
-  
+
   try {
     const res = await fetch(url);
     if (!res.ok) {
       // 쿼터 에러(403) 또는 rate limit(429) 처리
       if (res.status === 403 || res.status === 429) {
         console.error(
-          `YouTube API quota exceeded or rate limited for channel ${channelId}`
+          `YouTube API quota exceeded or rate limited for channel ${channelId}`,
         );
         // 이전 캐시가 있으면 재사용 (TTL 무시)
         if (cached) {
@@ -129,7 +159,7 @@ const fetchYouTubeUploadsPlaylistId = async (
       console.error("Failed to fetch YouTube channel", channelId, res.status);
       return null;
     }
-    
+
     const data = (await res.json()) as {
       items?: Array<{
         contentDetails?: {
@@ -139,16 +169,16 @@ const fetchYouTubeUploadsPlaylistId = async (
         };
       }>;
     };
-    
+
     const playlistId =
       data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads ?? null;
-    
+
     // 캐시 저장
     YOUTUBE_PLAYLIST_ID_CACHE.set(channelId, {
       fetchedAt: now,
       playlistId,
     });
-    
+
     return playlistId;
   } catch (error) {
     console.error("Error fetching YouTube playlist ID:", error);
@@ -165,10 +195,10 @@ const fetchYouTubePlaylistItems = async (
   playlistId: string,
   apiKey: string,
   maxResults = 20,
-  retryCount = 0
+  retryCount = 0,
 ): Promise<string[]> => {
   const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${apiKey}`;
-  
+
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -180,13 +210,13 @@ const fetchYouTubePlaylistItems = async (
           playlistId,
           apiKey,
           maxResults,
-          retryCount + 1
+          retryCount + 1,
         );
       }
       console.error("Failed to fetch YouTube playlist", playlistId, res.status);
       return [];
     }
-    
+
     const data = (await res.json()) as {
       items?: Array<{
         contentDetails?: {
@@ -194,7 +224,7 @@ const fetchYouTubePlaylistItems = async (
         };
       }>;
     };
-    
+
     return (
       data.items
         ?.map((item) => item.contentDetails?.videoId)
@@ -209,14 +239,14 @@ const fetchYouTubePlaylistItems = async (
 // YouTube API: 동영상 상세 정보 조회 (배치 처리 최적화)
 const fetchYouTubeVideoDetails = async (
   videoIds: string[],
-  apiKey: string
+  apiKey: string,
 ): Promise<YouTubeVideoItem[]> => {
   if (videoIds.length === 0) return [];
 
   // YouTube API는 한 번에 최대 50개까지 조회 가능
   const BATCH_SIZE = 50;
   const batches: string[][] = [];
-  
+
   for (let i = 0; i < videoIds.length; i += BATCH_SIZE) {
     batches.push(videoIds.slice(i, i + BATCH_SIZE));
   }
@@ -227,12 +257,12 @@ const fetchYouTubeVideoDetails = async (
       batches.map(async (batch) => {
         const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${batch.join(",")}&key=${apiKey}`;
         const res = await fetch(url);
-        
+
         if (!res.ok) {
           console.error("Failed to fetch YouTube videos batch", res.status);
           return [];
         }
-        
+
         const data = (await res.json()) as {
           items?: Array<{
             id: string;
@@ -259,7 +289,7 @@ const fetchYouTubeVideoDetails = async (
         return (
           data.items?.map((item) => {
             const duration = parseISO8601Duration(
-              item.contentDetails?.duration || "PT0S"
+              item.contentDetails?.duration || "PT0S",
             );
             const thumbnails = item.snippet?.thumbnails;
             const thumbnailUrl =
@@ -281,7 +311,7 @@ const fetchYouTubeVideoDetails = async (
             };
           }) ?? []
         );
-      })
+      }),
     );
 
     return results.flat();
@@ -295,7 +325,7 @@ const fetchYouTubeVideoDetails = async (
 const fetchYouTubeVideosForChannel = async (
   channelId: string,
   apiKey: string,
-  maxResults = 20
+  maxResults = 20,
 ): Promise<CachedYouTubeVideos["content"]> => {
   const cacheKey = `${channelId}:${maxResults}`;
   const cached = YOUTUBE_VIDEOS_CACHE.get(cacheKey);
@@ -307,7 +337,7 @@ const fetchYouTubeVideosForChannel = async (
   // 1. uploads 플레이리스트 ID 조회
   const uploadsPlaylistId = await fetchYouTubeUploadsPlaylistId(
     channelId,
-    apiKey
+    apiKey,
   );
   if (!uploadsPlaylistId) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, { fetchedAt: now, content: null });
@@ -318,7 +348,7 @@ const fetchYouTubeVideosForChannel = async (
   const videoIds = await fetchYouTubePlaylistItems(
     uploadsPlaylistId,
     apiKey,
-    maxResults
+    maxResults,
   );
   if (videoIds.length === 0) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, {
@@ -380,7 +410,7 @@ const fetchChzzkLiveStatus = async (channelId: string) => {
 const fetchChzzkVideos = async (
   channelId: string,
   page = 0,
-  size = 24
+  size = 24,
 ): Promise<CachedChzzkVideos["content"]> => {
   const cacheKey = `${channelId}:${page}:${size}`;
   const cached = CHZZK_VIDEOS_CACHE.get(cacheKey);
@@ -403,6 +433,37 @@ const fetchChzzkVideos = async (
 
   const content = data?.content ?? null;
   CHZZK_VIDEOS_CACHE.set(cacheKey, {
+    fetchedAt: now,
+    content,
+  });
+  return content;
+};
+
+const fetchChzzkClips = async (
+  channelId: string,
+  size = 30,
+): Promise<CachedChzzkClips["content"]> => {
+  const cacheKey = `${channelId}:${size}`;
+  const cached = CHZZK_CLIPS_CACHE.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < CHZZK_CLIPS_TTL_MS) {
+    return cached.content;
+  }
+
+  const url = `https://api.chzzk.naver.com/service/v1/channels/${channelId}/clips?size=${size}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch chzzk clips", channelId, res.status);
+    return null;
+  }
+
+  const data = (await res.json()) as {
+    code: number;
+    content: CachedChzzkClips["content"];
+  };
+
+  const content = data?.content ?? null;
+  CHZZK_CLIPS_CACHE.set(cacheKey, {
     fetchedAt: now,
     content,
   });
@@ -489,7 +550,7 @@ export default {
         channelIds.map(async (channelId) => ({
           channelId,
           content: await fetchChzzkLiveStatus(channelId),
-        }))
+        })),
       );
 
       return json({
@@ -522,7 +583,7 @@ export default {
           channelIds.map(async (id) => ({
             channelId: id,
             content: await fetchChzzkVideos(id, page, size),
-          }))
+          })),
         );
 
         return json({
@@ -536,6 +597,50 @@ export default {
       }
 
       const content = await fetchChzzkVideos(channelId, page, size);
+      return json({
+        updatedAt: new Date().toISOString(),
+        content,
+      });
+    }
+
+    // Chzzk Clips API
+    if (url.pathname.startsWith("/api/clips/chzzk")) {
+      if (request.method !== "GET") {
+        return methodNotAllowed();
+      }
+
+      const channelIdsParam = url.searchParams.get("channelIds");
+      const channelId = url.searchParams.get("channelId");
+      const size = parseInt(url.searchParams.get("size") || "30", 10);
+
+      if (channelIdsParam) {
+        const channelIds = channelIdsParam
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+
+        if (channelIds.length === 0) {
+          return badRequest("No valid channelIds");
+        }
+
+        const items = await Promise.all(
+          channelIds.map(async (id) => ({
+            channelId: id,
+            content: await fetchChzzkClips(id, size),
+          })),
+        );
+
+        return json({
+          updatedAt: new Date().toISOString(),
+          items,
+        });
+      }
+
+      if (!channelId) {
+        return badRequest("channelId query required");
+      }
+
+      const content = await fetchChzzkClips(channelId, size);
       return json({
         updatedAt: new Date().toISOString(),
         content,
@@ -569,7 +674,7 @@ export default {
 
       const maxResults = parseInt(
         url.searchParams.get("maxResults") || "20",
-        10
+        10,
       );
 
       const items = await Promise.all(
@@ -578,9 +683,9 @@ export default {
           content: await fetchYouTubeVideosForChannel(
             channelId,
             apiKey,
-            maxResults
+            maxResults,
           ),
-        }))
+        })),
       );
 
       // 모든 채널의 동영상을 합쳐서 최신순 정렬
@@ -597,11 +702,11 @@ export default {
       // 최신순 정렬
       allVideos.sort(
         (a, b) =>
-          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
       );
       allShorts.sort(
         (a, b) =>
-          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
       );
 
       return json({

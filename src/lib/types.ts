@@ -108,3 +108,31 @@ export interface YouTubeVideosResponse {
 }
 
 export type MemberYouTubeMap = Record<number, YouTubeVideo[]>;
+
+// Chzzk Clip Types
+export interface ChzzkClip {
+  clipUID: string;
+  videoId: string;
+  clipTitle: string;
+  ownerChannelId: string;
+  thumbnailImageUrl: string | null;
+  categoryType: string;
+  clipCategory: string;
+  duration: number;
+  adult: boolean;
+  createdDate: string;
+  readCount: number;
+  blindType: string | null;
+  // 프론트엔드에서 추가할 필드
+  memberUid?: number;
+}
+
+export interface ChzzkClipsResponse {
+  size: number;
+  page: {
+    next: { clipUID: string } | null;
+    prev: { clipUID: string } | null;
+  };
+  data: ChzzkClip[];
+  hasStreamerClips: boolean;
+}
