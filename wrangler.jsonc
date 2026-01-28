@@ -8,10 +8,10 @@
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-25",
   "assets": {
-    "not_found_handling": "single-page-application"
+    "not_found_handling": "single-page-application",
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "d1_databases": [
     {
@@ -19,14 +19,11 @@
       "database_name": "otw-db",
       "database_id": "133b980d-1701-427e-93fd-8c9dcca1132e",
       "remote": true,
-      "migrations_dir": "drizzle"
-    }
+      "migrations_dir": "drizzle",
+    },
   ],
-  // YouTube API 키는 wrangler secret을 통해 설정하거나 vars에 직접 추가
+  // YouTube API 키는 wrangler secret으로만 관리 (레포에 값 저장 금지)
   // 실제 배포 시: wrangler secret put YOUTUBE_API_KEY
-  "vars": {
-    "YOUTUBE_API_KEY": ""
-  }
   /**
    * Smart Placement
    * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
