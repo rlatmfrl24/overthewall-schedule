@@ -42,6 +42,9 @@ export const Header = () => {
           <Link to="/weekly" className="[&.active]:font-bold">
             <Button variant="ghost">주간 스케쥴표</Button>
           </Link>
+          <Link to="/vods" className="[&.active]:font-bold">
+            <Button variant="ghost">다시보기 & 유튜브</Button>
+          </Link>
           {isAdmin ? (
             <Link to="/admin" className="[&.active]:font-bold">
               <Button variant="ghost">관리자</Button>

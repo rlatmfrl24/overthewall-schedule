@@ -55,3 +55,34 @@ export type ChzzkLiveStatusMap = Record<
   number,
   ChzzkLiveStatus["content"] | null
 >;
+
+// Chzzk VOD Types
+export interface ChzzkVideo {
+  videoNo: number;
+  videoId: string;
+  videoTitle: string;
+  videoType: string;
+  publishDate: string;
+  thumbnailImageUrl: string | null;
+  duration: number;
+  readCount: number;
+  publishDateAt: number;
+  categoryType: string | null;
+  videoCategory: string | null;
+  videoCategoryValue: string;
+  channel: {
+    channelId: string;
+    channelName: string;
+    channelImageUrl: string;
+  };
+}
+
+export interface ChzzkVideosResponse {
+  page: number;
+  size: number;
+  totalCount: number;
+  totalPages: number;
+  data: ChzzkVideo[];
+}
+
+export type MemberVodMap = Record<number, ChzzkVideo | null>;

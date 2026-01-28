@@ -25,6 +25,39 @@ type CachedLiveStatus = {
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
 const LIVE_STATUS_TTL_MS = 60_000;
 
+// Chzzk VOD Cache
+type CachedChzzkVideos = {
+  fetchedAt: number;
+  content: {
+    page: number;
+    size: number;
+    totalCount: number;
+    totalPages: number;
+    data: Array<{
+      videoNo: number;
+      videoId: string;
+      videoTitle: string;
+      videoType: string;
+      publishDate: string;
+      thumbnailImageUrl: string | null;
+      duration: number;
+      readCount: number;
+      publishDateAt: number;
+      categoryType: string | null;
+      videoCategory: string | null;
+      videoCategoryValue: string;
+      channel: {
+        channelId: string;
+        channelName: string;
+        channelImageUrl: string;
+      };
+    }>;
+  } | null;
+};
+
+const CHZZK_VIDEOS_CACHE = new Map<string, CachedChzzkVideos>();
+const CHZZK_VIDEOS_TTL_MS = 60_000;
+
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const badRequest = (message: string) => new Response(message, { status: 400 });
 const methodNotAllowed = () =>
@@ -56,6 +89,38 @@ const fetchChzzkLiveStatus = async (channelId: string) => {
 
   const content = data?.content ?? null;
   LIVE_STATUS_CACHE.set(channelId, {
+    fetchedAt: now,
+    content,
+  });
+  return content;
+};
+
+const fetchChzzkVideos = async (
+  channelId: string,
+  page = 0,
+  size = 24
+): Promise<CachedChzzkVideos["content"]> => {
+  const cacheKey = `${channelId}:${page}:${size}`;
+  const cached = CHZZK_VIDEOS_CACHE.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < CHZZK_VIDEOS_TTL_MS) {
+    return cached.content;
+  }
+
+  const url = `https://api.chzzk.naver.com/service/v1/channels/${channelId}/videos?sortType=LATEST&pagingType=PAGE&page=${page}&size=${size}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch chzzk videos", channelId, res.status);
+    return null;
+  }
+
+  const data = (await res.json()) as {
+    code: number;
+    content: CachedChzzkVideos["content"];
+  };
+
+  const content = data?.content ?? null;
+  CHZZK_VIDEOS_CACHE.set(cacheKey, {
     fetchedAt: now,
     content,
   });
@@ -148,6 +213,50 @@ export default {
       return json({
         updatedAt: new Date().toISOString(),
         items,
+      });
+    }
+
+    if (url.pathname.startsWith("/api/vods/chzzk")) {
+      if (request.method !== "GET") {
+        return methodNotAllowed();
+      }
+
+      const channelIdsParam = url.searchParams.get("channelIds");
+      const channelId = url.searchParams.get("channelId");
+      const page = parseInt(url.searchParams.get("page") || "0", 10);
+      const size = parseInt(url.searchParams.get("size") || "24", 10);
+
+      if (channelIdsParam) {
+        const channelIds = channelIdsParam
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+
+        if (channelIds.length === 0) {
+          return badRequest("No valid channelIds");
+        }
+
+        const items = await Promise.all(
+          channelIds.map(async (id) => ({
+            channelId: id,
+            content: await fetchChzzkVideos(id, page, size),
+          }))
+        );
+
+        return json({
+          updatedAt: new Date().toISOString(),
+          items,
+        });
+      }
+
+      if (!channelId) {
+        return badRequest("channelId query required");
+      }
+
+      const content = await fetchChzzkVideos(channelId, page, size);
+      return json({
+        updatedAt: new Date().toISOString(),
+        content,
       });
     }
 
