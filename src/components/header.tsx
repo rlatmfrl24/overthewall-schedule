@@ -19,7 +19,7 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border-border">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
         {/* Logo & Title */}
         <div className="flex items-center gap-3">
           <img src="/logo_otw.svg" width={90} height={25} alt="logo" />
@@ -34,7 +34,7 @@ export const Header = () => {
         {/* Desktop Navigation - Centered */}
         <nav
           aria-label="menu"
-          className="hidden lg:flex items-center gap-1 absolute left-1/2 transform -translate-x-1/2"
+          className="hidden lg:flex flex-1 items-center justify-center gap-1"
         >
           <Link to="/" className="[&.active]:font-bold">
             <Button variant="ghost">오늘 스케쥴표</Button>
@@ -133,6 +133,18 @@ export const Header = () => {
                 className="justify-start h-12 text-lg rounded-xl w-full"
               >
                 주간 스케쥴표
+              </Button>
+            </Link>
+            <Link
+              to="/vods"
+              className="w-full"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Button
+                variant="ghost"
+                className="justify-start h-12 text-lg rounded-xl w-full"
+              >
+                다시보기 & 유튜브
               </Button>
             </Link>
             {isAdmin ? (
