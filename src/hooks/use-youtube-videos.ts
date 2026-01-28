@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { fetchMembersYouTubeVideos } from "@/lib/api/youtube";
 import type { YouTubeVideo, YouTubeVideosResponse, Member } from "@/lib/types";
 
@@ -11,7 +11,7 @@ interface UseYouTubeVideosReturn {
 }
 
 /**
- * 멤버들의 YouTube 동영상을 조회하는 훅
+ * 멤버들의 YouTube 동영상을 조회하는 훅 (최적화됨)
  */
 export function useYouTubeVideos(
   members: Member[],
@@ -23,10 +23,27 @@ export function useYouTubeVideos(
 
   const { maxResults = 20 } = options;
 
+  // YouTube 채널이 있는 멤버만 필터링 (메모이제이션)
+  const membersWithYouTube = useMemo(
+    () => members.filter((m) => m.youtube_channel_id),
+    [members]
+  );
+
+  // 채널 ID 문자열로 의존성 관리 (배열 참조 변경에 영향받지 않도록)
+  const channelIdsKey = useMemo(
+    () =>
+      membersWithYouTube
+        .map((m) => m.youtube_channel_id)
+        .sort()
+        .join(","),
+    [membersWithYouTube]
+  );
+
   const reload = useCallback(async () => {
-    const membersWithYouTube = members.filter((m) => m.youtube_channel_id);
     if (membersWithYouTube.length === 0) {
       setData(null);
+      setLoading(false);
+      setError(null);
       return;
     }
 
@@ -37,18 +54,36 @@ export function useYouTubeVideos(
       const response = await fetchMembersYouTubeVideos(membersWithYouTube, {
         maxResults,
       });
-      setData(response);
+      
+      if (response) {
+        setData(response);
+        setError(null);
+      } else {
+        // API 응답이 null인 경우 (에러가 아니라 데이터가 없는 경우)
+        if (!data) {
+          // 이전 데이터가 없으면 빈 상태로 설정
+          setData({ videos: [], shorts: [], updatedAt: new Date().toISOString() });
+        }
+        // 이전 데이터가 있으면 유지
+      }
     } catch (err) {
       console.error("Failed to fetch YouTube videos:", err);
-      setError("YouTube 동영상을 불러오는데 실패했습니다.");
+      
+      // 에러 발생 시 이전 데이터가 있으면 유지하고 에러만 표시
+      if (!data) {
+        setError("YouTube 동영상을 불러오는데 실패했습니다.");
+      } else {
+        // 이전 데이터가 있으면 에러 표시하지 않음 (stale 데이터 사용)
+        console.warn("Using cached data due to fetch error");
+      }
     } finally {
       setLoading(false);
     }
-  }, [members, maxResults]);
+  }, [membersWithYouTube, maxResults, data]);
 
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [channelIdsKey, maxResults]); // reload 대신 channelIdsKey와 maxResults로 의존성 관리
 
   return {
     videos: data?.videos ?? [],
