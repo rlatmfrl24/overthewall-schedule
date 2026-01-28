@@ -2,9 +2,10 @@ import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
 import { VodCard } from "./vod-card";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
-import { ChevronRight, Loader2, VideoOff } from "lucide-react";
+import { ChevronRight, Loader2, VideoOff, MonitorPlay } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { YouTubeSection } from "@/features/youtube/youtube-section";
 
 export const VodsOverview = () => {
   const { members, loading: membersLoading } = useScheduleData();
@@ -18,16 +19,18 @@ export const VodsOverview = () => {
 
   return (
     <div className="flex flex-1 w-full overflow-y-auto">
-      <div className="container mx-auto px-4 py-8">
-        <>
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            유튜브 최신 업로드 동영상
-          </h1>
-        </>
-        <>
-          <h1 className="text-2xl font-bold text-foreground mb-2">
-            치지직 최신 다시보기
-          </h1>
+      <div className="container mx-auto px-4 py-8 space-y-12">
+        {/* YouTube 섹션 */}
+        <YouTubeSection members={members} />
+
+        {/* 치지직 섹션 */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-3">
+            <MonitorPlay className="w-6 h-6 text-green-500" />
+            <h1 className="text-2xl font-bold text-foreground">
+              치지직 최신 다시보기
+            </h1>
+          </div>
 
           {showInitialLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 w-full">
@@ -123,7 +126,7 @@ export const VodsOverview = () => {
               })}
             </div>
           )}
-        </>
+        </section>
       </div>
     </div>
   );

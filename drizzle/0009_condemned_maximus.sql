@@ -1,0 +1,1 @@
+ALTER TABLE `members` ADD `youtube_channel_id` text;

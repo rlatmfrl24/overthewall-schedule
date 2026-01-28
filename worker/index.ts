@@ -58,6 +58,201 @@ type CachedChzzkVideos = {
 const CHZZK_VIDEOS_CACHE = new Map<string, CachedChzzkVideos>();
 const CHZZK_VIDEOS_TTL_MS = 60_000;
 
+// YouTube API Types and Cache
+type YouTubeVideoItem = {
+  videoId: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  duration: number;
+  viewCount: number;
+  channelId: string;
+  channelTitle: string;
+  isShort: boolean;
+};
+
+type CachedYouTubeVideos = {
+  fetchedAt: number;
+  content: {
+    videos: YouTubeVideoItem[];
+    shorts: YouTubeVideoItem[];
+  } | null;
+};
+
+const YOUTUBE_VIDEOS_CACHE = new Map<string, CachedYouTubeVideos>();
+const YOUTUBE_VIDEOS_TTL_MS = 5 * 60_000; // 5분 캐시 (YouTube API 쿼터 절약)
+
+// ISO 8601 duration (PT1H2M3S) 을 초 단위로 변환
+const parseISO8601Duration = (duration: string): number => {
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  const hours = parseInt(match[1] || "0", 10);
+  const minutes = parseInt(match[2] || "0", 10);
+  const seconds = parseInt(match[3] || "0", 10);
+  return hours * 3600 + minutes * 60 + seconds;
+};
+
+// YouTube API: 채널의 uploads 플레이리스트 ID 가져오기
+const fetchYouTubeUploadsPlaylistId = async (
+  channelId: string,
+  apiKey: string
+): Promise<string | null> => {
+  const url = `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${channelId}&key=${apiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch YouTube channel", channelId, res.status);
+    return null;
+  }
+  const data = (await res.json()) as {
+    items?: Array<{
+      contentDetails?: {
+        relatedPlaylists?: {
+          uploads?: string;
+        };
+      };
+    }>;
+  };
+  return data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads ?? null;
+};
+
+// YouTube API: 플레이리스트 아이템 조회
+const fetchYouTubePlaylistItems = async (
+  playlistId: string,
+  apiKey: string,
+  maxResults = 20
+): Promise<string[]> => {
+  const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${apiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch YouTube playlist", playlistId, res.status);
+    return [];
+  }
+  const data = (await res.json()) as {
+    items?: Array<{
+      contentDetails?: {
+        videoId?: string;
+      };
+    }>;
+  };
+  return (
+    data.items
+      ?.map((item) => item.contentDetails?.videoId)
+      .filter((id): id is string => !!id) ?? []
+  );
+};
+
+// YouTube API: 동영상 상세 정보 조회
+const fetchYouTubeVideoDetails = async (
+  videoIds: string[],
+  apiKey: string
+): Promise<YouTubeVideoItem[]> => {
+  if (videoIds.length === 0) return [];
+
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoIds.join(",")}&key=${apiKey}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    console.error("Failed to fetch YouTube videos", res.status);
+    return [];
+  }
+  const data = (await res.json()) as {
+    items?: Array<{
+      id: string;
+      snippet?: {
+        title?: string;
+        publishedAt?: string;
+        channelId?: string;
+        channelTitle?: string;
+        thumbnails?: {
+          high?: { url?: string };
+          medium?: { url?: string };
+          default?: { url?: string };
+        };
+      };
+      contentDetails?: {
+        duration?: string;
+      };
+      statistics?: {
+        viewCount?: string;
+      };
+    }>;
+  };
+
+  return (
+    data.items?.map((item) => {
+      const duration = parseISO8601Duration(
+        item.contentDetails?.duration || "PT0S"
+      );
+      const thumbnails = item.snippet?.thumbnails;
+      const thumbnailUrl =
+        thumbnails?.high?.url ||
+        thumbnails?.medium?.url ||
+        thumbnails?.default?.url ||
+        "";
+
+      return {
+        videoId: item.id,
+        title: item.snippet?.title || "",
+        publishedAt: item.snippet?.publishedAt || "",
+        thumbnailUrl,
+        duration,
+        viewCount: parseInt(item.statistics?.viewCount || "0", 10),
+        channelId: item.snippet?.channelId || "",
+        channelTitle: item.snippet?.channelTitle || "",
+        isShort: duration <= 60, // 60초 이하면 쇼츠로 판별
+      };
+    }) ?? []
+  );
+};
+
+// YouTube API: 채널의 동영상 조회 (캐싱 포함)
+const fetchYouTubeVideosForChannel = async (
+  channelId: string,
+  apiKey: string,
+  maxResults = 20
+): Promise<CachedYouTubeVideos["content"]> => {
+  const cacheKey = `${channelId}:${maxResults}`;
+  const cached = YOUTUBE_VIDEOS_CACHE.get(cacheKey);
+  const now = Date.now();
+  if (cached && now - cached.fetchedAt < YOUTUBE_VIDEOS_TTL_MS) {
+    return cached.content;
+  }
+
+  // 1. uploads 플레이리스트 ID 조회
+  const uploadsPlaylistId = await fetchYouTubeUploadsPlaylistId(
+    channelId,
+    apiKey
+  );
+  if (!uploadsPlaylistId) {
+    YOUTUBE_VIDEOS_CACHE.set(cacheKey, { fetchedAt: now, content: null });
+    return null;
+  }
+
+  // 2. 플레이리스트 아이템 조회
+  const videoIds = await fetchYouTubePlaylistItems(
+    uploadsPlaylistId,
+    apiKey,
+    maxResults
+  );
+  if (videoIds.length === 0) {
+    YOUTUBE_VIDEOS_CACHE.set(cacheKey, {
+      fetchedAt: now,
+      content: { videos: [], shorts: [] },
+    });
+    return { videos: [], shorts: [] };
+  }
+
+  // 3. 동영상 상세 정보 조회
+  const allVideos = await fetchYouTubeVideoDetails(videoIds, apiKey);
+
+  // 4. 일반 동영상과 쇼츠 분리
+  const videos = allVideos.filter((v) => !v.isShort);
+  const shorts = allVideos.filter((v) => v.isShort);
+
+  const content = { videos, shorts };
+  YOUTUBE_VIDEOS_CACHE.set(cacheKey, { fetchedAt: now, content });
+  return content;
+};
+
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const badRequest = (message: string) => new Response(message, { status: 400 });
 const methodNotAllowed = () =>
@@ -257,6 +452,76 @@ export default {
       return json({
         updatedAt: new Date().toISOString(),
         content,
+      });
+    }
+
+    // YouTube Videos API
+    if (url.pathname.startsWith("/api/youtube/videos")) {
+      if (request.method !== "GET") {
+        return methodNotAllowed();
+      }
+
+      const apiKey = env.YOUTUBE_API_KEY;
+      if (!apiKey) {
+        return new Response("YouTube API key not configured", { status: 500 });
+      }
+
+      const channelIdsParam = url.searchParams.get("channelIds");
+      if (!channelIdsParam) {
+        return badRequest("channelIds query required");
+      }
+
+      const channelIds = channelIdsParam
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+
+      if (channelIds.length === 0) {
+        return badRequest("No valid channelIds");
+      }
+
+      const maxResults = parseInt(
+        url.searchParams.get("maxResults") || "20",
+        10
+      );
+
+      const items = await Promise.all(
+        channelIds.map(async (channelId) => ({
+          channelId,
+          content: await fetchYouTubeVideosForChannel(
+            channelId,
+            apiKey,
+            maxResults
+          ),
+        }))
+      );
+
+      // 모든 채널의 동영상을 합쳐서 최신순 정렬
+      const allVideos: YouTubeVideoItem[] = [];
+      const allShorts: YouTubeVideoItem[] = [];
+
+      for (const item of items) {
+        if (item.content) {
+          allVideos.push(...item.content.videos);
+          allShorts.push(...item.content.shorts);
+        }
+      }
+
+      // 최신순 정렬
+      allVideos.sort(
+        (a, b) =>
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      );
+      allShorts.sort(
+        (a, b) =>
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      );
+
+      return json({
+        updatedAt: new Date().toISOString(),
+        videos: allVideos,
+        shorts: allShorts,
+        byChannel: items,
       });
     }
 

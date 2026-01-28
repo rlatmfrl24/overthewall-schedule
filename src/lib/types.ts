@@ -86,3 +86,25 @@ export interface ChzzkVideosResponse {
 }
 
 export type MemberVodMap = Record<number, ChzzkVideo | null>;
+
+// YouTube Video Types
+export interface YouTubeVideo {
+  videoId: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  duration: number; // 초 단위
+  viewCount: number;
+  channelId: string;
+  channelTitle: string;
+  isShort: boolean;
+  memberUid?: number; // 멤버 uid 매핑용
+}
+
+export interface YouTubeVideosResponse {
+  videos: YouTubeVideo[];
+  shorts: YouTubeVideo[];
+  updatedAt: string;
+}
+
+export type MemberYouTubeMap = Record<number, YouTubeVideo[]>;
