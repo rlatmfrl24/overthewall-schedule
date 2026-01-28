@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
 import { useAllMembersClips } from "@/hooks/use-chzzk-clips";
@@ -9,8 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { YouTubeSection } from "@/features/youtube/youtube-section";
 import { ChzzkClipsPlaylist } from "@/features/clips/chzzk-clips-playlist";
+import { MemberFilterChips } from "@/features/youtube/member-filter-chips";
+
+type TabType = "youtube" | "chzzk";
 
 export const VodsOverview = () => {
+  const [activeTab, setActiveTab] = useState<TabType>("youtube");
+  const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(null);
+
   const { members, loading: membersLoading } = useScheduleData();
   const { vods, loading: vodsLoading } = useAllMembersLatestVods(members);
   const { clips, loading: clipsLoading } = useAllMembersClips(members, 10);
@@ -18,52 +25,87 @@ export const VodsOverview = () => {
   const loading = membersLoading || vodsLoading;
   const showInitialLoading = loading && members.length === 0;
 
-  // 치지직 채널이 있는 멤버만 필터링
-  const membersWithChzzk = members.filter((m) => m.url_chzzk);
+  // 치지직 채널이 있는 멤버
+  const membersWithChzzk = useMemo(
+    () => members.filter((m) => m.url_chzzk),
+    [members]
+  );
+
+  // 유튜브 채널이 있는 멤버
+  const membersWithYouTube = useMemo(
+    () => members.filter((m) => m.youtube_channel_id),
+    [members]
+  );
+
+  // 필터 Chips에 표시할 멤버 (현재 탭에 따라)
+  const filterMembers = activeTab === "youtube" ? membersWithYouTube : membersWithChzzk;
+
+  // 필터링된 치지직 멤버
+  const filteredChzzkMembers = useMemo(() => {
+    if (selectedMemberUids === null || selectedMemberUids.length === 0) {
+      return membersWithChzzk;
+    }
+    return membersWithChzzk.filter((m) => selectedMemberUids.includes(m.uid));
+  }, [membersWithChzzk, selectedMemberUids]);
+
+  // 탭 전환 시 필터 초기화
+  const handleTabChange = (tab: TabType) => {
+    setActiveTab(tab);
+    setSelectedMemberUids(null);
+  };
 
   return (
     <div className="flex flex-1 w-full flex-col overflow-y-auto">
-      <div className="container mx-auto px-4 pt-8 pb-8 space-y-8">
-        {/* ========== YouTube 카테고리 섹션 ========== */}
-        <section
-          className={cn(
-            "rounded-2xl border p-6",
-            "border-red-500/20 bg-red-500/5"
-          )}
-        >
-          {/* 카테고리 헤더 */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-red-500/10">
-              <Youtube className="w-6 h-6 text-red-500" />
-            </div>
-            <h1 className="text-2xl font-bold text-foreground">YouTube</h1>
-          </div>
+      <div className="container mx-auto px-4 pt-8 pb-8 space-y-6">
+        {/* ========== 탭 스위치 ========== */}
+        <div className="flex items-center gap-2 p-1 rounded-lg bg-muted w-fit">
+          <button
+            onClick={() => handleTabChange("youtube")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-md transition-all font-medium",
+              activeTab === "youtube"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Youtube className="w-5 h-5 text-red-500" />
+            <span>YouTube</span>
+          </button>
+          <button
+            onClick={() => handleTabChange("chzzk")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-md transition-all font-medium",
+              activeTab === "chzzk"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <MonitorPlay className="w-5 h-5 text-green-500" />
+            <span>치지직</span>
+          </button>
+        </div>
 
-          {/* YouTube 콘텐츠 */}
-          <YouTubeSection members={members} />
-        </section>
+        {/* ========== 멤버 필터 Chips ========== */}
+        <MemberFilterChips
+          members={filterMembers}
+          selectedUids={selectedMemberUids}
+          onChange={setSelectedMemberUids}
+        />
 
-        {/* ========== 치지직 카테고리 섹션 ========== */}
-        <section
-          className={cn(
-            "rounded-2xl border p-6",
-            "border-green-500/20 bg-green-500/5"
-          )}
-        >
-          {/* 카테고리 헤더 */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-green-500/10">
-              <MonitorPlay className="w-6 h-6 text-green-500" />
-            </div>
-            <h1 className="text-2xl font-bold text-foreground">치지직</h1>
-          </div>
-
+        {/* ========== 탭 콘텐츠 ========== */}
+        {activeTab === "youtube" ? (
+          <YouTubeSection
+            members={members}
+            selectedMemberUids={selectedMemberUids}
+          />
+        ) : (
           <div className="space-y-10">
             {/* 치지직 클립 영역 */}
             <ChzzkClipsPlaylist
               clips={clips}
               members={members}
               loading={clipsLoading && clips.length === 0}
+              selectedMemberUids={selectedMemberUids}
             />
 
             {/* 치지직 다시보기 영역 */}
@@ -77,16 +119,18 @@ export const VodsOverview = () => {
 
               {showInitialLoading ? (
                 <VodsGridSkeleton />
-              ) : membersWithChzzk.length === 0 ? (
+              ) : filteredChzzkMembers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[200px] gap-4 w-full">
                   <VideoOff className="w-12 h-12 text-muted-foreground" />
                   <p className="text-muted-foreground">
-                    치지직 채널이 등록된 멤버가 없습니다.
+                    {selectedMemberUids && selectedMemberUids.length > 0
+                      ? "선택한 멤버의 다시보기가 없습니다."
+                      : "치지직 채널이 등록된 멤버가 없습니다."}
                   </p>
                 </div>
               ) : (
                 <div className="grid md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-5 xl:auto-cols-[minmax(260px,1fr)]">
-                  {membersWithChzzk.map((member) => {
+                  {filteredChzzkMembers.map((member) => {
                     const video = vods[member.uid];
                     const mainColor = member.main_color || "#6366f1";
                     const subColor = member.sub_color || mainColor;
@@ -177,7 +221,7 @@ export const VodsOverview = () => {
               )}
             </div>
           </div>
-        </section>
+        )}
       </div>
     </div>
   );

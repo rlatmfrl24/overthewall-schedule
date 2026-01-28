@@ -1,17 +1,18 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import type { Member } from "@/lib/types";
 import { useYouTubeVideos, useFilteredYouTubeVideos } from "@/hooks/use-youtube-videos";
-import { MemberFilterChips } from "./member-filter-chips";
 import { YouTubePlaylist } from "./youtube-playlist";
 import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 
 interface YouTubeSectionProps {
   members: Member[];
+  selectedMemberUids: number[] | null;
 }
 
-export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
-  const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(null);
-
+export const YouTubeSection = ({
+  members,
+  selectedMemberUids,
+}: YouTubeSectionProps) => {
   // YouTube 채널이 있는 멤버만 필터링
   const membersWithYouTube = useMemo(
     () => members.filter((m) => m.youtube_channel_id),
@@ -34,14 +35,7 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* 멤버 필터 */}
-      <MemberFilterChips
-        members={membersWithYouTube}
-        selectedUids={selectedMemberUids}
-        onChange={setSelectedMemberUids}
-      />
-
+    <div className="space-y-8">
       {/* 로딩 상태 */}
       {loading && <YouTubeSectionSkeleton />}
 
@@ -54,7 +48,7 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
 
       {/* 콘텐츠 */}
       {!loading && !error && (
-        <div className="space-y-8">
+        <>
           {/* 일반 동영상 플레이리스트 */}
           <YouTubePlaylist
             title="최신 동영상"
@@ -72,7 +66,7 @@ export const YouTubeSection = ({ members }: YouTubeSectionProps) => {
             variant="short"
             emptyMessage="업로드된 Shorts가 없습니다."
           />
-        </div>
+        </>
       )}
     </div>
   );

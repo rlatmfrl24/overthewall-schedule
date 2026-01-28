@@ -11,6 +11,7 @@ interface ChzzkClipsPlaylistProps {
   members: Member[];
   loading?: boolean;
   emptyMessage?: string;
+  selectedMemberUids?: number[] | null;
 }
 
 export const ChzzkClipsPlaylist = ({
@@ -18,13 +19,8 @@ export const ChzzkClipsPlaylist = ({
   members,
   loading = false,
   emptyMessage = "클립이 없습니다.",
+  selectedMemberUids = null,
 }: ChzzkClipsPlaylistProps) => {
-  // 멤버 uid -> member 매핑
-  const memberMap = useMemo(
-    () => new Map(members.map((m) => [m.uid, m])),
-    [members]
-  );
-
   // 멤버별로 클립 그룹화
   const clipsByMember = useMemo(() => {
     const grouped = new Map<number, ChzzkClip[]>();
@@ -39,9 +35,22 @@ export const ChzzkClipsPlaylist = ({
   }, [clips]);
 
   // 클립이 있는 멤버만 필터링하고 멤버 순서 유지
+  // selectedMemberUids가 있으면 해당 멤버만 표시
   const membersWithClips = useMemo(() => {
-    return members.filter((m) => clipsByMember.has(m.uid));
-  }, [members, clipsByMember]);
+    let filtered = members.filter((m) => clipsByMember.has(m.uid));
+    if (selectedMemberUids && selectedMemberUids.length > 0) {
+      filtered = filtered.filter((m) => selectedMemberUids.includes(m.uid));
+    }
+    return filtered;
+  }, [members, clipsByMember, selectedMemberUids]);
+
+  // 필터링된 클립 총 개수
+  const totalClipsCount = useMemo(() => {
+    return membersWithClips.reduce(
+      (acc, m) => acc + (clipsByMember.get(m.uid)?.length || 0),
+      0
+    );
+  }, [membersWithClips, clipsByMember]);
 
   if (loading) {
     return (
@@ -59,7 +68,7 @@ export const ChzzkClipsPlaylist = ({
     );
   }
 
-  if (clips.length === 0) {
+  if (clips.length === 0 || membersWithClips.length === 0) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -67,7 +76,9 @@ export const ChzzkClipsPlaylist = ({
           <h2 className="text-lg font-semibold text-foreground">클립</h2>
         </div>
         <div className="flex items-center justify-center py-8 text-muted-foreground">
-          {emptyMessage}
+          {membersWithClips.length === 0 && clips.length > 0
+            ? "선택한 멤버의 클립이 없습니다."
+            : emptyMessage}
         </div>
       </div>
     );
@@ -78,7 +89,7 @@ export const ChzzkClipsPlaylist = ({
       <div className="flex items-center gap-3">
         <Scissors className="w-5 h-5 text-green-500" />
         <h2 className="text-lg font-semibold text-foreground">클립</h2>
-        <span className="text-sm text-muted-foreground">({clips.length}개)</span>
+        <span className="text-sm text-muted-foreground">({totalClipsCount}개)</span>
       </div>
 
       <div className="space-y-6">
