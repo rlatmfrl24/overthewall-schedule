@@ -21,7 +21,12 @@
       "remote": true,
       "migrations_dir": "drizzle"
     }
-  ]
+  ],
+  // YouTube API 키는 wrangler secret을 통해 설정하거나 vars에 직접 추가
+  // 실제 배포 시: wrangler secret put YOUTUBE_API_KEY
+  "vars": {
+    "YOUTUBE_API_KEY": ""
+  }
   /**
    * Smart Placement
    * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

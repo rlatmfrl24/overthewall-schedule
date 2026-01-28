@@ -64,6 +64,13 @@
       "when": 1767664800000,
       "tag": "0008_reset_ddays",
       "breakpoints": false
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1769566452381,
+      "tag": "0009_condemned_maximus",
+      "breakpoints": true
     }
   ]
 }

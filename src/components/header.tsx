@@ -19,9 +19,9 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border-border">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+      <div className="container mx-auto px-4 h-16 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
         {/* Logo & Title */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <img src="/logo_otw.svg" width={90} height={25} alt="logo" />
           <h1
             aria-label="title"
@@ -34,13 +34,16 @@ export const Header = () => {
         {/* Desktop Navigation - Centered */}
         <nav
           aria-label="menu"
-          className="hidden lg:flex items-center gap-1 absolute left-1/2 transform -translate-x-1/2"
+          className="hidden lg:flex items-center justify-center gap-1 justify-self-center"
         >
           <Link to="/" className="[&.active]:font-bold">
             <Button variant="ghost">오늘 스케쥴표</Button>
           </Link>
           <Link to="/weekly" className="[&.active]:font-bold">
             <Button variant="ghost">주간 스케쥴표</Button>
+          </Link>
+          <Link to="/vods" className="[&.active]:font-bold">
+            <Button variant="ghost">VOD & 클립</Button>
           </Link>
           {isAdmin ? (
             <Link to="/admin" className="[&.active]:font-bold">
@@ -61,7 +64,7 @@ export const Header = () => {
         </nav>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-2">
+        <div className="col-start-3 flex items-center gap-2 justify-self-end min-w-0">
           {/* Auth */}
           <ModeToggle />
           <div aria-label="auth">
@@ -107,7 +110,10 @@ export const Header = () => {
       {/* Mobile Menu - Overlay/Drawer style */}
       {isMenuOpen && (
         <div className="lg:hidden absolute top-16 left-0 w-full bg-background border-b border-border shadow-lg animate-in slide-in-from-top-2">
-          <nav aria-label="mobile-menu" className="flex flex-col p-4 gap-2">
+          <nav
+            aria-label="mobile-menu"
+            className="flex flex-col items-stretch p-4 gap-2"
+          >
             <Link
               to="/"
               className="w-full"
@@ -132,6 +138,18 @@ export const Header = () => {
                 주간 스케쥴표
               </Button>
             </Link>
+            <Link
+              to="/vods"
+              className="w-full"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Button
+                variant="ghost"
+                className="justify-start h-12 text-lg rounded-xl w-full"
+              >
+                VOD & 클립
+              </Button>
+            </Link>
             {isAdmin ? (
               <Link
                 to="/admin"
@@ -148,7 +166,7 @@ export const Header = () => {
             ) : null}
             <Button
               variant="ghost"
-              className="justify-start h-12 text-lg rounded-xl"
+              className="justify-start h-12 text-lg rounded-xl w-full"
               onClick={() => {
                 window.open(
                   "https://multiview-overthewall.vercel.app/",

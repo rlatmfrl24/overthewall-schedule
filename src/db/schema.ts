@@ -18,6 +18,7 @@ export const members = sqliteTable("members", {
   url_twitter: text("url_twitter"),
   url_youtube: text("url_youtube"),
   url_chzzk: text("url_chzzk"),
+  youtube_channel_id: text("youtube_channel_id"), // UCxxxxxxxx 형태의 YouTube 채널 ID
   birth_date: text("birth_date"),
   debut_date: text("debut_date"),
   unit_name: text("unit_name"),

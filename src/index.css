@@ -127,3 +127,20 @@
     @apply h-full w-full;
   }
 }
+
+@keyframes ripple {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+.ripple {
+  position: absolute;
+  border-radius: 9999px;
+  transform: scale(0);
+  animation: ripple 600ms ease-out;
+  background-color: currentColor;
+  opacity: 0.25;
+  pointer-events: none;
+}

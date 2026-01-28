@@ -1,5 +1,5 @@
-import { Loader2 } from "lucide-react";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
+import { WeeklyGridSkeleton } from "./components/weekly-grid-skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,22 +58,19 @@ export const WeeklySchedule = () => {
           <NoticeBanner />
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm">
-            <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
-          </div>
-        )}
-
         {/* Integrated Table Section */}
-        <WeeklyGrid
-          members={members}
-          weekDays={weekDays}
-          schedules={schedules}
-          ddays={ddays}
-          onAddSchedule={openAddDialog}
-          onEditSchedule={openEditDialog}
-        />
+        {loading ? (
+          <WeeklyGridSkeleton />
+        ) : (
+          <WeeklyGrid
+            members={members}
+            weekDays={weekDays}
+            schedules={schedules}
+            ddays={ddays}
+            onAddSchedule={openAddDialog}
+            onEditSchedule={openEditDialog}
+          />
+        )}
       </div>
 
       {/* Edit Dialog */}

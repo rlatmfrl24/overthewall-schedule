@@ -10,14 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
+import { Route as VodsRouteImport } from './routes/vods'
 import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VodsRoute = VodsRouteImport.update({
+  id: '/vods',
+  path: '/vods',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NoticeRoute = NoticeRouteImport.update({
@@ -35,6 +42,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VodsIndexRoute = VodsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => VodsRoute,
+} as any)
 const ProfileCodeRoute = ProfileCodeRouteImport.update({
   id: '/profile/$code',
   path: '/profile/$code',
@@ -45,8 +57,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/notice': typeof NoticeRoute
+  '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/vods/': typeof VodsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,27 +68,46 @@ export interface FileRoutesByTo {
   '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/vods': typeof VodsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/notice': typeof NoticeRoute
+  '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/vods/': typeof VodsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/notice'
+    | '/vods'
+    | '/weekly'
+    | '/profile/$code'
+    | '/vods/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
-  id: '__root__' | '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code'
+  to: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code' | '/vods'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/notice'
+    | '/vods'
+    | '/weekly'
+    | '/profile/$code'
+    | '/vods/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   NoticeRoute: typeof NoticeRoute
+  VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
   ProfileCodeRoute: typeof ProfileCodeRoute
 }
@@ -86,6 +119,13 @@ declare module '@tanstack/react-router' {
       path: '/weekly'
       fullPath: '/weekly'
       preLoaderRoute: typeof WeeklyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vods': {
+      id: '/vods'
+      path: '/vods'
+      fullPath: '/vods'
+      preLoaderRoute: typeof VodsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notice': {
@@ -109,6 +149,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/vods/': {
+      id: '/vods/'
+      path: '/'
+      fullPath: '/vods/'
+      preLoaderRoute: typeof VodsIndexRouteImport
+      parentRoute: typeof VodsRoute
+    }
     '/profile/$code': {
       id: '/profile/$code'
       path: '/profile/$code'
@@ -119,10 +166,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface VodsRouteChildren {
+  VodsIndexRoute: typeof VodsIndexRoute
+}
+
+const VodsRouteChildren: VodsRouteChildren = {
+  VodsIndexRoute: VodsIndexRoute,
+}
+
+const VodsRouteWithChildren = VodsRoute._addFileChildren(VodsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   NoticeRoute: NoticeRoute,
+  VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,
   ProfileCodeRoute: ProfileCodeRoute,
 }
