@@ -18,6 +18,7 @@ export function useAllMembersClips(
 ) {
   const [clips, setClips] = useState<ChzzkClip[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const { enabled = true } = options;
 
   const reload = useCallback(async () => {
@@ -29,6 +30,7 @@ export function useAllMembersClips(
       setClips(data);
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, [enabled, members, clipsPerMember]);
 
@@ -40,6 +42,7 @@ export function useAllMembersClips(
   return {
     clips,
     loading,
+    hasLoaded,
     reload,
   };
 }

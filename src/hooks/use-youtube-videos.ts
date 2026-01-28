@@ -7,6 +7,7 @@ interface UseYouTubeVideosReturn {
   shorts: YouTubeVideo[];
   loading: boolean;
   error: string | null;
+  hasLoaded: boolean;
   reload: () => Promise<void>;
 }
 
@@ -15,18 +16,19 @@ interface UseYouTubeVideosReturn {
  */
 export function useYouTubeVideos(
   members: Member[],
-  options: { maxResults?: number } = {}
+  options: { maxResults?: number } = {},
 ): UseYouTubeVideosReturn {
   const [data, setData] = useState<YouTubeVideosResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const { maxResults = 20 } = options;
 
   // YouTube 채널이 있는 멤버만 필터링 (메모이제이션)
   const membersWithYouTube = useMemo(
     () => members.filter((m) => m.youtube_channel_id),
-    [members]
+    [members],
   );
 
   // 채널 ID 문자열로 의존성 관리 (배열 참조 변경에 영향받지 않도록)
@@ -36,7 +38,7 @@ export function useYouTubeVideos(
         .map((m) => m.youtube_channel_id)
         .sort()
         .join(","),
-    [membersWithYouTube]
+    [membersWithYouTube],
   );
 
   const reload = useCallback(async () => {
@@ -44,6 +46,7 @@ export function useYouTubeVideos(
       setData(null);
       setLoading(false);
       setError(null);
+      setHasLoaded(true);
       return;
     }
 
@@ -54,7 +57,7 @@ export function useYouTubeVideos(
       const response = await fetchMembersYouTubeVideos(membersWithYouTube, {
         maxResults,
       });
-      
+
       if (response) {
         setData(response);
         setError(null);
@@ -62,13 +65,17 @@ export function useYouTubeVideos(
         // API 응답이 null인 경우 (에러가 아니라 데이터가 없는 경우)
         if (!data) {
           // 이전 데이터가 없으면 빈 상태로 설정
-          setData({ videos: [], shorts: [], updatedAt: new Date().toISOString() });
+          setData({
+            videos: [],
+            shorts: [],
+            updatedAt: new Date().toISOString(),
+          });
         }
         // 이전 데이터가 있으면 유지
       }
     } catch (err) {
       console.error("Failed to fetch YouTube videos:", err);
-      
+
       // 에러 발생 시 이전 데이터가 있으면 유지하고 에러만 표시
       if (!data) {
         setError("YouTube 동영상을 불러오는데 실패했습니다.");
@@ -78,6 +85,7 @@ export function useYouTubeVideos(
       }
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, [membersWithYouTube, maxResults, data]);
 
@@ -90,6 +98,7 @@ export function useYouTubeVideos(
     shorts: data?.shorts ?? [],
     loading,
     error,
+    hasLoaded,
     reload,
   };
 }
@@ -100,7 +109,7 @@ export function useYouTubeVideos(
 export function useFilteredYouTubeVideos(
   videos: YouTubeVideo[],
   shorts: YouTubeVideo[],
-  selectedMemberUids: number[] | null // null이면 전체 선택
+  selectedMemberUids: number[] | null, // null이면 전체 선택
 ): { filteredVideos: YouTubeVideo[]; filteredShorts: YouTubeVideo[] } {
   if (!selectedMemberUids || selectedMemberUids.length === 0) {
     return { filteredVideos: videos, filteredShorts: shorts };
@@ -110,10 +119,10 @@ export function useFilteredYouTubeVideos(
 
   return {
     filteredVideos: videos.filter(
-      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid)
+      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid),
     ),
     filteredShorts: shorts.filter(
-      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid)
+      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid),
     ),
   };
 }

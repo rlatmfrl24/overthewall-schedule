@@ -15,6 +15,7 @@ export function useAllMembersLatestVods(
 ) {
   const [vods, setVods] = useState<Record<number, ChzzkVideo | null>>({});
   const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const { enabled = true } = options;
 
   const reload = useCallback(async () => {
@@ -26,6 +27,7 @@ export function useAllMembersLatestVods(
       setVods(data);
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, [enabled, members]);
 
@@ -37,6 +39,7 @@ export function useAllMembersLatestVods(
   return {
     vods,
     loading,
+    hasLoaded,
     reload,
   };
 }

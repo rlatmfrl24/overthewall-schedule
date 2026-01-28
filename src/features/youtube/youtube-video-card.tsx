@@ -1,6 +1,7 @@
 import type { YouTubeVideo, Member } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Clock, Eye, PlayCircle, Smartphone } from "lucide-react";
+import { Clock, Eye, PlayCircle } from "lucide-react";
+import IconYoutubeShorts from "@/assets/icon_youtube_shorts.svg";
 
 interface YouTubeVideoCardProps {
   video: YouTubeVideo;
@@ -128,8 +129,8 @@ export const YouTubeVideoCard = ({
 
         {/* Shorts 아이콘 배지 */}
         {isShort && (
-          <div className="absolute top-2 right-2 p-1 rounded bg-red-500/90 backdrop-blur-sm">
-            <Smartphone className="w-3 h-3 text-white" />
+          <div className="absolute top-2 right-1.5 p-1">
+            <img src={IconYoutubeShorts} alt="YouTube Shorts" className="w-3 h-3" />
           </div>
         )}
       </div>

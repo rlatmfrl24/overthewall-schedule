@@ -5,7 +5,7 @@ import { useAllMembersClips } from "@/hooks/use-chzzk-clips";
 import { VodCard } from "./vod-card";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { ChevronRight, VideoOff } from "lucide-react";
-import { VodsGridSkeleton } from "./vod-section-skeleton";
+import { VodCardSkeleton, VodsGridSkeleton } from "./vod-section-skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { YouTubeSection } from "@/features/youtube/youtube-section";
@@ -35,17 +35,22 @@ export const VodsOverview = () => {
   );
 
   const isChzzkTab = activeTab === "chzzk";
-  const { vods, loading: vodsLoading } = useAllMembersLatestVods(membersWithChzzk, {
+  const {
+    vods,
+    loading: vodsLoading,
+    hasLoaded: vodsLoaded,
+  } = useAllMembersLatestVods(membersWithChzzk, {
     enabled: isChzzkTab,
   });
-  const { clips, loading: clipsLoading } = useAllMembersClips(
-    membersWithChzzk,
-    10,
-    { enabled: isChzzkTab }
-  );
+  const {
+    clips,
+    hasLoaded: clipsLoaded,
+  } = useAllMembersClips(membersWithChzzk, 10, { enabled: isChzzkTab });
 
   const loading = membersLoading || (isChzzkTab && vodsLoading);
   const showInitialLoading = loading && members.length === 0;
+  const showChzzkInitialLoading =
+    isChzzkTab && !vodsLoaded && membersWithChzzk.length > 0;
 
   // 필터 Chips에 표시할 멤버 (현재 탭에 따라)
   const filterMembers = activeTab === "youtube" ? membersWithYouTube : membersWithChzzk;
@@ -121,7 +126,7 @@ export const VodsOverview = () => {
             <ChzzkClipsPlaylist
               clips={clips}
               members={members}
-              loading={clipsLoading && clips.length === 0}
+              loading={isChzzkTab && membersWithChzzk.length > 0 && !clipsLoaded}
               selectedMemberUids={selectedMemberUids}
             />
 
@@ -133,7 +138,7 @@ export const VodsOverview = () => {
                 </h2>
               </div>
 
-              {showInitialLoading ? (
+              {showInitialLoading || showChzzkInitialLoading ? (
                 <VodsGridSkeleton />
               ) : filteredChzzkMembers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[200px] gap-4 w-full">
@@ -227,6 +232,8 @@ export const VodsOverview = () => {
                               accentColor={mainColor}
                               size="sm"
                             />
+                          ) : video === undefined && vodsLoading ? (
+                            <VodCardSkeleton />
                           ) : (
                             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                               <VideoOff className="w-8 h-8 mb-2 opacity-50" />

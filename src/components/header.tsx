@@ -43,7 +43,7 @@ export const Header = () => {
             <Button variant="ghost">주간 스케쥴표</Button>
           </Link>
           <Link to="/vods" className="[&.active]:font-bold">
-            <Button variant="ghost">다시보기 & 유튜브</Button>
+            <Button variant="ghost">VOD & 클립</Button>
           </Link>
           {isAdmin ? (
             <Link to="/admin" className="[&.active]:font-bold">
