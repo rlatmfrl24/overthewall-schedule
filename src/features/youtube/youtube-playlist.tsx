@@ -84,7 +84,9 @@ export const YouTubePlaylist = ({
             disabled={!canScrollLeft}
             className={cn(
               "w-8 h-8 rounded-full",
-              !canScrollLeft && "opacity-30"
+              "transition-all duration-200 ease-out",
+              "hover:scale-110 active:scale-95",
+              !canScrollLeft && "opacity-30 hover:scale-100"
             )}
             aria-label="이전"
           >
@@ -97,7 +99,9 @@ export const YouTubePlaylist = ({
             disabled={!canScrollRight}
             className={cn(
               "w-8 h-8 rounded-full",
-              !canScrollRight && "opacity-30"
+              "transition-all duration-200 ease-out",
+              "hover:scale-110 active:scale-95",
+              !canScrollRight && "opacity-30 hover:scale-100"
             )}
             aria-label="다음"
           >
@@ -109,7 +113,7 @@ export const YouTubePlaylist = ({
       <div
         ref={scrollRef}
         className={cn(
-          "flex gap-4 overflow-x-auto scrollbar-hide pb-2",
+          "flex gap-4 overflow-x-auto scrollbar-hide pt-1 pb-2",
           "scroll-smooth"
         )}
         style={{

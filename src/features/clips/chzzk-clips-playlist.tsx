@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import type { ChzzkClip, Member } from "@/lib/types";
 import { ClipCard } from "./clip-card";
 import { cn, hexToRgba } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Scissors } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -44,20 +44,11 @@ export const ChzzkClipsPlaylist = ({
     return filtered;
   }, [members, clipsByMember, selectedMemberUids]);
 
-  // 필터링된 클립 총 개수
-  const totalClipsCount = useMemo(() => {
-    return membersWithClips.reduce(
-      (acc, m) => acc + (clipsByMember.get(m.uid)?.length || 0),
-      0
-    );
-  }, [membersWithClips, clipsByMember]);
-
   if (loading) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <Scissors className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-foreground">클립</h2>
+          <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
         </div>
         <div className="space-y-6">
           {Array.from({ length: 2 }).map((_, i) => (
@@ -72,8 +63,7 @@ export const ChzzkClipsPlaylist = ({
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
-          <Scissors className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-foreground">클립</h2>
+          <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
         </div>
         <div className="flex items-center justify-center py-8 text-muted-foreground">
           {membersWithClips.length === 0 && clips.length > 0
@@ -87,9 +77,7 @@ export const ChzzkClipsPlaylist = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Scissors className="w-5 h-5 text-green-500" />
-        <h2 className="text-lg font-semibold text-foreground">클립</h2>
-        <span className="text-sm text-muted-foreground">({totalClipsCount}개)</span>
+        <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
       </div>
 
       <div className="space-y-6">
@@ -187,7 +175,9 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
             disabled={!canScrollLeft}
             className={cn(
               "w-7 h-7 rounded-full",
-              !canScrollLeft && "opacity-30"
+              "transition-all duration-200 ease-out",
+              "hover:scale-110 active:scale-95",
+              !canScrollLeft && "opacity-30 hover:scale-100"
             )}
             aria-label="이전"
           >
@@ -200,7 +190,9 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
             disabled={!canScrollRight}
             className={cn(
               "w-7 h-7 rounded-full",
-              !canScrollRight && "opacity-30"
+              "transition-all duration-200 ease-out",
+              "hover:scale-110 active:scale-95",
+              !canScrollRight && "opacity-30 hover:scale-100"
             )}
             aria-label="다음"
           >
@@ -213,7 +205,7 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
       <div
         ref={scrollRef}
         className={cn(
-          "flex gap-4 overflow-x-auto scrollbar-hide px-4 pb-4",
+          "flex gap-4 overflow-x-auto scrollbar-hide px-4 pt-1 pb-4",
           "scroll-smooth"
         )}
         style={{

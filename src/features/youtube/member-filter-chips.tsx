@@ -42,10 +42,12 @@ export const MemberFilterChips = ({
       <button
         onClick={handleAllClick}
         className={cn(
-          "px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200",
+          "px-3 py-1.5 rounded-full text-sm font-medium",
           "border-2",
+          "transition-all duration-200 ease-out",
+          "hover:scale-105 active:scale-95",
           isAllSelected
-            ? "bg-primary text-primary-foreground border-primary"
+            ? "bg-primary text-primary-foreground border-primary shadow-sm"
             : "bg-transparent text-muted-foreground border-border hover:border-primary/50"
         )}
       >
@@ -63,8 +65,11 @@ export const MemberFilterChips = ({
             key={member.uid}
             onClick={() => handleMemberClick(member.uid)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200",
-              "border-2"
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
+              "border-2",
+              "transition-all duration-200 ease-out",
+              "hover:scale-105 active:scale-95",
+              isSelected && "shadow-sm"
             )}
             style={{
               backgroundColor: isSelected ? mainColor : "transparent",

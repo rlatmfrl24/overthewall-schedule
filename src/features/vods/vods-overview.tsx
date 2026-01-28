@@ -4,13 +4,15 @@ import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
 import { useAllMembersClips } from "@/hooks/use-chzzk-clips";
 import { VodCard } from "./vod-card";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
-import { ChevronRight, VideoOff, MonitorPlay, Youtube } from "lucide-react";
+import { ChevronRight, VideoOff } from "lucide-react";
 import { VodsGridSkeleton } from "./vod-section-skeleton";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { YouTubeSection } from "@/features/youtube/youtube-section";
 import { ChzzkClipsPlaylist } from "@/features/clips/chzzk-clips-playlist";
 import { MemberFilterChips } from "@/features/youtube/member-filter-chips";
+import IconYoutube from "@/assets/icon_youtube.svg";
+import IconChzzk from "@/assets/icon_chzzk.png";
 
 type TabType = "youtube" | "chzzk";
 
@@ -58,29 +60,33 @@ export const VodsOverview = () => {
     <div className="flex flex-1 w-full flex-col overflow-y-auto">
       <div className="container mx-auto px-4 pt-8 pb-8 space-y-6">
         {/* ========== 탭 스위치 ========== */}
-        <div className="flex items-center gap-2 p-1 rounded-lg bg-muted w-fit">
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-muted w-fit">
           <button
             onClick={() => handleTabChange("youtube")}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-md transition-all font-medium",
+              "flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium",
+              "transition-all duration-200 ease-out",
+              "hover:scale-[1.02] active:scale-[0.98]",
               activeTab === "youtube"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-background shadow-md text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
             )}
           >
-            <Youtube className="w-5 h-5 text-red-500" />
+            <img src={IconYoutube} alt="YouTube" className="w-5 h-5" />
             <span>YouTube</span>
           </button>
           <button
             onClick={() => handleTabChange("chzzk")}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-md transition-all font-medium",
+              "flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium",
+              "transition-all duration-200 ease-out",
+              "hover:scale-[1.02] active:scale-[0.98]",
               activeTab === "chzzk"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-background shadow-md text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
             )}
           >
-            <MonitorPlay className="w-5 h-5 text-green-500" />
+            <img src={IconChzzk} alt="치지직" className="w-5 h-5 rounded" />
             <span>치지직</span>
           </button>
         </div>
@@ -111,7 +117,6 @@ export const VodsOverview = () => {
             {/* 치지직 다시보기 영역 */}
             <div className="space-y-6">
               <div className="flex items-center gap-3">
-                <MonitorPlay className="w-5 h-5 text-green-500" />
                 <h2 className="text-lg font-semibold text-foreground">
                   최신 다시보기
                 </h2>
@@ -129,7 +134,7 @@ export const VodsOverview = () => {
                   </p>
                 </div>
               ) : (
-                <div className="grid md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-5 xl:auto-cols-[minmax(260px,1fr)]">
+                <div className="grid md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-5 xl:auto-cols-[minmax(260px,1fr)] pt-1">
                   {filteredChzzkMembers.map((member) => {
                     const video = vods[member.uid];
                     const mainColor = member.main_color || "#6366f1";
@@ -177,7 +182,11 @@ export const VodsOverview = () => {
                                 asChild
                                 variant="ghost"
                                 size="icon"
-                                className="rounded-full bg-white/10 hover:bg-white/20"
+                                className={cn(
+                                  "rounded-full bg-white/10 hover:bg-white/20",
+                                  "transition-all duration-200 ease-out",
+                                  "hover:scale-110 active:scale-95"
+                                )}
                                 style={{ color: headerTextColor }}
                                 aria-label={`${member.name} 치지직 채널로 이동`}
                               >
