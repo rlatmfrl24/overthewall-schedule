@@ -60,16 +60,21 @@ export const VodsOverview = () => {
     <div className="flex flex-1 w-full flex-col overflow-y-auto">
       <div className="container mx-auto px-4 pt-8 pb-8 space-y-6">
         {/* ========== 탭 스위치 ========== */}
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-muted w-fit">
+        <div className="relative inline-grid grid-cols-2 p-1 rounded-xl bg-muted w-fit">
+          <div
+            className={cn(
+              "absolute inset-y-1 left-1 rounded-lg bg-background shadow-md",
+              "w-[calc(50%-0.25rem)] transition-transform duration-300 ease-out"
+            )}
+            style={{ transform: activeTab === "youtube" ? "translateX(0)" : "translateX(100%)" }}
+          />
           <button
             onClick={() => handleTabChange("youtube")}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium",
-              "transition-all duration-200 ease-out",
-              "hover:scale-[1.02] active:scale-[0.98]",
-              activeTab === "youtube"
-                ? "bg-background shadow-md text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              "relative z-10 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium",
+              "transition-colors duration-200 ease-out",
+              "hover:text-foreground",
+              activeTab === "youtube" ? "text-foreground" : "text-muted-foreground"
             )}
           >
             <img src={IconYoutube} alt="YouTube" className="w-5 h-5" />
@@ -78,12 +83,10 @@ export const VodsOverview = () => {
           <button
             onClick={() => handleTabChange("chzzk")}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium",
-              "transition-all duration-200 ease-out",
-              "hover:scale-[1.02] active:scale-[0.98]",
-              activeTab === "chzzk"
-                ? "bg-background shadow-md text-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              "relative z-10 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium",
+              "transition-colors duration-200 ease-out",
+              "hover:text-foreground",
+              activeTab === "chzzk" ? "text-foreground" : "text-muted-foreground"
             )}
           >
             <img src={IconChzzk} alt="치지직" className="w-5 h-5 rounded" />

@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import type { Member } from "@/lib/types";
 import { cn, getContrastColor } from "@/lib/utils";
 
@@ -13,6 +14,28 @@ export const MemberFilterChips = ({
   onChange,
 }: MemberFilterChipsProps) => {
   const isAllSelected = selectedUids === null || selectedUids.length === 0;
+
+  const createRipple = (event: MouseEvent<HTMLButtonElement>) => {
+    const button = event.currentTarget;
+    const rect = button.getBoundingClientRect();
+    const diameter = Math.max(button.clientWidth, button.clientHeight);
+    const radius = diameter / 2;
+    const ripple = document.createElement("span");
+
+    ripple.style.width = `${diameter}px`;
+    ripple.style.height = `${diameter}px`;
+    ripple.style.left = `${event.clientX - rect.left - radius}px`;
+    ripple.style.top = `${event.clientY - rect.top - radius}px`;
+    ripple.className = "ripple";
+
+    const existingRipple = button.querySelector(".ripple");
+    if (existingRipple) {
+      existingRipple.remove();
+    }
+
+    button.appendChild(ripple);
+    window.setTimeout(() => ripple.remove(), 600);
+  };
 
   const handleAllClick = () => {
     onChange(null);
@@ -40,12 +63,16 @@ export const MemberFilterChips = ({
     <div className="flex flex-wrap gap-2">
       {/* 전체 선택 Chip */}
       <button
-        onClick={handleAllClick}
+        onClick={(event) => {
+          createRipple(event);
+          handleAllClick();
+        }}
         className={cn(
           "px-3 py-1.5 rounded-full text-sm font-medium",
           "border-2",
+          "relative overflow-hidden",
           "transition-all duration-200 ease-out",
-          "hover:scale-105 active:scale-95",
+          "hover:scale-105",
           isAllSelected
             ? "bg-primary text-primary-foreground border-primary shadow-sm"
             : "bg-transparent text-muted-foreground border-border hover:border-primary/50"
@@ -63,12 +90,16 @@ export const MemberFilterChips = ({
         return (
           <button
             key={member.uid}
-            onClick={() => handleMemberClick(member.uid)}
+            onClick={(event) => {
+              createRipple(event);
+              handleMemberClick(member.uid);
+            }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium",
               "border-2",
+              "relative overflow-hidden",
               "transition-all duration-200 ease-out",
-              "hover:scale-105 active:scale-95",
+              "hover:scale-105",
               isSelected && "shadow-sm"
             )}
             style={{
