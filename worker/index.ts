@@ -653,7 +653,7 @@ export default {
         return methodNotAllowed();
       }
 
-      const apiKey = env.YOUTUBE_API_KEY?.trim();
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY?.trim();
       if (!apiKey) {
         console.error("YouTube API key not configured for this worker");
         return new Response("YouTube API key not configured", { status: 500 });
