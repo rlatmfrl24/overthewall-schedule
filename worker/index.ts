@@ -653,8 +653,9 @@ export default {
         return methodNotAllowed();
       }
 
-      const apiKey = env.YOUTUBE_API_KEY;
+      const apiKey = env.YOUTUBE_API_KEY?.trim();
       if (!apiKey) {
+        console.error("YouTube API key not configured for this worker");
         return new Response("YouTube API key not configured", { status: 500 });
       }
 
@@ -677,44 +678,51 @@ export default {
         10,
       );
 
-      const items = await Promise.all(
-        channelIds.map(async (channelId) => ({
-          channelId,
-          content: await fetchYouTubeVideosForChannel(
+      try {
+        const items = await Promise.all(
+          channelIds.map(async (channelId) => ({
             channelId,
-            apiKey,
-            maxResults,
-          ),
-        })),
-      );
+            content: await fetchYouTubeVideosForChannel(
+              channelId,
+              apiKey,
+              maxResults,
+            ),
+          })),
+        );
 
-      // 모든 채널의 동영상을 합쳐서 최신순 정렬
-      const allVideos: YouTubeVideoItem[] = [];
-      const allShorts: YouTubeVideoItem[] = [];
+        // 모든 채널의 동영상을 합쳐서 최신순 정렬
+        const allVideos: YouTubeVideoItem[] = [];
+        const allShorts: YouTubeVideoItem[] = [];
 
-      for (const item of items) {
-        if (item.content) {
-          allVideos.push(...item.content.videos);
-          allShorts.push(...item.content.shorts);
+        for (const item of items) {
+          if (item.content) {
+            allVideos.push(...item.content.videos);
+            allShorts.push(...item.content.shorts);
+          }
         }
+
+        // 최신순 정렬
+        allVideos.sort(
+          (a, b) =>
+            new Date(b.publishedAt).getTime() -
+            new Date(a.publishedAt).getTime(),
+        );
+        allShorts.sort(
+          (a, b) =>
+            new Date(b.publishedAt).getTime() -
+            new Date(a.publishedAt).getTime(),
+        );
+
+        return json({
+          updatedAt: new Date().toISOString(),
+          videos: allVideos,
+          shorts: allShorts,
+          byChannel: items,
+        });
+      } catch (error) {
+        console.error("Failed to handle /api/youtube/videos", error);
+        return new Response("Failed to fetch YouTube videos", { status: 502 });
       }
-
-      // 최신순 정렬
-      allVideos.sort(
-        (a, b) =>
-          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
-      );
-      allShorts.sort(
-        (a, b) =>
-          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
-      );
-
-      return json({
-        updatedAt: new Date().toISOString(),
-        videos: allVideos,
-        shorts: allShorts,
-        byChannel: items,
-      });
     }
 
     if (url.pathname.startsWith("/api/members")) {
