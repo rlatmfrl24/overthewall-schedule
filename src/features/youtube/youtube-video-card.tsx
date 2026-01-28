@@ -125,13 +125,6 @@ export const YouTubeVideoCard = ({
             {member.name}
           </div>
         )}
-
-        {/* 쇼츠 뱃지 */}
-        {isShort && (
-          <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold">
-            Shorts
-          </div>
-        )}
       </div>
 
       {/* 정보 */}

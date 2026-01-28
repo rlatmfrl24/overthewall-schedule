@@ -19,8 +19,8 @@ export const VodsOverview = () => {
   const membersWithChzzk = members.filter((m) => m.url_chzzk);
 
   return (
-    <div className="flex flex-1 w-full overflow-y-auto">
-      <div className="container mx-auto px-4 pt-8 pb-16 space-y-12">
+    <div className="flex flex-1 w-full flex-col overflow-y-auto">
+      <div className="container mx-auto px-4 pt-8 pb-8 space-y-12">
         {/* YouTube 섹션 */}
         <YouTubeSection members={members} />
 
