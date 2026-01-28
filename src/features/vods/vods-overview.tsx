@@ -1,7 +1,6 @@
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersLatestVods } from "@/hooks/use-chzzk-vods";
 import { VodCard } from "./vod-card";
-import { Link } from "@tanstack/react-router";
 import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
 import { ChevronRight, Loader2, VideoOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -82,20 +81,24 @@ export const VodsOverview = () => {
                       </div>
                       <Tooltip>
                         <TooltipContent side="bottom">
-                          <p>다시보기 더보기</p>
+                          <p>다시보기 리스트로 이동</p>
                         </TooltipContent>
-                        <TooltipTrigger asChild >
+                        <TooltipTrigger asChild>
                           <Button
                             asChild
                             variant="ghost"
                             size="icon"
                             className="rounded-full bg-white/10 hover:bg-white/20"
                             style={{ color: headerTextColor }}
-                            aria-label={`${member.name} 다시보기 더보기`}
+                            aria-label={`${member.name} 치지직 채널로 이동`}
                           >
-                            <Link to="/vods/$code" params={{ code: member.code }}>
+                            <a
+                              href={member.url_chzzk! + "/videos?videoType=&sortType=LATEST&page=1"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
                               <ChevronRight className="w-5 h-5" />
-                            </Link>
+                            </a>
                           </Button>
                         </TooltipTrigger>
                       </Tooltip>

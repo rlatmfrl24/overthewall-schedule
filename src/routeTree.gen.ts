@@ -15,7 +15,6 @@ import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
-import { Route as VodsCodeRouteImport } from './routes/vods/$code'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 
 const WeeklyRoute = WeeklyRouteImport.update({
@@ -48,11 +47,6 @@ const VodsIndexRoute = VodsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => VodsRoute,
 } as any)
-const VodsCodeRoute = VodsCodeRouteImport.update({
-  id: '/$code',
-  path: '/$code',
-  getParentRoute: () => VodsRoute,
-} as any)
 const ProfileCodeRoute = ProfileCodeRouteImport.update({
   id: '/profile/$code',
   path: '/profile/$code',
@@ -66,7 +60,6 @@ export interface FileRoutesByFullPath {
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
-  '/vods/$code': typeof VodsCodeRoute
   '/vods/': typeof VodsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -75,7 +68,6 @@ export interface FileRoutesByTo {
   '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
-  '/vods/$code': typeof VodsCodeRoute
   '/vods': typeof VodsIndexRoute
 }
 export interface FileRoutesById {
@@ -86,7 +78,6 @@ export interface FileRoutesById {
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/profile/$code': typeof ProfileCodeRoute
-  '/vods/$code': typeof VodsCodeRoute
   '/vods/': typeof VodsIndexRoute
 }
 export interface FileRouteTypes {
@@ -98,17 +89,9 @@ export interface FileRouteTypes {
     | '/vods'
     | '/weekly'
     | '/profile/$code'
-    | '/vods/$code'
     | '/vods/'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/admin'
-    | '/notice'
-    | '/weekly'
-    | '/profile/$code'
-    | '/vods/$code'
-    | '/vods'
+  to: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code' | '/vods'
   id:
     | '__root__'
     | '/'
@@ -117,7 +100,6 @@ export interface FileRouteTypes {
     | '/vods'
     | '/weekly'
     | '/profile/$code'
-    | '/vods/$code'
     | '/vods/'
   fileRoutesById: FileRoutesById
 }
@@ -174,13 +156,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VodsIndexRouteImport
       parentRoute: typeof VodsRoute
     }
-    '/vods/$code': {
-      id: '/vods/$code'
-      path: '/$code'
-      fullPath: '/vods/$code'
-      preLoaderRoute: typeof VodsCodeRouteImport
-      parentRoute: typeof VodsRoute
-    }
     '/profile/$code': {
       id: '/profile/$code'
       path: '/profile/$code'
@@ -192,12 +167,10 @@ declare module '@tanstack/react-router' {
 }
 
 interface VodsRouteChildren {
-  VodsCodeRoute: typeof VodsCodeRoute
   VodsIndexRoute: typeof VodsIndexRoute
 }
 
 const VodsRouteChildren: VodsRouteChildren = {
-  VodsCodeRoute: VodsCodeRoute,
   VodsIndexRoute: VodsIndexRoute,
 }
 
