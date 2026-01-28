@@ -21,11 +21,6 @@ export const VodsOverview = () => {
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(null);
 
   const { members, loading: membersLoading } = useScheduleData();
-  const { vods, loading: vodsLoading } = useAllMembersLatestVods(members);
-  const { clips, loading: clipsLoading } = useAllMembersClips(members, 10);
-
-  const loading = membersLoading || vodsLoading;
-  const showInitialLoading = loading && members.length === 0;
 
   // 치지직 채널이 있는 멤버
   const membersWithChzzk = useMemo(
@@ -38,6 +33,19 @@ export const VodsOverview = () => {
     () => members.filter((m) => m.youtube_channel_id),
     [members]
   );
+
+  const isChzzkTab = activeTab === "chzzk";
+  const { vods, loading: vodsLoading } = useAllMembersLatestVods(membersWithChzzk, {
+    enabled: isChzzkTab,
+  });
+  const { clips, loading: clipsLoading } = useAllMembersClips(
+    membersWithChzzk,
+    10,
+    { enabled: isChzzkTab }
+  );
+
+  const loading = membersLoading || (isChzzkTab && vodsLoading);
+  const showInitialLoading = loading && members.length === 0;
 
   // 필터 Chips에 표시할 멤버 (현재 탭에 따라)
   const filterMembers = activeTab === "youtube" ? membersWithYouTube : membersWithChzzk;

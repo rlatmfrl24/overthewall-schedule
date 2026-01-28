@@ -16,10 +16,15 @@ export interface FetchChzzkClipsOptions {
   size?: number;
 }
 
-const CHZZK_CLIPS_CACHE_TTL_MS = 60_000;
+const CHZZK_CLIPS_CACHE_TTL_MS = 300_000;
 const clipsCache = new Map<
   string,
   { fetchedAt: number; content: ChzzkClipsResponse | null }
+>();
+const clipsInFlight = new Map<string, Promise<ChzzkClipsResponse | null>>();
+const clipsBatchInFlight = new Map<
+  string,
+  Promise<Record<string, ChzzkClipsResponse | null>>
 >();
 
 const isCacheFresh = (fetchedAt: number) =>
@@ -41,18 +46,30 @@ export async function fetchChzzkClips(
   if (cached && isCacheFresh(cached.fetchedAt)) {
     return cached.content;
   }
+  const inFlight = clipsInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
 
   const params = new URLSearchParams({
     channelId,
     size: String(size),
   });
 
-  const response = await apiFetch<ChzzkClipsApiResponse>(
-    `/api/clips/chzzk?${params}`,
-  );
-  const content = response?.content ?? null;
-  clipsCache.set(cacheKey, { fetchedAt: Date.now(), content });
-  return content;
+  const request = (async () => {
+    const response = await apiFetch<ChzzkClipsApiResponse>(
+      `/api/clips/chzzk?${params}`,
+    );
+    const content = response?.content ?? null;
+    clipsCache.set(cacheKey, { fetchedAt: Date.now(), content });
+    return content;
+  })();
+  clipsInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    clipsInFlight.delete(cacheKey);
+  }
 }
 
 /**
@@ -64,20 +81,34 @@ async function fetchChzzkClipsBatch(
 ) {
   if (channelIds.length === 0) return {};
   const { size = 10 } = options;
+  const sortedIds = [...new Set(channelIds)].sort();
+  const batchKey = `${sortedIds.join(",")}:${size}`;
+  const inFlight = clipsBatchInFlight.get(batchKey);
+  if (inFlight) {
+    return inFlight;
+  }
   const params = new URLSearchParams({
-    channelIds: channelIds.join(","),
+    channelIds: sortedIds.join(","),
     size: String(size),
   });
 
-  const response = await apiFetch<ChzzkClipsBatchApiResponse>(
-    `/api/clips/chzzk?${params}`,
-  );
+  const request = (async () => {
+    const response = await apiFetch<ChzzkClipsBatchApiResponse>(
+      `/api/clips/chzzk?${params}`,
+    );
 
-  const map: Record<string, ChzzkClipsResponse | null> = {};
-  response.items?.forEach(({ channelId, content }) => {
-    map[channelId] = content ?? null;
-  });
-  return map;
+    const map: Record<string, ChzzkClipsResponse | null> = {};
+    response.items?.forEach(({ channelId, content }) => {
+      map[channelId] = content ?? null;
+    });
+    return map;
+  })();
+  clipsBatchInFlight.set(batchKey, request);
+  try {
+    return await request;
+  } finally {
+    clipsBatchInFlight.delete(batchKey);
+  }
 }
 
 /**

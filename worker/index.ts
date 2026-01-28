@@ -56,7 +56,7 @@ type CachedChzzkVideos = {
 };
 
 const CHZZK_VIDEOS_CACHE = new Map<string, CachedChzzkVideos>();
-const CHZZK_VIDEOS_TTL_MS = 60_000;
+const CHZZK_VIDEOS_TTL_MS = 300_000;
 
 // Chzzk Clips Cache
 type CachedChzzkClips = {
@@ -86,7 +86,7 @@ type CachedChzzkClips = {
 };
 
 const CHZZK_CLIPS_CACHE = new Map<string, CachedChzzkClips>();
-const CHZZK_CLIPS_TTL_MS = 60_000;
+const CHZZK_CLIPS_TTL_MS = 300_000;
 
 // YouTube API Types and Cache
 type YouTubeVideoItem = {

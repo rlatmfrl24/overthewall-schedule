@@ -17,14 +17,19 @@ export interface FetchChzzkVideosOptions {
   size?: number;
 }
 
-const CHZZK_VODS_CACHE_TTL_MS = 60_000;
+const CHZZK_VODS_CACHE_TTL_MS = 300_000;
 const vodListCache = new Map<
   string,
   { fetchedAt: number; content: ChzzkVideosResponse | null }
 >();
+const vodListInFlight = new Map<string, Promise<ChzzkVideosResponse | null>>();
 const latestVideoCache = new Map<
   string,
   { fetchedAt: number; video: ChzzkVideo | null }
+>();
+const vodBatchInFlight = new Map<
+  string,
+  Promise<Record<string, ChzzkVideosResponse | null>>
 >();
 
 const isCacheFresh = (fetchedAt: number) =>
@@ -38,7 +43,7 @@ const makeListCacheKey = (channelId: string, page: number, size: number) =>
  */
 export async function fetchChzzkVideos(
   channelId: string,
-  options: FetchChzzkVideosOptions = {}
+  options: FetchChzzkVideosOptions = {},
 ): Promise<ChzzkVideosResponse | null> {
   const { page = 0, size = 24 } = options;
   const cacheKey = makeListCacheKey(channelId, page, size);
@@ -46,41 +51,67 @@ export async function fetchChzzkVideos(
   if (cached && isCacheFresh(cached.fetchedAt)) {
     return cached.content;
   }
+  const inFlight = vodListInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
   const params = new URLSearchParams({
     channelId,
     page: String(page),
     size: String(size),
   });
 
-  const response = await apiFetch<ChzzkVideosApiResponse>(
-    `/api/vods/chzzk?${params}`
-  );
-  const content = response?.content ?? null;
-  vodListCache.set(cacheKey, { fetchedAt: Date.now(), content });
-  return content;
+  const request = (async () => {
+    const response = await apiFetch<ChzzkVideosApiResponse>(
+      `/api/vods/chzzk?${params}`,
+    );
+    const content = response?.content ?? null;
+    vodListCache.set(cacheKey, { fetchedAt: Date.now(), content });
+    return content;
+  })();
+  vodListInFlight.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    vodListInFlight.delete(cacheKey);
+  }
 }
 
 async function fetchChzzkVideosBatch(
   channelIds: string[],
-  options: FetchChzzkVideosOptions = {}
+  options: FetchChzzkVideosOptions = {},
 ) {
   if (channelIds.length === 0) return {};
   const { page = 0, size = 1 } = options;
+  const sortedIds = [...new Set(channelIds)].sort();
+  const batchKey = `${sortedIds.join(",")}:${page}:${size}`;
+  const inFlight = vodBatchInFlight.get(batchKey);
+  if (inFlight) {
+    return inFlight;
+  }
   const params = new URLSearchParams({
-    channelIds: channelIds.join(","),
+    channelIds: sortedIds.join(","),
     page: String(page),
     size: String(size),
   });
 
-  const response = await apiFetch<ChzzkVideosBatchApiResponse>(
-    `/api/vods/chzzk?${params}`
-  );
+  const request = (async () => {
+    const response = await apiFetch<ChzzkVideosBatchApiResponse>(
+      `/api/vods/chzzk?${params}`,
+    );
 
-  const map: Record<string, ChzzkVideosResponse | null> = {};
-  response.items?.forEach(({ channelId, content }) => {
-    map[channelId] = content ?? null;
-  });
-  return map;
+    const map: Record<string, ChzzkVideosResponse | null> = {};
+    response.items?.forEach(({ channelId, content }) => {
+      map[channelId] = content ?? null;
+    });
+    return map;
+  })();
+  vodBatchInFlight.set(batchKey, request);
+  try {
+    return await request;
+  } finally {
+    vodBatchInFlight.delete(batchKey);
+  }
 }
 
 async function fetchLatestVideosByChannelIds(channelIds: string[]) {
@@ -111,7 +142,7 @@ async function fetchLatestVideosByChannelIds(channelIds: string[]) {
  * 멤버의 최신 다시보기 1개 조회
  */
 export async function fetchMemberLatestVideo(
-  member: Member
+  member: Member,
 ): Promise<ChzzkVideo | null> {
   const channelId = extractChzzkChannelId(member.url_chzzk);
   if (!channelId) return null;
@@ -132,7 +163,7 @@ export async function fetchMemberLatestVideo(
  * @returns Record<member.uid, ChzzkVideo | null>
  */
 export async function fetchAllMembersLatestVideos(
-  members: Member[]
+  members: Member[],
 ): Promise<Record<number, ChzzkVideo | null>> {
   const channelPairs = members
     .map((member) => {
@@ -141,7 +172,7 @@ export async function fetchAllMembersLatestVideos(
     })
     .filter(
       (value): value is { channelId: string; memberUid: number } =>
-        value !== null
+        value !== null,
     );
 
   if (channelPairs.length === 0) return {};
@@ -152,7 +183,7 @@ export async function fetchAllMembersLatestVideos(
       acc[channelId].push(memberUid);
       return acc;
     },
-    {}
+    {},
   );
 
   const uniqueChannelIds = Object.keys(channelToMembers);
@@ -167,6 +198,6 @@ export async function fetchAllMembersLatestVideos(
       });
       return acc;
     },
-    {}
+    {},
   );
 }
