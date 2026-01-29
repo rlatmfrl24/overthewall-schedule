@@ -1,11 +1,13 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import {
   Megaphone,
+  Calendar,
   Settings,
   LayoutDashboard,
   LogOut,
   Menu,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -15,24 +17,41 @@ interface AdminLayoutProps {
   children: React.ReactNode;
 }
 
-const SIDEBAR_ITEMS = [
+interface SidebarItem {
+  label: string;
+  icon: LucideIcon;
+  href: string;
+}
+
+const SIDEBAR_ITEMS: SidebarItem[] = [
   {
     label: "공지사항 관리",
     icon: Megaphone,
-    href: "/admin", // active check will be needed if we add more pages
-    active: true,
+    href: "/admin/notices",
   },
   {
-    label: "설정 (준비중)",
+    label: "D-Day 관리",
+    icon: Calendar,
+    href: "/admin/ddays",
+  },
+  {
+    label: "자동 업데이트 설정",
     icon: Settings,
-    href: "#",
-    active: false,
-    disabled: true,
+    href: "/admin/settings",
   },
 ];
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const location = useLocation();
+
+  const isActive = (href: string) => {
+    // /admin 또는 /admin/notices는 notices 페이지로 처리
+    if (href === "/admin/notices") {
+      return location.pathname === "/admin" || location.pathname === "/admin/notices";
+    }
+    return location.pathname === href;
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card border-r">
@@ -42,32 +61,26 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       <nav className="flex-1 p-4 space-y-1">
-        {SIDEBAR_ITEMS.map((item) => (
-          <Button
-            key={item.label}
-            variant={item.active ? "secondary" : "ghost"}
-            className={cn(
-              "w-full justify-start gap-3 px-3",
-              item.active &&
-                "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
-              !item.active && "text-muted-foreground"
-            )}
-            disabled={item.disabled}
-            asChild={!item.disabled}
-          >
-            {item.disabled ? (
-              <span className="flex items-center gap-3">
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </span>
-            ) : (
+        {SIDEBAR_ITEMS.map((item) => {
+          const active = isActive(item.href);
+          return (
+            <Button
+              key={item.label}
+              variant={active ? "secondary" : "ghost"}
+              className={cn(
+                "w-full justify-start gap-3 px-3",
+                active && "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
+                !active && "text-muted-foreground"
+              )}
+              asChild
+            >
               <Link to={item.href} onClick={() => setIsMobileOpen(false)}>
                 <item.icon className="w-4 h-4" />
                 {item.label}
               </Link>
-            )}
-          </Button>
-        ))}
+            </Button>
+          );
+        })}
       </nav>
 
       <div className="p-4 border-t">

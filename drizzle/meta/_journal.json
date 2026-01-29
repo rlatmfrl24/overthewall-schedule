@@ -71,6 +71,13 @@
       "when": 1769566452381,
       "tag": "0009_condemned_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1769649040933,
+      "tag": "0011_cold_maximus",
+      "breakpoints": true
     }
   ]
 }

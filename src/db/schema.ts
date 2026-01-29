@@ -42,9 +42,9 @@ export const schedules = sqliteTable(
     index("idx_schedules_date").on(table.date),
     check(
       "schedules_status_check",
-      sql`status IN ('방송', '휴방', '게릴라', '미정')`
+      sql`status IN ('방송', '휴방', '게릴라', '미정')`,
     ),
-  ]
+  ],
 );
 
 export const notices = sqliteTable(
@@ -59,7 +59,7 @@ export const notices = sqliteTable(
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
-  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)],
 );
 
 export const ddays = sqliteTable(
@@ -76,7 +76,7 @@ export const ddays = sqliteTable(
   (table) => [
     index("idx_ddays_date").on(table.date),
     check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
-  ]
+  ],
 );
 
 export type Member = typeof members.$inferSelect;
@@ -87,3 +87,13 @@ export type Notice = typeof notices.$inferSelect;
 export type NewNotice = typeof notices.$inferInsert;
 export type DDay = typeof ddays.$inferSelect;
 export type NewDDay = typeof ddays.$inferInsert;
+
+// 자동 업데이트 설정 테이블
+export const settings = sqliteTable("settings", {
+  key: text().primaryKey(),
+  value: text(),
+  updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type Setting = typeof settings.$inferSelect;
+export type NewSetting = typeof settings.$inferInsert;
