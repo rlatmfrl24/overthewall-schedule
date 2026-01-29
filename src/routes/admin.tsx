@@ -8,11 +8,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SignInButton, useUser } from "@clerk/clerk-react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
 import { Loader2, ShieldAlert } from "lucide-react";
 import { AdminLayout } from "@/features/admin/admin-layout";
-import { NoticeManager } from "@/features/admin/notice-manager";
-import { DDayManager } from "@/features/admin/dday-manager";
 
 export const Route = createFileRoute("/admin")({
   component: RouteComponent,
@@ -88,10 +86,7 @@ function RouteComponent() {
 
   return (
     <AdminLayout>
-      <div className="space-y-10">
-        <NoticeManager />
-        <DDayManager />
-      </div>
+      <Outlet />
     </AdminLayout>
   );
 }

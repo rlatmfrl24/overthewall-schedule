@@ -18,7 +18,10 @@ export const WeeklyScheduleItem = ({
 
   if (isOff) {
     return (
-      <div className="flex items-center justify-center p-1 md:p-2 rounded-lg bg-muted/80 border border-border text-muted-foreground font-bold text-xs md:text-sm flex-1 w-full">
+      <div
+        className="flex items-center justify-center p-1 md:p-2 rounded-lg bg-muted/80 border border-border text-muted-foreground font-bold text-xs md:text-sm flex-1 w-full cursor-pointer hover:bg-muted transition-colors"
+        onClick={onClick}
+      >
         휴방
       </div>
     );
@@ -38,9 +41,9 @@ export const WeeklyScheduleItem = ({
           style={
             isBroadcast
               ? {
-                  backgroundColor: mainColor,
-                  color: getContrastColor(mainColor),
-                }
+                backgroundColor: mainColor,
+                color: getContrastColor(mainColor),
+              }
               : {}
           }
         >

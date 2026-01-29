@@ -37,7 +37,7 @@ const makeCacheKey = (channelIds: string[], maxResults: number) =>
  */
 export async function fetchYouTubeVideos(
   channelIds: string[],
-  options: FetchYouTubeVideosOptions = {}
+  options: FetchYouTubeVideosOptions = {},
 ): Promise<YouTubeVideosResponse | null> {
   if (channelIds.length === 0) return null;
 
@@ -57,7 +57,7 @@ export async function fetchYouTubeVideos(
     void fetchAndCacheYouTubeVideos(channelIds, maxResults, cacheKey).catch(
       () => {
         // 백그라운드 갱신 실패 시 무시 (기존 캐시 유지)
-      }
+      },
     );
     return cached.content;
   }
@@ -72,7 +72,7 @@ export async function fetchYouTubeVideos(
 async function fetchAndCacheYouTubeVideos(
   channelIds: string[],
   maxResults: number,
-  cacheKey: string
+  cacheKey: string,
 ): Promise<YouTubeVideosResponse | null> {
   const params = new URLSearchParams({
     channelIds: channelIds.join(","),
@@ -81,7 +81,7 @@ async function fetchAndCacheYouTubeVideos(
 
   try {
     const response = await apiFetch<YouTubeVideosApiResponse>(
-      `/api/youtube/videos?${params}`
+      `/api/youtube/videos?${params}`,
     );
 
     const content: YouTubeVideosResponse = {
@@ -94,14 +94,14 @@ async function fetchAndCacheYouTubeVideos(
     return content;
   } catch (error) {
     console.error("Failed to fetch YouTube videos:", error);
-    
+
     // 에러 발생 시 이전 캐시 재사용 (stale 체크 무시)
     const cached = youtubeVideosCache.get(cacheKey);
     if (cached) {
       console.warn("Using stale cache due to fetch error");
       return cached.content;
     }
-    
+
     return null;
   }
 }
@@ -120,7 +120,7 @@ export function extractYouTubeChannelIds(members: Member[]): string[] {
  */
 export async function fetchMembersYouTubeVideos(
   members: Member[],
-  options: FetchYouTubeVideosOptions = {}
+  options: FetchYouTubeVideosOptions = {},
 ): Promise<YouTubeVideosResponse | null> {
   const channelToMember = new Map<string, number>();
   members.forEach((m) => {

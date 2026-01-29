@@ -1,0 +1,12 @@
+---
+description: Drizzle-kit/D1 마이그레이션 일관 프로세스
+alwaysApply: true
+---
+
+# Drizzle-kit/D1 워크플로우
+
+- 스키마 변경은 `src/db/schema.ts`에서만 한다
+- `drizzle/`에 수동으로 마이그레이션 파일을 만들지 않는다
+- 데이터 변환이 필요하면 `drizzle-kit generate --custom`으로 빈 파일을 만든 뒤 편집한다
+- 마이그레이션 번호 중복을 만들지 않는다
+- D1 반영은 `wrangler d1 migrations apply otw-db --remote`로 한다

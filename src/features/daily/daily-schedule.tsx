@@ -49,6 +49,7 @@ export const DailySchedule = () => {
     null
   );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [initialMemberUid, setInitialMemberUid] = useState<number | null>(null);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -324,6 +325,7 @@ export const DailySchedule = () => {
                 className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
                 onClick={() => {
                   setEditingSchedule(null);
+                  setInitialMemberUid(null);
                   setIsEditDialogOpen(true);
                 }}
               >
@@ -341,8 +343,8 @@ export const DailySchedule = () => {
                   onClick={handleToday}
                   disabled={isSameDay(currentDate, new Date())}
                   className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${isSameDay(currentDate, new Date())
-                      ? "text-muted-foreground cursor-not-allowed opacity-50"
-                      : "text-foreground hover:bg-muted"
+                    ? "text-muted-foreground cursor-not-allowed opacity-50"
+                    : "text-foreground hover:bg-muted"
                     }`}
                 >
                   오늘로 이동
@@ -442,6 +444,12 @@ export const DailySchedule = () => {
                       liveStatus={liveStatuses[member.uid]}
                       onScheduleClick={(schedule) => {
                         setEditingSchedule(schedule);
+                        setInitialMemberUid(null);
+                        setIsEditDialogOpen(true);
+                      }}
+                      onAddSchedule={(memberUid) => {
+                        setEditingSchedule(null);
+                        setInitialMemberUid(memberUid);
                         setIsEditDialogOpen(true);
                       }}
                     />
@@ -474,12 +482,16 @@ export const DailySchedule = () => {
         open={isEditDialogOpen}
         onOpenChange={(open) => {
           setIsEditDialogOpen(open);
-          if (!open) setEditingSchedule(null);
+          if (!open) {
+            setEditingSchedule(null);
+            setInitialMemberUid(null);
+          }
         }}
         onSubmit={handleSaveSchedule}
         onDelete={handleDeleteSchedule}
         members={members}
         initialDate={currentDate}
+        initialMemberUid={initialMemberUid ?? undefined}
         schedule={editingSchedule}
       />
 

@@ -15,7 +15,12 @@ import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
+import { Route as AdminLogsRouteImport } from './routes/admin/logs'
+import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
@@ -47,37 +52,76 @@ const VodsIndexRoute = VodsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => VodsRoute,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
 const ProfileCodeRoute = ProfileCodeRouteImport.update({
   id: '/profile/$code',
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminNoticesRoute = AdminNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLogsRoute = AdminLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDdaysRoute = AdminDdaysRouteImport.update({
+  id: '/ddays',
+  path: '/ddays',
+  getParentRoute: () => AdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/notice': typeof NoticeRoute
   '/weekly': typeof WeeklyRoute
+  '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/admin': typeof AdminIndexRoute
   '/vods': typeof VodsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/logs': typeof AdminLogsRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/profile/$code': typeof ProfileCodeRoute
+  '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
 }
 export interface FileRouteTypes {
@@ -88,10 +132,25 @@ export interface FileRouteTypes {
     | '/notice'
     | '/vods'
     | '/weekly'
+    | '/admin/ddays'
+    | '/admin/logs'
+    | '/admin/notices'
+    | '/admin/settings'
     | '/profile/$code'
+    | '/admin/'
     | '/vods/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/notice' | '/weekly' | '/profile/$code' | '/vods'
+  to:
+    | '/'
+    | '/notice'
+    | '/weekly'
+    | '/admin/ddays'
+    | '/admin/logs'
+    | '/admin/notices'
+    | '/admin/settings'
+    | '/profile/$code'
+    | '/admin'
+    | '/vods'
   id:
     | '__root__'
     | '/'
@@ -99,13 +158,18 @@ export interface FileRouteTypes {
     | '/notice'
     | '/vods'
     | '/weekly'
+    | '/admin/ddays'
+    | '/admin/logs'
+    | '/admin/notices'
+    | '/admin/settings'
     | '/profile/$code'
+    | '/admin/'
     | '/vods/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   NoticeRoute: typeof NoticeRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
@@ -156,6 +220,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VodsIndexRouteImport
       parentRoute: typeof VodsRoute
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/profile/$code': {
       id: '/profile/$code'
       path: '/profile/$code'
@@ -163,8 +234,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/notices': {
+      id: '/admin/notices'
+      path: '/notices'
+      fullPath: '/admin/notices'
+      preLoaderRoute: typeof AdminNoticesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/logs': {
+      id: '/admin/logs'
+      path: '/logs'
+      fullPath: '/admin/logs'
+      preLoaderRoute: typeof AdminLogsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/ddays': {
+      id: '/admin/ddays'
+      path: '/ddays'
+      fullPath: '/admin/ddays'
+      preLoaderRoute: typeof AdminDdaysRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
+
+interface AdminRouteChildren {
+  AdminDdaysRoute: typeof AdminDdaysRoute
+  AdminLogsRoute: typeof AdminLogsRoute
+  AdminNoticesRoute: typeof AdminNoticesRoute
+  AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminDdaysRoute: AdminDdaysRoute,
+  AdminLogsRoute: AdminLogsRoute,
+  AdminNoticesRoute: AdminNoticesRoute,
+  AdminSettingsRoute: AdminSettingsRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface VodsRouteChildren {
   VodsIndexRoute: typeof VodsIndexRoute
@@ -178,7 +295,7 @@ const VodsRouteWithChildren = VodsRoute._addFileChildren(VodsRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   NoticeRoute: NoticeRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,

@@ -7,11 +7,13 @@ import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 interface YouTubeSectionProps {
   members: Member[];
   selectedMemberUids: number[] | null;
+  loadingMembers: boolean;
 }
 
 export const YouTubeSection = ({
   members,
   selectedMemberUids,
+  loadingMembers,
 }: YouTubeSectionProps) => {
   // YouTube 채널이 있는 멤버만 필터링
   const membersWithYouTube = useMemo(
@@ -19,7 +21,7 @@ export const YouTubeSection = ({
     [members]
   );
 
-  const { videos, shorts, error, hasLoaded } = useYouTubeVideos(membersWithYouTube, {
+  const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(membersWithYouTube, {
     maxResults: 20,
   });
 
@@ -29,25 +31,32 @@ export const YouTubeSection = ({
     selectedMemberUids
   );
 
+  if (loadingMembers) {
+    return <YouTubeSectionSkeleton />;
+  }
+
   // YouTube 채널이 등록된 멤버가 없으면 렌더링하지 않음
   if (membersWithYouTube.length === 0) {
     return null;
   }
 
+  const isInitialLoading =
+    !hasLoaded || (loading && videos.length === 0 && shorts.length === 0);
+
   return (
     <div className="space-y-8">
       {/* 로딩 상태 */}
-      {!hasLoaded && <YouTubeSectionSkeleton />}
+      {isInitialLoading && <YouTubeSectionSkeleton />}
 
       {/* 에러 상태 */}
-      {error && hasLoaded && (
+      {error && hasLoaded && !isInitialLoading && (
         <div className="flex flex-col items-center justify-center py-12 gap-4">
           <p className="text-destructive">{error}</p>
         </div>
       )}
 
       {/* 콘텐츠 */}
-      {hasLoaded && !error && (
+      {!isInitialLoading && !error && (
         <>
           {/* 일반 동영상 플레이리스트 */}
           <YouTubePlaylist
