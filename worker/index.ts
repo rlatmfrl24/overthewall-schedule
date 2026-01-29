@@ -17,7 +17,7 @@ import {
   type NewSchedule,
   ddays,
   settings,
-  autoUpdateLogs,
+  updateLogs,
   pendingSchedules,
 } from "../src/db/schema";
 
@@ -393,6 +393,48 @@ const parseNumericId = (value?: string | number | null) => {
   return Number.isFinite(numeric) ? numeric : null;
 };
 
+type UpdateLogPayload = {
+  scheduleId?: number | null;
+  memberUid?: number | null;
+  memberName?: string | null;
+  scheduleDate: string;
+  action:
+    | "create"
+    | "update"
+    | "delete"
+    | "approve"
+    | "reject"
+    | "auto_collected"
+    | "auto_updated"
+    | "auto_failed";
+  title?: string | null;
+  previousStatus?: string | null;
+};
+
+const resolveMemberName = async (db: DbInstance, memberUid?: number | null) => {
+  if (!memberUid) return null;
+  const data = await db
+    .select({ name: members.name })
+    .from(members)
+    .where(eq(members.uid, memberUid))
+    .limit(1);
+  return data[0]?.name ?? null;
+};
+
+const insertUpdateLog = async (db: DbInstance, payload: UpdateLogPayload) => {
+  const resolvedName =
+    payload.memberName ?? (await resolveMemberName(db, payload.memberUid));
+  await db.insert(updateLogs).values({
+    schedule_id: payload.scheduleId ?? null,
+    member_uid: payload.memberUid ?? null,
+    member_name: resolvedName ?? null,
+    schedule_date: payload.scheduleDate,
+    action: payload.action,
+    title: payload.title ?? null,
+    previous_status: payload.previousStatus ?? null,
+  });
+};
+
 const fetchChzzkLiveStatus = async (channelId: string) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
@@ -739,15 +781,14 @@ const autoUpdateSchedules = async (
         pendingVodIds.add(vodId);
         pendingKeys.add(pendingKey);
 
-        // 로그 저장 (수집됨)
-        await db.insert(autoUpdateLogs).values({
-          schedule_id: null,
-          member_uid: member.uid,
-          member_name: member.name,
-          schedule_date: videoDate,
-          action: "collected",
+        await insertUpdateLog(db, {
+          scheduleId: null,
+          memberUid: member.uid,
+          memberName: member.name,
+          scheduleDate: videoDate,
+          action: "auto_collected",
           title: video.videoTitle,
-          previous_status: null,
+          previousStatus: null,
         });
 
         collected++;
@@ -756,7 +797,7 @@ const autoUpdateSchedules = async (
           memberName: member.name,
           scheduleId: null,
           scheduleDate: videoDate,
-          action: "collected",
+          action: "auto_collected",
           title: video.videoTitle,
           previousStatus: null,
         });
@@ -786,15 +827,14 @@ const autoUpdateSchedules = async (
         pendingVodIds.add(vodId);
         pendingKeys.add(pendingKey);
 
-        // 로그 저장 (수집됨)
-        await db.insert(autoUpdateLogs).values({
-          schedule_id: matchingSchedule.id,
-          member_uid: member.uid,
-          member_name: member.name,
-          schedule_date: videoDate,
-          action: "collected",
+        await insertUpdateLog(db, {
+          scheduleId: matchingSchedule.id,
+          memberUid: member.uid,
+          memberName: member.name,
+          scheduleDate: videoDate,
+          action: "auto_updated",
           title: video.videoTitle,
-          previous_status: previousStatus,
+          previousStatus,
         });
 
         collected++;
@@ -803,7 +843,7 @@ const autoUpdateSchedules = async (
           memberName: member.name,
           scheduleId: matchingSchedule.id,
           scheduleDate: videoDate,
-          action: "collected",
+          action: "auto_updated",
           title: video.videoTitle,
           previousStatus,
         });
@@ -1082,6 +1122,14 @@ export default {
         });
 
         if (result.success) {
+          await insertUpdateLog(db, {
+            scheduleId: null,
+            memberUid: member_uid,
+            scheduleDate: date,
+            action: "create",
+            title: title ?? null,
+            previousStatus: null,
+          });
           return new Response("Created", { status: 201 });
         } else {
           return new Response("Failed to create", { status: 500 });
@@ -1099,6 +1147,12 @@ export default {
         const numericId = parseNumericId(id);
         if (numericId === null) return badRequest("Invalid id");
 
+        const existing = await db
+          .select()
+          .from(schedules)
+          .where(eq(schedules.id, numericId))
+          .limit(1);
+
         const result = await db
           .update(schedules)
           .set({
@@ -1111,6 +1165,16 @@ export default {
           .where(eq(schedules.id, numericId));
 
         if (result.success) {
+          if (existing.length > 0) {
+            await insertUpdateLog(db, {
+              scheduleId: numericId,
+              memberUid: member_uid,
+              scheduleDate: date,
+              action: "update",
+              title: title ?? null,
+              previousStatus: existing[0].status,
+            });
+          }
           return new Response("Updated", { status: 200 });
         } else {
           return new Response("Failed to update", { status: 500 });
@@ -1125,11 +1189,28 @@ export default {
         const numericId = parseNumericId(id);
         if (numericId === null) return badRequest("Invalid id");
 
+        const existing = await db
+          .select()
+          .from(schedules)
+          .where(eq(schedules.id, numericId))
+          .limit(1);
+
         const result = await db
           .delete(schedules)
           .where(eq(schedules.id, numericId));
 
         if (result.success) {
+          if (existing.length > 0) {
+            const target = existing[0];
+            await insertUpdateLog(db, {
+              scheduleId: numericId,
+              memberUid: target.member_uid,
+              scheduleDate: target.date,
+              action: "delete",
+              title: target.title ?? null,
+              previousStatus: target.status,
+            });
+          }
           return new Response("Deleted", { status: 200 });
         } else {
           return new Response("Failed to delete", { status: 500 });
@@ -1337,38 +1418,38 @@ export default {
 
         const filters: SQL[] = [];
         if (action && action !== "all") {
-          filters.push(eq(autoUpdateLogs.action, action));
+          filters.push(eq(updateLogs.action, action));
         }
         if (member) {
           const memberQuery = `%${member.toLowerCase()}%`;
           filters.push(
-            sql`lower(${autoUpdateLogs.member_name}) like ${memberQuery}`,
+            sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`,
           );
         }
         if (dateFrom && dateTo) {
-          filters.push(between(autoUpdateLogs.schedule_date, dateFrom, dateTo));
+          filters.push(between(updateLogs.schedule_date, dateFrom, dateTo));
         } else if (dateFrom) {
-          filters.push(gte(autoUpdateLogs.schedule_date, dateFrom));
+          filters.push(gte(updateLogs.schedule_date, dateFrom));
         } else if (dateTo) {
-          filters.push(lte(autoUpdateLogs.schedule_date, dateTo));
+          filters.push(lte(updateLogs.schedule_date, dateTo));
         }
         if (query) {
           const searchQuery = `%${query.toLowerCase()}%`;
           filters.push(
             sql`(
-              lower(coalesce(${autoUpdateLogs.title}, '')) like ${searchQuery}
-              or lower(${autoUpdateLogs.member_name}) like ${searchQuery}
+              lower(coalesce(${updateLogs.title}, '')) like ${searchQuery}
+              or lower(coalesce(${updateLogs.member_name}, '')) like ${searchQuery}
             )`,
           );
         }
 
-        let logQuery = db.select().from(autoUpdateLogs);
+        let logQuery = db.select().from(updateLogs);
         if (filters.length > 0) {
           logQuery = logQuery.where(and(...filters));
         }
 
         const logsData = await logQuery
-          .orderBy(desc(autoUpdateLogs.created_at))
+          .orderBy(desc(updateLogs.created_at))
           .limit(limit);
         return Response.json(logsData);
       }
@@ -1432,6 +1513,16 @@ export default {
           });
         } catch (error) {
           console.error("Manual auto update failed:", error);
+          const today = new Date().toISOString().slice(0, 10);
+          await insertUpdateLog(db, {
+            scheduleId: null,
+            memberUid: null,
+            memberName: null,
+            scheduleDate: today,
+            action: "auto_failed",
+            title: "manual auto update failed",
+            previousStatus: null,
+          });
           return new Response("Auto update failed", { status: 500 });
         }
       }
@@ -1451,7 +1542,7 @@ export default {
         }
 
         // 로그 삭제 (스케줄 삭제 연동 제외)
-        await db.delete(autoUpdateLogs).where(eq(autoUpdateLogs.id, numericId));
+        await db.delete(updateLogs).where(eq(updateLogs.id, numericId));
 
         return Response.json({ success: true });
       }
@@ -1573,15 +1664,14 @@ export default {
               .where(eq(schedules.id, item.existing_schedule_id));
           }
 
-          // 승인 로그 저장
-          await db.insert(autoUpdateLogs).values({
-            schedule_id: item.existing_schedule_id,
-            member_uid: item.member_uid,
-            member_name: item.member_name,
-            schedule_date: item.date,
-            action: "approved",
+          await insertUpdateLog(db, {
+            scheduleId: item.existing_schedule_id,
+            memberUid: item.member_uid,
+            memberName: item.member_name,
+            scheduleDate: item.date,
+            action: "approve",
             title: item.title,
-            previous_status: item.previous_status,
+            previousStatus: item.previous_status,
           });
 
           // 대기 스케줄 삭제
@@ -1620,15 +1710,14 @@ export default {
 
         const item = pending[0];
 
-        // 거부 로그 저장
-        await db.insert(autoUpdateLogs).values({
-          schedule_id: item.existing_schedule_id,
-          member_uid: item.member_uid,
-          member_name: item.member_name,
-          schedule_date: item.date,
-          action: "rejected",
+        await insertUpdateLog(db, {
+          scheduleId: item.existing_schedule_id,
+          memberUid: item.member_uid,
+          memberName: item.member_name,
+          scheduleDate: item.date,
+          action: "reject",
           title: item.title,
-          previous_status: item.previous_status,
+          previousStatus: item.previous_status,
         });
 
         // 대기 스케줄 삭제
@@ -1719,15 +1808,14 @@ export default {
                 .where(eq(schedules.id, item.existing_schedule_id));
             }
 
-            // 승인 로그 저장
-            await db.insert(autoUpdateLogs).values({
-              schedule_id: item.existing_schedule_id,
-              member_uid: item.member_uid,
-              member_name: item.member_name,
-              schedule_date: item.date,
-              action: "approved",
+            await insertUpdateLog(db, {
+              scheduleId: item.existing_schedule_id,
+              memberUid: item.member_uid,
+              memberName: item.member_name,
+              scheduleDate: item.date,
+              action: "approve",
               title: item.title,
-              previous_status: item.previous_status,
+              previousStatus: item.previous_status,
             });
 
             // 승인된 항목 삭제
@@ -1758,16 +1846,15 @@ export default {
       ) {
         const allPending = await db.select().from(pendingSchedules);
 
-        // 모든 대기 스케줄에 대해 거부 로그 저장
         for (const item of allPending) {
-          await db.insert(autoUpdateLogs).values({
-            schedule_id: item.existing_schedule_id,
-            member_uid: item.member_uid,
-            member_name: item.member_name,
-            schedule_date: item.date,
-            action: "rejected",
+          await insertUpdateLog(db, {
+            scheduleId: item.existing_schedule_id,
+            memberUid: item.member_uid,
+            memberName: item.member_name,
+            scheduleDate: item.date,
+            action: "reject",
             title: item.title,
-            previous_status: item.previous_status,
+            previousStatus: item.previous_status,
           });
         }
 
@@ -1835,6 +1922,16 @@ export default {
       await updateSetting(db, "auto_update_last_run", now.toString());
     } catch (error) {
       console.error("[scheduled] Auto update failed:", error);
+      const today = new Date().toISOString().slice(0, 10);
+      await insertUpdateLog(db, {
+        scheduleId: null,
+        memberUid: null,
+        memberName: null,
+        scheduleDate: today,
+        action: "auto_failed",
+        title: "scheduled auto update failed",
+        previousStatus: null,
+      });
     }
   },
 } satisfies ExportedHandler<Env>;

@@ -24,11 +24,11 @@ export interface AutoUpdateRunResult {
   details: AutoUpdateRunDetail[];
 }
 
-export interface AutoUpdateLog {
+export interface UpdateLog {
   id: number;
   schedule_id: number | null;
-  member_uid: number;
-  member_name: string;
+  member_uid: number | null;
+  member_name: string | null;
   schedule_date: string;
   action: string;
   title: string | null;
@@ -36,7 +36,7 @@ export interface AutoUpdateLog {
   created_at: string | null;
 }
 
-export interface AutoUpdateLogQuery {
+export interface UpdateLogQuery {
   limit?: number;
   action?: string;
   member?: string;
@@ -97,9 +97,9 @@ function buildQueryString(params: Record<string, string | number | undefined>) {
   return searchParams.toString();
 }
 
-export async function fetchAutoUpdateLogs(
-  options: number | AutoUpdateLogQuery = 50,
-): Promise<AutoUpdateLog[]> {
+export async function fetchUpdateLogs(
+  options: number | UpdateLogQuery = 50,
+): Promise<UpdateLog[]> {
   const queryOptions =
     typeof options === "number" ? { limit: options } : options;
   const queryString = buildQueryString({
@@ -110,10 +110,10 @@ export async function fetchAutoUpdateLogs(
     dateTo: queryOptions.dateTo,
     query: queryOptions.query,
   });
-  return apiFetch<AutoUpdateLog[]>(`/api/settings/logs?${queryString}`);
+  return apiFetch<UpdateLog[]>(`/api/settings/logs?${queryString}`);
 }
 
-export async function deleteAutoUpdateLog(
+export async function deleteUpdateLog(
   logId: number,
 ): Promise<{ success: boolean }> {
   return apiFetch(`/api/settings/logs/${logId}`, {

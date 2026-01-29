@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   Loader2,
   RefreshCw,
@@ -9,8 +8,6 @@ import {
   CheckCircle,
   XCircle,
   Calendar,
-  Trash2,
-  History,
   Check,
   X,
   AlertCircle,
@@ -45,8 +42,6 @@ import {
   fetchSettings,
   updateSettings,
   runAutoUpdateNow,
-  fetchAutoUpdateLogs,
-  deleteAutoUpdateLog,
   fetchPendingSchedules,
   approvePendingSchedule,
   rejectPendingSchedule,
@@ -54,7 +49,6 @@ import {
   rejectAllPendingSchedules,
   type AutoUpdateSettings,
   type AutoUpdateRunResult,
-  type AutoUpdateLog,
   type PendingSchedule,
 } from "@/lib/api/settings";
 
@@ -72,32 +66,18 @@ const RANGE_OPTIONS = [
   { value: "7", label: "7일" },
 ] as const;
 
-const ACTION_LABELS: Record<string, string> = {
-  collected: "수집됨",
-  approved: "승인됨",
-  rejected: "거부됨",
-  created: "새 스케줄 생성",
-  updated: "스케줄 업데이트",
-  updated_live: "라이브 → 방송",
-  updated_vod: "VOD → 방송",
-};
-
-const ACTION_BADGE_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  collected: "outline",
-  approved: "default",
-  rejected: "destructive",
+const RUN_DETAIL_LABELS: Record<string, string> = {
+  auto_collected: "자동 수집",
+  auto_updated: "자동 업데이트",
 };
 
 export function AutoUpdateSettingsManager() {
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
-  const [logs, setLogs] = useState<AutoUpdateLog[]>([]);
   const [pendingList, setPendingList] = useState<PendingSchedule[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isLoadingPending, setIsLoadingPending] = useState(false);
-  const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
   const [processingPendingId, setProcessingPendingId] = useState<number | null>(null);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [lastRunResult, setLastRunResult] =
@@ -115,18 +95,6 @@ export function AutoUpdateSettingsManager() {
     }
   }, []);
 
-  const loadLogs = useCallback(async () => {
-    setIsLoadingLogs(true);
-    try {
-      const data = await fetchAutoUpdateLogs(100);
-      setLogs(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Failed to load logs:", error);
-    } finally {
-      setIsLoadingLogs(false);
-    }
-  }, []);
-
   const loadPending = useCallback(async () => {
     setIsLoadingPending(true);
     try {
@@ -141,9 +109,8 @@ export function AutoUpdateSettingsManager() {
 
   useEffect(() => {
     void loadSettings();
-    void loadLogs();
     void loadPending();
-  }, [loadSettings, loadLogs, loadPending]);
+  }, [loadSettings, loadPending]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
     if (!settings) return;
@@ -196,7 +163,6 @@ export function AutoUpdateSettingsManager() {
       const result = await runAutoUpdateNow();
       setLastRunResult(result);
       await loadSettings();
-      await loadLogs();
       await loadPending();
     } catch (error) {
       console.error("Failed to run auto update:", error);
@@ -211,25 +177,11 @@ export function AutoUpdateSettingsManager() {
     }
   };
 
-  const handleDeleteLog = async (logId: number) => {
-    if (!window.confirm("이 로그를 삭제하시겠습니까?")) return;
-    setDeletingLogId(logId);
-    try {
-      await deleteAutoUpdateLog(logId);
-      setLogs((prev) => prev.filter((log) => log.id !== logId));
-    } catch (error) {
-      console.error("Failed to delete log:", error);
-    } finally {
-      setDeletingLogId(null);
-    }
-  };
-
   const handleApprovePending = async (pendingId: number) => {
     setProcessingPendingId(pendingId);
     try {
       await approvePendingSchedule(pendingId);
       setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
-      await loadLogs();
     } catch (error) {
       console.error("Failed to approve pending schedule:", error);
     } finally {
@@ -242,7 +194,6 @@ export function AutoUpdateSettingsManager() {
     try {
       await rejectPendingSchedule(pendingId);
       setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
-      await loadLogs();
     } catch (error) {
       console.error("Failed to reject pending schedule:", error);
     } finally {
@@ -256,7 +207,6 @@ export function AutoUpdateSettingsManager() {
     try {
       await approveAllPendingSchedules();
       setPendingList([]);
-      await loadLogs();
     } catch (error) {
       console.error("Failed to approve all:", error);
     } finally {
@@ -270,7 +220,6 @@ export function AutoUpdateSettingsManager() {
     try {
       await rejectAllPendingSchedules();
       setPendingList([]);
-      await loadLogs();
     } catch (error) {
       console.error("Failed to reject all:", error);
     } finally {
@@ -291,7 +240,7 @@ export function AutoUpdateSettingsManager() {
     });
   };
 
-  const formatLogDate = (timestamp: string | null): string => {
+  const formatPendingDate = (timestamp: string | null): string => {
     if (!timestamp) return "-";
     const date = new Date(timestamp);
     return date.toLocaleString("ko-KR", {
@@ -305,16 +254,6 @@ export function AutoUpdateSettingsManager() {
   const isEnabled = settings?.auto_update_enabled === "true";
   const intervalHours = settings?.auto_update_interval_hours || "2";
   const rangeDays = settings?.auto_update_range_days || "3";
-
-  // 로그 필터: 수집, 승인, 거부만 표시
-  const filteredLogs = Array.isArray(logs)
-    ? logs.filter(
-      (log) =>
-        log.action === "collected" ||
-        log.action === "approved" ||
-        log.action === "rejected"
-    )
-    : [];
 
   return (
     <section className="space-y-6">
@@ -330,12 +269,11 @@ export function AutoUpdateSettingsManager() {
           size="sm"
           onClick={() => {
             void loadSettings();
-            void loadLogs();
             void loadPending();
           }}
-          disabled={isFetching || isLoadingLogs || isLoadingPending}
+          disabled={isFetching || isLoadingPending}
         >
-          {isFetching || isLoadingLogs || isLoadingPending ? (
+          {isFetching || isLoadingPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <RefreshCw className="w-4 h-4" />
@@ -518,7 +456,7 @@ export function AutoUpdateSettingsManager() {
                                 ({detail.scheduleDate})
                               </span>
                               <Badge variant="outline" className="text-xs">
-                                {ACTION_LABELS[detail.action] || detail.action}
+                                {RUN_DETAIL_LABELS[detail.action] || detail.action}
                               </Badge>
                               {detail.title && (
                                 <span
@@ -603,7 +541,7 @@ export function AutoUpdateSettingsManager() {
                       {pendingList.map((pending) => (
                         <TableRow key={pending.id}>
                           <TableCell className="text-xs text-muted-foreground">
-                            {formatLogDate(pending.created_at)}
+                            {formatPendingDate(pending.created_at)}
                           </TableCell>
                           <TableCell className="font-medium">
                             {pending.member_name}
@@ -673,101 +611,6 @@ export function AutoUpdateSettingsManager() {
             </Card>
           )}
 
-          {/* 수집/승인 기록 카드 */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <History className="w-4 h-4" />
-                    수집/승인 기록
-                  </CardTitle>
-                  <CardDescription>
-                    자동 업데이트로 수집되고 처리된 스케줄 기록입니다.
-                  </CardDescription>
-                </div>
-                <Link to="/admin/logs">
-                  <Button variant="outline" size="sm">
-                    전체 로그 보기
-                  </Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingLogs ? (
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                  로그 불러오는 중...
-                </div>
-              ) : filteredLogs.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  기록이 없습니다.
-                </div>
-              ) : (
-                <div className="rounded-md border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[100px]">날짜</TableHead>
-                        <TableHead>멤버</TableHead>
-                        <TableHead className="w-[100px]">스케줄 날짜</TableHead>
-                        <TableHead>상태</TableHead>
-                        <TableHead>제목</TableHead>
-                        <TableHead className="w-[80px] text-right">
-                          작업
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatLogDate(log.created_at)}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {log.member_name}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {log.schedule_date}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={ACTION_BADGE_VARIANTS[log.action] || "outline"}
-                              className="text-xs"
-                            >
-                              {ACTION_LABELS[log.action] || log.action}
-                            </Badge>
-                          </TableCell>
-                          <TableCell
-                            className="max-w-[200px] truncate text-sm"
-                            title={log.title || ""}
-                          >
-                            {log.title || "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleDeleteLog(log.id)}
-                              disabled={deletingLogId === log.id}
-                              title="로그 삭제"
-                            >
-                              {deletingLogId === log.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-4 h-4" />
-                              )}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </>
       )}
     </section>

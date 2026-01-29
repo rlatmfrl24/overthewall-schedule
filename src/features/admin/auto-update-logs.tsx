@@ -27,33 +27,40 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fetchAutoUpdateLogs, type AutoUpdateLog } from "@/lib/api/settings";
+import { fetchUpdateLogs, type UpdateLog } from "@/lib/api/settings";
 
 const ACTION_LABELS: Record<string, string> = {
-  collected: "수집됨",
-  approved: "승인됨",
-  rejected: "거부됨",
-  created: "새 스케줄 생성",
-  updated: "스케줄 업데이트",
-  updated_live: "라이브 → 방송",
-  updated_vod: "VOD → 방송",
+  create: "수동 생성",
+  update: "수동 수정",
+  delete: "삭제",
+  approve: "승인",
+  reject: "거부",
+  auto_collected: "자동 수집",
+  auto_updated: "자동 업데이트",
+  auto_failed: "자동 업데이트 실패",
 };
 
 const ACTION_BADGE_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  collected: "outline",
-  approved: "default",
-  rejected: "destructive",
+  create: "default",
+  update: "secondary",
+  delete: "destructive",
+  approve: "default",
+  reject: "destructive",
+  auto_collected: "outline",
+  auto_updated: "secondary",
+  auto_failed: "destructive",
 };
 
 const ACTION_OPTIONS = [
   { value: "all", label: "전체" },
-  { value: "collected", label: "수집됨" },
-  { value: "approved", label: "승인됨" },
-  { value: "rejected", label: "거부됨" },
-  { value: "created", label: "새 스케줄 생성" },
-  { value: "updated", label: "스케줄 업데이트" },
-  { value: "updated_live", label: "라이브 → 방송" },
-  { value: "updated_vod", label: "VOD → 방송" },
+  { value: "create", label: "수동 생성" },
+  { value: "update", label: "수동 수정" },
+  { value: "delete", label: "삭제" },
+  { value: "approve", label: "승인" },
+  { value: "reject", label: "거부" },
+  { value: "auto_collected", label: "자동 수집" },
+  { value: "auto_updated", label: "자동 업데이트" },
+  { value: "auto_failed", label: "자동 업데이트 실패" },
 ];
 
 type LogFilters = {
@@ -73,18 +80,18 @@ const DEFAULT_FILTERS: LogFilters = {
 };
 
 export function AutoUpdateLogsManager() {
-  const [logs, setLogs] = useState<AutoUpdateLog[]>([]);
+  const [logs, setLogs] = useState<UpdateLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState<LogFilters>(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState<LogFilters>(DEFAULT_FILTERS);
-  const [selectedLog, setSelectedLog] = useState<AutoUpdateLog | null>(null);
+  const [selectedLog, setSelectedLog] = useState<UpdateLog | null>(null);
 
   const loadLogs = useCallback(async (activeFilters: LogFilters) => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const data = await fetchAutoUpdateLogs({
+      const data = await fetchUpdateLogs({
         limit: 200,
         action: activeFilters.action === "all" ? undefined : activeFilters.action,
         member: activeFilters.member.trim() || undefined,
@@ -297,7 +304,9 @@ export function AutoUpdateLogsManager() {
                       <TableCell className="text-xs text-muted-foreground">
                         {formatLogDate(log.created_at)}
                       </TableCell>
-                      <TableCell className="font-medium">{log.member_name}</TableCell>
+                      <TableCell className="font-medium">
+                        {log.member_name || "-"}
+                      </TableCell>
                       <TableCell className="text-sm">{log.schedule_date}</TableCell>
                       <TableCell>
                         <Badge
@@ -341,7 +350,9 @@ export function AutoUpdateLogsManager() {
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">멤버</span>
-                <span className="font-medium">{selectedLog.member_name}</span>
+                <span className="font-medium">
+                  {selectedLog.member_name || "-"}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">스케줄 날짜</span>

@@ -98,12 +98,12 @@ export const settings = sqliteTable("settings", {
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 
-// 자동 업데이트 로그 테이블
-export const autoUpdateLogs = sqliteTable("auto_update_logs", {
+// 스케쥴 통합 업데이트 로그 테이블
+export const updateLogs = sqliteTable("update_logs", {
   id: integer().primaryKey({ autoIncrement: true }),
   schedule_id: integer("schedule_id"),
-  member_uid: integer("member_uid").notNull(),
-  member_name: text("member_name").notNull(),
+  member_uid: integer("member_uid"),
+  member_name: text("member_name"),
   schedule_date: text("schedule_date").notNull(),
   action: text().notNull(),
   title: text(),
@@ -111,8 +111,8 @@ export const autoUpdateLogs = sqliteTable("auto_update_logs", {
   created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
-export type AutoUpdateLog = typeof autoUpdateLogs.$inferSelect;
-export type NewAutoUpdateLog = typeof autoUpdateLogs.$inferInsert;
+export type UpdateLog = typeof updateLogs.$inferSelect;
+export type NewUpdateLog = typeof updateLogs.$inferInsert;
 
 // 승인 대기 스케줄 테이블
 export const pendingSchedules = sqliteTable("pending_schedules", {
