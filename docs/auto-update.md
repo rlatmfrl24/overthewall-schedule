@@ -69,7 +69,7 @@ Cron 트리거 → VOD 수집 → 대기 스케줄 저장 → 관리자 검토 �
 | vod_id               | TEXT    | 중복 방지용 VOD 식별자 |
 | created_at           | NUMERIC | 생성 시간              |
 
-`auto_update_logs` 테이블 (로그):
+`update_logs` 테이블 (로그):
 
 | 필드            | 타입    | 설명                        |
 | --------------- | ------- | --------------------------- |
@@ -120,10 +120,11 @@ Cron 트리거 → VOD 수집 → 대기 스케줄 저장 → 관리자 검토 �
 
 ## 관련 파일
 
-- `src/db/schema.ts` - settings, pendingSchedules, autoUpdateLogs 테이블 정의
+- `src/db/schema.ts` - settings, pendingSchedules, updateLogs 테이블 정의
 - `drizzle/0011_cold_maximus.sql` - settings 테이블 마이그레이션
-- `drizzle/0012_flimsy_millenium_guard.sql` - autoUpdateLogs 테이블 마이그레이션
+- `drizzle/0012_flimsy_millenium_guard.sql` - auto_update_logs(legacy) 테이블 마이그레이션
 - `drizzle/0013_add_pending_schedules.sql` - pendingSchedules 테이블 마이그레이션
+- `drizzle/0014_heavy_slapstick.sql` - update_logs/pending_schedules 반영
 - `worker/index.ts` - scheduled 핸들러, autoUpdateSchedules 함수, 설정/승인 API
 - `src/lib/api/settings.ts` - 설정/대기 스케줄 API 클라이언트
 - `src/features/admin/auto-update-settings.tsx` - 관리자 UI 컴포넌트

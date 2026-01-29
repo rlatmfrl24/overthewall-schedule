@@ -21,7 +21,7 @@ export const YouTubeSection = ({
     [members]
   );
 
-  const { videos, shorts, error, hasLoaded } = useYouTubeVideos(membersWithYouTube, {
+  const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(membersWithYouTube, {
     maxResults: 20,
   });
 
@@ -40,20 +40,23 @@ export const YouTubeSection = ({
     return null;
   }
 
+  const isInitialLoading =
+    !hasLoaded || (loading && videos.length === 0 && shorts.length === 0);
+
   return (
     <div className="space-y-8">
       {/* 로딩 상태 */}
-      {!hasLoaded && <YouTubeSectionSkeleton />}
+      {isInitialLoading && <YouTubeSectionSkeleton />}
 
       {/* 에러 상태 */}
-      {error && hasLoaded && (
+      {error && hasLoaded && !isInitialLoading && (
         <div className="flex flex-col items-center justify-center py-12 gap-4">
           <p className="text-destructive">{error}</p>
         </div>
       )}
 
       {/* 콘텐츠 */}
-      {hasLoaded && !error && (
+      {!isInitialLoading && !error && (
         <>
           {/* 일반 동영상 플레이리스트 */}
           <YouTubePlaylist

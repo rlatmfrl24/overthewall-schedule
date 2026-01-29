@@ -9,7 +9,11 @@
     "lint": "eslint .",
     "preview": "pnpm run build && vite preview",
     "deploy": "pnpm run build && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "drizzle:generate": "drizzle-kit generate",
+    "drizzle:generate:custom": "drizzle-kit generate --custom",
+    "drizzle:migrate:remote": "wrangler d1 migrations apply otw-db --remote",
+    "drizzle:migrate:local": "wrangler d1 migrations apply otw-db"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.57.0",

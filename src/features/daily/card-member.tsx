@@ -1,18 +1,19 @@
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, getContrastColor, hexToRgba } from "@/lib/utils";
+import { cn, convertChzzkToLiveUrl, getContrastColor, hexToRgba } from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { User } from "lucide-react";
+import { Plus, User } from "lucide-react";
 
 interface CardMemberProps {
   member: Member;
   schedules: ScheduleItem[];
   liveStatus?: ChzzkLiveStatusMap[number];
   onScheduleClick?: (schedule: ScheduleItem) => void;
+  onAddSchedule?: (memberUid: number) => void;
 }
 
 export const CardMember = ({
@@ -20,6 +21,7 @@ export const CardMember = ({
   schedules,
   liveStatus,
   onScheduleClick,
+  onAddSchedule,
 }: CardMemberProps) => {
   const navigate = useNavigate();
   const hasSchedule = schedules.length > 0;
@@ -35,17 +37,28 @@ export const CardMember = ({
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
   const isLive = liveStatus?.status === "OPEN";
   const viewerCount = liveStatus?.concurrentUserCount;
+  const isLiveClickable = isLive && Boolean(member.url_chzzk);
+
+  const handleCardClick = () => {
+    if (!isLiveClickable) return;
+    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
+    if (liveUrl) {
+      window.open(liveUrl, "_blank", "noreferrer");
+    }
+  };
 
   return (
     <div
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
         "hover:shadow-xl hover:-translate-y-1",
-        "h-full min-h-[240px] md:min-h-[260px] bg-card"
+        "h-full min-h-[240px] md:min-h-[260px] bg-card",
+        isLiveClickable && "cursor-pointer"
       )}
       style={{
         border: `1px solid ${borderColor}`,
       }}
+      onClick={handleCardClick}
     >
       {/* Header Section (Solid Color) */}
       <div
@@ -188,10 +201,24 @@ export const CardMember = ({
               />
             ))
           ) : (
-            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4">
+            <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4 gap-2">
               <p className="text-sm font-medium text-muted-foreground">
                 일정 없음
               </p>
+              {onAddSchedule && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-3 text-xs font-semibold"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddSchedule(member.uid);
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  스케쥴 추가하기
+                </Button>
+              )}
             </div>
           )}
         </div>

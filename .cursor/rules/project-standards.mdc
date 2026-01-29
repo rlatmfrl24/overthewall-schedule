@@ -6,6 +6,7 @@ alwaysApply: true
 # OTW Schedule 공통 규칙
 
 ## 구조
+
 - `components/`: 재사용 UI 컴포넌트, `components/ui/`는 shadcn/ui 기반 기본 컴포넌트
 - `features/`: 도메인 기능(페이지 수준) 컴포넌트
 - `shared/`: 도메인 간 공유 컴포넌트
@@ -15,32 +16,39 @@ alwaysApply: true
 - `db/`: Drizzle 스키마/관계 정의
 
 ## 네이밍
+
 - 파일명: kebab-case (`daily-schedule.tsx`, `use-weekly-schedule.ts`)
 - 컴포넌트/타입: PascalCase
 - 훅: `useX` 형식, 파일명은 `use-*.ts`
 
 ## 라우팅
+
 - `routes/*` 파일에서 `export const Route = createFileRoute(...)` 패턴 유지
 - 라우트 컴포넌트는 `RouteComponent`로 분리
 
 ## 컴포넌트/훅
+
 - 기본은 named export 사용
 - 훅은 `loading` 상태와 `reload`/`fetch` 함수 포함, 반환은 객체 형태
 
 ## 스타일링
+
 - Tailwind 사용, 조건부 클래스는 `cn()` 유틸 사용
 - 인라인 스타일은 동적 값에 한정
 
 ## API 클라이언트
+
 - 공통 요청은 `src/lib/api/client.ts`의 `apiFetch` 사용
 - 리소스별 함수는 `src/lib/api/{resource}.ts`에 분리
 - 네이밍: `fetchX`, `createX`, `updateX`, `deleteX`
 
 ## Worker
+
 - `worker/index.ts`에서 경로 기반 라우팅
 - 메서드 분기(`GET/POST/PUT/DELETE`)와 표준 응답 헬퍼 사용
 - 입력값 정규화 함수 사용 후 처리
 
 ## DB/타입
+
 - 스키마는 `src/db/schema.ts` 중심, `drizzle/`은 재export
 - 타입은 `$inferSelect/$inferInsert`로 추론 후 `lib/types.ts`에서 확장
