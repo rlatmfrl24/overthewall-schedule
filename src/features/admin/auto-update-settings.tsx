@@ -63,6 +63,8 @@ const RANGE_OPTIONS = [
 ] as const;
 
 const ACTION_LABELS: Record<string, string> = {
+  created: "새 스케줄 생성",
+  updated: "스케줄 업데이트",
   updated_live: "라이브 → 방송",
   updated_vod: "VOD → 방송",
   no_vod: "VOD 없음",
@@ -222,7 +224,11 @@ export function AutoUpdateSettingsManager() {
   // 업데이트된 로그만 필터 (삭제 가능한 것들)
   const updatedLogs = Array.isArray(logs)
     ? logs.filter(
-      (log) => log.action === "updated_live" || log.action === "updated_vod"
+      (log) =>
+        log.action === "created" ||
+        log.action === "updated" ||
+        log.action === "updated_live" ||
+        log.action === "updated_vod"
     )
     : [];
 
@@ -232,8 +238,8 @@ export function AutoUpdateSettingsManager() {
         <div>
           <h2 className="text-xl font-semibold">스케줄 자동 업데이트</h2>
           <p className="text-sm text-muted-foreground">
-            미정/휴방/게릴라 상태의 스케줄을 치지직 라이브 및 VOD 상태로 자동
-            업데이트합니다.
+            치지직 VOD 데이터를 기반으로 스케줄이 없으면 자동 생성하고, 휴방/게릴라
+            상태나 제목이 없는 스케줄을 자동 업데이트합니다.
           </p>
         </div>
         <Button

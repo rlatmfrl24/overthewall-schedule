@@ -1,4 +1,14 @@
-import { SQL, and, between, eq, gte, inArray, lte, desc } from "drizzle-orm";
+import {
+  SQL,
+  and,
+  between,
+  eq,
+  gte,
+  inArray,
+  lte,
+  desc,
+  sql,
+} from "drizzle-orm";
 import { getDb, type DbInstance } from "./db";
 import {
   members,
@@ -577,21 +587,21 @@ const updateSetting = async (
     });
 };
 
-// 자동 업데이트 대상 상태
-const AUTO_UPDATE_TARGET_STATUSES = ["미정", "휴방", "게릴라"] as const;
-
 // 자동 업데이트 결과 타입
 type AutoUpdateDetail = {
   memberUid: number;
   memberName: string;
-  scheduleId: number;
+  scheduleId: number | null;
   scheduleDate: string;
   action: string;
   title?: string;
-  previousStatus: string;
+  previousStatus: string | null;
 };
 
-// 자동 업데이트 핵심 로직
+// 자동 업데이트 핵심 로직 (완전 재설계)
+// - 스케줄 없음 + VOD 있음 → 새 스케줄 생성
+// - 스케줄 있음 + (방송 상태 아니거나 제목 없음) + VOD 있음 → 업데이트
+// - 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음
 const autoUpdateSchedules = async (
   db: DbInstance,
   rangeDays: number = 3,
@@ -605,176 +615,193 @@ const autoUpdateSchedules = async (
     new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
   );
   const details: AutoUpdateDetail[] = [];
+  let updated = 0;
+  let checked = 0;
 
-  // 1. 날짜 범위 내의 미정/휴방/게릴라 상태 스케줄 조회
-  const targetSchedules = await db
+  // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
+  const allMembers = await db
     .select({
-      id: schedules.id,
-      member_uid: schedules.member_uid,
-      status: schedules.status,
-      date: schedules.date,
+      uid: members.uid,
+      name: members.name,
+      url_chzzk: members.url_chzzk,
     })
-    .from(schedules)
+    .from(members)
     .where(
-      and(
-        gte(schedules.date, startDate),
-        lte(schedules.date, today),
-        inArray(schedules.status, [...AUTO_UPDATE_TARGET_STATUSES]),
-      ),
+      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != '1'`,
     );
 
-  if (targetSchedules.length === 0) {
+  if (allMembers.length === 0) {
     return { updated: 0, checked: 0, details };
   }
 
-  // 2. 해당 멤버들의 정보 조회 (치지직 URL 포함)
-  const memberUids = [...new Set(targetSchedules.map((s) => s.member_uid))];
-  const membersData = await db
-    .select({
-      uid: members.uid,
-      url_chzzk: members.url_chzzk,
-      name: members.name,
-    })
-    .from(members)
-    .where(inArray(members.uid, memberUids));
+  // 2. 날짜 범위 내의 모든 스케줄 조회 (한 번에)
+  const existingSchedules = await db
+    .select()
+    .from(schedules)
+    .where(and(gte(schedules.date, startDate), lte(schedules.date, today)));
 
-  const memberMap = new Map(membersData.map((m) => [m.uid, m]));
+  // 스케줄을 member_uid + date 기준으로 맵핑 (한 날짜에 여러 스케줄 가능)
+  const scheduleMap = new Map<string, (typeof existingSchedules)[0][]>();
+  for (const schedule of existingSchedules) {
+    const key = `${schedule.member_uid}:${schedule.date}`;
+    const existing = scheduleMap.get(key) || [];
+    existing.push(schedule);
+    scheduleMap.set(key, existing);
+  }
 
-  let updated = 0;
-
-  // 3. 각 스케줄에 대해 라이브/VOD 상태 확인 및 업데이트
-  for (const schedule of targetSchedules) {
-    const member = memberMap.get(schedule.member_uid);
-    if (!member) continue;
-
+  // 3. 각 멤버별로 VOD 확인
+  for (const member of allMembers) {
     const channelId = extractChzzkChannelId(member.url_chzzk);
     if (!channelId) {
-      details.push({
-        memberUid: schedule.member_uid,
-        memberName: member.name,
-        scheduleId: schedule.id,
-        scheduleDate: schedule.date,
-        action: "skipped_no_channel",
-        previousStatus: schedule.status,
-      });
-      continue;
+      continue; // 치지직 채널이 없는 멤버는 건너뜀
     }
 
-    // 라이브 상태 확인 (오늘 날짜만)
-    if (schedule.date === today) {
-      const liveStatus = await fetchChzzkLiveStatus(channelId);
+    // VOD 조회
+    const videos = await fetchChzzkVideos(channelId, 0, 15);
+    if (!videos || !videos.data || videos.data.length === 0) {
+      continue; // VOD가 없으면 건너뜀
+    }
 
-      if (liveStatus && liveStatus.status === "OPEN") {
-        // 라이브 중 - 스케줄 업데이트
-        const liveTitle = liveStatus.liveTitle || "라이브 방송";
-        const startTime = extractKSTTime(new Date().toISOString());
+    // 각 VOD에 대해 처리
+    for (const video of videos.data) {
+      // 실제 스트리밍 시작 시간 계산 (publishDateAt - duration)
+      const startTimestamp = video.publishDateAt - video.duration * 1000;
+      const videoDate = getKSTDateString(new Date(startTimestamp));
+
+      // 날짜 범위 체크
+      if (videoDate < startDate || videoDate > today) {
+        continue;
+      }
+
+      checked++;
+
+      const scheduleKey = `${member.uid}:${videoDate}`;
+      const existingSchedules = scheduleMap.get(scheduleKey) || [];
+      const startTime = extractKSTTime(new Date(startTimestamp).toISOString());
+
+      // 시작 시간을 분 단위로 변환하여 비교 (±30분 이내면 같은 방송으로 간주)
+      const videoMinutes =
+        parseInt(startTime.split(":")[0]) * 60 +
+        parseInt(startTime.split(":")[1]);
+
+      // VOD와 매칭되는 기존 스케줄 찾기
+      const matchingSchedule = existingSchedules.find((schedule) => {
+        if (!schedule.start_time) return false;
+        const scheduleMinutes =
+          parseInt(schedule.start_time.split(":")[0]) * 60 +
+          parseInt(schedule.start_time.split(":")[1]);
+        return Math.abs(videoMinutes - scheduleMinutes) <= 30;
+      });
+
+      if (!matchingSchedule) {
+        // 매칭되는 스케줄 없음 → 새 스케줄 생성
+        await db.insert(schedules).values({
+          member_uid: member.uid,
+          date: videoDate,
+          status: "방송",
+          title: video.videoTitle,
+          start_time: startTime,
+        });
+
+        // 생성된 스케줄 ID 가져오기
+        const newSchedule = await db
+          .select({ id: schedules.id })
+          .from(schedules)
+          .where(
+            and(
+              eq(schedules.member_uid, member.uid),
+              eq(schedules.date, videoDate),
+              eq(schedules.start_time, startTime),
+            ),
+          )
+          .orderBy(desc(schedules.id))
+          .limit(1);
+
+        const newScheduleId = newSchedule[0]?.id ?? null;
+
+        // 로그 저장
+        await db.insert(autoUpdateLogs).values({
+          schedule_id: newScheduleId,
+          member_uid: member.uid,
+          member_name: member.name,
+          schedule_date: videoDate,
+          action: "created",
+          title: video.videoTitle,
+          previous_status: null,
+        });
+
+        // 맵에 추가
+        if (newScheduleId) {
+          existingSchedules.push({
+            id: newScheduleId,
+            member_uid: member.uid,
+            date: videoDate,
+            status: "방송",
+            title: video.videoTitle,
+            start_time: startTime,
+            created_at: null,
+          });
+          scheduleMap.set(scheduleKey, existingSchedules);
+        }
+
+        updated++;
+        details.push({
+          memberUid: member.uid,
+          memberName: member.name,
+          scheduleId: newScheduleId,
+          scheduleDate: videoDate,
+          action: "created",
+          title: video.videoTitle,
+          previousStatus: null,
+        });
+      } else if (
+        matchingSchedule.status !== "방송" ||
+        !matchingSchedule.title?.trim()
+      ) {
+        // 매칭되는 스케줄 있음 + (방송 상태 아니거나 제목 없음) → 업데이트
+        const previousStatus = matchingSchedule.status;
 
         await db
           .update(schedules)
           .set({
             status: "방송",
-            title: liveTitle,
+            title: video.videoTitle,
             start_time: startTime,
           })
-          .where(eq(schedules.id, schedule.id));
+          .where(eq(schedules.id, matchingSchedule.id));
 
         // 로그 저장
         await db.insert(autoUpdateLogs).values({
-          schedule_id: schedule.id,
-          member_uid: schedule.member_uid,
+          schedule_id: matchingSchedule.id,
+          member_uid: member.uid,
           member_name: member.name,
-          schedule_date: schedule.date,
-          action: "updated_live",
-          title: liveTitle,
-          previous_status: schedule.status,
+          schedule_date: videoDate,
+          action: "updated",
+          title: video.videoTitle,
+          previous_status: previousStatus,
         });
+
+        // 맵 업데이트
+        matchingSchedule.status = "방송";
+        matchingSchedule.title = video.videoTitle;
+        matchingSchedule.start_time = startTime;
 
         updated++;
         details.push({
-          memberUid: schedule.member_uid,
+          memberUid: member.uid,
           memberName: member.name,
-          scheduleId: schedule.id,
-          scheduleDate: schedule.date,
-          action: "updated_live",
-          title: liveTitle,
-          previousStatus: schedule.status,
+          scheduleId: matchingSchedule.id,
+          scheduleDate: videoDate,
+          action: "updated",
+          title: video.videoTitle,
+          previousStatus,
         });
-        continue;
       }
-    }
-
-    // 라이브 아님 - VOD 확인
-    const videos = await fetchChzzkVideos(channelId, 0, 10);
-    if (!videos || !videos.data || videos.data.length === 0) {
-      details.push({
-        memberUid: schedule.member_uid,
-        memberName: member.name,
-        scheduleId: schedule.id,
-        scheduleDate: schedule.date,
-        action: "no_vod",
-        previousStatus: schedule.status,
-      });
-      continue;
-    }
-
-    // 해당 날짜의 VOD가 있는지 확인 (publishDateAt 사용)
-    const matchingVideo = videos.data.find((video) => {
-      const publishDate = getKSTDateString(new Date(video.publishDateAt));
-      return publishDate === schedule.date;
-    });
-
-    if (matchingVideo) {
-      // VOD 있음 - 스케줄 업데이트
-      // publishDateAt(종료 시간)에서 duration(초)을 빼서 실제 시작 시간 계산
-      const streamStartTimestamp =
-        matchingVideo.publishDateAt - matchingVideo.duration * 1000;
-      const startTime = extractKSTTime(
-        new Date(streamStartTimestamp).toISOString(),
-      );
-
-      await db
-        .update(schedules)
-        .set({
-          status: "방송",
-          title: matchingVideo.videoTitle,
-          start_time: startTime,
-        })
-        .where(eq(schedules.id, schedule.id));
-
-      // 로그 저장
-      await db.insert(autoUpdateLogs).values({
-        schedule_id: schedule.id,
-        member_uid: schedule.member_uid,
-        member_name: member.name,
-        schedule_date: schedule.date,
-        action: "updated_vod",
-        title: matchingVideo.videoTitle,
-        previous_status: schedule.status,
-      });
-
-      updated++;
-      details.push({
-        memberUid: schedule.member_uid,
-        memberName: member.name,
-        scheduleId: schedule.id,
-        scheduleDate: schedule.date,
-        action: "updated_vod",
-        title: matchingVideo.videoTitle,
-        previousStatus: schedule.status,
-      });
-    } else {
-      details.push({
-        memberUid: schedule.member_uid,
-        memberName: member.name,
-        scheduleId: schedule.id,
-        scheduleDate: schedule.date,
-        action: "no_matching_vod",
-        previousStatus: schedule.status,
-      });
+      // 매칭되는 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음 (아무것도 안 함)
     }
   }
 
-  return { updated, checked: targetSchedules.length, details };
+  return { updated, checked, details };
 };
 
 export default {

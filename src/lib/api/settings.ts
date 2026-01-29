@@ -10,11 +10,11 @@ export interface AutoUpdateSettings {
 export interface AutoUpdateRunDetail {
   memberUid: number;
   memberName: string;
-  scheduleId: number;
+  scheduleId: number | null;
   scheduleDate: string;
   action: string;
   title?: string;
-  previousStatus: string;
+  previousStatus: string | null;
 }
 
 export interface AutoUpdateRunResult {
