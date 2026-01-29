@@ -1,4 +1,4 @@
-import { SQL, and, between, eq, inArray } from "drizzle-orm";
+import { SQL, and, between, eq, gte, inArray, lte, desc } from "drizzle-orm";
 import { getDb, type DbInstance } from "./db";
 import {
   members,
@@ -7,6 +7,7 @@ import {
   type NewSchedule,
   ddays,
   settings,
+  autoUpdateLogs,
 } from "../src/db/schema";
 
 type CachedLiveStatus = {
@@ -579,29 +580,45 @@ const updateSetting = async (
 // 자동 업데이트 대상 상태
 const AUTO_UPDATE_TARGET_STATUSES = ["미정", "휴방", "게릴라"] as const;
 
+// 자동 업데이트 결과 타입
+type AutoUpdateDetail = {
+  memberUid: number;
+  memberName: string;
+  scheduleId: number;
+  scheduleDate: string;
+  action: string;
+  title?: string;
+  previousStatus: string;
+};
+
 // 자동 업데이트 핵심 로직
 const autoUpdateSchedules = async (
   db: DbInstance,
+  rangeDays: number = 3,
 ): Promise<{
   updated: number;
   checked: number;
-  details: Array<{ memberUid: number; action: string; title?: string }>;
+  details: AutoUpdateDetail[];
 }> => {
   const today = getKSTDateString();
-  const details: Array<{ memberUid: number; action: string; title?: string }> =
-    [];
+  const startDate = getKSTDateString(
+    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
+  );
+  const details: AutoUpdateDetail[] = [];
 
-  // 1. 오늘 날짜의 미정/휴방/게릴라 상태 스케줄 조회
+  // 1. 날짜 범위 내의 미정/휴방/게릴라 상태 스케줄 조회
   const targetSchedules = await db
     .select({
       id: schedules.id,
       member_uid: schedules.member_uid,
       status: schedules.status,
+      date: schedules.date,
     })
     .from(schedules)
     .where(
       and(
-        eq(schedules.date, today),
+        gte(schedules.date, startDate),
+        lte(schedules.date, today),
         inArray(schedules.status, [...AUTO_UPDATE_TARGET_STATUSES]),
       ),
     );
@@ -634,80 +651,125 @@ const autoUpdateSchedules = async (
     if (!channelId) {
       details.push({
         memberUid: schedule.member_uid,
+        memberName: member.name,
+        scheduleId: schedule.id,
+        scheduleDate: schedule.date,
         action: "skipped_no_channel",
+        previousStatus: schedule.status,
       });
       continue;
     }
 
-    // 라이브 상태 확인
-    const liveStatus = await fetchChzzkLiveStatus(channelId);
+    // 라이브 상태 확인 (오늘 날짜만)
+    if (schedule.date === today) {
+      const liveStatus = await fetchChzzkLiveStatus(channelId);
 
-    if (liveStatus && liveStatus.status === "OPEN") {
-      // 라이브 중 - 스케줄 업데이트
-      const liveTitle = liveStatus.liveTitle || "라이브 방송";
-      // openDate는 liveStatus에 없으므로 현재 시간 사용
-      const startTime =
-        getKSTDateString() === today
-          ? extractKSTTime(new Date().toISOString())
-          : null;
+      if (liveStatus && liveStatus.status === "OPEN") {
+        // 라이브 중 - 스케줄 업데이트
+        const liveTitle = liveStatus.liveTitle || "라이브 방송";
+        const startTime = extractKSTTime(new Date().toISOString());
 
-      await db
-        .update(schedules)
-        .set({
-          status: "방송",
+        await db
+          .update(schedules)
+          .set({
+            status: "방송",
+            title: liveTitle,
+            start_time: startTime,
+          })
+          .where(eq(schedules.id, schedule.id));
+
+        // 로그 저장
+        await db.insert(autoUpdateLogs).values({
+          schedule_id: schedule.id,
+          member_uid: schedule.member_uid,
+          member_name: member.name,
+          schedule_date: schedule.date,
+          action: "updated_live",
           title: liveTitle,
-          start_time: startTime,
-        })
-        .where(eq(schedules.id, schedule.id));
+          previous_status: schedule.status,
+        });
 
-      updated++;
-      details.push({
-        memberUid: schedule.member_uid,
-        action: "updated_live",
-        title: liveTitle,
-      });
-      continue;
+        updated++;
+        details.push({
+          memberUid: schedule.member_uid,
+          memberName: member.name,
+          scheduleId: schedule.id,
+          scheduleDate: schedule.date,
+          action: "updated_live",
+          title: liveTitle,
+          previousStatus: schedule.status,
+        });
+        continue;
+      }
     }
 
     // 라이브 아님 - VOD 확인
-    const videos = await fetchChzzkVideos(channelId, 0, 5);
+    const videos = await fetchChzzkVideos(channelId, 0, 10);
     if (!videos || !videos.data || videos.data.length === 0) {
       details.push({
         memberUid: schedule.member_uid,
+        memberName: member.name,
+        scheduleId: schedule.id,
+        scheduleDate: schedule.date,
         action: "no_vod",
+        previousStatus: schedule.status,
       });
       continue;
     }
 
-    // 오늘 날짜의 VOD가 있는지 확인
-    const todayVideo = videos.data.find((video) => {
-      const publishDate = getKSTDateString(new Date(video.publishDate));
-      return publishDate === today;
+    // 해당 날짜의 VOD가 있는지 확인 (publishDateAt 사용)
+    const matchingVideo = videos.data.find((video) => {
+      const publishDate = getKSTDateString(new Date(video.publishDateAt));
+      return publishDate === schedule.date;
     });
 
-    if (todayVideo) {
-      // 오늘 VOD 있음 - 스케줄 업데이트
-      const startTime = extractKSTTime(todayVideo.publishDate);
+    if (matchingVideo) {
+      // VOD 있음 - 스케줄 업데이트
+      // publishDateAt(종료 시간)에서 duration(초)을 빼서 실제 시작 시간 계산
+      const streamStartTimestamp =
+        matchingVideo.publishDateAt - matchingVideo.duration * 1000;
+      const startTime = extractKSTTime(
+        new Date(streamStartTimestamp).toISOString(),
+      );
 
       await db
         .update(schedules)
         .set({
           status: "방송",
-          title: todayVideo.videoTitle,
+          title: matchingVideo.videoTitle,
           start_time: startTime,
         })
         .where(eq(schedules.id, schedule.id));
 
+      // 로그 저장
+      await db.insert(autoUpdateLogs).values({
+        schedule_id: schedule.id,
+        member_uid: schedule.member_uid,
+        member_name: member.name,
+        schedule_date: schedule.date,
+        action: "updated_vod",
+        title: matchingVideo.videoTitle,
+        previous_status: schedule.status,
+      });
+
       updated++;
       details.push({
         memberUid: schedule.member_uid,
+        memberName: member.name,
+        scheduleId: schedule.id,
+        scheduleDate: schedule.date,
         action: "updated_vod",
-        title: todayVideo.videoTitle,
+        title: matchingVideo.videoTitle,
+        previousStatus: schedule.status,
       });
     } else {
       details.push({
         memberUid: schedule.member_uid,
-        action: "no_today_vod",
+        memberName: member.name,
+        scheduleId: schedule.id,
+        scheduleDate: schedule.date,
+        action: "no_matching_vod",
+        previousStatus: schedule.status,
       });
     }
   }
@@ -1223,9 +1285,22 @@ export default {
         "auto_update_enabled",
         "auto_update_interval_hours",
         "auto_update_last_run",
+        "auto_update_range_days",
       ] as const;
 
-      if (request.method === "GET") {
+      // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
+      if (request.method === "GET" && url.pathname === "/api/settings/logs") {
+        const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+        const logsData = await db
+          .select()
+          .from(autoUpdateLogs)
+          .orderBy(desc(autoUpdateLogs.created_at))
+          .limit(limit);
+        return Response.json(logsData);
+      }
+
+      // GET /api/settings - 설정 조회
+      if (request.method === "GET" && url.pathname === "/api/settings") {
         const data = await db
           .select()
           .from(settings)
@@ -1265,7 +1340,11 @@ export default {
         url.pathname === "/api/settings/run-now"
       ) {
         try {
-          const result = await autoUpdateSchedules(db);
+          // 날짜 범위 설정 가져오기
+          const rangeDaysStr = await getSetting(db, "auto_update_range_days");
+          const rangeDays = parseInt(rangeDaysStr || "3", 10);
+
+          const result = await autoUpdateSchedules(db, rangeDays);
           await updateSetting(
             db,
             "auto_update_last_run",
@@ -1281,6 +1360,49 @@ export default {
           console.error("Manual auto update failed:", error);
           return new Response("Auto update failed", { status: 500 });
         }
+      }
+
+      // DELETE /api/settings/logs/:id - 로그 및 연결된 스케줄 삭제
+      if (
+        request.method === "DELETE" &&
+        url.pathname.startsWith("/api/settings/logs/")
+      ) {
+        const logId = url.pathname.split("/").pop();
+        if (!logId) {
+          return badRequest("Log ID is required");
+        }
+        const numericId = parseNumericId(logId);
+        if (numericId === null) {
+          return badRequest("Invalid log ID");
+        }
+
+        // 로그 조회
+        const log = await db
+          .select()
+          .from(autoUpdateLogs)
+          .where(eq(autoUpdateLogs.id, numericId))
+          .limit(1);
+
+        if (log.length === 0) {
+          return new Response("Log not found", { status: 404 });
+        }
+
+        const logEntry = log[0];
+
+        // 연결된 스케줄 삭제 (schedule_id가 있는 경우)
+        if (logEntry.schedule_id) {
+          await db
+            .delete(schedules)
+            .where(eq(schedules.id, logEntry.schedule_id));
+        }
+
+        // 로그 삭제
+        await db.delete(autoUpdateLogs).where(eq(autoUpdateLogs.id, numericId));
+
+        return Response.json({
+          success: true,
+          deletedScheduleId: logEntry.schedule_id,
+        });
       }
     }
 
@@ -1319,16 +1441,22 @@ export default {
       return;
     }
 
-    // 3. 자동 업데이트 실행
-    console.log("[scheduled] Running auto update...");
+    // 3. 날짜 범위 설정 가져오기
+    const rangeDaysStr = await getSetting(db, "auto_update_range_days");
+    const rangeDays = parseInt(rangeDaysStr || "3", 10);
+
+    // 4. 자동 업데이트 실행
+    console.log(
+      `[scheduled] Running auto update (range: ${rangeDays} days)...`,
+    );
     try {
-      const result = await autoUpdateSchedules(db);
+      const result = await autoUpdateSchedules(db, rangeDays);
       console.log(
         `[scheduled] Auto update completed: ${result.updated}/${result.checked} updated`,
         result.details,
       );
 
-      // 4. 마지막 실행 시간 업데이트
+      // 5. 마지막 실행 시간 업데이트
       await updateSetting(db, "auto_update_last_run", now.toString());
     } catch (error) {
       console.error("[scheduled] Auto update failed:", error);

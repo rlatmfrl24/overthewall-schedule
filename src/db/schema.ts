@@ -97,3 +97,19 @@ export const settings = sqliteTable("settings", {
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
+
+// 자동 업데이트 로그 테이블
+export const autoUpdateLogs = sqliteTable("auto_update_logs", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  schedule_id: integer("schedule_id"),
+  member_uid: integer("member_uid").notNull(),
+  member_name: text("member_name").notNull(),
+  schedule_date: text("schedule_date").notNull(),
+  action: text().notNull(),
+  title: text(),
+  previous_status: text("previous_status"),
+  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type AutoUpdateLog = typeof autoUpdateLogs.$inferSelect;
+export type NewAutoUpdateLog = typeof autoUpdateLogs.$inferInsert;

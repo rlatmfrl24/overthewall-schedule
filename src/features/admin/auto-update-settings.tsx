@@ -7,6 +7,9 @@ import {
   Play,
   CheckCircle,
   XCircle,
+  Calendar,
+  Trash2,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -27,11 +30,22 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   fetchSettings,
   updateSettings,
   runAutoUpdateNow,
+  fetchAutoUpdateLogs,
+  deleteAutoUpdateLog,
   type AutoUpdateSettings,
   type AutoUpdateRunResult,
+  type AutoUpdateLog,
 } from "@/lib/api/settings";
 
 const INTERVAL_OPTIONS = [
@@ -40,12 +54,32 @@ const INTERVAL_OPTIONS = [
   { value: "4", label: "4시간" },
 ] as const;
 
+const RANGE_OPTIONS = [
+  { value: "1", label: "1일 (오늘만)" },
+  { value: "2", label: "2일" },
+  { value: "3", label: "3일" },
+  { value: "5", label: "5일" },
+  { value: "7", label: "7일" },
+] as const;
+
+const ACTION_LABELS: Record<string, string> = {
+  updated_live: "라이브 → 방송",
+  updated_vod: "VOD → 방송",
+  no_vod: "VOD 없음",
+  no_matching_vod: "해당일 VOD 없음",
+  skipped_no_channel: "채널 없음",
+};
+
 export function AutoUpdateSettingsManager() {
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
+  const [logs, setLogs] = useState<AutoUpdateLog[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [lastRunResult, setLastRunResult] = useState<AutoUpdateRunResult | null>(null);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
+  const [lastRunResult, setLastRunResult] =
+    useState<AutoUpdateRunResult | null>(null);
 
   const loadSettings = useCallback(async () => {
     setIsFetching(true);
@@ -59,16 +93,35 @@ export function AutoUpdateSettingsManager() {
     }
   }, []);
 
+  const loadLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    try {
+      const data = await fetchAutoUpdateLogs(100);
+      // API 응답이 배열인지 확인
+      setLogs(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to load logs:", error);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadSettings();
-  }, [loadSettings]);
+    void loadLogs();
+  }, [loadSettings, loadLogs]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
     if (!settings) return;
     setIsSaving(true);
     try {
-      await updateSettings({ auto_update_enabled: enabled ? "true" : "false" });
-      setSettings({ ...settings, auto_update_enabled: enabled ? "true" : "false" });
+      await updateSettings({
+        auto_update_enabled: enabled ? "true" : "false",
+      });
+      setSettings({
+        ...settings,
+        auto_update_enabled: enabled ? "true" : "false",
+      });
     } catch (error) {
       console.error("Failed to update settings:", error);
     } finally {
@@ -89,6 +142,19 @@ export function AutoUpdateSettingsManager() {
     }
   };
 
+  const handleRangeChange = async (range: string) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({ auto_update_range_days: range });
+      setSettings({ ...settings, auto_update_range_days: range });
+    } catch (error) {
+      console.error("Failed to update settings:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleRunNow = async () => {
     setIsRunning(true);
     setLastRunResult(null);
@@ -97,6 +163,8 @@ export function AutoUpdateSettingsManager() {
       setLastRunResult(result);
       // 마지막 실행 시간 새로고침
       await loadSettings();
+      // 로그 새로고침
+      await loadLogs();
     } catch (error) {
       console.error("Failed to run auto update:", error);
       setLastRunResult({
@@ -107,6 +175,19 @@ export function AutoUpdateSettingsManager() {
       });
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleDeleteLog = async (logId: number) => {
+    if (!window.confirm("이 로그와 연결된 스케줄을 삭제하시겠습니까?")) return;
+    setDeletingLogId(logId);
+    try {
+      await deleteAutoUpdateLog(logId);
+      setLogs((prev) => prev.filter((log) => log.id !== logId));
+    } catch (error) {
+      console.error("Failed to delete log:", error);
+    } finally {
+      setDeletingLogId(null);
     }
   };
 
@@ -123,25 +204,48 @@ export function AutoUpdateSettingsManager() {
     });
   };
 
+  const formatLogDate = (timestamp: string | null): string => {
+    if (!timestamp) return "-";
+    const date = new Date(timestamp);
+    return date.toLocaleString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const isEnabled = settings?.auto_update_enabled === "true";
   const intervalHours = settings?.auto_update_interval_hours || "2";
+  const rangeDays = settings?.auto_update_range_days || "3";
+
+  // 업데이트된 로그만 필터 (삭제 가능한 것들)
+  const updatedLogs = Array.isArray(logs)
+    ? logs.filter(
+      (log) => log.action === "updated_live" || log.action === "updated_vod"
+    )
+    : [];
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-xl font-semibold">스케줄 자동 업데이트</h2>
           <p className="text-sm text-muted-foreground">
-            미정/휴방/게릴라 상태의 스케줄을 치지직 라이브 및 VOD 상태로 자동 업데이트합니다.
+            미정/휴방/게릴라 상태의 스케줄을 치지직 라이브 및 VOD 상태로 자동
+            업데이트합니다.
           </p>
         </div>
         <Button
           variant="outline"
           size="sm"
-          onClick={loadSettings}
-          disabled={isFetching}
+          onClick={() => {
+            void loadSettings();
+            void loadLogs();
+          }}
+          disabled={isFetching || isLoadingLogs}
         >
-          {isFetching ? (
+          {isFetching || isLoadingLogs ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <RefreshCw className="w-4 h-4" />
@@ -156,70 +260,105 @@ export function AutoUpdateSettingsManager() {
           설정 불러오는 중...
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* 활성화 설정 카드 */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Power className="w-4 h-4" />
-                자동 업데이트 활성화
-              </CardTitle>
-              <CardDescription>
-                Cron 트리거를 통해 주기적으로 스케줄을 자동 업데이트합니다.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="auto-update-enabled" className="text-sm">
-                  {isEnabled ? (
-                    <Badge variant="default" className="bg-green-600">활성화됨</Badge>
-                  ) : (
-                    <Badge variant="secondary">비활성화됨</Badge>
-                  )}
-                </Label>
-                <Switch
-                  id="auto-update-enabled"
-                  checked={isEnabled}
-                  onCheckedChange={handleToggleEnabled}
-                  disabled={isSaving}
-                />
-              </div>
-            </CardContent>
-          </Card>
+        <>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {/* 활성화 설정 카드 */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Power className="w-4 h-4" />
+                  자동 업데이트 활성화
+                </CardTitle>
+                <CardDescription>
+                  Cron 트리거를 통해 주기적으로 스케줄을 자동 업데이트합니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="auto-update-enabled" className="text-sm">
+                    {isEnabled ? (
+                      <Badge variant="default" className="bg-green-600">
+                        활성화됨
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">비활성화됨</Badge>
+                    )}
+                  </Label>
+                  <Switch
+                    id="auto-update-enabled"
+                    checked={isEnabled}
+                    onCheckedChange={handleToggleEnabled}
+                    disabled={isSaving}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* 주기 설정 카드 */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                업데이트 주기
-              </CardTitle>
-              <CardDescription>
-                자동 업데이트가 실행되는 간격을 설정합니다.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select
-                value={intervalHours}
-                onValueChange={handleIntervalChange}
-                disabled={isSaving}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="주기 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  {INTERVAL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}마다
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
+            {/* 주기 설정 카드 */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  업데이트 주기
+                </CardTitle>
+                <CardDescription>
+                  자동 업데이트가 실행되는 간격을 설정합니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={intervalHours}
+                  onValueChange={handleIntervalChange}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="주기 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INTERVAL_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}마다
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+
+            {/* 날짜 범위 설정 카드 */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  검색 범위
+                </CardTitle>
+                <CardDescription>
+                  오늘 기준 며칠 전까지의 스케줄을 검색할지 설정합니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={rangeDays}
+                  onValueChange={handleRangeChange}
+                  disabled={isSaving}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="범위 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RANGE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* 수동 실행 카드 */}
-          <Card className="md:col-span-2">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Play className="w-4 h-4" />
@@ -268,24 +407,34 @@ export function AutoUpdateSettingsManager() {
                   {lastRunResult.success && (
                     <>
                       <div className="text-sm text-muted-foreground">
-                        검사된 스케줄: {lastRunResult.checked}개 / 업데이트됨: {lastRunResult.updated}개
+                        검사된 스케줄: {lastRunResult.checked}개 / 업데이트됨:{" "}
+                        {lastRunResult.updated}개
                       </div>
 
                       {lastRunResult.details.length > 0 && (
                         <div className="text-xs space-y-1">
-                          <div className="font-medium text-sm mb-2">상세 결과:</div>
+                          <div className="font-medium text-sm mb-2">
+                            상세 결과:
+                          </div>
                           {lastRunResult.details.map((detail, idx) => (
-                            <div key={idx} className="flex items-center gap-2 text-muted-foreground">
-                              <span className="font-mono">멤버 {detail.memberUid}:</span>
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 text-muted-foreground"
+                            >
+                              <span className="font-medium text-foreground">
+                                {detail.memberName}
+                              </span>
+                              <span className="text-muted-foreground">
+                                ({detail.scheduleDate})
+                              </span>
                               <Badge variant="outline" className="text-xs">
-                                {detail.action === "updated_live" && "라이브 → 방송"}
-                                {detail.action === "updated_vod" && "VOD → 방송"}
-                                {detail.action === "no_vod" && "VOD 없음"}
-                                {detail.action === "no_today_vod" && "오늘 VOD 없음"}
-                                {detail.action === "skipped_no_channel" && "채널 없음"}
+                                {ACTION_LABELS[detail.action] || detail.action}
                               </Badge>
                               {detail.title && (
-                                <span className="truncate max-w-[200px]" title={detail.title}>
+                                <span
+                                  className="truncate max-w-[200px]"
+                                  title={detail.title}
+                                >
                                   {detail.title}
                                 </span>
                               )}
@@ -299,7 +448,91 @@ export function AutoUpdateSettingsManager() {
               )}
             </CardContent>
           </Card>
-        </div>
+
+          {/* 업데이트 로그 카드 */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="w-4 h-4" />
+                업데이트 기록
+              </CardTitle>
+              <CardDescription>
+                자동 업데이트로 변경된 스케줄 기록입니다. 삭제 시 해당 스케줄도
+                함께 삭제됩니다.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoadingLogs ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  로그 불러오는 중...
+                </div>
+              ) : updatedLogs.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  업데이트된 기록이 없습니다.
+                </div>
+              ) : (
+                <div className="rounded-md border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">날짜</TableHead>
+                        <TableHead>멤버</TableHead>
+                        <TableHead className="w-[100px]">스케줄 날짜</TableHead>
+                        <TableHead>상태</TableHead>
+                        <TableHead>제목</TableHead>
+                        <TableHead className="w-[80px] text-right">
+                          작업
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {updatedLogs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {formatLogDate(log.created_at)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {log.member_name}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {log.schedule_date}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {ACTION_LABELS[log.action] || log.action}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className="max-w-[200px] truncate text-sm"
+                            title={log.title || ""}
+                          >
+                            {log.title || "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteLog(log.id)}
+                              disabled={deletingLogId === log.id}
+                            >
+                              {deletingLogId === log.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
     </section>
   );
