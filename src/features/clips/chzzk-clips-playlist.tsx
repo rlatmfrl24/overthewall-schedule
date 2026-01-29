@@ -14,6 +14,17 @@ interface ChzzkClipsPlaylistProps {
   selectedMemberUids?: number[] | null;
 }
 
+const ChzzkClipsSectionHeader = () => (
+  <div className="flex items-center gap-3 rounded-xl bg-muted/40 px-3 py-2">
+    <span className="h-7 w-1.5 rounded-full bg-emerald-500/80" />
+    <div className="flex flex-col">
+      <h2 className="text-lg font-semibold text-foreground tracking-tight">
+        치지직 클립
+      </h2>
+    </div>
+  </div>
+);
+
 export const ChzzkClipsPlaylist = ({
   clips,
   members,
@@ -47,9 +58,7 @@ export const ChzzkClipsPlaylist = ({
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
-        </div>
+        <ChzzkClipsSectionHeader />
         <div className="space-y-6">
           {Array.from({ length: 2 }).map((_, i) => (
             <MemberClipsRowSkeleton key={i} />
@@ -62,9 +71,7 @@ export const ChzzkClipsPlaylist = ({
   if (clips.length === 0 || membersWithClips.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
-        </div>
+        <ChzzkClipsSectionHeader />
         <div className="flex items-center justify-center py-8 text-muted-foreground">
           {membersWithClips.length === 0 && clips.length > 0
             ? "선택한 멤버의 클립이 없습니다."
@@ -76,9 +83,7 @@ export const ChzzkClipsPlaylist = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <h2 className="text-lg font-semibold text-foreground">치지직 클립 모음</h2>
-      </div>
+      <ChzzkClipsSectionHeader />
 
       <div className="space-y-6">
         {membersWithClips.map((member) => (
@@ -161,9 +166,6 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
             style={{ borderColor: mainColor }}
           />
           <span className="font-semibold text-foreground">{member.name}</span>
-          <span className="text-sm text-muted-foreground">
-            ({clips.length}개)
-          </span>
         </div>
 
         {/* 스크롤 버튼 */}
