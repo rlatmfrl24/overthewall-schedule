@@ -36,6 +36,22 @@ export interface AutoUpdateLog {
   created_at: string | null;
 }
 
+export interface PendingSchedule {
+  id: number;
+  member_uid: number;
+  member_name: string;
+  date: string;
+  start_time: string | null;
+  title: string | null;
+  status: string;
+  action_type: "create" | "update";
+  existing_schedule_id: number | null;
+  previous_status: string | null;
+  previous_title: string | null;
+  vod_id: string | null;
+  created_at: string | null;
+}
+
 export async function fetchSettings(): Promise<AutoUpdateSettings> {
   return apiFetch<AutoUpdateSettings>("/api/settings");
 }
@@ -70,8 +86,47 @@ export async function fetchAutoUpdateLogs(
 
 export async function deleteAutoUpdateLog(
   logId: number,
-): Promise<{ success: boolean; deletedScheduleId: number | null }> {
+): Promise<{ success: boolean }> {
   return apiFetch(`/api/settings/logs/${logId}`, {
     method: "DELETE",
+  });
+}
+
+// 대기 스케줄 API
+export async function fetchPendingSchedules(): Promise<PendingSchedule[]> {
+  return apiFetch<PendingSchedule[]>("/api/settings/pending");
+}
+
+export async function approvePendingSchedule(
+  pendingId: number,
+): Promise<{ success: boolean; action: string }> {
+  return apiFetch(`/api/settings/pending/${pendingId}/approve`, {
+    method: "POST",
+  });
+}
+
+export async function rejectPendingSchedule(
+  pendingId: number,
+): Promise<{ success: boolean }> {
+  return apiFetch(`/api/settings/pending/${pendingId}/reject`, {
+    method: "POST",
+  });
+}
+
+export async function approveAllPendingSchedules(): Promise<{
+  success: boolean;
+  approvedCount: number;
+}> {
+  return apiFetch("/api/settings/pending/approve-all", {
+    method: "POST",
+  });
+}
+
+export async function rejectAllPendingSchedules(): Promise<{
+  success: boolean;
+  rejectedCount: number;
+}> {
+  return apiFetch("/api/settings/pending/reject-all", {
+    method: "POST",
   });
 }

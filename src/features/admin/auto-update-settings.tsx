@@ -10,6 +10,9 @@ import {
   Calendar,
   Trash2,
   History,
+  Check,
+  X,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -43,9 +46,15 @@ import {
   runAutoUpdateNow,
   fetchAutoUpdateLogs,
   deleteAutoUpdateLog,
+  fetchPendingSchedules,
+  approvePendingSchedule,
+  rejectPendingSchedule,
+  approveAllPendingSchedules,
+  rejectAllPendingSchedules,
   type AutoUpdateSettings,
   type AutoUpdateRunResult,
   type AutoUpdateLog,
+  type PendingSchedule,
 } from "@/lib/api/settings";
 
 const INTERVAL_OPTIONS = [
@@ -63,23 +72,33 @@ const RANGE_OPTIONS = [
 ] as const;
 
 const ACTION_LABELS: Record<string, string> = {
+  collected: "수집됨",
+  approved: "승인됨",
+  rejected: "거부됨",
   created: "새 스케줄 생성",
   updated: "스케줄 업데이트",
   updated_live: "라이브 → 방송",
   updated_vod: "VOD → 방송",
-  no_vod: "VOD 없음",
-  no_matching_vod: "해당일 VOD 없음",
-  skipped_no_channel: "채널 없음",
+};
+
+const ACTION_BADGE_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  collected: "outline",
+  approved: "default",
+  rejected: "destructive",
 };
 
 export function AutoUpdateSettingsManager() {
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
   const [logs, setLogs] = useState<AutoUpdateLog[]>([]);
+  const [pendingList, setPendingList] = useState<PendingSchedule[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [deletingLogId, setDeletingLogId] = useState<number | null>(null);
+  const [processingPendingId, setProcessingPendingId] = useState<number | null>(null);
+  const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
 
@@ -99,7 +118,6 @@ export function AutoUpdateSettingsManager() {
     setIsLoadingLogs(true);
     try {
       const data = await fetchAutoUpdateLogs(100);
-      // API 응답이 배열인지 확인
       setLogs(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to load logs:", error);
@@ -108,10 +126,23 @@ export function AutoUpdateSettingsManager() {
     }
   }, []);
 
+  const loadPending = useCallback(async () => {
+    setIsLoadingPending(true);
+    try {
+      const data = await fetchPendingSchedules();
+      setPendingList(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to load pending schedules:", error);
+    } finally {
+      setIsLoadingPending(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadSettings();
     void loadLogs();
-  }, [loadSettings, loadLogs]);
+    void loadPending();
+  }, [loadSettings, loadLogs, loadPending]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
     if (!settings) return;
@@ -163,10 +194,9 @@ export function AutoUpdateSettingsManager() {
     try {
       const result = await runAutoUpdateNow();
       setLastRunResult(result);
-      // 마지막 실행 시간 새로고침
       await loadSettings();
-      // 로그 새로고침
       await loadLogs();
+      await loadPending();
     } catch (error) {
       console.error("Failed to run auto update:", error);
       setLastRunResult({
@@ -181,7 +211,7 @@ export function AutoUpdateSettingsManager() {
   };
 
   const handleDeleteLog = async (logId: number) => {
-    if (!window.confirm("이 로그와 연결된 스케줄을 삭제하시겠습니까?")) return;
+    if (!window.confirm("이 로그를 삭제하시겠습니까?")) return;
     setDeletingLogId(logId);
     try {
       await deleteAutoUpdateLog(logId);
@@ -190,6 +220,60 @@ export function AutoUpdateSettingsManager() {
       console.error("Failed to delete log:", error);
     } finally {
       setDeletingLogId(null);
+    }
+  };
+
+  const handleApprovePending = async (pendingId: number) => {
+    setProcessingPendingId(pendingId);
+    try {
+      await approvePendingSchedule(pendingId);
+      setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      await loadLogs();
+    } catch (error) {
+      console.error("Failed to approve pending schedule:", error);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
+
+  const handleRejectPending = async (pendingId: number) => {
+    setProcessingPendingId(pendingId);
+    try {
+      await rejectPendingSchedule(pendingId);
+      setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      await loadLogs();
+    } catch (error) {
+      console.error("Failed to reject pending schedule:", error);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    if (!window.confirm(`${pendingList.length}개의 대기 스케줄을 모두 승인하시겠습니까?`)) return;
+    setIsProcessingAll(true);
+    try {
+      await approveAllPendingSchedules();
+      setPendingList([]);
+      await loadLogs();
+    } catch (error) {
+      console.error("Failed to approve all:", error);
+    } finally {
+      setIsProcessingAll(false);
+    }
+  };
+
+  const handleRejectAll = async () => {
+    if (!window.confirm(`${pendingList.length}개의 대기 스케줄을 모두 거부하시겠습니까?`)) return;
+    setIsProcessingAll(true);
+    try {
+      await rejectAllPendingSchedules();
+      setPendingList([]);
+      await loadLogs();
+    } catch (error) {
+      console.error("Failed to reject all:", error);
+    } finally {
+      setIsProcessingAll(false);
     }
   };
 
@@ -221,14 +305,13 @@ export function AutoUpdateSettingsManager() {
   const intervalHours = settings?.auto_update_interval_hours || "2";
   const rangeDays = settings?.auto_update_range_days || "3";
 
-  // 업데이트된 로그만 필터 (삭제 가능한 것들)
-  const updatedLogs = Array.isArray(logs)
+  // 로그 필터: 수집, 승인, 거부만 표시
+  const filteredLogs = Array.isArray(logs)
     ? logs.filter(
       (log) =>
-        log.action === "created" ||
-        log.action === "updated" ||
-        log.action === "updated_live" ||
-        log.action === "updated_vod"
+        log.action === "collected" ||
+        log.action === "approved" ||
+        log.action === "rejected"
     )
     : [];
 
@@ -238,8 +321,7 @@ export function AutoUpdateSettingsManager() {
         <div>
           <h2 className="text-xl font-semibold">스케줄 자동 업데이트</h2>
           <p className="text-sm text-muted-foreground">
-            치지직 VOD 데이터를 기반으로 스케줄이 없으면 자동 생성하고, 휴방/게릴라
-            상태나 제목이 없는 스케줄을 자동 업데이트합니다.
+            치지직 VOD 데이터를 기반으로 스케줄을 수집합니다. 수집된 스케줄은 승인 후 반영됩니다.
           </p>
         </div>
         <Button
@@ -248,10 +330,11 @@ export function AutoUpdateSettingsManager() {
           onClick={() => {
             void loadSettings();
             void loadLogs();
+            void loadPending();
           }}
-          disabled={isFetching || isLoadingLogs}
+          disabled={isFetching || isLoadingLogs || isLoadingPending}
         >
-          {isFetching || isLoadingLogs ? (
+          {isFetching || isLoadingLogs || isLoadingPending ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <RefreshCw className="w-4 h-4" />
@@ -276,7 +359,7 @@ export function AutoUpdateSettingsManager() {
                   자동 업데이트 활성화
                 </CardTitle>
                 <CardDescription>
-                  Cron 트리거를 통해 주기적으로 스케줄을 자동 업데이트합니다.
+                  Cron 트리거를 통해 주기적으로 스케줄을 자동 수집합니다.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -308,7 +391,7 @@ export function AutoUpdateSettingsManager() {
                   업데이트 주기
                 </CardTitle>
                 <CardDescription>
-                  자동 업데이트가 실행되는 간격을 설정합니다.
+                  자동 수집이 실행되는 간격을 설정합니다.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -371,7 +454,7 @@ export function AutoUpdateSettingsManager() {
                 수동 실행
               </CardTitle>
               <CardDescription>
-                자동 업데이트를 즉시 실행합니다. 마지막 실행:{" "}
+                VOD 수집을 즉시 실행합니다. 마지막 실행:{" "}
                 <span className="font-medium">
                   {formatLastRun(settings?.auto_update_last_run ?? null)}
                 </span>
@@ -406,21 +489,21 @@ export function AutoUpdateSettingsManager() {
                       <XCircle className="w-5 h-5 text-red-500" />
                     )}
                     <span className="font-medium">
-                      {lastRunResult.success ? "실행 완료" : "실행 실패"}
+                      {lastRunResult.success ? "수집 완료" : "수집 실패"}
                     </span>
                   </div>
 
                   {lastRunResult.success && (
                     <>
                       <div className="text-sm text-muted-foreground">
-                        검사된 스케줄: {lastRunResult.checked}개 / 업데이트됨:{" "}
+                        검사된 VOD: {lastRunResult.checked}개 / 수집됨:{" "}
                         {lastRunResult.updated}개
                       </div>
 
                       {lastRunResult.details.length > 0 && (
                         <div className="text-xs space-y-1">
                           <div className="font-medium text-sm mb-2">
-                            상세 결과:
+                            수집된 스케줄:
                           </div>
                           {lastRunResult.details.map((detail, idx) => (
                             <div
@@ -455,16 +538,149 @@ export function AutoUpdateSettingsManager() {
             </CardContent>
           </Card>
 
-          {/* 업데이트 로그 카드 */}
+          {/* 승인 대기 스케줄 카드 (아이템 있을 때만 표시) */}
+          {pendingList.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  승인 대기 스케줄
+                  <Badge variant="secondary" className="ml-2">
+                    {pendingList.length}
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  수집된 스케줄입니다. 승인하면 실제 스케줄표에 반영됩니다.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* 일괄 처리 버튼 */}
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    size="sm"
+                    onClick={handleApproveAll}
+                    disabled={isProcessingAll}
+                  >
+                    {isProcessingAll ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    ) : (
+                      <Check className="w-4 h-4 mr-1" />
+                    )}
+                    전체 승인
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRejectAll}
+                    disabled={isProcessingAll}
+                  >
+                    {isProcessingAll ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                    ) : (
+                      <X className="w-4 h-4 mr-1" />
+                    )}
+                    전체 거부
+                  </Button>
+                </div>
+
+                <div className="rounded-md border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">수집일</TableHead>
+                        <TableHead>멤버</TableHead>
+                        <TableHead className="w-[100px]">스케줄 날짜</TableHead>
+                        <TableHead className="w-[80px]">시간</TableHead>
+                        <TableHead className="w-[80px]">유형</TableHead>
+                        <TableHead>제목</TableHead>
+                        <TableHead className="w-[100px] text-right">
+                          작업
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pendingList.map((pending) => (
+                        <TableRow key={pending.id}>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {formatLogDate(pending.created_at)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {pending.member_name}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {pending.date}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {pending.start_time || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                pending.action_type === "create"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                              className="text-xs"
+                            >
+                              {pending.action_type === "create" ? "신규" : "수정"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell
+                            className="max-w-[200px] truncate text-sm"
+                            title={pending.title || ""}
+                          >
+                            {pending.title || "-"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex gap-1 justify-end">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                onClick={() => handleApprovePending(pending.id)}
+                                disabled={processingPendingId === pending.id}
+                                title="승인"
+                              >
+                                {processingPendingId === pending.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Check className="w-4 h-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                onClick={() => handleRejectPending(pending.id)}
+                                disabled={processingPendingId === pending.id}
+                                title="거부"
+                              >
+                                {processingPendingId === pending.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <X className="w-4 h-4" />
+                                )}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 수집/승인 기록 카드 */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <History className="w-4 h-4" />
-                업데이트 기록
+                수집/승인 기록
               </CardTitle>
               <CardDescription>
-                자동 업데이트로 변경된 스케줄 기록입니다. 삭제 시 해당 스케줄도
-                함께 삭제됩니다.
+                자동 업데이트로 수집되고 처리된 스케줄 기록입니다.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -473,9 +689,9 @@ export function AutoUpdateSettingsManager() {
                   <Loader2 className="w-5 h-5 animate-spin mr-2" />
                   로그 불러오는 중...
                 </div>
-              ) : updatedLogs.length === 0 ? (
+              ) : filteredLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  업데이트된 기록이 없습니다.
+                  기록이 없습니다.
                 </div>
               ) : (
                 <div className="rounded-md border overflow-hidden">
@@ -493,7 +709,7 @@ export function AutoUpdateSettingsManager() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {updatedLogs.map((log) => (
+                      {filteredLogs.map((log) => (
                         <TableRow key={log.id}>
                           <TableCell className="text-xs text-muted-foreground">
                             {formatLogDate(log.created_at)}
@@ -505,7 +721,10 @@ export function AutoUpdateSettingsManager() {
                             {log.schedule_date}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-xs">
+                            <Badge
+                              variant={ACTION_BADGE_VARIANTS[log.action] || "outline"}
+                              className="text-xs"
+                            >
                               {ACTION_LABELS[log.action] || log.action}
                             </Badge>
                           </TableCell>
@@ -519,9 +738,10 @@ export function AutoUpdateSettingsManager() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
                               onClick={() => handleDeleteLog(log.id)}
                               disabled={deletingLogId === log.id}
+                              title="로그 삭제"
                             >
                               {deletingLogId === log.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />

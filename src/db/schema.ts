@@ -113,3 +113,23 @@ export const autoUpdateLogs = sqliteTable("auto_update_logs", {
 
 export type AutoUpdateLog = typeof autoUpdateLogs.$inferSelect;
 export type NewAutoUpdateLog = typeof autoUpdateLogs.$inferInsert;
+
+// 승인 대기 스케줄 테이블
+export const pendingSchedules = sqliteTable("pending_schedules", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  member_uid: integer("member_uid").notNull(),
+  member_name: text("member_name").notNull(),
+  date: text().notNull(),
+  start_time: text("start_time"),
+  title: text(),
+  status: text().notNull().default("방송"),
+  action_type: text("action_type").notNull(), // "create" | "update"
+  existing_schedule_id: integer("existing_schedule_id"), // 수정 대상 스케줄 ID
+  previous_status: text("previous_status"), // 수정 전 상태
+  previous_title: text("previous_title"), // 수정 전 제목
+  vod_id: text("vod_id"), // 중복 방지용 VOD 식별자
+  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type PendingSchedule = typeof pendingSchedules.$inferSelect;
+export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;

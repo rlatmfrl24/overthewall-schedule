@@ -18,6 +18,7 @@ import {
   ddays,
   settings,
   autoUpdateLogs,
+  pendingSchedules,
 } from "../src/db/schema";
 
 type CachedLiveStatus = {
@@ -598,9 +599,10 @@ type AutoUpdateDetail = {
   previousStatus: string | null;
 };
 
-// 자동 업데이트 핵심 로직 (완전 재설계)
-// - 스케줄 없음 + VOD 있음 → 새 스케줄 생성
-// - 스케줄 있음 + (방송 상태 아니거나 제목 없음) + VOD 있음 → 업데이트
+// 자동 업데이트 핵심 로직 (승인 프로세스 적용)
+// - VOD 수집 후 pending_schedules 테이블에 저장 (관리자 승인 대기)
+// - 스케줄 없음 + VOD 있음 → pending에 action_type: "create"로 저장
+// - 스케줄 있음 + (방송 상태 아니거나 제목 없음) + VOD 있음 → pending에 action_type: "update"로 저장
 // - 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음
 const autoUpdateSchedules = async (
   db: DbInstance,
@@ -615,7 +617,7 @@ const autoUpdateSchedules = async (
     new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
   );
   const details: AutoUpdateDetail[] = [];
-  let updated = 0;
+  let collected = 0;
   let checked = 0;
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
@@ -649,7 +651,19 @@ const autoUpdateSchedules = async (
     scheduleMap.set(key, existing);
   }
 
-  // 3. 각 멤버별로 VOD 확인
+  // 3. 기존 대기 스케줄 조회 (중복 방지용)
+  const existingPending = await db.select().from(pendingSchedules);
+  const pendingVodIds = new Set(
+    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id),
+  );
+  // member_uid + date + start_time 조합으로도 중복 체크
+  const pendingKeys = new Set(
+    existingPending.map(
+      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`,
+    ),
+  );
+
+  // 4. 각 멤버별로 VOD 확인
   for (const member of allMembers) {
     const channelId = extractChzzkChannelId(member.url_chzzk);
     if (!channelId) {
@@ -664,6 +678,12 @@ const autoUpdateSchedules = async (
 
     // 각 VOD에 대해 처리
     for (const video of videos.data) {
+      // VOD ID로 중복 체크 (이미 pending에 있는 VOD는 건너뜀)
+      const vodId = `chzzk:${video.videoId}`;
+      if (pendingVodIds.has(vodId)) {
+        continue;
+      }
+
       // 실제 스트리밍 시작 시간 계산 (publishDateAt - duration)
       const startTimestamp = video.publishDateAt - video.duration * 1000;
       const videoDate = getKSTDateString(new Date(startTimestamp));
@@ -676,8 +696,14 @@ const autoUpdateSchedules = async (
       checked++;
 
       const scheduleKey = `${member.uid}:${videoDate}`;
-      const existingSchedules = scheduleMap.get(scheduleKey) || [];
+      const memberSchedules = scheduleMap.get(scheduleKey) || [];
       const startTime = extractKSTTime(new Date(startTimestamp).toISOString());
+
+      // pending 중복 체크 (member_uid + date + start_time)
+      const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
+      if (pendingKeys.has(pendingKey)) {
+        continue;
+      }
 
       // 시작 시간을 분 단위로 변환하여 비교 (±30분 이내면 같은 방송으로 간주)
       const videoMinutes =
@@ -685,7 +711,7 @@ const autoUpdateSchedules = async (
         parseInt(startTime.split(":")[1]);
 
       // VOD와 매칭되는 기존 스케줄 찾기
-      const matchingSchedule = existingSchedules.find((schedule) => {
+      const matchingSchedule = memberSchedules.find((schedule) => {
         if (!schedule.start_time) return false;
         const scheduleMinutes =
           parseInt(schedule.start_time.split(":")[0]) * 60 +
@@ -694,63 +720,43 @@ const autoUpdateSchedules = async (
       });
 
       if (!matchingSchedule) {
-        // 매칭되는 스케줄 없음 → 새 스케줄 생성
-        await db.insert(schedules).values({
+        // 매칭되는 스케줄 없음 → pending에 신규 생성으로 저장
+        await db.insert(pendingSchedules).values({
           member_uid: member.uid,
+          member_name: member.name,
           date: videoDate,
-          status: "방송",
-          title: video.videoTitle,
           start_time: startTime,
+          title: video.videoTitle,
+          status: "방송",
+          action_type: "create",
+          existing_schedule_id: null,
+          previous_status: null,
+          previous_title: null,
+          vod_id: vodId,
         });
 
-        // 생성된 스케줄 ID 가져오기
-        const newSchedule = await db
-          .select({ id: schedules.id })
-          .from(schedules)
-          .where(
-            and(
-              eq(schedules.member_uid, member.uid),
-              eq(schedules.date, videoDate),
-              eq(schedules.start_time, startTime),
-            ),
-          )
-          .orderBy(desc(schedules.id))
-          .limit(1);
+        // 중복 방지를 위해 Set에 추가
+        pendingVodIds.add(vodId);
+        pendingKeys.add(pendingKey);
 
-        const newScheduleId = newSchedule[0]?.id ?? null;
-
-        // 로그 저장
+        // 로그 저장 (수집됨)
         await db.insert(autoUpdateLogs).values({
-          schedule_id: newScheduleId,
+          schedule_id: null,
           member_uid: member.uid,
           member_name: member.name,
           schedule_date: videoDate,
-          action: "created",
+          action: "collected",
           title: video.videoTitle,
           previous_status: null,
         });
 
-        // 맵에 추가
-        if (newScheduleId) {
-          existingSchedules.push({
-            id: newScheduleId,
-            member_uid: member.uid,
-            date: videoDate,
-            status: "방송",
-            title: video.videoTitle,
-            start_time: startTime,
-            created_at: null,
-          });
-          scheduleMap.set(scheduleKey, existingSchedules);
-        }
-
-        updated++;
+        collected++;
         details.push({
           memberUid: member.uid,
           memberName: member.name,
-          scheduleId: newScheduleId,
+          scheduleId: null,
           scheduleDate: videoDate,
-          action: "created",
+          action: "collected",
           title: video.videoTitle,
           previousStatus: null,
         });
@@ -758,41 +764,46 @@ const autoUpdateSchedules = async (
         matchingSchedule.status !== "방송" ||
         !matchingSchedule.title?.trim()
       ) {
-        // 매칭되는 스케줄 있음 + (방송 상태 아니거나 제목 없음) → 업데이트
+        // 매칭되는 스케줄 있음 + (방송 상태 아니거나 제목 없음) → pending에 업데이트로 저장
         const previousStatus = matchingSchedule.status;
+        const previousTitle = matchingSchedule.title;
 
-        await db
-          .update(schedules)
-          .set({
-            status: "방송",
-            title: video.videoTitle,
-            start_time: startTime,
-          })
-          .where(eq(schedules.id, matchingSchedule.id));
+        await db.insert(pendingSchedules).values({
+          member_uid: member.uid,
+          member_name: member.name,
+          date: videoDate,
+          start_time: startTime,
+          title: video.videoTitle,
+          status: "방송",
+          action_type: "update",
+          existing_schedule_id: matchingSchedule.id,
+          previous_status: previousStatus,
+          previous_title: previousTitle,
+          vod_id: vodId,
+        });
 
-        // 로그 저장
+        // 중복 방지를 위해 Set에 추가
+        pendingVodIds.add(vodId);
+        pendingKeys.add(pendingKey);
+
+        // 로그 저장 (수집됨)
         await db.insert(autoUpdateLogs).values({
           schedule_id: matchingSchedule.id,
           member_uid: member.uid,
           member_name: member.name,
           schedule_date: videoDate,
-          action: "updated",
+          action: "collected",
           title: video.videoTitle,
           previous_status: previousStatus,
         });
 
-        // 맵 업데이트
-        matchingSchedule.status = "방송";
-        matchingSchedule.title = video.videoTitle;
-        matchingSchedule.start_time = startTime;
-
-        updated++;
+        collected++;
         details.push({
           memberUid: member.uid,
           memberName: member.name,
           scheduleId: matchingSchedule.id,
           scheduleDate: videoDate,
-          action: "updated",
+          action: "collected",
           title: video.videoTitle,
           previousStatus,
         });
@@ -801,7 +812,7 @@ const autoUpdateSchedules = async (
     }
   }
 
-  return { updated, checked, details };
+  return { updated: collected, checked, details };
 };
 
 export default {
@@ -1389,7 +1400,7 @@ export default {
         }
       }
 
-      // DELETE /api/settings/logs/:id - 로그 및 연결된 스케줄 삭제
+      // DELETE /api/settings/logs/:id - 로그만 삭제 (스케줄 연동 제외)
       if (
         request.method === "DELETE" &&
         url.pathname.startsWith("/api/settings/logs/")
@@ -1403,32 +1414,333 @@ export default {
           return badRequest("Invalid log ID");
         }
 
-        // 로그 조회
-        const log = await db
+        // 로그 삭제 (스케줄 삭제 연동 제외)
+        await db.delete(autoUpdateLogs).where(eq(autoUpdateLogs.id, numericId));
+
+        return Response.json({ success: true });
+      }
+
+      // GET /api/settings/pending - 대기 스케줄 목록 조회
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/settings/pending"
+      ) {
+        const pendingList = await db
           .select()
-          .from(autoUpdateLogs)
-          .where(eq(autoUpdateLogs.id, numericId))
+          .from(pendingSchedules)
+          .orderBy(desc(pendingSchedules.created_at));
+        return Response.json(pendingList);
+      }
+
+      // POST /api/settings/pending/:id/approve - 개별 승인
+      if (
+        request.method === "POST" &&
+        url.pathname.match(/^\/api\/settings\/pending\/\d+\/approve$/)
+      ) {
+        const pathParts = url.pathname.split("/");
+        const pendingId = parseNumericId(pathParts[4]);
+        if (pendingId === null) {
+          return badRequest("Invalid pending ID");
+        }
+
+        // 대기 스케줄 조회
+        const pending = await db
+          .select()
+          .from(pendingSchedules)
+          .where(eq(pendingSchedules.id, pendingId))
           .limit(1);
 
-        if (log.length === 0) {
-          return new Response("Log not found", { status: 404 });
+        if (pending.length === 0) {
+          return new Response("Pending schedule not found", { status: 404 });
         }
 
-        const logEntry = log[0];
+        const item = pending[0];
 
-        // 연결된 스케줄 삭제 (schedule_id가 있는 경우)
-        if (logEntry.schedule_id) {
+        try {
+          if (item.action_type === "create") {
+            // 충돌 감지: 같은 멤버, 같은 날짜에 비슷한 시간의 스케줄이 있는지 확인
+            const existingSchedules = await db
+              .select()
+              .from(schedules)
+              .where(
+                and(
+                  eq(schedules.member_uid, item.member_uid),
+                  eq(schedules.date, item.date),
+                ),
+              );
+
+            // 시간 충돌 검사 (±30분 이내)
+            if (item.start_time) {
+              const pendingMinutes =
+                parseInt(item.start_time.split(":")[0]) * 60 +
+                parseInt(item.start_time.split(":")[1]);
+
+              const conflicting = existingSchedules.find((s) => {
+                if (!s.start_time) return false;
+                const scheduleMinutes =
+                  parseInt(s.start_time.split(":")[0]) * 60 +
+                  parseInt(s.start_time.split(":")[1]);
+                return Math.abs(pendingMinutes - scheduleMinutes) <= 30;
+              });
+
+              if (conflicting) {
+                return Response.json(
+                  {
+                    success: false,
+                    error: "conflict",
+                    message: `이미 비슷한 시간(${conflicting.start_time})에 스케줄이 존재합니다.`,
+                    conflictingScheduleId: conflicting.id,
+                  },
+                  { status: 409 },
+                );
+              }
+            }
+
+            // 신규 생성: schedules 테이블에 삽입
+            await db.insert(schedules).values({
+              member_uid: item.member_uid,
+              date: item.date,
+              start_time: item.start_time,
+              title: item.title,
+              status: item.status,
+            });
+          } else if (
+            item.action_type === "update" &&
+            item.existing_schedule_id
+          ) {
+            // 정합성 검사: 대상 스케줄이 아직 존재하는지 확인
+            const targetSchedule = await db
+              .select()
+              .from(schedules)
+              .where(eq(schedules.id, item.existing_schedule_id))
+              .limit(1);
+
+            if (targetSchedule.length === 0) {
+              return Response.json(
+                {
+                  success: false,
+                  error: "not_found",
+                  message: "수정 대상 스케줄이 이미 삭제되었습니다.",
+                },
+                { status: 404 },
+              );
+            }
+
+            // 업데이트: 기존 스케줄 수정
+            await db
+              .update(schedules)
+              .set({
+                start_time: item.start_time,
+                title: item.title,
+                status: item.status,
+              })
+              .where(eq(schedules.id, item.existing_schedule_id));
+          }
+
+          // 승인 로그 저장
+          await db.insert(autoUpdateLogs).values({
+            schedule_id: item.existing_schedule_id,
+            member_uid: item.member_uid,
+            member_name: item.member_name,
+            schedule_date: item.date,
+            action: "approved",
+            title: item.title,
+            previous_status: item.previous_status,
+          });
+
+          // 대기 스케줄 삭제
           await db
-            .delete(schedules)
-            .where(eq(schedules.id, logEntry.schedule_id));
+            .delete(pendingSchedules)
+            .where(eq(pendingSchedules.id, pendingId));
+
+          return Response.json({ success: true, action: item.action_type });
+        } catch (error) {
+          console.error("Failed to approve pending schedule:", error);
+          return new Response("Failed to approve", { status: 500 });
+        }
+      }
+
+      // POST /api/settings/pending/:id/reject - 개별 거부
+      if (
+        request.method === "POST" &&
+        url.pathname.match(/^\/api\/settings\/pending\/\d+\/reject$/)
+      ) {
+        const pathParts = url.pathname.split("/");
+        const pendingId = parseNumericId(pathParts[4]);
+        if (pendingId === null) {
+          return badRequest("Invalid pending ID");
         }
 
-        // 로그 삭제
-        await db.delete(autoUpdateLogs).where(eq(autoUpdateLogs.id, numericId));
+        // 대기 스케줄 조회
+        const pending = await db
+          .select()
+          .from(pendingSchedules)
+          .where(eq(pendingSchedules.id, pendingId))
+          .limit(1);
+
+        if (pending.length === 0) {
+          return new Response("Pending schedule not found", { status: 404 });
+        }
+
+        const item = pending[0];
+
+        // 거부 로그 저장
+        await db.insert(autoUpdateLogs).values({
+          schedule_id: item.existing_schedule_id,
+          member_uid: item.member_uid,
+          member_name: item.member_name,
+          schedule_date: item.date,
+          action: "rejected",
+          title: item.title,
+          previous_status: item.previous_status,
+        });
+
+        // 대기 스케줄 삭제
+        await db
+          .delete(pendingSchedules)
+          .where(eq(pendingSchedules.id, pendingId));
+
+        return Response.json({ success: true });
+      }
+
+      // POST /api/settings/pending/approve-all - 전체 승인
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/settings/pending/approve-all"
+      ) {
+        const allPending = await db.select().from(pendingSchedules);
+
+        let approvedCount = 0;
+        let skippedCount = 0;
+        const skippedItems: { id: number; reason: string }[] = [];
+
+        for (const item of allPending) {
+          try {
+            if (item.action_type === "create") {
+              // 충돌 감지
+              const existingSchedules = await db
+                .select()
+                .from(schedules)
+                .where(
+                  and(
+                    eq(schedules.member_uid, item.member_uid),
+                    eq(schedules.date, item.date),
+                  ),
+                );
+
+              let hasConflict = false;
+              if (item.start_time) {
+                const pendingMinutes =
+                  parseInt(item.start_time.split(":")[0]) * 60 +
+                  parseInt(item.start_time.split(":")[1]);
+
+                hasConflict = existingSchedules.some((s) => {
+                  if (!s.start_time) return false;
+                  const scheduleMinutes =
+                    parseInt(s.start_time.split(":")[0]) * 60 +
+                    parseInt(s.start_time.split(":")[1]);
+                  return Math.abs(pendingMinutes - scheduleMinutes) <= 30;
+                });
+              }
+
+              if (hasConflict) {
+                skippedCount++;
+                skippedItems.push({ id: item.id, reason: "conflict" });
+                continue;
+              }
+
+              await db.insert(schedules).values({
+                member_uid: item.member_uid,
+                date: item.date,
+                start_time: item.start_time,
+                title: item.title,
+                status: item.status,
+              });
+            } else if (
+              item.action_type === "update" &&
+              item.existing_schedule_id
+            ) {
+              // 정합성 검사
+              const targetSchedule = await db
+                .select()
+                .from(schedules)
+                .where(eq(schedules.id, item.existing_schedule_id))
+                .limit(1);
+
+              if (targetSchedule.length === 0) {
+                skippedCount++;
+                skippedItems.push({ id: item.id, reason: "not_found" });
+                continue;
+              }
+
+              await db
+                .update(schedules)
+                .set({
+                  start_time: item.start_time,
+                  title: item.title,
+                  status: item.status,
+                })
+                .where(eq(schedules.id, item.existing_schedule_id));
+            }
+
+            // 승인 로그 저장
+            await db.insert(autoUpdateLogs).values({
+              schedule_id: item.existing_schedule_id,
+              member_uid: item.member_uid,
+              member_name: item.member_name,
+              schedule_date: item.date,
+              action: "approved",
+              title: item.title,
+              previous_status: item.previous_status,
+            });
+
+            // 승인된 항목 삭제
+            await db
+              .delete(pendingSchedules)
+              .where(eq(pendingSchedules.id, item.id));
+
+            approvedCount++;
+          } catch (error) {
+            console.error(`Failed to approve pending ${item.id}:`, error);
+            skippedCount++;
+            skippedItems.push({ id: item.id, reason: "error" });
+          }
+        }
 
         return Response.json({
           success: true,
-          deletedScheduleId: logEntry.schedule_id,
+          approvedCount,
+          skippedCount,
+          skippedItems: skippedItems.length > 0 ? skippedItems : undefined,
+        });
+      }
+
+      // POST /api/settings/pending/reject-all - 전체 거부
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/settings/pending/reject-all"
+      ) {
+        const allPending = await db.select().from(pendingSchedules);
+
+        // 모든 대기 스케줄에 대해 거부 로그 저장
+        for (const item of allPending) {
+          await db.insert(autoUpdateLogs).values({
+            schedule_id: item.existing_schedule_id,
+            member_uid: item.member_uid,
+            member_name: item.member_name,
+            schedule_date: item.date,
+            action: "rejected",
+            title: item.title,
+            previous_status: item.previous_status,
+          });
+        }
+
+        // 모든 대기 스케줄 삭제
+        await db.delete(pendingSchedules);
+
+        return Response.json({
+          success: true,
+          rejectedCount: allPending.length,
         });
       }
     }
