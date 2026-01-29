@@ -107,12 +107,14 @@ export const VodsOverview = () => {
           </button>
         </div>
 
-        {/* ========== 멤버 필터 Chips ========== */}
-        <MemberFilterChips
-          members={filterMembers}
-          selectedUids={selectedMemberUids}
-          onChange={setSelectedMemberUids}
-        />
+        {/* ========== 멤버 필터 Chips (YouTube 탭에서만 표시) ========== */}
+        {activeTab === "youtube" && (
+          <MemberFilterChips
+            members={filterMembers}
+            selectedUids={selectedMemberUids}
+            onChange={setSelectedMemberUids}
+          />
+        )}
 
         {/* ========== 탭 콘텐츠 ========== */}
         {activeTab === "youtube" ? (
@@ -123,12 +125,11 @@ export const VodsOverview = () => {
           />
         ) : (
           <div className="space-y-10">
-            {/* 치지직 클립 영역 */}
+            {/* 치지직 클립 영역 - 자체 필터 사용 */}
             <ChzzkClipsPlaylist
               clips={clips}
               members={members}
               loading={isChzzkTab && membersWithChzzk.length > 0 && !clipsLoaded}
-              selectedMemberUids={selectedMemberUids}
             />
 
             {/* 치지직 다시보기 영역 */}

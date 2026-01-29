@@ -2,9 +2,15 @@ import type { ChzzkClip, Member } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Clock, Eye, PlayCircle, Scissors } from "lucide-react";
 
+type ClipCardVariant = "row" | "grid";
+
 interface ClipCardProps {
   clip: ChzzkClip;
   member?: Member;
+  /** "row": 멤버별 가로 스크롤 (고정 너비), "grid": 그리드 뷰 (반응형) */
+  variant?: ClipCardVariant;
+  /** 그리드 뷰에서 멤버 아바타 표시 여부 */
+  showMemberAvatar?: boolean;
 }
 
 /**
@@ -69,9 +75,15 @@ function formatDateCombined(dateString: string): string {
   return `${relative} · ${absolute}`;
 }
 
-export const ClipCard = ({ clip, member }: ClipCardProps) => {
+export const ClipCard = ({
+  clip,
+  member,
+  variant = "row",
+  showMemberAvatar = false,
+}: ClipCardProps) => {
   const clipUrl = `https://chzzk.naver.com/clips/${clip.clipUID}`;
   const accentColor = member?.main_color;
+  const isGrid = variant === "grid";
 
   return (
     <a
@@ -83,8 +95,11 @@ export const ClipCard = ({ clip, member }: ClipCardProps) => {
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/50 transition-all duration-300",
         "hover:shadow-lg hover:-translate-y-1 hover:border-border",
-        "w-[260px] shrink-0",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
+        // row variant: 고정 너비
+        variant === "row" && "w-[260px] shrink-0",
+        // grid variant: 반응형 너비
+        variant === "grid" && "w-full"
       )}
     >
       {/* 썸네일 */}
@@ -114,8 +129,27 @@ export const ClipCard = ({ clip, member }: ClipCardProps) => {
           {formatDuration(clip.duration)}
         </div>
 
-        {/* 멤버 뱃지 */}
-        {member && (
+        {/* 멤버 아바타 (그리드 뷰 전용) */}
+        {isGrid && showMemberAvatar && member && (
+          <div
+            className="absolute bottom-2 left-2 flex items-center gap-1.5 px-1.5 py-1 rounded-full backdrop-blur-md"
+            style={{
+              backgroundColor: accentColor ? `${accentColor}dd` : "rgba(0,0,0,0.7)",
+            }}
+          >
+            <img
+              src={`/profile/${member.code}.webp`}
+              alt={member.name}
+              className="w-5 h-5 rounded-full border border-white/50 object-cover"
+            />
+            <span className="text-xs font-medium text-white pr-1">
+              {member.name}
+            </span>
+          </div>
+        )}
+
+        {/* 멤버 뱃지 (row 뷰에서만, 그리드에서는 아바타로 대체) */}
+        {!isGrid && member && (
           <div
             className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium backdrop-blur-sm"
             style={{
