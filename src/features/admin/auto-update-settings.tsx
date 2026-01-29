@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   Loader2,
   RefreshCw,
@@ -675,13 +676,22 @@ export function AutoUpdateSettingsManager() {
           {/* 수집/승인 기록 카드 */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <History className="w-4 h-4" />
-                수집/승인 기록
-              </CardTitle>
-              <CardDescription>
-                자동 업데이트로 수집되고 처리된 스케줄 기록입니다.
-              </CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <History className="w-4 h-4" />
+                    수집/승인 기록
+                  </CardTitle>
+                  <CardDescription>
+                    자동 업데이트로 수집되고 처리된 스케줄 기록입니다.
+                  </CardDescription>
+                </div>
+                <Link to="/admin/logs">
+                  <Button variant="outline" size="sm">
+                    전체 로그 보기
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
             <CardContent>
               {isLoadingLogs ? (

@@ -1329,9 +1329,45 @@ export default {
       // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
       if (request.method === "GET" && url.pathname === "/api/settings/logs") {
         const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-        const logsData = await db
-          .select()
-          .from(autoUpdateLogs)
+        const action = url.searchParams.get("action");
+        const member = url.searchParams.get("member");
+        const dateFrom = url.searchParams.get("dateFrom");
+        const dateTo = url.searchParams.get("dateTo");
+        const query = url.searchParams.get("query");
+
+        const filters: SQL[] = [];
+        if (action && action !== "all") {
+          filters.push(eq(autoUpdateLogs.action, action));
+        }
+        if (member) {
+          const memberQuery = `%${member.toLowerCase()}%`;
+          filters.push(
+            sql`lower(${autoUpdateLogs.member_name}) like ${memberQuery}`,
+          );
+        }
+        if (dateFrom && dateTo) {
+          filters.push(between(autoUpdateLogs.schedule_date, dateFrom, dateTo));
+        } else if (dateFrom) {
+          filters.push(gte(autoUpdateLogs.schedule_date, dateFrom));
+        } else if (dateTo) {
+          filters.push(lte(autoUpdateLogs.schedule_date, dateTo));
+        }
+        if (query) {
+          const searchQuery = `%${query.toLowerCase()}%`;
+          filters.push(
+            sql`(
+              lower(coalesce(${autoUpdateLogs.title}, '')) like ${searchQuery}
+              or lower(${autoUpdateLogs.member_name}) like ${searchQuery}
+            )`,
+          );
+        }
+
+        let logQuery = db.select().from(autoUpdateLogs);
+        if (filters.length > 0) {
+          logQuery = logQuery.where(and(...filters));
+        }
+
+        const logsData = await logQuery
           .orderBy(desc(autoUpdateLogs.created_at))
           .limit(limit);
         return Response.json(logsData);

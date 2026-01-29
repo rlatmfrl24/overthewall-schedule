@@ -36,6 +36,15 @@ export interface AutoUpdateLog {
   created_at: string | null;
 }
 
+export interface AutoUpdateLogQuery {
+  limit?: number;
+  action?: string;
+  member?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  query?: string;
+}
+
 export interface PendingSchedule {
   id: number;
   member_uid: number;
@@ -78,10 +87,30 @@ export async function runAutoUpdateNow(): Promise<AutoUpdateRunResult> {
   });
 }
 
+function buildQueryString(params: Record<string, string | number | undefined>) {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") {
+      searchParams.set(key, String(value));
+    }
+  });
+  return searchParams.toString();
+}
+
 export async function fetchAutoUpdateLogs(
-  limit: number = 50,
+  options: number | AutoUpdateLogQuery = 50,
 ): Promise<AutoUpdateLog[]> {
-  return apiFetch<AutoUpdateLog[]>(`/api/settings/logs?limit=${limit}`);
+  const queryOptions =
+    typeof options === "number" ? { limit: options } : options;
+  const queryString = buildQueryString({
+    limit: queryOptions.limit ?? 50,
+    action: queryOptions.action,
+    member: queryOptions.member,
+    dateFrom: queryOptions.dateFrom,
+    dateTo: queryOptions.dateTo,
+    query: queryOptions.query,
+  });
+  return apiFetch<AutoUpdateLog[]>(`/api/settings/logs?${queryString}`);
 }
 
 export async function deleteAutoUpdateLog(

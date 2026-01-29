@@ -5,6 +5,7 @@ import {
   Calendar,
   Settings,
   LayoutDashboard,
+  History,
   LogOut,
   Menu,
   type LucideIcon,
@@ -38,6 +39,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     label: "자동 업데이트 설정",
     icon: Settings,
     href: "/admin/settings",
+  },
+  {
+    label: "업데이트 로그",
+    icon: History,
+    href: "/admin/logs",
   },
 ];
 
