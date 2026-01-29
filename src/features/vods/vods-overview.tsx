@@ -20,7 +20,7 @@ export const VodsOverview = () => {
   const [activeTab, setActiveTab] = useState<TabType>("youtube");
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(null);
 
-  const { members, loading: membersLoading } = useScheduleData();
+  const { members, loading: membersLoading, hasLoaded: membersLoaded } = useScheduleData();
 
   // 치지직 채널이 있는 멤버
   const membersWithChzzk = useMemo(
@@ -119,6 +119,7 @@ export const VodsOverview = () => {
           <YouTubeSection
             members={members}
             selectedMemberUids={selectedMemberUids}
+            loadingMembers={!membersLoaded}
           />
         ) : (
           <div className="space-y-10">

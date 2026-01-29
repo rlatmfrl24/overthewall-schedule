@@ -7,11 +7,13 @@ import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 interface YouTubeSectionProps {
   members: Member[];
   selectedMemberUids: number[] | null;
+  loadingMembers: boolean;
 }
 
 export const YouTubeSection = ({
   members,
   selectedMemberUids,
+  loadingMembers,
 }: YouTubeSectionProps) => {
   // YouTube 채널이 있는 멤버만 필터링
   const membersWithYouTube = useMemo(
@@ -28,6 +30,10 @@ export const YouTubeSection = ({
     shorts,
     selectedMemberUids
   );
+
+  if (loadingMembers) {
+    return <YouTubeSectionSkeleton />;
+  }
 
   // YouTube 채널이 등록된 멤버가 없으면 렌더링하지 않음
   if (membersWithYouTube.length === 0) {

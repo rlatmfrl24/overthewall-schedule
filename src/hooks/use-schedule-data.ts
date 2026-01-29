@@ -7,6 +7,7 @@ export function useScheduleData() {
   const [members, setMembers] = useState<Member[]>([]);
   const [ddays, setDDays] = useState<DDayItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   const reloadMembers = useCallback(async () => {
     const data = await fetchActiveMembers();
@@ -29,6 +30,7 @@ export function useScheduleData() {
       setDDays(ddayData);
     } finally {
       setLoading(false);
+      setHasLoaded(true);
     }
   }, []);
 
@@ -40,10 +42,9 @@ export function useScheduleData() {
     members,
     ddays,
     loading,
+    hasLoaded,
     reloadMembers,
     reloadDDays,
     reloadAll,
   };
 }
-
-
