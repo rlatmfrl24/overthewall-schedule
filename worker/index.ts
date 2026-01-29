@@ -1443,7 +1443,7 @@ export default {
           );
         }
 
-        let logQuery = db.select().from(updateLogs);
+        let logQuery = db.select().from(updateLogs).$dynamic();
         if (filters.length > 0) {
           logQuery = logQuery.where(and(...filters));
         }
@@ -1877,7 +1877,7 @@ export default {
   },
 
   // Cron Trigger로 실행되는 스케줄 자동 업데이트
-  async scheduled(_event, env, _ctx) {
+  async scheduled(_event, env) {
     const db = getDb(env);
 
     // 1. 자동 업데이트 활성화 여부 확인
