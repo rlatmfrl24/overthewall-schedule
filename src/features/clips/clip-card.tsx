@@ -78,10 +78,13 @@ export const ClipCard = ({ clip, member }: ClipCardProps) => {
       href={clipUrl}
       target="_blank"
       rel="noopener noreferrer"
+      aria-label={`${clip.clipTitle} 클립 보기`}
+      title={clip.clipTitle}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/50 transition-all duration-300",
         "hover:shadow-lg hover:-translate-y-1 hover:border-border",
-        "w-[260px] shrink-0"
+        "w-[260px] shrink-0",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2"
       )}
     >
       {/* 썸네일 */}
