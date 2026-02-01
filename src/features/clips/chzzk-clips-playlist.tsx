@@ -207,7 +207,7 @@ export const ChzzkClipsPlaylist = ({
   emptyMessage = "클립이 없습니다.",
 }: ChzzkClipsPlaylistProps) => {
   // 뷰 모드 상태 (멤버별 / 그리드)
-  const [viewMode, setViewMode] = useState<ViewMode>("member");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   // 그리드 뷰 전용 필터 상태
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
     null
