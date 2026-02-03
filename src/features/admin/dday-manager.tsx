@@ -97,6 +97,26 @@ export function DDayManager() {
     [ddays]
   );
 
+  const groupedDDays = useMemo(() => {
+    const groups: Record<"debut" | "birthday" | "event", DDay[]> = {
+      debut: [],
+      birthday: [],
+      event: [],
+    };
+    sortedDDays.forEach((dday) => {
+      if (dday.type === "debut") {
+        groups.debut.push(dday);
+        return;
+      }
+      if (dday.type === "birthday") {
+        groups.birthday.push(dday);
+        return;
+      }
+      groups.event.push(dday);
+    });
+    return groups;
+  }, [sortedDDays]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -124,99 +144,143 @@ export function DDayManager() {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col divide-y rounded-2xl border bg-card">
-            {sortedDDays.map((dday) => {
-              const colors = normalizeDDayColors(
-                (dday as { colors?: string[] }).colors ?? dday.color
-              );
-              const primaryColor = colors[0] ?? "#f59e0b";
-              const swatchBackground =
-                colors.length > 1
-                  ? `linear-gradient(90deg, ${colors.join(", ")})`
-                  : primaryColor;
-              const isAnnual =
-                dday.type === "debut" || dday.type === "birthday";
-              const typeLabel =
-                dday.type === "debut"
-                  ? "데뷔일"
-                  : dday.type === "birthday"
-                  ? "생일"
-                  : "이벤트";
+          <div className="grid gap-6">
+            {(
+              [
+                {
+                  key: "event",
+                  label: "이벤트",
+                  icon: Flag,
+                  badgeClass: "bg-blue-50 text-blue-700 border-blue-200",
+                },
+                {
+                  key: "birthday",
+                  label: "생일",
+                  icon: Sparkles,
+                  badgeClass:
+                    "bg-emerald-50 text-emerald-700 border-emerald-200",
+                },
+                {
+                  key: "debut",
+                  label: "데뷔일",
+                  icon: Sparkles,
+                  badgeClass:
+                    "bg-emerald-50 text-emerald-700 border-emerald-200",
+                },
+              ] as const
+            ).map((section) => {
+              const items = groupedDDays[section.key];
+              const Icon = section.icon;
               return (
-                <div
-                  key={dday.id}
-                  className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/10"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-flex h-6 w-6 rounded-full border shadow-sm"
-                        style={{
-                          background: swatchBackground,
-                        }}
-                      />
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-base font-semibold text-foreground truncate">
-                          {dday.title}
-                        </span>
-                        <span className="text-xs text-muted-foreground truncate">
-                          {dday.description || "설명 없음"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          "flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border",
-                          isAnnual
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-blue-50 text-blue-700 border-blue-200"
-                        )}
-                      >
-                        {isAnnual ? (
-                          <>
-                            <Sparkles className="w-3.5 h-3.5" />
-                            {typeLabel}
-                          </>
-                        ) : (
-                          <>
-                            <Flag className="w-3.5 h-3.5" />
-                            {typeLabel}
-                          </>
-                        )}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className="flex items-center gap-1 text-[11px] font-semibold"
-                      >
-                        <Calendar className="w-3.5 h-3.5" />
-                        {dday.date?.replace(/-/g, ".") ?? "-"}
-                      </Badge>
-                    </div>
-                  </div>
-
+                <div key={section.key} className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => handleOpenEdit(dday)}
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border",
+                        section.badgeClass
+                      )}
                     >
-                      <Pencil className="w-4 h-4" />
-                      수정
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1 text-destructive hover:text-destructive"
-                      onClick={() => handleDelete(dday.id!)}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      삭제
-                    </Button>
+                      <Icon className="w-3.5 h-3.5" />
+                      {section.label}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {items.length}건
+                    </span>
                   </div>
+
+                  {items.length === 0 ? (
+                    <div className="flex items-center justify-center h-20 border rounded-xl border-dashed bg-muted/30 text-muted-foreground text-sm">
+                      등록된 {section.label} D-Day가 없습니다.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col divide-y rounded-2xl border bg-card">
+                      {items.map((dday) => {
+                        const colors = normalizeDDayColors(
+                          (dday as { colors?: string[] }).colors ?? dday.color
+                        );
+                        const primaryColor = colors[0] ?? "#f59e0b";
+                        const swatchBackground =
+                          colors.length > 1
+                            ? `linear-gradient(90deg, ${colors.join(", ")})`
+                            : primaryColor;
+                        const swatchStyle =
+                          colors.length > 1
+                            ? {
+                              backgroundImage: swatchBackground,
+                              backgroundClip: "padding-box",
+                              borderColor: "transparent",
+                            }
+                            : {
+                              backgroundColor: primaryColor,
+                            };
+                        return (
+                          <div
+                            key={dday.id}
+                            className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/10"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="inline-flex h-6 w-6 rounded-full border shadow-sm"
+                                  style={swatchStyle}
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-base font-semibold text-foreground truncate">
+                                    {dday.title}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground truncate">
+                                    {dday.description || "설명 없음"}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  variant="secondary"
+                                  className={cn(
+                                    "flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold border",
+                                    section.badgeClass
+                                  )}
+                                >
+                                  <Icon className="w-3.5 h-3.5" />
+                                  {section.label}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="flex items-center gap-1 text-[11px] font-semibold"
+                                >
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  {dday.date?.replace(/-/g, ".") ?? "-"}
+                                </Badge>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1"
+                                onClick={() => handleOpenEdit(dday)}
+                              >
+                                <Pencil className="w-4 h-4" />
+                                수정
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="gap-1 text-destructive hover:text-destructive"
+                                onClick={() => handleDelete(dday.id!)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                삭제
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}

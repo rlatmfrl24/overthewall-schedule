@@ -10,12 +10,46 @@ type ApiOptions = RequestInit & {
   json?: unknown;
 };
 
+const isLatin1 = (value: string) => /^[\u0000-\u00FF]*$/.test(value);
+
+const getActorHeaders = (): Record<string, string> => {
+  if (typeof window === "undefined") return {};
+  const clerk = (
+    window as {
+      Clerk?: {
+        user?: {
+          id?: string;
+          fullName?: string | null;
+          username?: string | null;
+          primaryEmailAddress?: { emailAddress?: string | null };
+        };
+      };
+    }
+  ).Clerk;
+  const user = clerk?.user;
+  if (!user?.id) return {};
+  const name =
+    user.fullName ||
+    user.username ||
+    user.primaryEmailAddress?.emailAddress ||
+    user.id;
+  const headers: Record<string, string> = {
+    "x-otw-user-id": user.id,
+  };
+  if (name && isLatin1(name)) {
+    headers["x-otw-user-name"] = name;
+  }
+  return headers;
+};
+
 export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
   const { json, headers, ...rest } = options;
+  const actorHeaders = getActorHeaders();
   const init: RequestInit = {
     ...rest,
     headers: {
       "Content-Type": "application/json",
+      ...actorHeaders,
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : rest.body,

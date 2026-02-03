@@ -31,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
-import { cn } from "@/lib/utils";
+import { cn, getContrastColor } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -369,14 +369,28 @@ export const DailySchedule = () => {
                       (dday.colors?.length ? dday.colors : undefined) ||
                       (dday.color ? [dday.color] : []);
                     const primary = palette[0];
+                    const contrastColor = primary
+                      ? getContrastColor(primary)
+                      : undefined;
                     const gradient =
                       palette.length > 1
                         ? `linear-gradient(90deg, ${palette.join(", ")})`
                         : primary;
+                    const gradientStyle =
+                      palette.length > 1
+                        ? {
+                          backgroundImage: gradient,
+                          backgroundClip: "padding-box",
+                          borderColor: "transparent",
+                        }
+                        : primary
+                          ? { backgroundColor: primary }
+                          : undefined;
                     const cardStyle =
                       dday.isToday && gradient
                         ? {
-                          background: gradient,
+                          ...gradientStyle,
+                          color: contrastColor,
                         }
                         : !dday.isToday && primary
                           ? { color: primary }
@@ -467,6 +481,7 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
+              currentDate={currentDate}
               liveStatuses={liveStatuses}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);

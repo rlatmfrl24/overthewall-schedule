@@ -1,6 +1,6 @@
 import { format, isSameDay } from "date-fns";
 import { ko } from "date-fns/locale";
-import { cn } from "@/lib/utils";
+import { cn, getContrastColor } from "@/lib/utils";
 import type { DDayItem } from "@/lib/types";
 import { getDDaysForDate } from "@/lib/dday";
 
@@ -61,18 +61,32 @@ export const WeeklyGridHeader = ({
                     (dday.colors?.length ? dday.colors : undefined) ||
                     (dday.color ? [dday.color] : []);
                   const primary = palette[0];
+                  const contrastColor = primary
+                    ? getContrastColor(primary)
+                    : undefined;
                   const gradient =
                     palette.length > 1
                       ? `linear-gradient(90deg, ${palette.join(", ")})`
                       : primary;
+                  const gradientStyle =
+                    palette.length > 1
+                      ? {
+                        backgroundImage: gradient,
+                        backgroundClip: "padding-box",
+                        borderColor: "transparent",
+                      }
+                      : primary
+                        ? { backgroundColor: primary }
+                        : undefined;
                   const cardStyle =
                     dday.isToday && gradient
                       ? {
-                          background: gradient,
-                        }
+                        ...gradientStyle,
+                        color: contrastColor,
+                      }
                       : !dday.isToday && primary
-                      ? { color: primary }
-                      : undefined;
+                        ? { color: primary }
+                        : undefined;
 
                   return (
                     <div

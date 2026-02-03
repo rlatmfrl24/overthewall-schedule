@@ -42,9 +42,9 @@ export const schedules = sqliteTable(
     index("idx_schedules_date").on(table.date),
     check(
       "schedules_status_check",
-      sql`status IN ('방송', '휴방', '게릴라', '미정')`,
+      sql`status IN ('방송', '휴방', '게릴라', '미정')`
     ),
-  ],
+  ]
 );
 
 export const notices = sqliteTable(
@@ -59,7 +59,7 @@ export const notices = sqliteTable(
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
-  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)],
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
 );
 
 export const ddays = sqliteTable(
@@ -76,7 +76,7 @@ export const ddays = sqliteTable(
   (table) => [
     index("idx_ddays_date").on(table.date),
     check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
-  ],
+  ]
 );
 
 export type Member = typeof members.$inferSelect;
@@ -104,6 +104,9 @@ export const updateLogs = sqliteTable("update_logs", {
   schedule_id: integer("schedule_id"),
   member_uid: integer("member_uid"),
   member_name: text("member_name"),
+  actor_id: text("actor_id"),
+  actor_name: text("actor_name"),
+  actor_ip: text("actor_ip"),
   schedule_date: text("schedule_date").notNull(),
   action: text().notNull(),
   title: text(),

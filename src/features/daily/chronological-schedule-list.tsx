@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { isSameDay } from "date-fns";
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
 import { cn, hexToRgba, convertChzzkToLiveUrl } from "@/lib/utils";
 import { Clock, Radio, GripHorizontal } from "lucide-react";
@@ -7,6 +8,7 @@ import { motion } from "motion/react";
 interface ChronologicalScheduleListProps {
   members: Member[];
   schedules: ScheduleItem[];
+  currentDate: Date;
   onScheduleClick: (schedule: ScheduleItem) => void;
   liveStatuses?: ChzzkLiveStatusMap;
 }
@@ -14,9 +16,17 @@ interface ChronologicalScheduleListProps {
 export const ChronologicalScheduleList = ({
   members,
   schedules,
+  currentDate,
   onScheduleClick,
   liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
   // 1. Filter & Sort Logic
   const { timelineItems, otherItems } = useMemo(() => {
     // Exclude 'off' (휴방) schedules
@@ -43,22 +53,73 @@ export const ChronologicalScheduleList = ({
   // Helper to get member details
   const getMember = (uid: number) => members.find((m) => m.uid === uid);
 
+  const parseTimeToMinutes = (time: string | null) => {
+    if (!time) return null;
+    const [hourText, minuteText] = time.split(":");
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+    return hour * 60 + minute;
+  };
+
+  const showNowLine = isSameDay(currentDate, now);
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowLabel = `${String(now.getHours()).padStart(2, "0")}:${String(
+    now.getMinutes()
+  ).padStart(2, "0")}`;
+
+  const nowInsertIndex = showNowLine
+    ? timelineItems.findIndex((item) => {
+      const minutes = parseTimeToMinutes(item.start_time);
+      return minutes !== null && minutes >= nowMinutes;
+    })
+    : -1;
+
   return (
     <div className="flex flex-col gap-6 w-full max-w-3xl mx-auto">
       {/* Timeline Section */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 rounded-3xl border border-border/60 bg-linear-to-b from-card/90 via-card/70 to-card/50 shadow-sm p-4 sm:p-5">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-sm" />
+          <h4 className="text-sm font-bold text-foreground/80 uppercase tracking-widest">
+            Timeline
+          </h4>
+          <div className="h-px flex-1 bg-linear-to-r from-border to-transparent" />
+          {showNowLine && (
+            <span className="text-xs font-semibold text-muted-foreground">
+              현재 {nowLabel}
+            </span>
+          )}
+        </div>
         {timelineItems.length > 0 ? (
           <div className="grid gap-3">
-            {timelineItems.map((schedule) => (
-              <ScheduleCard
-                key={schedule.id}
-                schedule={schedule}
-                member={getMember(schedule.member_uid)}
-                onClick={onScheduleClick}
-                liveStatus={liveStatuses[schedule.member_uid]}
-                isTimeline
-              />
-            ))}
+            {timelineItems.map((schedule, index) => {
+              const scheduleMinutes = parseTimeToMinutes(schedule.start_time);
+              const isPast =
+                showNowLine &&
+                scheduleMinutes !== null &&
+                scheduleMinutes < nowMinutes;
+              const shouldInsertNowLine = showNowLine && index === nowInsertIndex;
+
+              return (
+                <div key={schedule.id} className="flex flex-col gap-3">
+                  {shouldInsertNowLine && <NowLine label={nowLabel} />}
+                  <ScheduleCard
+                    schedule={schedule}
+                    member={getMember(schedule.member_uid)}
+                    onClick={onScheduleClick}
+                    liveStatus={liveStatuses[schedule.member_uid]}
+                    isTimeline
+                    isPast={isPast}
+                  />
+                </div>
+              );
+            })}
+            {showNowLine &&
+              (nowInsertIndex === -1 ||
+                nowInsertIndex === timelineItems.length) && (
+                <NowLine label={nowLabel} />
+              )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-center border-2 border-dashed border-muted rounded-3xl bg-muted/20">
@@ -103,12 +164,14 @@ const ScheduleCard = ({
   onClick,
   isTimeline = false,
   liveStatus,
+  isPast = false,
 }: {
   schedule: ScheduleItem;
   member?: Member;
   onClick: (schedule: ScheduleItem) => void;
   isTimeline?: boolean;
   liveStatus?: ChzzkLiveStatusMap[number];
+  isPast?: boolean;
 }) => {
   if (!member) return null;
 
@@ -134,12 +197,13 @@ const ScheduleCard = ({
     <motion.div
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      whileHover={{ scale: 1.005, backgroundColor: hexToRgba(mainColor, 0.08) }}
+      whileHover={{ scale: 1.005 }}
       whileTap={{ scale: 0.99 }}
       onClick={handleClick}
       className={cn(
-        "group relative flex items-center gap-5 p-5 rounded-3xl bg-card border border-border/60 shadow-sm cursor-pointer overflow-hidden transition-all duration-300",
-        "hover:shadow-lg hover:border-transparent"
+        "group relative flex items-center gap-5 p-5 rounded-3xl bg-card border border-border/60 shadow-sm cursor-pointer overflow-hidden transition-all duration-300 hover:bg-muted/40",
+        "hover:shadow-lg hover:border-transparent",
+        isPast && "opacity-70 saturate-75 hover:opacity-100"
       )}
       style={{
         borderLeft: `6px solid ${badgeColor}`,
@@ -206,19 +270,19 @@ const ScheduleCard = ({
             isGuerrilla ||
             schedule.status === "미정" ||
             schedule.status === "휴방") && (
-            <span
-              className={cn(
-                "px-2 py-[2px] text-[10px] font-bold rounded-full border",
-                isLive
-                  ? "bg-red-600 text-white border-red-500"
-                  : isGuerrilla
-                  ? "bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
-                  : "bg-muted text-muted-foreground border-border"
-              )}
-            >
-              {isLive ? "LIVE" : schedule.status}
-            </span>
-          )}
+              <span
+                className={cn(
+                  "px-2 py-[2px] text-[10px] font-bold rounded-full border",
+                  isLive
+                    ? "bg-red-600 text-white border-red-500"
+                    : isGuerrilla
+                      ? "bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/50"
+                      : "bg-muted text-muted-foreground border-border"
+                )}
+              >
+                {isLive ? "LIVE" : schedule.status}
+              </span>
+            )}
         </div>
 
         {/* Title */}
@@ -244,3 +308,14 @@ const ScheduleCard = ({
     </motion.div>
   );
 };
+
+const NowLine = ({ label }: { label: string }) => (
+  <div className="relative flex items-center gap-3 py-1.5">
+    <div className="flex-1 h-px bg-red-500/60" />
+    <div className="flex items-center gap-2 text-[11px] font-bold text-red-600 bg-red-50 border border-red-200 rounded-full px-2.5 py-0.5 shadow-sm">
+      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+      현재 시간 {label}
+    </div>
+    <div className="flex-1 h-px bg-red-500/30" />
+  </div>
+);
