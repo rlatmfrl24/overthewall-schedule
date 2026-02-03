@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Copy,
   List,
+  Download,
+  ChevronDown,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
@@ -53,12 +61,14 @@ export const DailySchedule = () => {
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [isCopyingSnapshot, setIsCopyingSnapshot] = useState(false);
+  const [isSnapshotProcessing, setIsSnapshotProcessing] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
   const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
-  const scheduleRef = useRef<HTMLDivElement | null>(null);
+  const snapshotRef = useRef<HTMLDivElement | null>(null);
   const SNAPSHOT_PADDING = 12;
+  const SNAPSHOT_MIN_WIDTH = 1280;
+  const SNAPSHOT_SECTION_GAP = 8;
 
   // Check if user has seen the new feature
   useEffect(() => {
@@ -157,8 +167,58 @@ export const DailySchedule = () => {
     }
   };
 
+  const createSnapshotBlob = async () => {
+    const targetNode = snapshotRef.current;
+    if (!targetNode) {
+      throw new Error("snapshot-target-missing");
+    }
+
+    const baseWidth = targetNode.scrollWidth;
+    const baseHeight = targetNode.scrollHeight;
+    const targetWidth = Math.max(baseWidth, SNAPSHOT_MIN_WIDTH);
+    const scale = targetWidth / baseWidth;
+    const width = targetWidth + SNAPSHOT_PADDING * 2;
+    const height = Math.ceil(baseHeight * scale + SNAPSHOT_PADDING * 2);
+    const backgroundColor = getComputedStyle(document.body).backgroundColor;
+    const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+    const transformStyle =
+      scale !== 1
+        ? { transform: `scale(${scale})`, transformOrigin: "top left" }
+        : {};
+
+    const dataUrl = await toPng(targetNode, {
+      cacheBust: true,
+      width,
+      height,
+      canvasWidth: width,
+      canvasHeight: height,
+      backgroundColor,
+      pixelRatio,
+      style: {
+        margin: "0",
+        padding: `${SNAPSHOT_PADDING}px`,
+        boxSizing: "border-box",
+        backgroundColor,
+        width: `${baseWidth}px`,
+        maxWidth: "none",
+        gap: `${SNAPSHOT_SECTION_GAP}px`,
+        ...transformStyle,
+      },
+      filter: (node) => {
+        if (!(node instanceof HTMLElement)) return true;
+        return node.dataset.snapshotExclude !== "true";
+      },
+    });
+
+    const response = await fetch(dataUrl);
+    if (!response.ok) {
+      throw new Error("snapshot-response-failed");
+    }
+    return await response.blob();
+  };
+
   const handleCopySnapshot = async () => {
-    if (!scheduleRef.current) {
+    if (!snapshotRef.current) {
       setAlertMessage("일정표 복사 대상을 찾을 수 없습니다.");
       setAlertOpen(true);
       return;
@@ -174,36 +234,10 @@ export const DailySchedule = () => {
       return;
     }
 
-    setIsCopyingSnapshot(true);
+    setIsSnapshotProcessing(true);
 
     try {
-      const targetNode = scheduleRef.current;
-      const width = targetNode.scrollWidth + SNAPSHOT_PADDING * 2;
-      const height = targetNode.scrollHeight + SNAPSHOT_PADDING * 2;
-      const backgroundColor = getComputedStyle(document.body).backgroundColor;
-
-      const dataUrl = await toPng(targetNode, {
-        cacheBust: true,
-        width,
-        height,
-        canvasWidth: width,
-        canvasHeight: height,
-        backgroundColor,
-        pixelRatio: 2,
-        style: {
-          margin: "0",
-          padding: `${SNAPSHOT_PADDING}px`,
-          boxSizing: "border-box",
-          backgroundColor,
-        },
-        filter: (node) => {
-          if (!(node instanceof HTMLElement)) return true;
-          return node.dataset.snapshotExclude !== "true";
-        },
-      });
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-
+      const blob = await createSnapshotBlob();
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
@@ -215,14 +249,45 @@ export const DailySchedule = () => {
       setAlertMessage("일정표 복사 실패");
       setAlertOpen(true);
     } finally {
-      setIsCopyingSnapshot(false);
+      setIsSnapshotProcessing(false);
+    }
+  };
+
+  const handleDownloadSnapshot = async () => {
+    if (!snapshotRef.current) {
+      setAlertMessage("일정표 다운로드 대상을 찾을 수 없습니다.");
+      setAlertOpen(true);
+      return;
+    }
+
+    setIsSnapshotProcessing(true);
+
+    try {
+      const blob = await createSnapshotBlob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `schedule-${format(currentDate, "yyyy-MM-dd")}.png`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setAlertMessage("스케쥴 일정표를 다운로드했습니다.");
+      setAlertOpen(true);
+    } catch (error) {
+      console.error("Failed to download snapshot", error);
+      setAlertMessage("일정표 다운로드 실패");
+      setAlertOpen(true);
+    } finally {
+      setIsSnapshotProcessing(false);
     }
   };
 
   return (
     <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
       <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
-        <div ref={scheduleRef} className="flex flex-col gap-8">
+        <div className="flex flex-col gap-8">
           {/* Header Section */}
           <div
             aria-label="Daily Schedule Header"
@@ -308,18 +373,38 @@ export const DailySchedule = () => {
               className="flex flex-wrap items-center justify-center gap-2"
               data-snapshot-exclude="true"
             >
-              <Button
-                variant="outline"
-                className="rounded-full h-10 px-4 text-foreground"
-                onClick={handleCopySnapshot}
-                disabled={isCopyingSnapshot}
-              >
-                <Copy className="h-4 w-4" />
-                <span className="hidden xs:inline">
-                  {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
-                </span>
-                <span className="inline xs:hidden">복사</span>
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="rounded-full h-10 px-4 text-foreground"
+                    disabled={isSnapshotProcessing}
+                  >
+                    <Copy className="h-4 w-4" />
+                    <span className="hidden xs:inline">
+                      {isSnapshotProcessing ? "처리 중..." : "스케쥴 복사"}
+                    </span>
+                    <span className="inline xs:hidden">복사</span>
+                    <ChevronDown className="h-4 w-4 ml-1 opacity-70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopySnapshot()}
+                    disabled={isSnapshotProcessing}
+                  >
+                    <Copy className="h-4 w-4" />
+                    클립보드 복사
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void handleDownloadSnapshot()}
+                    disabled={isSnapshotProcessing}
+                  >
+                    <Download className="h-4 w-4" />
+                    이미지 다운로드
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 variant="default"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
@@ -376,20 +461,10 @@ export const DailySchedule = () => {
                       palette.length > 1
                         ? `linear-gradient(90deg, ${palette.join(", ")})`
                         : primary;
-                    const gradientStyle =
-                      palette.length > 1
-                        ? {
-                          backgroundImage: gradient,
-                          backgroundClip: "padding-box",
-                          borderColor: "transparent",
-                        }
-                        : primary
-                          ? { backgroundColor: primary }
-                          : undefined;
                     const cardStyle =
                       dday.isToday && gradient
                         ? {
-                          ...gradientStyle,
+                          background: gradient,
                           color: contrastColor,
                         }
                         : !dday.isToday && primary
@@ -489,6 +564,124 @@ export const DailySchedule = () => {
               }}
             />
           )}
+        </div>
+      </div>
+
+      <div className="fixed left-[-99999px] top-0 pointer-events-none opacity-0">
+        <div
+          ref={snapshotRef}
+          className="flex flex-col"
+          style={{ minWidth: SNAPSHOT_MIN_WIDTH }}
+        >
+          <div className="flex flex-col gap-1">
+            <h1 className="text-3xl font-bold text-foreground">
+              오늘의 {viewMode === "grid" ? "스케쥴" : "편성표"}
+            </h1>
+            <p className="text-lg font-semibold text-muted-foreground">
+              {format(currentDate, "yyyy년 M월 d일")}
+            </p>
+          </div>
+
+          {ddayForToday.length > 0 && (
+            <div className="flex flex-col gap-2 mt-4">
+              {ddayForToday.map((dday) => {
+                const palette =
+                  (dday.colors?.length ? dday.colors : undefined) ||
+                  (dday.color ? [dday.color] : []);
+                const primary = palette[0];
+                const contrastColor = primary
+                  ? getContrastColor(primary)
+                  : undefined;
+                const gradient =
+                  palette.length > 1
+                    ? `linear-gradient(90deg, ${palette.join(", ")})`
+                    : primary;
+                const cardStyle =
+                  dday.isToday && gradient
+                    ? {
+                      background: gradient,
+                      color: contrastColor,
+                    }
+                    : !dday.isToday && primary
+                      ? { color: primary }
+                      : undefined;
+
+                return (
+                  <div
+                    key={`snapshot-${dday.id}`}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
+                      dday.isToday
+                        ? dday.colors?.length
+                          ? "text-white"
+                          : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                        : "bg-white text-foreground border-border dark:bg-card dark:border-border"
+                    )}
+                    style={cardStyle}
+                  >
+                    <span
+                      className={cn(
+                        "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                        dday.isToday
+                          ? "bg-white/25"
+                          : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
+                      )}
+                    >
+                      {formatDDayLabel(dday.daysUntil)}
+                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="truncate">
+                        {dday.title}
+                        {dday.anniversaryLabel
+                          ? ` · ${dday.anniversaryLabel}`
+                          : ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4">
+            {viewMode === "grid" ? (
+              <div
+                aria-label="Daily Schedule Grid Snapshot"
+                className="grid gap-6 w-full grid-cols-5"
+              >
+                {members.length > 0 ? (
+                  members.map((member) => {
+                    const memberSchedules = schedules.filter(
+                      (s) => s.member_uid === member.uid
+                    );
+
+                    return (
+                      <CardMember
+                        key={`snapshot-${member.uid}`}
+                        member={member}
+                        schedules={memberSchedules}
+                        liveStatus={liveStatuses[member.uid]}
+                      />
+                    );
+                  })
+                ) : (
+                  <>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <CardMemberSkeleton key={`snapshot-skeleton-${i}`} />
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              <ChronologicalScheduleList
+                members={members}
+                schedules={schedules}
+                currentDate={currentDate}
+                liveStatuses={liveStatuses}
+                onScheduleClick={() => { }}
+              />
+            )}
+          </div>
         </div>
       </div>
 

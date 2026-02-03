@@ -168,6 +168,13 @@ const ScheduleCard = ({
     ? schedule.start_time.split(":")
     : ["--", "--"];
 
+  const handleOpenLive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!member.url_chzzk) return;
+    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
+    if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isLive && member.url_chzzk) {
@@ -189,7 +196,6 @@ const ScheduleCard = ({
         isPast
           ? "opacity-60 grayscale-[0.3]"
           : "shadow-sm hover:shadow-lg hover:border-transparent",
-        isLive && "ring-2 ring-red-500/50 shadow-red-500/20",
       )}
       onClick={handleClick}
     >
@@ -236,7 +242,10 @@ const ScheduleCard = ({
 
           {/* Status Label (If needed) */}
           {isLive && (
-            <span className="mt-2 text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400">
+            <span
+              className="mt-2 text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400"
+              data-snapshot-exclude="true"
+            >
               LIVE
             </span>
           )}
@@ -290,7 +299,10 @@ const ScheduleCard = ({
             {isLive &&
               liveStatus?.liveTitle &&
               liveStatus.liveTitle !== schedule.title && (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-1 opacity-70">
+                <p
+                  className="text-xs text-muted-foreground mt-1 line-clamp-1 opacity-70"
+                  data-snapshot-exclude="true"
+                >
                   {liveStatus.liveTitle}
                 </p>
               )}
@@ -298,11 +310,18 @@ const ScheduleCard = ({
         </div>
 
         {/* HOVER ACTION */}
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-none">
-          {isLive ? (
-            <div className="bg-red-500 text-white p-2 rounded-full shadow-lg shadow-red-500/30">
-              <Play className="w-5 h-5 fill-current" />
-            </div>
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-auto">
+          {isLive && member.url_chzzk ? (
+            <button
+              type="button"
+              onClick={handleOpenLive}
+              className="inline-flex items-center gap-2 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-500/30 transition-colors hover:bg-red-600"
+              aria-label="방송 보러가기"
+              data-snapshot-exclude="true"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              방송 보러가기
+            </button>
           ) : (
             <ExternalLink className="w-5 h-5 text-muted-foreground/50" />
           )}

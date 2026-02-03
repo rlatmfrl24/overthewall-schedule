@@ -66,7 +66,10 @@ export const CardMember = ({
         style={{ backgroundColor: mainColor }}
       >
         {isLive && (
-          <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+          <div
+            className="absolute top-3 right-3 flex items-center gap-2 z-20"
+            data-snapshot-exclude="true"
+          >
             <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-600 text-white text-[10px] font-black shadow-sm">
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
               LIVE

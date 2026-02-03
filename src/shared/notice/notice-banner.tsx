@@ -75,7 +75,7 @@ export function NoticeBanner() {
   if (visibleNotices.length === 0) return null;
 
   return (
-    <div className="container mx-auto h-full">
+    <div className="container mx-auto h-full" data-snapshot-exclude="true">
       <div className="relative h-full overflow-hidden rounded-xl bg-card border border-border shadow-sm backdrop-blur-md group/banner">
         <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
 
@@ -119,14 +119,13 @@ export function NoticeBanner() {
                 className={cn(
                   "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
                   hasLink &&
-                    "hover:underline decoration-primary/30 underline-offset-4"
+                  "hover:underline decoration-primary/30 underline-offset-4"
                 )}
               >
                 <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${
-                    noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
                       .badgeClass
-                  }`}
+                    }`}
                 >
                   {
                     noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
