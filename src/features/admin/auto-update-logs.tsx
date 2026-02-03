@@ -125,6 +125,13 @@ export function AutoUpdateLogsManager() {
     });
   };
 
+  const getActorLabel = (log: UpdateLog) => {
+    if (log.actor_name) return log.actor_name;
+    if (log.actor_id) return log.actor_id;
+    if (log.actor_ip) return `비회원 (${log.actor_ip})`;
+    return "-";
+  };
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setAppliedFilters(filters);
@@ -289,6 +296,7 @@ export function AutoUpdateLogsManager() {
                   <TableRow>
                     <TableHead className="w-[160px]">생성일</TableHead>
                     <TableHead>멤버</TableHead>
+                    <TableHead className="w-[180px]">수정 주체</TableHead>
                     <TableHead className="w-[120px]">스케줄 날짜</TableHead>
                     <TableHead className="w-[140px]">액션</TableHead>
                     <TableHead>제목</TableHead>
@@ -306,6 +314,9 @@ export function AutoUpdateLogsManager() {
                       </TableCell>
                       <TableCell className="font-medium">
                         {log.member_name || "-"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {getActorLabel(log)}
                       </TableCell>
                       <TableCell className="text-sm">{log.schedule_date}</TableCell>
                       <TableCell>
@@ -353,6 +364,10 @@ export function AutoUpdateLogsManager() {
                 <span className="font-medium">
                   {selectedLog.member_name || "-"}
                 </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">수정 주체</span>
+                <span className="font-medium">{getActorLabel(selectedLog)}</span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">스케줄 날짜</span>

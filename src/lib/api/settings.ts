@@ -29,6 +29,9 @@ export interface UpdateLog {
   schedule_id: number | null;
   member_uid: number | null;
   member_name: string | null;
+  actor_id: string | null;
+  actor_name: string | null;
+  actor_ip: string | null;
   schedule_date: string;
   action: string;
   title: string | null;
@@ -73,7 +76,7 @@ export async function updateSettings(
       | "auto_update_interval_hours"
       | "auto_update_range_days"
     >
-  >,
+  >
 ): Promise<void> {
   await apiFetch("/api/settings", {
     method: "PUT",
@@ -98,7 +101,7 @@ function buildQueryString(params: Record<string, string | number | undefined>) {
 }
 
 export async function fetchUpdateLogs(
-  options: number | UpdateLogQuery = 50,
+  options: number | UpdateLogQuery = 50
 ): Promise<UpdateLog[]> {
   const queryOptions =
     typeof options === "number" ? { limit: options } : options;
@@ -114,7 +117,7 @@ export async function fetchUpdateLogs(
 }
 
 export async function deleteUpdateLog(
-  logId: number,
+  logId: number
 ): Promise<{ success: boolean }> {
   return apiFetch(`/api/settings/logs/${logId}`, {
     method: "DELETE",
@@ -127,7 +130,7 @@ export async function fetchPendingSchedules(): Promise<PendingSchedule[]> {
 }
 
 export async function approvePendingSchedule(
-  pendingId: number,
+  pendingId: number
 ): Promise<{ success: boolean; action: string }> {
   return apiFetch(`/api/settings/pending/${pendingId}/approve`, {
     method: "POST",
@@ -135,7 +138,7 @@ export async function approvePendingSchedule(
 }
 
 export async function rejectPendingSchedule(
-  pendingId: number,
+  pendingId: number
 ): Promise<{ success: boolean }> {
   return apiFetch(`/api/settings/pending/${pendingId}/reject`, {
     method: "POST",

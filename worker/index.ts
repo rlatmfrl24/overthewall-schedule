@@ -145,7 +145,7 @@ const parseISO8601Duration = (duration: string): number => {
 // YouTube API: 채널의 uploads 플레이리스트 ID 가져오기 (캐싱 포함)
 const fetchYouTubeUploadsPlaylistId = async (
   channelId: string,
-  apiKey: string,
+  apiKey: string
 ): Promise<string | null> => {
   // 캐시 확인
   const cached = YOUTUBE_PLAYLIST_ID_CACHE.get(channelId);
@@ -162,7 +162,7 @@ const fetchYouTubeUploadsPlaylistId = async (
       // 쿼터 에러(403) 또는 rate limit(429) 처리
       if (res.status === 403 || res.status === 429) {
         console.error(
-          `YouTube API quota exceeded or rate limited for channel ${channelId}`,
+          `YouTube API quota exceeded or rate limited for channel ${channelId}`
         );
         // 이전 캐시가 있으면 재사용 (TTL 무시)
         if (cached) {
@@ -208,7 +208,7 @@ const fetchYouTubePlaylistItems = async (
   playlistId: string,
   apiKey: string,
   maxResults = 20,
-  retryCount = 0,
+  retryCount = 0
 ): Promise<string[]> => {
   const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${apiKey}`;
 
@@ -223,7 +223,7 @@ const fetchYouTubePlaylistItems = async (
           playlistId,
           apiKey,
           maxResults,
-          retryCount + 1,
+          retryCount + 1
         );
       }
       console.error("Failed to fetch YouTube playlist", playlistId, res.status);
@@ -252,7 +252,7 @@ const fetchYouTubePlaylistItems = async (
 // YouTube API: 동영상 상세 정보 조회 (배치 처리 최적화)
 const fetchYouTubeVideoDetails = async (
   videoIds: string[],
-  apiKey: string,
+  apiKey: string
 ): Promise<YouTubeVideoItem[]> => {
   if (videoIds.length === 0) return [];
 
@@ -268,7 +268,9 @@ const fetchYouTubeVideoDetails = async (
     // 배치를 병렬로 처리
     const results = await Promise.all(
       batches.map(async (batch) => {
-        const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${batch.join(",")}&key=${apiKey}`;
+        const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${batch.join(
+          ","
+        )}&key=${apiKey}`;
         const res = await fetch(url);
 
         if (!res.ok) {
@@ -302,7 +304,7 @@ const fetchYouTubeVideoDetails = async (
         return (
           data.items?.map((item) => {
             const duration = parseISO8601Duration(
-              item.contentDetails?.duration || "PT0S",
+              item.contentDetails?.duration || "PT0S"
             );
             const thumbnails = item.snippet?.thumbnails;
             const thumbnailUrl =
@@ -324,7 +326,7 @@ const fetchYouTubeVideoDetails = async (
             };
           }) ?? []
         );
-      }),
+      })
     );
 
     return results.flat();
@@ -338,7 +340,7 @@ const fetchYouTubeVideoDetails = async (
 const fetchYouTubeVideosForChannel = async (
   channelId: string,
   apiKey: string,
-  maxResults = 20,
+  maxResults = 20
 ): Promise<CachedYouTubeVideos["content"]> => {
   const cacheKey = `${channelId}:${maxResults}`;
   const cached = YOUTUBE_VIDEOS_CACHE.get(cacheKey);
@@ -350,7 +352,7 @@ const fetchYouTubeVideosForChannel = async (
   // 1. uploads 플레이리스트 ID 조회
   const uploadsPlaylistId = await fetchYouTubeUploadsPlaylistId(
     channelId,
-    apiKey,
+    apiKey
   );
   if (!uploadsPlaylistId) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, { fetchedAt: now, content: null });
@@ -361,7 +363,7 @@ const fetchYouTubeVideosForChannel = async (
   const videoIds = await fetchYouTubePlaylistItems(
     uploadsPlaylistId,
     apiKey,
-    maxResults,
+    maxResults
   );
   if (videoIds.length === 0) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, {
@@ -393,10 +395,29 @@ const parseNumericId = (value?: string | number | null) => {
   return Number.isFinite(numeric) ? numeric : null;
 };
 
+const getClientIp = (request: Request): string | null => {
+  const cfConnectingIp = request.headers.get("cf-connecting-ip");
+  if (cfConnectingIp) return cfConnectingIp;
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) return forwardedFor.split(",")[0]?.trim() || null;
+  const realIp = request.headers.get("x-real-ip");
+  return realIp ?? null;
+};
+
+const getActorInfo = (request: Request) => {
+  const actorId = request.headers.get("x-otw-user-id")?.trim() || null;
+  const actorName = request.headers.get("x-otw-user-name")?.trim() || null;
+  const actorIp = getClientIp(request);
+  return { actorId, actorName, actorIp };
+};
+
 type UpdateLogPayload = {
   scheduleId?: number | null;
   memberUid?: number | null;
   memberName?: string | null;
+  actorId?: string | null;
+  actorName?: string | null;
+  actorIp?: string | null;
   scheduleDate: string;
   action:
     | "create"
@@ -424,10 +445,15 @@ const resolveMemberName = async (db: DbInstance, memberUid?: number | null) => {
 const insertUpdateLog = async (db: DbInstance, payload: UpdateLogPayload) => {
   const resolvedName =
     payload.memberName ?? (await resolveMemberName(db, payload.memberUid));
+  const resolvedActorName =
+    payload.actorName ?? (payload.action.startsWith("auto_") ? "system" : null);
   await db.insert(updateLogs).values({
     schedule_id: payload.scheduleId ?? null,
     member_uid: payload.memberUid ?? null,
     member_name: resolvedName ?? null,
+    actor_id: payload.actorId ?? null,
+    actor_name: resolvedActorName,
+    actor_ip: payload.actorIp ?? null,
     schedule_date: payload.scheduleDate,
     action: payload.action,
     title: payload.title ?? null,
@@ -465,7 +491,7 @@ const fetchChzzkLiveStatus = async (channelId: string) => {
 const fetchChzzkVideos = async (
   channelId: string,
   page = 0,
-  size = 24,
+  size = 24
 ): Promise<CachedChzzkVideos["content"]> => {
   const cacheKey = `${channelId}:${page}:${size}`;
   const cached = CHZZK_VIDEOS_CACHE.get(cacheKey);
@@ -496,7 +522,7 @@ const fetchChzzkVideos = async (
 
 const fetchChzzkClips = async (
   channelId: string,
-  size = 30,
+  size = 30
 ): Promise<CachedChzzkClips["content"]> => {
   const cacheKey = `${channelId}:${size}`;
   const cached = CHZZK_CLIPS_CACHE.get(cacheKey);
@@ -605,7 +631,7 @@ const extractKSTTime = (isoString: string): string => {
 // 설정 값 조회 헬퍼
 const getSetting = async (
   db: DbInstance,
-  key: string,
+  key: string
 ): Promise<string | null> => {
   const result = await db
     .select({ value: settings.value })
@@ -619,7 +645,7 @@ const getSetting = async (
 const updateSetting = async (
   db: DbInstance,
   key: string,
-  value: string,
+  value: string
 ): Promise<void> => {
   await db
     .insert(settings)
@@ -648,7 +674,7 @@ type AutoUpdateDetail = {
 // - 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음
 const autoUpdateSchedules = async (
   db: DbInstance,
-  rangeDays: number = 3,
+  rangeDays: number = 3
 ): Promise<{
   updated: number;
   checked: number;
@@ -656,7 +682,7 @@ const autoUpdateSchedules = async (
 }> => {
   const today = getKSTDateString();
   const startDate = getKSTDateString(
-    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
+    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000)
   );
   const details: AutoUpdateDetail[] = [];
   let collected = 0;
@@ -671,7 +697,7 @@ const autoUpdateSchedules = async (
     })
     .from(members)
     .where(
-      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != '1'`,
+      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != '1'`
     );
 
   if (allMembers.length === 0) {
@@ -696,13 +722,13 @@ const autoUpdateSchedules = async (
   // 3. 기존 대기 스케줄 조회 (중복 방지용)
   const existingPending = await db.select().from(pendingSchedules);
   const pendingVodIds = new Set(
-    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id),
+    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id)
   );
   // member_uid + date + start_time 조합으로도 중복 체크
   const pendingKeys = new Set(
     existingPending.map(
-      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`,
-    ),
+      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`
+    )
   );
 
   // 4. 각 멤버별로 VOD 확인
@@ -883,7 +909,7 @@ export default {
         channelIds.map(async (channelId) => ({
           channelId,
           content: await fetchChzzkLiveStatus(channelId),
-        })),
+        }))
       );
 
       return json({
@@ -916,7 +942,7 @@ export default {
           channelIds.map(async (id) => ({
             channelId: id,
             content: await fetchChzzkVideos(id, page, size),
-          })),
+          }))
         );
 
         return json({
@@ -960,7 +986,7 @@ export default {
           channelIds.map(async (id) => ({
             channelId: id,
             content: await fetchChzzkClips(id, size),
-          })),
+          }))
         );
 
         return json({
@@ -1008,7 +1034,7 @@ export default {
 
       const maxResults = parseInt(
         url.searchParams.get("maxResults") || "20",
-        10,
+        10
       );
 
       try {
@@ -1018,9 +1044,9 @@ export default {
             content: await fetchYouTubeVideosForChannel(
               channelId,
               apiKey,
-              maxResults,
+              maxResults
             ),
-          })),
+          }))
         );
 
         // 모든 채널의 동영상을 합쳐서 최신순 정렬
@@ -1038,12 +1064,12 @@ export default {
         allVideos.sort(
           (a, b) =>
             new Date(b.publishedAt).getTime() -
-            new Date(a.publishedAt).getTime(),
+            new Date(a.publishedAt).getTime()
         );
         allShorts.sort(
           (a, b) =>
             new Date(b.publishedAt).getTime() -
-            new Date(a.publishedAt).getTime(),
+            new Date(a.publishedAt).getTime()
         );
 
         return json({
@@ -1081,6 +1107,7 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/schedules")) {
+      const actor = getActorInfo(request);
       if (request.method === "GET") {
         const date = url.searchParams.get("date");
         const startDate = url.searchParams.get("startDate");
@@ -1129,6 +1156,9 @@ export default {
             action: "create",
             title: title ?? null,
             previousStatus: null,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
           });
           return new Response("Created", { status: 201 });
         } else {
@@ -1173,6 +1203,9 @@ export default {
               action: "update",
               title: title ?? null,
               previousStatus: existing[0].status,
+              actorId: actor.actorId,
+              actorName: actor.actorName,
+              actorIp: actor.actorIp,
             });
           }
           return new Response("Updated", { status: 200 });
@@ -1209,6 +1242,9 @@ export default {
               action: "delete",
               title: target.title ?? null,
               previousStatus: target.status,
+              actorId: actor.actorId,
+              actorName: actor.actorName,
+              actorIp: actor.actorIp,
             });
           }
           return new Response("Deleted", { status: 200 });
@@ -1399,6 +1435,7 @@ export default {
 
     // 설정 API (자동 업데이트 설정 관리)
     if (url.pathname.startsWith("/api/settings")) {
+      const actor = getActorInfo(request);
       // 자동 업데이트 관련 설정 키만 허용
       const ALLOWED_SETTINGS = [
         "auto_update_enabled",
@@ -1423,7 +1460,7 @@ export default {
         if (member) {
           const memberQuery = `%${member.toLowerCase()}%`;
           filters.push(
-            sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`,
+            sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`
           );
         }
         if (dateFrom && dateTo) {
@@ -1439,7 +1476,7 @@ export default {
             sql`(
               lower(coalesce(${updateLogs.title}, '')) like ${searchQuery}
               or lower(coalesce(${updateLogs.member_name}, '')) like ${searchQuery}
-            )`,
+            )`
           );
         }
 
@@ -1503,7 +1540,7 @@ export default {
           await updateSetting(
             db,
             "auto_update_last_run",
-            Date.now().toString(),
+            Date.now().toString()
           );
           return Response.json({
             success: true,
@@ -1522,6 +1559,9 @@ export default {
             action: "auto_failed",
             title: "manual auto update failed",
             previousStatus: null,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
           });
           return new Response("Auto update failed", { status: 500 });
         }
@@ -1592,8 +1632,8 @@ export default {
               .where(
                 and(
                   eq(schedules.member_uid, item.member_uid),
-                  eq(schedules.date, item.date),
-                ),
+                  eq(schedules.date, item.date)
+                )
               );
 
             // 시간 충돌 검사 (±30분 이내)
@@ -1618,7 +1658,7 @@ export default {
                     message: `이미 비슷한 시간(${conflicting.start_time})에 스케줄이 존재합니다.`,
                     conflictingScheduleId: conflicting.id,
                   },
-                  { status: 409 },
+                  { status: 409 }
                 );
               }
             }
@@ -1649,7 +1689,7 @@ export default {
                   error: "not_found",
                   message: "수정 대상 스케줄이 이미 삭제되었습니다.",
                 },
-                { status: 404 },
+                { status: 404 }
               );
             }
 
@@ -1672,6 +1712,9 @@ export default {
             action: "approve",
             title: item.title,
             previousStatus: item.previous_status,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
           });
 
           // 대기 스케줄 삭제
@@ -1718,6 +1761,9 @@ export default {
           action: "reject",
           title: item.title,
           previousStatus: item.previous_status,
+          actorId: actor.actorId,
+          actorName: actor.actorName,
+          actorIp: actor.actorIp,
         });
 
         // 대기 스케줄 삭제
@@ -1749,8 +1795,8 @@ export default {
                 .where(
                   and(
                     eq(schedules.member_uid, item.member_uid),
-                    eq(schedules.date, item.date),
-                  ),
+                    eq(schedules.date, item.date)
+                  )
                 );
 
               let hasConflict = false;
@@ -1816,6 +1862,9 @@ export default {
               action: "approve",
               title: item.title,
               previousStatus: item.previous_status,
+              actorId: actor.actorId,
+              actorName: actor.actorName,
+              actorIp: actor.actorIp,
             });
 
             // 승인된 항목 삭제
@@ -1855,6 +1904,9 @@ export default {
             action: "reject",
             title: item.title,
             previousStatus: item.previous_status,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
           });
         }
 
@@ -1898,7 +1950,9 @@ export default {
 
     if (now - lastRun < intervalMs) {
       console.log(
-        `[scheduled] Skipping - last run was ${Math.round((now - lastRun) / 60000)}min ago, interval is ${intervalHours}h`,
+        `[scheduled] Skipping - last run was ${Math.round(
+          (now - lastRun) / 60000
+        )}min ago, interval is ${intervalHours}h`
       );
       return;
     }
@@ -1909,13 +1963,13 @@ export default {
 
     // 4. 자동 업데이트 실행
     console.log(
-      `[scheduled] Running auto update (range: ${rangeDays} days)...`,
+      `[scheduled] Running auto update (range: ${rangeDays} days)...`
     );
     try {
       const result = await autoUpdateSchedules(db, rangeDays);
       console.log(
         `[scheduled] Auto update completed: ${result.updated}/${result.checked} updated`,
-        result.details,
+        result.details
       );
 
       // 5. 마지막 실행 시간 업데이트

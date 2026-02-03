@@ -61,10 +61,20 @@ export const YouTubePlaylist = ({
     });
   };
 
+  const accentClassName =
+    variant === "short" ? "bg-fuchsia-500/80" : "bg-rose-500/80";
+
   if (videos.length === 0) {
     return (
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+        <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+          <span className={cn("h-7 w-1.5 rounded-full", accentClassName)} />
+          <div className="flex flex-col">
+            <h2 className="text-lg font-semibold text-foreground tracking-tight">
+              {title}
+            </h2>
+          </div>
+        </div>
         <div className="flex items-center justify-center py-8 text-muted-foreground">
           {emptyMessage}
         </div>
@@ -74,8 +84,15 @@ export const YouTubePlaylist = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+      <div className="flex items-center justify-between rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className={cn("h-7 w-1.5 rounded-full", accentClassName)} />
+          <div className="flex flex-col">
+            <h2 className="text-lg font-semibold text-foreground tracking-tight">
+              {title}
+            </h2>
+          </div>
+        </div>
         <div className="flex gap-1">
           <Button
             variant="ghost"

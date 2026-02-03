@@ -107,12 +107,14 @@ export const VodsOverview = () => {
           </button>
         </div>
 
-        {/* ========== 멤버 필터 Chips ========== */}
-        <MemberFilterChips
-          members={filterMembers}
-          selectedUids={selectedMemberUids}
-          onChange={setSelectedMemberUids}
-        />
+        {/* ========== 멤버 필터 Chips (YouTube 탭에서만 표시) ========== */}
+        {activeTab === "youtube" && (
+          <MemberFilterChips
+            members={filterMembers}
+            selectedUids={selectedMemberUids}
+            onChange={setSelectedMemberUids}
+          />
+        )}
 
         {/* ========== 탭 콘텐츠 ========== */}
         {activeTab === "youtube" ? (
@@ -123,20 +125,22 @@ export const VodsOverview = () => {
           />
         ) : (
           <div className="space-y-10">
-            {/* 치지직 클립 영역 */}
+            {/* 치지직 클립 영역 - 자체 필터 사용 */}
             <ChzzkClipsPlaylist
               clips={clips}
               members={members}
               loading={isChzzkTab && membersWithChzzk.length > 0 && !clipsLoaded}
-              selectedMemberUids={selectedMemberUids}
             />
 
             {/* 치지직 다시보기 영역 */}
             <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-semibold text-foreground">
-                  최신 다시보기
-                </h2>
+              <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+                <span className="h-7 w-1.5 rounded-full bg-cyan-500/80" />
+                <div className="flex flex-col">
+                  <h2 className="text-lg font-semibold text-foreground tracking-tight">
+                    최신 다시보기
+                  </h2>
+                </div>
               </div>
 
               {showInitialLoading || showChzzkInitialLoading ? (
