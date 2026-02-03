@@ -205,9 +205,6 @@ const ScheduleCard = ({
         "hover:shadow-lg hover:border-transparent",
         isPast && "opacity-70 saturate-75 hover:opacity-100"
       )}
-      style={{
-        borderLeft: `6px solid ${badgeColor}`,
-      }}
     >
       {/* Dynamic Background Gradient */}
       <div
@@ -229,9 +226,6 @@ const ScheduleCard = ({
               style={{ color: badgeColor }}
             >
               {schedule.start_time?.substring(0, 5)}
-            </span>
-            <span className="text-[10px] font-bold text-muted-foreground/70 uppercase tracking-widest">
-              KST
             </span>
           </div>
         ) : (
