@@ -6,23 +6,28 @@ interface CardScheduleProps {
   schedule: ScheduleItem;
   onClick?: (schedule: ScheduleItem) => void;
   accentColor?: string;
+  isSnapshot?: boolean;
 }
 
 export const CardSchedule = ({
   schedule,
   onClick,
   accentColor = "#000000",
+  isSnapshot = false,
 }: CardScheduleProps) => {
   return (
     <div
       onClick={(e) => {
         e.stopPropagation();
-        onClick?.(schedule);
+        if (!isSnapshot) {
+          onClick?.(schedule);
+        }
       }}
       className={cn(
         "group/schedule relative flex flex-col gap-1.5 rounded-xl bg-card p-3 shadow-sm transition-all duration-200",
-        "hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98]",
-        "border border-transparent hover:border-border"
+        isSnapshot
+          ? "border border-border/40 cursor-default"
+          : "hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98] border border-transparent hover:border-border"
       )}
     >
       <div className="flex items-center justify-between gap-2">

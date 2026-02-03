@@ -3,7 +3,7 @@ import type {
   ScheduleStatus,
   ChzzkLiveStatusMap,
 } from "@/lib/types";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CardMember } from "./card-member";
 import { CardMemberSkeleton } from "./card-member-skeleton";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
@@ -65,10 +65,7 @@ export const DailySchedule = () => {
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
   const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
-  const snapshotRef = useRef<HTMLDivElement | null>(null);
-  const SNAPSHOT_PADDING = 12;
-  const SNAPSHOT_MIN_WIDTH = 1280;
-  const SNAPSHOT_SECTION_GAP = 8;
+  const SNAPSHOT_TIMEOUT = 12_000;
 
   // Check if user has seen the new feature
   useEffect(() => {
@@ -168,62 +165,105 @@ export const DailySchedule = () => {
   };
 
   const createSnapshotBlob = async () => {
-    const targetNode = snapshotRef.current;
-    if (!targetNode) {
-      throw new Error("snapshot-target-missing");
+    if (typeof window === "undefined") {
+      throw new Error("snapshot-window-missing");
     }
 
-    const baseWidth = targetNode.scrollWidth;
-    const baseHeight = targetNode.scrollHeight;
-    const targetWidth = Math.max(baseWidth, SNAPSHOT_MIN_WIDTH);
-    const scale = targetWidth / baseWidth;
-    const width = targetWidth + SNAPSHOT_PADDING * 2;
-    const height = Math.ceil(baseHeight * scale + SNAPSHOT_PADDING * 2);
-    const backgroundColor = getComputedStyle(document.body).backgroundColor;
-    const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
-    const transformStyle =
-      scale !== 1
-        ? { transform: `scale(${scale})`, transformOrigin: "top left" }
-        : {};
+    const waitForSnapshotReady = async (doc: Document) => {
+      const start = Date.now();
+      while (Date.now() - start < SNAPSHOT_TIMEOUT) {
+        const node = doc.querySelector<HTMLElement>(
+          "[data-snapshot-ready='true']"
+        );
+        if (node) return node;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("snapshot-ready-timeout");
+    };
 
-    const dataUrl = await toPng(targetNode, {
-      cacheBust: true,
-      width,
-      height,
-      canvasWidth: width,
-      canvasHeight: height,
-      backgroundColor,
-      pixelRatio,
-      style: {
-        margin: "0",
-        padding: `${SNAPSHOT_PADDING}px`,
-        boxSizing: "border-box",
+    const date = format(currentDate, "yyyy-MM-dd");
+    const snapshotUrl = `/snapshot?date=${encodeURIComponent(
+      date
+    )}&mode=${viewMode}&t=${Date.now()}`;
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.left = "-10000px";
+    iframe.style.top = "0";
+    iframe.style.width = "2000px";
+    iframe.style.height = "2000px";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    iframe.style.border = "0";
+
+    document.body.appendChild(iframe);
+
+    try {
+      const loadPromise = new Promise<void>((resolve, reject) => {
+        iframe.addEventListener("load", () => resolve(), { once: true });
+        iframe.addEventListener(
+          "error",
+          () => reject(new Error("snapshot-iframe-load-failed")),
+          { once: true }
+        );
+      });
+
+      iframe.src = snapshotUrl;
+      await loadPromise;
+
+      const doc = iframe.contentDocument;
+      if (!doc) {
+        throw new Error("snapshot-iframe-doc-missing");
+      }
+
+      if (doc.fonts?.ready) {
+        await doc.fonts.ready;
+      }
+
+      const targetNode = await waitForSnapshotReady(doc);
+
+      const images = Array.from(doc.images);
+      await Promise.all(
+        images.map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              if (img.complete) {
+                resolve();
+                return;
+              }
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            })
+        )
+      );
+
+      const backgroundColor = getComputedStyle(doc.body).backgroundColor;
+      const width = targetNode.scrollWidth;
+      const height = targetNode.scrollHeight;
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+
+      const dataUrl = await toPng(targetNode, {
+        cacheBust: true,
+        width,
+        height,
+        canvasWidth: width,
+        canvasHeight: height,
         backgroundColor,
-        width: `${baseWidth}px`,
-        maxWidth: "none",
-        gap: `${SNAPSHOT_SECTION_GAP}px`,
-        ...transformStyle,
-      },
-      filter: (node) => {
-        if (!(node instanceof HTMLElement)) return true;
-        return node.dataset.snapshotExclude !== "true";
-      },
-    });
+        pixelRatio,
+      });
 
-    const response = await fetch(dataUrl);
-    if (!response.ok) {
-      throw new Error("snapshot-response-failed");
+      const response = await fetch(dataUrl);
+      if (!response.ok) {
+        throw new Error("snapshot-response-failed");
+      }
+      return await response.blob();
+    } finally {
+      iframe.remove();
     }
-    return await response.blob();
   };
 
   const handleCopySnapshot = async () => {
-    if (!snapshotRef.current) {
-      setAlertMessage("일정표 복사 대상을 찾을 수 없습니다.");
-      setAlertOpen(true);
-      return;
-    }
-
     if (
       typeof window === "undefined" ||
       !navigator.clipboard ||
@@ -254,12 +294,6 @@ export const DailySchedule = () => {
   };
 
   const handleDownloadSnapshot = async () => {
-    if (!snapshotRef.current) {
-      setAlertMessage("일정표 다운로드 대상을 찾을 수 없습니다.");
-      setAlertOpen(true);
-      return;
-    }
-
     setIsSnapshotProcessing(true);
 
     try {
@@ -564,124 +598,6 @@ export const DailySchedule = () => {
               }}
             />
           )}
-        </div>
-      </div>
-
-      <div className="fixed left-[-99999px] top-0 pointer-events-none opacity-0">
-        <div
-          ref={snapshotRef}
-          className="flex flex-col"
-          style={{ minWidth: SNAPSHOT_MIN_WIDTH }}
-        >
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-bold text-foreground">
-              오늘의 {viewMode === "grid" ? "스케쥴" : "편성표"}
-            </h1>
-            <p className="text-lg font-semibold text-muted-foreground">
-              {format(currentDate, "yyyy년 M월 d일")}
-            </p>
-          </div>
-
-          {ddayForToday.length > 0 && (
-            <div className="flex flex-col gap-2 mt-4">
-              {ddayForToday.map((dday) => {
-                const palette =
-                  (dday.colors?.length ? dday.colors : undefined) ||
-                  (dday.color ? [dday.color] : []);
-                const primary = palette[0];
-                const contrastColor = primary
-                  ? getContrastColor(primary)
-                  : undefined;
-                const gradient =
-                  palette.length > 1
-                    ? `linear-gradient(90deg, ${palette.join(", ")})`
-                    : primary;
-                const cardStyle =
-                  dday.isToday && gradient
-                    ? {
-                      background: gradient,
-                      color: contrastColor,
-                    }
-                    : !dday.isToday && primary
-                      ? { color: primary }
-                      : undefined;
-
-                return (
-                  <div
-                    key={`snapshot-${dday.id}`}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
-                      dday.isToday
-                        ? dday.colors?.length
-                          ? "text-white"
-                          : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                        : "bg-white text-foreground border-border dark:bg-card dark:border-border"
-                    )}
-                    style={cardStyle}
-                  >
-                    <span
-                      className={cn(
-                        "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
-                        dday.isToday
-                          ? "bg-white/25"
-                          : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
-                      )}
-                    >
-                      {formatDDayLabel(dday.daysUntil)}
-                    </span>
-                    <div className="flex flex-col min-w-0">
-                      <span className="truncate">
-                        {dday.title}
-                        {dday.anniversaryLabel
-                          ? ` · ${dday.anniversaryLabel}`
-                          : ""}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="mt-4">
-            {viewMode === "grid" ? (
-              <div
-                aria-label="Daily Schedule Grid Snapshot"
-                className="grid gap-6 w-full grid-cols-5"
-              >
-                {members.length > 0 ? (
-                  members.map((member) => {
-                    const memberSchedules = schedules.filter(
-                      (s) => s.member_uid === member.uid
-                    );
-
-                    return (
-                      <CardMember
-                        key={`snapshot-${member.uid}`}
-                        member={member}
-                        schedules={memberSchedules}
-                        liveStatus={liveStatuses[member.uid]}
-                      />
-                    );
-                  })
-                ) : (
-                  <>
-                    {Array.from({ length: 5 }).map((_, i) => (
-                      <CardMemberSkeleton key={`snapshot-skeleton-${i}`} />
-                    ))}
-                  </>
-                )}
-              </div>
-            ) : (
-              <ChronologicalScheduleList
-                members={members}
-                schedules={schedules}
-                currentDate={currentDate}
-                liveStatuses={liveStatuses}
-                onScheduleClick={() => { }}
-              />
-            )}
-          </div>
         </div>
       </div>
 

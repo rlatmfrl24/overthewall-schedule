@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as VodsRouteImport } from './routes/vods'
+import { Route as SnapshotRouteImport } from './routes/snapshot'
 import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -30,6 +31,11 @@ const WeeklyRoute = WeeklyRouteImport.update({
 const VodsRoute = VodsRouteImport.update({
   id: '/vods',
   path: '/vods',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SnapshotRoute = SnapshotRouteImport.update({
+  id: '/snapshot',
+  path: '/snapshot',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NoticeRoute = NoticeRouteImport.update({
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
+  '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/notice': typeof NoticeRoute
+  '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
+  '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/notice'
+    | '/snapshot'
     | '/vods'
     | '/weekly'
     | '/admin/ddays'
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/notice'
+    | '/snapshot'
     | '/weekly'
     | '/admin/ddays'
     | '/admin/logs'
@@ -156,6 +167,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/notice'
+    | '/snapshot'
     | '/vods'
     | '/weekly'
     | '/admin/ddays'
@@ -171,6 +183,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   NoticeRoute: typeof NoticeRoute
+  SnapshotRoute: typeof SnapshotRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
   ProfileCodeRoute: typeof ProfileCodeRoute
@@ -190,6 +203,13 @@ declare module '@tanstack/react-router' {
       path: '/vods'
       fullPath: '/vods'
       preLoaderRoute: typeof VodsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/snapshot': {
+      id: '/snapshot'
+      path: '/snapshot'
+      fullPath: '/snapshot'
+      preLoaderRoute: typeof SnapshotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notice': {
@@ -297,6 +317,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   NoticeRoute: NoticeRoute,
+  SnapshotRoute: SnapshotRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,
   ProfileCodeRoute: ProfileCodeRoute,

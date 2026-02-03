@@ -14,6 +14,7 @@ interface CardMemberProps {
   liveStatus?: ChzzkLiveStatusMap[number];
   onScheduleClick?: (schedule: ScheduleItem) => void;
   onAddSchedule?: (memberUid: number) => void;
+  isSnapshot?: boolean;
 }
 
 export const CardMember = ({
@@ -22,6 +23,7 @@ export const CardMember = ({
   liveStatus,
   onScheduleClick,
   onAddSchedule,
+  isSnapshot = false,
 }: CardMemberProps) => {
   const navigate = useNavigate();
   const hasSchedule = schedules.length > 0;
@@ -37,9 +39,11 @@ export const CardMember = ({
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
   const isLive = liveStatus?.status === "OPEN";
   const viewerCount = liveStatus?.concurrentUserCount;
-  const isLiveClickable = isLive && Boolean(member.url_chzzk);
+  const isLiveClickable =
+    !isSnapshot && isLive && Boolean(member.url_chzzk);
 
   const handleCardClick = () => {
+    if (isSnapshot) return;
     if (!isLiveClickable) return;
     const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
     if (liveUrl) {
@@ -51,7 +55,7 @@ export const CardMember = ({
     <div
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
-        "hover:shadow-xl hover:-translate-y-1",
+        !isSnapshot && "hover:shadow-xl hover:-translate-y-1",
         "h-full min-h-[240px] md:min-h-[260px] bg-card",
         isLiveClickable && "cursor-pointer"
       )}
@@ -65,7 +69,7 @@ export const CardMember = ({
         className="relative h-24 flex items-start justify-between p-4 transition-colors duration-300"
         style={{ backgroundColor: mainColor }}
       >
-        {isLive && (
+        {isLive && !isSnapshot && (
           <div
             className="absolute top-3 right-3 flex items-center gap-2 z-20"
             data-snapshot-exclude="true"
@@ -95,57 +99,58 @@ export const CardMember = ({
           </span>
         )}
 
-        {/* Social Media Icons - Button Group */}
-        <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
-          {member.url_twitter && (
-            <a
-              href={member.url_twitter}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
-              title="Twitter"
-            >
-              <img
-                src={iconX}
-                alt="Twitter"
-                className="w-3 h-3 object-contain opacity-70 transition-all duration-300 group-hover/icon:opacity-100"
-              />
-            </a>
-          )}
-          {member.url_youtube && (
-            <a
-              href={member.url_youtube}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
-              title="YouTube"
-            >
-              <img
-                src={iconYoutube}
-                alt="YouTube"
-                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
-              />
-            </a>
-          )}
-          {member.url_chzzk && (
-            <a
-              href={member.url_chzzk}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
-              title="Chzzk"
-            >
-              <img
-                src={iconChzzk}
-                alt="Chzzk"
-                className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
-              />
-            </a>
-          )}
-        </div>
+        {!isSnapshot && (
+          <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
+            {member.url_twitter && (
+              <a
+                href={member.url_twitter}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+                title="Twitter"
+              >
+                <img
+                  src={iconX}
+                  alt="Twitter"
+                  className="w-3 h-3 object-contain opacity-70 transition-all duration-300 group-hover/icon:opacity-100"
+                />
+              </a>
+            )}
+            {member.url_youtube && (
+              <a
+                href={member.url_youtube}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+                title="YouTube"
+              >
+                <img
+                  src={iconYoutube}
+                  alt="YouTube"
+                  className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+                />
+              </a>
+            )}
+            {member.url_chzzk && (
+              <a
+                href={member.url_chzzk}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="group/icon relative flex items-center justify-center w-6 h-6 rounded-full bg-white/5 transition-all duration-300 hover:bg-white/10 hover:scale-110 hover:shadow-[0_0_8px_rgba(255,255,255,0.15)]"
+                title="Chzzk"
+              >
+                <img
+                  src={iconChzzk}
+                  alt="Chzzk"
+                  className="w-3.5 h-3.5 object-contain opacity-70 grayscale transition-all duration-300 group-hover/icon:opacity-100 group-hover/icon:grayscale-0"
+                />
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Profile Image (Overlapping) */}
@@ -175,21 +180,23 @@ export const CardMember = ({
             {member.name}
           </h2>
 
-          <Button
-            size="sm"
-            className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-4 group-hover:translate-x-0 h-8 px-3 rounded-full shadow-sm text-xs font-bold"
-            style={{
-              backgroundColor: mainColor,
-              color: headerTextColor,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate({ to: "/profile/$code", params: { code: member.code } });
-            }}
-          >
-            <span>프로필</span>
-            <User className="h-3 w-3 ml-1.5" />
-          </Button>
+          {!isSnapshot && (
+            <Button
+              size="sm"
+              className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-4 group-hover:translate-x-0 h-8 px-3 rounded-full shadow-sm text-xs font-bold"
+              style={{
+                backgroundColor: mainColor,
+                color: headerTextColor,
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({ to: "/profile/$code", params: { code: member.code } });
+              }}
+            >
+              <span>프로필</span>
+              <User className="h-3 w-3 ml-1.5" />
+            </Button>
+          )}
         </div>
 
         {/* Schedules */}
@@ -199,8 +206,9 @@ export const CardMember = ({
               <CardSchedule
                 key={schedule.id}
                 schedule={schedule}
-                onClick={onScheduleClick}
+                onClick={isSnapshot ? undefined : onScheduleClick}
                 accentColor={mainColor}
+                isSnapshot={isSnapshot}
               />
             ))
           ) : (

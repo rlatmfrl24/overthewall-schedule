@@ -17,6 +17,7 @@ interface ChronologicalScheduleListProps {
   currentDate: Date;
   onScheduleClick: (schedule: ScheduleItem) => void;
   liveStatuses?: ChzzkLiveStatusMap;
+  isSnapshot?: boolean;
 }
 
 export const ChronologicalScheduleList = ({
@@ -25,6 +26,7 @@ export const ChronologicalScheduleList = ({
   currentDate,
   onScheduleClick,
   liveStatuses = {},
+  isSnapshot = false,
 }: ChronologicalScheduleListProps) => {
   const [now, setNow] = useState(() => new Date());
 
@@ -62,7 +64,7 @@ export const ChronologicalScheduleList = ({
     return Number(hourText) * 60 + Number(minuteText);
   };
 
-  const showNowLine = isSameDay(currentDate, now);
+  const showNowLine = !isSnapshot && isSameDay(currentDate, now);
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowLabel = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 
@@ -74,7 +76,12 @@ export const ChronologicalScheduleList = ({
     : -1;
 
   return (
-    <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto px-2 sm:px-4">
+    <div
+      className={cn(
+        "flex flex-col gap-8 w-full",
+        isSnapshot ? "max-w-none mx-0 px-0" : "max-w-4xl mx-auto px-2 sm:px-4"
+      )}
+    >
       {/* SECTION: TIMELINE */}
       <div className="relative">
         {timelineItems.length > 0 ? (
@@ -96,6 +103,7 @@ export const ChronologicalScheduleList = ({
                     liveStatus={liveStatuses[schedule.member_uid]}
                     isTimeline
                     isPast={isPast}
+                    isSnapshot={isSnapshot}
                   />
                 </div>
               );
@@ -132,6 +140,7 @@ export const ChronologicalScheduleList = ({
                 member={getMember(schedule.member_uid)}
                 onClick={onScheduleClick}
                 liveStatus={liveStatuses[schedule.member_uid]}
+                isSnapshot={isSnapshot}
               />
             ))}
           </div>
@@ -151,6 +160,7 @@ const ScheduleCard = ({
   isTimeline = false,
   liveStatus,
   isPast = false,
+  isSnapshot = false,
 }: {
   schedule: ScheduleItem;
   member?: Member;
@@ -158,6 +168,7 @@ const ScheduleCard = ({
   isTimeline?: boolean;
   liveStatus?: ChzzkLiveStatusMap[number];
   isPast?: boolean;
+  isSnapshot?: boolean;
 }) => {
   if (!member) return null;
 
@@ -177,6 +188,7 @@ const ScheduleCard = ({
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isSnapshot) return;
     if (isLive && member.url_chzzk) {
       const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
       if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
@@ -185,11 +197,14 @@ const ScheduleCard = ({
     onClick(schedule);
   };
 
+  const motionProps = isSnapshot
+    ? { initial: false, animate: false }
+    : { initial: { opacity: 0, y: 15 }, animate: { opacity: 1, y: 0 } };
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.01 }}
+      {...motionProps}
+      whileHover={isSnapshot ? undefined : { scale: 1.01 }}
       className={cn(
         "group relative w-full overflow-hidden rounded-2xl transition-all duration-300 isolate",
         "bg-white dark:bg-[#18181b] border border-border/60", // Zinc-900 for dark mode base
@@ -218,15 +233,37 @@ const ScheduleCard = ({
         style={{ backgroundColor: mainColor }}
       />
 
-      <div className="flex flex-row items-stretch">
+      <div
+        className={cn(
+          "items-stretch h-full",
+          isSnapshot ? "grid grid-cols-[92px_1fr]" : "flex flex-row"
+        )}
+      >
         {/* LEFT: TIME / ICON */}
-        <div className="flex flex-col items-center justify-center min-w-20 sm:min-w-24 py-4 bg-muted/30 border-r border-border/30">
+        <div
+          className={cn(
+            "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 h-full",
+            isSnapshot
+              ? "w-[92px] min-w-[92px] py-0"
+              : "min-w-20 sm:min-w-24 py-4"
+          )}
+        >
           {isTimeline ? (
             <div className="flex flex-col items-center leading-none">
-              <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground/90 font-mono">
+              <span
+                className={cn(
+                  "font-black tracking-tight text-foreground/90 font-mono",
+                  isSnapshot ? "text-2xl" : "text-2xl sm:text-3xl"
+                )}
+              >
                 {hour}
               </span>
-              <span className="text-base sm:text-lg font-bold text-muted-foreground/60 -mt-1">
+              <span
+                className={cn(
+                  "font-bold text-muted-foreground/60 -mt-1",
+                  isSnapshot ? "text-sm" : "text-base sm:text-lg"
+                )}
+              >
                 {minute}
               </span>
             </div>
@@ -241,7 +278,7 @@ const ScheduleCard = ({
           )}
 
           {/* Status Label (If needed) */}
-          {isLive && (
+          {isLive && !isSnapshot && (
             <span
               className="mt-2 text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400"
               data-snapshot-exclude="true"
@@ -252,21 +289,26 @@ const ScheduleCard = ({
         </div>
 
         {/* RIGHT: CONTENT */}
-        <div className="flex-1 flex flex-col justify-center py-4 px-5 gap-1.5 min-w-0">
+        <div
+          className={cn(
+            "flex-1 flex flex-col justify-center py-4 px-5 min-w-0 h-full overflow-hidden",
+            isSnapshot ? "gap-1" : "gap-1.5"
+          )}
+        >
           {/* HEADER: Member Info */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <div className="relative">
               <img
                 src={`/profile/${member.code}.webp`}
                 alt={member.name}
                 className="w-5 h-5 rounded-full object-cover ring-1 ring-border/50"
               />
-              {isLive && (
+              {isLive && !isSnapshot && (
                 <span className="absolute -bottom-0.5 -right-0.5 block w-2 h-2 rounded-full bg-green-500 ring-1 ring-white dark:ring-black" />
               )}
             </div>
             <span
-              className="text-xs font-bold uppercase tracking-wide opacity-80 group-hover:opacity-100 transition-opacity"
+              className="text-xs font-bold uppercase tracking-wide opacity-80 group-hover:opacity-100 transition-opacity truncate"
               style={{ color: mainColor }}
             >
               {member.name}
@@ -290,6 +332,7 @@ const ScheduleCard = ({
                 "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
                 "group-hover:text-primary/90",
                 !schedule.title && "text-muted-foreground opacity-50 italic",
+                isSnapshot && "line-clamp-1",
               )}
             >
               {schedule.title || "제목 없음"}
@@ -297,6 +340,7 @@ const ScheduleCard = ({
 
             {/* Live Description or Subtext */}
             {isLive &&
+              !isSnapshot &&
               liveStatus?.liveTitle &&
               liveStatus.liveTitle !== schedule.title && (
                 <p
@@ -309,23 +353,24 @@ const ScheduleCard = ({
           </div>
         </div>
 
-        {/* HOVER ACTION */}
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-auto">
-          {isLive && member.url_chzzk ? (
-            <button
-              type="button"
-              onClick={handleOpenLive}
-              className="inline-flex items-center gap-2 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-500/30 transition-colors hover:bg-red-600"
-              aria-label="방송 보러가기"
-              data-snapshot-exclude="true"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              방송 보러가기
-            </button>
-          ) : (
-            <ExternalLink className="w-5 h-5 text-muted-foreground/50" />
-          )}
-        </div>
+        {!isSnapshot && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-auto">
+            {isLive && member.url_chzzk ? (
+              <button
+                type="button"
+                onClick={handleOpenLive}
+                className="inline-flex items-center gap-2 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-500/30 transition-colors hover:bg-red-600"
+                aria-label="방송 보러가기"
+                data-snapshot-exclude="true"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                방송 보러가기
+              </button>
+            ) : (
+              <ExternalLink className="w-5 h-5 text-muted-foreground/50" />
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );
