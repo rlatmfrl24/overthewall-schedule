@@ -2,23 +2,25 @@ import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
 
-export const Route = createRootRoute({
-  component: () => {
-    const location = useLocation();
-    const isSnapshotRoute = location.pathname.startsWith("/snapshot");
+const RootComponent = () => {
+  const location = useLocation();
+  const isSnapshotRoute = location.pathname.startsWith("/snapshot");
 
-    return (
-      <div
-        className={
-          isSnapshotRoute
-            ? "min-h-screen w-full font-sans bg-background"
-            : "flex flex-col items-center h-screen w-full font-sans overflow-hidden bg-background"
-        }
-      >
-        {!isSnapshotRoute && <Header />}
-        <Outlet />
-        {!isSnapshotRoute && <Footer />}
-      </div>
-    );
-  },
+  return (
+    <div
+      className={
+        isSnapshotRoute
+          ? "min-h-screen w-full font-sans bg-background"
+          : "flex flex-col items-center h-screen w-full font-sans overflow-hidden bg-background"
+      }
+    >
+      {!isSnapshotRoute && <Header />}
+      <Outlet />
+      {!isSnapshotRoute && <Footer />}
+    </div>
+  );
+};
+
+export const Route = createRootRoute({
+  component: RootComponent,
 });

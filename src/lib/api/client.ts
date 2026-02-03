@@ -10,7 +10,14 @@ type ApiOptions = RequestInit & {
   json?: unknown;
 };
 
-const isLatin1 = (value: string) => /^[\u0000-\u00FF]*$/.test(value);
+const isLatin1 = (value: string) => {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) > 0xff) {
+      return false;
+    }
+  }
+  return true;
+};
 
 const getActorHeaders = (): Record<string, string> => {
   if (typeof window === "undefined") return {};

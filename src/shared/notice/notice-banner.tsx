@@ -69,7 +69,7 @@ export function NoticeBanner() {
 
   const handleNoticeClick = () => {
     if (!hasLink) return;
-    window.open(currentNotice.url!, "_blank");
+    window.open(currentNotice.url!, "_blank", "noopener,noreferrer");
   };
 
   if (visibleNotices.length === 0) return null;
@@ -104,6 +104,10 @@ export function NoticeBanner() {
               hasLink ? "cursor-pointer" : "cursor-default"
             )}
             onClick={() => {
+              if (hasLink) {
+                handleNoticeClick();
+                return;
+              }
               //Go to notice page
               navigate({ to: "/notice" });
             }}
@@ -115,7 +119,6 @@ export function NoticeBanner() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -15, opacity: 0 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
-                onClick={handleNoticeClick}
                 className={cn(
                   "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
                   hasLink &&
@@ -124,7 +127,7 @@ export function NoticeBanner() {
               >
                 <span
                   className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
-                      .badgeClass
+                    .badgeClass
                     }`}
                 >
                   {

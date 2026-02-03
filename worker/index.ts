@@ -7,6 +7,7 @@ import {
   inArray,
   lte,
   desc,
+  isNull,
   sql,
 } from "drizzle-orm";
 import { getDb, type DbInstance } from "./db";
@@ -1624,6 +1625,7 @@ export default {
         const item = pending[0];
 
         try {
+          let createdScheduleId: number | null = null;
           if (item.action_type === "create") {
             // 충돌 감지: 같은 멤버, 같은 날짜에 비슷한 시간의 스케줄이 있는지 확인
             const existingSchedules = await db
@@ -1671,6 +1673,24 @@ export default {
               title: item.title,
               status: item.status,
             });
+            const created = await db
+              .select({ id: schedules.id })
+              .from(schedules)
+              .where(
+                and(
+                  eq(schedules.member_uid, item.member_uid),
+                  eq(schedules.date, item.date),
+                  item.start_time
+                    ? eq(schedules.start_time, item.start_time)
+                    : isNull(schedules.start_time),
+                  item.title
+                    ? eq(schedules.title, item.title)
+                    : isNull(schedules.title)
+                )
+              )
+              .orderBy(desc(schedules.id))
+              .limit(1);
+            createdScheduleId = created[0]?.id ?? null;
           } else if (
             item.action_type === "update" &&
             item.existing_schedule_id
@@ -1705,7 +1725,7 @@ export default {
           }
 
           await insertUpdateLog(db, {
-            scheduleId: item.existing_schedule_id,
+            scheduleId: item.existing_schedule_id ?? createdScheduleId,
             memberUid: item.member_uid,
             memberName: item.member_name,
             scheduleDate: item.date,
@@ -1787,6 +1807,7 @@ export default {
 
         for (const item of allPending) {
           try {
+            let createdScheduleId: number | null = null;
             if (item.action_type === "create") {
               // 충돌 감지
               const existingSchedules = await db
@@ -1827,6 +1848,24 @@ export default {
                 title: item.title,
                 status: item.status,
               });
+              const created = await db
+                .select({ id: schedules.id })
+                .from(schedules)
+                .where(
+                  and(
+                    eq(schedules.member_uid, item.member_uid),
+                    eq(schedules.date, item.date),
+                    item.start_time
+                      ? eq(schedules.start_time, item.start_time)
+                      : isNull(schedules.start_time),
+                    item.title
+                      ? eq(schedules.title, item.title)
+                      : isNull(schedules.title)
+                  )
+                )
+                .orderBy(desc(schedules.id))
+                .limit(1);
+              createdScheduleId = created[0]?.id ?? null;
             } else if (
               item.action_type === "update" &&
               item.existing_schedule_id
@@ -1855,7 +1894,7 @@ export default {
             }
 
             await insertUpdateLog(db, {
-              scheduleId: item.existing_schedule_id,
+              scheduleId: item.existing_schedule_id ?? createdScheduleId,
               memberUid: item.member_uid,
               memberName: item.member_name,
               scheduleDate: item.date,
