@@ -242,9 +242,9 @@ const ScheduleCard = ({
         {/* LEFT: TIME / ICON */}
         <div
           className={cn(
-            "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 h-full",
+            "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0",
             isSnapshot
-              ? "w-[92px] min-w-[92px] py-0"
+              ? "w-[92px] min-w-[92px] h-[120px] min-h-[120px] max-h-[120px] py-0"
               : "min-w-20 sm:min-w-24 py-4"
           )}
         >
@@ -277,15 +277,6 @@ const ScheduleCard = ({
             </div>
           )}
 
-          {/* Status Label (If needed) */}
-          {isLive && !isSnapshot && (
-            <span
-              className="mt-2 text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400"
-              data-snapshot-exclude="true"
-            >
-              LIVE
-            </span>
-          )}
         </div>
 
         {/* RIGHT: CONTENT */}
@@ -327,16 +318,27 @@ const ScheduleCard = ({
 
           {/* MAIN: Title */}
           <div className="pr-2">
-            <h3
-              className={cn(
-                "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
-                "group-hover:text-primary/90",
-                !schedule.title && "text-muted-foreground opacity-50 italic",
-                isSnapshot && "line-clamp-1",
+            <div className="flex items-center gap-2 min-w-0">
+              {isLive && !isSnapshot && (
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400 shrink-0"
+                  data-snapshot-exclude="true"
+                >
+                  LIVE
+                </span>
               )}
-            >
-              {schedule.title || "제목 없음"}
-            </h3>
+              <h3
+                className={cn(
+                  "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
+                  "group-hover:text-primary/90",
+                  !schedule.title && "text-muted-foreground opacity-50 italic",
+                  "min-w-0 line-clamp-1",
+                  isSnapshot && "line-clamp-1",
+                )}
+              >
+                {schedule.title || "제목 없음"}
+              </h3>
+            </div>
 
             {/* Live Description or Subtext */}
             {isLive &&
