@@ -3,7 +3,6 @@ import { isSameDay } from "date-fns";
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
 import { cn, hexToRgba, convertChzzkToLiveUrl } from "@/lib/utils";
 import {
-  Clock,
   Radio,
   GripHorizontal,
   Play,
@@ -69,9 +68,9 @@ export const ChronologicalScheduleList = ({
 
   const nowInsertIndex = showNowLine
     ? timelineItems.findIndex((item) => {
-        const minutes = parseTimeToMinutes(item.start_time);
-        return minutes !== null && minutes >= nowMinutes;
-      })
+      const minutes = parseTimeToMinutes(item.start_time);
+      return minutes !== null && minutes >= nowMinutes;
+    })
     : -1;
 
   return (
@@ -215,7 +214,7 @@ const ScheduleCard = ({
 
       <div className="flex flex-row items-stretch">
         {/* LEFT: TIME / ICON */}
-        <div className="flex flex-col items-center justify-center min-w-[5rem] sm:min-w-[6rem] py-4 bg-muted/30 border-r border-border/30">
+        <div className="flex flex-col items-center justify-center min-w-20 sm:min-w-24 py-4 bg-muted/30 border-r border-border/30">
           {isTimeline ? (
             <div className="flex flex-col items-center leading-none">
               <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground/90 font-mono">
@@ -319,7 +318,7 @@ const NowLine = ({ label }: { label: string }) => (
     <div className="flex items-center gap-1.5 text-xs font-bold text-red-500 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20">
       현재 {label}
     </div>
-    <div className="h-[2px] flex-1 bg-red-500/20 lg:bg-gradient-to-r lg:from-red-500/50 lg:to-transparent rounded-l-full" />
+    <div className="h-[2px] flex-1 bg-red-500/20 lg:bg-linear-to-r lg:from-red-500/50 lg:to-transparent rounded-l-full" />
   </div>
 );
 
