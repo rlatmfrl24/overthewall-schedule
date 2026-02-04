@@ -92,6 +92,7 @@ export const DailySchedule = () => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("liveDebug") === "1";
   }, []);
+
   const SNAPSHOT_TIMEOUT = 12_000;
 
   // Check if user has seen the new feature
@@ -395,7 +396,7 @@ export const DailySchedule = () => {
           {/* Header Section */}
           <div
             aria-label="Daily Schedule Header"
-            className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4"
+            className="flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-6"
           >
             <div className="flex items-center gap-3">
               <div className="relative z-20">
@@ -487,15 +488,18 @@ export const DailySchedule = () => {
                   라이브 진단 {showLiveDebug ? "숨김" : "보기"}
                 </Button>
               )}
-              <Tooltip>
+              <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     className="group inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/50 px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground sm:px-4 sm:h-10 h-9"
                     aria-label="라이브 표시 안내"
+                    onClick={(e) => e.preventDefault()}
                   >
                     <Info className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
-                    <span className="hidden sm:inline-block">라이브 표시 기능 안내</span>
+                    <span className="hidden sm:inline-block">
+                      라이브 표시 기능 안내
+                    </span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent
@@ -581,10 +585,11 @@ export const DailySchedule = () => {
                 <button
                   onClick={handleToday}
                   disabled={isSameDay(currentDate, new Date())}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${isSameDay(currentDate, new Date())
-                    ? "text-muted-foreground cursor-not-allowed opacity-50"
-                    : "text-foreground hover:bg-muted"
-                    }`}
+                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
+                    isSameDay(currentDate, new Date())
+                      ? "text-muted-foreground cursor-not-allowed opacity-50"
+                      : "text-foreground hover:bg-muted"
+                  }`}
                 >
                   <span className="hidden sm:inline">오늘로 이동</span>
                   <span className="inline sm:hidden">오늘</span>
@@ -674,9 +679,9 @@ export const DailySchedule = () => {
                     const cardStyle =
                       dday.isToday && gradient
                         ? {
-                          background: gradient,
-                          color: contrastColor,
-                        }
+                            background: gradient,
+                            color: contrastColor,
+                          }
                         : !dday.isToday && primary
                           ? { color: primary }
                           : undefined;
