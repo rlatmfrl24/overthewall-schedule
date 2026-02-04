@@ -9,6 +9,7 @@ type LiveStatusDebugInfo = {
   httpStatus?: number | null;
   error?: string | null;
   staleCacheUsed?: boolean;
+  errorBody?: string | null;
 };
 
 type LiveStatusDebugItem = {

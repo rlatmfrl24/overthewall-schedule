@@ -474,6 +474,7 @@ const insertUpdateLog = async (db: DbInstance, payload: UpdateLogPayload) => {
 const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
+
   if (cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
     return {
       content: cached.content,
@@ -492,6 +493,7 @@ const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
   const retryDelays = [0, 500];
   let lastStatus: number | null = null;
   let lastError: string | null = null;
+  let lastErrorBody: string | null = null;
 
   for (const delayMs of retryDelays) {
     if (delayMs > 0) {
@@ -500,28 +502,29 @@ const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
     try {
       const res = await fetch(url, {
         headers: {
-          Accept: "application/json",
+          Accept: "application/json, text/plain, */*",
+          "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
           "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           Referer: "https://chzzk.naver.com/",
           Origin: "https://chzzk.naver.com",
         },
-        cf: {
-          cacheTtl: 0,
-          cacheEverything: false,
-        },
       });
       lastStatus = res.status;
+
       if (!res.ok) {
         lastError = "http_error";
-        if ([500, 502, 503, 504].includes(res.status)) {
-          continue;
-        }
+        const errorBody = await res.text().catch(() => "");
+        lastErrorBody = errorBody.slice(0, 1000);
         console.error(
           "Failed to fetch chzzk live status",
           channelId,
-          res.status
+          res.status,
+          errorBody.slice(0, 500)
         );
+        if ([500, 502, 503, 504].includes(res.status)) {
+          continue;
+        }
         break;
       }
 
@@ -561,7 +564,8 @@ const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
       httpStatus: lastStatus,
       error: lastError,
       staleCacheUsed: Boolean(cached),
-    } satisfies LiveStatusDebug,
+      errorBody: lastErrorBody,
+    } as LiveStatusDebug & { errorBody?: string | null },
   };
 };
 

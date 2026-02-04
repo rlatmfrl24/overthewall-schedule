@@ -8,10 +8,10 @@
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-25",
   "assets": {
-    "not_found_handling": "single-page-application",
+    "not_found_handling": "single-page-application"
   },
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
   "d1_databases": [
     {
@@ -19,21 +19,21 @@
       "database_name": "otw-db",
       "database_id": "133b980d-1701-427e-93fd-8c9dcca1132e",
       "remote": true,
-      "migrations_dir": "drizzle",
-    },
+      "migrations_dir": "drizzle"
+    }
   ],
   // 스케줄 자동 업데이트를 위한 Cron Trigger (매시 정각 실행)
   // 실제 업데이트 주기는 DB settings 테이블에서 제어
   "triggers": {
-    "crons": ["0 * * * *"],
+    "crons": ["0 * * * *"]
   },
   // YouTube API 키는 wrangler secret으로만 관리 (레포에 값 저장 금지)
   // 실제 배포 시: wrangler secret put YOUTUBE_API_KEY
   /**
-   * Smart Placement
+   * Smart Placement - 치지직 API가 한국 IP만 허용하므로 한국 데이터센터에서 실행
    * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
    */
-  // "placement": { "mode": "smart" }
+  "placement": { "mode": "smart" }
   /**
    * Bindings
    * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
