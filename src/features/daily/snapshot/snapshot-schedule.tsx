@@ -64,13 +64,13 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
       data-snapshot-ready={isReady ? "true" : "false"}
       className={cn(
         "inline-block bg-background text-foreground",
-        mode === "timeline" ? "p-4" : "p-6"
+        mode === "timeline" ? "p-4" : "p-6",
       )}
     >
       <div
         className={cn(
           "flex flex-col gap-6",
-          mode === "timeline" ? "w-[480px]" : "w-[1280px]"
+          mode === "timeline" ? "w-[480px]" : "w-[1280px]",
         )}
       >
         <div className="flex flex-col gap-2">
@@ -83,15 +83,12 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
         </div>
 
         {mode === "timeline" ? (
-          <SnapshotTimeline
-            members={members}
-            schedules={schedules}
-          />
+          <SnapshotTimeline members={members} schedules={schedules} />
         ) : (
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             {members.map((member) => {
               const memberSchedules = schedules.filter(
-                (s) => s.member_uid === member.uid
+                (s) => s.member_uid === member.uid,
               );
               return (
                 <SnapshotCardMember
