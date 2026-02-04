@@ -416,7 +416,7 @@ export const DailySchedule = () => {
                     variant="default"
                     className="rounded-full h-9 px-3 shadow-md transition-all hover:shadow-lg sm:h-10 sm:px-4"
                     disabled={isSnapshotProcessing}
-                    aria-label="스케쥴 이미지 다운로드"
+                    aria-label="스케쥴 복사 옵션"
                   >
                     {isSnapshotProcessing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -433,7 +433,7 @@ export const DailySchedule = () => {
                   <DropdownMenuItem
                     onSelect={() => void handleDownloadSnapshot()}
                     disabled={isSnapshotProcessing}
-                    className="font-semibold bg-indigo-600 hover:bg-indigo-700 text-white"
+                    className="font-semibold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
                   >
                     {isSnapshotProcessing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -441,14 +441,14 @@ export const DailySchedule = () => {
                       <Download className="h-4 w-4" />
                     )}
                     이미지 다운로드
-                    <span className="ml-2 text-[11px] text-indigo-600">
+                    <span className="ml-2 text-[11px] text-white/90">
                       추천
                     </span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => void handleCopySnapshot()}
                     disabled={isSnapshotProcessing}
-                    className="text-muted-foreground"
+                    className="text-muted-foreground cursor-pointer"
                   >
                     {isSnapshotProcessing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
