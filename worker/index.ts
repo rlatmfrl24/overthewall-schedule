@@ -7,6 +7,7 @@ import {
   inArray,
   lte,
   desc,
+  isNull,
   sql,
 } from "drizzle-orm";
 import { getDb, type DbInstance } from "./db";
@@ -33,6 +34,15 @@ type CachedLiveStatus = {
     channelName: string;
     channelImageUrl: string;
   } | null;
+};
+
+type LiveStatusDebug = {
+  cacheHit: boolean;
+  cacheAgeMs: number | null;
+  fetchedAt: number | null;
+  httpStatus: number | null;
+  error: string | null;
+  staleCacheUsed: boolean | null;
 };
 
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
@@ -461,31 +471,107 @@ const insertUpdateLog = async (db: DbInstance, payload: UpdateLogPayload) => {
   });
 };
 
-const fetchChzzkLiveStatus = async (channelId: string) => {
+const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
+
   if (cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
-    return cached.content;
+    return {
+      content: cached.content,
+      debug: {
+        cacheHit: true,
+        cacheAgeMs: now - cached.fetchedAt,
+        fetchedAt: cached.fetchedAt,
+        httpStatus: null,
+        error: null,
+        staleCacheUsed: false,
+      } satisfies LiveStatusDebug,
+    };
   }
 
   const url = `https://api.chzzk.naver.com/polling/v2/channels/${channelId}/live-status`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("Failed to fetch chzzk live status", channelId, res.status);
-    return null;
+  const retryDelays = [0, 500];
+  let lastStatus: number | null = null;
+  let lastError: string | null = null;
+  let lastErrorBody: string | null = null;
+
+  for (const delayMs of retryDelays) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Referer: "https://chzzk.naver.com/",
+          Origin: "https://chzzk.naver.com",
+        },
+      });
+      lastStatus = res.status;
+
+      if (!res.ok) {
+        lastError = "http_error";
+        const errorBody = await res.text().catch(() => "");
+        lastErrorBody = errorBody.slice(0, 1000);
+        console.error(
+          "Failed to fetch chzzk live status",
+          channelId,
+          res.status,
+          errorBody.slice(0, 500)
+        );
+        if ([500, 502, 503, 504].includes(res.status)) {
+          continue;
+        }
+        break;
+      }
+
+      const data = (await res.json()) as {
+        code: number;
+        content: CachedLiveStatus["content"];
+      };
+
+      const content = data?.content ?? null;
+      LIVE_STATUS_CACHE.set(channelId, {
+        fetchedAt: Date.now(),
+        content,
+      });
+      return {
+        content,
+        debug: {
+          cacheHit: false,
+          cacheAgeMs: null,
+          fetchedAt: Date.now(),
+          httpStatus: res.status,
+          error: null,
+          staleCacheUsed: false,
+        } satisfies LiveStatusDebug,
+      };
+    } catch (error) {
+      lastError = "network_error";
+      console.error("Failed to fetch chzzk live status", channelId, error);
+    }
   }
 
-  const data = (await res.json()) as {
-    code: number;
-    content: CachedLiveStatus["content"];
+  return {
+    content: cached?.content ?? null,
+    debug: {
+      cacheHit: false,
+      cacheAgeMs: null,
+      fetchedAt: cached?.fetchedAt ?? null,
+      httpStatus: lastStatus,
+      error: lastError,
+      staleCacheUsed: Boolean(cached),
+      errorBody: lastErrorBody,
+    } as LiveStatusDebug & { errorBody?: string | null },
   };
+};
 
-  const content = data?.content ?? null;
-  LIVE_STATUS_CACHE.set(channelId, {
-    fetchedAt: now,
-    content,
-  });
-  return content;
+const fetchChzzkLiveStatus = async (channelId: string) => {
+  const result = await fetchChzzkLiveStatusWithDebug(channelId);
+  return result.content;
 };
 
 const fetchChzzkVideos = async (
@@ -892,6 +978,7 @@ export default {
       }
 
       const channelIdsParam = url.searchParams.get("channelIds");
+      const debug = url.searchParams.get("debug") === "1";
       if (!channelIdsParam) {
         return badRequest("channelIds query required");
       }
@@ -906,16 +993,30 @@ export default {
       }
 
       const items = await Promise.all(
-        channelIds.map(async (channelId) => ({
-          channelId,
-          content: await fetchChzzkLiveStatus(channelId),
-        }))
+        channelIds.map(async (channelId) => {
+          if (debug) {
+            const result = await fetchChzzkLiveStatusWithDebug(channelId);
+            return { channelId, content: result.content, debug: result.debug };
+          }
+          return {
+            channelId,
+            content: await fetchChzzkLiveStatus(channelId),
+          };
+        })
       );
 
-      return json({
-        updatedAt: new Date().toISOString(),
-        items,
-      });
+      return Response.json(
+        {
+          updatedAt: new Date().toISOString(),
+          items,
+        },
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
     }
 
     if (url.pathname.startsWith("/api/vods/chzzk")) {
@@ -1624,6 +1725,7 @@ export default {
         const item = pending[0];
 
         try {
+          let createdScheduleId: number | null = null;
           if (item.action_type === "create") {
             // 충돌 감지: 같은 멤버, 같은 날짜에 비슷한 시간의 스케줄이 있는지 확인
             const existingSchedules = await db
@@ -1671,6 +1773,24 @@ export default {
               title: item.title,
               status: item.status,
             });
+            const created = await db
+              .select({ id: schedules.id })
+              .from(schedules)
+              .where(
+                and(
+                  eq(schedules.member_uid, item.member_uid),
+                  eq(schedules.date, item.date),
+                  item.start_time
+                    ? eq(schedules.start_time, item.start_time)
+                    : isNull(schedules.start_time),
+                  item.title
+                    ? eq(schedules.title, item.title)
+                    : isNull(schedules.title)
+                )
+              )
+              .orderBy(desc(schedules.id))
+              .limit(1);
+            createdScheduleId = created[0]?.id ?? null;
           } else if (
             item.action_type === "update" &&
             item.existing_schedule_id
@@ -1705,7 +1825,7 @@ export default {
           }
 
           await insertUpdateLog(db, {
-            scheduleId: item.existing_schedule_id,
+            scheduleId: item.existing_schedule_id ?? createdScheduleId,
             memberUid: item.member_uid,
             memberName: item.member_name,
             scheduleDate: item.date,
@@ -1787,6 +1907,7 @@ export default {
 
         for (const item of allPending) {
           try {
+            let createdScheduleId: number | null = null;
             if (item.action_type === "create") {
               // 충돌 감지
               const existingSchedules = await db
@@ -1827,6 +1948,24 @@ export default {
                 title: item.title,
                 status: item.status,
               });
+              const created = await db
+                .select({ id: schedules.id })
+                .from(schedules)
+                .where(
+                  and(
+                    eq(schedules.member_uid, item.member_uid),
+                    eq(schedules.date, item.date),
+                    item.start_time
+                      ? eq(schedules.start_time, item.start_time)
+                      : isNull(schedules.start_time),
+                    item.title
+                      ? eq(schedules.title, item.title)
+                      : isNull(schedules.title)
+                  )
+                )
+                .orderBy(desc(schedules.id))
+                .limit(1);
+              createdScheduleId = created[0]?.id ?? null;
             } else if (
               item.action_type === "update" &&
               item.existing_schedule_id
@@ -1855,7 +1994,7 @@ export default {
             }
 
             await insertUpdateLog(db, {
-              scheduleId: item.existing_schedule_id,
+              scheduleId: item.existing_schedule_id ?? createdScheduleId,
               memberUid: item.member_uid,
               memberName: item.member_name,
               scheduleDate: item.date,

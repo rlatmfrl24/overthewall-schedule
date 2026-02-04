@@ -69,13 +69,13 @@ export function NoticeBanner() {
 
   const handleNoticeClick = () => {
     if (!hasLink) return;
-    window.open(currentNotice.url!, "_blank");
+    window.open(currentNotice.url!, "_blank", "noopener,noreferrer");
   };
 
   if (visibleNotices.length === 0) return null;
 
   return (
-    <div className="container mx-auto h-full">
+    <div className="container mx-auto h-full" data-snapshot-exclude="true">
       <div className="relative h-full overflow-hidden rounded-xl bg-card border border-border shadow-sm backdrop-blur-md group/banner">
         <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
 
@@ -104,6 +104,10 @@ export function NoticeBanner() {
               hasLink ? "cursor-pointer" : "cursor-default"
             )}
             onClick={() => {
+              if (hasLink) {
+                handleNoticeClick();
+                return;
+              }
               //Go to notice page
               navigate({ to: "/notice" });
             }}
@@ -115,18 +119,16 @@ export function NoticeBanner() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -15, opacity: 0 }}
                 transition={{ duration: 0.3, ease: "easeInOut" }}
-                onClick={handleNoticeClick}
                 className={cn(
                   "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
                   hasLink &&
-                    "hover:underline decoration-primary/30 underline-offset-4"
+                  "hover:underline decoration-primary/30 underline-offset-4"
                 )}
               >
                 <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${
-                    noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
-                      .badgeClass
-                  }`}
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
+                    .badgeClass
+                    }`}
                 >
                   {
                     noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]

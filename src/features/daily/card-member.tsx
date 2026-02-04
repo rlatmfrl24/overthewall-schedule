@@ -1,5 +1,11 @@
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, convertChzzkToLiveUrl, getContrastColor, hexToRgba } from "@/lib/utils";
+import {
+  buildChzzkLiveUrl,
+  cn,
+  convertChzzkToLiveUrl,
+  getContrastColor,
+  hexToRgba,
+} from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
@@ -37,14 +43,14 @@ export const CardMember = ({
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
   const isLive = liveStatus?.status === "OPEN";
   const viewerCount = liveStatus?.concurrentUserCount;
-  const isLiveClickable = isLive && Boolean(member.url_chzzk);
+  const liveUrl =
+    buildChzzkLiveUrl(liveStatus?.channelId) ||
+    convertChzzkToLiveUrl(member.url_chzzk);
+  const isLiveClickable = isLive && Boolean(liveUrl);
 
   const handleCardClick = () => {
     if (!isLiveClickable) return;
-    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-    if (liveUrl) {
-      window.open(liveUrl, "_blank", "noreferrer");
-    }
+    if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
   };
 
   return (
@@ -66,7 +72,10 @@ export const CardMember = ({
         style={{ backgroundColor: mainColor }}
       >
         {isLive && (
-          <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+          <div
+            className="absolute top-3 right-3 flex items-center gap-2 z-20"
+            data-snapshot-exclude="true"
+          >
             <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-600 text-white text-[10px] font-black shadow-sm">
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
               LIVE
@@ -92,7 +101,6 @@ export const CardMember = ({
           </span>
         )}
 
-        {/* Social Media Icons - Button Group */}
         <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
           {member.url_twitter && (
             <a

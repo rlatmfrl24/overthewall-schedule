@@ -30,30 +30,32 @@ export const WeeklyGridHeader = ({
           <div
             key={day.toISOString()}
             className={cn(
-              "flex flex-col items-center justify-center p-2 md:p-3 transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0",
+              "grid grid-rows-[44px_auto] md:grid-rows-[56px_auto] p-2 md:p-3 transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0",
               isToday ? "bg-indigo-50/50 dark:bg-indigo-950/30" : ""
             )}
           >
-            <span
-              className={cn(
-                "text-[10px] md:text-xs font-medium uppercase",
-                isToday
-                  ? "text-indigo-600 dark:text-indigo-400"
-                  : "text-gray-400 dark:text-gray-500"
-              )}
-            >
-              {format(day, "EEE", { locale: ko })}
-            </span>
-            <span
-              className={cn(
-                "text-sm md:text-lg font-bold leading-none mt-1",
-                isToday
-                  ? "text-indigo-600 dark:text-indigo-400"
-                  : "text-gray-900 dark:text-gray-100"
-              )}
-            >
-              {format(day, "d")}
-            </span>
+            <div className="flex flex-col items-center justify-center h-full">
+              <span
+                className={cn(
+                  "text-[10px] md:text-xs font-medium uppercase",
+                  isToday
+                    ? "text-indigo-600 dark:text-indigo-400"
+                    : "text-gray-400 dark:text-gray-500"
+                )}
+              >
+                {format(day, "EEE", { locale: ko })}
+              </span>
+              <span
+                className={cn(
+                  "text-sm md:text-lg font-bold leading-none mt-1",
+                  isToday
+                    ? "text-indigo-600 dark:text-indigo-400"
+                    : "text-gray-900 dark:text-gray-100"
+                )}
+              >
+                {format(day, "d")}
+              </span>
+            </div>
             {ddayMatches.length > 0 && (
               <div className="flex flex-col gap-1 w-full mt-1">
                 {ddayMatches.map((dday) => {
@@ -92,7 +94,7 @@ export const WeeklyGridHeader = ({
                     <div
                       key={dday.id}
                       className={cn(
-                        "w-full rounded-md px-2 py-1 text-[11px] font-bold leading-tight flex justify-center items-center gap-2 shadow-sm border",
+                        "w-full rounded-md px-2 py-1 text-[11px] font-bold leading-[1.2] flex justify-center items-center gap-2 shadow-sm border",
                         dday.isToday
                           ? dday.colors?.length
                             ? "text-white"

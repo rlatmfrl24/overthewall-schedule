@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { isSameDay } from "date-fns";
+import { useMemo } from "react";
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, hexToRgba, convertChzzkToLiveUrl } from "@/lib/utils";
+import {
+  buildChzzkLiveUrl,
+  cn,
+  convertChzzkToLiveUrl,
+  hexToRgba,
+} from "@/lib/utils";
 import {
   Radio,
   GripHorizontal,
@@ -14,7 +18,6 @@ import { motion } from "motion/react";
 interface ChronologicalScheduleListProps {
   members: Member[];
   schedules: ScheduleItem[];
-  currentDate: Date;
   onScheduleClick: (schedule: ScheduleItem) => void;
   liveStatuses?: ChzzkLiveStatusMap;
 }
@@ -22,17 +25,9 @@ interface ChronologicalScheduleListProps {
 export const ChronologicalScheduleList = ({
   members,
   schedules,
-  currentDate,
   onScheduleClick,
   liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-
   const { timelineItems, otherItems } = useMemo(() => {
     const activeSchedules = schedules.filter((s) => s.status !== "휴방");
 
@@ -55,57 +50,23 @@ export const ChronologicalScheduleList = ({
 
   const getMember = (uid: number) => members.find((m) => m.uid === uid);
 
-  // Time parsing helper
-  const parseTimeToMinutes = (time: string | null) => {
-    if (!time) return null;
-    const [hourText, minuteText] = time.split(":");
-    return Number(hourText) * 60 + Number(minuteText);
-  };
-
-  const showNowLine = isSameDay(currentDate, now);
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const nowLabel = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-
-  const nowInsertIndex = showNowLine
-    ? timelineItems.findIndex((item) => {
-      const minutes = parseTimeToMinutes(item.start_time);
-      return minutes !== null && minutes >= nowMinutes;
-    })
-    : -1;
-
   return (
     <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto px-2 sm:px-4">
       {/* SECTION: TIMELINE */}
       <div className="relative">
         {timelineItems.length > 0 ? (
           <div className="space-y-4">
-            {timelineItems.map((schedule, index) => {
-              const minutes = parseTimeToMinutes(schedule.start_time);
-              const isPast =
-                showNowLine && minutes !== null && minutes < nowMinutes;
-              const shouldInsertNowLine =
-                showNowLine && index === nowInsertIndex;
-
-              return (
-                <div key={schedule.id} className="relative">
-                  {shouldInsertNowLine && <NowLine label={nowLabel} />}
-                  <ScheduleCard
-                    schedule={schedule}
-                    member={getMember(schedule.member_uid)}
-                    onClick={onScheduleClick}
-                    liveStatus={liveStatuses[schedule.member_uid]}
-                    isTimeline
-                    isPast={isPast}
-                  />
-                </div>
-              );
-            })}
-            {/* If now is after all items */}
-            {showNowLine &&
-              (nowInsertIndex === -1 ||
-                nowInsertIndex === timelineItems.length) && (
-                <NowLine label={nowLabel} />
-              )}
+            {timelineItems.map((schedule) => (
+              <div key={schedule.id} className="relative">
+                <ScheduleCard
+                  schedule={schedule}
+                  member={getMember(schedule.member_uid)}
+                  onClick={onScheduleClick}
+                  liveStatus={liveStatuses[schedule.member_uid]}
+                  isTimeline
+                />
+              </div>
+            ))}
           </div>
         ) : (
           <EmptyState />
@@ -150,46 +111,53 @@ const ScheduleCard = ({
   onClick,
   isTimeline = false,
   liveStatus,
-  isPast = false,
 }: {
   schedule: ScheduleItem;
   member?: Member;
   onClick: (schedule: ScheduleItem) => void;
   isTimeline?: boolean;
   liveStatus?: ChzzkLiveStatusMap[number];
-  isPast?: boolean;
 }) => {
   if (!member) return null;
 
   const mainColor = member.main_color || "#71717a"; // Default zinc-500
   const isLive = liveStatus?.status === "OPEN";
   const isGuerrilla = schedule.status === "게릴라";
+  const liveUrl =
+    buildChzzkLiveUrl(liveStatus?.channelId) ||
+    convertChzzkToLiveUrl(member.url_chzzk);
   const [hour, minute] = schedule.start_time
     ? schedule.start_time.split(":")
     : ["--", "--"];
 
+  const handleOpenLive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!liveUrl) return;
+    window.open(liveUrl, "_blank", "noreferrer");
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLive && member.url_chzzk) {
-      const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-      if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+    if (isLive && liveUrl) {
+      window.open(liveUrl, "_blank", "noreferrer");
       return;
     }
     onClick(schedule);
   };
 
+  const motionProps = {
+    initial: { opacity: 0, y: 15 },
+    animate: { opacity: 1, y: 0 },
+  };
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
+      {...motionProps}
       whileHover={{ scale: 1.01 }}
       className={cn(
         "group relative w-full overflow-hidden rounded-2xl transition-all duration-300 isolate",
         "bg-white dark:bg-[#18181b] border border-border/60", // Zinc-900 for dark mode base
-        isPast
-          ? "opacity-60 grayscale-[0.3]"
-          : "shadow-sm hover:shadow-lg hover:border-transparent",
-        isLive && "ring-2 ring-red-500/50 shadow-red-500/20",
+        "shadow-sm hover:shadow-lg hover:border-transparent",
       )}
       onClick={handleClick}
     >
@@ -212,15 +180,35 @@ const ScheduleCard = ({
         style={{ backgroundColor: mainColor }}
       />
 
-      <div className="flex flex-row items-stretch">
+      <div
+        className={cn(
+          "items-stretch h-full",
+          "flex flex-row"
+        )}
+      >
         {/* LEFT: TIME / ICON */}
-        <div className="flex flex-col items-center justify-center min-w-20 sm:min-w-24 py-4 bg-muted/30 border-r border-border/30">
+        <div
+          className={cn(
+            "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0",
+            "min-w-20 sm:min-w-24 py-4"
+          )}
+        >
           {isTimeline ? (
             <div className="flex flex-col items-center leading-none">
-              <span className="text-2xl sm:text-3xl font-black tracking-tight text-foreground/90 font-mono">
+              <span
+                className={cn(
+                  "font-black tracking-tight text-foreground/90 font-mono",
+                  "text-2xl sm:text-3xl"
+                )}
+              >
                 {hour}
               </span>
-              <span className="text-base sm:text-lg font-bold text-muted-foreground/60 -mt-1">
+              <span
+                className={cn(
+                  "font-bold text-muted-foreground/60 -mt-1",
+                  "text-base sm:text-lg"
+                )}
+              >
                 {minute}
               </span>
             </div>
@@ -234,18 +222,17 @@ const ScheduleCard = ({
             </div>
           )}
 
-          {/* Status Label (If needed) */}
-          {isLive && (
-            <span className="mt-2 text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400">
-              LIVE
-            </span>
-          )}
         </div>
 
         {/* RIGHT: CONTENT */}
-        <div className="flex-1 flex flex-col justify-center py-4 px-5 gap-1.5 min-w-0">
+        <div
+          className={cn(
+            "flex-1 flex flex-col justify-center py-4 px-5 min-w-0 h-full overflow-hidden",
+            "gap-1.5"
+          )}
+        >
           {/* HEADER: Member Info */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <div className="relative">
               <img
                 src={`/profile/${member.code}.webp`}
@@ -257,7 +244,7 @@ const ScheduleCard = ({
               )}
             </div>
             <span
-              className="text-xs font-bold uppercase tracking-wide opacity-80 group-hover:opacity-100 transition-opacity"
+              className="text-xs font-bold uppercase tracking-wide opacity-80 group-hover:opacity-100 transition-opacity truncate"
               style={{ color: mainColor }}
             >
               {member.name}
@@ -276,33 +263,53 @@ const ScheduleCard = ({
 
           {/* MAIN: Title */}
           <div className="pr-2">
-            <h3
-              className={cn(
-                "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
-                "group-hover:text-primary/90",
-                !schedule.title && "text-muted-foreground opacity-50 italic",
+            <div className="flex items-center gap-2 min-w-0">
+              {isLive && (
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-600 rounded dark:bg-red-500/20 dark:text-red-400 shrink-0"
+                  data-snapshot-exclude="true"
+                >
+                  LIVE
+                </span>
               )}
-            >
-              {schedule.title || "제목 없음"}
-            </h3>
+              <h3
+                className={cn(
+                  "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
+                  "group-hover:text-primary/90",
+                  !schedule.title && "text-muted-foreground opacity-50 italic",
+                  "min-w-0 line-clamp-1"
+                )}
+              >
+                {schedule.title || "제목 없음"}
+              </h3>
+            </div>
 
             {/* Live Description or Subtext */}
             {isLive &&
               liveStatus?.liveTitle &&
               liveStatus.liveTitle !== schedule.title && (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-1 opacity-70">
+                <p
+                  className="text-xs text-muted-foreground mt-1 line-clamp-1 opacity-70"
+                  data-snapshot-exclude="true"
+                >
                   {liveStatus.liveTitle}
                 </p>
               )}
           </div>
         </div>
 
-        {/* HOVER ACTION */}
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-none">
-          {isLive ? (
-            <div className="bg-red-500 text-white p-2 rounded-full shadow-lg shadow-red-500/30">
-              <Play className="w-5 h-5 fill-current" />
-            </div>
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300 pointer-events-auto">
+          {isLive && member.url_chzzk ? (
+            <button
+              type="button"
+              onClick={handleOpenLive}
+              className="inline-flex items-center gap-2 rounded-full bg-red-500 px-3 py-1.5 text-xs font-semibold text-white shadow-lg shadow-red-500/30 transition-colors hover:bg-red-600"
+              aria-label="방송 보러가기"
+              data-snapshot-exclude="true"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              방송 보러가기
+            </button>
           ) : (
             <ExternalLink className="w-5 h-5 text-muted-foreground/50" />
           )}
@@ -311,16 +318,6 @@ const ScheduleCard = ({
     </motion.div>
   );
 };
-
-const NowLine = ({ label }: { label: string }) => (
-  <div className="flex items-center gap-4 py-3 opacity-90">
-    <div className="h-[2px] w-12 bg-red-500 rounded-r-full" />
-    <div className="flex items-center gap-1.5 text-xs font-bold text-red-500 bg-red-500/10 px-3 py-1 rounded-full border border-red-500/20">
-      현재 {label}
-    </div>
-    <div className="h-[2px] flex-1 bg-red-500/20 lg:bg-linear-to-r lg:from-red-500/50 lg:to-transparent rounded-l-full" />
-  </div>
-);
 
 const EmptyState = () => (
   <div className="flex flex-col items-center justify-center py-20 bg-muted/5 border-2 border-dashed border-muted rounded-3xl">

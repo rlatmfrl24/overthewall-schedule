@@ -3,8 +3,9 @@ import type {
   ScheduleStatus,
   ChzzkLiveStatusMap,
 } from "@/lib/types";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CardMember } from "./card-member";
+import { CardMemberCompact } from "@/features/daily/card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
 import { NoticeBanner } from "@/shared/notice/notice-banner";
@@ -16,6 +17,10 @@ import {
   ChevronRight,
   Copy,
   List,
+  Download,
+  ChevronDown,
+  Loader2,
+  Info,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
@@ -37,28 +42,57 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useScheduleData } from "@/hooks/use-schedule-data";
-import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
+import {
+  fetchLiveStatusDiagnostics,
+  fetchLiveStatusesForMembers,
+} from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
+
+type LiveDebugRow = {
+  memberUid: number;
+  memberName: string;
+  channelId: string;
+  status: string | null;
+  httpStatus: number | null;
+  cacheHit: boolean | null;
+  cacheAgeMs: number | null;
+  fetchedAt: number | null;
+  staleCacheUsed: boolean | null;
+};
 
 export const DailySchedule = () => {
   const { members, ddays } = useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
-    null
+    null,
   );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [initialMemberUid, setInitialMemberUid] = useState<number | null>(null);
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [isCopyingSnapshot, setIsCopyingSnapshot] = useState(false);
+  const [isSnapshotProcessing, setIsSnapshotProcessing] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
   const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
-  const scheduleRef = useRef<HTMLDivElement | null>(null);
-  const SNAPSHOT_PADDING = 12;
+  const [showLiveDebug, setShowLiveDebug] = useState(false);
+  const [liveDebugRows, setLiveDebugRows] = useState<LiveDebugRow[]>([]);
+  const [liveDebugUpdatedAt, setLiveDebugUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const isLiveDebug = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("liveDebug") === "1";
+  }, []);
+  const SNAPSHOT_TIMEOUT = 12_000;
 
   // Check if user has seen the new feature
   useEffect(() => {
@@ -69,6 +103,12 @@ export const DailySchedule = () => {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  useEffect(() => {
+    if (isLiveDebug) {
+      setShowLiveDebug(true);
+    }
+  }, [isLiveDebug]);
 
   const handleToggleView = () => {
     setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"));
@@ -83,25 +123,61 @@ export const DailySchedule = () => {
   const handleToday = () => setCurrentDate(new Date());
 
   const fetchLiveStatuses = useCallback(
-    async (targetMembers: typeof members = members) => {
+    async (
+      targetMembers: typeof members = members,
+      targetSchedules: ScheduleItem[] = schedules,
+    ) => {
       if (targetMembers.length === 0) {
         setLiveStatuses({});
+        setLiveDebugRows([]);
+        setLiveDebugUpdatedAt(null);
         return;
       }
       try {
-        const nextMap = await fetchLiveStatusesForMembers(targetMembers);
+        const nextMap = await fetchLiveStatusesForMembers(targetMembers, {
+          schedules: targetSchedules,
+        });
         setLiveStatuses(nextMap);
+        if (isLiveDebug) {
+          const diagnostics = await fetchLiveStatusDiagnostics(targetMembers, {
+            schedules: targetSchedules,
+          });
+          const memberMap = new Map(
+            targetMembers.map((member) => [member.uid, member]),
+          );
+          const rows: LiveDebugRow[] = diagnostics.items.flatMap((item) => {
+            const memberUids =
+              diagnostics.channelToMembers[item.channelId] || [];
+            if (memberUids.length === 0) return [];
+            return memberUids.map((memberUid) => {
+              const member = memberMap.get(memberUid);
+              return {
+                memberUid,
+                memberName: member?.name || `UID:${memberUid}`,
+                channelId: item.channelId,
+                status: item.content?.status ?? null,
+                httpStatus: item.debug?.httpStatus ?? null,
+                cacheHit: item.debug?.cacheHit ?? null,
+                cacheAgeMs: item.debug?.cacheAgeMs ?? null,
+                fetchedAt: item.debug?.fetchedAt ?? null,
+                staleCacheUsed: item.debug?.staleCacheUsed ?? null,
+              };
+            });
+          });
+          setLiveDebugRows(rows);
+          setLiveDebugUpdatedAt(diagnostics.updatedAt ?? null);
+        }
       } catch (err) {
         console.error("Failed to fetch live statuses", err);
       }
     },
-    [members]
+    [isLiveDebug, members, schedules],
   );
 
   const fetchSchedules = useCallback(async () => {
     try {
       const data = await fetchSchedulesByDate(
-        format(currentDate, "yyyy-MM-dd")
+        format(currentDate, "yyyy-MM-dd"),
       );
       setSchedules(data);
     } catch (err) {
@@ -115,12 +191,12 @@ export const DailySchedule = () => {
 
   useEffect(() => {
     if (members.length === 0) return;
-    void fetchLiveStatuses();
+    void fetchLiveStatuses(members, schedules);
     const timer = setInterval(() => {
-      void fetchLiveStatuses();
+      void fetchLiveStatuses(members, schedules);
     }, 60_000);
     return () => clearInterval(timer);
-  }, [members, fetchLiveStatuses]);
+  }, [members, schedules, fetchLiveStatuses]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
 
@@ -157,13 +233,106 @@ export const DailySchedule = () => {
     }
   };
 
-  const handleCopySnapshot = async () => {
-    if (!scheduleRef.current) {
-      setAlertMessage("일정표 복사 대상을 찾을 수 없습니다.");
-      setAlertOpen(true);
-      return;
+  const createSnapshotBlob = async () => {
+    if (typeof window === "undefined") {
+      throw new Error("snapshot-window-missing");
     }
 
+    const waitForSnapshotReady = async (doc: Document) => {
+      const start = Date.now();
+      while (Date.now() - start < SNAPSHOT_TIMEOUT) {
+        const node = doc.querySelector<HTMLElement>(
+          "[data-snapshot-ready='true']",
+        );
+        if (node) return node;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error("snapshot-ready-timeout");
+    };
+
+    const date = format(currentDate, "yyyy-MM-dd");
+    const snapshotUrl = `/snapshot?date=${encodeURIComponent(
+      date,
+    )}&mode=${viewMode}&t=${Date.now()}`;
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.position = "fixed";
+    iframe.style.left = "-10000px";
+    iframe.style.top = "0";
+    iframe.style.width = "2000px";
+    iframe.style.height = "2000px";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    iframe.style.border = "0";
+
+    document.body.appendChild(iframe);
+
+    try {
+      const loadPromise = new Promise<void>((resolve, reject) => {
+        iframe.addEventListener("load", () => resolve(), { once: true });
+        iframe.addEventListener(
+          "error",
+          () => reject(new Error("snapshot-iframe-load-failed")),
+          { once: true },
+        );
+      });
+
+      iframe.src = snapshotUrl;
+      await loadPromise;
+
+      const doc = iframe.contentDocument;
+      if (!doc) {
+        throw new Error("snapshot-iframe-doc-missing");
+      }
+
+      if (doc.fonts?.ready) {
+        await doc.fonts.ready;
+      }
+
+      const targetNode = await waitForSnapshotReady(doc);
+
+      const images = Array.from(doc.images);
+      await Promise.all(
+        images.map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              if (img.complete) {
+                resolve();
+                return;
+              }
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            }),
+        ),
+      );
+
+      const backgroundColor = getComputedStyle(doc.body).backgroundColor;
+      const width = targetNode.scrollWidth;
+      const height = targetNode.scrollHeight;
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+
+      const dataUrl = await toPng(targetNode, {
+        cacheBust: true,
+        width,
+        height,
+        canvasWidth: width,
+        canvasHeight: height,
+        backgroundColor,
+        pixelRatio,
+      });
+
+      const response = await fetch(dataUrl);
+      if (!response.ok) {
+        throw new Error("snapshot-response-failed");
+      }
+      return await response.blob();
+    } finally {
+      iframe.remove();
+    }
+  };
+
+  const handleCopySnapshot = async () => {
     if (
       typeof window === "undefined" ||
       !navigator.clipboard ||
@@ -174,36 +343,10 @@ export const DailySchedule = () => {
       return;
     }
 
-    setIsCopyingSnapshot(true);
+    setIsSnapshotProcessing(true);
 
     try {
-      const targetNode = scheduleRef.current;
-      const width = targetNode.scrollWidth + SNAPSHOT_PADDING * 2;
-      const height = targetNode.scrollHeight + SNAPSHOT_PADDING * 2;
-      const backgroundColor = getComputedStyle(document.body).backgroundColor;
-
-      const dataUrl = await toPng(targetNode, {
-        cacheBust: true,
-        width,
-        height,
-        canvasWidth: width,
-        canvasHeight: height,
-        backgroundColor,
-        pixelRatio: 2,
-        style: {
-          margin: "0",
-          padding: `${SNAPSHOT_PADDING}px`,
-          boxSizing: "border-box",
-          backgroundColor,
-        },
-        filter: (node) => {
-          if (!(node instanceof HTMLElement)) return true;
-          return node.dataset.snapshotExclude !== "true";
-        },
-      });
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-
+      const blob = await createSnapshotBlob();
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
@@ -215,18 +358,44 @@ export const DailySchedule = () => {
       setAlertMessage("일정표 복사 실패");
       setAlertOpen(true);
     } finally {
-      setIsCopyingSnapshot(false);
+      setIsSnapshotProcessing(false);
+    }
+  };
+
+  const handleDownloadSnapshot = async () => {
+    setIsSnapshotProcessing(true);
+
+    try {
+      const blob = await createSnapshotBlob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const modeLabel = viewMode === "grid" ? "일정표" : "편성표";
+      anchor.href = url;
+      anchor.download = `오버더월 스케쥴-${modeLabel}-${format(currentDate, "yyyy-MM-dd")}.png`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setAlertMessage("스케쥴 일정표를 다운로드했습니다.");
+      setAlertOpen(true);
+    } catch (error) {
+      console.error("Failed to download snapshot", error);
+      setAlertMessage("일정표 다운로드 실패");
+      setAlertOpen(true);
+    } finally {
+      setIsSnapshotProcessing(false);
     }
   };
 
   return (
     <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
-      <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
-        <div ref={scheduleRef} className="flex flex-col gap-8">
+      <div className="container mx-auto flex flex-col py-6 px-3 sm:py-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 sm:gap-8">
           {/* Header Section */}
           <div
             aria-label="Daily Schedule Header"
-            className="flex flex-col md:flex-row items-center justify-between gap-4"
+            className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4"
           >
             <div className="flex items-center gap-3">
               <div className="relative z-20">
@@ -237,7 +406,7 @@ export const DailySchedule = () => {
                         "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
                         viewMode === "grid"
                           ? "bg-card hover:bg-muted"
-                          : "bg-indigo-50 border-indigo-200"
+                          : "bg-indigo-50 border-indigo-200",
                       )}
                       onClick={handleToggleView}
                     >
@@ -308,21 +477,91 @@ export const DailySchedule = () => {
               className="flex flex-wrap items-center justify-center gap-2"
               data-snapshot-exclude="true"
             >
-              <Button
-                variant="outline"
-                className="rounded-full h-10 px-4 text-foreground"
-                onClick={handleCopySnapshot}
-                disabled={isCopyingSnapshot}
-              >
-                <Copy className="h-4 w-4" />
-                <span className="hidden xs:inline">
-                  {isCopyingSnapshot ? "복사 중..." : "일정표 복사"}
-                </span>
-                <span className="inline xs:hidden">복사</span>
-              </Button>
+              {isLiveDebug && (
+                <Button
+                  variant="outline"
+                  className="rounded-full h-9 px-3 text-xs sm:h-10 sm:px-4"
+                  onClick={() => setShowLiveDebug((prev) => !prev)}
+                  aria-pressed={showLiveDebug}
+                >
+                  라이브 진단 {showLiveDebug ? "숨김" : "보기"}
+                </Button>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/50 px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground sm:px-4 sm:h-10 h-9"
+                    aria-label="라이브 표시 안내"
+                  >
+                    <Info className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+                    <span className="hidden sm:inline-block">라이브 표시 기능 안내</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  className="max-w-[280px] text-center"
+                >
+                  <p>
+                    같이보기 또는 해외 시청 불가능한 컨텐츠는
+                    <br />
+                    라이브 표시가 되지 않을 수 있습니다
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="default"
+                    className="rounded-full h-9 px-3 shadow-md transition-all hover:shadow-lg sm:h-10 sm:px-4"
+                    disabled={isSnapshotProcessing}
+                    aria-label="스케쥴 복사 옵션"
+                  >
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {isSnapshotProcessing
+                        ? "이미지 생성 중..."
+                        : "이미지 다운로드"}
+                    </span>
+                    <ChevronDown className="h-4 w-4 ml-1 opacity-70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => void handleDownloadSnapshot()}
+                    disabled={isSnapshotProcessing}
+                    className="font-semibold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                  >
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    이미지 다운로드
+                    <span className="ml-2 text-[11px] text-white/90">추천</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopySnapshot()}
+                    disabled={isSnapshotProcessing}
+                    className="text-muted-foreground cursor-pointer"
+                  >
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    클립보드 복사
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 variant="default"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-9 px-3 sm:h-10 sm:px-4"
+                aria-label="스케쥴 추가"
                 onClick={() => {
                   setEditingSchedule(null);
                   setInitialMemberUid(null);
@@ -330,12 +569,12 @@ export const DailySchedule = () => {
                 }}
               >
                 <Plus className="h-4 w-4" />
-                스케쥴 추가
+                <span className="hidden sm:inline">스케쥴 추가</span>
               </Button>
-              <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
+              <div className="flex items-center gap-1.5 bg-card p-0.5 sm:gap-2 sm:p-1 rounded-full shadow-sm border border-border">
                 <button
                   onClick={handlePrevDay}
-                  className="p-2 hover:bg-muted rounded-full transition-colors"
+                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
                 >
                   <ChevronLeft className="w-5 h-5 text-muted-foreground" />
                 </button>
@@ -347,11 +586,12 @@ export const DailySchedule = () => {
                     : "text-foreground hover:bg-muted"
                     }`}
                 >
-                  오늘로 이동
+                  <span className="hidden sm:inline">오늘로 이동</span>
+                  <span className="inline sm:hidden">오늘</span>
                 </button>
                 <button
                   onClick={handleNextDay}
-                  className="p-2 hover:bg-muted rounded-full transition-colors"
+                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
                 >
                   <ChevronRight className="w-5 h-5 text-muted-foreground" />
                 </button>
@@ -359,8 +599,63 @@ export const DailySchedule = () => {
             </div>
           </div>
 
+          {isLiveDebug && showLiveDebug && (
+            <div className="rounded-2xl border border-amber-200/60 bg-amber-50/70 p-4 text-xs text-amber-950">
+              <div className="flex flex-wrap items-center gap-3 font-semibold">
+                <span>라이브 진단</span>
+                {liveDebugUpdatedAt && (
+                  <span className="text-amber-700">
+                    업데이트: {new Date(liveDebugUpdatedAt).toLocaleString()}
+                  </span>
+                )}
+                <span className="text-amber-700">
+                  항목: {liveDebugRows.length}개
+                </span>
+              </div>
+              {liveDebugRows.length === 0 ? (
+                <p className="mt-2 text-amber-700">
+                  조회 결과가 없습니다. 채널 ID 추출 여부를 확인하세요.
+                </p>
+              ) : (
+                <div className="mt-3 grid gap-2">
+                  {liveDebugRows.map((row) => (
+                    <div
+                      key={`${row.memberUid}-${row.channelId}`}
+                      className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/60 bg-white/70 px-3 py-2"
+                    >
+                      <span className="font-semibold">{row.memberName}</span>
+                      <span className="text-amber-700">({row.memberUid})</span>
+                      <span className="text-amber-700">
+                        채널: {row.channelId}
+                      </span>
+                      <span>상태: {row.status ?? "unknown"}</span>
+                      <span>HTTP: {row.httpStatus ?? "n/a"}</span>
+                      <span>
+                        캐시:{" "}
+                        {row.cacheHit === null
+                          ? "n/a"
+                          : row.cacheHit
+                            ? "hit"
+                            : "miss"}
+                      </span>
+                      <span>
+                        경과:{" "}
+                        {row.cacheAgeMs === null
+                          ? "n/a"
+                          : `${Math.floor(row.cacheAgeMs / 1000)}s`}
+                      </span>
+                      {row.staleCacheUsed && (
+                        <span className="text-amber-700">stale-cache</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* D-Day & Notice Row */}
-          <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row">
             {ddayForToday.length > 0 && (
               <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
                 <div className="flex flex-col gap-2 w-full flex-1 h-full">
@@ -376,20 +671,10 @@ export const DailySchedule = () => {
                       palette.length > 1
                         ? `linear-gradient(90deg, ${palette.join(", ")})`
                         : primary;
-                    const gradientStyle =
-                      palette.length > 1
-                        ? {
-                          backgroundImage: gradient,
-                          backgroundClip: "padding-box",
-                          borderColor: "transparent",
-                        }
-                        : primary
-                          ? { backgroundColor: primary }
-                          : undefined;
                     const cardStyle =
                       dday.isToday && gradient
                         ? {
-                          ...gradientStyle,
+                          background: gradient,
                           color: contrastColor,
                         }
                         : !dday.isToday && primary
@@ -405,7 +690,7 @@ export const DailySchedule = () => {
                             ? dday.colors?.length
                               ? "text-white"
                               : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                            : "bg-white text-foreground border-border dark:bg-card dark:border-border"
+                            : "bg-white text-foreground border-border dark:bg-card dark:border-border",
                         )}
                         style={cardStyle}
                       >
@@ -414,7 +699,7 @@ export const DailySchedule = () => {
                             "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
                             dday.isToday
                               ? "bg-white/25"
-                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
+                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50",
                           )}
                         >
                           {formatDDayLabel(dday.daysUntil)}
@@ -442,31 +727,51 @@ export const DailySchedule = () => {
           {viewMode === "grid" ? (
             <div
               aria-label="Daily Schedule Grid"
-              className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+              className="grid gap-4 sm:gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
             >
               {members.length > 0 ? (
                 members.map((member) => {
                   const memberSchedules = schedules.filter(
-                    (s) => s.member_uid === member.uid
+                    (s) => s.member_uid === member.uid,
                   );
 
                   return (
-                    <CardMember
-                      key={member.uid}
-                      member={member}
-                      schedules={memberSchedules}
-                      liveStatus={liveStatuses[member.uid]}
-                      onScheduleClick={(schedule) => {
-                        setEditingSchedule(schedule);
-                        setInitialMemberUid(null);
-                        setIsEditDialogOpen(true);
-                      }}
-                      onAddSchedule={(memberUid) => {
-                        setEditingSchedule(null);
-                        setInitialMemberUid(memberUid);
-                        setIsEditDialogOpen(true);
-                      }}
-                    />
+                    <div key={member.uid}>
+                      <div className="sm:hidden">
+                        <CardMemberCompact
+                          member={member}
+                          schedules={memberSchedules}
+                          liveStatus={liveStatuses[member.uid]}
+                          onScheduleClick={(schedule) => {
+                            setEditingSchedule(schedule);
+                            setInitialMemberUid(null);
+                            setIsEditDialogOpen(true);
+                          }}
+                          onAddSchedule={(memberUid) => {
+                            setEditingSchedule(null);
+                            setInitialMemberUid(memberUid);
+                            setIsEditDialogOpen(true);
+                          }}
+                        />
+                      </div>
+                      <div className="hidden sm:block">
+                        <CardMember
+                          member={member}
+                          schedules={memberSchedules}
+                          liveStatus={liveStatuses[member.uid]}
+                          onScheduleClick={(schedule) => {
+                            setEditingSchedule(schedule);
+                            setInitialMemberUid(null);
+                            setIsEditDialogOpen(true);
+                          }}
+                          onAddSchedule={(memberUid) => {
+                            setEditingSchedule(null);
+                            setInitialMemberUid(memberUid);
+                            setIsEditDialogOpen(true);
+                          }}
+                        />
+                      </div>
+                    </div>
                   );
                 })
               ) : (
@@ -481,7 +786,6 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
-              currentDate={currentDate}
               liveStatuses={liveStatuses}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
