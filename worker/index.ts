@@ -155,7 +155,7 @@ const parseISO8601Duration = (duration: string): number => {
 // YouTube API: 채널의 uploads 플레이리스트 ID 가져오기 (캐싱 포함)
 const fetchYouTubeUploadsPlaylistId = async (
   channelId: string,
-  apiKey: string
+  apiKey: string,
 ): Promise<string | null> => {
   // 캐시 확인
   const cached = YOUTUBE_PLAYLIST_ID_CACHE.get(channelId);
@@ -172,7 +172,7 @@ const fetchYouTubeUploadsPlaylistId = async (
       // 쿼터 에러(403) 또는 rate limit(429) 처리
       if (res.status === 403 || res.status === 429) {
         console.error(
-          `YouTube API quota exceeded or rate limited for channel ${channelId}`
+          `YouTube API quota exceeded or rate limited for channel ${channelId}`,
         );
         // 이전 캐시가 있으면 재사용 (TTL 무시)
         if (cached) {
@@ -218,7 +218,7 @@ const fetchYouTubePlaylistItems = async (
   playlistId: string,
   apiKey: string,
   maxResults = 20,
-  retryCount = 0
+  retryCount = 0,
 ): Promise<string[]> => {
   const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${apiKey}`;
 
@@ -233,7 +233,7 @@ const fetchYouTubePlaylistItems = async (
           playlistId,
           apiKey,
           maxResults,
-          retryCount + 1
+          retryCount + 1,
         );
       }
       console.error("Failed to fetch YouTube playlist", playlistId, res.status);
@@ -262,7 +262,7 @@ const fetchYouTubePlaylistItems = async (
 // YouTube API: 동영상 상세 정보 조회 (배치 처리 최적화)
 const fetchYouTubeVideoDetails = async (
   videoIds: string[],
-  apiKey: string
+  apiKey: string,
 ): Promise<YouTubeVideoItem[]> => {
   if (videoIds.length === 0) return [];
 
@@ -276,70 +276,72 @@ const fetchYouTubeVideoDetails = async (
 
   try {
     // 배치를 병렬로 처리
-    const results = await Promise.all(
-      batches.map(async (batch) => {
-        const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${batch.join(
-          ","
-        )}&key=${apiKey}`;
-        const res = await fetch(url);
+    // 배치를 순차적으로 처리하여 API Rate Limit 회피
+    const allItems: YouTubeVideoItem[] = [];
 
-        if (!res.ok) {
-          console.error("Failed to fetch YouTube videos batch", res.status);
-          return [];
-        }
+    for (const batch of batches) {
+      const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${batch.join(
+        ",",
+      )}&key=${apiKey}`;
+      const res = await fetch(url);
 
-        const data = (await res.json()) as {
-          items?: Array<{
-            id: string;
-            snippet?: {
-              title?: string;
-              publishedAt?: string;
-              channelId?: string;
-              channelTitle?: string;
-              thumbnails?: {
-                high?: { url?: string };
-                medium?: { url?: string };
-                default?: { url?: string };
-              };
+      if (!res.ok) {
+        console.error("Failed to fetch YouTube videos batch", res.status);
+        continue;
+      }
+
+      const data = (await res.json()) as {
+        items?: Array<{
+          id: string;
+          snippet?: {
+            title?: string;
+            publishedAt?: string;
+            channelId?: string;
+            channelTitle?: string;
+            thumbnails?: {
+              high?: { url?: string };
+              medium?: { url?: string };
+              default?: { url?: string };
             };
-            contentDetails?: {
-              duration?: string;
-            };
-            statistics?: {
-              viewCount?: string;
-            };
-          }>;
-        };
+          };
+          contentDetails?: {
+            duration?: string;
+          };
+          statistics?: {
+            viewCount?: string;
+          };
+        }>;
+      };
 
-        return (
-          data.items?.map((item) => {
-            const duration = parseISO8601Duration(
-              item.contentDetails?.duration || "PT0S"
-            );
-            const thumbnails = item.snippet?.thumbnails;
-            const thumbnailUrl =
-              thumbnails?.high?.url ||
-              thumbnails?.medium?.url ||
-              thumbnails?.default?.url ||
-              "";
+      const batchItems =
+        data.items?.map((item) => {
+          const duration = parseISO8601Duration(
+            item.contentDetails?.duration || "PT0S",
+          );
+          const thumbnails = item.snippet?.thumbnails;
+          const thumbnailUrl =
+            thumbnails?.high?.url ||
+            thumbnails?.medium?.url ||
+            thumbnails?.default?.url ||
+            "";
 
-            return {
-              videoId: item.id,
-              title: item.snippet?.title || "",
-              publishedAt: item.snippet?.publishedAt || "",
-              thumbnailUrl,
-              duration,
-              viewCount: parseInt(item.statistics?.viewCount || "0", 10),
-              channelId: item.snippet?.channelId || "",
-              channelTitle: item.snippet?.channelTitle || "",
-              isShort: duration <= 60,
-            };
-          }) ?? []
-        );
-      })
-    );
+          return {
+            videoId: item.id,
+            title: item.snippet?.title || "",
+            publishedAt: item.snippet?.publishedAt || "",
+            thumbnailUrl,
+            duration,
+            viewCount: parseInt(item.statistics?.viewCount || "0", 10),
+            channelId: item.snippet?.channelId || "",
+            channelTitle: item.snippet?.channelTitle || "",
+            isShort: duration <= 60,
+          };
+        }) ?? [];
 
-    return results.flat();
+      allItems.push(...batchItems);
+    }
+
+    return allItems;
   } catch (error) {
     console.error("Error fetching YouTube video details:", error);
     return [];
@@ -350,7 +352,7 @@ const fetchYouTubeVideoDetails = async (
 const fetchYouTubeVideosForChannel = async (
   channelId: string,
   apiKey: string,
-  maxResults = 20
+  maxResults = 20,
 ): Promise<CachedYouTubeVideos["content"]> => {
   const cacheKey = `${channelId}:${maxResults}`;
   const cached = YOUTUBE_VIDEOS_CACHE.get(cacheKey);
@@ -362,7 +364,7 @@ const fetchYouTubeVideosForChannel = async (
   // 1. uploads 플레이리스트 ID 조회
   const uploadsPlaylistId = await fetchYouTubeUploadsPlaylistId(
     channelId,
-    apiKey
+    apiKey,
   );
   if (!uploadsPlaylistId) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, { fetchedAt: now, content: null });
@@ -373,7 +375,7 @@ const fetchYouTubeVideosForChannel = async (
   const videoIds = await fetchYouTubePlaylistItems(
     uploadsPlaylistId,
     apiKey,
-    maxResults
+    maxResults,
   );
   if (videoIds.length === 0) {
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, {
@@ -520,7 +522,7 @@ const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
           "Failed to fetch chzzk live status",
           channelId,
           res.status,
-          errorBody.slice(0, 500)
+          errorBody.slice(0, 500),
         );
         if ([500, 502, 503, 504].includes(res.status)) {
           continue;
@@ -577,7 +579,7 @@ const fetchChzzkLiveStatus = async (channelId: string) => {
 const fetchChzzkVideos = async (
   channelId: string,
   page = 0,
-  size = 24
+  size = 24,
 ): Promise<CachedChzzkVideos["content"]> => {
   const cacheKey = `${channelId}:${page}:${size}`;
   const cached = CHZZK_VIDEOS_CACHE.get(cacheKey);
@@ -608,7 +610,7 @@ const fetchChzzkVideos = async (
 
 const fetchChzzkClips = async (
   channelId: string,
-  size = 30
+  size = 30,
 ): Promise<CachedChzzkClips["content"]> => {
   const cacheKey = `${channelId}:${size}`;
   const cached = CHZZK_CLIPS_CACHE.get(cacheKey);
@@ -647,11 +649,11 @@ const normalizeNoticeType = (value?: string): NoticeType => {
   return "notice";
 };
 
-const normalizeIsActive = (value?: string | number | boolean): "1" | "0" => {
+const normalizeIsActive = (value?: string | number | boolean): boolean => {
   if (value === "0" || value === 0 || value === false || value === "false") {
-    return "0";
+    return false;
   }
-  return "1";
+  return true;
 };
 
 type NoticePayload = {
@@ -717,7 +719,7 @@ const extractKSTTime = (isoString: string): string => {
 // 설정 값 조회 헬퍼
 const getSetting = async (
   db: DbInstance,
-  key: string
+  key: string,
 ): Promise<string | null> => {
   const result = await db
     .select({ value: settings.value })
@@ -731,7 +733,7 @@ const getSetting = async (
 const updateSetting = async (
   db: DbInstance,
   key: string,
-  value: string
+  value: string,
 ): Promise<void> => {
   await db
     .insert(settings)
@@ -760,7 +762,7 @@ type AutoUpdateDetail = {
 // - 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음
 const autoUpdateSchedules = async (
   db: DbInstance,
-  rangeDays: number = 3
+  rangeDays: number = 3,
 ): Promise<{
   updated: number;
   checked: number;
@@ -768,7 +770,7 @@ const autoUpdateSchedules = async (
 }> => {
   const today = getKSTDateString();
   const startDate = getKSTDateString(
-    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000)
+    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
   );
   const details: AutoUpdateDetail[] = [];
   let collected = 0;
@@ -783,7 +785,7 @@ const autoUpdateSchedules = async (
     })
     .from(members)
     .where(
-      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != '1'`
+      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
     );
 
   if (allMembers.length === 0) {
@@ -808,13 +810,13 @@ const autoUpdateSchedules = async (
   // 3. 기존 대기 스케줄 조회 (중복 방지용)
   const existingPending = await db.select().from(pendingSchedules);
   const pendingVodIds = new Set(
-    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id)
+    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id),
   );
   // member_uid + date + start_time 조합으로도 중복 체크
   const pendingKeys = new Set(
     existingPending.map(
-      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`
-    )
+      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`,
+    ),
   );
 
   // 4. 각 멤버별로 VOD 확인
@@ -1002,7 +1004,7 @@ export default {
             channelId,
             content: await fetchChzzkLiveStatus(channelId),
           };
-        })
+        }),
       );
 
       return Response.json(
@@ -1015,7 +1017,7 @@ export default {
           headers: {
             "Cache-Control": "no-store",
           },
-        }
+        },
       );
     }
 
@@ -1043,7 +1045,7 @@ export default {
           channelIds.map(async (id) => ({
             channelId: id,
             content: await fetchChzzkVideos(id, page, size),
-          }))
+          })),
         );
 
         return json({
@@ -1087,7 +1089,7 @@ export default {
           channelIds.map(async (id) => ({
             channelId: id,
             content: await fetchChzzkClips(id, size),
-          }))
+          })),
         );
 
         return json({
@@ -1135,7 +1137,7 @@ export default {
 
       const maxResults = parseInt(
         url.searchParams.get("maxResults") || "20",
-        10
+        10,
       );
 
       try {
@@ -1145,9 +1147,9 @@ export default {
             content: await fetchYouTubeVideosForChannel(
               channelId,
               apiKey,
-              maxResults
+              maxResults,
             ),
-          }))
+          })),
         );
 
         // 모든 채널의 동영상을 합쳐서 최신순 정렬
@@ -1165,12 +1167,12 @@ export default {
         allVideos.sort(
           (a, b) =>
             new Date(b.publishedAt).getTime() -
-            new Date(a.publishedAt).getTime()
+            new Date(a.publishedAt).getTime(),
         );
         allShorts.sort(
           (a, b) =>
             new Date(b.publishedAt).getTime() -
-            new Date(a.publishedAt).getTime()
+            new Date(a.publishedAt).getTime(),
         );
 
         return json({
@@ -1361,7 +1363,7 @@ export default {
         const includeInactive = url.searchParams.get("includeInactive") === "1";
         const filters: SQL[] = [];
         if (!includeInactive) {
-          filters.push(eq(notices.is_active, "1"));
+          filters.push(eq(notices.is_active, true));
         }
         if (typeFilter) {
           if (!NOTICE_TYPES.includes(typeFilter as NoticeType)) {
@@ -1561,7 +1563,7 @@ export default {
         if (member) {
           const memberQuery = `%${member.toLowerCase()}%`;
           filters.push(
-            sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`
+            sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`,
           );
         }
         if (dateFrom && dateTo) {
@@ -1577,7 +1579,7 @@ export default {
             sql`(
               lower(coalesce(${updateLogs.title}, '')) like ${searchQuery}
               or lower(coalesce(${updateLogs.member_name}, '')) like ${searchQuery}
-            )`
+            )`,
           );
         }
 
@@ -1641,7 +1643,7 @@ export default {
           await updateSetting(
             db,
             "auto_update_last_run",
-            Date.now().toString()
+            Date.now().toString(),
           );
           return Response.json({
             success: true,
@@ -1734,8 +1736,8 @@ export default {
               .where(
                 and(
                   eq(schedules.member_uid, item.member_uid),
-                  eq(schedules.date, item.date)
-                )
+                  eq(schedules.date, item.date),
+                ),
               );
 
             // 시간 충돌 검사 (±30분 이내)
@@ -1760,7 +1762,7 @@ export default {
                     message: `이미 비슷한 시간(${conflicting.start_time})에 스케줄이 존재합니다.`,
                     conflictingScheduleId: conflicting.id,
                   },
-                  { status: 409 }
+                  { status: 409 },
                 );
               }
             }
@@ -1785,8 +1787,8 @@ export default {
                     : isNull(schedules.start_time),
                   item.title
                     ? eq(schedules.title, item.title)
-                    : isNull(schedules.title)
-                )
+                    : isNull(schedules.title),
+                ),
               )
               .orderBy(desc(schedules.id))
               .limit(1);
@@ -1809,7 +1811,7 @@ export default {
                   error: "not_found",
                   message: "수정 대상 스케줄이 이미 삭제되었습니다.",
                 },
-                { status: 404 }
+                { status: 404 },
               );
             }
 
@@ -1916,8 +1918,8 @@ export default {
                 .where(
                   and(
                     eq(schedules.member_uid, item.member_uid),
-                    eq(schedules.date, item.date)
-                  )
+                    eq(schedules.date, item.date),
+                  ),
                 );
 
               let hasConflict = false;
@@ -1960,8 +1962,8 @@ export default {
                       : isNull(schedules.start_time),
                     item.title
                       ? eq(schedules.title, item.title)
-                      : isNull(schedules.title)
-                  )
+                      : isNull(schedules.title),
+                  ),
                 )
                 .orderBy(desc(schedules.id))
                 .limit(1);
@@ -2090,8 +2092,8 @@ export default {
     if (now - lastRun < intervalMs) {
       console.log(
         `[scheduled] Skipping - last run was ${Math.round(
-          (now - lastRun) / 60000
-        )}min ago, interval is ${intervalHours}h`
+          (now - lastRun) / 60000,
+        )}min ago, interval is ${intervalHours}h`,
       );
       return;
     }
@@ -2102,13 +2104,13 @@ export default {
 
     // 4. 자동 업데이트 실행
     console.log(
-      `[scheduled] Running auto update (range: ${rangeDays} days)...`
+      `[scheduled] Running auto update (range: ${rangeDays} days)...`,
     );
     try {
       const result = await autoUpdateSchedules(db, rangeDays);
       console.log(
         `[scheduled] Auto update completed: ${result.updated}/${result.checked} updated`,
-        result.details
+        result.details,
       );
 
       // 5. 마지막 실행 시간 업데이트

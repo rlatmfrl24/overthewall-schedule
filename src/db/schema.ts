@@ -24,7 +24,7 @@ export const members = sqliteTable("members", {
   unit_name: text("unit_name"),
   fan_name: text("fan_name"),
   introduction: text("introduction"),
-  is_deprecated: numeric("is_deprecated"),
+  is_deprecated: integer("is_deprecated", { mode: "boolean" }),
 });
 
 export const schedules = sqliteTable(
@@ -42,9 +42,9 @@ export const schedules = sqliteTable(
     index("idx_schedules_date").on(table.date),
     check(
       "schedules_status_check",
-      sql`status IN ('방송', '휴방', '게릴라', '미정')`
+      sql`status IN ('방송', '휴방', '게릴라', '미정')`,
     ),
-  ]
+  ],
 );
 
 export const notices = sqliteTable(
@@ -54,12 +54,12 @@ export const notices = sqliteTable(
     content: text().notNull(),
     url: text(),
     type: text("type").notNull().default("notice"),
-    is_active: numeric("is_active").default("1"),
+    is_active: integer("is_active", { mode: "boolean" }).default(true),
     started_at: text("started_at"),
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
-  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)],
 );
 
 export const ddays = sqliteTable(
@@ -76,7 +76,7 @@ export const ddays = sqliteTable(
   (table) => [
     index("idx_ddays_date").on(table.date),
     check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
-  ]
+  ],
 );
 
 export type Member = typeof members.$inferSelect;
