@@ -63,7 +63,7 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
       data-snapshot-root="true"
       data-snapshot-ready={isReady ? "true" : "false"}
       className={cn(
-        "inline-block bg-[#0b0b0b] text-foreground",
+        "inline-block bg-background text-foreground",
         mode === "timeline" ? "p-4" : "p-6"
       )}
     >
@@ -74,10 +74,10 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
         )}
       >
         <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
             오늘의 편성표
           </h1>
-          <p className="text-lg font-semibold text-white/70">
+          <p className="text-lg font-semibold text-muted-foreground">
             {format(currentDate, "yyyy년 M월 d일")}
           </p>
         </div>

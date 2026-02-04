@@ -18,6 +18,7 @@ import {
   List,
   Download,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
@@ -410,32 +411,53 @@ export const DailySchedule = () => {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    variant="outline"
-                    className="rounded-full h-10 px-4 text-foreground"
+                    variant="default"
+                    className="rounded-full h-10 px-4  shadow-md transition-all hover:shadow-lg"
                     disabled={isSnapshotProcessing}
                   >
-                    <Copy className="h-4 w-4" />
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
                     <span className="hidden xs:inline">
-                      {isSnapshotProcessing ? "처리 중..." : "스케쥴 복사"}
+                      {isSnapshotProcessing ? "이미지 생성 중..." : "이미지 다운로드"}
                     </span>
-                    <span className="inline xs:hidden">복사</span>
+                    <span className="inline xs:hidden">
+                      {isSnapshotProcessing
+                        ? "이미지 생성 중..."
+                        : "스케쥴 복사"}
+                    </span>
                     <ChevronDown className="h-4 w-4 ml-1 opacity-70" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onSelect={() => void handleCopySnapshot()}
-                    disabled={isSnapshotProcessing}
-                  >
-                    <Copy className="h-4 w-4" />
-                    클립보드 복사
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
                     onSelect={() => void handleDownloadSnapshot()}
                     disabled={isSnapshotProcessing}
+                    className="font-semibold bg-indigo-600 hover:bg-indigo-700 text-white"
                   >
-                    <Download className="h-4 w-4" />
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
                     이미지 다운로드
+                    <span className="ml-2 text-[11px] text-indigo-600">
+                      추천
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopySnapshot()}
+                    disabled={isSnapshotProcessing}
+                    className="text-muted-foreground"
+                  >
+                    {isSnapshotProcessing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                    클립보드 복사
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
