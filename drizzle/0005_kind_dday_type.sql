@@ -15,7 +15,7 @@ CREATE TABLE `ddays_new` (
 CREATE INDEX `idx_ddays_date_new` ON `ddays_new` (`date`);
 
 INSERT INTO `ddays_new` (`id`,`title`,`date`,`description`,`color`,`created_at`,`type`)
-SELECT `id`,`title`,`date`,`description`,`color`,`created_at`,`type`
+SELECT `id`,`title`,`date`,`description`,`color`,`created_at`,'event'
 FROM `ddays`;
 
 DROP TABLE `ddays`;
