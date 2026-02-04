@@ -5,6 +5,7 @@ import type {
 } from "@/lib/types";
 import { useCallback, useEffect, useState } from "react";
 import { CardMember } from "./card-member";
+import { CardMemberCompact } from "@/features/daily/card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
 import { NoticeBanner } from "@/shared/notice/notice-banner";
@@ -322,12 +323,12 @@ export const DailySchedule = () => {
 
   return (
     <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
-      <div className="container mx-auto flex flex-col py-8 px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-8">
+      <div className="container mx-auto flex flex-col py-6 px-3 sm:py-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 sm:gap-8">
           {/* Header Section */}
           <div
             aria-label="Daily Schedule Header"
-            className="flex flex-col md:flex-row items-center justify-between gap-4"
+            className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4"
           >
             <div className="flex items-center gap-3">
               <div className="relative z-20">
@@ -413,21 +414,17 @@ export const DailySchedule = () => {
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="default"
-                    className="rounded-full h-10 px-4  shadow-md transition-all hover:shadow-lg"
+                    className="rounded-full h-9 px-3 shadow-md transition-all hover:shadow-lg sm:h-10 sm:px-4"
                     disabled={isSnapshotProcessing}
+                    aria-label="스케쥴 이미지 다운로드"
                   >
                     {isSnapshotProcessing ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Download className="h-4 w-4" />
                     )}
-                    <span className="hidden xs:inline">
+                    <span className="hidden sm:inline">
                       {isSnapshotProcessing ? "이미지 생성 중..." : "이미지 다운로드"}
-                    </span>
-                    <span className="inline xs:hidden">
-                      {isSnapshotProcessing
-                        ? "이미지 생성 중..."
-                        : "스케쥴 복사"}
                     </span>
                     <ChevronDown className="h-4 w-4 ml-1 opacity-70" />
                   </Button>
@@ -464,7 +461,8 @@ export const DailySchedule = () => {
               </DropdownMenu>
               <Button
                 variant="default"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-10 px-4"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all hover:shadow-lg rounded-full h-9 px-3 sm:h-10 sm:px-4"
+                aria-label="스케쥴 추가"
                 onClick={() => {
                   setEditingSchedule(null);
                   setInitialMemberUid(null);
@@ -472,12 +470,12 @@ export const DailySchedule = () => {
                 }}
               >
                 <Plus className="h-4 w-4" />
-                스케쥴 추가
+                <span className="hidden sm:inline">스케쥴 추가</span>
               </Button>
-              <div className="flex items-center gap-2 bg-card p-1 rounded-full shadow-sm border border-border">
+              <div className="flex items-center gap-1.5 bg-card p-0.5 sm:gap-2 sm:p-1 rounded-full shadow-sm border border-border">
                 <button
                   onClick={handlePrevDay}
-                  className="p-2 hover:bg-muted rounded-full transition-colors"
+                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
                 >
                   <ChevronLeft className="w-5 h-5 text-muted-foreground" />
                 </button>
@@ -489,11 +487,12 @@ export const DailySchedule = () => {
                     : "text-foreground hover:bg-muted"
                     }`}
                 >
-                  오늘로 이동
+                  <span className="hidden sm:inline">오늘로 이동</span>
+                  <span className="inline sm:hidden">오늘</span>
                 </button>
                 <button
                   onClick={handleNextDay}
-                  className="p-2 hover:bg-muted rounded-full transition-colors"
+                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
                 >
                   <ChevronRight className="w-5 h-5 text-muted-foreground" />
                 </button>
@@ -502,7 +501,7 @@ export const DailySchedule = () => {
           </div>
 
           {/* D-Day & Notice Row */}
-          <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row">
             {ddayForToday.length > 0 && (
               <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
                 <div className="flex flex-col gap-2 w-full flex-1 h-full">
@@ -574,7 +573,7 @@ export const DailySchedule = () => {
           {viewMode === "grid" ? (
             <div
               aria-label="Daily Schedule Grid"
-              className="grid gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+              className="grid gap-4 sm:gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
             >
               {members.length > 0 ? (
                 members.map((member) => {
@@ -583,22 +582,42 @@ export const DailySchedule = () => {
                   );
 
                   return (
-                    <CardMember
-                      key={member.uid}
-                      member={member}
-                      schedules={memberSchedules}
-                      liveStatus={liveStatuses[member.uid]}
-                      onScheduleClick={(schedule) => {
-                        setEditingSchedule(schedule);
-                        setInitialMemberUid(null);
-                        setIsEditDialogOpen(true);
-                      }}
-                      onAddSchedule={(memberUid) => {
-                        setEditingSchedule(null);
-                        setInitialMemberUid(memberUid);
-                        setIsEditDialogOpen(true);
-                      }}
-                    />
+                    <div key={member.uid}>
+                      <div className="sm:hidden">
+                        <CardMemberCompact
+                          member={member}
+                          schedules={memberSchedules}
+                          liveStatus={liveStatuses[member.uid]}
+                          onScheduleClick={(schedule) => {
+                            setEditingSchedule(schedule);
+                            setInitialMemberUid(null);
+                            setIsEditDialogOpen(true);
+                          }}
+                          onAddSchedule={(memberUid) => {
+                            setEditingSchedule(null);
+                            setInitialMemberUid(memberUid);
+                            setIsEditDialogOpen(true);
+                          }}
+                        />
+                      </div>
+                      <div className="hidden sm:block">
+                        <CardMember
+                          member={member}
+                          schedules={memberSchedules}
+                          liveStatus={liveStatuses[member.uid]}
+                          onScheduleClick={(schedule) => {
+                            setEditingSchedule(schedule);
+                            setInitialMemberUid(null);
+                            setIsEditDialogOpen(true);
+                          }}
+                          onAddSchedule={(memberUid) => {
+                            setEditingSchedule(null);
+                            setInitialMemberUid(memberUid);
+                            setIsEditDialogOpen(true);
+                          }}
+                        />
+                      </div>
+                    </div>
                   );
                 })
               ) : (
