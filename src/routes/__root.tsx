@@ -11,7 +11,7 @@ const RootComponent = () => {
       className={
         isSnapshotRoute
           ? "min-h-screen w-full font-sans bg-background"
-          : "flex flex-col items-center h-screen w-full font-sans overflow-hidden bg-background"
+          : "flex flex-col items-center h-[100dvh] w-full font-sans overflow-hidden bg-background"
       }
     >
       {!isSnapshotRoute && <Header />}
