@@ -20,6 +20,7 @@ import {
   Download,
   ChevronDown,
   Loader2,
+  Info,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,7 @@ export const DailySchedule = () => {
   const { members, ddays } = useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
-    null
+    null,
   );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [initialMemberUid, setInitialMemberUid] = useState<number | null>(null);
@@ -85,7 +86,7 @@ export const DailySchedule = () => {
   const [showLiveDebug, setShowLiveDebug] = useState(false);
   const [liveDebugRows, setLiveDebugRows] = useState<LiveDebugRow[]>([]);
   const [liveDebugUpdatedAt, setLiveDebugUpdatedAt] = useState<string | null>(
-    null
+    null,
   );
   const isLiveDebug = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -124,7 +125,7 @@ export const DailySchedule = () => {
   const fetchLiveStatuses = useCallback(
     async (
       targetMembers: typeof members = members,
-      targetSchedules: ScheduleItem[] = schedules
+      targetSchedules: ScheduleItem[] = schedules,
     ) => {
       if (targetMembers.length === 0) {
         setLiveStatuses({});
@@ -142,7 +143,7 @@ export const DailySchedule = () => {
             schedules: targetSchedules,
           });
           const memberMap = new Map(
-            targetMembers.map((member) => [member.uid, member])
+            targetMembers.map((member) => [member.uid, member]),
           );
           const rows: LiveDebugRow[] = diagnostics.items.flatMap((item) => {
             const memberUids =
@@ -170,13 +171,13 @@ export const DailySchedule = () => {
         console.error("Failed to fetch live statuses", err);
       }
     },
-    [isLiveDebug, members, schedules]
+    [isLiveDebug, members, schedules],
   );
 
   const fetchSchedules = useCallback(async () => {
     try {
       const data = await fetchSchedulesByDate(
-        format(currentDate, "yyyy-MM-dd")
+        format(currentDate, "yyyy-MM-dd"),
       );
       setSchedules(data);
     } catch (err) {
@@ -241,7 +242,7 @@ export const DailySchedule = () => {
       const start = Date.now();
       while (Date.now() - start < SNAPSHOT_TIMEOUT) {
         const node = doc.querySelector<HTMLElement>(
-          "[data-snapshot-ready='true']"
+          "[data-snapshot-ready='true']",
         );
         if (node) return node;
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -251,7 +252,7 @@ export const DailySchedule = () => {
 
     const date = format(currentDate, "yyyy-MM-dd");
     const snapshotUrl = `/snapshot?date=${encodeURIComponent(
-      date
+      date,
     )}&mode=${viewMode}&t=${Date.now()}`;
 
     const iframe = document.createElement("iframe");
@@ -273,7 +274,7 @@ export const DailySchedule = () => {
         iframe.addEventListener(
           "error",
           () => reject(new Error("snapshot-iframe-load-failed")),
-          { once: true }
+          { once: true },
         );
       });
 
@@ -302,8 +303,8 @@ export const DailySchedule = () => {
               }
               img.onload = () => resolve();
               img.onerror = () => resolve();
-            })
-        )
+            }),
+        ),
       );
 
       const backgroundColor = getComputedStyle(doc.body).backgroundColor;
@@ -405,7 +406,7 @@ export const DailySchedule = () => {
                         "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
                         viewMode === "grid"
                           ? "bg-card hover:bg-muted"
-                          : "bg-indigo-50 border-indigo-200"
+                          : "bg-indigo-50 border-indigo-200",
                       )}
                       onClick={handleToggleView}
                     >
@@ -486,6 +487,28 @@ export const DailySchedule = () => {
                   라이브 진단 {showLiveDebug ? "숨김" : "보기"}
                 </Button>
               )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/50 px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground sm:px-4 sm:h-10 h-9"
+                    aria-label="라이브 표시 안내"
+                  >
+                    <Info className="h-3.5 w-3.5 transition-transform group-hover:scale-110" />
+                    <span className="hidden sm:inline-block">라이브 표시 기능 안내</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  className="max-w-[280px] text-center"
+                >
+                  <p>
+                    같이보기 또는 해외 시청 불가능한 컨텐츠는
+                    <br />
+                    라이브 표시가 되지 않을 수 있습니다
+                  </p>
+                </TooltipContent>
+              </Tooltip>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -500,7 +523,9 @@ export const DailySchedule = () => {
                       <Download className="h-4 w-4" />
                     )}
                     <span className="hidden sm:inline">
-                      {isSnapshotProcessing ? "이미지 생성 중..." : "이미지 다운로드"}
+                      {isSnapshotProcessing
+                        ? "이미지 생성 중..."
+                        : "이미지 다운로드"}
                     </span>
                     <ChevronDown className="h-4 w-4 ml-1 opacity-70" />
                   </Button>
@@ -517,9 +542,7 @@ export const DailySchedule = () => {
                       <Download className="h-4 w-4" />
                     )}
                     이미지 다운로드
-                    <span className="ml-2 text-[11px] text-white/90">
-                      추천
-                    </span>
+                    <span className="ml-2 text-[11px] text-white/90">추천</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => void handleCopySnapshot()}
@@ -600,21 +623,13 @@ export const DailySchedule = () => {
                       key={`${row.memberUid}-${row.channelId}`}
                       className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/60 bg-white/70 px-3 py-2"
                     >
-                      <span className="font-semibold">
-                        {row.memberName}
-                      </span>
-                      <span className="text-amber-700">
-                        ({row.memberUid})
-                      </span>
+                      <span className="font-semibold">{row.memberName}</span>
+                      <span className="text-amber-700">({row.memberUid})</span>
                       <span className="text-amber-700">
                         채널: {row.channelId}
                       </span>
-                      <span>
-                        상태: {row.status ?? "unknown"}
-                      </span>
-                      <span>
-                        HTTP: {row.httpStatus ?? "n/a"}
-                      </span>
+                      <span>상태: {row.status ?? "unknown"}</span>
+                      <span>HTTP: {row.httpStatus ?? "n/a"}</span>
                       <span>
                         캐시:{" "}
                         {row.cacheHit === null
@@ -630,9 +645,7 @@ export const DailySchedule = () => {
                           : `${Math.floor(row.cacheAgeMs / 1000)}s`}
                       </span>
                       {row.staleCacheUsed && (
-                        <span className="text-amber-700">
-                          stale-cache
-                        </span>
+                        <span className="text-amber-700">stale-cache</span>
                       )}
                     </div>
                   ))}
@@ -677,7 +690,7 @@ export const DailySchedule = () => {
                             ? dday.colors?.length
                               ? "text-white"
                               : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                            : "bg-white text-foreground border-border dark:bg-card dark:border-border"
+                            : "bg-white text-foreground border-border dark:bg-card dark:border-border",
                         )}
                         style={cardStyle}
                       >
@@ -686,7 +699,7 @@ export const DailySchedule = () => {
                             "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
                             dday.isToday
                               ? "bg-white/25"
-                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50"
+                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50",
                           )}
                         >
                           {formatDDayLabel(dday.daysUntil)}
@@ -719,7 +732,7 @@ export const DailySchedule = () => {
               {members.length > 0 ? (
                 members.map((member) => {
                   const memberSchedules = schedules.filter(
-                    (s) => s.member_uid === member.uid
+                    (s) => s.member_uid === member.uid,
                   );
 
                   return (
