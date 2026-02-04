@@ -391,7 +391,7 @@ export const DailySchedule = () => {
 
   return (
     <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
-      <div className="container mx-auto flex flex-col py-6 px-3 sm:py-8 sm:px-6 lg:px-8">
+      <div className="container mx-auto flex flex-col pt-6 pb-24 px-3 sm:py-8 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 sm:gap-8">
           {/* Header Section */}
           <div
