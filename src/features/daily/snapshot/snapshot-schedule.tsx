@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { fetchSchedulesByDate } from "@/lib/api/schedules";
 import type { ScheduleItem } from "@/lib/types";
-import { ChronologicalScheduleList } from "./chronological-schedule-list";
-import { CardMember } from "./card-member";
+import { SnapshotCardMember } from "./snapshot-card-member";
+import { SnapshotTimeline } from "./snapshot-timeline";
 
 interface SnapshotScheduleProps {
   date: string;
@@ -83,26 +83,21 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
         </div>
 
         {mode === "timeline" ? (
-          <ChronologicalScheduleList
+          <SnapshotTimeline
             members={members}
             schedules={schedules}
-            currentDate={currentDate}
-            liveStatuses={{}}
-            onScheduleClick={() => { }}
-            isSnapshot
           />
         ) : (
-          <div className="grid grid-cols-5 gap-6">
+          <div className="grid grid-cols-5 gap-4">
             {members.map((member) => {
               const memberSchedules = schedules.filter(
                 (s) => s.member_uid === member.uid
               );
               return (
-                <CardMember
+                <SnapshotCardMember
                   key={`snapshot-${member.uid}`}
                   member={member}
                   schedules={memberSchedules}
-                  isSnapshot
                 />
               );
             })}

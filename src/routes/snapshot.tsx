@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { format } from "date-fns";
-import { SnapshotSchedule } from "@/features/daily/snapshot-schedule";
+import { SnapshotSchedule } from "@/features/daily/snapshot/snapshot-schedule";
 
 export const Route = createFileRoute("/snapshot")({
   validateSearch: (

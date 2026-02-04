@@ -590,7 +590,6 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
-              currentDate={currentDate}
               liveStatuses={liveStatuses}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
