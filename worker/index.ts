@@ -489,70 +489,80 @@ const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
   }
 
   const url = `https://api.chzzk.naver.com/polling/v2/channels/${channelId}/live-status`;
-  try {
-    const res = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-        Referer: "https://chzzk.naver.com/",
-        Origin: "https://chzzk.naver.com",
-      },
-      cf: {
-        cacheTtl: 0,
-        cacheEverything: false,
-      },
-    });
-    if (!res.ok) {
-      console.error("Failed to fetch chzzk live status", channelId, res.status);
+  const retryDelays = [0, 500];
+  let lastStatus: number | null = null;
+  let lastError: string | null = null;
+
+  for (const delayMs of retryDelays) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    try {
+      const res = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          Referer: "https://chzzk.naver.com/",
+          Origin: "https://chzzk.naver.com",
+        },
+        cf: {
+          cacheTtl: 0,
+          cacheEverything: false,
+        },
+      });
+      lastStatus = res.status;
+      if (!res.ok) {
+        lastError = "http_error";
+        if ([500, 502, 503, 504].includes(res.status)) {
+          continue;
+        }
+        console.error(
+          "Failed to fetch chzzk live status",
+          channelId,
+          res.status
+        );
+        break;
+      }
+
+      const data = (await res.json()) as {
+        code: number;
+        content: CachedLiveStatus["content"];
+      };
+
+      const content = data?.content ?? null;
+      LIVE_STATUS_CACHE.set(channelId, {
+        fetchedAt: Date.now(),
+        content,
+      });
       return {
-        content: cached?.content ?? null,
+        content,
         debug: {
           cacheHit: false,
           cacheAgeMs: null,
-          fetchedAt: cached?.fetchedAt ?? null,
+          fetchedAt: Date.now(),
           httpStatus: res.status,
-          error: "http_error",
-          staleCacheUsed: Boolean(cached),
+          error: null,
+          staleCacheUsed: false,
         } satisfies LiveStatusDebug,
       };
+    } catch (error) {
+      lastError = "network_error";
+      console.error("Failed to fetch chzzk live status", channelId, error);
     }
-
-    const data = (await res.json()) as {
-      code: number;
-      content: CachedLiveStatus["content"];
-    };
-
-    const content = data?.content ?? null;
-    LIVE_STATUS_CACHE.set(channelId, {
-      fetchedAt: now,
-      content,
-    });
-    return {
-      content,
-      debug: {
-        cacheHit: false,
-        cacheAgeMs: null,
-        fetchedAt: now,
-        httpStatus: res.status,
-        error: null,
-        staleCacheUsed: false,
-      } satisfies LiveStatusDebug,
-    };
-  } catch (error) {
-    console.error("Failed to fetch chzzk live status", channelId, error);
-    return {
-      content: cached?.content ?? null,
-      debug: {
-        cacheHit: false,
-        cacheAgeMs: null,
-        fetchedAt: cached?.fetchedAt ?? null,
-        httpStatus: null,
-        error: "network_error",
-        staleCacheUsed: Boolean(cached),
-      } satisfies LiveStatusDebug,
-    };
   }
+
+  return {
+    content: cached?.content ?? null,
+    debug: {
+      cacheHit: false,
+      cacheAgeMs: null,
+      fetchedAt: cached?.fetchedAt ?? null,
+      httpStatus: lastStatus,
+      error: lastError,
+      staleCacheUsed: Boolean(cached),
+    } satisfies LiveStatusDebug,
+  };
 };
 
 const fetchChzzkLiveStatus = async (channelId: string) => {
