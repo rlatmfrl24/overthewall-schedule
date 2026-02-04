@@ -136,7 +136,7 @@ const SnapshotTimelineCard = ({
         {/* RIGHT: CONTENT */}
         <div className="flex-1 flex flex-col justify-center py-4 px-5 min-w-0 h-full overflow-hidden gap-1">
           {/* HEADER: Member Info */}
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             <div className="relative">
               <img
                 src={`/profile/${member.code}.webp`}
@@ -145,7 +145,7 @@ const SnapshotTimelineCard = ({
               />
             </div>
             <span
-              className="text-xs font-bold uppercase tracking-wide opacity-80 truncate"
+              className="text-xs font-bold uppercase tracking-wide opacity-80 break-keep"
               style={{ color: mainColor }}
             >
               {member.name}
@@ -168,7 +168,7 @@ const SnapshotTimelineCard = ({
               className={cn(
                 "text-xl sm:text-[1.3rem] font-bold text-foreground leading-snug break-keep",
                 !schedule.title && "text-muted-foreground opacity-50 italic",
-                "min-w-0 line-clamp-1",
+                "min-w-0 line-clamp-2",
               )}
             >
               {schedule.title || "제목 없음"}

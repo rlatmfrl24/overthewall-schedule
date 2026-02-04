@@ -32,7 +32,7 @@ export const SnapshotCardMember = ({
       >
         {member.unit_name && (
           <span
-            className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm"
+            className="inline-block max-w-full rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm break-keep"
             style={{
               backgroundColor: nameBgColor,
               color: headerTextColor,
@@ -55,7 +55,7 @@ export const SnapshotCardMember = ({
               style={{ borderColor: "white" }}
             />
           </div>
-          <span className="font-extrabold text-lg leading-none truncate px-2 py-1 rounded-md bg-black/35 text-white backdrop-blur-sm">
+          <span className="font-extrabold text-lg leading-snug break-keep line-clamp-2 px-2 py-1 rounded-md bg-black/35 text-white backdrop-blur-sm">
             {member.name}
           </span>
         </div>

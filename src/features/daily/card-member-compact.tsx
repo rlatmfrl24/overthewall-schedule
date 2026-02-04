@@ -1,5 +1,11 @@
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, convertChzzkToLiveUrl, getContrastColor, hexToRgba } from "@/lib/utils";
+import {
+  buildChzzkLiveUrl,
+  cn,
+  convertChzzkToLiveUrl,
+  getContrastColor,
+  hexToRgba,
+} from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Clock, Plus } from "lucide-react";
 
@@ -31,14 +37,14 @@ export const CardMemberCompact = ({
   const borderColor = hexToRgba(mainColor, 0.3);
 
   const isLive = liveStatus?.status === "OPEN";
-  const isLiveClickable = isLive && Boolean(member.url_chzzk);
+  const liveUrl =
+    buildChzzkLiveUrl(liveStatus?.channelId) ||
+    convertChzzkToLiveUrl(member.url_chzzk);
+  const isLiveClickable = isLive && Boolean(liveUrl);
 
   const handleCardClick = () => {
     if (!isLiveClickable) return;
-    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-    if (liveUrl) {
-      window.open(liveUrl, "_blank", "noreferrer");
-    }
+    if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
   };
 
   return (
@@ -61,9 +67,9 @@ export const CardMemberCompact = ({
           style={{ borderColor: "white" }}
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3
-              className="text-sm font-bold truncate"
+              className="text-sm font-bold leading-snug break-keep"
               style={{ color: headerTextColor }}
             >
               {member.name}
@@ -76,7 +82,7 @@ export const CardMemberCompact = ({
           </div>
           {member.unit_name && (
             <span
-              className="mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="mt-0.5 inline-block max-w-full rounded-full px-2 py-0.5 text-[10px] font-semibold leading-snug break-keep"
               style={{
                 backgroundColor: hexToRgba(headerTextColor, 0.18),
                 color: headerTextColor,

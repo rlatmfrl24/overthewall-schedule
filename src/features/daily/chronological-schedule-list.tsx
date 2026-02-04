@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, hexToRgba, convertChzzkToLiveUrl } from "@/lib/utils";
+import {
+  buildChzzkLiveUrl,
+  cn,
+  convertChzzkToLiveUrl,
+  hexToRgba,
+} from "@/lib/utils";
 import {
   Radio,
   GripHorizontal,
@@ -118,22 +123,23 @@ const ScheduleCard = ({
   const mainColor = member.main_color || "#71717a"; // Default zinc-500
   const isLive = liveStatus?.status === "OPEN";
   const isGuerrilla = schedule.status === "게릴라";
+  const liveUrl =
+    buildChzzkLiveUrl(liveStatus?.channelId) ||
+    convertChzzkToLiveUrl(member.url_chzzk);
   const [hour, minute] = schedule.start_time
     ? schedule.start_time.split(":")
     : ["--", "--"];
 
   const handleOpenLive = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!member.url_chzzk) return;
-    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-    if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+    if (!liveUrl) return;
+    window.open(liveUrl, "_blank", "noreferrer");
   };
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLive && member.url_chzzk) {
-      const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-      if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+    if (isLive && liveUrl) {
+      window.open(liveUrl, "_blank", "noreferrer");
       return;
     }
     onClick(schedule);

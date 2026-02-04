@@ -3,7 +3,7 @@ import type {
   ScheduleStatus,
   ChzzkLiveStatusMap,
 } from "@/lib/types";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CardMember } from "./card-member";
 import { CardMemberCompact } from "@/features/daily/card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
@@ -48,9 +48,24 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useScheduleData } from "@/hooks/use-schedule-data";
-import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
+import {
+  fetchLiveStatusDiagnostics,
+  fetchLiveStatusesForMembers,
+} from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
+
+type LiveDebugRow = {
+  memberUid: number;
+  memberName: string;
+  channelId: string;
+  status: string | null;
+  httpStatus: number | null;
+  cacheHit: boolean | null;
+  cacheAgeMs: number | null;
+  fetchedAt: number | null;
+  staleCacheUsed: boolean | null;
+};
 
 export const DailySchedule = () => {
   const { members, ddays } = useScheduleData();
@@ -67,6 +82,15 @@ export const DailySchedule = () => {
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
   const [showViewToggleTooltip, setShowViewToggleTooltip] = useState(false);
   const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
+  const [showLiveDebug, setShowLiveDebug] = useState(false);
+  const [liveDebugRows, setLiveDebugRows] = useState<LiveDebugRow[]>([]);
+  const [liveDebugUpdatedAt, setLiveDebugUpdatedAt] = useState<string | null>(
+    null
+  );
+  const isLiveDebug = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("liveDebug") === "1";
+  }, []);
   const SNAPSHOT_TIMEOUT = 12_000;
 
   // Check if user has seen the new feature
@@ -78,6 +102,12 @@ export const DailySchedule = () => {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  useEffect(() => {
+    if (isLiveDebug) {
+      setShowLiveDebug(true);
+    }
+  }, [isLiveDebug]);
 
   const handleToggleView = () => {
     setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"));
@@ -92,19 +122,55 @@ export const DailySchedule = () => {
   const handleToday = () => setCurrentDate(new Date());
 
   const fetchLiveStatuses = useCallback(
-    async (targetMembers: typeof members = members) => {
+    async (
+      targetMembers: typeof members = members,
+      targetSchedules: ScheduleItem[] = schedules
+    ) => {
       if (targetMembers.length === 0) {
         setLiveStatuses({});
+        setLiveDebugRows([]);
+        setLiveDebugUpdatedAt(null);
         return;
       }
       try {
-        const nextMap = await fetchLiveStatusesForMembers(targetMembers);
+        const nextMap = await fetchLiveStatusesForMembers(targetMembers, {
+          schedules: targetSchedules,
+        });
         setLiveStatuses(nextMap);
+        if (isLiveDebug) {
+          const diagnostics = await fetchLiveStatusDiagnostics(targetMembers, {
+            schedules: targetSchedules,
+          });
+          const memberMap = new Map(
+            targetMembers.map((member) => [member.uid, member])
+          );
+          const rows: LiveDebugRow[] = diagnostics.items.flatMap((item) => {
+            const memberUids =
+              diagnostics.channelToMembers[item.channelId] || [];
+            if (memberUids.length === 0) return [];
+            return memberUids.map((memberUid) => {
+              const member = memberMap.get(memberUid);
+              return {
+                memberUid,
+                memberName: member?.name || `UID:${memberUid}`,
+                channelId: item.channelId,
+                status: item.content?.status ?? null,
+                httpStatus: item.debug?.httpStatus ?? null,
+                cacheHit: item.debug?.cacheHit ?? null,
+                cacheAgeMs: item.debug?.cacheAgeMs ?? null,
+                fetchedAt: item.debug?.fetchedAt ?? null,
+                staleCacheUsed: item.debug?.staleCacheUsed ?? null,
+              };
+            });
+          });
+          setLiveDebugRows(rows);
+          setLiveDebugUpdatedAt(diagnostics.updatedAt ?? null);
+        }
       } catch (err) {
         console.error("Failed to fetch live statuses", err);
       }
     },
-    [members]
+    [isLiveDebug, members, schedules]
   );
 
   const fetchSchedules = useCallback(async () => {
@@ -124,12 +190,12 @@ export const DailySchedule = () => {
 
   useEffect(() => {
     if (members.length === 0) return;
-    void fetchLiveStatuses();
+    void fetchLiveStatuses(members, schedules);
     const timer = setInterval(() => {
-      void fetchLiveStatuses();
+      void fetchLiveStatuses(members, schedules);
     }, 60_000);
     return () => clearInterval(timer);
-  }, [members, fetchLiveStatuses]);
+  }, [members, schedules, fetchLiveStatuses]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
 
@@ -410,6 +476,16 @@ export const DailySchedule = () => {
               className="flex flex-wrap items-center justify-center gap-2"
               data-snapshot-exclude="true"
             >
+              {isLiveDebug && (
+                <Button
+                  variant="outline"
+                  className="rounded-full h-9 px-3 text-xs sm:h-10 sm:px-4"
+                  onClick={() => setShowLiveDebug((prev) => !prev)}
+                  aria-pressed={showLiveDebug}
+                >
+                  라이브 진단 {showLiveDebug ? "숨김" : "보기"}
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -499,6 +575,71 @@ export const DailySchedule = () => {
               </div>
             </div>
           </div>
+
+          {isLiveDebug && showLiveDebug && (
+            <div className="rounded-2xl border border-amber-200/60 bg-amber-50/70 p-4 text-xs text-amber-950">
+              <div className="flex flex-wrap items-center gap-3 font-semibold">
+                <span>라이브 진단</span>
+                {liveDebugUpdatedAt && (
+                  <span className="text-amber-700">
+                    업데이트: {new Date(liveDebugUpdatedAt).toLocaleString()}
+                  </span>
+                )}
+                <span className="text-amber-700">
+                  항목: {liveDebugRows.length}개
+                </span>
+              </div>
+              {liveDebugRows.length === 0 ? (
+                <p className="mt-2 text-amber-700">
+                  조회 결과가 없습니다. 채널 ID 추출 여부를 확인하세요.
+                </p>
+              ) : (
+                <div className="mt-3 grid gap-2">
+                  {liveDebugRows.map((row) => (
+                    <div
+                      key={`${row.memberUid}-${row.channelId}`}
+                      className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200/60 bg-white/70 px-3 py-2"
+                    >
+                      <span className="font-semibold">
+                        {row.memberName}
+                      </span>
+                      <span className="text-amber-700">
+                        ({row.memberUid})
+                      </span>
+                      <span className="text-amber-700">
+                        채널: {row.channelId}
+                      </span>
+                      <span>
+                        상태: {row.status ?? "unknown"}
+                      </span>
+                      <span>
+                        HTTP: {row.httpStatus ?? "n/a"}
+                      </span>
+                      <span>
+                        캐시:{" "}
+                        {row.cacheHit === null
+                          ? "n/a"
+                          : row.cacheHit
+                            ? "hit"
+                            : "miss"}
+                      </span>
+                      <span>
+                        경과:{" "}
+                        {row.cacheAgeMs === null
+                          ? "n/a"
+                          : `${Math.floor(row.cacheAgeMs / 1000)}s`}
+                      </span>
+                      {row.staleCacheUsed && (
+                        <span className="text-amber-700">
+                          stale-cache
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* D-Day & Notice Row */}
           <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row">

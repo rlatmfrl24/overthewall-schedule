@@ -1,5 +1,11 @@
 import type { Member, ScheduleItem, ChzzkLiveStatusMap } from "@/lib/types";
-import { cn, convertChzzkToLiveUrl, getContrastColor, hexToRgba } from "@/lib/utils";
+import {
+  buildChzzkLiveUrl,
+  cn,
+  convertChzzkToLiveUrl,
+  getContrastColor,
+  hexToRgba,
+} from "@/lib/utils";
 import { CardSchedule } from "./card-schedule";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
@@ -37,14 +43,14 @@ export const CardMember = ({
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
   const isLive = liveStatus?.status === "OPEN";
   const viewerCount = liveStatus?.concurrentUserCount;
-  const isLiveClickable = isLive && Boolean(member.url_chzzk);
+  const liveUrl =
+    buildChzzkLiveUrl(liveStatus?.channelId) ||
+    convertChzzkToLiveUrl(member.url_chzzk);
+  const isLiveClickable = isLive && Boolean(liveUrl);
 
   const handleCardClick = () => {
     if (!isLiveClickable) return;
-    const liveUrl = convertChzzkToLiveUrl(member.url_chzzk);
-    if (liveUrl) {
-      window.open(liveUrl, "_blank", "noreferrer");
-    }
+    if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
   };
 
   return (

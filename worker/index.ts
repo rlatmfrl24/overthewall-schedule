@@ -36,6 +36,15 @@ type CachedLiveStatus = {
   } | null;
 };
 
+type LiveStatusDebug = {
+  cacheHit: boolean;
+  cacheAgeMs: number | null;
+  fetchedAt: number | null;
+  httpStatus: number | null;
+  error: string | null;
+  staleCacheUsed: boolean | null;
+};
+
 const LIVE_STATUS_CACHE = new Map<string, CachedLiveStatus>();
 const LIVE_STATUS_TTL_MS = 60_000;
 
@@ -462,31 +471,93 @@ const insertUpdateLog = async (db: DbInstance, payload: UpdateLogPayload) => {
   });
 };
 
-const fetchChzzkLiveStatus = async (channelId: string) => {
+const fetchChzzkLiveStatusWithDebug = async (channelId: string) => {
   const cached = LIVE_STATUS_CACHE.get(channelId);
   const now = Date.now();
   if (cached && now - cached.fetchedAt < LIVE_STATUS_TTL_MS) {
-    return cached.content;
+    return {
+      content: cached.content,
+      debug: {
+        cacheHit: true,
+        cacheAgeMs: now - cached.fetchedAt,
+        fetchedAt: cached.fetchedAt,
+        httpStatus: null,
+        error: null,
+        staleCacheUsed: false,
+      } satisfies LiveStatusDebug,
+    };
   }
 
   const url = `https://api.chzzk.naver.com/polling/v2/channels/${channelId}/live-status`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    console.error("Failed to fetch chzzk live status", channelId, res.status);
-    return null;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        Referer: "https://chzzk.naver.com/",
+        Origin: "https://chzzk.naver.com",
+      },
+      cf: {
+        cacheTtl: 0,
+        cacheEverything: false,
+      },
+    });
+    if (!res.ok) {
+      console.error("Failed to fetch chzzk live status", channelId, res.status);
+      return {
+        content: cached?.content ?? null,
+        debug: {
+          cacheHit: false,
+          cacheAgeMs: null,
+          fetchedAt: cached?.fetchedAt ?? null,
+          httpStatus: res.status,
+          error: "http_error",
+          staleCacheUsed: Boolean(cached),
+        } satisfies LiveStatusDebug,
+      };
+    }
+
+    const data = (await res.json()) as {
+      code: number;
+      content: CachedLiveStatus["content"];
+    };
+
+    const content = data?.content ?? null;
+    LIVE_STATUS_CACHE.set(channelId, {
+      fetchedAt: now,
+      content,
+    });
+    return {
+      content,
+      debug: {
+        cacheHit: false,
+        cacheAgeMs: null,
+        fetchedAt: now,
+        httpStatus: res.status,
+        error: null,
+        staleCacheUsed: false,
+      } satisfies LiveStatusDebug,
+    };
+  } catch (error) {
+    console.error("Failed to fetch chzzk live status", channelId, error);
+    return {
+      content: cached?.content ?? null,
+      debug: {
+        cacheHit: false,
+        cacheAgeMs: null,
+        fetchedAt: cached?.fetchedAt ?? null,
+        httpStatus: null,
+        error: "network_error",
+        staleCacheUsed: Boolean(cached),
+      } satisfies LiveStatusDebug,
+    };
   }
+};
 
-  const data = (await res.json()) as {
-    code: number;
-    content: CachedLiveStatus["content"];
-  };
-
-  const content = data?.content ?? null;
-  LIVE_STATUS_CACHE.set(channelId, {
-    fetchedAt: now,
-    content,
-  });
-  return content;
+const fetchChzzkLiveStatus = async (channelId: string) => {
+  const result = await fetchChzzkLiveStatusWithDebug(channelId);
+  return result.content;
 };
 
 const fetchChzzkVideos = async (
@@ -893,6 +964,7 @@ export default {
       }
 
       const channelIdsParam = url.searchParams.get("channelIds");
+      const debug = url.searchParams.get("debug") === "1";
       if (!channelIdsParam) {
         return badRequest("channelIds query required");
       }
@@ -907,16 +979,30 @@ export default {
       }
 
       const items = await Promise.all(
-        channelIds.map(async (channelId) => ({
-          channelId,
-          content: await fetchChzzkLiveStatus(channelId),
-        }))
+        channelIds.map(async (channelId) => {
+          if (debug) {
+            const result = await fetchChzzkLiveStatusWithDebug(channelId);
+            return { channelId, content: result.content, debug: result.debug };
+          }
+          return {
+            channelId,
+            content: await fetchChzzkLiveStatus(channelId),
+          };
+        })
       );
 
-      return json({
-        updatedAt: new Date().toISOString(),
-        items,
-      });
+      return Response.json(
+        {
+          updatedAt: new Date().toISOString(),
+          items,
+        },
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        }
+      );
     }
 
     if (url.pathname.startsWith("/api/vods/chzzk")) {
