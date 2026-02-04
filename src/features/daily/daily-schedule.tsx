@@ -301,8 +301,9 @@ export const DailySchedule = () => {
       const blob = await createSnapshotBlob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
+      const modeLabel = viewMode === "grid" ? "일정표" : "편성표";
       anchor.href = url;
-      anchor.download = `schedule-${format(currentDate, "yyyy-MM-dd")}.png`;
+      anchor.download = `오버더월 스케쥴-${modeLabel}-${format(currentDate, "yyyy-MM-dd")}.png`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
