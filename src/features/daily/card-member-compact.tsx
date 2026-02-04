@@ -51,7 +51,7 @@ export const CardMemberCompact = ({
     <div
       className={cn(
         "flex flex-col overflow-hidden rounded-2xl border bg-card transition-shadow",
-        isLiveClickable && "cursor-pointer"
+        isLiveClickable && "cursor-pointer",
       )}
       style={{ borderColor }}
       onClick={handleCardClick}
@@ -123,7 +123,7 @@ export const CardMemberCompact = ({
                 }}
                 className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/80 px-2.5 py-1.5 shadow-sm"
               >
-                <p className="text-xs font-semibold text-foreground line-clamp-1">
+                <p className="text-sm font-bold text-foreground line-clamp-1">
                   {schedule.title || "방송 예정"}
                 </p>
                 {schedule.start_time && (
