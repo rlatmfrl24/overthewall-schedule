@@ -120,6 +120,13 @@
       "when": 1770595098677,
       "tag": "0017_short_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1770600881669,
+      "tag": "0018_woozy_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

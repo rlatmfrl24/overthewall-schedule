@@ -8,24 +8,28 @@ import {
   check,
 } from "drizzle-orm/sqlite-core";
 
-export const members = sqliteTable("members", {
-  uid: integer().primaryKey({ autoIncrement: true }),
-  code: text().notNull(),
-  name: text().notNull(),
-  main_color: text("main_color"),
-  sub_color: text("sub_color"),
-  oshi_mark: text("oshi_mark"),
-  url_twitter: text("url_twitter"),
-  url_youtube: text("url_youtube"),
-  url_chzzk: text("url_chzzk"),
-  youtube_channel_id: text("youtube_channel_id"), // UCxxxxxxxx 형태의 YouTube 채널 ID
-  birth_date: text("birth_date"),
-  debut_date: text("debut_date"),
-  unit_name: text("unit_name"),
-  fan_name: text("fan_name"),
-  introduction: text("introduction"),
-  is_deprecated: integer("is_deprecated", { mode: "boolean" }),
-});
+export const members = sqliteTable(
+  "members",
+  {
+    uid: integer().primaryKey({ autoIncrement: true }),
+    code: text().notNull(),
+    name: text().notNull(),
+    main_color: text("main_color"),
+    sub_color: text("sub_color"),
+    oshi_mark: text("oshi_mark"),
+    url_twitter: text("url_twitter"),
+    url_youtube: text("url_youtube"),
+    url_chzzk: text("url_chzzk"),
+    youtube_channel_id: text("youtube_channel_id"), // UCxxxxxxxx 형태의 YouTube 채널 ID
+    birth_date: text("birth_date"),
+    debut_date: text("debut_date"),
+    unit_name: text("unit_name"),
+    fan_name: text("fan_name"),
+    introduction: text("introduction"),
+    is_deprecated: integer("is_deprecated", { mode: "boolean" }),
+  },
+  (table) => [index("idx_members_code").on(table.code)],
+);
 
 export const schedules = sqliteTable(
   "schedules",

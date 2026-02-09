@@ -1192,22 +1192,27 @@ export default {
       const pathParts = url.pathname.split("/");
       const code = pathParts[3]; // /api/members/:code
 
+      const activeCondition =
+        sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+
       if (code) {
         const data = await db
           .select()
           .from(members)
-          .where(eq(members.code, code))
+          .where(and(eq(members.code, code), activeCondition))
           .limit(1);
 
         if (data.length === 0) {
           return new Response("Member not found", { status: 404 });
         }
-
         return Response.json(data[0]);
       }
 
-      const data = await db.select().from(members);
-      return Response.json(data);
+      const activeData = await db
+        .select()
+        .from(members)
+        .where(activeCondition);
+      return Response.json(activeData);
     }
 
     if (url.pathname.startsWith("/api/schedules")) {
