@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useKirinukiVideos } from "@/hooks/use-kirinuki-videos";
 import { YouTubePlaylist } from "../youtube/youtube-playlist";
 import { YouTubeSectionSkeleton } from "../youtube/youtube-skeleton";
@@ -15,6 +16,16 @@ export const KirinukiSection = ({
   const { videos, shorts, loading, error, hasLoaded } = useKirinukiVideos({
     maxResults: 20,
   });
+
+  // 숏츠와 영상을 구분하지 않고 최신순으로 병합
+  const allVideos = useMemo(() => {
+    const merged = [...videos, ...shorts];
+    // publishedAt 기준 최신순 정렬
+    return merged.sort(
+      (a, b) =>
+        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+    );
+  }, [videos, shorts]);
 
   if (loadingMembers) {
     return <YouTubeSectionSkeleton />;
@@ -35,29 +46,16 @@ export const KirinukiSection = ({
         </div>
       )}
 
-      {/* 콘텐츠 */}
+      {/* 콘텐츠 - 숏츠와 영상을 구분하지 않고 통합 */}
       {!isInitialLoading && !error && (
-        <>
-          {/* 일반 동영상 플레이리스트 */}
-          <YouTubePlaylist
-            title="최신 키리누키"
-            videos={videos}
-            members={members}
-            variant="default"
-            emptyMessage="등록된 키리누키 채널이 없거나 업로드된 영상이 없습니다."
-          />
-
-          {/* 쇼츠 플레이리스트 */}
-          {shorts.length > 0 && (
-            <YouTubePlaylist
-              title="키리누키 Shorts"
-              videos={shorts}
-              members={members}
-              variant="short"
-              emptyMessage="업로드된 Shorts가 없습니다."
-            />
-          )}
-        </>
+        <YouTubePlaylist
+          title="최신 키리누키"
+          videos={allVideos}
+          members={members}
+          variant="default"
+          isKirinuki
+          emptyMessage="등록된 키리누키 채널이 없거나 업로드된 영상이 없습니다."
+        />
       )}
     </div>
   );
