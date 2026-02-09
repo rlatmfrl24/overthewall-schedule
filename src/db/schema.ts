@@ -8,24 +8,28 @@ import {
   check,
 } from "drizzle-orm/sqlite-core";
 
-export const members = sqliteTable("members", {
-  uid: integer().primaryKey({ autoIncrement: true }),
-  code: text().notNull(),
-  name: text().notNull(),
-  main_color: text("main_color"),
-  sub_color: text("sub_color"),
-  oshi_mark: text("oshi_mark"),
-  url_twitter: text("url_twitter"),
-  url_youtube: text("url_youtube"),
-  url_chzzk: text("url_chzzk"),
-  youtube_channel_id: text("youtube_channel_id"), // UCxxxxxxxx 형태의 YouTube 채널 ID
-  birth_date: text("birth_date"),
-  debut_date: text("debut_date"),
-  unit_name: text("unit_name"),
-  fan_name: text("fan_name"),
-  introduction: text("introduction"),
-  is_deprecated: numeric("is_deprecated"),
-});
+export const members = sqliteTable(
+  "members",
+  {
+    uid: integer().primaryKey({ autoIncrement: true }),
+    code: text().notNull(),
+    name: text().notNull(),
+    main_color: text("main_color"),
+    sub_color: text("sub_color"),
+    oshi_mark: text("oshi_mark"),
+    url_twitter: text("url_twitter"),
+    url_youtube: text("url_youtube"),
+    url_chzzk: text("url_chzzk"),
+    youtube_channel_id: text("youtube_channel_id"), // UCxxxxxxxx 형태의 YouTube 채널 ID
+    birth_date: text("birth_date"),
+    debut_date: text("debut_date"),
+    unit_name: text("unit_name"),
+    fan_name: text("fan_name"),
+    introduction: text("introduction"),
+    is_deprecated: integer("is_deprecated", { mode: "boolean" }),
+  },
+  (table) => [index("idx_members_code").on(table.code)],
+);
 
 export const schedules = sqliteTable(
   "schedules",
@@ -42,9 +46,9 @@ export const schedules = sqliteTable(
     index("idx_schedules_date").on(table.date),
     check(
       "schedules_status_check",
-      sql`status IN ('방송', '휴방', '게릴라', '미정')`
+      sql`status IN ('방송', '휴방', '게릴라', '미정')`,
     ),
-  ]
+  ],
 );
 
 export const notices = sqliteTable(
@@ -54,12 +58,12 @@ export const notices = sqliteTable(
     content: text().notNull(),
     url: text(),
     type: text("type").notNull().default("notice"),
-    is_active: numeric("is_active").default("1"),
+    is_active: integer("is_active", { mode: "boolean" }).default(true),
     started_at: text("started_at"),
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
-  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)]
+  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)],
 );
 
 export const ddays = sqliteTable(
@@ -76,7 +80,7 @@ export const ddays = sqliteTable(
   (table) => [
     index("idx_ddays_date").on(table.date),
     check("ddays_type_check", sql`type IN ('debut', 'birthday', 'event')`),
-  ]
+  ],
 );
 
 export type Member = typeof members.$inferSelect;
@@ -136,3 +140,15 @@ export const pendingSchedules = sqliteTable("pending_schedules", {
 
 export type PendingSchedule = typeof pendingSchedules.$inferSelect;
 export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;
+
+// 키리누키 채널 테이블 (유튜브 채널 영상 모음)
+export const kirinukiChannels = sqliteTable("kirinuki_channels", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  channel_name: text("channel_name").notNull(),
+  channel_url: text("channel_url").notNull(),
+  youtube_channel_id: text("youtube_channel_id").notNull(),
+  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type KirinukiChannel = typeof kirinukiChannels.$inferSelect;
+export type NewKirinukiChannel = typeof kirinukiChannels.$inferInsert;

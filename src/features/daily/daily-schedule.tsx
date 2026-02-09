@@ -741,8 +741,8 @@ export const DailySchedule = () => {
                   );
 
                   return (
-                    <div key={member.uid}>
-                      <div className="sm:hidden">
+                    <div key={member.uid} className="h-full">
+                      <div className="sm:hidden h-full">
                         <CardMemberCompact
                           member={member}
                           schedules={memberSchedules}
@@ -759,7 +759,7 @@ export const DailySchedule = () => {
                           }}
                         />
                       </div>
-                      <div className="hidden sm:block">
+                      <div className="hidden sm:block h-full">
                         <CardMember
                           member={member}
                           schedules={memberSchedules}

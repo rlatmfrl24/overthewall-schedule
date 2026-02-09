@@ -8,6 +8,7 @@ import {
   History,
   LogOut,
   Menu,
+  Scissors,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     href: "/admin/ddays",
   },
   {
+    label: "키리누키 채널",
+    icon: Scissors,
+    href: "/admin/kirinuki",
+  },
+  {
     label: "자동 업데이트 설정",
     icon: Settings,
     href: "/admin/settings",
@@ -54,7 +60,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const isActive = (href: string) => {
     // /admin 또는 /admin/notices는 notices 페이지로 처리
     if (href === "/admin/notices") {
-      return location.pathname === "/admin" || location.pathname === "/admin/notices";
+      return (
+        location.pathname === "/admin" || location.pathname === "/admin/notices"
+      );
     }
     return location.pathname === href;
   };
@@ -75,8 +83,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               variant={active ? "secondary" : "ghost"}
               className={cn(
                 "w-full justify-start gap-3 px-3",
-                active && "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
-                !active && "text-muted-foreground"
+                active &&
+                  "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
+                !active && "text-muted-foreground",
               )}
               asChild
             >

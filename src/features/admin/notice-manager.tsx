@@ -143,9 +143,9 @@ export function NoticeManager() {
                 key={notice.id}
                 className={cn(
                   "flex flex-col gap-3 px-4 py-4 transition-colors",
-                  notice.is_active === "0"
+                  notice.is_active === false
                     ? "bg-muted/10 text-muted-foreground/90"
-                    : "hover:bg-muted/10"
+                    : "hover:bg-muted/10",
                 )}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -155,13 +155,13 @@ export function NoticeManager() {
                       className={cn(
                         "font-medium border shadow-xs h-6",
                         noticeTypeConfigs[notice.type as NoticeTypeKey]
-                          ?.badgeClass
+                          ?.badgeClass,
                       )}
                     >
                       {noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ??
                         notice.type}
                     </Badge>
-                    {notice.is_active !== "0" && (
+                    {notice.is_active !== false && (
                       <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
                         게시중
                       </span>

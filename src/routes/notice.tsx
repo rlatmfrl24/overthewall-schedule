@@ -39,7 +39,7 @@ function NoticePage() {
       setNotices(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다."
+        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
       );
     } finally {
       setIsLoading(false);
@@ -51,8 +51,8 @@ function NoticePage() {
   }, [loadNotices]);
 
   const activeNotices = useMemo(
-    () => notices.filter((notice) => notice.is_active !== "0"),
-    [notices]
+    () => notices.filter((notice) => notice.is_active !== false),
+    [notices],
   );
 
   const router = useRouter();
@@ -118,7 +118,7 @@ function NoticePage() {
                       notice.ended_at?.replace(/-/g, ".") ?? "..."
                     }`
                   : "기간 설정 없음";
-              const isActive = notice.is_active === "1";
+              const isActive = notice.is_active === true;
               const statusLabel = isActive ? "게시중" : "종료됨";
               const statusClass = isActive
                 ? "text-emerald-700 bg-emerald-100/80"
@@ -132,7 +132,7 @@ function NoticePage() {
                     "shadow-[0_12px_32px_rgba(0,0,0,0.06)] transition-all duration-300 ease-out",
                     "hover:shadow-[0_18px_38px_rgba(0,0,0,0.08)]",
                     "bg-linear-to-br from-background via-card/95 to-muted/20",
-                    "backdrop-blur-sm"
+                    "backdrop-blur-sm",
                   )}
                 >
                   <header className="flex flex-wrap items-center justify-between gap-3 px-6 pt-6">
@@ -142,7 +142,7 @@ function NoticePage() {
                         className={cn(
                           "font-semibold border h-7 px-3 shadow-sm transition-all duration-200",
                           "group-hover:scale-105",
-                          badge?.badgeClass
+                          badge?.badgeClass,
                         )}
                       >
                         {badge?.label ?? notice.type}
@@ -151,7 +151,7 @@ function NoticePage() {
                         className={cn(
                           "px-3 py-1 text-xs font-bold rounded-full shadow-sm transition-all duration-200",
                           "group-hover:scale-105",
-                          statusClass
+                          statusClass,
                         )}
                       >
                         {statusLabel}
@@ -174,7 +174,7 @@ function NoticePage() {
                       <a
                         href={notice.url}
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
                         className="group/link flex items-center gap-2.5 rounded-xl border border-border/40 bg-linear-to-r from-primary/5 to-primary/3 px-3 py-2 text-sm font-medium text-primary shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-linear-to-r hover:from-primary/10 hover:to-primary/5 hover:shadow-md hover:scale-[1.01] max-w-full"
                         title={notice.url}
                       >

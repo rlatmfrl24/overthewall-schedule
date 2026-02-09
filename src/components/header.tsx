@@ -53,9 +53,18 @@ export const Header = () => {
           <Button
             variant="ghost"
             onClick={() => {
+              window.open("https://cafe.naver.com/otwoffical", "_blank");
+            }}
+          >
+            공식 팬카페 <ExternalLinkIcon className="h-4 w-4" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            onClick={() => {
               window.open(
                 "https://multiview-overthewall.vercel.app/",
-                "_blank"
+                "_blank",
               );
             }}
           >
@@ -170,7 +179,7 @@ export const Header = () => {
               onClick={() => {
                 window.open(
                   "https://multiview-overthewall.vercel.app/",
-                  "_blank"
+                  "_blank",
                 );
               }}
             >

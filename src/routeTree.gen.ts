@@ -21,6 +21,7 @@ import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
+import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
 
 const WeeklyRoute = WeeklyRouteImport.update({
@@ -83,6 +84,11 @@ const AdminLogsRoute = AdminLogsRouteImport.update({
   path: '/logs',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminKirinukiRoute = AdminKirinukiRouteImport.update({
+  id: '/kirinuki',
+  path: '/kirinuki',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminDdaysRoute = AdminDdaysRouteImport.update({
   id: '/ddays',
   path: '/ddays',
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/vods'
     | '/weekly'
     | '/admin/ddays'
+    | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/snapshot'
     | '/weekly'
     | '/admin/ddays'
+    | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/vods'
     | '/weekly'
     | '/admin/ddays'
+    | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
@@ -275,6 +287,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLogsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/kirinuki': {
+      id: '/admin/kirinuki'
+      path: '/kirinuki'
+      fullPath: '/admin/kirinuki'
+      preLoaderRoute: typeof AdminKirinukiRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/ddays': {
       id: '/admin/ddays'
       path: '/ddays'
@@ -287,6 +306,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminDdaysRoute: typeof AdminDdaysRoute
+  AdminKirinukiRoute: typeof AdminKirinukiRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
@@ -295,6 +315,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminDdaysRoute: AdminDdaysRoute,
+  AdminKirinukiRoute: AdminKirinukiRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
   AdminSettingsRoute: AdminSettingsRoute,

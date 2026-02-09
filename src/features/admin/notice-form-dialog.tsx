@@ -84,7 +84,7 @@ export function NoticeFormDialog({
           type: (initialValues.type as NoticeTypeKey) ?? "notice",
           started_at: initialValues.started_at ?? "",
           ended_at: initialValues.ended_at ?? "",
-          is_active: initialValues.is_active !== "0",
+          is_active: initialValues.is_active !== false,
         });
       } else {
         reset({
@@ -147,7 +147,7 @@ export function NoticeFormDialog({
                           <SelectItem key={key} value={key}>
                             {config.label}
                           </SelectItem>
-                        )
+                        ),
                       )}
                     </SelectContent>
                   </Select>
