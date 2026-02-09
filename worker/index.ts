@@ -1196,14 +1196,26 @@ export default {
         sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
 
       if (code) {
+        const normalizedCode = code.trim().toLowerCase();
         const data = await db
           .select()
           .from(members)
           .where(and(eq(members.code, code), activeCondition))
           .limit(1);
 
-        if (data.length === 0) {
-          return new Response("Member not found", { status: 404 });
+        if (data.length === 0 || data[0]?.code !== code) {
+          const allMembers = await db
+            .select()
+            .from(members)
+            .where(activeCondition);
+          const fallback = allMembers.find(
+            (member) =>
+              member.code?.trim().toLowerCase() === normalizedCode,
+          );
+          if (!fallback) {
+            return new Response("Member not found", { status: 404 });
+          }
+          return Response.json(fallback);
         }
         return Response.json(data[0]);
       }
