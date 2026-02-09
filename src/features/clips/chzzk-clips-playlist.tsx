@@ -67,7 +67,7 @@ const ClipsMemberFilter = ({
           "transition-all duration-200 ease-out hover:scale-105",
           isAllSelected
             ? "bg-primary text-primary-foreground border-primary shadow-sm"
-            : "bg-transparent text-muted-foreground border-border hover:border-primary/50"
+            : "bg-transparent text-muted-foreground border-border hover:border-primary/50",
         )}
       >
         전체
@@ -84,7 +84,7 @@ const ClipsMemberFilter = ({
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border-2",
               "transition-all duration-200 ease-out hover:scale-105",
-              isSelected && "shadow-sm"
+              isSelected && "shadow-sm",
             )}
             style={{
               backgroundColor: isSelected ? mainColor : "transparent",
@@ -173,7 +173,7 @@ const ChzzkClipsSectionHeader = ({
             "h-7 w-7 p-0 rounded-md transition-all",
             viewMode === "member"
               ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
           aria-label="멤버별 보기"
           title="멤버별 보기"
@@ -188,7 +188,7 @@ const ChzzkClipsSectionHeader = ({
             "h-7 w-7 p-0 rounded-md transition-all",
             viewMode === "grid"
               ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
           aria-label="그리드 보기"
           title="그리드 보기"
@@ -210,7 +210,7 @@ export const ChzzkClipsPlaylist = ({
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   // 그리드 뷰 전용 필터 상태
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
-    null
+    null,
   );
   // 정렬 옵션
   const [sortOption, setSortOption] = useState<SortOption>("latest");
@@ -240,7 +240,7 @@ export const ChzzkClipsPlaylist = ({
     // 멤버 필터 적용
     if (selectedMemberUids && selectedMemberUids.length > 0) {
       result = result.filter(
-        (clip) => clip.memberUid && selectedMemberUids.includes(clip.memberUid)
+        (clip) => clip.memberUid && selectedMemberUids.includes(clip.memberUid),
       );
     }
 
@@ -249,7 +249,7 @@ export const ChzzkClipsPlaylist = ({
       result.sort(
         (a, b) =>
           new Date(b.createdDate.replace(" ", "T")).getTime() -
-          new Date(a.createdDate.replace(" ", "T")).getTime()
+          new Date(a.createdDate.replace(" ", "T")).getTime(),
       );
     } else if (sortOption === "views") {
       result.sort((a, b) => b.readCount - a.readCount);
@@ -365,7 +365,9 @@ export const ChzzkClipsPlaylist = ({
                 <ClipCard
                   key={clip.clipUID}
                   clip={clip}
-                  member={clip.memberUid ? memberMap.get(clip.memberUid) : undefined}
+                  member={
+                    clip.memberUid ? memberMap.get(clip.memberUid) : undefined
+                  }
                   variant="grid"
                   showMemberAvatar
                 />
@@ -459,7 +461,7 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
               "w-7 h-7 rounded-full",
               "transition-all duration-200 ease-out",
               "hover:scale-110 active:scale-95",
-              !canScrollLeft && "opacity-30 hover:scale-100"
+              !canScrollLeft && "opacity-30 hover:scale-100",
             )}
             aria-label="이전"
           >
@@ -474,7 +476,7 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
               "w-7 h-7 rounded-full",
               "transition-all duration-200 ease-out",
               "hover:scale-110 active:scale-95",
-              !canScrollRight && "opacity-30 hover:scale-100"
+              !canScrollRight && "opacity-30 hover:scale-100",
             )}
             aria-label="다음"
           >
@@ -488,7 +490,7 @@ const MemberClipsRow = ({ member, clips }: MemberClipsRowProps) => {
         ref={scrollRef}
         className={cn(
           "flex gap-4 overflow-x-auto scrollbar-hide px-4 pt-1 pb-4",
-          "scroll-smooth"
+          "scroll-smooth",
         )}
         style={{
           scrollbarWidth: "none",
@@ -535,7 +537,7 @@ const ClipCardSkeleton = ({ variant = "row" }: ClipCardSkeletonProps) => (
   <div
     className={cn(
       "rounded-xl border border-border/50 overflow-hidden bg-card",
-      variant === "row" ? "w-[260px] shrink-0" : "w-full"
+      variant === "row" ? "w-[260px] shrink-0" : "w-full",
     )}
   >
     <Skeleton className="aspect-video w-full" />

@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import type { Member } from "@/lib/types";
-import { useYouTubeVideos, useFilteredYouTubeVideos } from "@/hooks/use-youtube-videos";
+import {
+  useYouTubeVideos,
+  useFilteredYouTubeVideos,
+} from "@/hooks/use-youtube-videos";
 import { YouTubePlaylist } from "./youtube-playlist";
 import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 
@@ -18,17 +21,20 @@ export const YouTubeSection = ({
   // YouTube 채널이 있는 멤버만 필터링
   const membersWithYouTube = useMemo(
     () => members.filter((m) => m.youtube_channel_id),
-    [members]
+    [members],
   );
 
-  const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(membersWithYouTube, {
-    maxResults: 20,
-  });
+  const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(
+    membersWithYouTube,
+    {
+      maxResults: 20,
+    },
+  );
 
   const { filteredVideos, filteredShorts } = useFilteredYouTubeVideos(
     videos,
     shorts,
-    selectedMemberUids
+    selectedMemberUids,
   );
 
   if (loadingMembers) {

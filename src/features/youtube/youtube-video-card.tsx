@@ -76,14 +76,14 @@ export const YouTubeVideoCard = ({
         "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/50 transition-all duration-300",
         "hover:shadow-lg hover:-translate-y-1 hover:border-border",
         isShort ? "w-[140px] shrink-0" : "w-[280px] shrink-0",
-        size === "sm" && !isShort && "w-[220px]"
+        size === "sm" && !isShort && "w-[220px]",
       )}
     >
       {/* 썸네일 */}
       <div
         className={cn(
           "relative overflow-hidden bg-muted",
-          isShort ? "aspect-9/16" : "aspect-video"
+          isShort ? "aspect-9/16" : "aspect-video",
         )}
       >
         {video.thumbnailUrl ? (
@@ -103,7 +103,7 @@ export const YouTubeVideoCard = ({
           <PlayCircle
             className={cn(
               "text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300",
-              isShort ? "w-8 h-8" : "w-12 h-12"
+              isShort ? "w-8 h-8" : "w-12 h-12",
             )}
             style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
           />
@@ -119,7 +119,9 @@ export const YouTubeVideoCard = ({
           <div
             className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium backdrop-blur-sm"
             style={{
-              backgroundColor: accentColor ? `${accentColor}cc` : "rgba(0,0,0,0.7)",
+              backgroundColor: accentColor
+                ? `${accentColor}cc`
+                : "rgba(0,0,0,0.7)",
               color: "white",
             }}
           >
@@ -130,7 +132,11 @@ export const YouTubeVideoCard = ({
         {/* Shorts 아이콘 배지 */}
         {isShort && (
           <div className="absolute top-2 right-1.5 p-1">
-            <img src={IconYoutubeShorts} alt="YouTube Shorts" className="w-3 h-3" />
+            <img
+              src={IconYoutubeShorts}
+              alt="YouTube Shorts"
+              className="w-3 h-3"
+            />
           </div>
         )}
       </div>
@@ -140,7 +146,7 @@ export const YouTubeVideoCard = ({
         <h3
           className={cn(
             "font-semibold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors",
-            isShort ? "text-xs" : "text-sm"
+            isShort ? "text-xs" : "text-sm",
           )}
         >
           {video.title}
@@ -149,7 +155,7 @@ export const YouTubeVideoCard = ({
         <div
           className={cn(
             "flex items-center gap-2 text-muted-foreground",
-            isShort ? "text-[10px]" : "text-xs"
+            isShort ? "text-[10px]" : "text-xs",
           )}
         >
           <span className="flex items-center gap-1">

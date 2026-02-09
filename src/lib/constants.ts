@@ -16,5 +16,3 @@ export const isActiveMember = (member: Member) => {
     flag === "0"
   );
 };
-
-

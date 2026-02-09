@@ -136,3 +136,15 @@ export const pendingSchedules = sqliteTable("pending_schedules", {
 
 export type PendingSchedule = typeof pendingSchedules.$inferSelect;
 export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;
+
+// 키리누키 채널 테이블 (유튜브 채널 영상 모음)
+export const kirinukiChannels = sqliteTable("kirinuki_channels", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  channel_name: text("channel_name").notNull(),
+  channel_url: text("channel_url").notNull(),
+  youtube_channel_id: text("youtube_channel_id").notNull(),
+  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type KirinukiChannel = typeof kirinukiChannels.$inferSelect;
+export type NewKirinukiChannel = typeof kirinukiChannels.$inferInsert;

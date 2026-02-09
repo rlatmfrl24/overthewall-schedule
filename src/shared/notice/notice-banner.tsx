@@ -4,7 +4,11 @@ import { Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { fetchNotices } from "@/lib/api/notices";
 
 const noticeTypeConfigs = {
@@ -44,13 +48,13 @@ export function NoticeBanner() {
   }, [loadNotices]);
 
   const visibleNotices = useMemo(
-    () => notices.filter((notice) => notice.is_active !== "0"),
-    [notices]
+    () => notices.filter((notice) => notice.is_active !== false),
+    [notices],
   );
 
   useEffect(() => {
     setCurrentIndex((prev) =>
-      visibleNotices.length ? Math.min(prev, visibleNotices.length - 1) : 0
+      visibleNotices.length ? Math.min(prev, visibleNotices.length - 1) : 0,
     );
   }, [visibleNotices.length]);
 
@@ -101,7 +105,7 @@ export function NoticeBanner() {
           <div
             className={cn(
               "flex-1 overflow-hidden h-5 relative",
-              hasLink ? "cursor-pointer" : "cursor-default"
+              hasLink ? "cursor-pointer" : "cursor-default",
             )}
             onClick={() => {
               if (hasLink) {
@@ -122,13 +126,14 @@ export function NoticeBanner() {
                 className={cn(
                   "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
                   hasLink &&
-                  "hover:underline decoration-primary/30 underline-offset-4"
+                    "hover:underline decoration-primary/30 underline-offset-4",
                 )}
               >
                 <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
-                    .badgeClass
-                    }`}
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${
+                    noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
+                      .badgeClass
+                  }`}
                 >
                   {
                     noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
