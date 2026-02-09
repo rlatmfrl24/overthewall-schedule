@@ -756,6 +756,30 @@ type AutoUpdateDetail = {
   previousStatus: string | null;
 };
 
+// Helper for promise concurrency
+async function pMap<T, R>(
+  array: T[],
+  mapper: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<R[]> {
+  const results = new Array<R>(array.length);
+  const iterator = array.entries();
+  const worker = async () => {
+    for (const [i, item] of iterator) {
+      results[i] = await mapper(item);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(concurrency, array.length) },
+    worker,
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+type NewPendingSchedule = typeof pendingSchedules.$inferInsert;
+type NewUpdateLog = typeof updateLogs.$inferInsert;
+
 // 자동 업데이트 핵심 로직 (승인 프로세스 적용)
 // - VOD 수집 후 pending_schedules 테이블에 저장 (관리자 승인 대기)
 // - 스케줄 없음 + VOD 있음 → pending에 action_type: "create"로 저장
@@ -773,9 +797,6 @@ const autoUpdateSchedules = async (
   const startDate = getKSTDateString(
     new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
   );
-  const details: AutoUpdateDetail[] = [];
-  let collected = 0;
-  let checked = 0;
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
   const allMembers = await db
@@ -790,7 +811,7 @@ const autoUpdateSchedules = async (
     );
 
   if (allMembers.length === 0) {
-    return { updated: 0, checked: 0, details };
+    return { updated: 0, checked: 0, details: [] };
   }
 
   // 2. 날짜 범위 내의 모든 스케줄 조회 (한 번에)
@@ -820,154 +841,204 @@ const autoUpdateSchedules = async (
     ),
   );
 
-  // 4. 각 멤버별로 VOD 확인
-  for (const member of allMembers) {
-    const channelId = extractChzzkChannelId(member.url_chzzk);
-    if (!channelId) {
-      continue; // 치지직 채널이 없는 멤버는 건너뜀
-    }
+  // 4. 각 멤버별로 VOD 확인 (병렬 처리)
+  // 결과를 모아서 한 번에 처리
+  type ProcessResult = {
+    pendingItems: NewPendingSchedule[];
+    logItems: NewUpdateLog[];
+    details: AutoUpdateDetail[];
+    checkedCount: number;
+    newVodIds: string[];
+    newPendingKeys: string[];
+  };
 
-    // VOD 조회
-    const videos = await fetchChzzkVideos(channelId, 0, 15);
-    if (!videos || !videos.data || videos.data.length === 0) {
-      continue; // VOD가 없으면 건너뜀
-    }
+  const results = await pMap(
+    allMembers,
+    async (member): Promise<ProcessResult | null> => {
+      const channelId = extractChzzkChannelId(member.url_chzzk);
+      if (!channelId) return null;
 
-    // 각 VOD에 대해 처리
-    for (const video of videos.data) {
-      // VOD ID로 중복 체크 (이미 pending에 있는 VOD는 건너뜀)
-      const vodId = `chzzk:${video.videoId}`;
-      if (pendingVodIds.has(vodId)) {
-        continue;
+      const videos = await fetchChzzkVideos(channelId, 0, 15);
+      if (!videos?.data || videos.data.length === 0) return null;
+
+      const result: ProcessResult = {
+        pendingItems: [],
+        logItems: [],
+        details: [],
+        checkedCount: 0,
+        newVodIds: [],
+        newPendingKeys: [],
+      };
+
+      for (const video of videos.data) {
+        // VOD ID로 중복 체크
+        // 주의: 병렬 실행 시 pendingVodIds에 대한 동시성 문제가 있을 수 있으나,
+        // 각 멤버는 독립적이므로 멤버 간 VOD 중복(collaboration)만 문제될 수 있음.
+        // 하지만 여기서는 pendingVodIds를 읽기만 하고, 쓰기는 나중에 모아서 함.
+        // 같은 VOD가 여러 멤버에게 동시에 뜰 수 있음(합방).
+        // 이 경우 중복으로 들어갈 수 있지만, UNIQUE constraints가 없으면 들어감.
+        // pendingVodIds에 넣는 건 나중에 한 번에.
+
+        const vodId = `chzzk:${video.videoId}`;
+        if (pendingVodIds.has(vodId)) continue; // 이미 처리된 VOD
+
+        // 실제 스트리밍 시작 시간 계산
+        const startTimestamp = video.publishDateAt - video.duration * 1000;
+        const videoDate = getKSTDateString(new Date(startTimestamp));
+
+        if (videoDate < startDate || videoDate > today) continue;
+
+        result.checkedCount++;
+
+        const scheduleKey = `${member.uid}:${videoDate}`;
+        const memberSchedules = scheduleMap.get(scheduleKey) || [];
+        const startTime = extractKSTTime(
+          new Date(startTimestamp).toISOString(),
+        );
+
+        const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
+        if (pendingKeys.has(pendingKey)) continue;
+
+        const videoMinutes =
+          parseInt(startTime.split(":")[0]) * 60 +
+          parseInt(startTime.split(":")[1]);
+
+        const matchingSchedule = memberSchedules.find((schedule) => {
+          if (!schedule.start_time) return false;
+          const scheduleMinutes =
+            parseInt(schedule.start_time.split(":")[0]) * 60 +
+            parseInt(schedule.start_time.split(":")[1]);
+          return Math.abs(videoMinutes - scheduleMinutes) <= 30;
+        });
+
+        if (!matchingSchedule) {
+          result.pendingItems.push({
+            member_uid: member.uid,
+            member_name: member.name,
+            date: videoDate,
+            start_time: startTime,
+            title: video.videoTitle,
+            status: "방송",
+            action_type: "create",
+            existing_schedule_id: null,
+            previous_status: null,
+            previous_title: null,
+            vod_id: vodId,
+          });
+          result.newVodIds.push(vodId);
+          result.newPendingKeys.push(pendingKey);
+
+          result.logItems.push({
+            schedule_id: null,
+            member_uid: member.uid,
+            member_name: member.name,
+            schedule_date: videoDate,
+            action: "auto_collected",
+            title: video.videoTitle,
+            previous_status: null,
+            actor_name: "system",
+          });
+
+          result.details.push({
+            memberUid: member.uid,
+            memberName: member.name,
+            scheduleId: null,
+            scheduleDate: videoDate,
+            action: "auto_collected",
+            title: video.videoTitle,
+            previousStatus: null,
+          });
+        } else if (
+          matchingSchedule.status !== "방송" ||
+          !matchingSchedule.title?.trim()
+        ) {
+          result.pendingItems.push({
+            member_uid: member.uid,
+            member_name: member.name,
+            date: videoDate,
+            start_time: startTime,
+            title: video.videoTitle,
+            status: "방송",
+            action_type: "update",
+            existing_schedule_id: matchingSchedule.id,
+            previous_status: matchingSchedule.status,
+            previous_title: matchingSchedule.title,
+            vod_id: vodId,
+          });
+          result.newVodIds.push(vodId);
+          result.newPendingKeys.push(pendingKey);
+
+          result.logItems.push({
+            schedule_id: matchingSchedule.id,
+            member_uid: member.uid,
+            member_name: member.name,
+            schedule_date: videoDate,
+            action: "auto_updated",
+            title: video.videoTitle,
+            previous_status: matchingSchedule.status,
+            actor_name: "system",
+          });
+
+          result.details.push({
+            memberUid: member.uid,
+            memberName: member.name,
+            scheduleId: matchingSchedule.id,
+            scheduleDate: videoDate,
+            action: "auto_updated",
+            title: video.videoTitle,
+            previousStatus: matchingSchedule.status,
+          });
+        }
       }
+      return result;
+    },
+    10, // Concurrency limit
+  );
 
-      // 실제 스트리밍 시작 시간 계산 (publishDateAt - duration)
-      const startTimestamp = video.publishDateAt - video.duration * 1000;
-      const videoDate = getKSTDateString(new Date(startTimestamp));
+  // 5. 결과 집계 및 일괄 삽입
+  const allPendingItems: NewPendingSchedule[] = [];
+  const allLogItems: NewUpdateLog[] = [];
+  const allDetails: AutoUpdateDetail[] = [];
+  let totalChecked = 0;
 
-      // 날짜 범위 체크
-      if (videoDate < startDate || videoDate > today) {
-        continue;
-      }
-
-      checked++;
-
-      const scheduleKey = `${member.uid}:${videoDate}`;
-      const memberSchedules = scheduleMap.get(scheduleKey) || [];
-      const startTime = extractKSTTime(new Date(startTimestamp).toISOString());
-
-      // pending 중복 체크 (member_uid + date + start_time)
-      const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
-      if (pendingKeys.has(pendingKey)) {
-        continue;
-      }
-
-      // 시작 시간을 분 단위로 변환하여 비교 (±30분 이내면 같은 방송으로 간주)
-      const videoMinutes =
-        parseInt(startTime.split(":")[0]) * 60 +
-        parseInt(startTime.split(":")[1]);
-
-      // VOD와 매칭되는 기존 스케줄 찾기
-      const matchingSchedule = memberSchedules.find((schedule) => {
-        if (!schedule.start_time) return false;
-        const scheduleMinutes =
-          parseInt(schedule.start_time.split(":")[0]) * 60 +
-          parseInt(schedule.start_time.split(":")[1]);
-        return Math.abs(videoMinutes - scheduleMinutes) <= 30;
-      });
-
-      if (!matchingSchedule) {
-        // 매칭되는 스케줄 없음 → pending에 신규 생성으로 저장
-        await db.insert(pendingSchedules).values({
-          member_uid: member.uid,
-          member_name: member.name,
-          date: videoDate,
-          start_time: startTime,
-          title: video.videoTitle,
-          status: "방송",
-          action_type: "create",
-          existing_schedule_id: null,
-          previous_status: null,
-          previous_title: null,
-          vod_id: vodId,
-        });
-
-        // 중복 방지를 위해 Set에 추가
-        pendingVodIds.add(vodId);
-        pendingKeys.add(pendingKey);
-
-        await insertUpdateLog(db, {
-          scheduleId: null,
-          memberUid: member.uid,
-          memberName: member.name,
-          scheduleDate: videoDate,
-          action: "auto_collected",
-          title: video.videoTitle,
-          previousStatus: null,
-        });
-
-        collected++;
-        details.push({
-          memberUid: member.uid,
-          memberName: member.name,
-          scheduleId: null,
-          scheduleDate: videoDate,
-          action: "auto_collected",
-          title: video.videoTitle,
-          previousStatus: null,
-        });
-      } else if (
-        matchingSchedule.status !== "방송" ||
-        !matchingSchedule.title?.trim()
-      ) {
-        // 매칭되는 스케줄 있음 + (방송 상태 아니거나 제목 없음) → pending에 업데이트로 저장
-        const previousStatus = matchingSchedule.status;
-        const previousTitle = matchingSchedule.title;
-
-        await db.insert(pendingSchedules).values({
-          member_uid: member.uid,
-          member_name: member.name,
-          date: videoDate,
-          start_time: startTime,
-          title: video.videoTitle,
-          status: "방송",
-          action_type: "update",
-          existing_schedule_id: matchingSchedule.id,
-          previous_status: previousStatus,
-          previous_title: previousTitle,
-          vod_id: vodId,
-        });
-
-        // 중복 방지를 위해 Set에 추가
-        pendingVodIds.add(vodId);
-        pendingKeys.add(pendingKey);
-
-        await insertUpdateLog(db, {
-          scheduleId: matchingSchedule.id,
-          memberUid: member.uid,
-          memberName: member.name,
-          scheduleDate: videoDate,
-          action: "auto_updated",
-          title: video.videoTitle,
-          previousStatus,
-        });
-
-        collected++;
-        details.push({
-          memberUid: member.uid,
-          memberName: member.name,
-          scheduleId: matchingSchedule.id,
-          scheduleDate: videoDate,
-          action: "auto_updated",
-          title: video.videoTitle,
-          previousStatus,
-        });
-      }
-      // 매칭되는 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음 (아무것도 안 함)
+  for (const res of results) {
+    if (res) {
+      // 중복 체크 (합방 등으로 인해 여러 멤버가 같은 VOD를 가리킬 수 있음?
+      // 아니, 각 멤버 채널에서 가져오므로 vodId는 고유함.
+      // 하지만 pending key는 member_uid 포함하므로 고유함.
+      // 병렬 처리 중 같은 VOD ID가 나올 일은 없음 (각자 채널만 보니까).
+      // 단, 이전에 이미 pending에 있는 건 위에서 필터링함.
+      allPendingItems.push(...res.pendingItems);
+      allLogItems.push(...res.logItems);
+      allDetails.push(...res.details);
+      totalChecked += res.checkedCount;
     }
   }
 
-  return { updated: collected, checked, details };
+  // Batch insert (SQLite variables limit considerations)
+  // SQLite max params is usually 32766 or 999. D1 supports batching but big inserts can be slow.
+  // Chunking by 50 items.
+  const CHUNK_SIZE = 50;
+
+  if (allPendingItems.length > 0) {
+    for (let i = 0; i < allPendingItems.length; i += CHUNK_SIZE) {
+      await db
+        .insert(pendingSchedules)
+        .values(allPendingItems.slice(i, i + CHUNK_SIZE));
+    }
+  }
+
+  if (allLogItems.length > 0) {
+    for (let i = 0; i < allLogItems.length; i += CHUNK_SIZE) {
+      await db.insert(updateLogs).values(allLogItems.slice(i, i + CHUNK_SIZE));
+    }
+  }
+
+  return {
+    updated: allPendingItems.length,
+    checked: totalChecked,
+    details: allDetails,
+  };
 };
 
 export default {
@@ -1192,8 +1263,7 @@ export default {
       const pathParts = url.pathname.split("/");
       const code = pathParts[3]; // /api/members/:code
 
-      const activeCondition =
-        sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
+      const activeCondition = sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
 
       if (code) {
         const normalizedCode = code.trim().toLowerCase();
@@ -1209,8 +1279,7 @@ export default {
             .from(members)
             .where(activeCondition);
           const fallback = allMembers.find(
-            (member) =>
-              member.code?.trim().toLowerCase() === normalizedCode,
+            (member) => member.code?.trim().toLowerCase() === normalizedCode,
           );
           if (!fallback) {
             return new Response("Member not found", { status: 404 });
@@ -1220,10 +1289,7 @@ export default {
         return Response.json(data[0]);
       }
 
-      const activeData = await db
-        .select()
-        .from(members)
-        .where(activeCondition);
+      const activeData = await db.select().from(members).where(activeCondition);
       return Response.json(activeData);
     }
 
@@ -2115,117 +2181,125 @@ export default {
         let skippedCount = 0;
         const skippedItems: { id: number; reason: string }[] = [];
 
-        for (const item of allPending) {
-          try {
-            let createdScheduleId: number | null = null;
-            if (item.action_type === "create") {
-              // 충돌 감지
-              const existingSchedules = await db
-                .select()
-                .from(schedules)
-                .where(
-                  and(
-                    eq(schedules.member_uid, item.member_uid),
-                    eq(schedules.date, item.date),
-                  ),
-                );
+        const results = await pMap(
+          allPending,
+          async (item) => {
+            try {
+              let createdScheduleId: number | null = null;
+              if (item.action_type === "create") {
+                // 충돌 감지
+                const existingSchedules = await db
+                  .select()
+                  .from(schedules)
+                  .where(
+                    and(
+                      eq(schedules.member_uid, item.member_uid),
+                      eq(schedules.date, item.date),
+                    ),
+                  );
 
-              let hasConflict = false;
-              if (item.start_time) {
-                const pendingMinutes =
-                  parseInt(item.start_time.split(":")[0]) * 60 +
-                  parseInt(item.start_time.split(":")[1]);
+                let hasConflict = false;
+                if (item.start_time) {
+                  const pendingMinutes =
+                    parseInt(item.start_time.split(":")[0]) * 60 +
+                    parseInt(item.start_time.split(":")[1]);
 
-                hasConflict = existingSchedules.some((s) => {
-                  if (!s.start_time) return false;
-                  const scheduleMinutes =
-                    parseInt(s.start_time.split(":")[0]) * 60 +
-                    parseInt(s.start_time.split(":")[1]);
-                  return Math.abs(pendingMinutes - scheduleMinutes) <= 30;
-                });
-              }
+                  hasConflict = existingSchedules.some((s) => {
+                    if (!s.start_time) return false;
+                    const scheduleMinutes =
+                      parseInt(s.start_time.split(":")[0]) * 60 +
+                      parseInt(s.start_time.split(":")[1]);
+                    return Math.abs(pendingMinutes - scheduleMinutes) <= 30;
+                  });
+                }
 
-              if (hasConflict) {
-                skippedCount++;
-                skippedItems.push({ id: item.id, reason: "conflict" });
-                continue;
-              }
+                if (hasConflict) {
+                  return { success: false, id: item.id, reason: "conflict" };
+                }
 
-              await db.insert(schedules).values({
-                member_uid: item.member_uid,
-                date: item.date,
-                start_time: item.start_time,
-                title: item.title,
-                status: item.status,
-              });
-              const created = await db
-                .select({ id: schedules.id })
-                .from(schedules)
-                .where(
-                  and(
-                    eq(schedules.member_uid, item.member_uid),
-                    eq(schedules.date, item.date),
-                    item.start_time
-                      ? eq(schedules.start_time, item.start_time)
-                      : isNull(schedules.start_time),
-                    item.title
-                      ? eq(schedules.title, item.title)
-                      : isNull(schedules.title),
-                  ),
-                )
-                .orderBy(desc(schedules.id))
-                .limit(1);
-              createdScheduleId = created[0]?.id ?? null;
-            } else if (
-              item.action_type === "update" &&
-              item.existing_schedule_id
-            ) {
-              // 정합성 검사
-              const targetSchedule = await db
-                .select()
-                .from(schedules)
-                .where(eq(schedules.id, item.existing_schedule_id))
-                .limit(1);
-
-              if (targetSchedule.length === 0) {
-                skippedCount++;
-                skippedItems.push({ id: item.id, reason: "not_found" });
-                continue;
-              }
-
-              await db
-                .update(schedules)
-                .set({
+                await db.insert(schedules).values({
+                  member_uid: item.member_uid,
+                  date: item.date,
                   start_time: item.start_time,
                   title: item.title,
                   status: item.status,
-                })
-                .where(eq(schedules.id, item.existing_schedule_id));
+                });
+                const created = await db
+                  .select({ id: schedules.id })
+                  .from(schedules)
+                  .where(
+                    and(
+                      eq(schedules.member_uid, item.member_uid),
+                      eq(schedules.date, item.date),
+                      item.start_time
+                        ? eq(schedules.start_time, item.start_time)
+                        : isNull(schedules.start_time),
+                      item.title
+                        ? eq(schedules.title, item.title)
+                        : isNull(schedules.title),
+                    ),
+                  )
+                  .orderBy(desc(schedules.id))
+                  .limit(1);
+                createdScheduleId = created[0]?.id ?? null;
+              } else if (
+                item.action_type === "update" &&
+                item.existing_schedule_id
+              ) {
+                // 정합성 검사
+                const targetSchedule = await db
+                  .select()
+                  .from(schedules)
+                  .where(eq(schedules.id, item.existing_schedule_id))
+                  .limit(1);
+
+                if (targetSchedule.length === 0) {
+                  return { success: false, id: item.id, reason: "not_found" };
+                }
+
+                await db
+                  .update(schedules)
+                  .set({
+                    start_time: item.start_time,
+                    title: item.title,
+                    status: item.status,
+                  })
+                  .where(eq(schedules.id, item.existing_schedule_id));
+              }
+
+              await insertUpdateLog(db, {
+                scheduleId: item.existing_schedule_id ?? createdScheduleId,
+                memberUid: item.member_uid,
+                memberName: item.member_name,
+                scheduleDate: item.date,
+                action: "approve",
+                title: item.title,
+                previousStatus: item.previous_status,
+                actorId: actor.actorId,
+                actorName: actor.actorName,
+                actorIp: actor.actorIp,
+              });
+
+              // 승인된 항목 삭제
+              await db
+                .delete(pendingSchedules)
+                .where(eq(pendingSchedules.id, item.id));
+
+              return { success: true, id: item.id };
+            } catch (error) {
+              console.error(`Failed to approve pending ${item.id}:`, error);
+              return { success: false, id: item.id, reason: "error" };
             }
+          },
+          5,
+        );
 
-            await insertUpdateLog(db, {
-              scheduleId: item.existing_schedule_id ?? createdScheduleId,
-              memberUid: item.member_uid,
-              memberName: item.member_name,
-              scheduleDate: item.date,
-              action: "approve",
-              title: item.title,
-              previousStatus: item.previous_status,
-              actorId: actor.actorId,
-              actorName: actor.actorName,
-              actorIp: actor.actorIp,
-            });
-
-            // 승인된 항목 삭제
-            await db
-              .delete(pendingSchedules)
-              .where(eq(pendingSchedules.id, item.id));
-
+        for (const res of results) {
+          if (res.success) {
             approvedCount++;
-          } catch (error) {
-            console.error(`Failed to approve pending ${item.id}:`, error);
+          } else {
             skippedCount++;
-            skippedItems.push({ id: item.id, reason: "error" });
+            skippedItems.push({ id: res.id, reason: res.reason || "unknown" });
           }
         }
 
@@ -2244,20 +2318,24 @@ export default {
       ) {
         const allPending = await db.select().from(pendingSchedules);
 
-        for (const item of allPending) {
-          await insertUpdateLog(db, {
-            scheduleId: item.existing_schedule_id,
-            memberUid: item.member_uid,
-            memberName: item.member_name,
-            scheduleDate: item.date,
-            action: "reject",
-            title: item.title,
-            previousStatus: item.previous_status,
-            actorId: actor.actorId,
-            actorName: actor.actorName,
-            actorIp: actor.actorIp,
-          });
-        }
+        await pMap(
+          allPending,
+          async (item) => {
+            await insertUpdateLog(db, {
+              scheduleId: item.existing_schedule_id,
+              memberUid: item.member_uid,
+              memberName: item.member_name,
+              scheduleDate: item.date,
+              action: "reject",
+              title: item.title,
+              previousStatus: item.previous_status,
+              actorId: actor.actorId,
+              actorName: actor.actorName,
+              actorIp: actor.actorIp,
+            });
+          },
+          10,
+        );
 
         // 모든 대기 스케줄 삭제
         await db.delete(pendingSchedules);
@@ -2281,19 +2359,32 @@ export default {
   async scheduled(_event, env) {
     const db = getDb(env);
 
-    // 1. 자동 업데이트 활성화 여부 확인
-    const enabled = await getSetting(db, "auto_update_enabled");
+    // 1-3. 설정 일괄 조회
+    const allSettings = await db
+      .select()
+      .from(settings)
+      .where(
+        inArray(settings.key, [
+          "auto_update_enabled",
+          "auto_update_interval_hours",
+          "auto_update_last_run",
+          "auto_update_range_days",
+        ]),
+      );
+
+    const settingsMap = new Map(allSettings.map((s) => [s.key, s.value]));
+
+    const enabled = settingsMap.get("auto_update_enabled");
     if (enabled !== "true") {
       console.log("[scheduled] Auto update is disabled");
       return;
     }
 
-    // 2. 마지막 실행 시간 및 주기 확인
-    const intervalHoursStr = await getSetting(db, "auto_update_interval_hours");
+    const intervalHoursStr = settingsMap.get("auto_update_interval_hours");
     const intervalHours = parseInt(intervalHoursStr || "2", 10);
     const intervalMs = intervalHours * 60 * 60 * 1000;
 
-    const lastRunStr = await getSetting(db, "auto_update_last_run");
+    const lastRunStr = settingsMap.get("auto_update_last_run");
     const lastRun = lastRunStr ? parseInt(lastRunStr, 10) : 0;
     const now = Date.now();
 
@@ -2306,8 +2397,7 @@ export default {
       return;
     }
 
-    // 3. 날짜 범위 설정 가져오기
-    const rangeDaysStr = await getSetting(db, "auto_update_range_days");
+    const rangeDaysStr = settingsMap.get("auto_update_range_days");
     const rangeDays = parseInt(rangeDaysStr || "3", 10);
 
     // 4. 자동 업데이트 실행
