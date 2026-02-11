@@ -80,9 +80,7 @@ export const ChronologicalScheduleList = ({
             <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
               <Radio className="w-5 h-5" />
             </div>
-            <h4 className="text-lg font-bold text-foreground">
-              Special Broadcasts
-            </h4>
+            <h4 className="text-lg font-bold text-foreground">게릴라</h4>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -180,55 +178,47 @@ const ScheduleCard = ({
         style={{ backgroundColor: mainColor }}
       />
 
-      <div
-        className={cn(
-          "items-stretch h-full",
-          "flex flex-row"
-        )}
-      >
+      <div className={cn("items-stretch h-full", "flex flex-row")}>
         {/* LEFT: TIME / ICON */}
-        <div
-          className={cn(
-            "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0",
-            "min-w-20 sm:min-w-24 py-4"
-          )}
-        >
-          {isTimeline ? (
-            <div className="flex flex-col items-center leading-none">
-              <span
-                className={cn(
-                  "font-black tracking-tight text-foreground/90 font-mono",
-                  "text-2xl sm:text-3xl"
-                )}
-              >
-                {hour}
-              </span>
-              <span
-                className={cn(
-                  "font-bold text-muted-foreground/60 -mt-1",
-                  "text-base sm:text-lg"
-                )}
-              >
-                {minute}
-              </span>
-            </div>
-          ) : (
-            <div className="p-3 rounded-xl bg-background shadow-xs ring-1 ring-border/50">
-              {isGuerrilla ? (
-                <Radio className="w-6 h-6 animate-pulse text-red-500" />
-              ) : (
+        {isTimeline && (
+          <div
+            className={cn(
+              "flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0",
+              "min-w-20 sm:min-w-24 py-4",
+            )}
+          >
+            {isTimeline ? (
+              <div className="flex flex-col items-center leading-none">
+                <span
+                  className={cn(
+                    "font-black tracking-tight text-foreground/90 font-mono",
+                    "text-2xl sm:text-3xl",
+                  )}
+                >
+                  {hour}
+                </span>
+                <span
+                  className={cn(
+                    "font-bold text-muted-foreground/60 -mt-1",
+                    "text-base sm:text-lg",
+                  )}
+                >
+                  {minute}
+                </span>
+              </div>
+            ) : isGuerrilla ? null : (
+              <div className="p-3 rounded-xl bg-background shadow-xs ring-1 ring-border/50">
                 <GripHorizontal className="w-6 h-6 text-muted-foreground" />
-              )}
-            </div>
-          )}
-
-        </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* RIGHT: CONTENT */}
         <div
           className={cn(
             "flex-1 flex flex-col justify-center py-4 px-5 min-w-0 h-full overflow-hidden",
-            "gap-1.5"
+            "gap-1.5",
           )}
         >
           {/* HEADER: Member Info */}
@@ -249,16 +239,6 @@ const ScheduleCard = ({
             >
               {member.name}
             </span>
-            {isGuerrilla && (
-              <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-bold dark:bg-orange-500/20 dark:text-orange-400">
-                게릴라
-              </span>
-            )}
-            {schedule.status === "미정" && (
-              <span className="text-[10px] bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded font-bold dark:bg-zinc-800 dark:text-zinc-400">
-                미정
-              </span>
-            )}
           </div>
 
           {/* MAIN: Title */}
@@ -277,7 +257,7 @@ const ScheduleCard = ({
                   "text-lg sm:text-[1.15rem] font-bold text-foreground leading-snug break-keep transition-colors",
                   "group-hover:text-primary/90",
                   !schedule.title && "text-muted-foreground opacity-50 italic",
-                  "min-w-0 line-clamp-1"
+                  "min-w-0 line-clamp-1",
                 )}
               >
                 {schedule.title || "제목 없음"}
