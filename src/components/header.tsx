@@ -25,7 +25,7 @@ export const Header = () => {
           <img src="/logo_otw.svg" width={90} height={25} alt="logo" />
           <h1
             aria-label="title"
-            className="hidden sm:block text-xl font-bold tracking-tight mt-1"
+            className="hidden sm:block text-xl font-bold tracking-tight mt-1 whitespace-nowrap"
           >
             오버더월 스케쥴표
           </h1>
@@ -34,7 +34,7 @@ export const Header = () => {
         {/* Desktop Navigation - Centered */}
         <nav
           aria-label="menu"
-          className="hidden lg:flex items-center justify-center gap-1 justify-self-center"
+          className="hidden xl:flex items-center justify-center gap-1 justify-self-center"
         >
           <Link to="/" className="[&.active]:font-bold">
             <Button variant="ghost">오늘 스케쥴표</Button>
@@ -98,7 +98,7 @@ export const Header = () => {
           </div>
 
           {/* Mobile Menu Toggle */}
-          <div className="lg:hidden">
+          <div className="xl:hidden">
             <Button
               variant="ghost"
               size="icon"
@@ -118,7 +118,7 @@ export const Header = () => {
 
       {/* Mobile Menu - Overlay/Drawer style */}
       {isMenuOpen && (
-        <div className="lg:hidden absolute top-16 left-0 w-full bg-background border-b border-border shadow-lg animate-in slide-in-from-top-2">
+        <div className="xl:hidden absolute top-16 left-0 w-full bg-background border-b border-border shadow-lg animate-in slide-in-from-top-2">
           <nav
             aria-label="mobile-menu"
             className="flex flex-col items-stretch p-4 gap-2"

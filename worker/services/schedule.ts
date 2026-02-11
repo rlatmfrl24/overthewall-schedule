@@ -227,6 +227,17 @@ export const autoUpdateSchedules = async (
             title: video.videoTitle,
             previousStatus: matchingSchedule.status,
           });
+        } else {
+          // 이미 스케줄이 존재하고, 업데이트가 필요 없는 경우
+          result.details.push({
+            memberUid: member.uid,
+            memberName: member.name,
+            scheduleId: matchingSchedule.id,
+            scheduleDate: videoDate,
+            action: "existing",
+            title: matchingSchedule.title,
+            previousStatus: matchingSchedule.status,
+          });
         }
       }
       return result;
@@ -249,9 +260,12 @@ export const autoUpdateSchedules = async (
     }
   }
 
-  // Batch insert (SQLite variables limit considerations)
-  // Chunking by 50 items.
-  const CHUNK_SIZE = 50;
+  // Batch insert (D1 limits: max 100 bound parameters per query)
+  // pending_schedules has 11 bound params per row → max 9 rows, using 5 for safety
+  const CHUNK_SIZE = 5;
+  console.log(
+    `[Schedule Worker] Inserting with CHUNK_SIZE: ${CHUNK_SIZE}, Total Items: ${allPendingItems.length}`,
+  );
 
   if (allPendingItems.length > 0) {
     for (let i = 0; i < allPendingItems.length; i += CHUNK_SIZE) {

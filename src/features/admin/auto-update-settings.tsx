@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   Loader2,
   RefreshCw,
@@ -69,6 +69,7 @@ const RANGE_OPTIONS = [
 const RUN_DETAIL_LABELS: Record<string, string> = {
   auto_collected: "자동 수집",
   auto_updated: "자동 업데이트",
+  existing: "기존 스케줄 있음",
 };
 
 export function AutoUpdateSettingsManager() {
@@ -78,7 +79,9 @@ export function AutoUpdateSettingsManager() {
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [isLoadingPending, setIsLoadingPending] = useState(false);
-  const [processingPendingId, setProcessingPendingId] = useState<number | null>(null);
+  const [processingPendingId, setProcessingPendingId] = useState<number | null>(
+    null,
+  );
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
@@ -111,6 +114,15 @@ export function AutoUpdateSettingsManager() {
     void loadSettings();
     void loadPending();
   }, [loadSettings, loadPending]);
+
+  const sortedPendingList = useMemo(() => {
+    return [...pendingList].sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return (a.start_time || "").localeCompare(b.start_time || "");
+    });
+  }, [pendingList]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
     if (!settings) return;
@@ -202,7 +214,12 @@ export function AutoUpdateSettingsManager() {
   };
 
   const handleApproveAll = async () => {
-    if (!window.confirm(`${pendingList.length}개의 대기 스케줄을 모두 승인하시겠습니까?`)) return;
+    if (
+      !window.confirm(
+        `${sortedPendingList.length}개의 대기 스케줄을 모두 승인하시겠습니까?`,
+      )
+    )
+      return;
     setIsProcessingAll(true);
     try {
       await approveAllPendingSchedules();
@@ -215,7 +232,12 @@ export function AutoUpdateSettingsManager() {
   };
 
   const handleRejectAll = async () => {
-    if (!window.confirm(`${pendingList.length}개의 대기 스케줄을 모두 거부하시겠습니까?`)) return;
+    if (
+      !window.confirm(
+        `${sortedPendingList.length}개의 대기 스케줄을 모두 거부하시겠습니까?`,
+      )
+    )
+      return;
     setIsProcessingAll(true);
     try {
       await rejectAllPendingSchedules();
@@ -261,7 +283,8 @@ export function AutoUpdateSettingsManager() {
         <div>
           <h2 className="text-xl font-semibold">스케줄 자동 업데이트</h2>
           <p className="text-sm text-muted-foreground">
-            치지직 VOD 데이터를 기반으로 스케줄을 수집합니다. 수집된 스케줄은 승인 후 반영됩니다.
+            치지직 VOD 데이터를 기반으로 스케줄을 수집합니다. 수집된 스케줄은
+            승인 후 반영됩니다.
           </p>
         </div>
         <Button
@@ -455,8 +478,22 @@ export function AutoUpdateSettingsManager() {
                               <span className="text-muted-foreground">
                                 ({detail.scheduleDate})
                               </span>
-                              <Badge variant="outline" className="text-xs">
-                                {RUN_DETAIL_LABELS[detail.action] || detail.action}
+                              <Badge
+                                variant={
+                                  detail.action === "auto_updated"
+                                    ? "secondary"
+                                    : detail.action === "existing"
+                                      ? "secondary"
+                                      : "outline"
+                                }
+                                className={
+                                  detail.action === "existing"
+                                    ? "text-xs bg-muted text-muted-foreground hover:bg-muted"
+                                    : "text-xs"
+                                }
+                              >
+                                {RUN_DETAIL_LABELS[detail.action] ||
+                                  detail.action}
                               </Badge>
                               {detail.title && (
                                 <span
@@ -478,14 +515,14 @@ export function AutoUpdateSettingsManager() {
           </Card>
 
           {/* 승인 대기 스케줄 카드 (아이템 있을 때만 표시) */}
-          {pendingList.length > 0 && (
+          {sortedPendingList.length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
                   승인 대기 스케줄
                   <Badge variant="secondary" className="ml-2">
-                    {pendingList.length}
+                    {sortedPendingList.length}
                   </Badge>
                 </CardTitle>
                 <CardDescription>
@@ -538,7 +575,7 @@ export function AutoUpdateSettingsManager() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {pendingList.map((pending) => (
+                      {sortedPendingList.map((pending) => (
                         <TableRow key={pending.id}>
                           <TableCell className="text-xs text-muted-foreground">
                             {formatPendingDate(pending.created_at)}
@@ -561,7 +598,9 @@ export function AutoUpdateSettingsManager() {
                               }
                               className="text-xs"
                             >
-                              {pending.action_type === "create" ? "신규" : "수정"}
+                              {pending.action_type === "create"
+                                ? "신규"
+                                : "수정"}
                             </Badge>
                           </TableCell>
                           <TableCell
@@ -610,7 +649,6 @@ export function AutoUpdateSettingsManager() {
               </CardContent>
             </Card>
           )}
-
         </>
       )}
     </section>
