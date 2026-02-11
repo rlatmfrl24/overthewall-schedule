@@ -739,6 +739,7 @@ export const DailySchedule = () => {
                   const memberSchedules = schedules.filter(
                     (s) => s.member_uid === member.uid,
                   );
+                  const isToday = isSameDay(currentDate, new Date());
 
                   return (
                     <div key={member.uid} className="h-full">
@@ -746,7 +747,9 @@ export const DailySchedule = () => {
                         <CardMemberCompact
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={liveStatuses[member.uid]}
+                          liveStatus={
+                            isToday ? liveStatuses[member.uid] : undefined
+                          }
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -763,7 +766,9 @@ export const DailySchedule = () => {
                         <CardMember
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={liveStatuses[member.uid]}
+                          liveStatus={
+                            isToday ? liveStatuses[member.uid] : undefined
+                          }
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -791,7 +796,9 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
-              liveStatuses={liveStatuses}
+              liveStatuses={
+                isSameDay(currentDate, new Date()) ? liveStatuses : {}
+              }
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
                 setIsEditDialogOpen(true);
