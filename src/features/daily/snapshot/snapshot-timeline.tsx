@@ -61,9 +61,7 @@ export const SnapshotTimeline = ({
             <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
               <Radio className="w-5 h-5" />
             </div>
-            <h4 className="text-lg font-bold text-foreground">
-              Special Broadcasts
-            </h4>
+            <h4 className="text-lg font-bold text-foreground">게릴라</h4>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
