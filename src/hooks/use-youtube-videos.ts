@@ -97,7 +97,7 @@ export function useYouTubeVideos(
 
   useEffect(() => {
     void reload();
-  }, [channelIdsKey, reload, maxResults]); // reload 대신 channelIdsKey와 maxResults로 의존성 관리
+  }, [channelIdsKey, reload]); // reload가 maxResults 변화를 포함함
 
   return {
     videos: data?.videos ?? [],
@@ -117,6 +117,16 @@ export function useFilteredYouTubeVideos(
   shorts: YouTubeVideo[],
   selectedMemberUids: number[] | null // null이면 전체 선택
 ): { filteredVideos: YouTubeVideo[]; filteredShorts: YouTubeVideo[] } {
+  return useMemo(() => {
+    return filterYouTubeVideosByMembers(videos, shorts, selectedMemberUids);
+  }, [videos, shorts, selectedMemberUids]);
+}
+
+export function filterYouTubeVideosByMembers(
+  videos: YouTubeVideo[],
+  shorts: YouTubeVideo[],
+  selectedMemberUids: number[] | null,
+): { filteredVideos: YouTubeVideo[]; filteredShorts: YouTubeVideo[] } {
   if (!selectedMemberUids || selectedMemberUids.length === 0) {
     return { filteredVideos: videos, filteredShorts: shorts };
   }
@@ -125,10 +135,10 @@ export function useFilteredYouTubeVideos(
 
   return {
     filteredVideos: videos.filter(
-      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid)
+      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid),
     ),
     filteredShorts: shorts.filter(
-      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid)
+      (v) => v.memberUid !== undefined && uidSet.has(v.memberUid),
     ),
   };
 }

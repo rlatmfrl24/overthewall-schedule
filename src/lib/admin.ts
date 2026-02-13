@@ -5,5 +5,3 @@ const ADMIN_IDS = (import.meta.env.VITE_CLERK_ADMIN_IDS ?? "")
 
 export const isAdminUser = (userId?: string | null) =>
   Boolean(userId && ADMIN_IDS.includes(userId));
-
-export const getAdminIds = () => ADMIN_IDS;

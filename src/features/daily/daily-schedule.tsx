@@ -222,6 +222,7 @@ export const DailySchedule = () => {
   const ddayForToday = getDDaysForDate(ddays, currentDate);
   const isDailyScheduleLoading =
     isScheduleDataLoading || !hasLoaded || isSchedulesLoading || !hasSchedulesLoaded;
+  const isToday = isSameDay(currentDate, new Date());
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -760,7 +761,6 @@ export const DailySchedule = () => {
                 members.map((member) => {
                   const memberSchedules =
                     schedulesByMemberUid.get(member.uid) ?? [];
-                  const isToday = isSameDay(currentDate, new Date());
 
                   return (
                     <div key={member.uid} className="h-full">
@@ -768,9 +768,7 @@ export const DailySchedule = () => {
                         <CardMemberCompact
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={
-                            isToday ? liveStatuses[member.uid] : undefined
-                          }
+                          liveStatus={isToday ? liveStatuses[member.uid] : undefined}
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -787,9 +785,7 @@ export const DailySchedule = () => {
                         <CardMember
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={
-                            isToday ? liveStatuses[member.uid] : undefined
-                          }
+                          liveStatus={isToday ? liveStatuses[member.uid] : undefined}
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -818,9 +814,7 @@ export const DailySchedule = () => {
               members={members}
               schedules={schedules}
               loading={isDailyScheduleLoading}
-              liveStatuses={
-                isSameDay(currentDate, new Date()) ? liveStatuses : {}
-              }
+              liveStatuses={isToday ? liveStatuses : {}}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
                 setIsEditDialogOpen(true);

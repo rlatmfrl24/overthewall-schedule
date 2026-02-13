@@ -8,13 +8,13 @@ import {
 } from "@/lib/utils";
 import {
   Radio,
-  GripHorizontal,
   Play,
   ExternalLink,
   Calendar,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { splitSchedulesForTimeline } from "./chronological-schedule-utils";
 
 interface ChronologicalScheduleListProps {
   members: Member[];
@@ -32,23 +32,7 @@ export const ChronologicalScheduleList = ({
   liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
   const { timelineItems, otherItems } = useMemo(() => {
-    const activeSchedules = schedules.filter((s) => s.status !== "휴방");
-
-    // Timeline: Start time exists, not Guerrilla/Undecided
-    const timeline = activeSchedules.filter(
-      (s) => s.start_time && s.status !== "게릴라" && s.status !== "미정",
-    );
-
-    const others = activeSchedules.filter(
-      (s) => !s.start_time || s.status === "게릴라" || s.status === "미정",
-    );
-
-    timeline.sort((a, b) => {
-      if (!a.start_time || !b.start_time) return 0;
-      return a.start_time.localeCompare(b.start_time);
-    });
-
-    return { timelineItems: timeline, otherItems: others };
+    return splitSchedulesForTimeline(schedules);
   }, [schedules]);
 
   const memberMap = useMemo(
@@ -128,7 +112,6 @@ const ScheduleCard = ({
 
   const mainColor = member.main_color || "#71717a"; // Default zinc-500
   const isLive = liveStatus?.status === "OPEN";
-  const isGuerrilla = schedule.status === "게릴라";
   const liveUrl =
     buildChzzkLiveUrl(liveStatus?.channelId) ||
     convertChzzkToLiveUrl(member.url_chzzk);
@@ -195,30 +178,24 @@ const ScheduleCard = ({
               "min-w-20 sm:min-w-24 py-4",
             )}
           >
-            {isTimeline ? (
-              <div className="flex flex-col items-center leading-none">
-                <span
-                  className={cn(
-                    "font-black tracking-tight text-foreground/90 font-mono",
-                    "text-2xl sm:text-3xl",
-                  )}
-                >
-                  {hour}
-                </span>
-                <span
-                  className={cn(
-                    "font-bold text-muted-foreground/60 -mt-1",
-                    "text-base sm:text-lg",
-                  )}
-                >
-                  {minute}
-                </span>
-              </div>
-            ) : isGuerrilla ? null : (
-              <div className="p-3 rounded-xl bg-background shadow-xs ring-1 ring-border/50">
-                <GripHorizontal className="w-6 h-6 text-muted-foreground" />
-              </div>
-            )}
+            <div className="flex flex-col items-center leading-none">
+              <span
+                className={cn(
+                  "font-black tracking-tight text-foreground/90 font-mono",
+                  "text-2xl sm:text-3xl",
+                )}
+              >
+                {hour}
+              </span>
+              <span
+                className={cn(
+                  "font-bold text-muted-foreground/60 -mt-1",
+                  "text-base sm:text-lg",
+                )}
+              >
+                {minute}
+              </span>
+            </div>
           </div>
         )}
 

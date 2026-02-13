@@ -31,7 +31,7 @@ export const parseNumericId = (value?: string | number | null) => {
   return isNaN(parsed) ? null : parsed;
 };
 
-export const getClientIp = (request: Request): string | null => {
+const getClientIp = (request: Request): string | null => {
   const headers = request.headers;
   return (
     headers.get("CF-Connecting-IP") ||
@@ -48,7 +48,7 @@ export const getActorInfo = (request: Request) => {
   return { actorId, actorName, actorIp };
 };
 
-export const resolveMemberName = async (
+const resolveMemberName = async (
   db: DbInstance,
   memberUid?: number | null,
 ) => {

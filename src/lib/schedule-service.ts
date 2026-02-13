@@ -1,11 +1,11 @@
 import { format } from "date-fns";
-import type { ScheduleItem, ScheduleStatus } from "./types";
+import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
 import {
   createSchedule,
   deleteSchedule,
   fetchSchedulesByDate,
   updateSchedule,
-} from "./api/schedules";
+} from "@/lib/api/schedules";
 
 type SaveScheduleInput = {
   id?: number;
@@ -58,12 +58,13 @@ export async function saveScheduleWithConflicts(input: SaveScheduleInput) {
 }
 
 async function deleteSchedules(list: ScheduleItem[]) {
-  await Promise.all(
-    list
-      .map((item) => item.id)
-      .filter((id): id is number => typeof id === "number")
-      .map((id) => deleteSchedule(id))
-  );
+  const deletions: Promise<unknown>[] = [];
+  for (const item of list) {
+    if (typeof item.id === "number") {
+      deletions.push(deleteSchedule(item.id));
+    }
+  }
+  await Promise.all(deletions);
 }
 
 
