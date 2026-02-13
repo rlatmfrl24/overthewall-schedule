@@ -8,16 +8,18 @@ import {
 } from "@/lib/utils";
 import {
   Radio,
-  GripHorizontal,
   Play,
   ExternalLink,
   Calendar,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { splitSchedulesForTimeline } from "./chronological-schedule-utils";
 
 interface ChronologicalScheduleListProps {
   members: Member[];
   schedules: ScheduleItem[];
+  loading?: boolean;
   onScheduleClick: (schedule: ScheduleItem) => void;
   liveStatuses?: ChzzkLiveStatusMap;
 }
@@ -25,42 +27,32 @@ interface ChronologicalScheduleListProps {
 export const ChronologicalScheduleList = ({
   members,
   schedules,
+  loading = false,
   onScheduleClick,
   liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
   const { timelineItems, otherItems } = useMemo(() => {
-    const activeSchedules = schedules.filter((s) => s.status !== "휴방");
-
-    // Timeline: Start time exists, not Guerrilla/Undecided
-    const timeline = activeSchedules.filter(
-      (s) => s.start_time && s.status !== "게릴라" && s.status !== "미정",
-    );
-
-    const others = activeSchedules.filter(
-      (s) => !s.start_time || s.status === "게릴라" || s.status === "미정",
-    );
-
-    timeline.sort((a, b) => {
-      if (!a.start_time || !b.start_time) return 0;
-      return a.start_time.localeCompare(b.start_time);
-    });
-
-    return { timelineItems: timeline, otherItems: others };
+    return splitSchedulesForTimeline(schedules);
   }, [schedules]);
 
-  const getMember = (uid: number) => members.find((m) => m.uid === uid);
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
 
   return (
     <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto px-2 sm:px-4">
       {/* SECTION: TIMELINE */}
       <div className="relative">
-        {timelineItems.length > 0 ? (
+        {loading ? (
+          <TimelineSkeleton />
+        ) : timelineItems.length > 0 ? (
           <div className="space-y-4">
             {timelineItems.map((schedule) => (
               <div key={schedule.id} className="relative">
                 <ScheduleCard
                   schedule={schedule}
-                  member={getMember(schedule.member_uid)}
+                  member={memberMap.get(schedule.member_uid)}
                   onClick={onScheduleClick}
                   liveStatus={liveStatuses[schedule.member_uid]}
                   isTimeline
@@ -88,7 +80,7 @@ export const ChronologicalScheduleList = ({
               <ScheduleCard
                 key={schedule.id}
                 schedule={schedule}
-                member={getMember(schedule.member_uid)}
+                member={memberMap.get(schedule.member_uid)}
                 onClick={onScheduleClick}
                 liveStatus={liveStatuses[schedule.member_uid]}
               />
@@ -120,7 +112,6 @@ const ScheduleCard = ({
 
   const mainColor = member.main_color || "#71717a"; // Default zinc-500
   const isLive = liveStatus?.status === "OPEN";
-  const isGuerrilla = schedule.status === "게릴라";
   const liveUrl =
     buildChzzkLiveUrl(liveStatus?.channelId) ||
     convertChzzkToLiveUrl(member.url_chzzk);
@@ -187,30 +178,24 @@ const ScheduleCard = ({
               "min-w-20 sm:min-w-24 py-4",
             )}
           >
-            {isTimeline ? (
-              <div className="flex flex-col items-center leading-none">
-                <span
-                  className={cn(
-                    "font-black tracking-tight text-foreground/90 font-mono",
-                    "text-2xl sm:text-3xl",
-                  )}
-                >
-                  {hour}
-                </span>
-                <span
-                  className={cn(
-                    "font-bold text-muted-foreground/60 -mt-1",
-                    "text-base sm:text-lg",
-                  )}
-                >
-                  {minute}
-                </span>
-              </div>
-            ) : isGuerrilla ? null : (
-              <div className="p-3 rounded-xl bg-background shadow-xs ring-1 ring-border/50">
-                <GripHorizontal className="w-6 h-6 text-muted-foreground" />
-              </div>
-            )}
+            <div className="flex flex-col items-center leading-none">
+              <span
+                className={cn(
+                  "font-black tracking-tight text-foreground/90 font-mono",
+                  "text-2xl sm:text-3xl",
+                )}
+              >
+                {hour}
+              </span>
+              <span
+                className={cn(
+                  "font-bold text-muted-foreground/60 -mt-1",
+                  "text-base sm:text-lg",
+                )}
+              >
+                {minute}
+              </span>
+            </div>
           </div>
         )}
 
@@ -308,5 +293,31 @@ const EmptyState = () => (
     <p className="text-sm text-muted-foreground/50">
       새로운 일정이 등록될 때까지 기다려주세요
     </p>
+  </div>
+);
+
+const TimelineSkeleton = () => (
+  <div className="space-y-4">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div
+        key={`timeline-skeleton-${index}`}
+        className="relative w-full overflow-hidden rounded-2xl bg-white dark:bg-[#18181b] border border-border/60 shadow-sm"
+      >
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-muted" />
+        <div className="flex flex-row items-stretch h-full">
+          <div className="flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0 min-w-20 sm:min-w-24 py-4 px-3">
+            <Skeleton className="h-8 w-10" />
+            <Skeleton className="h-4 w-8 mt-1" />
+          </div>
+          <div className="flex-1 flex flex-col justify-center py-4 px-5 min-w-0 gap-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="w-5 h-5 rounded-full" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-6 w-3/4" />
+          </div>
+        </div>
+      </div>
+    ))}
   </div>
 );

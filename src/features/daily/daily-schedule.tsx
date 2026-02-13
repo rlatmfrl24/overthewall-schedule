@@ -69,8 +69,11 @@ type LiveDebugRow = {
 };
 
 export const DailySchedule = () => {
-  const { members, ddays } = useScheduleData();
+  const { members, ddays, loading: isScheduleDataLoading, hasLoaded } =
+    useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [isSchedulesLoading, setIsSchedulesLoading] = useState(true);
+  const [hasSchedulesLoaded, setHasSchedulesLoaded] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -176,6 +179,7 @@ export const DailySchedule = () => {
   );
 
   const fetchSchedules = useCallback(async () => {
+    setIsSchedulesLoading(true);
     try {
       const data = await fetchSchedulesByDate(
         format(currentDate, "yyyy-MM-dd"),
@@ -183,6 +187,9 @@ export const DailySchedule = () => {
       setSchedules(data);
     } catch (err) {
       console.error("Failed to fetch schedules:", err);
+    } finally {
+      setIsSchedulesLoading(false);
+      setHasSchedulesLoaded(true);
     }
   }, [currentDate]);
 
@@ -199,7 +206,23 @@ export const DailySchedule = () => {
     return () => clearInterval(timer);
   }, [members, schedules, fetchLiveStatuses]);
 
+  const schedulesByMemberUid = useMemo(() => {
+    const grouped = new Map<number, ScheduleItem[]>();
+    for (const schedule of schedules) {
+      const existing = grouped.get(schedule.member_uid);
+      if (existing) {
+        existing.push(schedule);
+      } else {
+        grouped.set(schedule.member_uid, [schedule]);
+      }
+    }
+    return grouped;
+  }, [schedules]);
+
   const ddayForToday = getDDaysForDate(ddays, currentDate);
+  const isDailyScheduleLoading =
+    isScheduleDataLoading || !hasLoaded || isSchedulesLoading || !hasSchedulesLoaded;
+  const isToday = isSameDay(currentDate, new Date());
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -734,12 +757,10 @@ export const DailySchedule = () => {
               aria-label="Daily Schedule Grid"
               className="grid gap-4 sm:gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
             >
-              {members.length > 0 ? (
+              {!isDailyScheduleLoading && members.length > 0 ? (
                 members.map((member) => {
-                  const memberSchedules = schedules.filter(
-                    (s) => s.member_uid === member.uid,
-                  );
-                  const isToday = isSameDay(currentDate, new Date());
+                  const memberSchedules =
+                    schedulesByMemberUid.get(member.uid) ?? [];
 
                   return (
                     <div key={member.uid} className="h-full">
@@ -747,9 +768,7 @@ export const DailySchedule = () => {
                         <CardMemberCompact
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={
-                            isToday ? liveStatuses[member.uid] : undefined
-                          }
+                          liveStatus={isToday ? liveStatuses[member.uid] : undefined}
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -766,9 +785,7 @@ export const DailySchedule = () => {
                         <CardMember
                           member={member}
                           schedules={memberSchedules}
-                          liveStatus={
-                            isToday ? liveStatuses[member.uid] : undefined
-                          }
+                          liveStatus={isToday ? liveStatuses[member.uid] : undefined}
                           onScheduleClick={(schedule) => {
                             setEditingSchedule(schedule);
                             setInitialMemberUid(null);
@@ -796,9 +813,8 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
-              liveStatuses={
-                isSameDay(currentDate, new Date()) ? liveStatuses : {}
-              }
+              loading={isDailyScheduleLoading}
+              liveStatuses={isToday ? liveStatuses : {}}
               onScheduleClick={(schedule) => {
                 setEditingSchedule(schedule);
                 setIsEditDialogOpen(true);

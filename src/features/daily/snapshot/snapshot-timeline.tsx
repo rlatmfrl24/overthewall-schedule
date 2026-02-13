@@ -31,7 +31,10 @@ export const SnapshotTimeline = ({
     return { timelineItems: timeline, otherItems: others };
   }, [schedules]);
 
-  const getMember = (uid: number) => members.find((m) => m.uid === uid);
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
 
   return (
     <div className="flex flex-col gap-8 w-full max-w-none mx-0 px-0">
@@ -43,7 +46,7 @@ export const SnapshotTimeline = ({
               <div key={schedule.id} className="relative">
                 <SnapshotTimelineCard
                   schedule={schedule}
-                  member={getMember(schedule.member_uid)}
+                  member={memberMap.get(schedule.member_uid)}
                   isTimeline
                 />
               </div>
@@ -69,7 +72,7 @@ export const SnapshotTimeline = ({
               <SnapshotTimelineCard
                 key={schedule.id}
                 schedule={schedule}
-                member={getMember(schedule.member_uid)}
+                member={memberMap.get(schedule.member_uid)}
               />
             ))}
           </div>

@@ -1,6 +1,46 @@
 import type { CachedYouTubeVideos, YouTubeVideoItem } from "../types";
 import { parseISO8601Duration } from "../utils/helpers";
 
+type YouTubeChannelDetailsResponse = {
+  items?: Array<{
+    contentDetails?: {
+      relatedPlaylists?: {
+        uploads?: string;
+      };
+    };
+  }>;
+};
+
+type YouTubePlaylistItemsResponse = {
+  items?: Array<{
+    contentDetails?: {
+      videoId?: string;
+    };
+  }>;
+};
+
+type YouTubeVideosResponse = {
+  items?: Array<{
+    id: string;
+    snippet?: {
+      title?: string;
+      publishedAt?: string;
+      thumbnails?: {
+        high?: { url?: string };
+        default?: { url?: string };
+      };
+      channelId?: string;
+      channelTitle?: string;
+    };
+    contentDetails?: {
+      duration?: string;
+    };
+    statistics?: {
+      viewCount?: string;
+    };
+  }>;
+};
+
 const YOUTUBE_VIDEOS_CACHE = new Map<string, CachedYouTubeVideos>();
 const YOUTUBE_VIDEOS_TTL_MS = 5 * 60_000; // 5분 캐시 (YouTube API 쿼터 절약)
 
@@ -34,9 +74,9 @@ const fetchYouTubeUploadsPlaylistId = async (
       );
       return null;
     }
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as YouTubeChannelDetailsResponse;
     const playlistId =
-      data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads || null;
+      data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads ?? null;
 
     YOUTUBE_PLAYLIST_ID_CACHE.set(channelId, {
       fetchedAt: now,
@@ -79,10 +119,11 @@ const fetchYouTubePlaylistItems = async (
       );
       return [];
     }
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as YouTubePlaylistItemsResponse;
     return (
-      data.items?.map((item: any) => item.contentDetails.videoId as string) ||
-      []
+      data.items
+        ?.map((item) => item.contentDetails?.videoId)
+        .filter((videoId): videoId is string => Boolean(videoId)) ?? []
     );
   } catch (error) {
     console.error("Failed to fetch YouTube playlist items", playlistId, error);
@@ -116,24 +157,27 @@ const fetchYouTubeVideoDetails = async (
         console.error("Failed to fetch YouTube video details", res.status);
         continue;
       }
-      const data = (await res.json()) as any;
+      const data = (await res.json()) as YouTubeVideosResponse;
 
       const videos =
-        data.items?.map((item: any) => {
-          const duration = parseISO8601Duration(item.contentDetails.duration);
+        data.items?.map((item) => {
+          const duration = parseISO8601Duration(
+            item.contentDetails?.duration ?? "PT0S",
+          );
           const isShort = duration <= 60; // 60초 이하는 쇼츠로 간주
 
           return {
             videoId: item.id,
-            title: item.snippet.title,
-            publishedAt: item.snippet.publishedAt,
+            title: item.snippet?.title ?? "",
+            publishedAt: item.snippet?.publishedAt ?? new Date(0).toISOString(),
             thumbnailUrl:
-              item.snippet.thumbnails?.high?.url ||
-              item.snippet.thumbnails?.default?.url,
+              item.snippet?.thumbnails?.high?.url ||
+              item.snippet?.thumbnails?.default?.url ||
+              "",
             duration,
-            viewCount: parseInt(item.statistics.viewCount || "0", 10),
-            channelId: item.snippet.channelId,
-            channelTitle: item.snippet.channelTitle,
+            viewCount: parseInt(item.statistics?.viewCount ?? "0", 10),
+            channelId: item.snippet?.channelId ?? "",
+            channelTitle: item.snippet?.channelTitle ?? "",
             isShort,
           } satisfies YouTubeVideoItem;
         }) || [];

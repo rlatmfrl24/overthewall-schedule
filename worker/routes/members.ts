@@ -1,7 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { members } from "../../src/db/schema";
+import { json } from "../utils/helpers";
 import type { Env } from "../types";
+
+const MEMBERS_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 export const handleMembers = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -28,11 +32,17 @@ export const handleMembers = async (request: Request, env: Env) => {
       if (!fallback) {
         return new Response("Member not found", { status: 404 });
       }
-      return Response.json(fallback);
+      return json(fallback, 200, {
+        headers: { "Cache-Control": MEMBERS_CACHE_CONTROL },
+      });
     }
-    return Response.json(data[0]);
+    return json(data[0], 200, {
+      headers: { "Cache-Control": MEMBERS_CACHE_CONTROL },
+    });
   }
 
   const activeData = await db.select().from(members).where(activeCondition);
-  return Response.json(activeData);
+  return json(activeData, 200, {
+    headers: { "Cache-Control": MEMBERS_CACHE_CONTROL },
+  });
 };

@@ -1,7 +1,10 @@
 import { fetchChzzkClips, fetchChzzkVideos } from "../services/chzzk";
 import { fetchYouTubeVideosForChannel } from "../services/youtube";
-import { badRequest, json, methodNotAllowed } from "../utils/helpers";
+import { badRequest, json, methodNotAllowed, pMap } from "../utils/helpers";
 import type { YouTubeVideoItem, Env } from "../types";
+
+const CHZZK_BATCH_CONCURRENCY = 6;
+const YOUTUBE_BATCH_CONCURRENCY = 4;
 
 export const handleVods = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -26,11 +29,13 @@ export const handleVods = async (request: Request, env: Env) => {
         return badRequest("No valid channelIds");
       }
 
-      const items = await Promise.all(
-        channelIds.map(async (id) => ({
+      const items = await pMap(
+        channelIds,
+        async (id) => ({
           channelId: id,
           content: await fetchChzzkVideos(id, page, size),
-        })),
+        }),
+        CHZZK_BATCH_CONCURRENCY,
       );
 
       return json({
@@ -70,11 +75,13 @@ export const handleVods = async (request: Request, env: Env) => {
         return badRequest("No valid channelIds");
       }
 
-      const items = await Promise.all(
-        channelIds.map(async (id) => ({
+      const items = await pMap(
+        channelIds,
+        async (id) => ({
           channelId: id,
           content: await fetchChzzkClips(id, size),
-        })),
+        }),
+        CHZZK_BATCH_CONCURRENCY,
       );
 
       return json({
@@ -123,15 +130,17 @@ export const handleVods = async (request: Request, env: Env) => {
     const maxResults = parseInt(url.searchParams.get("maxResults") || "20", 10);
 
     try {
-      const items = await Promise.all(
-        channelIds.map(async (channelId: string) => ({
+      const items = await pMap(
+        channelIds,
+        async (channelId: string) => ({
           channelId,
           content: await fetchYouTubeVideosForChannel(
             channelId,
             apiKey,
             maxResults,
           ),
-        })),
+        }),
+        YOUTUBE_BATCH_CONCURRENCY,
       );
 
       // 모든 채널의 동영상을 합쳐서 최신순 정렬

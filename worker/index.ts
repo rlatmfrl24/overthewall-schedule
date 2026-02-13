@@ -108,7 +108,6 @@ export default {
 
     console.log("[scheduled] Running auto update...");
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const result = await autoUpdateSchedules(db, rangeDays);
 
     // 마지막 실행 시간 업데이트

@@ -8,7 +8,7 @@ export async function fetchKirinukiChannels(): Promise<KirinukiChannel[]> {
   return apiFetch<KirinukiChannel[]>("/api/kirinuki/channels");
 }
 
-export interface CreateKirinukiChannelPayload {
+interface CreateKirinukiChannelPayload {
   channel_name: string;
   channel_url: string;
   youtube_channel_id: string;
@@ -23,7 +23,7 @@ export async function createKirinukiChannel(
   });
 }
 
-export interface UpdateKirinukiChannelPayload extends CreateKirinukiChannelPayload {
+interface UpdateKirinukiChannelPayload extends CreateKirinukiChannelPayload {
   id: number;
 }
 

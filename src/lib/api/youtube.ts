@@ -11,7 +11,7 @@ interface YouTubeVideosApiResponse {
   }[];
 }
 
-export interface FetchYouTubeVideosOptions {
+interface FetchYouTubeVideosOptions {
   maxResults?: number;
 }
 
@@ -35,7 +35,7 @@ const makeCacheKey = (channelIds: string[], maxResults: number) =>
 /**
  * 여러 채널의 YouTube 동영상 조회 (Stale-While-Revalidate 패턴)
  */
-export async function fetchYouTubeVideos(
+async function fetchYouTubeVideos(
   channelIds: string[],
   options: FetchYouTubeVideosOptions = {},
 ): Promise<YouTubeVideosResponse | null> {
@@ -107,15 +107,6 @@ async function fetchAndCacheYouTubeVideos(
 }
 
 /**
- * 멤버 목록에서 YouTube 채널 ID 추출
- */
-export function extractYouTubeChannelIds(members: Member[]): string[] {
-  return members
-    .map((m) => m.youtube_channel_id)
-    .filter((id): id is string => !!id);
-}
-
-/**
  * 멤버들의 YouTube 동영상 조회 (멤버 uid 매핑 포함)
  */
 export async function fetchMembersYouTubeVideos(
@@ -153,9 +144,3 @@ export async function fetchMembersYouTubeVideos(
   };
 }
 
-/**
- * 캐시 초기화 (디버깅/테스트용)
- */
-export function clearYouTubeCache() {
-  youtubeVideosCache.clear();
-}

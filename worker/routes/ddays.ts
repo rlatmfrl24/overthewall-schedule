@@ -3,10 +3,14 @@ import { getDb } from "../db";
 import { ddays } from "../../src/db/schema";
 import {
   badRequest,
+  json,
   normalizeDDayType,
   parseNumericId,
 } from "../utils/helpers";
 import type { DDayPayload, Env } from "../types";
+
+const DDAYS_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 export const handleDDays = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -14,7 +18,9 @@ export const handleDDays = async (request: Request, env: Env) => {
 
   if (request.method === "GET") {
     const data = await db.select().from(ddays).orderBy(ddays.date);
-    return Response.json(data);
+    return json(data, 200, {
+      headers: { "Cache-Control": DDAYS_CACHE_CONTROL },
+    });
   }
 
   if (request.method === "POST") {

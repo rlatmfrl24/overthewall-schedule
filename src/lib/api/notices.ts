@@ -1,7 +1,7 @@
 import { apiFetch } from "./client";
 import type { Notice } from "@/db/schema";
 
-export type NoticePayload = {
+type NoticePayload = {
   id?: number;
   content: string;
   url?: string | null;

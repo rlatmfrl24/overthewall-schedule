@@ -3,11 +3,15 @@ import { getDb } from "../db";
 import { notices } from "../../src/db/schema";
 import {
   badRequest,
+  json,
   normalizeIsActive,
   normalizeNoticeType,
   parseNumericId,
 } from "../utils/helpers";
 import type { NoticePayload, Env } from "../types";
+
+const NOTICES_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 export const handleNotices = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -35,7 +39,11 @@ export const handleNotices = async (request: Request, env: Env) => {
       filters.length > 0 ? baseStatement.where(and(...filters)) : baseStatement;
 
     const data = await filteredStatement.orderBy(notices.id);
-    return Response.json(data);
+    return json(data, 200, {
+      headers: {
+        "Cache-Control": includeInactive ? "no-store" : NOTICES_CACHE_CONTROL,
+      },
+    });
   }
 
   if (request.method === "POST") {

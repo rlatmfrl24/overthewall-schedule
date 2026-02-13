@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { Member } from "@/lib/types";
 import {
   useYouTubeVideos,
@@ -18,17 +17,11 @@ export const YouTubeSection = ({
   selectedMemberUids,
   loadingMembers,
 }: YouTubeSectionProps) => {
-  // YouTube 채널이 있는 멤버만 필터링
-  const membersWithYouTube = useMemo(
-    () => members.filter((m) => m.youtube_channel_id),
-    [members],
-  );
+  const hasYouTubeMember = members.some((member) => member.youtube_channel_id);
 
   const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(
-    membersWithYouTube,
-    {
-      maxResults: 20,
-    },
+    members,
+    { maxResults: 20 },
   );
 
   const { filteredVideos, filteredShorts } = useFilteredYouTubeVideos(
@@ -42,7 +35,7 @@ export const YouTubeSection = ({
   }
 
   // YouTube 채널이 등록된 멤버가 없으면 렌더링하지 않음
-  if (membersWithYouTube.length === 0) {
+  if (!hasYouTubeMember) {
     return null;
   }
 

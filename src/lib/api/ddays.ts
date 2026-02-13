@@ -5,7 +5,7 @@ export async function fetchDDays() {
   return apiFetch<DDayItem[]>("/api/ddays");
 }
 
-export type DDayPayload = {
+type DDayPayload = {
   id?: number;
   title: string;
   date: string;
