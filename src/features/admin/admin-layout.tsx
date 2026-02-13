@@ -110,7 +110,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   );
 
   return (
-    <div className="min-h-[100dvh] w-full bg-muted/20 flex flex-col md:flex-row overflow-hidden">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-muted/20 md:flex-row">
       {/* Mobile Header */}
       <div className="md:hidden border-b bg-background p-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -130,13 +130,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden md:block w-64 shrink-0 h-full overflow-y-auto border-r bg-card">
+      <div className="hidden h-full w-64 shrink-0 overflow-y-auto border-r bg-card md:block">
         <SidebarContent />
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 overflow-y-auto bg-muted/10 h-full relative">
-        <div className="w-full min-h-full p-3 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <main className="relative min-h-0 flex-1 overflow-y-auto bg-muted/10">
+        <div className="w-full min-h-full animate-in fade-in slide-in-from-bottom-4 p-3 pb-8 duration-500 md:p-5 md:pb-10">
           {children}
         </div>
       </main>

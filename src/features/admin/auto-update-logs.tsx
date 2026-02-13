@@ -99,8 +99,7 @@ const DEFAULT_FILTERS: LogFilters = {
 };
 
 const FILTER_DEBOUNCE_MS = 300;
-const LOG_PAGE_SIZE = 50;
-const LOG_FETCH_LIMIT_OPTIONS = [200, 500, 1000] as const;
+const LOG_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
 const LOG_SORT_OPTIONS = [
   { value: "created_desc", label: "생성일 최신순" },
@@ -115,24 +114,33 @@ type LogSortKey = (typeof LOG_SORT_OPTIONS)[number]["value"];
 export function AutoUpdateLogsManager() {
   const { toast } = useToast();
   const [logs, setLogs] = useState<UpdateLog[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState<LogFilters>(DEFAULT_FILTERS);
   const [debouncedFilters, setDebouncedFilters] =
     useState<LogFilters>(DEFAULT_FILTERS);
-  const [fetchLimit, setFetchLimit] = useState<number>(500);
+  const [pageSize, setPageSize] = useState<number>(50);
   const [sortKey, setSortKey] = useState<LogSortKey>("created_desc");
   const [page, setPage] = useState(1);
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<UpdateLog | null>(null);
 
   const loadLogs = useCallback(
-    async (activeFilters: LogFilters, limit: number) => {
+    async (
+      activeFilters: LogFilters,
+      pageNo: number,
+      size: number,
+      sort: LogSortKey,
+    ) => {
       setIsLoading(true);
       setErrorMessage(null);
       try {
         const data = await fetchUpdateLogs({
-          limit,
+          page: pageNo,
+          pageSize: size,
+          sort,
           action:
             activeFilters.action === "all" ? undefined : activeFilters.action,
           member: activeFilters.member.trim() || undefined,
@@ -140,10 +148,18 @@ export function AutoUpdateLogsManager() {
           dateTo: activeFilters.dateTo || undefined,
           query: activeFilters.query.trim() || undefined,
         });
-        setLogs(Array.isArray(data) ? data : []);
+        setLogs(Array.isArray(data.items) ? data.items : []);
+        setTotalCount(data.total ?? 0);
+        setTotalPages(data.totalPages ?? 1);
+        if ((data.totalPages ?? 1) < pageNo) {
+          setPage(data.totalPages ?? 1);
+        }
       } catch (error) {
         console.error("Failed to load logs:", error);
         setErrorMessage("로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+        setLogs([]);
+        setTotalCount(0);
+        setTotalPages(1);
         toast({
           variant: "error",
           description: "로그를 불러오지 못했습니다.",
@@ -175,8 +191,8 @@ export function AutoUpdateLogsManager() {
 
   useEffect(() => {
     if (dateRangeError) return;
-    void loadLogs(debouncedFilters, fetchLimit);
-  }, [debouncedFilters, dateRangeError, loadLogs, fetchLimit]);
+    void loadLogs(debouncedFilters, page, pageSize, sortKey);
+  }, [debouncedFilters, dateRangeError, loadLogs, page, pageSize, sortKey]);
 
   const formatLogDate = (timestamp: string | null): string => {
     if (!timestamp) return "-";
@@ -222,51 +238,19 @@ export function AutoUpdateLogsManager() {
       });
       return;
     }
-    void loadLogs(debouncedFilters, fetchLimit);
+    void loadLogs(debouncedFilters, page, pageSize, sortKey);
   };
-
-  const sortedLogs = useMemo(() => {
-    const list = [...logs];
-    if (sortKey === "action_asc") {
-      return list.sort((a, b) => a.action.localeCompare(b.action));
-    }
-    if (sortKey === "schedule_asc" || sortKey === "schedule_desc") {
-      return list.sort((a, b) =>
-        sortKey === "schedule_desc"
-          ? b.schedule_date.localeCompare(a.schedule_date)
-          : a.schedule_date.localeCompare(b.schedule_date),
-      );
-    }
-    return list.sort((a, b) => {
-      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return sortKey === "created_desc" ? bTime - aTime : aTime - bTime;
-    });
-  }, [logs, sortKey]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedLogs.length / LOG_PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedFilters, fetchLimit, sortKey]);
-
-  const pagedLogs = useMemo(() => {
-    const start = (page - 1) * LOG_PAGE_SIZE;
-    return sortedLogs.slice(start, start + LOG_PAGE_SIZE);
-  }, [page, sortedLogs]);
+  }, [debouncedFilters, pageSize, sortKey]);
 
   return (
     <section className="space-y-4">
       <AdminSectionHeader
         title="스케줄 업데이트 로그"
         description="필터 입력 시 300ms 후 자동 조회되며 페이지 단위로 탐색할 수 있습니다."
-        count={sortedLogs.length}
+        count={totalCount}
         actions={
           <Button
             variant="outline"
@@ -371,19 +355,19 @@ export function AutoUpdateLogsManager() {
               )}
               <div className="flex items-center gap-2">
                 <Label htmlFor="log-limit" className="text-xs text-muted-foreground">
-                  조회건수
+                  페이지 크기
                 </Label>
                 <Select
-                  value={String(fetchLimit)}
-                  onValueChange={(value) => setFetchLimit(Number(value))}
+                  value={String(pageSize)}
+                  onValueChange={(value) => setPageSize(Number(value))}
                 >
                   <SelectTrigger id="log-limit" className="h-8 w-[110px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {LOG_FETCH_LIMIT_OPTIONS.map((option) => (
+                    {LOG_PAGE_SIZE_OPTIONS.map((option) => (
                       <SelectItem key={option} value={String(option)}>
-                        {option}건
+                        {option}건/페이지
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -438,7 +422,7 @@ export function AutoUpdateLogsManager() {
             </div>
           ) : errorMessage ? (
             <div className="text-center py-8 text-destructive">{errorMessage}</div>
-          ) : sortedLogs.length === 0 ? (
+          ) : totalCount === 0 ? (
             <div className="text-center py-8 text-muted-foreground">기록이 없습니다.</div>
           ) : (
             <div className="space-y-3">
@@ -455,7 +439,7 @@ export function AutoUpdateLogsManager() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedLogs.map((log) => (
+                    {logs.map((log) => (
                       <TableRow
                         key={log.id}
                         className="cursor-pointer hover:bg-muted/40"
@@ -492,7 +476,7 @@ export function AutoUpdateLogsManager() {
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground">
-                  총 {sortedLogs.length}건, {page}/{totalPages} 페이지
+                  총 {totalCount}건, {page}/{totalPages} 페이지
                 </p>
                 <div className="flex items-center gap-1">
                   <Button

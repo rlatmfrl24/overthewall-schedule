@@ -40,12 +40,24 @@ export interface UpdateLog {
 }
 
 interface UpdateLogQuery {
-  limit?: number;
+  page?: number;
+  pageSize?: number;
+  sort?: "created_desc" | "created_asc" | "schedule_desc" | "schedule_asc" | "action_asc";
   action?: string;
   member?: string;
   dateFrom?: string;
   dateTo?: string;
   query?: string;
+}
+
+export interface UpdateLogPageResponse {
+  items: UpdateLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasPrevPage: boolean;
+  hasNextPage: boolean;
 }
 
 export interface PendingSchedule {
@@ -101,19 +113,19 @@ function buildQueryString(params: Record<string, string | number | undefined>) {
 }
 
 export async function fetchUpdateLogs(
-  options: number | UpdateLogQuery = 50
-): Promise<UpdateLog[]> {
-  const queryOptions =
-    typeof options === "number" ? { limit: options } : options;
+  options: UpdateLogQuery = {}
+): Promise<UpdateLogPageResponse> {
   const queryString = buildQueryString({
-    limit: queryOptions.limit ?? 50,
-    action: queryOptions.action,
-    member: queryOptions.member,
-    dateFrom: queryOptions.dateFrom,
-    dateTo: queryOptions.dateTo,
-    query: queryOptions.query,
+    page: options.page ?? 1,
+    pageSize: options.pageSize ?? 50,
+    sort: options.sort ?? "created_desc",
+    action: options.action,
+    member: options.member,
+    dateFrom: options.dateFrom,
+    dateTo: options.dateTo,
+    query: options.query,
   });
-  return apiFetch<UpdateLog[]>(`/api/settings/logs?${queryString}`);
+  return apiFetch<UpdateLogPageResponse>(`/api/settings/logs?${queryString}`);
 }
 
 // 대기 스케줄 API
@@ -152,5 +164,39 @@ export async function rejectAllPendingSchedules(): Promise<{
 }> {
   return apiFetch("/api/settings/pending/reject-all", {
     method: "POST",
+  });
+}
+
+export interface SelectedPendingBatchResult {
+  id: number;
+  success: boolean;
+  action?: "create" | "update" | "reject";
+  error?: string;
+  message?: string;
+}
+
+export interface SelectedPendingBatchResponse {
+  success: boolean;
+  totalRequested: number;
+  successCount: number;
+  failedCount: number;
+  results: SelectedPendingBatchResult[];
+}
+
+export async function approveSelectedPendingSchedules(
+  ids: number[]
+): Promise<SelectedPendingBatchResponse> {
+  return apiFetch("/api/settings/pending/approve-selected", {
+    method: "POST",
+    json: { ids },
+  });
+}
+
+export async function rejectSelectedPendingSchedules(
+  ids: number[]
+): Promise<SelectedPendingBatchResponse> {
+  return apiFetch("/api/settings/pending/reject-selected", {
+    method: "POST",
+    json: { ids },
   });
 }

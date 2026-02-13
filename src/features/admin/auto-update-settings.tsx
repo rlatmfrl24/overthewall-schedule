@@ -46,6 +46,8 @@ import {
   fetchPendingSchedules,
   approvePendingSchedule,
   rejectPendingSchedule,
+  approveSelectedPendingSchedules,
+  rejectSelectedPendingSchedules,
   approveAllPendingSchedules,
   rejectAllPendingSchedules,
   type AutoUpdateSettings,
@@ -347,38 +349,23 @@ export function AutoUpdateSettingsManager() {
 
     setIsProcessingSelected(true);
     setProcessingSelectedIds(targetIds);
-    const succeededIds: number[] = [];
-    let failedCount = 0;
+    try {
+      const result =
+        mode === "approve"
+          ? await approveSelectedPendingSchedules(targetIds)
+          : await rejectSelectedPendingSchedules(targetIds);
 
-    for (const pendingId of targetIds) {
-      try {
-        if (mode === "approve") {
-          await approvePendingSchedule(pendingId);
-        } else {
-          await rejectPendingSchedule(pendingId);
-        }
-        succeededIds.push(pendingId);
-      } catch (error) {
-        console.error(`Failed to ${mode} pending schedule ${pendingId}:`, error);
-        failedCount += 1;
+      const succeededIds = result.results
+        .filter((entry) => entry.success)
+        .map((entry) => entry.id);
+      const failedCount = result.failedCount ?? targetIds.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        const successSet = new Set(succeededIds);
+        setPendingList((prev) => prev.filter((item) => !successSet.has(item.id)));
+        setSelectedPendingIds((prev) => prev.filter((id) => !successSet.has(id)));
       }
-    }
 
-    if (succeededIds.length > 0) {
-      const successSet = new Set(succeededIds);
-      setPendingList((prev) => prev.filter((item) => !successSet.has(item.id)));
-      setSelectedPendingIds((prev) => prev.filter((id) => !successSet.has(id)));
-    }
-
-    if (failedCount === 0) {
-      toast({
-        variant: "success",
-        description:
-          mode === "approve"
-            ? `${succeededIds.length}개의 선택 항목을 승인했습니다.`
-            : `${succeededIds.length}개의 선택 항목을 거부했습니다.`,
-      });
-    } else {
       toast({
         variant: failedCount === targetIds.length ? "error" : "success",
         description:
@@ -386,10 +373,19 @@ export function AutoUpdateSettingsManager() {
             ? `선택 승인 완료: ${succeededIds.length}건 성공, ${failedCount}건 실패`
             : `선택 거부 완료: ${succeededIds.length}건 성공, ${failedCount}건 실패`,
       });
+    } catch (error) {
+      console.error(`Failed to process selected pending schedules (${mode}):`, error);
+      toast({
+        variant: "error",
+        description:
+          mode === "approve"
+            ? "선택 승인 처리에 실패했습니다."
+            : "선택 거부 처리에 실패했습니다.",
+      });
+    } finally {
+      setIsProcessingSelected(false);
+      setProcessingSelectedIds([]);
     }
-
-    setIsProcessingSelected(false);
-    setProcessingSelectedIds([]);
   };
 
   const handleConfirmBulkAction = async () => {
