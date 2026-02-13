@@ -1,4 +1,5 @@
 import {
+  asc,
   and,
   between,
   desc,
@@ -44,7 +45,11 @@ export const handleSettings = async (request: Request, env: Env) => {
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
   if (request.method === "GET" && url.pathname === "/api/settings/logs") {
-    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+    const rawLimit = parseInt(url.searchParams.get("limit") || "50", 10);
+    const pageParam = url.searchParams.get("page");
+    const pageSizeParam = url.searchParams.get("pageSize");
+    const sort = url.searchParams.get("sort") || "created_desc";
+    const isPagedMode = pageParam !== null || pageSizeParam !== null;
     const action = url.searchParams.get("action");
     const member = url.searchParams.get("member");
     const dateFrom = url.searchParams.get("dateFrom");
@@ -83,10 +88,76 @@ export const handleSettings = async (request: Request, env: Env) => {
       logQuery = logQuery.where(and(...filters));
     }
 
-    const logsData = await logQuery
-      .orderBy(desc(updateLogs.created_at))
-      .limit(limit);
-    return Response.json(logsData);
+    if (!isPagedMode) {
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(rawLimit, 1), 1000)
+        : 50;
+      const logsData = await logQuery
+        .orderBy(desc(updateLogs.created_at), desc(updateLogs.id))
+        .limit(limit);
+      return Response.json(logsData);
+    }
+
+    const pageRaw = parseInt(pageParam || "1", 10);
+    const pageSizeRaw = parseInt(pageSizeParam || "50", 10);
+    const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+    const pageSize = Number.isFinite(pageSizeRaw)
+      ? Math.min(Math.max(pageSizeRaw, 1), 200)
+      : 50;
+    const offset = (page - 1) * pageSize;
+
+    let countQuery = db
+      .select({ count: sql<number>`count(*)` })
+      .from(updateLogs)
+      .$dynamic();
+    if (filters.length > 0) {
+      countQuery = countQuery.where(and(...filters));
+    }
+    const countResult = await countQuery;
+    const total = Number(countResult[0]?.count ?? 0);
+    const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
+
+    let pagedQuery = logQuery;
+    if (sort === "created_asc") {
+      pagedQuery = pagedQuery.orderBy(
+        asc(updateLogs.created_at),
+        asc(updateLogs.id),
+      );
+    } else if (sort === "schedule_desc") {
+      pagedQuery = pagedQuery.orderBy(
+        desc(updateLogs.schedule_date),
+        desc(updateLogs.created_at),
+        desc(updateLogs.id),
+      );
+    } else if (sort === "schedule_asc") {
+      pagedQuery = pagedQuery.orderBy(
+        asc(updateLogs.schedule_date),
+        asc(updateLogs.created_at),
+        asc(updateLogs.id),
+      );
+    } else if (sort === "action_asc") {
+      pagedQuery = pagedQuery.orderBy(
+        asc(updateLogs.action),
+        desc(updateLogs.created_at),
+        desc(updateLogs.id),
+      );
+    } else {
+      pagedQuery = pagedQuery.orderBy(
+        desc(updateLogs.created_at),
+        desc(updateLogs.id),
+      );
+    }
+
+    const items = await pagedQuery.limit(pageSize).offset(offset);
+    return Response.json({
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages,
+      hasPrevPage: page > 1,
+      hasNextPage: page < totalPages,
+    });
   }
 
   // GET /api/settings - 설정 조회
@@ -374,6 +445,266 @@ export const handleSettings = async (request: Request, env: Env) => {
     await db.delete(pendingSchedules).where(eq(pendingSchedules.id, pendingId));
 
     return Response.json({ success: true });
+  }
+
+  // POST /api/settings/pending/approve-selected - 선택 승인
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/settings/pending/approve-selected"
+  ) {
+    const body = (await request.json().catch(() => null)) as {
+      ids?: unknown;
+    } | null;
+    if (!body || !Array.isArray(body.ids)) {
+      return badRequest("ids array is required");
+    }
+
+    const targetIds = [...new Set(body.ids)]
+      .map((value) => parseNumericId(value as string | number))
+      .filter((value): value is number => value !== null);
+
+    if (targetIds.length === 0) {
+      return badRequest("No valid pending IDs");
+    }
+
+    const pendingList = await db
+      .select()
+      .from(pendingSchedules)
+      .where(inArray(pendingSchedules.id, targetIds));
+    const pendingMap = new Map(pendingList.map((item) => [item.id, item]));
+
+    const results = await pMap(
+      targetIds,
+      async (pendingId) => {
+        const item = pendingMap.get(pendingId);
+        if (!item) {
+          return {
+            id: pendingId,
+            success: false as const,
+            error: "not_found",
+            message: "대기 스케줄을 찾을 수 없습니다.",
+          };
+        }
+
+        try {
+          let createdScheduleId: number | null = null;
+
+          if (item.action_type === "create") {
+            const existingSchedules = await db
+              .select()
+              .from(schedules)
+              .where(
+                and(
+                  eq(schedules.member_uid, item.member_uid),
+                  eq(schedules.date, item.date),
+                ),
+              );
+
+            if (item.start_time) {
+              const pendingMinutes =
+                parseInt(item.start_time.split(":")[0]) * 60 +
+                parseInt(item.start_time.split(":")[1]);
+              const conflicting = existingSchedules.find((s) => {
+                if (!s.start_time) return false;
+                const scheduleMinutes =
+                  parseInt(s.start_time.split(":")[0]) * 60 +
+                  parseInt(s.start_time.split(":")[1]);
+                return Math.abs(pendingMinutes - scheduleMinutes) <= 30;
+              });
+
+              if (conflicting) {
+                return {
+                  id: item.id,
+                  success: false as const,
+                  error: "conflict",
+                  message: `이미 비슷한 시간(${conflicting.start_time})에 스케줄이 존재합니다.`,
+                };
+              }
+            }
+
+            await db.insert(schedules).values({
+              member_uid: item.member_uid,
+              date: item.date,
+              start_time: item.start_time,
+              title: item.title,
+              status: item.status,
+            });
+
+            const created = await db
+              .select({ id: schedules.id })
+              .from(schedules)
+              .where(
+                and(
+                  eq(schedules.member_uid, item.member_uid),
+                  eq(schedules.date, item.date),
+                  item.start_time
+                    ? eq(schedules.start_time, item.start_time)
+                    : isNull(schedules.start_time),
+                  item.title
+                    ? eq(schedules.title, item.title)
+                    : isNull(schedules.title),
+                ),
+              )
+              .orderBy(desc(schedules.id))
+              .limit(1);
+
+            createdScheduleId = created[0]?.id ?? null;
+          } else if (item.action_type === "update" && item.existing_schedule_id) {
+            const targetSchedule = await db
+              .select()
+              .from(schedules)
+              .where(eq(schedules.id, item.existing_schedule_id))
+              .limit(1);
+
+            if (targetSchedule.length === 0) {
+              return {
+                id: item.id,
+                success: false as const,
+                error: "not_found",
+                message: "수정 대상 스케줄이 이미 삭제되었습니다.",
+              };
+            }
+
+            await db
+              .update(schedules)
+              .set({
+                start_time: item.start_time,
+                title: item.title,
+                status: item.status,
+              })
+              .where(eq(schedules.id, item.existing_schedule_id));
+          }
+
+          await insertUpdateLog(db, {
+            scheduleId: item.existing_schedule_id ?? createdScheduleId,
+            memberUid: item.member_uid,
+            memberName: item.member_name,
+            scheduleDate: item.date,
+            action: "approve",
+            title: item.title,
+            previousStatus: item.previous_status,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
+          });
+
+          await db
+            .delete(pendingSchedules)
+            .where(eq(pendingSchedules.id, pendingId));
+
+          return {
+            id: pendingId,
+            success: true as const,
+            action: item.action_type,
+          };
+        } catch (error) {
+          console.error(`Failed to approve selected pending ${pendingId}:`, error);
+          return {
+            id: pendingId,
+            success: false as const,
+            error: "error",
+            message: "승인 처리 중 오류가 발생했습니다.",
+          };
+        }
+      },
+      // create 승인 시 충돌 검증이 read-then-insert 패턴이라 병렬 처리하면
+      // 같은 멤버/날짜의 ±30분 중복 스케줄이 동시에 통과할 수 있어 순차 처리한다.
+      1,
+    );
+
+    const successCount = results.filter((result) => result.success).length;
+    return Response.json({
+      success: true,
+      totalRequested: targetIds.length,
+      successCount,
+      failedCount: targetIds.length - successCount,
+      results,
+    });
+  }
+
+  // POST /api/settings/pending/reject-selected - 선택 거부
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/settings/pending/reject-selected"
+  ) {
+    const body = (await request.json().catch(() => null)) as {
+      ids?: unknown;
+    } | null;
+    if (!body || !Array.isArray(body.ids)) {
+      return badRequest("ids array is required");
+    }
+
+    const targetIds = [...new Set(body.ids)]
+      .map((value) => parseNumericId(value as string | number))
+      .filter((value): value is number => value !== null);
+
+    if (targetIds.length === 0) {
+      return badRequest("No valid pending IDs");
+    }
+
+    const pendingList = await db
+      .select()
+      .from(pendingSchedules)
+      .where(inArray(pendingSchedules.id, targetIds));
+    const pendingMap = new Map(pendingList.map((item) => [item.id, item]));
+
+    const results = await pMap(
+      targetIds,
+      async (pendingId) => {
+        const item = pendingMap.get(pendingId);
+        if (!item) {
+          return {
+            id: pendingId,
+            success: false as const,
+            error: "not_found",
+            message: "대기 스케줄을 찾을 수 없습니다.",
+          };
+        }
+
+        try {
+          await insertUpdateLog(db, {
+            scheduleId: item.existing_schedule_id,
+            memberUid: item.member_uid,
+            memberName: item.member_name,
+            scheduleDate: item.date,
+            action: "reject",
+            title: item.title,
+            previousStatus: item.previous_status,
+            actorId: actor.actorId,
+            actorName: actor.actorName,
+            actorIp: actor.actorIp,
+          });
+
+          await db
+            .delete(pendingSchedules)
+            .where(eq(pendingSchedules.id, pendingId));
+
+          return {
+            id: pendingId,
+            success: true as const,
+            action: "reject",
+          };
+        } catch (error) {
+          console.error(`Failed to reject selected pending ${pendingId}:`, error);
+          return {
+            id: pendingId,
+            success: false as const,
+            error: "error",
+            message: "거부 처리 중 오류가 발생했습니다.",
+          };
+        }
+      },
+      10,
+    );
+
+    const successCount = results.filter((result) => result.success).length;
+    return Response.json({
+      success: true,
+      totalRequested: targetIds.length,
+      successCount,
+      failedCount: targetIds.length - successCount,
+      results,
+    });
   }
 
   // POST /api/settings/pending/approve-all - 전체 승인

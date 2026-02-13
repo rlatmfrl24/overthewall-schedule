@@ -23,10 +23,12 @@ const KirinukiInfoButton = () => {
         <Button
           variant="ghost"
           size={"sm"}
-          className="rounded-full hover:bg-primary/10"
+          className="h-8 rounded-full px-2 text-xs text-muted-foreground hover:bg-primary/10 sm:px-3"
           aria-label="키리누키 게시에 대한 안내"
         >
-          ⚠️ 키리누키 게시에 대한 안내
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span className="hidden sm:inline">키리누키 안내</span>
+          <span className="sm:hidden">안내</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
@@ -143,14 +145,16 @@ export const YouTubePlaylist = ({
   if (videos.length === 0) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
-          <span className={cn("h-7 w-1.5 rounded-full", accentClassName)} />
-          <div className="flex flex-col">
-            <h2 className="text-lg font-semibold text-foreground tracking-tight">
-              {title}
-            </h2>
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn("h-7 w-1.5 shrink-0 rounded-full", accentClassName)} />
+            <div className="min-w-0 flex items-center gap-2">
+              <h2 className="truncate text-lg font-semibold text-foreground tracking-tight">
+                {title}
+              </h2>
+              {isKirinuki && <KirinukiInfoButton />}
+            </div>
           </div>
-          {isKirinuki && <KirinukiInfoButton />}
         </div>
         <div className="flex items-center justify-center py-8 text-muted-foreground">
           {emptyMessage}
@@ -161,17 +165,17 @@ export const YouTubePlaylist = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-3">
-          <span className={cn("h-7 w-1.5 rounded-full", accentClassName)} />
-          <div className="flex flex-col">
-            <h2 className="text-lg font-semibold text-foreground tracking-tight">
+      <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={cn("h-7 w-1.5 shrink-0 rounded-full", accentClassName)} />
+          <div className="min-w-0 flex items-center gap-2">
+            <h2 className="truncate text-lg font-semibold text-foreground tracking-tight">
               {title}
             </h2>
+            {isKirinuki && <KirinukiInfoButton />}
           </div>
-          {isKirinuki && <KirinukiInfoButton />}
         </div>
-        <div className="flex gap-1">
+        <div className="hidden shrink-0 gap-1 sm:flex">
           <Button
             variant="ghost"
             size="icon"

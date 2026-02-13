@@ -96,11 +96,13 @@ Cron 트리거 → VOD 수집 → 대기 스케줄 저장 → 관리자 검토 �
 | GET    | `/api/settings`                     | 설정 조회        |
 | PUT    | `/api/settings`                     | 설정 업데이트    |
 | POST   | `/api/settings/run-now`             | 수동 실행        |
-| GET    | `/api/settings/logs`                | 로그 조회        |
+| GET    | `/api/settings/logs`                | 로그 조회 (페이지네이션: `page`, `pageSize`, `sort`, `total`) |
 | DELETE | `/api/settings/logs/:id`            | 로그 삭제        |
 | GET    | `/api/settings/pending`             | 대기 스케줄 목록 |
 | POST   | `/api/settings/pending/:id/approve` | 개별 승인        |
 | POST   | `/api/settings/pending/:id/reject`  | 개별 거부        |
+| POST   | `/api/settings/pending/approve-selected` | 선택 승인(배치 결과 상세 반환) |
+| POST   | `/api/settings/pending/reject-selected`  | 선택 거부(배치 결과 상세 반환) |
 | POST   | `/api/settings/pending/approve-all` | 전체 승인        |
 | POST   | `/api/settings/pending/reject-all`  | 전체 거부        |
 

@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -45,12 +46,17 @@ import {
   fetchPendingSchedules,
   approvePendingSchedule,
   rejectPendingSchedule,
+  approveSelectedPendingSchedules,
+  rejectSelectedPendingSchedules,
   approveAllPendingSchedules,
   rejectAllPendingSchedules,
   type AutoUpdateSettings,
   type AutoUpdateRunResult,
   type PendingSchedule,
 } from "@/lib/api/settings";
+import { useToast } from "@/components/ui/toast";
+import { ConfirmActionDialog } from "./components/confirm-action-dialog";
+import { AdminSectionHeader } from "./components/admin-section-header";
 
 const INTERVAL_OPTIONS = [
   { value: "1", label: "1시간" },
@@ -72,7 +78,18 @@ const RUN_DETAIL_LABELS: Record<string, string> = {
   existing: "기존 스케줄 있음",
 };
 
+const PENDING_SORT_OPTIONS = [
+  { value: "date_asc", label: "방송일 빠른순" },
+  { value: "date_desc", label: "방송일 늦은순" },
+  { value: "created_desc", label: "수집일 최신순" },
+  { value: "created_asc", label: "수집일 오래된순" },
+  { value: "member_asc", label: "멤버명 오름차순" },
+] as const;
+
+type PendingSortKey = (typeof PENDING_SORT_OPTIONS)[number]["value"];
+
 export function AutoUpdateSettingsManager() {
+  const { toast } = useToast();
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
   const [pendingList, setPendingList] = useState<PendingSchedule[]>([]);
   const [isFetching, setIsFetching] = useState(false);
@@ -82,7 +99,14 @@ export function AutoUpdateSettingsManager() {
   const [processingPendingId, setProcessingPendingId] = useState<number | null>(
     null,
   );
+  const [processingSelectedIds, setProcessingSelectedIds] = useState<number[]>([]);
+  const [selectedPendingIds, setSelectedPendingIds] = useState<number[]>([]);
+  const [pendingSort, setPendingSort] = useState<PendingSortKey>("date_asc");
   const [isProcessingAll, setIsProcessingAll] = useState(false);
+  const [isProcessingSelected, setIsProcessingSelected] = useState(false);
+  const [confirmBulkAction, setConfirmBulkAction] = useState<
+    "approveAll" | "rejectAll" | "approveSelected" | "rejectSelected" | null
+  >(null);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
 
@@ -93,10 +117,14 @@ export function AutoUpdateSettingsManager() {
       setSettings(data);
     } catch (error) {
       console.error("Failed to load settings:", error);
+      toast({
+        variant: "error",
+        description: "설정을 불러오지 못했습니다.",
+      });
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  }, [toast]);
 
   const loadPending = useCallback(async () => {
     setIsLoadingPending(true);
@@ -105,10 +133,14 @@ export function AutoUpdateSettingsManager() {
       setPendingList(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to load pending schedules:", error);
+      toast({
+        variant: "error",
+        description: "승인 대기 스케줄을 불러오지 못했습니다.",
+      });
     } finally {
       setIsLoadingPending(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void loadSettings();
@@ -116,12 +148,32 @@ export function AutoUpdateSettingsManager() {
   }, [loadSettings, loadPending]);
 
   const sortedPendingList = useMemo(() => {
-    return [...pendingList].sort((a, b) => {
+    const list = [...pendingList];
+    if (pendingSort === "member_asc") {
+      return list.sort((a, b) => a.member_name.localeCompare(b.member_name));
+    }
+
+    if (pendingSort === "created_desc" || pendingSort === "created_asc") {
+      return list.sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return pendingSort === "created_desc" ? bTime - aTime : aTime - bTime;
+      });
+    }
+
+    return list.sort((a, b) => {
       if (a.date !== b.date) {
-        return a.date.localeCompare(b.date);
+        return pendingSort === "date_desc"
+          ? b.date.localeCompare(a.date)
+          : a.date.localeCompare(b.date);
       }
       return (a.start_time || "").localeCompare(b.start_time || "");
     });
+  }, [pendingList, pendingSort]);
+
+  useEffect(() => {
+    const validIds = new Set(pendingList.map((item) => item.id));
+    setSelectedPendingIds((prev) => prev.filter((id) => validIds.has(id)));
   }, [pendingList]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
@@ -135,8 +187,16 @@ export function AutoUpdateSettingsManager() {
         ...settings,
         auto_update_enabled: enabled ? "true" : "false",
       });
+      toast({
+        variant: "success",
+        description: enabled ? "자동 업데이트를 활성화했습니다." : "자동 업데이트를 비활성화했습니다.",
+      });
     } catch (error) {
       console.error("Failed to update settings:", error);
+      toast({
+        variant: "error",
+        description: "자동 업데이트 활성화 설정 변경에 실패했습니다.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -148,8 +208,16 @@ export function AutoUpdateSettingsManager() {
     try {
       await updateSettings({ auto_update_interval_hours: interval });
       setSettings({ ...settings, auto_update_interval_hours: interval });
+      toast({
+        variant: "success",
+        description: `업데이트 주기를 ${interval}시간으로 변경했습니다.`,
+      });
     } catch (error) {
       console.error("Failed to update settings:", error);
+      toast({
+        variant: "error",
+        description: "업데이트 주기 변경에 실패했습니다.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -161,8 +229,16 @@ export function AutoUpdateSettingsManager() {
     try {
       await updateSettings({ auto_update_range_days: range });
       setSettings({ ...settings, auto_update_range_days: range });
+      toast({
+        variant: "success",
+        description: `검색 범위를 ${range}일로 변경했습니다.`,
+      });
     } catch (error) {
       console.error("Failed to update settings:", error);
+      toast({
+        variant: "error",
+        description: "검색 범위 변경에 실패했습니다.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -176,6 +252,12 @@ export function AutoUpdateSettingsManager() {
       setLastRunResult(result);
       await loadSettings();
       await loadPending();
+      toast({
+        variant: result.success ? "success" : "error",
+        description: result.success
+          ? `자동 업데이트 실행 완료 (${result.updated}건 수집)`
+          : "자동 업데이트 실행에 실패했습니다.",
+      });
     } catch (error) {
       console.error("Failed to run auto update:", error);
       setLastRunResult({
@@ -184,68 +266,172 @@ export function AutoUpdateSettingsManager() {
         checked: 0,
         details: [],
       });
+      toast({
+        variant: "error",
+        description: "자동 업데이트 실행에 실패했습니다.",
+      });
     } finally {
       setIsRunning(false);
     }
   };
 
   const handleApprovePending = async (pendingId: number) => {
+    if (isProcessingAll || isProcessingSelected) return;
     setProcessingPendingId(pendingId);
     try {
       await approvePendingSchedule(pendingId);
       setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      setSelectedPendingIds((prev) => prev.filter((id) => id !== pendingId));
+      toast({
+        variant: "success",
+        description: "대기 스케줄을 승인했습니다.",
+      });
     } catch (error) {
       console.error("Failed to approve pending schedule:", error);
+      toast({
+        variant: "error",
+        description: "대기 스케줄 승인에 실패했습니다.",
+      });
     } finally {
       setProcessingPendingId(null);
     }
   };
 
   const handleRejectPending = async (pendingId: number) => {
+    if (isProcessingAll || isProcessingSelected) return;
     setProcessingPendingId(pendingId);
     try {
       await rejectPendingSchedule(pendingId);
       setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      setSelectedPendingIds((prev) => prev.filter((id) => id !== pendingId));
+      toast({
+        variant: "success",
+        description: "대기 스케줄을 거부했습니다.",
+      });
     } catch (error) {
       console.error("Failed to reject pending schedule:", error);
+      toast({
+        variant: "error",
+        description: "대기 스케줄 거부에 실패했습니다.",
+      });
     } finally {
       setProcessingPendingId(null);
     }
   };
 
-  const handleApproveAll = async () => {
-    if (
-      !window.confirm(
-        `${sortedPendingList.length}개의 대기 스케줄을 모두 승인하시겠습니까?`,
-      )
-    )
+  const handleApproveSelected = () => {
+    if (selectedPendingIds.length === 0 || isProcessingAll || isProcessingSelected)
       return;
-    setIsProcessingAll(true);
+    setConfirmBulkAction("approveSelected");
+  };
+
+  const handleRejectSelected = () => {
+    if (selectedPendingIds.length === 0 || isProcessingAll || isProcessingSelected)
+      return;
+    setConfirmBulkAction("rejectSelected");
+  };
+
+  const handleApproveAll = () => {
+    if (sortedPendingList.length === 0 || isProcessingAll || isProcessingSelected)
+      return;
+    setConfirmBulkAction("approveAll");
+  };
+
+  const handleRejectAll = () => {
+    if (sortedPendingList.length === 0 || isProcessingAll || isProcessingSelected)
+      return;
+    setConfirmBulkAction("rejectAll");
+  };
+
+  const handleProcessSelected = async (mode: "approve" | "reject") => {
+    const targetIds = [...selectedPendingIds];
+    if (targetIds.length === 0) return;
+
+    setIsProcessingSelected(true);
+    setProcessingSelectedIds(targetIds);
     try {
-      await approveAllPendingSchedules();
-      setPendingList([]);
+      const result =
+        mode === "approve"
+          ? await approveSelectedPendingSchedules(targetIds)
+          : await rejectSelectedPendingSchedules(targetIds);
+
+      const succeededIds = result.results
+        .filter((entry) => entry.success)
+        .map((entry) => entry.id);
+      const failedCount = result.failedCount ?? targetIds.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        const successSet = new Set(succeededIds);
+        setPendingList((prev) => prev.filter((item) => !successSet.has(item.id)));
+        setSelectedPendingIds((prev) => prev.filter((id) => !successSet.has(id)));
+      }
+
+      toast({
+        variant: failedCount === targetIds.length ? "error" : "success",
+        description:
+          mode === "approve"
+            ? `선택 승인 완료: ${succeededIds.length}건 성공, ${failedCount}건 실패`
+            : `선택 거부 완료: ${succeededIds.length}건 성공, ${failedCount}건 실패`,
+      });
     } catch (error) {
-      console.error("Failed to approve all:", error);
+      console.error(`Failed to process selected pending schedules (${mode}):`, error);
+      toast({
+        variant: "error",
+        description:
+          mode === "approve"
+            ? "선택 승인 처리에 실패했습니다."
+            : "선택 거부 처리에 실패했습니다.",
+      });
     } finally {
-      setIsProcessingAll(false);
+      setIsProcessingSelected(false);
+      setProcessingSelectedIds([]);
     }
   };
 
-  const handleRejectAll = async () => {
-    if (
-      !window.confirm(
-        `${sortedPendingList.length}개의 대기 스케줄을 모두 거부하시겠습니까?`,
-      )
-    )
+  const handleConfirmBulkAction = async () => {
+    if (!confirmBulkAction) return;
+
+    if (confirmBulkAction === "approveSelected") {
+      await handleProcessSelected("approve");
+      setConfirmBulkAction(null);
       return;
+    }
+
+    if (confirmBulkAction === "rejectSelected") {
+      await handleProcessSelected("reject");
+      setConfirmBulkAction(null);
+      return;
+    }
+
     setIsProcessingAll(true);
     try {
-      await rejectAllPendingSchedules();
+      if (confirmBulkAction === "approveAll") {
+        await approveAllPendingSchedules();
+        toast({
+          variant: "success",
+          description: `${sortedPendingList.length}개의 대기 스케줄을 전체 승인했습니다.`,
+        });
+      } else {
+        await rejectAllPendingSchedules();
+        toast({
+          variant: "success",
+          description: `${sortedPendingList.length}개의 대기 스케줄을 전체 거부했습니다.`,
+        });
+      }
       setPendingList([]);
     } catch (error) {
-      console.error("Failed to reject all:", error);
+      console.error("Failed to process all pending schedules:", error);
+      toast({
+        variant: "error",
+        description:
+          confirmBulkAction === "approveAll"
+            ? "전체 승인 처리에 실패했습니다."
+            : "전체 거부 처리에 실패했습니다.",
+      });
     } finally {
       setIsProcessingAll(false);
+      setSelectedPendingIds([]);
+      setConfirmBulkAction(null);
     }
   };
 
@@ -276,34 +462,64 @@ export function AutoUpdateSettingsManager() {
   const isEnabled = settings?.auto_update_enabled === "true";
   const intervalHours = settings?.auto_update_interval_hours || "2";
   const rangeDays = settings?.auto_update_range_days || "3";
+  const selectedPendingSet = useMemo(
+    () => new Set(selectedPendingIds),
+    [selectedPendingIds],
+  );
+  const processingSelectedSet = useMemo(
+    () => new Set(processingSelectedIds),
+    [processingSelectedIds],
+  );
+  const selectedCount = selectedPendingIds.length;
+  const allSelected =
+    sortedPendingList.length > 0 && selectedCount === sortedPendingList.length;
+  const isIndeterminate =
+    selectedCount > 0 && selectedCount < sortedPendingList.length;
+  const isBulkProcessing = isProcessingAll || isProcessingSelected;
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedPendingIds(sortedPendingList.map((item) => item.id));
+      return;
+    }
+    setSelectedPendingIds([]);
+  };
+
+  const togglePendingSelection = (pendingId: number, checked: boolean) => {
+    setSelectedPendingIds((prev) => {
+      if (checked) {
+        if (prev.includes(pendingId)) return prev;
+        return [...prev, pendingId];
+      }
+      return prev.filter((id) => id !== pendingId);
+    });
+  };
 
   return (
     <section className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-xl font-semibold">스케줄 자동 업데이트</h2>
-          <p className="text-sm text-muted-foreground">
-            치지직 VOD 데이터를 기반으로 스케줄을 수집합니다. 수집된 스케줄은
-            승인 후 반영됩니다.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void loadSettings();
-            void loadPending();
-          }}
-          disabled={isFetching || isLoadingPending}
-        >
-          {isFetching || isLoadingPending ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-          <span className="ml-1">새로고침</span>
-        </Button>
-      </div>
+      <AdminSectionHeader
+        title="스케줄 자동 업데이트"
+        description="치지직 VOD 기반 스케줄 수집/승인 워크플로우를 관리합니다."
+        count={sortedPendingList.length}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void loadSettings();
+              void loadPending();
+            }}
+            disabled={isFetching || isLoadingPending}
+          >
+            {isFetching || isLoadingPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            <span className="ml-1">새로고침</span>
+          </Button>
+        }
+      />
 
       {isFetching && !settings ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -530,39 +746,100 @@ export function AutoUpdateSettingsManager() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {/* 일괄 처리 버튼 */}
-                <div className="flex gap-2 mb-4">
-                  <Button
-                    size="sm"
-                    onClick={handleApproveAll}
-                    disabled={isProcessingAll}
-                  >
-                    {isProcessingAll ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                    ) : (
-                      <Check className="w-4 h-4 mr-1" />
-                    )}
-                    전체 승인
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleRejectAll}
-                    disabled={isProcessingAll}
-                  >
-                    {isProcessingAll ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                    ) : (
-                      <X className="w-4 h-4 mr-1" />
-                    )}
-                    전체 거부
-                  </Button>
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleApproveSelected}
+                      disabled={selectedCount === 0 || isBulkProcessing}
+                    >
+                      {isProcessingSelected ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <Check className="w-4 h-4 mr-1" />
+                      )}
+                      선택 승인 ({selectedCount})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRejectSelected}
+                      disabled={selectedCount === 0 || isBulkProcessing}
+                    >
+                      {isProcessingSelected ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <X className="w-4 h-4 mr-1" />
+                      )}
+                      선택 거부 ({selectedCount})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleApproveAll}
+                      disabled={sortedPendingList.length === 0 || isBulkProcessing}
+                    >
+                      {isProcessingAll ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <Check className="w-4 h-4 mr-1" />
+                      )}
+                      전체 승인
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRejectAll}
+                      disabled={sortedPendingList.length === 0 || isBulkProcessing}
+                    >
+                      {isProcessingAll ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                      ) : (
+                        <X className="w-4 h-4 mr-1" />
+                      )}
+                      전체 거부
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="pending-sort" className="text-xs text-muted-foreground">
+                      정렬
+                    </Label>
+                    <Select
+                      value={pendingSort}
+                      onValueChange={(value) => setPendingSort(value as PendingSortKey)}
+                    >
+                      <SelectTrigger id="pending-sort" className="h-8 w-[170px]">
+                        <SelectValue placeholder="정렬 선택" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PENDING_SORT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div className="rounded-md border overflow-hidden">
-                  <Table>
+                  <Table className="min-w-[860px]">
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-[48px]">
+                          <div className="flex items-center justify-center">
+                            <Checkbox
+                              aria-label="전체 선택"
+                              checked={
+                                allSelected ? true : isIndeterminate ? "indeterminate" : false
+                              }
+                              onCheckedChange={(checked) =>
+                                toggleSelectAll(checked === true)
+                              }
+                              disabled={sortedPendingList.length === 0 || isBulkProcessing}
+                            />
+                          </div>
+                        </TableHead>
                         <TableHead className="w-[100px]">수집일</TableHead>
                         <TableHead>멤버</TableHead>
                         <TableHead className="w-[100px]">스케줄 날짜</TableHead>
@@ -575,74 +852,91 @@ export function AutoUpdateSettingsManager() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {sortedPendingList.map((pending) => (
-                        <TableRow key={pending.id}>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatPendingDate(pending.created_at)}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {pending.member_name}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {pending.date}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {pending.start_time || "-"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                pending.action_type === "create"
-                                  ? "default"
-                                  : "secondary"
-                              }
-                              className="text-xs"
+                      {sortedPendingList.map((pending) => {
+                        const isRowProcessing =
+                          processingPendingId === pending.id ||
+                          processingSelectedSet.has(pending.id);
+                        return (
+                          <TableRow key={pending.id}>
+                            <TableCell>
+                              <div className="flex items-center justify-center">
+                                <Checkbox
+                                  aria-label={`${pending.member_name} ${pending.date} 선택`}
+                                  checked={selectedPendingSet.has(pending.id)}
+                                  onCheckedChange={(checked) =>
+                                    togglePendingSelection(pending.id, checked === true)
+                                  }
+                                  disabled={isBulkProcessing || isRowProcessing}
+                                />
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {formatPendingDate(pending.created_at)}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {pending.member_name}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {pending.date}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {pending.start_time || "-"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  pending.action_type === "create"
+                                    ? "default"
+                                    : "secondary"
+                                }
+                                className="text-xs"
+                              >
+                                {pending.action_type === "create"
+                                  ? "신규"
+                                  : "수정"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell
+                              className="max-w-[200px] truncate text-sm"
+                              title={pending.title || ""}
                             >
-                              {pending.action_type === "create"
-                                ? "신규"
-                                : "수정"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell
-                            className="max-w-[200px] truncate text-sm"
-                            title={pending.title || ""}
-                          >
-                            {pending.title || "-"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex gap-1 justify-end">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                onClick={() => handleApprovePending(pending.id)}
-                                disabled={processingPendingId === pending.id}
-                                title="승인"
-                              >
-                                {processingPendingId === pending.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Check className="w-4 h-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                                onClick={() => handleRejectPending(pending.id)}
-                                disabled={processingPendingId === pending.id}
-                                title="거부"
-                              >
-                                {processingPendingId === pending.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <X className="w-4 h-4" />
-                                )}
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                              {pending.title || "-"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex gap-1 justify-end">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                  onClick={() => handleApprovePending(pending.id)}
+                                  disabled={isBulkProcessing || isRowProcessing}
+                                  title="승인"
+                                >
+                                  {isRowProcessing ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Check className="w-4 h-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => handleRejectPending(pending.id)}
+                                  disabled={isBulkProcessing || isRowProcessing}
+                                  title="거부"
+                                >
+                                  {isRowProcessing ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <X className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -651,6 +945,48 @@ export function AutoUpdateSettingsManager() {
           )}
         </>
       )}
+
+      <ConfirmActionDialog
+        open={confirmBulkAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmBulkAction(null);
+        }}
+        title={
+          confirmBulkAction === "approveAll"
+            ? "전체 승인 확인"
+            : confirmBulkAction === "rejectAll"
+              ? "전체 거부 확인"
+              : confirmBulkAction === "approveSelected"
+                ? "선택 승인 확인"
+                : "선택 거부 확인"
+        }
+        description={
+          confirmBulkAction === "approveAll"
+            ? `${sortedPendingList.length}개의 대기 스케줄을 모두 승인하시겠습니까?`
+            : confirmBulkAction === "rejectAll"
+              ? `${sortedPendingList.length}개의 대기 스케줄을 모두 거부하시겠습니까?`
+              : confirmBulkAction === "approveSelected"
+                ? `${selectedCount}개의 선택 항목을 승인하시겠습니까?`
+                : `${selectedCount}개의 선택 항목을 거부하시겠습니까?`
+        }
+        confirmLabel={
+          confirmBulkAction === "approveAll"
+            ? "전체 승인"
+            : confirmBulkAction === "rejectAll"
+              ? "전체 거부"
+              : confirmBulkAction === "approveSelected"
+                ? "선택 승인"
+                : "선택 거부"
+        }
+        destructive={
+          confirmBulkAction === "rejectAll" ||
+          confirmBulkAction === "rejectSelected"
+        }
+        isProcessing={isProcessingAll || isProcessingSelected}
+        onConfirm={() => {
+          void handleConfirmBulkAction();
+        }}
+      />
     </section>
   );
 }

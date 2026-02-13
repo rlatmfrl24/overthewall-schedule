@@ -7,7 +7,8 @@ import {
   hexToRgba,
 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Clock, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { CardSchedule } from "./card-schedule";
 
 interface CardMemberCompactProps {
   member: Member;
@@ -115,24 +116,12 @@ export const CardMemberCompact = ({
         {hasSchedule ? (
           <>
             {visibleSchedules.map((schedule) => (
-              <div
+              <CardSchedule
                 key={schedule.id}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onScheduleClick?.(schedule);
-                }}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card/80 px-2.5 py-1.5 shadow-sm"
-              >
-                <p className="text-sm font-bold text-foreground line-clamp-1">
-                  {schedule.title || "방송 예정"}
-                </p>
-                {schedule.start_time && (
-                  <span className="flex items-center text-[11px] font-medium text-muted-foreground">
-                    <Clock className="mr-1 h-3 w-3" />
-                    {schedule.start_time}
-                  </span>
-                )}
-              </div>
+                schedule={schedule}
+                onClick={onScheduleClick}
+                accentColor={mainColor}
+              />
             ))}
             {remainingCount > 0 && (
               <span className="text-[11px] font-medium text-muted-foreground">

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { type Notice } from "@/db/schema";
 import {
   Loader2,
@@ -7,16 +7,25 @@ import {
   Trash2,
   ExternalLink,
   Calendar,
-  MoreVertical,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { NoticeFormDialog, type NoticeFormValues } from "./notice-form-dialog";
 import { cn } from "@/lib/utils";
 import {
@@ -25,6 +34,9 @@ import {
   fetchNotices,
   updateNotice,
 } from "@/lib/api/notices";
+import { useToast } from "@/components/ui/toast";
+import { ConfirmActionDialog } from "./components/confirm-action-dialog";
+import { AdminSectionHeader } from "./components/admin-section-header";
 
 const noticeTypeConfigs = {
   notice: {
@@ -41,12 +53,31 @@ const noticeTypeConfigs = {
 
 type NoticeTypeKey = keyof typeof noticeTypeConfigs;
 
+const NOTICE_SORT_OPTIONS = [
+  { value: "created_desc", label: "최신 등록순" },
+  { value: "created_asc", label: "오래된 등록순" },
+  { value: "active_first", label: "활성 우선" },
+  { value: "type_then_created", label: "유형별 정렬" },
+] as const;
+
+type NoticeSortKey = (typeof NOTICE_SORT_OPTIONS)[number]["value"];
+
+const formatPeriod = (notice: Notice) => {
+  if (!notice.started_at && !notice.ended_at) return "기간 설정 없음";
+  return `${notice.started_at?.replace(/-/g, ".") ?? "..."} ~ ${
+    notice.ended_at?.replace(/-/g, ".") ?? "..."
+  }`;
+};
+
 export function NoticeManager() {
+  const { toast } = useToast();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
+  const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
+  const [noticeSort, setNoticeSort] = useState<NoticeSortKey>("created_desc");
 
   const loadNotices = useCallback(async () => {
     setIsFetching(true);
@@ -55,14 +86,48 @@ export function NoticeManager() {
       setNotices(data);
     } catch (error) {
       console.error("Failed to load notices:", error);
+      toast({
+        variant: "error",
+        description: "공지사항 목록을 불러오지 못했습니다.",
+      });
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void loadNotices();
   }, [loadNotices]);
+
+  const sortedNotices = useMemo(() => {
+    const list = [...notices];
+    if (noticeSort === "active_first") {
+      return list.sort((a, b) => {
+        const aActive = a.is_active !== false ? 1 : 0;
+        const bActive = b.is_active !== false ? 1 : 0;
+        if (aActive !== bActive) return bActive - aActive;
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      });
+    }
+
+    if (noticeSort === "type_then_created") {
+      return list.sort((a, b) => {
+        const typeCompare = a.type.localeCompare(b.type);
+        if (typeCompare !== 0) return typeCompare;
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bTime - aTime;
+      });
+    }
+
+    return list.sort((a, b) => {
+      const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return noticeSort === "created_desc" ? bTime - aTime : aTime - bTime;
+    });
+  }, [notices, noticeSort]);
 
   const handleOpenCreate = () => {
     setEditingNotice(null);
@@ -74,13 +139,23 @@ export function NoticeManager() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("정말로 이 공지사항을 삭제하시겠습니까?")) return;
+  const handleDelete = async () => {
+    if (!deletingNotice?.id) return;
     try {
-      await deleteNotice(id);
+      await deleteNotice(deletingNotice.id);
       await loadNotices();
+      toast({
+        variant: "success",
+        description: "공지사항을 삭제했습니다.",
+      });
     } catch (error) {
       console.error("Delete failed:", error);
+      toast({
+        variant: "error",
+        description: "공지사항 삭제에 실패했습니다.",
+      });
+    } finally {
+      setDeletingNotice(null);
     }
   };
 
@@ -103,134 +178,164 @@ export function NoticeManager() {
 
       await loadNotices();
       setIsDialogOpen(false);
+      toast({
+        variant: "success",
+        description: editingNotice?.id
+          ? "공지사항을 수정했습니다."
+          : "공지사항을 등록했습니다.",
+      });
     } catch (error) {
       console.error("Failed to save notice:", error);
+      toast({
+        variant: "error",
+        description: "공지사항 저장에 실패했습니다.",
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">공지사항 관리</h2>
-          <p className="text-muted-foreground">
-            메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다.
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate} className="shrink-0 gap-2">
-          <PlusCircle className="w-4 h-4" />새 공지 등록
-        </Button>
-      </div>
-
-      <div className="grid gap-4">
-        {isFetching && notices.length === 0 ? (
-          <div className="flex items-center justify-center h-64 border rounded-xl border-dashed">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : notices.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 border rounded-xl border-dashed bg-muted/30 text-muted-foreground gap-2">
-            <p>등록된 공지사항이 없습니다.</p>
-            <Button variant="outline" size="sm" onClick={handleOpenCreate}>
-              첫 공지사항 등록하기
+    <div className="space-y-4">
+      <AdminSectionHeader
+        title="공지사항 관리"
+        description="메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."
+        count={sortedNotices.length}
+        actions={
+          <>
+            <Select
+              value={noticeSort}
+              onValueChange={(value) => setNoticeSort(value as NoticeSortKey)}
+            >
+              <SelectTrigger className="h-8 w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {NOTICE_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadNotices()}
+              disabled={isFetching}
+            >
+              {isFetching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
             </Button>
-          </div>
-        ) : (
-          <div className="flex flex-col divide-y rounded-2xl border bg-card">
-            {notices.map((notice) => (
-              <div
-                key={notice.id}
-                className={cn(
-                  "flex flex-col gap-3 px-4 py-4 transition-colors",
-                  notice.is_active === false
-                    ? "bg-muted/10 text-muted-foreground/90"
-                    : "hover:bg-muted/10",
-                )}
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={handleOpenCreate} size="sm" className="gap-1.5">
+              <PlusCircle className="h-4 w-4" />
+              새 공지
+            </Button>
+          </>
+        }
+      />
+
+      {isFetching && sortedNotices.length === 0 ? (
+        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
+          <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+        </div>
+      ) : sortedNotices.length === 0 ? (
+        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-muted/30 text-sm text-muted-foreground">
+          등록된 공지사항이 없습니다.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <Table className="min-w-[980px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[96px]">상태</TableHead>
+                <TableHead className="w-[110px]">유형</TableHead>
+                <TableHead>내용</TableHead>
+                <TableHead className="w-[190px]">기간</TableHead>
+                <TableHead className="w-[220px]">링크</TableHead>
+                <TableHead className="w-[90px] text-right">작업</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedNotices.map((notice) => (
+                <TableRow key={notice.id}>
+                  <TableCell>
+                    {notice.is_active !== false ? (
+                      <Badge className="bg-emerald-600 text-white">게시중</Badge>
+                    ) : (
+                      <Badge variant="secondary">비활성</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Badge
                       variant="secondary"
                       className={cn(
-                        "font-medium border shadow-xs h-6",
-                        noticeTypeConfigs[notice.type as NoticeTypeKey]
-                          ?.badgeClass,
+                        "font-medium border shadow-xs",
+                        noticeTypeConfigs[notice.type as NoticeTypeKey]?.badgeClass,
                       )}
                     >
                       {noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ??
                         notice.type}
                     </Badge>
-                    {notice.is_active !== false && (
-                      <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
-                        게시중
-                      </span>
+                  </TableCell>
+                  <TableCell
+                    className="max-w-[420px] truncate text-sm"
+                    title={notice.content}
+                  >
+                    {notice.content}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5" />
+                      {formatPeriod(notice)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    {notice.url ? (
+                      <a
+                        href={notice.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex max-w-[200px] items-center gap-1 truncate text-xs text-primary hover:underline"
+                        title={notice.url}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        {notice.url}
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
                     )}
-                  </div>
-
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        size="icon-sm"
+                        onClick={() => handleOpenEdit(notice)}
+                        title="수정"
                       >
-                        <MoreVertical className="w-4 h-4" />
+                        <Pencil className="h-4 w-4" />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleOpenEdit(notice)}>
-                        <Pencil className="w-4 h-4 mr-2" /> 수정
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => handleDelete(notice.id!)}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeletingNotice(notice)}
+                        title="삭제"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" /> 삭제
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <p className="font-medium text-sm leading-relaxed whitespace-pre-wrap wrap-break-word line-clamp-4 text-foreground/90">
-                  {notice.content}
-                </p>
-
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  {notice.url ? (
-                    <a
-                      href={notice.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground hover:text-primary transition-colors rounded-md bg-muted/30 hover:bg-muted group/link"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted-foreground group-hover/link:text-primary transition-colors" />
-                      <span className="truncate underline-offset-4 group-hover/link:underline">
-                        {notice.url}
-                      </span>
-                    </a>
-                  ) : (
-                    <div className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground/50 bg-muted/10 rounded-md select-none">
-                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                      <span>링크 없음</span>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Calendar className="w-4 h-4 shrink-0" />
-                    <span>
-                      {notice.started_at || notice.ended_at
-                        ? `${
-                            notice.started_at?.replace(/-/g, ".") ?? "..."
-                          } ~ ${notice.ended_at?.replace(/-/g, ".") ?? "..."}`
-                        : "기간 설정 없음"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <NoticeFormDialog
         open={isDialogOpen}
@@ -238,6 +343,20 @@ export function NoticeManager() {
         onSubmit={handleSubmit}
         initialValues={editingNotice}
         isSaving={isSaving}
+      />
+
+      <ConfirmActionDialog
+        open={Boolean(deletingNotice)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingNotice(null);
+        }}
+        title="공지사항 삭제 확인"
+        description="정말로 이 공지사항을 삭제하시겠습니까?"
+        confirmLabel="삭제"
+        destructive
+        onConfirm={() => {
+          void handleDelete();
+        }}
       />
     </div>
   );

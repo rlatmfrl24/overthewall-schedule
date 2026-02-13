@@ -22,7 +22,7 @@ function RouteComponent() {
 
   if (!isLoaded) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -30,7 +30,7 @@ function RouteComponent() {
 
   if (!isSignedIn) {
     return (
-      <div className="flex w-full h-screen items-center justify-center px-4">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
             <ShieldAlert className="h-10 w-10 text-amber-500 mb-2" />
@@ -54,7 +54,7 @@ function RouteComponent() {
 
   if (!authorized) {
     return (
-      <div className="flex w-full h-screen items-center justify-center px-4">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
         <Card className="w-full max-w-md">
           <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
             <ShieldAlert className="h-10 w-10 text-destructive mb-2" />
@@ -85,8 +85,10 @@ function RouteComponent() {
   }
 
   return (
-    <AdminLayout>
-      <Outlet />
-    </AdminLayout>
+    <div className="flex min-h-0 w-full flex-1">
+      <AdminLayout>
+        <Outlet />
+      </AdminLayout>
+    </div>
   );
 }

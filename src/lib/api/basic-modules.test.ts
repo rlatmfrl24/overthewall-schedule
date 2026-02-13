@@ -18,11 +18,13 @@ import {
 import { fetchKirinukiVideos } from "./kirinuki";
 import {
   approveAllPendingSchedules,
+  approveSelectedPendingSchedules,
   approvePendingSchedule,
   fetchPendingSchedules,
   fetchSettings,
   fetchUpdateLogs,
   rejectAllPendingSchedules,
+  rejectSelectedPendingSchedules,
   rejectPendingSchedule,
   runAutoUpdateNow,
   updateSettings,
@@ -203,12 +205,42 @@ describe("api wrapper modules", () => {
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+      })
       .mockResolvedValueOnce({ success: true, updated: 0, checked: 0, details: [] })
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 20,
+        totalPages: 1,
+        hasPrevPage: true,
+        hasNextPage: false,
+      })
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce({ success: true, action: "approved" })
       .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 2,
+        successCount: 2,
+        failedCount: 0,
+        results: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 2,
+        successCount: 2,
+        failedCount: 0,
+        results: [],
+      })
       .mockResolvedValueOnce({ success: true, approvedCount: 3 })
       .mockResolvedValueOnce({ success: true, rejectedCount: 2 });
 
@@ -218,7 +250,9 @@ describe("api wrapper modules", () => {
     await runAutoUpdateNow();
     await fetchUpdateLogs();
     await fetchUpdateLogs({
-      limit: 20,
+      page: 2,
+      pageSize: 20,
+      sort: "created_desc",
       action: "auto_update",
       member: "멤버",
       dateFrom: "2026-02-01",
@@ -228,6 +262,8 @@ describe("api wrapper modules", () => {
     await fetchPendingSchedules();
     await approvePendingSchedule(11);
     await rejectPendingSchedule(12);
+    await approveSelectedPendingSchedules([11, 13]);
+    await rejectSelectedPendingSchedules([12, 14]);
     await approveAllPendingSchedules();
     await rejectAllPendingSchedules();
 
@@ -240,9 +276,11 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {
       method: "POST",
     });
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/logs?limit=50");
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/logs?limit=20&action=auto_update&member=%EB%A9%A4%EB%B2%84&dateFrom=2026-02-01&dateTo=2026-02-13&query=%EA%B2%80%EC%83%89",
+      "/api/settings/logs?page=1&pageSize=50&sort=created_desc",
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/logs?page=2&pageSize=20&sort=created_desc&action=auto_update&member=%EB%A9%A4%EB%B2%84&dateFrom=2026-02-01&dateTo=2026-02-13&query=%EA%B2%80%EC%83%89",
     );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending");
     expect(apiFetchMock).toHaveBeenCalledWith(
@@ -252,6 +290,14 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/12/reject",
       { method: "POST" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/approve-selected",
+      { method: "POST", json: { ids: [11, 13] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/reject-selected",
+      { method: "POST", json: { ids: [12, 14] } },
     );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending/approve-all", {
       method: "POST",

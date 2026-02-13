@@ -17,9 +17,13 @@ export const SnapshotCardMember = ({
   const subColor = member.sub_color || member.main_color || "#f3f4f6";
 
   const headerTextColor = getContrastColor(mainColor);
-  const bodyBgColor = hexToRgba(subColor, 0.15);
+  const bodyBgGradient = `linear-gradient(180deg, rgba(17,18,22,0.95) 0%, rgba(17,18,22,0.99) 100%), linear-gradient(120deg, ${hexToRgba(
+    subColor,
+    0.16,
+  )} 0%, transparent 70%)`;
   const borderColor = hexToRgba(mainColor, 0.3);
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1);
+  const memberNameChipBgColor = hexToRgba(headerTextColor, 0.2);
 
   return (
     <div
@@ -27,7 +31,7 @@ export const SnapshotCardMember = ({
       style={{ border: `1px solid ${borderColor}` }}
     >
       <div
-        className="relative h-24 flex flex-col items-start justify-between p-2.5 transition-colors duration-300"
+        className="relative h-[112px] flex flex-col items-start justify-between px-4 py-3 transition-colors duration-300"
         style={{ backgroundColor: mainColor }}
       >
         {member.unit_name && (
@@ -42,7 +46,7 @@ export const SnapshotCardMember = ({
           </span>
         )}
 
-        <div className="flex items-center gap-2 min-w-0 mb-2">
+        <div className="flex w-full items-center gap-2.5 min-w-0">
           <div className="relative shrink-0">
             <div
               className="absolute -inset-1 rounded-full opacity-20 blur-sm"
@@ -51,11 +55,17 @@ export const SnapshotCardMember = ({
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
-              className="relative h-10 w-10 rounded-full border-2 object-cover shadow-sm"
+              className="relative h-12 w-12 rounded-full border-2 object-cover shadow-sm"
               style={{ borderColor: "white" }}
             />
           </div>
-          <span className="font-extrabold text-lg leading-snug break-keep line-clamp-2 px-2 py-1 rounded-md bg-black/35 text-white backdrop-blur-sm">
+          <span
+            className="font-extrabold text-[1.9rem] leading-none break-keep line-clamp-1 px-2.5 py-1 rounded-lg shadow-sm"
+            style={{
+              backgroundColor: memberNameChipBgColor,
+              color: headerTextColor,
+            }}
+          >
             {member.name}
           </span>
         </div>
@@ -63,8 +73,8 @@ export const SnapshotCardMember = ({
       </div>
 
       <div
-        className="flex flex-1 flex-col pt-3 pb-2 px-2.5"
-        style={{ backgroundColor: bodyBgColor }}
+        className="flex flex-1 flex-col px-2.5 pt-3 pb-2"
+        style={{ background: bodyBgGradient }}
       >
         <div className="flex flex-col gap-2 flex-1">
           {hasSchedule ? (
@@ -72,6 +82,7 @@ export const SnapshotCardMember = ({
               <SnapshotCardSchedule
                 key={schedule.id}
                 schedule={schedule}
+                accentColor={mainColor}
               />
             ))
           ) : (
