@@ -1,4 +1,5 @@
 import { format } from "date-fns";
+import { useMemo } from "react";
 import type { Member, ScheduleItem, DDayItem } from "@/lib/types";
 import { WeeklyGridHeader } from "./weekly-grid-header";
 import { WeeklyGridMemberCell } from "./weekly-grid-member-cell";
@@ -21,6 +22,20 @@ export const WeeklyGrid = ({
   onAddSchedule,
   onEditSchedule,
 }: WeeklyGridProps) => {
+  const schedulesByMemberAndDate = useMemo(() => {
+    const grouped = new Map<string, ScheduleItem[]>();
+    for (const schedule of schedules) {
+      const key = `${schedule.member_uid}:${schedule.date}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.push(schedule);
+      } else {
+        grouped.set(key, [schedule]);
+      }
+    }
+    return grouped;
+  }, [schedules]);
+
   return (
     <div className="flex-1 min-h-0 overflow-hidden px-4 sm:px-6 lg:px-8 pb-8 flex flex-col">
       <div className="pb-4 flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -43,9 +58,9 @@ export const WeeklyGrid = ({
                   {/* Day Columns */}
                   {weekDays.map((day) => {
                     const dateStr = format(day, "yyyy-MM-dd");
-                    const daySchedules = schedules.filter(
-                      (s) => s.member_uid === member.uid && s.date === dateStr
-                    );
+                    const daySchedules =
+                      schedulesByMemberAndDate.get(`${member.uid}:${dateStr}`) ??
+                      [];
 
                     return (
                       <WeeklyGridDayCell

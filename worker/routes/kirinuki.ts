@@ -1,9 +1,11 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { kirinukiChannels } from "../../src/db/schema";
-import { badRequest, parseNumericId } from "../utils/helpers";
+import { badRequest, pMap, parseNumericId } from "../utils/helpers";
 import type { Env, YouTubeVideoItem } from "../types";
 import { fetchYouTubeVideosForChannel } from "../services/youtube";
+
+const KIRINUKI_BATCH_CONCURRENCY = 4;
 
 export const handleKirinuki = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -133,8 +135,9 @@ export const handleKirinuki = async (request: Request, env: Env) => {
     }
 
     // 3. 각 채널별로 영상 조회 (병렬 처리)
-    const channelResults = await Promise.all(
-      channels.map(async (channel) => {
+    const channelResults = await pMap(
+      channels,
+      async (channel) => {
         const content = await fetchYouTubeVideosForChannel(
           channel.youtube_channel_id,
           apiKey,
@@ -146,7 +149,8 @@ export const handleKirinuki = async (request: Request, env: Env) => {
           channelUrl: channel.channel_url,
           content,
         };
-      }),
+      },
+      KIRINUKI_BATCH_CONCURRENCY,
     );
 
     // 4. 전체 영상/쇼츠 집계 (최신순 정렬)

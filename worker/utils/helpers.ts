@@ -3,10 +3,17 @@ import { type DbInstance } from "../db";
 import { members, settings, updateLogs } from "../../src/db/schema";
 import type { UpdateLogPayload } from "../types";
 
-export const json = (data: unknown, status = 200) => {
+export const json = (
+  data: unknown,
+  status = 200,
+  options: { headers?: HeadersInit } = {},
+) => {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
   });
 };
 

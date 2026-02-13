@@ -44,6 +44,11 @@ export const schedules = sqliteTable(
   },
   (table) => [
     index("idx_schedules_date").on(table.date),
+    index("idx_schedules_member_date_time").on(
+      table.member_uid,
+      table.date,
+      table.start_time,
+    ),
     check(
       "schedules_status_check",
       sql`status IN ('방송', '휴방', '게릴라', '미정')`,
@@ -103,40 +108,66 @@ export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 
 // 스케쥴 통합 업데이트 로그 테이블
-export const updateLogs = sqliteTable("update_logs", {
-  id: integer().primaryKey({ autoIncrement: true }),
-  schedule_id: integer("schedule_id"),
-  member_uid: integer("member_uid"),
-  member_name: text("member_name"),
-  actor_id: text("actor_id"),
-  actor_name: text("actor_name"),
-  actor_ip: text("actor_ip"),
-  schedule_date: text("schedule_date").notNull(),
-  action: text().notNull(),
-  title: text(),
-  previous_status: text("previous_status"),
-  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
-});
+export const updateLogs = sqliteTable(
+  "update_logs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    schedule_id: integer("schedule_id"),
+    member_uid: integer("member_uid"),
+    member_name: text("member_name"),
+    actor_id: text("actor_id"),
+    actor_name: text("actor_name"),
+    actor_ip: text("actor_ip"),
+    schedule_date: text("schedule_date").notNull(),
+    action: text().notNull(),
+    title: text(),
+    previous_status: text("previous_status"),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_update_logs_created_at").on(table.created_at),
+    index("idx_update_logs_action_created_at").on(
+      table.action,
+      table.created_at,
+    ),
+    index("idx_update_logs_schedule_date_created_at").on(
+      table.schedule_date,
+      table.created_at,
+    ),
+  ],
+);
 
 export type UpdateLog = typeof updateLogs.$inferSelect;
 export type NewUpdateLog = typeof updateLogs.$inferInsert;
 
 // 승인 대기 스케줄 테이블
-export const pendingSchedules = sqliteTable("pending_schedules", {
-  id: integer().primaryKey({ autoIncrement: true }),
-  member_uid: integer("member_uid").notNull(),
-  member_name: text("member_name").notNull(),
-  date: text().notNull(),
-  start_time: text("start_time"),
-  title: text(),
-  status: text().notNull().default("방송"),
-  action_type: text("action_type").notNull(), // "create" | "update"
-  existing_schedule_id: integer("existing_schedule_id"), // 수정 대상 스케줄 ID
-  previous_status: text("previous_status"), // 수정 전 상태
-  previous_title: text("previous_title"), // 수정 전 제목
-  vod_id: text("vod_id"), // 중복 방지용 VOD 식별자
-  created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
-});
+export const pendingSchedules = sqliteTable(
+  "pending_schedules",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    member_uid: integer("member_uid").notNull(),
+    member_name: text("member_name").notNull(),
+    date: text().notNull(),
+    start_time: text("start_time"),
+    title: text(),
+    status: text().notNull().default("방송"),
+    action_type: text("action_type").notNull(), // "create" | "update"
+    existing_schedule_id: integer("existing_schedule_id"), // 수정 대상 스케줄 ID
+    previous_status: text("previous_status"), // 수정 전 상태
+    previous_title: text("previous_title"), // 수정 전 제목
+    vod_id: text("vod_id"), // 중복 방지용 VOD 식별자
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_pending_schedules_vod_id").on(table.vod_id),
+    index("idx_pending_schedules_member_date_time").on(
+      table.member_uid,
+      table.date,
+      table.start_time,
+    ),
+    index("idx_pending_schedules_created_at").on(table.created_at),
+  ],
+);
 
 export type PendingSchedule = typeof pendingSchedules.$inferSelect;
 export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;

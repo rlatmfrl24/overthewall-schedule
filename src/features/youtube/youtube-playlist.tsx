@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import type { YouTubeVideo, Member } from "@/lib/types";
 import { YouTubeVideoCard } from "./youtube-video-card";
 import { cn } from "@/lib/utils";
@@ -98,7 +98,10 @@ export const YouTubePlaylist = ({
   const [canScrollRight, setCanScrollRight] = useState(false);
 
   // 멤버 uid -> member 매핑
-  const memberMap = new Map(members.map((m) => [m.uid, m]));
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
 
   const checkScrollability = () => {
     const el = scrollRef.current;

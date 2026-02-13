@@ -48,7 +48,10 @@ export const ChronologicalScheduleList = ({
     return { timelineItems: timeline, otherItems: others };
   }, [schedules]);
 
-  const getMember = (uid: number) => members.find((m) => m.uid === uid);
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
 
   return (
     <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto px-2 sm:px-4">
@@ -60,7 +63,7 @@ export const ChronologicalScheduleList = ({
               <div key={schedule.id} className="relative">
                 <ScheduleCard
                   schedule={schedule}
-                  member={getMember(schedule.member_uid)}
+                  member={memberMap.get(schedule.member_uid)}
                   onClick={onScheduleClick}
                   liveStatus={liveStatuses[schedule.member_uid]}
                   isTimeline
@@ -88,7 +91,7 @@ export const ChronologicalScheduleList = ({
               <ScheduleCard
                 key={schedule.id}
                 schedule={schedule}
-                member={getMember(schedule.member_uid)}
+                member={memberMap.get(schedule.member_uid)}
                 onClick={onScheduleClick}
                 liveStatus={liveStatuses[schedule.member_uid]}
               />

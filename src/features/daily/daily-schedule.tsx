@@ -199,6 +199,19 @@ export const DailySchedule = () => {
     return () => clearInterval(timer);
   }, [members, schedules, fetchLiveStatuses]);
 
+  const schedulesByMemberUid = useMemo(() => {
+    const grouped = new Map<number, ScheduleItem[]>();
+    for (const schedule of schedules) {
+      const existing = grouped.get(schedule.member_uid);
+      if (existing) {
+        existing.push(schedule);
+      } else {
+        grouped.set(schedule.member_uid, [schedule]);
+      }
+    }
+    return grouped;
+  }, [schedules]);
+
   const ddayForToday = getDDaysForDate(ddays, currentDate);
 
   const handleSaveSchedule = async (data: {
@@ -736,9 +749,8 @@ export const DailySchedule = () => {
             >
               {members.length > 0 ? (
                 members.map((member) => {
-                  const memberSchedules = schedules.filter(
-                    (s) => s.member_uid === member.uid,
-                  );
+                  const memberSchedules =
+                    schedulesByMemberUid.get(member.uid) ?? [];
                   const isToday = isSameDay(currentDate, new Date());
 
                   return (

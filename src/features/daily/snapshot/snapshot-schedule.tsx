@@ -56,6 +56,19 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
     };
   }, [hasLoaded, isSchedulesLoaded]);
 
+  const schedulesByMemberUid = useMemo(() => {
+    const grouped = new Map<number, ScheduleItem[]>();
+    for (const schedule of schedules) {
+      const existing = grouped.get(schedule.member_uid);
+      if (existing) {
+        existing.push(schedule);
+      } else {
+        grouped.set(schedule.member_uid, [schedule]);
+      }
+    }
+    return grouped;
+  }, [schedules]);
+
   const isReady = hasLoaded && isSchedulesLoaded && isSnapshotReady;
 
   return (
@@ -87,9 +100,8 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
         ) : (
           <div className="grid grid-cols-3 gap-4">
             {members.map((member) => {
-              const memberSchedules = schedules.filter(
-                (s) => s.member_uid === member.uid,
-              );
+              const memberSchedules =
+                schedulesByMemberUid.get(member.uid) ?? [];
               return (
                 <SnapshotCardMember
                   key={`snapshot-${member.uid}`}
