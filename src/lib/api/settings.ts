@@ -39,7 +39,7 @@ export interface UpdateLog {
   created_at: string | null;
 }
 
-export interface UpdateLogQuery {
+interface UpdateLogQuery {
   limit?: number;
   action?: string;
   member?: string;
@@ -114,14 +114,6 @@ export async function fetchUpdateLogs(
     query: queryOptions.query,
   });
   return apiFetch<UpdateLog[]>(`/api/settings/logs?${queryString}`);
-}
-
-export async function deleteUpdateLog(
-  logId: number
-): Promise<{ success: boolean }> {
-  return apiFetch(`/api/settings/logs/${logId}`, {
-    method: "DELETE",
-  });
 }
 
 // 대기 스케줄 API

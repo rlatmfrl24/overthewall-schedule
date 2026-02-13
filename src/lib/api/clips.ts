@@ -2,17 +2,12 @@ import { apiFetch } from "./client";
 import type { ChzzkClipsResponse, ChzzkClip, Member } from "@/lib/types";
 import { extractChzzkChannelId } from "@/lib/utils";
 
-interface ChzzkClipsApiResponse {
-  updatedAt: string;
-  content: ChzzkClipsResponse | null;
-}
-
 interface ChzzkClipsBatchApiResponse {
   updatedAt: string;
   items: { channelId: string; content: ChzzkClipsResponse | null }[];
 }
 
-export interface FetchChzzkClipsOptions {
+interface FetchChzzkClipsOptions {
   size?: number;
 }
 
@@ -21,7 +16,6 @@ const clipsCache = new Map<
   string,
   { fetchedAt: number; content: ChzzkClipsResponse | null }
 >();
-const clipsInFlight = new Map<string, Promise<ChzzkClipsResponse | null>>();
 const clipsBatchInFlight = new Map<
   string,
   Promise<Record<string, ChzzkClipsResponse | null>>
@@ -32,45 +26,6 @@ const isCacheFresh = (fetchedAt: number) =>
 
 const makeCacheKey = (channelId: string, size: number) =>
   `${channelId}:${size}`;
-
-/**
- * 단일 채널의 치지직 클립 목록 조회
- */
-export async function fetchChzzkClips(
-  channelId: string,
-  options: FetchChzzkClipsOptions = {},
-): Promise<ChzzkClipsResponse | null> {
-  const { size = 30 } = options;
-  const cacheKey = makeCacheKey(channelId, size);
-  const cached = clipsCache.get(cacheKey);
-  if (cached && isCacheFresh(cached.fetchedAt)) {
-    return cached.content;
-  }
-  const inFlight = clipsInFlight.get(cacheKey);
-  if (inFlight) {
-    return inFlight;
-  }
-
-  const params = new URLSearchParams({
-    channelId,
-    size: String(size),
-  });
-
-  const request = (async () => {
-    const response = await apiFetch<ChzzkClipsApiResponse>(
-      `/api/clips/chzzk?${params}`,
-    );
-    const content = response?.content ?? null;
-    clipsCache.set(cacheKey, { fetchedAt: Date.now(), content });
-    return content;
-  })();
-  clipsInFlight.set(cacheKey, request);
-  try {
-    return await request;
-  } finally {
-    clipsInFlight.delete(cacheKey);
-  }
-}
 
 /**
  * 여러 채널의 치지직 클립 배치 조회

@@ -8,7 +8,7 @@ interface YouTubeVideoCardSkeletonProps {
 /**
  * 개별 YouTube 비디오 카드 스켈레톤
  */
-export const YouTubeVideoCardSkeleton = ({
+const YouTubeVideoCardSkeleton = ({
   variant = "default",
 }: YouTubeVideoCardSkeletonProps) => {
   const isShort = variant === "short";
@@ -48,7 +48,7 @@ interface YouTubePlaylistSkeletonProps {
 /**
  * YouTube 플레이리스트 스켈레톤 (가로 스크롤)
  */
-export const YouTubePlaylistSkeleton = ({
+const YouTubePlaylistSkeleton = ({
   variant = "default",
 }: YouTubePlaylistSkeletonProps) => {
   const count = variant === "short" ? 8 : 5;

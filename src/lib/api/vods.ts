@@ -2,27 +2,17 @@ import { apiFetch } from "./client";
 import type { ChzzkVideosResponse, ChzzkVideo, Member } from "@/lib/types";
 import { extractChzzkChannelId } from "@/lib/utils";
 
-interface ChzzkVideosApiResponse {
-  updatedAt: string;
-  content: ChzzkVideosResponse | null;
-}
-
 interface ChzzkVideosBatchApiResponse {
   updatedAt: string;
   items: { channelId: string; content: ChzzkVideosResponse | null }[];
 }
 
-export interface FetchChzzkVideosOptions {
+interface FetchChzzkVideosOptions {
   page?: number;
   size?: number;
 }
 
 const CHZZK_VODS_CACHE_TTL_MS = 300_000;
-const vodListCache = new Map<
-  string,
-  { fetchedAt: number; content: ChzzkVideosResponse | null }
->();
-const vodListInFlight = new Map<string, Promise<ChzzkVideosResponse | null>>();
 const latestVideoCache = new Map<
   string,
   { fetchedAt: number; video: ChzzkVideo | null }
@@ -34,48 +24,6 @@ const vodBatchInFlight = new Map<
 
 const isCacheFresh = (fetchedAt: number) =>
   Date.now() - fetchedAt < CHZZK_VODS_CACHE_TTL_MS;
-
-const makeListCacheKey = (channelId: string, page: number, size: number) =>
-  `${channelId}:${page}:${size}`;
-
-/**
- * 단일 멤버의 치지직 다시보기 목록 조회
- */
-export async function fetchChzzkVideos(
-  channelId: string,
-  options: FetchChzzkVideosOptions = {},
-): Promise<ChzzkVideosResponse | null> {
-  const { page = 0, size = 24 } = options;
-  const cacheKey = makeListCacheKey(channelId, page, size);
-  const cached = vodListCache.get(cacheKey);
-  if (cached && isCacheFresh(cached.fetchedAt)) {
-    return cached.content;
-  }
-  const inFlight = vodListInFlight.get(cacheKey);
-  if (inFlight) {
-    return inFlight;
-  }
-  const params = new URLSearchParams({
-    channelId,
-    page: String(page),
-    size: String(size),
-  });
-
-  const request = (async () => {
-    const response = await apiFetch<ChzzkVideosApiResponse>(
-      `/api/vods/chzzk?${params}`,
-    );
-    const content = response?.content ?? null;
-    vodListCache.set(cacheKey, { fetchedAt: Date.now(), content });
-    return content;
-  })();
-  vodListInFlight.set(cacheKey, request);
-  try {
-    return await request;
-  } finally {
-    vodListInFlight.delete(cacheKey);
-  }
-}
 
 async function fetchChzzkVideosBatch(
   channelIds: string[],
@@ -136,26 +84,6 @@ async function fetchLatestVideosByChannelIds(channelIds: string[]) {
     acc[id] = latestVideoCache.get(id)?.video ?? null;
     return acc;
   }, {});
-}
-
-/**
- * 멤버의 최신 다시보기 1개 조회
- */
-export async function fetchMemberLatestVideo(
-  member: Member,
-): Promise<ChzzkVideo | null> {
-  const channelId = extractChzzkChannelId(member.url_chzzk);
-  if (!channelId) return null;
-
-  const cached = latestVideoCache.get(channelId);
-  if (cached && isCacheFresh(cached.fetchedAt)) {
-    return cached.video;
-  }
-
-  const response = await fetchChzzkVideos(channelId, { page: 0, size: 1 });
-  const latest = response?.data?.[0] ?? null;
-  latestVideoCache.set(channelId, { fetchedAt: Date.now(), video: latest });
-  return latest;
 }
 
 /**

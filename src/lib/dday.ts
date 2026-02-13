@@ -7,7 +7,7 @@ import {
 } from "date-fns";
 import type { DDayItem } from "./types";
 
-export interface DDayMatch {
+interface DDayMatch {
   id: string;
   title: string;
   description?: string | null;

@@ -25,7 +25,7 @@ export const VodCardSkeleton = () => {
 /**
  * 멤버 + VOD 카드를 포함한 섹션 스켈레톤
  */
-export const VodSectionSkeleton = () => {
+const VodSectionSkeleton = () => {
   return (
     <div className="flex flex-col overflow-hidden rounded-[20px] bg-card border border-border">
       {/* 헤더 */}

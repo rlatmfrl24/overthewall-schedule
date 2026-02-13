@@ -1,7 +1,6 @@
 import type {
   Member as DbMember,
   Schedule as DbSchedule,
-  Notice as DbNotice,
   DDay as DbDDay,
 } from "@/db/schema";
 
@@ -17,14 +16,10 @@ export type ScheduleItem = Omit<DbSchedule, "status"> & {
   start_time?: string | null;
 };
 
-export type NoticeItem = DbNotice;
-
 export type DDayItem = DbDDay & {
   // UI-only field for gradient support
   colors?: string[] | null;
 };
-
-export type DDayType = DDayItem["type"];
 
 export interface ChzzkLiveStatus {
   code: number;
@@ -85,8 +80,6 @@ export interface ChzzkVideosResponse {
   data: ChzzkVideo[];
 }
 
-export type MemberVodMap = Record<number, ChzzkVideo | null>;
-
 // YouTube Video Types
 export interface YouTubeVideo {
   videoId: string;
@@ -106,8 +99,6 @@ export interface YouTubeVideosResponse {
   shorts: YouTubeVideo[];
   updatedAt: string;
 }
-
-export type MemberYouTubeMap = Record<number, YouTubeVideo[]>;
 
 // Chzzk Clip Types
 export interface ChzzkClip {

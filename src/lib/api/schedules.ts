@@ -1,7 +1,7 @@
 import { apiFetch } from "./client";
 import type { ScheduleItem, ScheduleStatus } from "../types";
 
-export type SchedulePayload = {
+type SchedulePayload = {
   member_uid: number;
   date: string;
   start_time?: string | null;
@@ -9,7 +9,7 @@ export type SchedulePayload = {
   status: ScheduleStatus;
 };
 
-export type UpsertSchedulePayload = SchedulePayload & { id?: number };
+type UpsertSchedulePayload = SchedulePayload & { id?: number };
 
 export async function fetchSchedulesByDate(date: string) {
   return apiFetch<ScheduleItem[]>(`/api/schedules?date=${date}`);
