@@ -60,12 +60,12 @@ type TimeParts = {
 const DEFAULT_TIME: TimeParts = { hour: "00", minute: "00" };
 const QUICK_TIME_PRESET_GROUPS = [
   {
-    label: "오전",
-    times: ["09:00", "10:00", "11:00", "11:30"] as const,
+    label: "낮 시간대",
+    times: ["07:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"] as const,
   },
   {
-    label: "오후",
-    times: ["18:00", "19:00", "20:00", "21:30"] as const,
+    label: "저녁 시간대",
+    times: ["16:00", "17:00", "18:00", "19:00", "20:00", "21:00"] as const,
   },
 ] as const;
 
@@ -459,9 +459,6 @@ export const ScheduleDialog = ({
             {status == "방송" && (
               <Field>
                 <FieldLabel>시간</FieldLabel>
-                <FieldDescription>
-                  직접 입력하거나 운영 패턴 기준(저녁 중심) 프리셋을 선택할 수 있습니다.
-                </FieldDescription>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex-1 space-y-3">
                     <Input
@@ -474,18 +471,25 @@ export const ScheduleDialog = ({
                         applyTime(parsed.hour, parsed.minute);
                       }}
                     />
-                    <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {QUICK_TIME_PRESET_GROUPS.map((group) => (
-                        <div key={group.label} className="space-y-1.5">
-                          <p className="text-xs font-medium text-muted-foreground">
+                        <div
+                          key={group.label}
+                          className="rounded-lg border bg-muted/30 p-3 space-y-2"
+                        >
+                          <p className="text-xs font-semibold text-muted-foreground">
                             {group.label}
                           </p>
-                          <div className="flex flex-wrap gap-2">
+                          <div className="grid grid-cols-2 gap-2">
                             {group.times.map((preset) => (
                               <Button
                                 key={preset}
                                 type="button"
                                 size="sm"
+                                className={cn(
+                                  "w-full justify-center",
+                                  preset === currentTimeValue && "shadow-sm"
+                                )}
                                 variant={
                                   preset === currentTimeValue ? "default" : "outline"
                                 }
