@@ -14,10 +14,12 @@ import {
   Calendar,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface ChronologicalScheduleListProps {
   members: Member[];
   schedules: ScheduleItem[];
+  loading?: boolean;
   onScheduleClick: (schedule: ScheduleItem) => void;
   liveStatuses?: ChzzkLiveStatusMap;
 }
@@ -25,6 +27,7 @@ interface ChronologicalScheduleListProps {
 export const ChronologicalScheduleList = ({
   members,
   schedules,
+  loading = false,
   onScheduleClick,
   liveStatuses = {},
 }: ChronologicalScheduleListProps) => {
@@ -57,7 +60,9 @@ export const ChronologicalScheduleList = ({
     <div className="flex flex-col gap-8 w-full max-w-4xl mx-auto px-2 sm:px-4">
       {/* SECTION: TIMELINE */}
       <div className="relative">
-        {timelineItems.length > 0 ? (
+        {loading ? (
+          <TimelineSkeleton />
+        ) : timelineItems.length > 0 ? (
           <div className="space-y-4">
             {timelineItems.map((schedule) => (
               <div key={schedule.id} className="relative">
@@ -311,5 +316,31 @@ const EmptyState = () => (
     <p className="text-sm text-muted-foreground/50">
       새로운 일정이 등록될 때까지 기다려주세요
     </p>
+  </div>
+);
+
+const TimelineSkeleton = () => (
+  <div className="space-y-4">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div
+        key={`timeline-skeleton-${index}`}
+        className="relative w-full overflow-hidden rounded-2xl bg-white dark:bg-[#18181b] border border-border/60 shadow-sm"
+      >
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-muted" />
+        <div className="flex flex-row items-stretch h-full">
+          <div className="flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0 min-w-20 sm:min-w-24 py-4 px-3">
+            <Skeleton className="h-8 w-10" />
+            <Skeleton className="h-4 w-8 mt-1" />
+          </div>
+          <div className="flex-1 flex flex-col justify-center py-4 px-5 min-w-0 gap-2">
+            <div className="flex items-center gap-2">
+              <Skeleton className="w-5 h-5 rounded-full" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+            <Skeleton className="h-6 w-3/4" />
+          </div>
+        </div>
+      </div>
+    ))}
   </div>
 );

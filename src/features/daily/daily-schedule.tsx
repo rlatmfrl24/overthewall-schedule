@@ -69,8 +69,11 @@ type LiveDebugRow = {
 };
 
 export const DailySchedule = () => {
-  const { members, ddays } = useScheduleData();
+  const { members, ddays, loading: isScheduleDataLoading, hasLoaded } =
+    useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [isSchedulesLoading, setIsSchedulesLoading] = useState(true);
+  const [hasSchedulesLoaded, setHasSchedulesLoaded] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -176,6 +179,7 @@ export const DailySchedule = () => {
   );
 
   const fetchSchedules = useCallback(async () => {
+    setIsSchedulesLoading(true);
     try {
       const data = await fetchSchedulesByDate(
         format(currentDate, "yyyy-MM-dd"),
@@ -183,6 +187,9 @@ export const DailySchedule = () => {
       setSchedules(data);
     } catch (err) {
       console.error("Failed to fetch schedules:", err);
+    } finally {
+      setIsSchedulesLoading(false);
+      setHasSchedulesLoaded(true);
     }
   }, [currentDate]);
 
@@ -213,6 +220,8 @@ export const DailySchedule = () => {
   }, [schedules]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
+  const isDailyScheduleLoading =
+    isScheduleDataLoading || !hasLoaded || isSchedulesLoading || !hasSchedulesLoaded;
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -747,7 +756,7 @@ export const DailySchedule = () => {
               aria-label="Daily Schedule Grid"
               className="grid gap-4 sm:gap-6 w-full grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
             >
-              {members.length > 0 ? (
+              {!isDailyScheduleLoading && members.length > 0 ? (
                 members.map((member) => {
                   const memberSchedules =
                     schedulesByMemberUid.get(member.uid) ?? [];
@@ -808,6 +817,7 @@ export const DailySchedule = () => {
             <ChronologicalScheduleList
               members={members}
               schedules={schedules}
+              loading={isDailyScheduleLoading}
               liveStatuses={
                 isSameDay(currentDate, new Date()) ? liveStatuses : {}
               }
