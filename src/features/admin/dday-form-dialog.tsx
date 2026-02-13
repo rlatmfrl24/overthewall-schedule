@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { type DDay } from "@/db/schema";
 import {
@@ -22,6 +22,15 @@ import {
 import { FieldError, FieldLabel } from "@/components/ui/field";
 import { normalizeDDayColors } from "@/lib/dday";
 import { Loader2, Plus, Trash2 } from "lucide-react";
+
+const DDAY_COLOR_PRESETS = [
+  "#f97316",
+  "#ef4444",
+  "#3b82f6",
+  "#22c55e",
+  "#a855f7",
+  "#14b8a6",
+] as const;
 
 export interface DDayFormValues {
   id?: number;
@@ -47,6 +56,7 @@ export function DDayFormDialog({
   initialValues,
   isSaving = false,
 }: DDayFormDialogProps) {
+  const [showAdvancedColors, setShowAdvancedColors] = useState(false);
   const {
     register,
     handleSubmit,
@@ -74,6 +84,7 @@ export function DDayFormDialog({
     if (open) {
       if (initialValues) {
         const parsedColors = normalizeDDayColors(initialValues.color);
+        setShowAdvancedColors(parsedColors.length > 1);
         reset({
           id: initialValues.id,
           title: initialValues.title ?? "",
@@ -83,6 +94,7 @@ export function DDayFormDialog({
           type: (initialValues.type as DDayFormValues["type"]) ?? "event",
         });
       } else {
+        setShowAdvancedColors(false);
         reset({
           title: "",
           date: "",
@@ -133,72 +145,129 @@ export function DDayFormDialog({
             <div className="space-y-2">
               <FieldLabel htmlFor="color-0">포인트 색상</FieldLabel>
               <div className="space-y-2">
-                {colors.map((value, index) => {
-                  const currentValue = value ?? "";
-                  return (
-                    <div
-                      key={`${index}-${currentValue}`}
-                      className="flex items-center gap-2"
-                      data-testid={`color-row-${index}`}
-                    >
-                      <Input
-                        id={`color-${index}`}
-                        type="color"
-                        className="h-10 w-20 p-1"
-                        value={currentValue || "#f97316"}
-                        onChange={(event) =>
-                          setValue(`colors.${index}`, event.target.value, {
-                            shouldDirty: true,
-                          })
-                        }
-                      />
-                      <Input
-                        type="text"
-                        placeholder="#f97316"
-                        className="flex-1"
-                        value={currentValue}
-                        onChange={(event) =>
-                          setValue(`colors.${index}`, event.target.value, {
-                            shouldDirty: true,
-                          })
-                        }
-                      />
-                      {colors.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            const nextColors = colors.filter(
-                              (_, idx) => idx !== index
-                            );
-                            setValue(
-                              "colors",
-                              nextColors.length ? nextColors : ["#f97316"],
-                              { shouldDirty: true }
-                            );
-                          }}
-                          aria-label="색상 삭제"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  );
-                })}
+                <div className="flex flex-wrap items-center gap-2">
+                  {DDAY_COLOR_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      className="h-6 w-6 rounded-full border shadow-xs ring-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      style={{ backgroundColor: preset }}
+                      aria-label={`${preset} 색상 선택`}
+                      onClick={() =>
+                        setValue("colors", [preset], {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    />
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="color-0"
+                    type="color"
+                    className="h-10 w-20 p-1"
+                    value={colors[0] || "#f97316"}
+                    onChange={(event) =>
+                      setValue("colors", [event.target.value], {
+                        shouldDirty: true,
+                      })
+                    }
+                  />
+                  <Input
+                    type="text"
+                    placeholder="#f97316"
+                    className="flex-1"
+                    value={colors[0] || ""}
+                    onChange={(event) =>
+                      setValue("colors", [event.target.value], {
+                        shouldDirty: true,
+                      })
+                    }
+                  />
+                </div>
+
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className="gap-1"
-                  onClick={addColor}
+                  className="px-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowAdvancedColors((prev) => !prev)}
                 >
-                  <Plus className="h-4 w-4" />
-                  색상 추가
+                  {showAdvancedColors ? "고급 색상 접기" : "고급 색상 편집"}
                 </Button>
+
+                {showAdvancedColors && (
+                  <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                    {colors.map((value, index) => {
+                      const currentValue = value ?? "";
+                      return (
+                        <div
+                          key={`${index}-${currentValue}`}
+                          className="flex items-center gap-2"
+                          data-testid={`color-row-${index}`}
+                        >
+                          <Input
+                            id={`color-${index}`}
+                            type="color"
+                            className="h-10 w-20 p-1"
+                            value={currentValue || "#f97316"}
+                            onChange={(event) =>
+                              setValue(`colors.${index}`, event.target.value, {
+                                shouldDirty: true,
+                              })
+                            }
+                          />
+                          <Input
+                            type="text"
+                            placeholder="#f97316"
+                            className="flex-1"
+                            value={currentValue}
+                            onChange={(event) =>
+                              setValue(`colors.${index}`, event.target.value, {
+                                shouldDirty: true,
+                              })
+                            }
+                          />
+                          {colors.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const nextColors = colors.filter(
+                                  (_, idx) => idx !== index
+                                );
+                                setValue(
+                                  "colors",
+                                  nextColors.length ? nextColors : ["#f97316"],
+                                  { shouldDirty: true }
+                                );
+                              }}
+                              aria-label="색상 삭제"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={addColor}
+                    >
+                      <Plus className="h-4 w-4" />
+                      색상 추가
+                    </Button>
+                  </div>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
-                여러 색상을 추가하면 순서대로 그라데이션으로 표시됩니다.
+                기본은 단일 색상, 고급 편집에서 다중 색상 그라데이션을 설정할 수 있습니다.
               </p>
             </div>
           </div>

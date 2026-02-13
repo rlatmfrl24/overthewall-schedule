@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { type KirinukiChannel } from "@/db/schema";
 import {
   Loader2,
@@ -6,29 +6,49 @@ import {
   Pencil,
   Trash2,
   ExternalLink,
-  MoreVertical,
   Youtube,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   KirinukiChannelFormDialog,
   type KirinukiChannelFormValues,
 } from "./kirinuki-channel-form-dialog";
-import { cn } from "@/lib/utils";
 import {
   createKirinukiChannel,
   deleteKirinukiChannel,
   fetchKirinukiChannels,
   updateKirinukiChannel,
 } from "@/lib/api/kirinuki";
+import { useToast } from "@/components/ui/toast";
+import { ConfirmActionDialog } from "./components/confirm-action-dialog";
+import { AdminSectionHeader } from "./components/admin-section-header";
+
+const KIRINUKI_SORT_OPTIONS = [
+  { value: "name_asc", label: "채널명 오름차순" },
+  { value: "name_desc", label: "채널명 내림차순" },
+  { value: "id_asc", label: "채널 ID 오름차순" },
+] as const;
+
+type KirinukiSortKey = (typeof KIRINUKI_SORT_OPTIONS)[number]["value"];
 
 export function KirinukiChannelManager() {
+  const { toast } = useToast();
   const [channels, setChannels] = useState<KirinukiChannel[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -36,6 +56,10 @@ export function KirinukiChannelManager() {
   const [editingChannel, setEditingChannel] = useState<KirinukiChannel | null>(
     null,
   );
+  const [deletingChannel, setDeletingChannel] = useState<KirinukiChannel | null>(
+    null,
+  );
+  const [channelSort, setChannelSort] = useState<KirinukiSortKey>("name_asc");
 
   const loadChannels = useCallback(async () => {
     setIsFetching(true);
@@ -44,14 +68,31 @@ export function KirinukiChannelManager() {
       setChannels(data);
     } catch (error) {
       console.error("Failed to load kirinuki channels:", error);
+      toast({
+        variant: "error",
+        description: "키리누키 채널 목록을 불러오지 못했습니다.",
+      });
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void loadChannels();
   }, [loadChannels]);
+
+  const sortedChannels = useMemo(() => {
+    const list = [...channels];
+    if (channelSort === "name_desc") {
+      return list.sort((a, b) => b.channel_name.localeCompare(a.channel_name));
+    }
+    if (channelSort === "id_asc") {
+      return list.sort((a, b) =>
+        a.youtube_channel_id.localeCompare(b.youtube_channel_id),
+      );
+    }
+    return list.sort((a, b) => a.channel_name.localeCompare(b.channel_name));
+  }, [channels, channelSort]);
 
   const handleOpenCreate = () => {
     setEditingChannel(null);
@@ -63,13 +104,23 @@ export function KirinukiChannelManager() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("정말로 이 채널을 삭제하시겠습니까?")) return;
+  const handleDelete = async () => {
+    if (!deletingChannel?.id) return;
     try {
-      await deleteKirinukiChannel(id);
+      await deleteKirinukiChannel(deletingChannel.id);
       await loadChannels();
+      toast({
+        variant: "success",
+        description: "키리누키 채널을 삭제했습니다.",
+      });
     } catch (error) {
       console.error("Delete failed:", error);
+      toast({
+        variant: "error",
+        description: "키리누키 채널 삭제에 실패했습니다.",
+      });
+    } finally {
+      setDeletingChannel(null);
     }
   };
 
@@ -84,107 +135,137 @@ export function KirinukiChannelManager() {
 
       await loadChannels();
       setIsDialogOpen(false);
+      toast({
+        variant: "success",
+        description: editingChannel?.id
+          ? "키리누키 채널을 수정했습니다."
+          : "키리누키 채널을 등록했습니다.",
+      });
     } catch (error) {
       console.error("Failed to save channel:", error);
+      toast({
+        variant: "error",
+        description: "키리누키 채널 저장에 실패했습니다.",
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">
-            키리누키 채널 관리
-          </h2>
-          <p className="text-muted-foreground">
-            VOD 페이지의 키리누키 섹션에 표시될 유튜브 채널을 관리합니다.
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate} className="shrink-0 gap-2">
-          <PlusCircle className="w-4 h-4" />새 채널 등록
-        </Button>
-      </div>
-
-      <div className="grid gap-4">
-        {isFetching && channels.length === 0 ? (
-          <div className="flex items-center justify-center h-64 border rounded-xl border-dashed">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        ) : channels.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 border rounded-xl border-dashed bg-muted/30 text-muted-foreground gap-2">
-            <p>등록된 키리누키 채널이 없습니다.</p>
-            <Button variant="outline" size="sm" onClick={handleOpenCreate}>
-              첫 채널 등록하기
+    <div className="space-y-4">
+      <AdminSectionHeader
+        title="키리누키 채널 관리"
+        description="VOD 페이지 키리누키 섹션에 표시될 유튜브 채널을 관리합니다."
+        count={sortedChannels.length}
+        actions={
+          <>
+            <Select
+              value={channelSort}
+              onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}
+            >
+              <SelectTrigger className="h-8 w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {KIRINUKI_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadChannels()}
+              disabled={isFetching}
+            >
+              {isFetching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
             </Button>
-          </div>
-        ) : (
-          <div className="flex flex-col divide-y rounded-2xl border bg-card">
-            {channels.map((channel) => (
-              <div
-                key={channel.id}
-                className={cn(
-                  "flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-muted/10",
-                )}
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-                      <Youtube className="w-5 h-5 text-red-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground">
-                        {channel.channel_name}
-                      </h3>
-                      <p className="text-xs text-muted-foreground font-mono">
-                        {channel.youtube_channel_id}
-                      </p>
-                    </div>
-                  </div>
+            <Button onClick={handleOpenCreate} size="sm" className="gap-1.5">
+              <PlusCircle className="h-4 w-4" />
+              새 채널
+            </Button>
+          </>
+        }
+      />
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+      {isFetching && sortedChannels.length === 0 ? (
+        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
+          <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+        </div>
+      ) : sortedChannels.length === 0 ? (
+        <div className="flex h-44 items-center justify-center rounded-xl border border-dashed bg-muted/30 text-sm text-muted-foreground">
+          등록된 키리누키 채널이 없습니다.
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <Table className="min-w-[920px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[70px]">구분</TableHead>
+                <TableHead className="w-[220px]">채널명</TableHead>
+                <TableHead className="w-[240px]">채널 ID</TableHead>
+                <TableHead>채널 URL</TableHead>
+                <TableHead className="w-[90px] text-right">작업</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedChannels.map((channel) => (
+                <TableRow key={channel.id}>
+                  <TableCell>
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-100">
+                      <Youtube className="h-4 w-4 text-red-600" />
+                    </span>
+                  </TableCell>
+                  <TableCell className="font-medium">{channel.channel_name}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {channel.youtube_channel_id}
+                  </TableCell>
+                  <TableCell>
+                    <a
+                      href={channel.channel_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex max-w-[330px] items-center gap-1 truncate text-xs text-primary hover:underline"
+                      title={channel.channel_url}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                      {channel.channel_url}
+                    </a>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        size="icon-sm"
+                        onClick={() => handleOpenEdit(channel)}
+                        title="수정"
                       >
-                        <MoreVertical className="w-4 h-4" />
+                        <Pencil className="h-4 w-4" />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleOpenEdit(channel)}>
-                        <Pencil className="w-4 h-4 mr-2" /> 수정
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onClick={() => handleDelete(channel.id!)}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeletingChannel(channel)}
+                        title="삭제"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" /> 삭제
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3 text-xs">
-                  <a
-                    href={channel.channel_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground hover:text-primary transition-colors rounded-md bg-muted/30 hover:bg-muted group/link"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted-foreground group-hover/link:text-primary transition-colors" />
-                    <span className="truncate underline-offset-4 group-hover/link:underline max-w-[300px]">
-                      {channel.channel_url}
-                    </span>
-                  </a>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       <KirinukiChannelFormDialog
         open={isDialogOpen}
@@ -192,6 +273,20 @@ export function KirinukiChannelManager() {
         onSubmit={handleSubmit}
         initialValues={editingChannel}
         isSaving={isSaving}
+      />
+
+      <ConfirmActionDialog
+        open={Boolean(deletingChannel)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingChannel(null);
+        }}
+        title="채널 삭제 확인"
+        description="정말로 이 키리누키 채널을 삭제하시겠습니까?"
+        confirmLabel="삭제"
+        destructive
+        onConfirm={() => {
+          void handleDelete();
+        }}
       />
     </div>
   );

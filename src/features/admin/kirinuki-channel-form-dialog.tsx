@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { type KirinukiChannel } from "@/db/schema";
 import {
@@ -13,6 +13,44 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldError, FieldLabel } from "@/components/ui/field";
 import { Loader2 } from "lucide-react";
+
+const YOUTUBE_CHANNEL_ID_REGEX = /^UC[\w-]{22}$/;
+
+const extractChannelIdFromUrl = (url: string): string | null => {
+  const value = url.trim();
+  if (!value) return null;
+
+  const directMatch = value.match(/\/channel\/(UC[\w-]{22})/i);
+  if (directMatch?.[1]) {
+    return directMatch[1];
+  }
+
+  try {
+    const parsed = new URL(value);
+    const queryId = parsed.searchParams.get("channel_id");
+    if (queryId && YOUTUBE_CHANNEL_ID_REGEX.test(queryId)) {
+      return queryId;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const isValidYoutubeUrl = (value: string) => {
+  const url = value.trim();
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:"
+    ) && parsed.hostname.toLowerCase().includes("youtube.com");
+  } catch {
+    return false;
+  }
+};
 
 export interface KirinukiChannelFormValues {
   id?: number;
@@ -40,6 +78,11 @@ export function KirinukiChannelFormDialog({
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
+    getValues,
+    clearErrors,
+    setError,
     formState: { errors },
   } = useForm<KirinukiChannelFormValues>({
     defaultValues: {
@@ -48,6 +91,11 @@ export function KirinukiChannelFormDialog({
       youtube_channel_id: "",
     },
   });
+  const [autoFilledChannelId, setAutoFilledChannelId] = useState<string | null>(
+    null,
+  );
+
+  const watchedUrl = watch("channel_url");
 
   useEffect(() => {
     if (open) {
@@ -65,8 +113,57 @@ export function KirinukiChannelFormDialog({
           youtube_channel_id: "",
         });
       }
+      setAutoFilledChannelId(null);
     }
   }, [open, initialValues, reset]);
+
+  useEffect(() => {
+    if (!open) return;
+    const extracted = extractChannelIdFromUrl(watchedUrl || "");
+    if (!extracted) return;
+
+    const currentId = getValues("youtube_channel_id")?.trim() ?? "";
+    if (currentId === extracted) return;
+
+    if (currentId === "" || currentId === autoFilledChannelId) {
+      setValue("youtube_channel_id", extracted, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      clearErrors("youtube_channel_id");
+      setAutoFilledChannelId(extracted);
+    }
+  }, [
+    autoFilledChannelId,
+    clearErrors,
+    getValues,
+    open,
+    setValue,
+    watchedUrl,
+  ]);
+
+  const handleFormSubmit = async (values: KirinukiChannelFormValues) => {
+    const channelUrl = values.channel_url.trim();
+    const channelId = values.youtube_channel_id.trim();
+    const extracted = extractChannelIdFromUrl(channelUrl);
+
+    const finalChannelId = channelId || extracted || "";
+    if (!YOUTUBE_CHANNEL_ID_REGEX.test(finalChannelId)) {
+      setError("youtube_channel_id", {
+        type: "validate",
+        message:
+          "YouTube 채널 ID 형식이 올바르지 않습니다. (UC로 시작, 24자)",
+      });
+      return;
+    }
+
+    clearErrors("youtube_channel_id");
+    await onSubmit({
+      ...values,
+      channel_url: channelUrl,
+      youtube_channel_id: finalChannelId,
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,7 +179,7 @@ export function KirinukiChannelFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 py-4">
           <div className="space-y-2">
             <FieldLabel htmlFor="channel_name">채널명</FieldLabel>
             <Input
@@ -102,6 +199,9 @@ export function KirinukiChannelFormDialog({
               placeholder="https://www.youtube.com/@channel"
               {...register("channel_url", {
                 required: "채널 URL을 입력해주세요",
+                validate: (value) =>
+                  isValidYoutubeUrl(value) ||
+                  "YouTube 채널 URL 형식으로 입력해주세요.",
               })}
             />
             <FieldError errors={[errors.channel_url]} />
@@ -116,10 +216,13 @@ export function KirinukiChannelFormDialog({
               placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx"
               {...register("youtube_channel_id", {
                 required: "YouTube 채널 ID를 입력해주세요",
+                validate: (value) =>
+                  YOUTUBE_CHANNEL_ID_REGEX.test(value.trim()) ||
+                  "UC로 시작하는 24자 ID를 입력해주세요.",
               })}
             />
             <p className="text-xs text-muted-foreground">
-              채널 페이지 소스에서 UCxxxxxxxxxx 형태의 ID를 찾을 수 있습니다.
+              `/channel/UC...` URL이면 자동으로 ID를 채웁니다.
             </p>
             <FieldError errors={[errors.youtube_channel_id]} />
           </div>

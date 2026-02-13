@@ -30,6 +30,30 @@ const noticeTypeConfigs = {
 
 type NoticeTypeKey = keyof typeof noticeTypeConfigs;
 
+const formatDateInput = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const isValidHttpUrl = (value: string) => {
+  const url = value.trim();
+  if (!url) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 export interface NoticeFormValues {
   id?: number;
   content: string;
@@ -62,6 +86,8 @@ export function NoticeFormDialog({
     reset,
     setValue,
     getValues,
+    setError,
+    clearErrors,
     formState: { errors },
   } = useForm<NoticeFormValues>({
     defaultValues: {
@@ -99,6 +125,37 @@ export function NoticeFormDialog({
     }
   }, [open, initialValues, reset]);
 
+  const handleFormSubmit = async (values: NoticeFormValues) => {
+    if (
+      values.started_at &&
+      values.ended_at &&
+      values.started_at > values.ended_at
+    ) {
+      setError("ended_at", {
+        type: "validate",
+        message: "종료일은 시작일과 같거나 이후여야 합니다.",
+      });
+      return;
+    }
+    clearErrors("ended_at");
+    await onSubmit(values);
+  };
+
+  const applyPeriodPreset = (days: number) => {
+    const today = new Date();
+    const startedAt = formatDateInput(today);
+    const endedAt = formatDateInput(addDays(today, Math.max(days - 1, 0)));
+    setValue("started_at", startedAt, { shouldDirty: true });
+    setValue("ended_at", endedAt, { shouldDirty: true, shouldValidate: true });
+    clearErrors("ended_at");
+  };
+
+  const resetPeriod = () => {
+    setValue("started_at", "", { shouldDirty: true });
+    setValue("ended_at", "", { shouldDirty: true });
+    clearErrors("ended_at");
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -113,7 +170,7 @@ export function NoticeFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-4">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 py-4">
           <div className="space-y-2">
             <FieldLabel htmlFor="content">내용</FieldLabel>
             <Textarea
@@ -127,10 +184,18 @@ export function NoticeFormDialog({
 
           <div className="space-y-2">
             <FieldLabel htmlFor="url">링크 URL (선택)</FieldLabel>
-            <Input id="url" placeholder="https://..." {...register("url")} />
+            <Input
+              id="url"
+              placeholder="https://..."
+              {...register("url", {
+                validate: (value) =>
+                  isValidHttpUrl(value) || "http(s) 형식의 URL을 입력해주세요.",
+              })}
+            />
+            <FieldError errors={[errors.url]} />
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
             <div className="space-y-2">
               <FieldLabel htmlFor="type">유형</FieldLabel>
               <Controller
@@ -191,7 +256,42 @@ export function NoticeFormDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="flex flex-wrap items-center gap-2 pb-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => applyPeriodPreset(1)}
+            >
+              오늘
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => applyPeriodPreset(7)}
+            >
+              7일
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => applyPeriodPreset(30)}
+            >
+              30일
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={resetPeriod}
+            >
+              기간 초기화
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
             <div className="space-y-2">
               <FieldLabel htmlFor="started_at">시작일</FieldLabel>
               <Input type="date" id="started_at" {...register("started_at")} />
@@ -199,6 +299,7 @@ export function NoticeFormDialog({
             <div className="space-y-2">
               <FieldLabel htmlFor="ended_at">종료일</FieldLabel>
               <Input type="date" id="ended_at" {...register("ended_at")} />
+              <FieldError errors={[errors.ended_at]} />
             </div>
           </div>
 

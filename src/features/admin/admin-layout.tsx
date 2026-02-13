@@ -69,12 +69,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card border-r">
-      <div className="p-6 border-b flex items-center gap-2">
+      <div className="p-4 border-b flex items-center gap-2">
         <LayoutDashboard className="w-6 h-6 text-primary" />
-        <span className="font-bold text-lg">Admin Center</span>
+        <span className="font-bold text-base">Admin Center</span>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className="flex-1 p-3 space-y-1">
         {SIDEBAR_ITEMS.map((item) => {
           const active = isActive(item.href);
           return (
@@ -82,7 +82,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               key={item.label}
               variant={active ? "secondary" : "ghost"}
               className={cn(
-                "w-full justify-start gap-3 px-3",
+                "w-full justify-start gap-3 px-2.5 h-9",
                 active &&
                   "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
                 !active && "text-muted-foreground",
@@ -100,7 +100,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       <div className="p-4 border-t">
         <Link to="/">
-          <Button variant="outline" className="w-full gap-2 justify-start">
+          <Button variant="outline" className="w-full gap-2 justify-start h-9">
             <LogOut className="w-4 h-4" />
             사이트로 돌아가기
           </Button>
@@ -110,7 +110,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   );
 
   return (
-    <div className="h-screen w-full bg-muted/20 flex flex-col md:flex-row overflow-hidden">
+    <div className="min-h-[100dvh] w-full bg-muted/20 flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
       <div className="md:hidden border-b bg-background p-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -136,7 +136,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* Main Content */}
       <main className="flex-1 min-w-0 overflow-y-auto bg-muted/10 h-full relative">
-        <div className="w-full min-h-full p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="w-full min-h-full p-3 md:p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {children}
         </div>
       </main>

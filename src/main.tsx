@@ -7,6 +7,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 // Import the generated route tree
 import { routeTree } from "./routeTree.gen";
 import { ThemeProvider } from "./components/theme-provider";
+import { ToastProvider } from "./components/ui/toast";
 
 const router = createRouter({ routeTree });
 
@@ -26,9 +27,11 @@ if (!PUBLISHABLE_KEY) {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-      <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-        <RouterProvider router={router} />
-      </ClerkProvider>
+      <ToastProvider>
+        <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+          <RouterProvider router={router} />
+        </ClerkProvider>
+      </ToastProvider>
     </ThemeProvider>
   </StrictMode>
 );
