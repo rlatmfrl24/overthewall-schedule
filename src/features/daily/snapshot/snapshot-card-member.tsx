@@ -5,22 +5,34 @@ import { SnapshotCardSchedule } from "./snapshot-card-schedule";
 interface SnapshotCardMemberProps {
   member: Member;
   schedules: ScheduleItem[];
+  theme?: "light" | "dark";
 }
 
 export const SnapshotCardMember = ({
   member,
   schedules,
+  theme,
 }: SnapshotCardMemberProps) => {
   const hasSchedule = schedules.length > 0;
+  const isDarkTheme =
+    theme === "dark" ||
+    (theme !== "light" &&
+      typeof window !== "undefined" &&
+      window.document.documentElement.classList.contains("dark"));
 
   const mainColor = member.main_color || "#e5e7eb";
   const subColor = member.sub_color || member.main_color || "#f3f4f6";
 
   const headerTextColor = getContrastColor(mainColor);
-  const bodyBgGradient = `linear-gradient(180deg, rgba(17,18,22,0.95) 0%, rgba(17,18,22,0.99) 100%), linear-gradient(120deg, ${hexToRgba(
-    subColor,
-    0.16,
-  )} 0%, transparent 70%)`;
+  const bodyBgGradient = isDarkTheme
+    ? `linear-gradient(180deg, rgba(17,18,22,0.95) 0%, rgba(17,18,22,0.99) 100%), linear-gradient(120deg, ${hexToRgba(
+        subColor,
+        0.16,
+      )} 0%, transparent 70%)`
+    : `linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.98) 100%), linear-gradient(120deg, ${hexToRgba(
+        subColor,
+        0.14,
+      )} 0%, transparent 72%)`;
   const borderColor = hexToRgba(mainColor, 0.3);
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1);
   const memberNameChipBgColor = hexToRgba(headerTextColor, 0.2);

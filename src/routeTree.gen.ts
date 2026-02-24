@@ -18,6 +18,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
@@ -69,6 +70,11 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSnapshotRoute = AdminSnapshotRouteImport.update({
+  id: '/snapshot',
+  path: '/snapshot',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSettingsRoute = AdminSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -107,6 +113,7 @@ export interface FileRoutesByFullPath {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
@@ -121,6 +128,7 @@ export interface FileRoutesByTo {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
   '/vods': typeof VodsIndexRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
@@ -156,6 +165,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
+    | '/admin/snapshot'
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
+    | '/admin/snapshot'
     | '/profile/$code'
     | '/admin'
     | '/vods'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/notices'
     | '/admin/settings'
+    | '/admin/snapshot'
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
@@ -266,6 +278,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/snapshot': {
+      id: '/admin/snapshot'
+      path: '/snapshot'
+      fullPath: '/admin/snapshot'
+      preLoaderRoute: typeof AdminSnapshotRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/settings': {
       id: '/admin/settings'
       path: '/settings'
@@ -310,6 +329,7 @@ interface AdminRouteChildren {
   AdminLogsRoute: typeof AdminLogsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminSnapshotRoute: typeof AdminSnapshotRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -319,6 +339,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminLogsRoute: AdminLogsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
   AdminSettingsRoute: AdminSettingsRoute,
+  AdminSnapshotRoute: AdminSnapshotRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

@@ -10,9 +10,14 @@ import { SnapshotTimeline } from "./snapshot-timeline";
 interface SnapshotScheduleProps {
   date: string;
   mode: "grid" | "timeline";
+  theme?: "light" | "dark";
 }
 
-export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
+export const SnapshotSchedule = ({
+  date,
+  mode,
+  theme,
+}: SnapshotScheduleProps) => {
   const { members, hasLoaded } = useScheduleData();
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [isSchedulesLoaded, setIsSchedulesLoaded] = useState(false);
@@ -42,6 +47,23 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
       isActive = false;
     };
   }, [date]);
+
+  useEffect(() => {
+    if (!theme) return;
+
+    const root = window.document.documentElement;
+    const hadLight = root.classList.contains("light");
+    const hadDark = root.classList.contains("dark");
+
+    root.classList.remove("light", "dark");
+    root.classList.add(theme);
+
+    return () => {
+      root.classList.remove("light", "dark");
+      if (hadLight) root.classList.add("light");
+      if (hadDark) root.classList.add("dark");
+    };
+  }, [theme]);
 
   useEffect(() => {
     if (!hasLoaded || !isSchedulesLoaded) return;
@@ -103,6 +125,7 @@ export const SnapshotSchedule = ({ date, mode }: SnapshotScheduleProps) => {
                   key={`snapshot-${member.uid}`}
                   member={member}
                   schedules={memberSchedules}
+                  theme={theme}
                 />
               );
             })}
