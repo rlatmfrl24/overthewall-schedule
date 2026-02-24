@@ -1,6 +1,5 @@
 ---
-description: Project Context & Technology Stack for OTW Schedule
-alwaysApply: true
+trigger: always_on
 ---
 
 # Project Context: OTW Schedule
@@ -10,6 +9,7 @@ This file documents the technology stack and high-level architectural decisions 
 ## 1. Technology Stack
 
 ### Frontend
+
 - **Framework**: [React 19](https://react.dev)
 - **Build Tool**: [Vite](https://vitejs.dev)
 - **Routing**: [TanStack Router](https://tanstack.com/router) (File-based routing in `src/routes`)
@@ -18,11 +18,13 @@ This file documents the technology stack and high-level architectural decisions 
 - **Icons**: `lucide-react`
 
 ### Backend / Edge
+
 - **Runtime**: [Cloudflare Workers](https://workers.cloudflare.com/)
 - **Database**: Cloudflare D1 (SQLite)
 - **ORM**: [Drizzle ORM](https://orm.drizzle.team/)
 
 ## 2. Key Directories
+
 - `src/routes`: Application routes (TanStack Router)
 - `src/components`: Reusable UI components
 - `src/features`: Domain-specific components
@@ -31,6 +33,7 @@ This file documents the technology stack and high-level architectural decisions 
 - `worker`: Cloudflare Worker entry point and logic
 
 ## 3. Development Commands
+
 - `npm run dev`: Start Vite dev server
 - `npm run build`: Build frontend
 - `npm run drizzle:generate:custom`: Generate empty migration file

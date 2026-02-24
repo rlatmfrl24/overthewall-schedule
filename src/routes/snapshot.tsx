@@ -2,10 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { SnapshotSchedule } from "@/features/daily/snapshot/snapshot-schedule";
 
+type SnapshotTheme = "light" | "dark";
+
 export const Route = createFileRoute("/snapshot")({
   validateSearch: (
-    search: Record<string, unknown>
-  ): { date: string; mode: "grid" | "timeline" } => {
+    search: Record<string, unknown>,
+  ): {
+    date: string;
+    mode: "grid" | "timeline";
+    theme?: SnapshotTheme;
+  } => {
     const date =
       typeof search.date === "string" && search.date.trim().length > 0
         ? search.date
@@ -14,12 +20,16 @@ export const Route = createFileRoute("/snapshot")({
       search.mode === "grid" || search.mode === "timeline"
         ? search.mode
         : "timeline";
-    return { date, mode };
+    const theme: SnapshotTheme | undefined =
+      search.theme === "light" || search.theme === "dark"
+        ? search.theme
+        : undefined;
+    return { date, mode, theme };
   },
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { date, mode } = Route.useSearch();
-  return <SnapshotSchedule date={date} mode={mode} />;
+  const { date, mode, theme } = Route.useSearch();
+  return <SnapshotSchedule date={date} mode={mode} theme={theme} />;
 }

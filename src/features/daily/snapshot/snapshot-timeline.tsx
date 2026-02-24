@@ -61,7 +61,7 @@ export const SnapshotTimeline = ({
       {otherItems.length > 0 && (
         <div className="relative mt-4">
           <div className="flex items-center gap-3 mb-5 pl-1">
-            <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
+            <div className="p-2 rounded-lg bg-orange-500/12 text-orange-600 dark:bg-orange-400/15 dark:text-orange-300">
               <Radio className="w-5 h-5" />
             </div>
             <h4 className="text-lg font-bold text-foreground">게릴라 · 미정</h4>
@@ -121,13 +121,13 @@ const SnapshotTimelineCard = ({
     isGuerrilla
       ? {
           label: "게릴라 방송",
-          className: "text-amber-600",
+          className: "text-amber-700 dark:text-amber-300",
           icon: Flame,
         }
       : isUndecided
         ? {
             label: "시간 미정",
-            className: "text-slate-500",
+            className: "text-slate-600 dark:text-slate-300",
             icon: Radio,
           }
         : null;
@@ -136,7 +136,7 @@ const SnapshotTimelineCard = ({
     <div
       className={cn(
         "group relative w-full overflow-hidden rounded-2xl transition-all duration-300 isolate",
-        "bg-white dark:bg-[#18181b] border border-border/60 shadow-sm",
+        "bg-white border-zinc-200 shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:bg-[#18181b] dark:border-zinc-700/80 dark:shadow-[0_10px_20px_rgba(0,0,0,0.3)]",
       )}
     >
       <div
@@ -146,22 +146,22 @@ const SnapshotTimelineCard = ({
 
       <div className="grid grid-cols-[92px_1fr] items-stretch h-full">
         {/* LEFT: TIME / ICON */}
-        <div className="flex flex-col items-center justify-center bg-muted/30 border-r border-border/30 self-stretch shrink-0 w-[92px] min-w-[92px] py-0">
+        <div className="flex flex-col items-center justify-center self-stretch shrink-0 w-[92px] min-w-[92px] py-0 bg-white border-r border-zinc-200 dark:bg-zinc-900/60 dark:border-zinc-700/70">
           {isTimeline ? (
             <div className="flex flex-col items-center leading-none">
-              <span className="font-black tracking-tight text-foreground/90 font-mono text-3xl">
+              <span className="font-black tracking-tight font-mono text-3xl text-zinc-900 dark:text-zinc-100">
                 {hour}
               </span>
-              <span className="font-bold text-muted-foreground/60 -mt-1 text-base">
+              <span className="font-bold -mt-1 text-base text-zinc-500 dark:text-zinc-400">
                 {minute}
               </span>
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-background shadow-xs ring-1 ring-border/50">
+            <div className="p-3 rounded-xl bg-white shadow-xs ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700">
               {isGuerrilla ? (
-                <Flame className="w-6 h-6 text-amber-500" />
+                <Flame className="w-6 h-6 text-amber-600 dark:text-amber-300" />
               ) : isUndecided ? (
-                <Radio className="w-6 h-6 text-slate-500" />
+                <Radio className="w-6 h-6 text-slate-600 dark:text-slate-300" />
               ) : (
                 <GripHorizontal className="w-6 h-6 text-muted-foreground" />
               )}

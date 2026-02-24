@@ -4,6 +4,7 @@ import {
   Megaphone,
   Calendar,
   Settings,
+  Image,
   LayoutDashboard,
   History,
   LogOut,
@@ -45,6 +46,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     label: "자동 업데이트 설정",
     icon: Settings,
     href: "/admin/settings",
+  },
+  {
+    label: "스냅샷 프리뷰",
+    icon: Image,
+    href: "/admin/snapshot",
   },
   {
     label: "업데이트 로그",
