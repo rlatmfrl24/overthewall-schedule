@@ -1,15 +1,16 @@
 ---
-description: Setup local development environment
+description: Compatibility wrapper for local development setup.
 ---
 
-1. Install project dependencies.
-   // turbo
-   pnpm install
-2. Generate Cloudflare Worker types.
-   // turbo
-   pnpm run cf-typegen
-3. Apply migrations to the local D1 database.
-   // turbo
-   pnpm drizzle:migrate:local
-4. Start the development server.
-   pnpm dev
+# Local Dev Setup (Compatibility)
+
+Use canonical guidance:
+- Project context: `../rules/project-context.md`
+- DB setup checklist: `../skills/db-migration/references/checklist.md`
+- API touchpoints: `../skills/worker-api-change/references/touchpoints.md`
+
+Minimum bootstrap commands:
+1. `pnpm install`
+2. `pnpm cf-typegen`
+3. `pnpm drizzle:migrate:local`
+4. `pnpm dev`

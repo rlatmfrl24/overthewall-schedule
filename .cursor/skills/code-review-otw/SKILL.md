@@ -1,62 +1,58 @@
 ---
 name: code-review-otw
-description: Review code for correctness, security, and performance following OTW standards. Use when the user asks for a code review, PR review, change review, or mentions "리뷰".
+description: Review OTW code changes for bugs, regressions, security gaps, and performance risks. Use when a user asks for code review, PR review, change review, risk review, or includes words like review or 리뷰.
 ---
 
 # Code Review (OTW)
 
-## 사용 시점
+## Review Focus
 
-- 사용자가 코드 리뷰/PR 리뷰/변경 리뷰를 요청할 때
-- "리뷰" 키워드가 포함된 요청일 때
+- Prioritize correctness and behavior regressions first.
+- Evaluate security concerns at trust boundaries (input validation, auth or audit, sensitive data).
+- Evaluate performance risks (wasteful rerenders, unnecessary API calls, expensive loops or queries).
+- Validate test impact and identify missing coverage for changed behavior.
 
-## 리뷰 관점
+## Workflow
 
-- 버그/정확성: 경계 조건, 상태 전이, 오류 처리
-- 보안: 입력 검증, 권한, 민감 정보 처리
-- 성능: 불필요한 재계산, 과도한 렌더링, N+1 패턴
+1. Identify exact change scope (files, symbols, runtime paths).
+2. Analyze risks in severity order: high, medium, low.
+3. Capture evidence with concrete file or symbol references.
+4. List open questions for assumptions that cannot be validated from code.
+5. Propose targeted verification tests.
 
-## 기본 절차
+## Response Template
 
-1. 변경 범위를 빠르게 파악한다 (diff 중심).
-2. 심각도가 높은 이슈부터 찾고 기록한다.
-3. 불확실한 부분은 질문/가정 섹션에 남긴다.
-4. 테스트/검증 항목을 제안한다.
-
-## 출력 템플릿
-
-아래 형식을 그대로 사용한다.
+Use this structure:
 
 ```markdown
-## 리뷰 결과
+## Findings
 
-### 버그/정확성
+### High
 
-- [필수/권장] 이슈 설명 + 영향 + 위치(`파일/심볼`)
+- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
 
-### 보안
+### Medium
 
-- [필수/권장] 이슈 설명 + 영향 + 위치(`파일/심볼`)
+- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
 
-### 성능
+### Low
 
-- [필수/권장] 이슈 설명 + 영향 + 위치(`파일/심볼`)
+- [Issue] Impact and location (`path/to/file.ts:line`, `SymbolName`)
 
-### 질문/가정
+## Open Questions
 
-- 확인이 필요한 내용
+- Assumptions or missing context that can change conclusions.
 
-### 테스트/검증
+## Suggested Tests
 
-- 제안 테스트 또는 재현 절차
+- Focused checks to validate fixes or prevent regressions.
 
-### 요약
+## Summary
 
-- 핵심 1~2줄 요약
+- 1-2 lines on overall risk and readiness.
 ```
 
-## 작성 규칙
-
-- 이슈는 심각도 순으로 정렬한다.
-- 위치는 항상 백틱으로 감싼다.
-- 코드 인용이 도움이 되면 짧은 코드 블록을 사용한다.
+## Output Rules
+- Sort findings by severity, then by likelihood.
+- If no material issues are found, explicitly state "No material findings."
+- Keep explanations concise and actionable.
