@@ -1,13 +1,12 @@
 ---
-description: Deploy Cloudflare Worker to production
+description: Compatibility wrapper for deployment workflow. Use release-ops skill as canonical guidance.
 ---
 
-1. Run linting to check for errors.
-   // turbo
-   pnpm lint
-2. Perform type checking.
-   // turbo
-   pnpm tsc --noEmit
-3. Deploy the worker to Cloudflare (Production).
-   // turbo
-   pnpm run deploy
+# Worker Deploy Workflow (Compatibility)
+
+Use canonical sources:
+- Skill: `../skills/release-ops/SKILL.md`
+- Preflight checklist: `../skills/release-ops/references/preflight-checklist.md`
+
+Minimum deploy command:
+1. `pnpm deploy`

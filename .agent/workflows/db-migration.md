@@ -1,15 +1,12 @@
 ---
-description: Update database schema and deploy migrations
+description: Compatibility wrapper for migration workflow. Use db-migration skill as canonical guidance.
 ---
 
-1. Create a migration file based on the changes in `src/db/schema.ts`.
-   // turbo
-   pnpm drizzle:generate
-2. Review the generated SQL file in the `drizzle/` directory. Check for unexpected DROP TABLE or RENAME statements.
-3. Apply migrations to the local D1 database.
-   // turbo
-   pnpm drizzle:migrate:local
-4. Apply migrations to the remote D1 database (Production).
-   WARNING: This will apply changes to the live database.
-   // turbo
-   pnpm drizzle:migrate:remote
+# DB Migration Workflow (Compatibility)
+
+Use canonical sources:
+- Skill: `../skills/db-migration/SKILL.md`
+- Checklist: `../skills/db-migration/references/checklist.md`
+- Rule: `../rules/drizzle-workflow.md`
+
+Keep this file as a lightweight compatibility entry point only.

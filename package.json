@@ -15,7 +15,9 @@
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:generate:custom": "drizzle-kit generate --custom",
     "drizzle:migrate:remote": "wrangler d1 migrations apply otw-db --remote",
-    "drizzle:migrate:local": "wrangler d1 migrations apply otw-db"
+    "drizzle:migrate:local": "wrangler d1 migrations apply otw-db",
+    "sync:agent-cursor": "node scripts/sync-agent-to-cursor.mjs",
+    "sync:agent-cursor:check": "node scripts/sync-agent-to-cursor.mjs --check"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.57.0",

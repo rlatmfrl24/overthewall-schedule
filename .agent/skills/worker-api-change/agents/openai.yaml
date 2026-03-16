@@ -1,0 +1,4 @@
+interface:
+  display_name: "Worker API Change"
+  short_description: "Ship OTW Worker API changes across route and client layers"
+  default_prompt: "Use $worker-api-change to add an endpoint and update frontend contracts."

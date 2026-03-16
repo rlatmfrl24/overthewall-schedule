@@ -1,0 +1,4 @@
+interface:
+  display_name: "DB Migration"
+  short_description: "Plan and run safe OTW Drizzle and D1 migrations"
+  default_prompt: "Use $db-migration to update schema and run a safe migration workflow."
