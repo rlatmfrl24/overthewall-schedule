@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { GripHorizontal, Radio, Calendar, Flame } from "lucide-react";
+import { useAutoFitText } from "./use-auto-fit-text";
 
 interface SnapshotTimelineProps {
   members: Member[];
@@ -91,6 +92,13 @@ const SnapshotTimelineCard = ({
   member?: Member;
   isTimeline?: boolean;
 }) => {
+  const { textRef, textStyle } = useAutoFitText<HTMLHeadingElement>({
+    contentKey: `${schedule.id}:${displayTitleFromSchedule(schedule)}:${schedule.status}:${isTimeline ? "timeline" : "other"}`,
+    maxLines: 2,
+    minFontSizePx: isTimeline ? 18 : 16,
+    stepPx: 1,
+  });
+
   if (!member) return null;
 
   const mainColor = member.main_color || "#71717a";
@@ -131,7 +139,6 @@ const SnapshotTimelineCard = ({
             icon: Radio,
           }
         : null;
-
   return (
     <div
       className={cn(
@@ -203,11 +210,13 @@ const SnapshotTimelineCard = ({
           {/* MAIN: Title */}
           <div className="pr-2">
             <h3
+              ref={textRef}
+              style={textStyle}
               className={cn(
                 "text-xl sm:text-[1.3rem] font-bold text-foreground leading-snug break-keep",
                 !schedule.title && "text-muted-foreground opacity-50 italic",
                 !isBroadcast && "leading-relaxed",
-                "min-w-0 line-clamp-2",
+                "min-w-0",
               )}
             >
               {displayTitle}
@@ -217,6 +226,23 @@ const SnapshotTimelineCard = ({
       </div>
     </div>
   );
+};
+
+const displayTitleFromSchedule = (schedule: ScheduleItem) => {
+  const isBroadcast = schedule.status === "방송";
+  const rawTitle = schedule.title?.trim() ?? "";
+  const isDuplicatedStatusTitle =
+    !isBroadcast && rawTitle.length > 0 && rawTitle === schedule.status;
+  const fallbackTitleByStatus: Record<ScheduleStatus, string> = {
+    방송: "방송 예정",
+    휴방: "오늘은 휴방입니다",
+    게릴라: "게릴라 방송 예정",
+    미정: "방송 시간 미정",
+  };
+
+  return rawTitle && !isDuplicatedStatusTitle
+    ? rawTitle
+    : fallbackTitleByStatus[schedule.status];
 };
 
 const EmptyState = () => (

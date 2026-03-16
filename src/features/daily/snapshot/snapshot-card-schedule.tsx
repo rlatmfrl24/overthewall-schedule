@@ -1,6 +1,7 @@
 import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
 import { cn, hexToRgba } from "@/lib/utils";
 import { Clock3 } from "lucide-react";
+import { useAutoFitText } from "./use-auto-fit-text";
 
 interface SnapshotCardScheduleProps {
   schedule: ScheduleItem;
@@ -31,6 +32,12 @@ export const SnapshotCardSchedule = ({
   const statusLabel = isSimpleStatus ? schedule.status : null;
   const showTime = Boolean(schedule.start_time);
   const timeLabel = schedule.start_time ?? "--:--";
+  const { textRef, textStyle } = useAutoFitText<HTMLParagraphElement>({
+    contentKey: `${schedule.id}:${displayTitle}:${schedule.status}`,
+    maxLines: 2,
+    minFontSizePx: isBroadcast ? 22 : 18,
+    stepPx: 1,
+  });
   const statusToneClass = isOff
     ? "text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-200 dark:bg-rose-500/10 dark:border-rose-400/30"
     : "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-200 dark:bg-amber-500/10 dark:border-amber-400/30";
@@ -84,8 +91,10 @@ export const SnapshotCardSchedule = ({
       )}
       {!shouldHideTitle && (
         <p
+          ref={textRef}
+          style={textStyle}
           className={cn(
-            "w-full text-center line-clamp-2 break-keep tracking-tight",
+            "w-full text-center break-keep tracking-tight",
             isBroadcast
               ? "text-[1.95rem] font-black text-zinc-900 dark:text-zinc-50 leading-[1.16]"
               : "text-[1.58rem] font-extrabold text-zinc-900 dark:text-zinc-100 leading-[1.22]",
