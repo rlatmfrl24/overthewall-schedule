@@ -157,6 +157,10 @@ export const pendingSchedules = sqliteTable(
     previous_status: text("previous_status"), // 수정 전 상태
     previous_title: text("previous_title"), // 수정 전 제목
     vod_id: text("vod_id"), // 중복 방지용 VOD 식별자
+    vod_started_at: text("vod_started_at"), // VOD 기준 방송 시작 시각
+    vod_duration_seconds: integer("vod_duration_seconds"), // 총 방송 길이(초)
+    vod_thumbnail_url: text("vod_thumbnail_url"), // 방송 썸네일 URL
+    processed_reset_at: text("processed_reset_at"), // 처리 완료 판정 리셋 시각
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [

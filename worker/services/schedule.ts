@@ -23,6 +23,11 @@ import { fetchChzzkVideos } from "./chzzk";
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
 const UPDATE_LOG_CHUNK_SIZE = 12;
+const PENDING_VOD_METADATA_COLUMNS = [
+  "vod_started_at",
+  "vod_duration_seconds",
+  "vod_thumbnail_url",
+] as const;
 
 type ChzzkVideo = NonNullable<NonNullable<CachedChzzkVideos["content"]>["data"]>[number];
 
@@ -52,6 +57,89 @@ const resolveVideoTiming = (video: ChzzkVideo) => {
     startedAt,
     videoDate: getKSTDateString(startedAt),
   };
+};
+
+const buildPendingVodFields = (video: ChzzkVideo, startedAt: Date) => ({
+  vod_started_at: startedAt.toISOString(),
+  vod_duration_seconds: Number.isFinite(video.duration)
+    ? Math.max(0, Math.floor(video.duration))
+    : null,
+  vod_thumbnail_url: video.thumbnailImageUrl || null,
+});
+
+const isEmptyScheduleTarget = (schedule: {
+  start_time?: string | null;
+  title?: string | null;
+}) => !schedule.start_time?.trim() && !schedule.title?.trim();
+
+const getErrorText = (error: unknown): string => {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error && error.cause instanceof Error
+        ? ` ${error.cause.message}`
+        : "";
+    return `${error.message}${cause}`;
+  }
+  return String(error);
+};
+
+const isMissingPendingVodMetadataColumnError = (error: unknown) => {
+  const message = getErrorText(error);
+  return (
+    PENDING_VOD_METADATA_COLUMNS.some((column) => message.includes(column)) &&
+    (message.includes("no such column") ||
+      message.includes("no column named"))
+  );
+};
+
+const insertPendingSchedule = async (
+  db: DbInstance,
+  item: NewPendingSchedule,
+) => {
+  try {
+    return await db
+      .insert(pendingSchedules)
+      .values(item)
+      .onConflictDoNothing();
+  } catch (error) {
+    if (!isMissingPendingVodMetadataColumnError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "[autoUpdateSchedules] pending_schedules VOD metadata columns are missing; retrying legacy insert. Run D1 migrations to store thumbnails and duration.",
+    );
+
+    return db.run(sql`
+      INSERT INTO pending_schedules (
+        member_uid,
+        member_name,
+        date,
+        start_time,
+        title,
+        status,
+        action_type,
+        existing_schedule_id,
+        previous_status,
+        previous_title,
+        vod_id
+      )
+      VALUES (
+        ${item.member_uid},
+        ${item.member_name},
+        ${item.date},
+        ${item.start_time ?? null},
+        ${item.title ?? null},
+        ${item.status ?? "방송"},
+        ${item.action_type},
+        ${item.existing_schedule_id ?? null},
+        ${item.previous_status ?? null},
+        ${item.previous_title ?? null},
+        ${item.vod_id ?? null}
+      )
+      ON CONFLICT DO NOTHING
+    `);
+  }
 };
 
 export const scanRecentChzzkVideos = async (
@@ -193,6 +281,7 @@ export const autoUpdateSchedules = async (
         const scheduleKey = `${member.uid}:${videoDate}`;
         const memberSchedules = scheduleMap.get(scheduleKey) || [];
         const startTime = extractKSTTime(startedAt.toISOString());
+        const vodFields = buildPendingVodFields(video, startedAt);
 
         const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
 
@@ -206,9 +295,12 @@ export const autoUpdateSchedules = async (
             parseInt(schedule.start_time.split(":")[0]) * 60 +
             parseInt(schedule.start_time.split(":")[1]);
           return Math.abs(videoMinutes - scheduleMinutes) <= 30;
-        });
+          });
 
-        if (!matchingSchedule) {
+        const emptyScheduleTarget = memberSchedules.find(isEmptyScheduleTarget);
+        const updateTarget = matchingSchedule ?? emptyScheduleTarget;
+
+        if (!updateTarget) {
           result.entries.push({
             kind: "candidate",
             candidate: {
@@ -224,6 +316,7 @@ export const autoUpdateSchedules = async (
                 previous_status: null,
                 previous_title: null,
                 vod_id: vodId,
+                ...vodFields,
               },
               logItem: {
                 schedule_id: null,
@@ -249,8 +342,9 @@ export const autoUpdateSchedules = async (
             },
           });
         } else if (
-          matchingSchedule.status !== "방송" ||
-          !matchingSchedule.title?.trim()
+          updateTarget.status !== "방송" ||
+          !updateTarget.title?.trim() ||
+          !updateTarget.start_time?.trim()
         ) {
           result.entries.push({
             kind: "candidate",
@@ -263,29 +357,30 @@ export const autoUpdateSchedules = async (
                 title: video.videoTitle,
                 status: "방송",
                 action_type: "update",
-                existing_schedule_id: matchingSchedule.id,
-                previous_status: matchingSchedule.status,
-                previous_title: matchingSchedule.title,
+                existing_schedule_id: updateTarget.id,
+                previous_status: updateTarget.status,
+                previous_title: updateTarget.title,
                 vod_id: vodId,
+                ...vodFields,
               },
               logItem: {
-                schedule_id: matchingSchedule.id,
+                schedule_id: updateTarget.id,
                 member_uid: member.uid,
                 member_name: member.name,
                 schedule_date: videoDate,
                 action: "auto_updated",
                 title: video.videoTitle,
-                previous_status: matchingSchedule.status,
+                previous_status: updateTarget.status,
                 actor_name: "system",
               },
               detail: {
                 memberUid: member.uid,
                 memberName: member.name,
-                scheduleId: matchingSchedule.id,
+                scheduleId: updateTarget.id,
                 scheduleDate: videoDate,
                 action: "auto_updated",
                 title: video.videoTitle,
-                previousStatus: matchingSchedule.status,
+                previousStatus: updateTarget.status,
               },
               pendingKey,
               vodId,
@@ -298,11 +393,11 @@ export const autoUpdateSchedules = async (
             detail: {
               memberUid: member.uid,
               memberName: member.name,
-              scheduleId: matchingSchedule.id,
+              scheduleId: updateTarget.id,
               scheduleDate: videoDate,
               action: "existing",
-              title: matchingSchedule.title,
-              previousStatus: matchingSchedule.status,
+              title: updateTarget.title ?? undefined,
+              previousStatus: updateTarget.status,
             },
           });
         }
@@ -343,10 +438,7 @@ export const autoUpdateSchedules = async (
         continue;
       }
 
-      const insertResult = await db
-        .insert(pendingSchedules)
-        .values(candidate.pendingItem)
-        .onConflictDoNothing();
+      const insertResult = await insertPendingSchedule(db, candidate.pendingItem);
 
       newVodIds.add(candidate.vodId);
       newPendingKeys.add(candidate.pendingKey);

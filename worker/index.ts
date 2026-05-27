@@ -1,6 +1,10 @@
 import { inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { settings } from "../src/db/schema";
+import {
+  normalizeAutoUpdateIntervalHours,
+  parseAutoUpdateIntervalHours,
+} from "../src/lib/auto-update-interval";
 import { autoUpdateSchedules } from "./services/schedule";
 import { handleLiveStatus } from "./routes/live";
 import { handleVods } from "./routes/vods";
@@ -10,6 +14,7 @@ import { handleNotices } from "./routes/notices";
 import { handleDDays } from "./routes/ddays";
 import { handleKirinuki } from "./routes/kirinuki";
 import { handleSettings } from "./routes/settings";
+import { updateSetting } from "./utils/helpers";
 import type { Env } from "./types";
 
 export default {
@@ -87,7 +92,16 @@ export default {
     }
 
     const intervalHoursStr = settingsMap.get("auto_update_interval_hours");
-    const intervalHours = parseInt(intervalHoursStr || "2", 10);
+    const normalizedIntervalHours =
+      normalizeAutoUpdateIntervalHours(intervalHoursStr);
+    if (intervalHoursStr !== normalizedIntervalHours) {
+      await updateSetting(
+        db,
+        "auto_update_interval_hours",
+        normalizedIntervalHours,
+      );
+    }
+    const intervalHours = parseAutoUpdateIntervalHours(normalizedIntervalHours);
     const intervalMs = intervalHours * 60 * 60 * 1000;
 
     const lastRunStr = settingsMap.get("auto_update_last_run");

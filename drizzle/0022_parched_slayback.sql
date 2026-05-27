@@ -1,0 +1,1 @@
+ALTER TABLE `pending_schedules` ADD `processed_reset_at` text;

@@ -6,6 +6,7 @@ import { type Notice } from "@/db/schema";
 import { ArrowLeft, Calendar, ExternalLink, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchNotices } from "@/lib/api/notices";
+import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
 
 const noticeTypeConfigs = {
   notice: {
@@ -51,7 +52,7 @@ function NoticePage() {
   }, [loadNotices]);
 
   const activeNotices = useMemo(
-    () => notices.filter((notice) => notice.is_active !== false),
+    () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),
     [notices],
   );
 

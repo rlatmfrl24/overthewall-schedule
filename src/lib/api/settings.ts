@@ -73,7 +73,39 @@ export interface PendingSchedule {
   previous_status: string | null;
   previous_title: string | null;
   vod_id: string | null;
+  vod_started_at: string | null;
+  vod_duration_seconds: number | null;
+  vod_thumbnail_url: string | null;
+  processed_reset_at: string | null;
   created_at: string | null;
+  has_same_day_schedule: boolean;
+  same_day_schedule_count: number;
+  same_day_schedules: PendingScheduleSummary[];
+  existing_schedule: PendingScheduleSummary | null;
+  empty_target_schedule: PendingScheduleSummary | null;
+  can_apply_to_empty_target: boolean;
+  is_processed: boolean;
+  processed_decision: "approved" | "rejected" | null;
+  processed_at: string | null;
+  processed_actor_name: string | null;
+}
+
+export interface PendingScheduleSummary {
+  id: number;
+  start_time: string | null;
+  title: string | null;
+  status: string;
+}
+
+export type PendingApplyMode = "all" | "time" | "title";
+export type PendingTargetMode = "update" | "create";
+export type PendingTimeMode = "nearest_hour" | "exact";
+
+export interface PendingApprovalOptions {
+  applyMode: PendingApplyMode;
+  targetMode: PendingTargetMode;
+  timeMode: PendingTimeMode;
+  targetScheduleId?: number | null;
 }
 
 export async function fetchSettings(): Promise<AutoUpdateSettings> {
@@ -134,10 +166,12 @@ export async function fetchPendingSchedules(): Promise<PendingSchedule[]> {
 }
 
 export async function approvePendingSchedule(
-  pendingId: number
-): Promise<{ success: boolean; action: string }> {
+  pendingId: number,
+  options?: PendingApprovalOptions
+): Promise<{ success: boolean; action: string; scheduleId?: number | null }> {
   return apiFetch(`/api/settings/pending/${pendingId}/approve`, {
     method: "POST",
+    ...(options ? { json: options } : {}),
   });
 }
 
@@ -145,6 +179,22 @@ export async function rejectPendingSchedule(
   pendingId: number
 ): Promise<{ success: boolean }> {
   return apiFetch(`/api/settings/pending/${pendingId}/reject`, {
+    method: "POST",
+  });
+}
+
+export async function resetPendingScheduleProcessed(
+  pendingId: number
+): Promise<{ success: boolean; resetAt: string }> {
+  return apiFetch(`/api/settings/pending/${pendingId}/reset-processed`, {
+    method: "POST",
+  });
+}
+
+export async function applyPendingScheduleToEmptyTarget(
+  pendingId: number
+): Promise<{ success: boolean; scheduleId: number }> {
+  return apiFetch(`/api/settings/pending/${pendingId}/apply-empty-target`, {
     method: "POST",
   });
 }
