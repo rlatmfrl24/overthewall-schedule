@@ -125,6 +125,7 @@ export type UpdateLogPayload = {
     | "delete"
     | "approve"
     | "reject"
+    | "reset_processed"
     | "auto_collected"
     | "auto_updated"
     | "auto_failed";
