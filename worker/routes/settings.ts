@@ -115,18 +115,53 @@ const getProcessedDecision = (
   return null;
 };
 
-const isLogAfterReset = (
-  logCreatedAt: string | null,
-  resetAt: string | null,
+const parseTimestampMs = (value: string | number | null | undefined) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (!value) return null;
+  const sqliteUtcMatch = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value);
+  const normalized = sqliteUtcMatch ? `${value.replace(" ", "T")}Z` : value;
+  const timestamp = new Date(normalized).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
+
+const compareTimestamps = (
+  left: string | number | null | undefined,
+  right: string | number | null | undefined,
 ) => {
+  const leftTime = parseTimestampMs(left);
+  const rightTime = parseTimestampMs(right);
+  if (leftTime !== null && rightTime !== null) {
+    return leftTime - rightTime;
+  }
+  return String(left ?? "").localeCompare(String(right ?? ""));
+};
+
+const isLogAfterReset = (logCreatedAt: string | null, resetAt: string | null) => {
   if (!resetAt) return true;
   if (!logCreatedAt) return false;
-  const logTime = new Date(logCreatedAt).getTime();
-  const resetTime = new Date(resetAt).getTime();
-  if (Number.isNaN(logTime) || Number.isNaN(resetTime)) {
-    return logCreatedAt > resetAt;
+  return compareTimestamps(logCreatedAt, resetAt) > 0;
+};
+
+const getLaterTimestamp = (
+  left: string | null,
+  right: string | null | undefined,
+) => {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return compareTimestamps(left, right) >= 0 ? left : right;
+};
+
+const isMatchingProcessedLog = (
+  item: PendingScheduleRow,
+  log: ProcessedPendingLog,
+) => {
+  if (item.existing_schedule_id && log.schedule_id === item.existing_schedule_id) {
+    return true;
   }
-  return logTime > resetTime;
+  return (
+    normalizeComparableText(log.title) !== "" &&
+    normalizeComparableText(log.title) === normalizeComparableText(item.title)
+  );
 };
 
 const getErrorText = (error: unknown): string => {
@@ -316,7 +351,7 @@ const enrichPendingSchedules = async (
     .from(updateLogs)
     .where(
       and(
-        inArray(updateLogs.action, ["approve", "reject"]),
+        inArray(updateLogs.action, ["approve", "reject", "reset_processed"]),
         inArray(updateLogs.member_uid, memberUids),
         inArray(updateLogs.schedule_date, dates),
       ),
@@ -346,7 +381,7 @@ const enrichPendingSchedules = async (
   }
 
   return pendingList.map((item) => {
-    const processedResetAt = normalizePendingProcessedResetAt(
+    const columnProcessedResetAt = normalizePendingProcessedResetAt(
       item.processed_reset_at,
     );
     const sameDaySchedules =
@@ -373,22 +408,24 @@ const enrichPendingSchedules = async (
       (existingSchedule && isEmptyScheduleTarget(existingSchedule)
         ? existingSchedule
         : sameDaySchedulesWithExisting.find(isEmptyScheduleTarget)) || null;
+    const latestResetLogAt =
+      sameDayProcessedLogs.find(
+        (log) =>
+          log.action === "reset_processed" && isMatchingProcessedLog(item, log),
+      )?.created_at ?? null;
+    const processedResetAt = getLaterTimestamp(
+      columnProcessedResetAt,
+      latestResetLogAt,
+    );
     const processedLog =
       sameDayProcessedLogs.find((log) => {
+        if (!getProcessedDecision(log.action)) {
+          return false;
+        }
         if (!isLogAfterReset(log.created_at, processedResetAt)) {
           return false;
         }
-        if (
-          item.existing_schedule_id &&
-          log.schedule_id === item.existing_schedule_id
-        ) {
-          return true;
-        }
-        return (
-          normalizeComparableText(log.title) !== "" &&
-          normalizeComparableText(log.title) ===
-            normalizeComparableText(item.title)
-        );
+        return isMatchingProcessedLog(item, log);
       }) || null;
     const processedDecision = processedLog
       ? getProcessedDecision(processedLog.action)
@@ -943,18 +980,26 @@ export const handleSettings = async (request: Request, env: Env) => {
         .where(eq(pendingSchedules.id, pendingId));
     } catch (error) {
       if (isMissingPendingVodMetadataColumnError(error)) {
-        return Response.json(
-          {
-            success: false,
-            error: "migration_required",
-            message:
-              "processed_reset_at 컬럼이 없습니다. D1 마이그레이션을 먼저 적용해주세요.",
-          },
-          { status: 409 },
+        console.warn(
+          "[settings] processed_reset_at column is missing; storing reset state in update_logs only.",
         );
+      } else {
+        throw error;
       }
-      throw error;
     }
+
+    await insertUpdateLog(db, {
+      scheduleId: pending[0].existing_schedule_id,
+      memberUid: pending[0].member_uid,
+      memberName: pending[0].member_name,
+      scheduleDate: pending[0].date,
+      action: "reset_processed",
+      title: pending[0].title,
+      previousStatus: pending[0].previous_status,
+      actorId: actor.actorId,
+      actorName: actor.actorName,
+      actorIp: actor.actorIp,
+    });
 
     return Response.json({ success: true, resetAt });
   }
