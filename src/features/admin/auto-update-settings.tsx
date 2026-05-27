@@ -646,6 +646,7 @@ export function AutoUpdateSettingsManager() {
             : item,
         ),
       );
+      await loadPending();
       toast({
         variant: "success",
         description: "처리 완료 표시를 리셋했습니다.",

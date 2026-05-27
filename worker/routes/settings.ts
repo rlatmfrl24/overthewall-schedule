@@ -53,6 +53,7 @@ type ProcessedPendingLog = {
   schedule_date: string;
   action: string;
   title: string | null;
+  previous_status: string | null;
   actor_name: string | null;
   created_at: string | null;
 };
@@ -93,16 +94,25 @@ const toScheduleSummaryResponse = (schedule: ScheduleSummary) => ({
 });
 
 const normalizePendingVodStartedAt = (value: unknown) =>
-  typeof value === "string" && value !== "vod_started_at" ? value : null;
+  typeof value === "string" &&
+  !["vod_started_at", "null", "undefined", ""].includes(value)
+    ? value
+    : null;
 
 const normalizePendingVodDuration = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
 const normalizePendingVodThumbnail = (value: unknown) =>
-  typeof value === "string" && value !== "vod_thumbnail_url" ? value : null;
+  typeof value === "string" &&
+  !["vod_thumbnail_url", "null", "undefined", ""].includes(value)
+    ? value
+    : null;
 
 const normalizePendingProcessedResetAt = (value: unknown) =>
-  typeof value === "string" && value !== "processed_reset_at" ? value : null;
+  typeof value === "string" &&
+  !["processed_reset_at", "null", "undefined", ""].includes(value)
+    ? value
+    : null;
 
 const normalizeComparableText = (value: string | null | undefined) =>
   value?.trim().toLowerCase() ?? "";
@@ -155,6 +165,9 @@ const isMatchingProcessedLog = (
   item: PendingScheduleRow,
   log: ProcessedPendingLog,
 ) => {
+  if (log.previous_status === `pending:${item.id}`) {
+    return true;
+  }
   if (item.existing_schedule_id && log.schedule_id === item.existing_schedule_id) {
     return true;
   }
@@ -345,6 +358,7 @@ const enrichPendingSchedules = async (
       schedule_date: updateLogs.schedule_date,
       action: updateLogs.action,
       title: updateLogs.title,
+      previous_status: updateLogs.previous_status,
       actor_name: updateLogs.actor_name,
       created_at: updateLogs.created_at,
     })
@@ -995,7 +1009,7 @@ export const handleSettings = async (request: Request, env: Env) => {
       scheduleDate: pending[0].date,
       action: "reset_processed",
       title: pending[0].title,
-      previousStatus: pending[0].previous_status,
+      previousStatus: `pending:${pending[0].id}`,
       actorId: actor.actorId,
       actorName: actor.actorName,
       actorIp: actor.actorIp,
