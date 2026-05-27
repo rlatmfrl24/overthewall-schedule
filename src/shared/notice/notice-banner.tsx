@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { fetchNotices } from "@/lib/api/notices";
+import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
 
 const noticeTypeConfigs = {
   notice: {
@@ -48,7 +49,7 @@ export function NoticeBanner() {
   }, [loadNotices]);
 
   const visibleNotices = useMemo(
-    () => notices.filter((notice) => notice.is_active !== false),
+    () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),
     [notices],
   );
 

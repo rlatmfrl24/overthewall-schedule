@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member, ScheduleItem } from "@/lib/types";
 import { fetchActiveMembers } from "./members";
-import { createDDay, deleteDDay, updateDDay } from "./ddays";
+import { createDDay, deleteDDay, fetchDDays, updateDDay } from "./ddays";
 import {
   createNotice,
   deleteNotice,
@@ -20,12 +20,14 @@ import {
   approveAllPendingSchedules,
   approveSelectedPendingSchedules,
   approvePendingSchedule,
+  applyPendingScheduleToEmptyTarget,
   fetchPendingSchedules,
   fetchSettings,
   fetchUpdateLogs,
   rejectAllPendingSchedules,
   rejectSelectedPendingSchedules,
   rejectPendingSchedule,
+  resetPendingScheduleProcessed,
   runAutoUpdateNow,
   updateSettings,
 } from "./settings";
@@ -93,6 +95,7 @@ describe("api wrapper modules", () => {
   });
 
   it("dday CRUD는 올바른 경로/메서드로 요청한다", async () => {
+    await fetchDDays({ noCache: true });
     await createDDay({
       title: "기념일",
       date: "2026-02-13",
@@ -106,15 +109,20 @@ describe("api wrapper modules", () => {
     });
     await deleteDDay(7);
 
-    expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/api/ddays", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/ddays?noCache=1",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/api/ddays", {
       method: "POST",
       json: expect.objectContaining({ title: "기념일" }),
     });
-    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/api/ddays", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/ddays", {
       method: "PUT",
       json: expect.objectContaining({ id: 3 }),
     });
-    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/ddays?id=7", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/ddays?id=7", {
       method: "DELETE",
     });
   });
@@ -225,6 +233,9 @@ describe("api wrapper modules", () => {
       })
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce({ success: true, action: "approved" })
+      .mockResolvedValueOnce({ success: true, action: "update", scheduleId: 16 })
+      .mockResolvedValueOnce({ success: true, scheduleId: 15 })
+      .mockResolvedValueOnce({ success: true, resetAt: "2026-05-27T00:00:00.000Z" })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({
         success: true,
@@ -265,6 +276,14 @@ describe("api wrapper modules", () => {
     });
     await fetchPendingSchedules();
     await approvePendingSchedule(11);
+    await approvePendingSchedule(16, {
+      applyMode: "time",
+      targetMode: "update",
+      timeMode: "nearest_hour",
+      targetScheduleId: 160,
+    });
+    await applyPendingScheduleToEmptyTarget(15);
+    await resetPendingScheduleProcessed(17);
     await rejectPendingSchedule(12);
     await approveSelectedPendingSchedules([11, 13]);
     await rejectSelectedPendingSchedules([12, 14]);
@@ -291,6 +310,26 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/11/approve",
+      { method: "POST" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/16/approve",
+      {
+        method: "POST",
+        json: {
+          applyMode: "time",
+          targetMode: "update",
+          timeMode: "nearest_hour",
+          targetScheduleId: 160,
+        },
+      },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/15/apply-empty-target",
+      { method: "POST" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/17/reset-processed",
       { method: "POST" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
