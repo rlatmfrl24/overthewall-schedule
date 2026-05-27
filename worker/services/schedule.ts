@@ -8,6 +8,7 @@ import {
 } from "../../src/db/schema";
 import type {
   AutoUpdateDetail,
+  CachedChzzkVideos,
   NewPendingSchedule,
   NewUpdateLog,
 } from "../types";
@@ -18,6 +19,169 @@ import {
   pMap,
 } from "../utils/helpers";
 import { fetchChzzkVideos } from "./chzzk";
+
+const CHZZK_SCAN_PAGE_SIZE = 5;
+const CHZZK_SCAN_MAX_PAGES = 3;
+const UPDATE_LOG_CHUNK_SIZE = 12;
+const PENDING_VOD_METADATA_COLUMNS = [
+  "vod_started_at",
+  "vod_duration_seconds",
+  "vod_thumbnail_url",
+] as const;
+
+type ChzzkVideo = NonNullable<NonNullable<CachedChzzkVideos["content"]>["data"]>[number];
+
+type PendingCandidate = {
+  pendingItem: NewPendingSchedule;
+  logItem: NewUpdateLog;
+  detail: AutoUpdateDetail;
+  pendingKey: string;
+  vodId: string;
+};
+
+type ProcessEntry =
+  | {
+      kind: "candidate";
+      candidate: PendingCandidate;
+    }
+  | {
+      kind: "detail";
+      detail: AutoUpdateDetail;
+    };
+
+const resolveVideoTiming = (video: ChzzkVideo) => {
+  const startTimestamp = video.publishDateAt - video.duration * 1000;
+  const startedAt = new Date(startTimestamp);
+  return {
+    startTimestamp,
+    startedAt,
+    videoDate: getKSTDateString(startedAt),
+  };
+};
+
+const buildPendingVodFields = (video: ChzzkVideo, startedAt: Date) => ({
+  vod_started_at: startedAt.toISOString(),
+  vod_duration_seconds: Number.isFinite(video.duration)
+    ? Math.max(0, Math.floor(video.duration))
+    : null,
+  vod_thumbnail_url: video.thumbnailImageUrl || null,
+});
+
+const isEmptyScheduleTarget = (schedule: {
+  start_time?: string | null;
+  title?: string | null;
+}) => !schedule.start_time?.trim() && !schedule.title?.trim();
+
+const getErrorText = (error: unknown): string => {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error && error.cause instanceof Error
+        ? ` ${error.cause.message}`
+        : "";
+    return `${error.message}${cause}`;
+  }
+  return String(error);
+};
+
+const isMissingPendingVodMetadataColumnError = (error: unknown) => {
+  const message = getErrorText(error);
+  return (
+    PENDING_VOD_METADATA_COLUMNS.some((column) => message.includes(column)) &&
+    (message.includes("no such column") ||
+      message.includes("no column named"))
+  );
+};
+
+const insertPendingSchedule = async (
+  db: DbInstance,
+  item: NewPendingSchedule,
+) => {
+  try {
+    return await db
+      .insert(pendingSchedules)
+      .values(item)
+      .onConflictDoNothing();
+  } catch (error) {
+    if (!isMissingPendingVodMetadataColumnError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "[autoUpdateSchedules] pending_schedules VOD metadata columns are missing; retrying legacy insert. Run D1 migrations to store thumbnails and duration.",
+    );
+
+    return db.run(sql`
+      INSERT INTO pending_schedules (
+        member_uid,
+        member_name,
+        date,
+        start_time,
+        title,
+        status,
+        action_type,
+        existing_schedule_id,
+        previous_status,
+        previous_title,
+        vod_id
+      )
+      VALUES (
+        ${item.member_uid},
+        ${item.member_name},
+        ${item.date},
+        ${item.start_time ?? null},
+        ${item.title ?? null},
+        ${item.status ?? "방송"},
+        ${item.action_type},
+        ${item.existing_schedule_id ?? null},
+        ${item.previous_status ?? null},
+        ${item.previous_title ?? null},
+        ${item.vod_id ?? null}
+      )
+      ON CONFLICT DO NOTHING
+    `);
+  }
+};
+
+export const scanRecentChzzkVideos = async (
+  channelId: string,
+  startDate: string,
+  today: string,
+  fetchVideos: typeof fetchChzzkVideos = fetchChzzkVideos,
+): Promise<ChzzkVideo[]> => {
+  const collected: ChzzkVideo[] = [];
+
+  for (let page = 0; page < CHZZK_SCAN_MAX_PAGES; page += 1) {
+    const response = await fetchVideos(channelId, page, CHZZK_SCAN_PAGE_SIZE);
+    const pageItems = response?.data ?? [];
+
+    if (pageItems.length === 0) {
+      break;
+    }
+
+    let reachedOutOfRange = false;
+
+    for (const video of pageItems) {
+      const { videoDate } = resolveVideoTiming(video);
+
+      if (videoDate < startDate) {
+        reachedOutOfRange = true;
+        break;
+      }
+
+      if (videoDate > today) {
+        continue;
+      }
+
+      collected.push(video);
+    }
+
+    if (reachedOutOfRange || pageItems.length < CHZZK_SCAN_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return collected;
+};
 
 // 자동 업데이트 핵심 로직 (승인 프로세스 적용)
 // - VOD 수집 후 pending_schedules 테이블에 저장 (관리자 승인 대기)
@@ -69,7 +233,14 @@ export const autoUpdateSchedules = async (
   }
 
   // 3. 기존 대기 스케줄 조회 (중복 방지용)
-  const existingPending = await db.select().from(pendingSchedules);
+  const existingPending = await db
+    .select({
+      member_uid: pendingSchedules.member_uid,
+      date: pendingSchedules.date,
+      start_time: pendingSchedules.start_time,
+      vod_id: pendingSchedules.vod_id,
+    })
+    .from(pendingSchedules);
   const pendingVodIds = new Set(
     existingPending.filter((p) => p.vod_id).map((p) => p.vod_id),
   );
@@ -83,12 +254,8 @@ export const autoUpdateSchedules = async (
   // 4. 각 멤버별로 VOD 확인 (병렬 처리)
   // 결과를 모아서 한 번에 처리
   type ProcessResult = {
-    pendingItems: NewPendingSchedule[];
-    logItems: NewUpdateLog[];
-    details: AutoUpdateDetail[];
+    entries: ProcessEntry[];
     checkedCount: number;
-    newVodIds: string[];
-    newPendingKeys: string[];
   };
 
   const results = await pMap(
@@ -97,46 +264,26 @@ export const autoUpdateSchedules = async (
       const channelId = extractChzzkChannelId(member.url_chzzk);
       if (!channelId) return null;
 
-      const videos = await fetchChzzkVideos(channelId, 0, 15);
-      if (!videos?.data || videos.data.length === 0) return null;
+      const videos = await scanRecentChzzkVideos(channelId, startDate, today);
+      if (videos.length === 0) return null;
 
       const result: ProcessResult = {
-        pendingItems: [],
-        logItems: [],
-        details: [],
+        entries: [],
         checkedCount: 0,
-        newVodIds: [],
-        newPendingKeys: [],
       };
 
-      for (const video of videos.data) {
-        // VOD ID로 중복 체크
-        // 주의: 병렬 실행 시 pendingVodIds에 대한 동시성 문제가 있을 수 있으나,
-        // 각 멤버는 독립적이므로 멤버 간 VOD 중복(collaboration)만 문제될 수 있음.
-        // 하지만 여기서는 pendingVodIds를 읽기만 하고, 쓰기는 나중에 모아서 함.
-        // 같은 VOD가 여러 멤버에게 동시에 뜰 수 있음(합방).
-        // 이 경우 중복으로 들어갈 수 있지만, UNIQUE constraints가 없으면 들어감.
-        // pendingVodIds에 넣는 건 나중에 한 번에.
-
+      for (const video of videos) {
         const vodId = `chzzk:${video.videoId}`;
-        if (pendingVodIds.has(vodId)) continue; // 이미 처리된 VOD
-
-        // 실제 스트리밍 시작 시간 계산
-        const startTimestamp = video.publishDateAt - video.duration * 1000;
-        const videoDate = getKSTDateString(new Date(startTimestamp));
-
-        if (videoDate < startDate || videoDate > today) continue;
+        const { startedAt, videoDate } = resolveVideoTiming(video);
 
         result.checkedCount++;
 
         const scheduleKey = `${member.uid}:${videoDate}`;
         const memberSchedules = scheduleMap.get(scheduleKey) || [];
-        const startTime = extractKSTTime(
-          new Date(startTimestamp).toISOString(),
-        );
+        const startTime = extractKSTTime(startedAt.toISOString());
+        const vodFields = buildPendingVodFields(video, startedAt);
 
         const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
-        if (pendingKeys.has(pendingKey)) continue;
 
         const videoMinutes =
           parseInt(startTime.split(":")[0]) * 60 +
@@ -148,95 +295,110 @@ export const autoUpdateSchedules = async (
             parseInt(schedule.start_time.split(":")[0]) * 60 +
             parseInt(schedule.start_time.split(":")[1]);
           return Math.abs(videoMinutes - scheduleMinutes) <= 30;
-        });
-
-        if (!matchingSchedule) {
-          result.pendingItems.push({
-            member_uid: member.uid,
-            member_name: member.name,
-            date: videoDate,
-            start_time: startTime,
-            title: video.videoTitle,
-            status: "방송",
-            action_type: "create",
-            existing_schedule_id: null,
-            previous_status: null,
-            previous_title: null,
-            vod_id: vodId,
-          });
-          result.newVodIds.push(vodId);
-          result.newPendingKeys.push(pendingKey);
-
-          result.logItems.push({
-            schedule_id: null,
-            member_uid: member.uid,
-            member_name: member.name,
-            schedule_date: videoDate,
-            action: "auto_collected",
-            title: video.videoTitle,
-            previous_status: null,
-            actor_name: "system",
           });
 
-          result.details.push({
-            memberUid: member.uid,
-            memberName: member.name,
-            scheduleId: null,
-            scheduleDate: videoDate,
-            action: "auto_collected",
-            title: video.videoTitle,
-            previousStatus: null,
+        const emptyScheduleTarget = memberSchedules.find(isEmptyScheduleTarget);
+        const updateTarget = matchingSchedule ?? emptyScheduleTarget;
+
+        if (!updateTarget) {
+          result.entries.push({
+            kind: "candidate",
+            candidate: {
+              pendingItem: {
+                member_uid: member.uid,
+                member_name: member.name,
+                date: videoDate,
+                start_time: startTime,
+                title: video.videoTitle,
+                status: "방송",
+                action_type: "create",
+                existing_schedule_id: null,
+                previous_status: null,
+                previous_title: null,
+                vod_id: vodId,
+                ...vodFields,
+              },
+              logItem: {
+                schedule_id: null,
+                member_uid: member.uid,
+                member_name: member.name,
+                schedule_date: videoDate,
+                action: "auto_collected",
+                title: video.videoTitle,
+                previous_status: null,
+                actor_name: "system",
+              },
+              detail: {
+                memberUid: member.uid,
+                memberName: member.name,
+                scheduleId: null,
+                scheduleDate: videoDate,
+                action: "auto_collected",
+                title: video.videoTitle,
+                previousStatus: null,
+              },
+              pendingKey,
+              vodId,
+            },
           });
         } else if (
-          matchingSchedule.status !== "방송" ||
-          !matchingSchedule.title?.trim()
+          updateTarget.status !== "방송" ||
+          !updateTarget.title?.trim() ||
+          !updateTarget.start_time?.trim()
         ) {
-          result.pendingItems.push({
-            member_uid: member.uid,
-            member_name: member.name,
-            date: videoDate,
-            start_time: startTime,
-            title: video.videoTitle,
-            status: "방송",
-            action_type: "update",
-            existing_schedule_id: matchingSchedule.id,
-            previous_status: matchingSchedule.status,
-            previous_title: matchingSchedule.title,
-            vod_id: vodId,
-          });
-          result.newVodIds.push(vodId);
-          result.newPendingKeys.push(pendingKey);
-
-          result.logItems.push({
-            schedule_id: matchingSchedule.id,
-            member_uid: member.uid,
-            member_name: member.name,
-            schedule_date: videoDate,
-            action: "auto_updated",
-            title: video.videoTitle,
-            previous_status: matchingSchedule.status,
-            actor_name: "system",
-          });
-
-          result.details.push({
-            memberUid: member.uid,
-            memberName: member.name,
-            scheduleId: matchingSchedule.id,
-            scheduleDate: videoDate,
-            action: "auto_updated",
-            title: video.videoTitle,
-            previousStatus: matchingSchedule.status,
+          result.entries.push({
+            kind: "candidate",
+            candidate: {
+              pendingItem: {
+                member_uid: member.uid,
+                member_name: member.name,
+                date: videoDate,
+                start_time: startTime,
+                title: video.videoTitle,
+                status: "방송",
+                action_type: "update",
+                existing_schedule_id: updateTarget.id,
+                previous_status: updateTarget.status,
+                previous_title: updateTarget.title,
+                vod_id: vodId,
+                ...vodFields,
+              },
+              logItem: {
+                schedule_id: updateTarget.id,
+                member_uid: member.uid,
+                member_name: member.name,
+                schedule_date: videoDate,
+                action: "auto_updated",
+                title: video.videoTitle,
+                previous_status: updateTarget.status,
+                actor_name: "system",
+              },
+              detail: {
+                memberUid: member.uid,
+                memberName: member.name,
+                scheduleId: updateTarget.id,
+                scheduleDate: videoDate,
+                action: "auto_updated",
+                title: video.videoTitle,
+                previousStatus: updateTarget.status,
+              },
+              pendingKey,
+              vodId,
+            },
           });
         } else {
           // 이미 스케줄이 존재하고, 업데이트가 필요 없는 경우
-          result.details.push({
-            memberUid: member.uid,
-            memberName: member.name,
-            scheduleId: matchingSchedule.id,
-            scheduleDate: videoDate,
-            action: "existing",
-            title: matchingSchedule.title,
-            previousStatus: matchingSchedule.status,
+          result.entries.push({
+            kind: "detail",
+            detail: {
+              memberUid: member.uid,
+              memberName: member.name,
+              scheduleId: updateTarget.id,
+              scheduleDate: videoDate,
+              action: "existing",
+              title: updateTarget.title ?? undefined,
+              previousStatus: updateTarget.status,
+            },
           });
         }
       }
@@ -245,44 +407,62 @@ export const autoUpdateSchedules = async (
     10, // Concurrency limit
   );
 
-  // 5. 결과 집계 및 일괄 삽입
-  const allPendingItems: NewPendingSchedule[] = [];
   const allLogItems: NewUpdateLog[] = [];
   const allDetails: AutoUpdateDetail[] = [];
   let totalChecked = 0;
+  let insertedPendingCount = 0;
+  const newVodIds = new Set<string>();
+  const newPendingKeys = new Set<string>();
 
   for (const res of results) {
-    if (res) {
-      allPendingItems.push(...res.pendingItems);
-      allLogItems.push(...res.logItems);
-      allDetails.push(...res.details);
-      totalChecked += res.checkedCount;
+    if (!res) {
+      continue;
     }
-  }
 
-  // Batch insert (D1 limits: max 100 bound parameters per query)
-  // pending_schedules has 11 bound params per row → max 9 rows, using 5 for safety
-  const CHUNK_SIZE = 5;
-  console.log(
-    `[Schedule Worker] Inserting with CHUNK_SIZE: ${CHUNK_SIZE}, Total Items: ${allPendingItems.length}`,
-  );
+    totalChecked += res.checkedCount;
 
-  if (allPendingItems.length > 0) {
-    for (let i = 0; i < allPendingItems.length; i += CHUNK_SIZE) {
-      await db
-        .insert(pendingSchedules)
-        .values(allPendingItems.slice(i, i + CHUNK_SIZE));
+    for (const entry of res.entries) {
+      if (entry.kind === "detail") {
+        allDetails.push(entry.detail);
+        continue;
+      }
+
+      const { candidate } = entry;
+
+      if (
+        pendingVodIds.has(candidate.vodId) ||
+        newVodIds.has(candidate.vodId) ||
+        pendingKeys.has(candidate.pendingKey) ||
+        newPendingKeys.has(candidate.pendingKey)
+      ) {
+        continue;
+      }
+
+      const insertResult = await insertPendingSchedule(db, candidate.pendingItem);
+
+      newVodIds.add(candidate.vodId);
+      newPendingKeys.add(candidate.pendingKey);
+
+      if (insertResult.meta.changes !== 1) {
+        continue;
+      }
+
+      insertedPendingCount += 1;
+      allLogItems.push(candidate.logItem);
+      allDetails.push(candidate.detail);
     }
   }
 
   if (allLogItems.length > 0) {
-    for (let i = 0; i < allLogItems.length; i += CHUNK_SIZE) {
-      await db.insert(updateLogs).values(allLogItems.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < allLogItems.length; i += UPDATE_LOG_CHUNK_SIZE) {
+      await db
+        .insert(updateLogs)
+        .values(allLogItems.slice(i, i + UPDATE_LOG_CHUNK_SIZE));
     }
   }
 
   return {
-    updated: allPendingItems.length,
+    updated: insertedPendingCount,
     checked: totalChecked,
     details: allDetails,
   };

@@ -80,7 +80,7 @@ export function DDayManager() {
   const loadDDays = useCallback(async () => {
     setIsFetching(true);
     try {
-      const data = await fetchDDays();
+      const data = await fetchDDays({ noCache: true });
       setDDays(data);
     } catch (error) {
       console.error("Failed to load d-days:", error);

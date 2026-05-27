@@ -1,27 +1,25 @@
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import type { ChzzkClip, Member } from "@/lib/types";
 import { ClipCard } from "./clip-card";
+import {
+  compareClipsByDateThenViews,
+  groupClipsByDate,
+} from "./clip-date-groups";
 import { cn, hexToRgba, getContrastColor } from "@/lib/utils";
 import {
+  CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  LayoutGrid,
   Users,
-  ArrowDownUp,
-  Clock,
-  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
-type ViewMode = "member" | "grid";
-type SortOption = "latest" | "views";
+type ViewMode = "date" | "member";
+
+const readCountFormatter = new Intl.NumberFormat("ko-KR");
+const DATE_GROUP_GRID_ID_PREFIX = "chzzk-clips-date-group";
 
 interface ChzzkClipsPlaylistProps {
   clips: ChzzkClip[];
@@ -108,63 +106,38 @@ const ClipsMemberFilter = ({
 interface SectionHeaderProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  sortOption: SortOption;
-  onSortChange: (sort: SortOption) => void;
-  showSortOption: boolean;
 }
 
 const ChzzkClipsSectionHeader = ({
   viewMode,
   onViewModeChange,
-  sortOption,
-  onSortChange,
-  showSortOption,
 }: SectionHeaderProps) => (
-  <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
-    <div className="flex items-center gap-3">
-      <span className="h-7 w-1.5 rounded-full bg-emerald-500/80" />
-      <h2 className="text-lg font-semibold text-foreground tracking-tight">
+  <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="h-7 w-1.5 shrink-0 rounded-full bg-emerald-500/80" />
+      <h2 className="truncate text-lg font-semibold text-foreground tracking-tight">
         치지직 클립
       </h2>
     </div>
 
     <div className="flex items-center gap-2">
-      {/* 정렬 옵션 (그리드 뷰에서만) */}
-      {showSortOption && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <ArrowDownUp className="w-4 h-4" />
-              <span className="hidden sm:inline">
-                {sortOption === "latest" ? "최신순" : "조회수순"}
-              </span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => onSortChange("latest")}
-              className={cn(sortOption === "latest" && "bg-accent")}
-            >
-              <Clock className="w-4 h-4 mr-2" />
-              최신순
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onSortChange("views")}
-              className={cn(sortOption === "views" && "bg-accent")}
-            >
-              <Eye className="w-4 h-4 mr-2" />
-              조회수순
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
       {/* 뷰 모드 토글 */}
-      <div className="flex rounded-lg bg-muted p-0.5">
+      <div className="flex rounded-lg bg-muted/70 p-0.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onViewModeChange("date")}
+          className={cn(
+            "h-7 w-7 p-0 rounded-md transition-all",
+            viewMode === "date"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          aria-label="일자별 보기"
+          title="일자별 보기"
+        >
+          <CalendarDays className="w-4 h-4" />
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -180,21 +153,6 @@ const ChzzkClipsSectionHeader = ({
         >
           <Users className="w-4 h-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onViewModeChange("grid")}
-          className={cn(
-            "h-7 w-7 p-0 rounded-md transition-all",
-            viewMode === "grid"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          aria-label="그리드 보기"
-          title="그리드 보기"
-        >
-          <LayoutGrid className="w-4 h-4" />
-        </Button>
       </div>
     </div>
   </div>
@@ -206,14 +164,15 @@ export const ChzzkClipsPlaylist = ({
   loading = false,
   emptyMessage = "클립이 없습니다.",
 }: ChzzkClipsPlaylistProps) => {
-  // 뷰 모드 상태 (멤버별 / 그리드)
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  // 그리드 뷰 전용 필터 상태
+  // 뷰 모드 상태 (일자별 / 멤버별)
+  const [viewMode, setViewMode] = useState<ViewMode>("date");
+  // 일자별 뷰 전용 필터 상태
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
     null,
   );
-  // 정렬 옵션
-  const [sortOption, setSortOption] = useState<SortOption>("latest");
+  const [collapsedDateKeys, setCollapsedDateKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // 멤버별로 클립 그룹화 (멤버별 뷰용)
   const clipsByMember = useMemo(() => {
@@ -225,6 +184,7 @@ export const ChzzkClipsPlaylist = ({
         grouped.set(clip.memberUid, list);
       }
     });
+    grouped.forEach((list) => list.sort(compareClipsByDateThenViews));
     return grouped;
   }, [clips]);
 
@@ -233,8 +193,8 @@ export const ChzzkClipsPlaylist = ({
     return members.filter((m) => clipsByMember.has(m.uid));
   }, [members, clipsByMember]);
 
-  // 그리드 뷰용: 필터링 + 정렬된 클립 목록
-  const filteredAndSortedClips = useMemo(() => {
+  // 일자별 뷰용: 멤버 필터 적용 후 날짜 그룹화
+  const dateViewClips = useMemo(() => {
     let result = [...clips];
 
     // 멤버 필터 적용
@@ -244,28 +204,42 @@ export const ChzzkClipsPlaylist = ({
       );
     }
 
-    // 정렬 적용
-    if (sortOption === "latest") {
-      result.sort(
-        (a, b) =>
-          new Date(b.createdDate.replace(" ", "T")).getTime() -
-          new Date(a.createdDate.replace(" ", "T")).getTime(),
-      );
-    } else if (sortOption === "views") {
-      result.sort((a, b) => b.readCount - a.readCount);
-    }
-
     return result;
-  }, [clips, selectedMemberUids, sortOption]);
+  }, [clips, selectedMemberUids]);
 
-  // 그리드 뷰용: 멤버 UID → Member 맵
+  const clipDateGroups = useMemo(
+    () => groupClipsByDate(dateViewClips),
+    [dateViewClips],
+  );
+
+  // 일자별 뷰용: 멤버 UID → Member 맵
   const memberMap = useMemo(() => {
     const map = new Map<number, Member>();
     members.forEach((m) => map.set(m.uid, m));
     return map;
   }, [members]);
 
-  // 뷰 모드 변경 시 그리드 필터 초기화
+  useEffect(() => {
+    const dateKeys = new Set(clipDateGroups.map((group) => group.dateKey));
+    setCollapsedDateKeys((prev) => {
+      const next = new Set([...prev].filter((dateKey) => dateKeys.has(dateKey)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [clipDateGroups]);
+
+  const toggleDateGroup = useCallback((dateKey: string) => {
+    setCollapsedDateKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(dateKey)) {
+        next.delete(dateKey);
+      } else {
+        next.add(dateKey);
+      }
+      return next;
+    });
+  }, []);
+
+  // 뷰 모드 변경 시 일자별 필터 초기화
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
     if (mode === "member") {
@@ -276,13 +250,10 @@ export const ChzzkClipsPlaylist = ({
   // 로딩 상태
   if (loading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <ChzzkClipsSectionHeader
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
-          sortOption={sortOption}
-          onSortChange={setSortOption}
-          showSortOption={viewMode === "grid"}
         />
         {viewMode === "member" ? (
           <div className="space-y-6">
@@ -301,17 +272,14 @@ export const ChzzkClipsPlaylist = ({
   const isEmpty =
     viewMode === "member"
       ? clips.length === 0 || membersWithClips.length === 0
-      : filteredAndSortedClips.length === 0;
+      : clipDateGroups.length === 0;
 
   if (isEmpty && clips.length === 0) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <ChzzkClipsSectionHeader
           viewMode={viewMode}
           onViewModeChange={handleViewModeChange}
-          sortOption={sortOption}
-          onSortChange={setSortOption}
-          showSortOption={viewMode === "grid"}
         />
         <div className="flex items-center justify-center py-8 text-muted-foreground">
           {emptyMessage}
@@ -321,17 +289,14 @@ export const ChzzkClipsPlaylist = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <ChzzkClipsSectionHeader
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
-        sortOption={sortOption}
-        onSortChange={setSortOption}
-        showSortOption={viewMode === "grid"}
       />
 
-      {/* 그리드 뷰: 멤버 필터 표시 */}
-      {viewMode === "grid" && (
+      {/* 일자별 뷰: 멤버 필터 표시 */}
+      {viewMode === "date" && (
         <ClipsMemberFilter
           members={membersWithClips}
           selectedUids={selectedMemberUids}
@@ -352,26 +317,75 @@ export const ChzzkClipsPlaylist = ({
         </div>
       )}
 
-      {/* 그리드 보기 */}
-      {viewMode === "grid" && (
+      {/* 일자별 보기 */}
+      {viewMode === "date" && (
         <>
-          {filteredAndSortedClips.length === 0 ? (
+          {clipDateGroups.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               선택한 멤버의 클립이 없습니다.
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {filteredAndSortedClips.map((clip) => (
-                <ClipCard
-                  key={clip.clipUID}
-                  clip={clip}
-                  member={
-                    clip.memberUid ? memberMap.get(clip.memberUid) : undefined
-                  }
-                  variant="grid"
-                  showMemberAvatar
-                />
-              ))}
+            <div className="space-y-7">
+              {clipDateGroups.map((group) => {
+                const isCollapsed = collapsedDateKeys.has(group.dateKey);
+                const gridId = `${DATE_GROUP_GRID_ID_PREFIX}-${group.dateKey}`;
+
+                return (
+                  <section
+                    key={group.dateKey}
+                    className="space-y-3 scroll-mt-24"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleDateGroup(group.dateKey)}
+                        className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 pr-2 text-left transition-colors hover:text-primary"
+                        aria-expanded={!isCollapsed}
+                        aria-controls={gridId}
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <CalendarDays className="w-4 h-4 shrink-0 text-emerald-500" />
+                        <h3 className="truncate text-base font-semibold text-foreground">
+                          {group.label}
+                        </h3>
+                      </button>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{group.clipCount}개</span>
+                        <span aria-hidden="true">·</span>
+                        <span>
+                          조회{" "}
+                          {readCountFormatter.format(group.totalReadCount)}회
+                        </span>
+                      </div>
+                    </div>
+
+                    {!isCollapsed && (
+                      <div
+                        id={gridId}
+                        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+                      >
+                        {group.clips.map((clip) => (
+                          <ClipCard
+                            key={clip.clipUID}
+                            clip={clip}
+                            member={
+                              clip.memberUid
+                                ? memberMap.get(clip.memberUid)
+                                : undefined
+                            }
+                            variant="grid"
+                            showMemberAvatar
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           )}
         </>

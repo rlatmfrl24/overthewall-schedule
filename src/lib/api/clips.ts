@@ -67,10 +67,10 @@ async function fetchChzzkClipsBatch(
 }
 
 /**
- * 모든 멤버의 클립을 가져와 최신순으로 정렬하여 반환
+ * 모든 멤버의 클립을 가져와 createdDate 기준 기본 순서로 반환
  * @param members 멤버 목록
  * @param clipsPerMember 멤버당 가져올 클립 수 (기본 10개)
- * @returns 최신순 정렬된 클립 배열 (memberUid 포함)
+ * @returns createdDate 기준 클립 배열 (memberUid 포함)
  */
 export async function fetchAllMembersClips(
   members: Member[],
@@ -144,7 +144,7 @@ export async function fetchAllMembersClips(
     }
   });
 
-  // 최신순 정렬 (createdDate 기준)
+  // createdDate 기준 기본 정렬
   allClips.sort((a, b) => {
     const dateA = new Date(a.createdDate).getTime();
     const dateB = new Date(b.createdDate).getTime();

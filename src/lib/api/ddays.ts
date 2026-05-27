@@ -1,8 +1,11 @@
 import { apiFetch } from "./client";
 import type { DDayItem } from "../types";
 
-export async function fetchDDays() {
-  return apiFetch<DDayItem[]>("/api/ddays");
+export async function fetchDDays(options?: { noCache?: boolean }) {
+  return apiFetch<DDayItem[]>(
+    options?.noCache ? "/api/ddays?noCache=1" : "/api/ddays",
+    options?.noCache ? { cache: "no-store" } : undefined,
+  );
 }
 
 type DDayPayload = {

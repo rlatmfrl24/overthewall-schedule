@@ -1,4 +1,4 @@
-import { and, eq, SQL } from "drizzle-orm";
+import { and, eq, sql, SQL } from "drizzle-orm";
 import { getDb } from "../db";
 import { notices } from "../../src/db/schema";
 import {
@@ -13,6 +13,27 @@ import type { NoticePayload, Env } from "../types";
 const NOTICES_CACHE_CONTROL =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+const getTodayKstDateString = () =>
+  new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
+
+const deactivateExpiredNotices = async (
+  db: ReturnType<typeof getDb>,
+  today: string,
+) => {
+  await db
+    .update(notices)
+    .set({ is_active: false })
+    .where(
+      and(
+        eq(notices.is_active, true),
+        sql`${notices.ended_at} IS NOT NULL`,
+        sql`${notices.ended_at} < ${today}`,
+      ),
+    );
+};
+
 export const handleNotices = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const db = getDb(env);
@@ -21,11 +42,20 @@ export const handleNotices = async (request: Request, env: Env) => {
   type NoticeType = (typeof NOTICE_TYPES)[number];
 
   if (request.method === "GET") {
+    const today = getTodayKstDateString();
+    await deactivateExpiredNotices(db, today);
+
     const typeFilter = url.searchParams.get("type");
     const includeInactive = url.searchParams.get("includeInactive") === "1";
     const filters: SQL[] = [];
     if (!includeInactive) {
       filters.push(eq(notices.is_active, true));
+      filters.push(
+        sql`(${notices.started_at} IS NULL OR ${notices.started_at} <= ${today})`,
+      );
+      filters.push(
+        sql`(${notices.ended_at} IS NULL OR ${notices.ended_at} >= ${today})`,
+      );
     }
     if (typeFilter) {
       if (!NOTICE_TYPES.includes(typeFilter as NoticeType)) {
