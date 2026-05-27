@@ -406,19 +406,22 @@ export function AutoUpdateSettingsManager() {
     setIsProcessingAll(true);
     try {
       if (confirmBulkAction === "approveAll") {
-        await approveAllPendingSchedules();
+        const result = await approveAllPendingSchedules();
         toast({
           variant: "success",
-          description: `${sortedPendingList.length}개의 대기 스케줄을 전체 승인했습니다.`,
+          description:
+            result.skippedCount > 0
+              ? `전체 승인 완료: ${result.approvedCount}건 승인, ${result.skippedCount}건 보류`
+              : `${result.approvedCount}개의 대기 스케줄을 전체 승인했습니다.`,
         });
       } else {
-        await rejectAllPendingSchedules();
+        const result = await rejectAllPendingSchedules();
         toast({
           variant: "success",
-          description: `${sortedPendingList.length}개의 대기 스케줄을 전체 거부했습니다.`,
+          description: `${result.rejectedCount}개의 대기 스케줄을 전체 거부했습니다.`,
         });
       }
-      setPendingList([]);
+      await loadPending();
     } catch (error) {
       console.error("Failed to process all pending schedules:", error);
       toast({

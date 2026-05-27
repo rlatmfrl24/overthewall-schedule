@@ -6,6 +6,7 @@ import {
   text,
   index,
   check,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const members = sqliteTable(
@@ -166,6 +167,14 @@ export const pendingSchedules = sqliteTable(
       table.start_time,
     ),
     index("idx_pending_schedules_created_at").on(table.created_at),
+    uniqueIndex("uidx_pending_schedules_vod_id")
+      .on(table.vod_id)
+      .where(sql`${table.vod_id} IS NOT NULL`),
+    uniqueIndex("uidx_pending_schedules_member_date_time").on(
+      table.member_uid,
+      table.date,
+      table.start_time,
+    ),
   ],
 );
 

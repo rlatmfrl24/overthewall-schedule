@@ -152,6 +152,8 @@ export async function rejectPendingSchedule(
 export async function approveAllPendingSchedules(): Promise<{
   success: boolean;
   approvedCount: number;
+  skippedCount: number;
+  skippedItems?: Array<{ id: number; reason: string }>;
 }> {
   return apiFetch("/api/settings/pending/approve-all", {
     method: "POST",

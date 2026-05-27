@@ -607,9 +607,7 @@ export const handleSettings = async (request: Request, env: Env) => {
           };
         }
       },
-      // create 승인 시 충돌 검증이 read-then-insert 패턴이라 병렬 처리하면
-      // 같은 멤버/날짜의 ±30분 중복 스케줄이 동시에 통과할 수 있어 순차 처리한다.
-      1,
+      5,
     );
 
     const successCount = results.filter((result) => result.success).length;
@@ -828,7 +826,7 @@ export const handleSettings = async (request: Request, env: Env) => {
           return { success: false, id: item.id, reason: "error" };
         }
       },
-      5,
+      1,
     );
 
     for (const res of results) {

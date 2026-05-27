@@ -84,7 +84,7 @@ export const VodsOverview = () => {
 
   return (
     <div className="flex flex-1 w-full flex-col overflow-y-auto">
-      <div className="container mx-auto px-4 pt-8 pb-8 space-y-6">
+      <div className="container mx-auto px-4 pt-6 pb-8 space-y-4">
         {/* ========== 메인 탭 스위치 ========== */}
         <div className="relative inline-grid grid-cols-2 p-1 rounded-xl bg-muted w-fit">
           <div
@@ -153,7 +153,7 @@ export const VodsOverview = () => {
             />
           </div>
         ) : (
-          <div className="space-y-10">
+          <div className="space-y-8">
             {/* 치지직 클립 영역 - 자체 필터 사용 */}
             <ChzzkClipsPlaylist
               clips={clips}

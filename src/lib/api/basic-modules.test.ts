@@ -204,7 +204,7 @@ describe("api wrapper modules", () => {
       .mockResolvedValueOnce({ updatedAt: "", videos: [], shorts: [], byChannel: [] })
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ success: true, updated: 0, checked: 0, details: [] })
       .mockResolvedValueOnce({
         items: [],
         total: 0,
@@ -214,7 +214,6 @@ describe("api wrapper modules", () => {
         hasPrevPage: false,
         hasNextPage: false,
       })
-      .mockResolvedValueOnce({ success: true, updated: 0, checked: 0, details: [] })
       .mockResolvedValueOnce({
         items: [],
         total: 0,
@@ -241,7 +240,12 @@ describe("api wrapper modules", () => {
         failedCount: 0,
         results: [],
       })
-      .mockResolvedValueOnce({ success: true, approvedCount: 3 })
+      .mockResolvedValueOnce({
+        success: true,
+        approvedCount: 3,
+        skippedCount: 1,
+        skippedItems: [{ id: 99, reason: "conflict" }],
+      })
       .mockResolvedValueOnce({ success: true, rejectedCount: 2 });
 
     await fetchKirinukiVideos({ maxResults: 7 });
@@ -264,8 +268,10 @@ describe("api wrapper modules", () => {
     await rejectPendingSchedule(12);
     await approveSelectedPendingSchedules([11, 13]);
     await rejectSelectedPendingSchedules([12, 14]);
-    await approveAllPendingSchedules();
+    const approveAllResult = await approveAllPendingSchedules();
     await rejectAllPendingSchedules();
+
+    expect(approveAllResult.skippedCount).toBe(1);
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/kirinuki/videos?maxResults=7");
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings");

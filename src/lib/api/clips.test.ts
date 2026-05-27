@@ -33,7 +33,7 @@ describe("clips api", () => {
     vi.resetModules();
   });
 
-  it("멤버 클립을 최신순으로 합치고 memberUid를 매핑한다", async () => {
+  it("멤버 클립을 createdDate 기준으로 합치고 memberUid를 매핑한다", async () => {
     const { fetchAllMembersClips } = await import("./clips");
 
     apiFetchMock.mockResolvedValueOnce({
