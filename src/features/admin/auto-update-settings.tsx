@@ -49,15 +49,18 @@ import {
   type PendingTimeMode,
 } from "@/lib/api/settings";
 import { useToast } from "@/components/ui/toast";
+import {
+  AUTO_UPDATE_INTERVAL_HOURS,
+  normalizeAutoUpdateIntervalHours,
+} from "@/lib/auto-update-interval";
+import { roundTimeToNearestScheduleHour } from "@/lib/pending-time";
 import { cn } from "@/lib/utils";
 import { AdminSectionHeader } from "./components/admin-section-header";
 
-const INTERVAL_OPTIONS = [
-  { value: "1", label: "1시간" },
-  { value: "6", label: "6시간" },
-  { value: "12", label: "12시간" },
-  { value: "24", label: "24시간" },
-] as const;
+const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
+  value,
+  label: `${value}시간`,
+}));
 
 const RANGE_OPTIONS = [
   { value: "1", label: "1일 (오늘만)" },
@@ -137,18 +140,6 @@ const getPendingBroadcastSortValue = (pending: PendingSchedule) => {
   return Number.isNaN(fallbackTimestamp) ? 0 : fallbackTimestamp;
 };
 
-const roundTimeToNearestHour = (time: string | null) => {
-  if (!time) return null;
-  const [hourText, minuteText] = time.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return time;
-  }
-  const roundedHour = (hour + (minute >= 30 ? 1 : 0)) % 24;
-  return `${roundedHour.toString().padStart(2, "0")}:00`;
-};
-
 const getDefaultTargetScheduleId = (pending: PendingSchedule) =>
   pending.existing_schedule?.id ??
   pending.empty_target_schedule?.id ??
@@ -174,7 +165,7 @@ const getEffectivePendingStartTime = (
   if (options.applyMode === "title") return null;
   return options.timeMode === "exact"
     ? pending.start_time
-    : roundTimeToNearestHour(pending.start_time);
+    : roundTimeToNearestScheduleHour(pending.start_time);
 };
 
 const getPendingScheduleSummaryById = (
@@ -722,6 +713,7 @@ export function AutoUpdateSettingsManager() {
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
+          timeZone: "Asia/Seoul",
         });
       }
     }
@@ -735,6 +727,7 @@ export function AutoUpdateSettingsManager() {
         return date.toLocaleTimeString("ko-KR", {
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "Asia/Seoul",
         });
       }
     }
@@ -742,12 +735,9 @@ export function AutoUpdateSettingsManager() {
   };
 
   const isEnabled = settings?.auto_update_enabled === "true";
-  const configuredIntervalHours = settings?.auto_update_interval_hours || "6";
-  const intervalHours = INTERVAL_OPTIONS.some(
-    (option) => option.value === configuredIntervalHours,
-  )
-    ? configuredIntervalHours
-    : "6";
+  const intervalHours = normalizeAutoUpdateIntervalHours(
+    settings?.auto_update_interval_hours,
+  );
   const rangeDays = settings?.auto_update_range_days || "3";
 
   return (

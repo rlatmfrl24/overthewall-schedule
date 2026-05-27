@@ -19,6 +19,11 @@ import {
   updateLogs,
 } from "../../src/db/schema";
 import {
+  isAutoUpdateIntervalHours,
+  normalizeAutoUpdateIntervalHours,
+} from "../../src/lib/auto-update-interval";
+import { roundTimeToNearestScheduleHour } from "../../src/lib/pending-time";
+import {
   badRequest,
   getActorInfo,
   getSetting,
@@ -505,25 +510,13 @@ const parsePendingApprovalOptions = (
   };
 };
 
-const roundTimeToNearestHour = (time: string | null) => {
-  if (!time) return null;
-  const [hourText, minuteText] = time.split(":");
-  const hour = Number(hourText);
-  const minute = Number(minuteText);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
-    return time;
-  }
-  const roundedHour = (hour + (minute >= 30 ? 1 : 0)) % 24;
-  return `${roundedHour.toString().padStart(2, "0")}:00`;
-};
-
 const getApprovalStartTime = (
   item: PendingScheduleRow,
   timeMode: PendingTimeMode,
 ) =>
   timeMode === "exact"
     ? item.start_time
-    : roundTimeToNearestHour(item.start_time);
+    : roundTimeToNearestScheduleHour(item.start_time);
 
 const approvalAppliesTime = (applyMode: PendingApplyMode) =>
   applyMode === "all" || applyMode === "time";
@@ -825,6 +818,17 @@ export const handleSettings = async (request: Request, env: Env) => {
     for (const row of data) {
       settingsObj[row.key] = row.value;
     }
+    const normalizedIntervalHours = normalizeAutoUpdateIntervalHours(
+      settingsObj.auto_update_interval_hours,
+    );
+    if (settingsObj.auto_update_interval_hours !== normalizedIntervalHours) {
+      await updateSetting(
+        db,
+        "auto_update_interval_hours",
+        normalizedIntervalHours,
+      );
+      settingsObj.auto_update_interval_hours = normalizedIntervalHours;
+    }
     return Response.json(settingsObj);
   }
 
@@ -835,6 +839,12 @@ export const handleSettings = async (request: Request, env: Env) => {
     const updates: Promise<void>[] = [];
     for (const key of ALLOWED_SETTINGS) {
       if (key in body && key !== "auto_update_last_run") {
+        if (
+          key === "auto_update_interval_hours" &&
+          !isAutoUpdateIntervalHours(body[key])
+        ) {
+          return badRequest("Invalid auto_update_interval_hours");
+        }
         // last_run은 시스템에서만 업데이트
         updates.push(updateSetting(db, key, body[key]));
       }
