@@ -4,8 +4,10 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  ListFilter,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -233,6 +235,15 @@ export function AutoUpdateLogsManager() {
     [filters],
   );
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.action !== "all") count += 1;
+    if (filters.member.trim() !== "") count += 1;
+    if (filters.dateFrom !== "" || filters.dateTo !== "") count += 1;
+    if (filters.query.trim() !== "") count += 1;
+    return count;
+  }, [filters]);
+
   const handleManualRefresh = () => {
     if (dateRangeError) {
       toast({
@@ -252,38 +263,50 @@ export function AutoUpdateLogsManager() {
     <section className="space-y-4">
       <AdminSectionHeader
         title="스케줄 업데이트 로그"
-        description="필터 입력 시 300ms 후 자동 조회되며 페이지 단위로 탐색할 수 있습니다."
+        description="스케줄 변경 이력과 자동 수집 처리 결과를 확인합니다."
         count={totalCount}
-        actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleManualRefresh}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-          </Button>
-        }
       />
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Search className="w-4 h-4" />
-            로그 필터
-          </CardTitle>
-          <CardDescription>
-            기간, 액션, 멤버, 제목 키워드로 검색합니다.
-          </CardDescription>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ListFilter className="h-4 w-4" />
+                로그 필터
+              </CardTitle>
+              <CardDescription className="mt-1">
+                조건을 변경하면 목록이 자동으로 갱신됩니다.
+              </CardDescription>
+            </div>
+            <Badge variant={hasActiveFilters ? "default" : "outline"}>
+              {hasActiveFilters ? `필터 ${activeFilterCount}개` : "전체 로그"}
+            </Badge>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div className="space-y-1">
-              <Label htmlFor="log-action">액션</Label>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
+            <div className="space-y-1 xl:col-span-4">
+              <Label htmlFor="log-query">검색어</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="log-query"
+                  className="pl-9"
+                  placeholder="제목 또는 멤버명"
+                  value={filters.query}
+                  onChange={(event) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      query: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1 xl:col-span-2">
+              <Label htmlFor="log-action">작업</Label>
               <Select
                 value={filters.action}
                 onValueChange={(value) =>
@@ -302,7 +325,8 @@ export function AutoUpdateLogsManager() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
+
+            <div className="space-y-1 xl:col-span-2">
               <Label htmlFor="log-member">멤버</Label>
               <Input
                 id="log-member"
@@ -313,8 +337,9 @@ export function AutoUpdateLogsManager() {
                 }
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="log-date-from">시작 날짜</Label>
+
+            <div className="space-y-1 xl:col-span-2">
+              <Label htmlFor="log-date-from">시작일</Label>
               <Input
                 id="log-date-from"
                 type="date"
@@ -324,8 +349,9 @@ export function AutoUpdateLogsManager() {
                 }
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="log-date-to">종료 날짜</Label>
+
+            <div className="space-y-1 xl:col-span-2">
+              <Label htmlFor="log-date-to">종료일</Label>
               <Input
                 id="log-date-to"
                 type="date"
@@ -335,77 +361,83 @@ export function AutoUpdateLogsManager() {
                 }
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="log-query">검색</Label>
-              <Input
-                id="log-query"
-                placeholder="제목 또는 멤버명"
-                value={filters.query}
-                onChange={(event) =>
-                  setFilters((prev) => ({ ...prev, query: event.target.value }))
-                }
-              />
+
+            <div className="space-y-1 md:col-span-1 xl:col-span-3">
+              <Label htmlFor="log-sort">정렬</Label>
+              <Select
+                value={sortKey}
+                onValueChange={(value) => setSortKey(value as LogSortKey)}
+              >
+                <SelectTrigger id="log-sort">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LOG_SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1 xl:col-span-2">
+              <Label htmlFor="log-limit">표시 개수</Label>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => setPageSize(Number(value))}
+              >
+                <SelectTrigger id="log-limit">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LOG_PAGE_SIZE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}건/페이지
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-end gap-2 md:col-span-1 xl:col-span-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={handleReset}
+                disabled={!hasActiveFilters}
+              >
+                <RotateCcw className="h-4 w-4" />
+                초기화
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={handleManualRefresh}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                새로고침
+              </Button>
             </div>
           </div>
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              {dateRangeError ? (
-                <p className="text-sm text-destructive">{dateRangeError}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  필터 변경 시 자동 조회됩니다.
-                </p>
-              )}
-              <div className="flex items-center gap-2">
-                <Label htmlFor="log-limit" className="text-xs text-muted-foreground">
-                  페이지 크기
-                </Label>
-                <Select
-                  value={String(pageSize)}
-                  onValueChange={(value) => setPageSize(Number(value))}
-                >
-                  <SelectTrigger id="log-limit" className="h-8 w-[110px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LOG_PAGE_SIZE_OPTIONS.map((option) => (
-                      <SelectItem key={option} value={String(option)}>
-                        {option}건/페이지
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="log-sort" className="text-xs text-muted-foreground">
-                  정렬
-                </Label>
-                <Select
-                  value={sortKey}
-                  onValueChange={(value) => setSortKey(value as LogSortKey)}
-                >
-                  <SelectTrigger id="log-sort" className="h-8 w-[170px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LOG_SORT_OPTIONS.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-              disabled={!hasActiveFilters}
-            >
-              필터 초기화
-            </Button>
+
+          <div className="min-h-5 border-t pt-3">
+            {dateRangeError ? (
+              <p className="text-sm text-destructive">{dateRangeError}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {hasActiveFilters
+                  ? "선택한 조건으로 로그 목록을 좁혀 보고 있습니다."
+                  : "현재 모든 로그를 표시하고 있습니다."}
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -2,6 +2,6 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/cafe")({
   beforeLoad: () => {
-    throw redirect({ to: "/x", replace: true });
+    throw redirect({ to: "/feed", replace: true });
   },
 });
