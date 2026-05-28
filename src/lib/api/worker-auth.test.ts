@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  authenticateOptionalRequest,
   authenticateRequest,
   clearAuthCachesForTests,
   requireAdminUser,
@@ -125,6 +126,28 @@ describe("worker auth", () => {
       expect(result.user.id).toBe("user_admin");
       expect(result.user.displayName).toBe("Admin User");
     }
+  });
+
+  it("optional auth uses a valid Clerk token but allows anonymous requests", async () => {
+    const token = await signToken({ sub: "user_member" });
+    const anonymousUser = await authenticateOptionalRequest(
+      new Request("https://example.com/api/schedules", {
+        headers: { "x-otw-user-id": "spoofed_user" },
+      }),
+      makeEnv(),
+    );
+    const authenticatedUser = await authenticateOptionalRequest(
+      new Request("https://example.com/api/schedules", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv(),
+    );
+
+    expect(anonymousUser).toBeNull();
+    expect(authenticatedUser).toMatchObject({
+      id: "user_member",
+      displayName: "Admin User",
+    });
   });
 
   it("admin allowlist is enforced after token verification", async () => {

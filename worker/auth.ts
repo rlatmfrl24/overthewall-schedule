@@ -281,6 +281,17 @@ export const authenticateRequest = async (
   return result;
 };
 
+export const authenticateOptionalRequest = async (
+  request: Request,
+  env: Env,
+): Promise<AuthenticatedUser | null> => {
+  const token = getBearerToken(request);
+  if (!token) return null;
+
+  const result = await verifyClerkToken(token, env);
+  return result.ok ? result.user : null;
+};
+
 export const isAdminUser = (env: Env, userId: string) => {
   const adminIds = (env.CLERK_ADMIN_IDS ?? "")
     .split(",")

@@ -1,4 +1,5 @@
 import { between, eq } from "drizzle-orm";
+import { authenticateOptionalRequest } from "../auth";
 import { getDb } from "../db";
 import { schedules } from "../../src/db/schema";
 import {
@@ -12,7 +13,14 @@ import type { SchedulePayload, UpdateSchedulePayload, Env } from "../types";
 export const handleSchedules = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const db = getDb(env);
-  const actor = getActorInfo(request);
+  const shouldCaptureActor =
+    request.method === "POST" ||
+    request.method === "PUT" ||
+    request.method === "DELETE";
+  const authenticatedUser = shouldCaptureActor
+    ? await authenticateOptionalRequest(request, env)
+    : null;
+  const actor = getActorInfo(request, authenticatedUser);
 
   if (request.method === "GET") {
     const date = url.searchParams.get("date");

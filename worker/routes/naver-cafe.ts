@@ -1,6 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { naverCafeSources } from "../../src/db/schema";
-import { requireAdminUser } from "../auth";
+import { authenticateRequest, requireAdminUser } from "../auth";
 import {
   buildNaverCafeBoardUrl,
   extractNaverCafeBoardIds,
@@ -24,14 +24,8 @@ const NAVER_CAFE_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
 const NAVER_CAFE_POSTS_ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";
 const NAVER_CAFE_POSTS_VISIBILITY_SETTING_KEY = "naver_cafe_posts_visibility";
-const MEMBER_USER_ID_PATTERN = /^[A-Za-z0-9_-]{3,128}$/;
 
 type NaverCafePostsVisibility = "public" | "members" | "private";
-
-const hasMemberAccess = (request: Request) => {
-  const userId = request.headers.get("x-otw-user-id")?.trim();
-  return Boolean(userId && MEMBER_USER_ID_PATTERN.test(userId));
-};
 
 const normalizeVisibility = (
   value: string | null | undefined,
@@ -190,8 +184,9 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
     if (!enabled || visibility === "private") {
       return new Response("Naver Cafe posts are private", { status: 403 });
     }
-    if (visibility === "members" && !hasMemberAccess(request)) {
-      return new Response("Login required", { status: 401 });
+    if (visibility === "members") {
+      const auth = await authenticateRequest(request, env);
+      if (!auth.ok) return auth.response;
     }
 
     const size = parseSize(url.searchParams.get("size"));

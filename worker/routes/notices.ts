@@ -1,6 +1,7 @@
 import { and, eq, sql, SQL } from "drizzle-orm";
 import { getDb } from "../db";
 import { notices } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import {
   badRequest,
   json,
@@ -36,6 +37,18 @@ const deactivateExpiredNotices = async (
 
 export const handleNotices = async (request: Request, env: Env) => {
   const url = new URL(request.url);
+  const includeInactive = url.searchParams.get("includeInactive") === "1";
+  const requiresAdmin =
+    request.method === "POST" ||
+    request.method === "PUT" ||
+    request.method === "DELETE" ||
+    (request.method === "GET" && includeInactive);
+
+  if (requiresAdmin) {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  }
+
   const db = getDb(env);
 
   const NOTICE_TYPES = ["notice", "event"] as const;
@@ -46,7 +59,6 @@ export const handleNotices = async (request: Request, env: Env) => {
     await deactivateExpiredNotices(db, today);
 
     const typeFilter = url.searchParams.get("type");
-    const includeInactive = url.searchParams.get("includeInactive") === "1";
     const filters: SQL[] = [];
     if (!includeInactive) {
       filters.push(eq(notices.is_active, true));

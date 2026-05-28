@@ -19,54 +19,35 @@ const isLatin1 = (value: string) => {
   return true;
 };
 
-const getActorHeaders = async (): Promise<Record<string, string>> => {
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
   if (typeof window === "undefined") return {};
   const clerk = (
     window as {
       Clerk?: {
-        user?: {
-          id?: string;
-          fullName?: string | null;
-          username?: string | null;
-          primaryEmailAddress?: { emailAddress?: string | null };
-        };
         session?: {
           getToken?: () => Promise<string | null>;
         };
       };
     }
   ).Clerk;
-  const user = clerk?.user;
   const token = await clerk?.session?.getToken?.().catch(() => null);
-  if (!user?.id && !token) return {};
+  if (!token) return {};
 
   const headers: Record<string, string> = {};
-  if (token) {
+  if (isLatin1(token)) {
     headers.Authorization = `Bearer ${token}`;
-  }
-
-  if (!user?.id) return headers;
-
-  const name =
-    user.fullName ||
-    user.username ||
-    user.primaryEmailAddress?.emailAddress ||
-    user.id;
-  headers["x-otw-user-id"] = user.id;
-  if (name && isLatin1(name)) {
-    headers["x-otw-user-name"] = name;
   }
   return headers;
 };
 
 export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
   const { json, headers, ...rest } = options;
-  const actorHeaders = await getActorHeaders();
+  const authHeaders = await getAuthHeaders();
   const init: RequestInit = {
     ...rest,
     headers: {
       "Content-Type": "application/json",
-      ...actorHeaders,
+      ...authHeaders,
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
