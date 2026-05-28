@@ -15,6 +15,7 @@ import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
 import { Route as RightsRouteImport } from './routes/rights'
 import { Route as NoticeRouteImport } from './routes/notice'
+import { Route as CafeRouteImport } from './routes/cafe'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
@@ -56,6 +57,11 @@ const RightsRoute = RightsRouteImport.update({
 const NoticeRoute = NoticeRouteImport.update({
   id: '/notice',
   path: '/notice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CafeRoute = CafeRouteImport.update({
+  id: '/cafe',
+  path: '/cafe',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -122,6 +128,7 @@ const AdminDdaysRoute = AdminDdaysRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/cafe': typeof CafeRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -141,6 +148,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cafe': typeof CafeRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -161,6 +169,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
+  '/cafe': typeof CafeRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/cafe'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/cafe'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/cafe'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -242,6 +254,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
+  CafeRoute: typeof CafeRoute
   NoticeRoute: typeof NoticeRoute
   RightsRoute: typeof RightsRoute
   SnapshotRoute: typeof SnapshotRoute
@@ -293,6 +306,13 @@ declare module '@tanstack/react-router' {
       path: '/notice'
       fullPath: '/notice'
       preLoaderRoute: typeof NoticeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cafe': {
+      id: '/cafe'
+      path: '/cafe'
+      fullPath: '/cafe'
+      preLoaderRoute: typeof CafeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -419,6 +439,7 @@ const VodsRouteWithChildren = VodsRoute._addFileChildren(VodsRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
+  CafeRoute: CafeRoute,
   NoticeRoute: NoticeRoute,
   RightsRoute: RightsRoute,
   SnapshotRoute: SnapshotRoute,

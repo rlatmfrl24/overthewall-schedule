@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { type DbInstance } from "../db";
 import { members, settings, updateLogs } from "../../src/db/schema";
+import type { AuthenticatedUser } from "../auth";
 import type { UpdateLogPayload } from "../types";
 
 export const json = (
@@ -40,10 +41,19 @@ const getClientIp = (request: Request): string | null => {
   );
 };
 
-export const getActorInfo = (request: Request) => {
+export const getActorInfo = (
+  request: Request,
+  authenticatedUser?: AuthenticatedUser | null,
+) => {
   const headers = request.headers;
-  const actorId = headers.get("X-Actor-ID");
-  const actorName = headers.get("X-Actor-Name");
+  const actorId =
+    authenticatedUser?.id ??
+    headers.get("X-Actor-ID") ??
+    headers.get("x-otw-user-id");
+  const actorName =
+    authenticatedUser?.displayName ??
+    headers.get("X-Actor-Name") ??
+    headers.get("x-otw-user-name");
   const actorIp = getClientIp(request);
   return { actorId, actorName, actorIp };
 };

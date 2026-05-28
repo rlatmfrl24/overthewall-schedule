@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ScheduleItem } from "@/lib/types";
-import { splitSchedulesForTimeline } from "./chronological-schedule-utils";
+import type { ChzzkLiveStatusMap, ScheduleItem } from "@/lib/types";
+import {
+  buildScheduleBoardModel,
+  filterScheduleBoardModel,
+  getScheduleDisplayTitle,
+} from "./chronological-schedule-utils";
 
 const makeSchedule = (
   partial: Partial<ScheduleItem> & Pick<ScheduleItem, "status">,
@@ -15,20 +19,87 @@ const makeSchedule = (
     ...partial,
   }) as ScheduleItem;
 
-describe("splitSchedulesForTimeline", () => {
-  it("휴방을 제외하고 timeline/other를 단일 분류한다", () => {
+const liveStatuses = {
+  7: {
+    status: "OPEN",
+    liveTitle: "라이브 테스트",
+    concurrentUserCount: 1245,
+  },
+} as ChzzkLiveStatusMap;
+
+describe("buildScheduleBoardModel", () => {
+  it("방송/게릴라/미정/휴방을 분류하고 시간순으로 정렬한다", () => {
     const schedules: ScheduleItem[] = [
-      makeSchedule({ id: 1, status: "휴방", start_time: "19:00" }),
-      makeSchedule({ id: 2, status: "방송", start_time: "21:30" }),
-      makeSchedule({ id: 3, status: "게릴라", start_time: "18:00" }),
-      makeSchedule({ id: 4, status: "방송", start_time: "20:00" }),
-      makeSchedule({ id: 5, status: "미정", start_time: null }),
-      makeSchedule({ id: 6, status: "방송", start_time: null }),
+      makeSchedule({ id: 1, member_uid: 1, status: "휴방", start_time: "19:00" }),
+      makeSchedule({ id: 2, member_uid: 7, status: "방송", start_time: "21:30" }),
+      makeSchedule({ id: 3, member_uid: 3, status: "게릴라", start_time: "18:00" }),
+      makeSchedule({ id: 4, member_uid: 4, status: "방송", start_time: "20:00" }),
+      makeSchedule({ id: 5, member_uid: 5, status: "미정", start_time: null }),
+      makeSchedule({ id: 6, member_uid: 6, status: "방송", start_time: null }),
     ];
 
-    const { timelineItems, otherItems } = splitSchedulesForTimeline(schedules);
+    const model = buildScheduleBoardModel(schedules, liveStatuses);
 
-    expect(timelineItems.map((item) => item.id)).toEqual([4, 2]);
-    expect(otherItems.map((item) => item.id)).toEqual([3, 5, 6]);
+    expect(model.mainItems.map((entry) => entry.schedule.id)).toEqual([4, 2]);
+    expect(model.sideGroups.guerrilla.map((entry) => entry.schedule.id)).toEqual([3]);
+    expect(model.sideGroups.undecided.map((entry) => entry.schedule.id)).toEqual([
+      5, 6,
+    ]);
+    expect(model.sideGroups.off.map((entry) => entry.schedule.id)).toEqual([1]);
+    expect(model.mainItems.find((entry) => entry.schedule.id === 2)?.isLive).toBe(
+      true,
+    );
+    expect(model.counters).toEqual({
+      all: 6,
+      broadcast: 3,
+      live: 1,
+      guerrilla: 1,
+      off: 1,
+      undecided: 2,
+    });
+  });
+
+  it("필터별로 메인 보드와 보조 레일을 함께 좁힌다", () => {
+    const model = buildScheduleBoardModel(
+      [
+        makeSchedule({ id: 1, member_uid: 1, status: "휴방" }),
+        makeSchedule({ id: 2, member_uid: 7, status: "방송", start_time: "21:00" }),
+        makeSchedule({ id: 3, member_uid: 3, status: "게릴라" }),
+        makeSchedule({ id: 4, member_uid: 4, status: "방송" }),
+      ],
+      liveStatuses,
+    );
+
+    const liveModel = filterScheduleBoardModel(model, "live");
+    expect(liveModel.mainItems.map((entry) => entry.schedule.id)).toEqual([2]);
+    expect(liveModel.sideGroups.guerrilla).toHaveLength(0);
+
+    const broadcastModel = filterScheduleBoardModel(model, "broadcast");
+    expect(broadcastModel.mainItems.map((entry) => entry.schedule.id)).toEqual([
+      2,
+    ]);
+    expect(
+      broadcastModel.sideGroups.undecided.map((entry) => entry.schedule.id),
+    ).toEqual([4]);
+
+    const offModel = filterScheduleBoardModel(model, "off");
+    expect(offModel.mainItems).toHaveLength(0);
+    expect(offModel.sideGroups.off.map((entry) => entry.schedule.id)).toEqual([
+      1,
+    ]);
+  });
+
+  it("상태명만 저장된 제목은 읽기 좋은 기본 문구로 치환한다", () => {
+    expect(
+      getScheduleDisplayTitle(
+        makeSchedule({ id: 1, status: "게릴라", title: "게릴라" }),
+      ),
+    ).toBe("게릴라 방송 예정");
+    expect(
+      getScheduleDisplayTitle(
+        makeSchedule({ id: 2, status: "방송", title: "" }),
+      ),
+    ).toBe("방송 예정");
   });
 });
+

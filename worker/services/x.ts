@@ -110,6 +110,30 @@ type CachedXPostsEntry = {
   posts: XPostItem[];
 };
 
+type StoredXPostsEntry = CachedXPostsEntry & {
+  lastCheckedAt: number | null;
+  lastSeenPostId: string | null;
+};
+
+type XStoredPostRow = {
+  id: string;
+  handle: string;
+  user_id: string | null;
+  username: string;
+  value: string;
+  created_at: string;
+  fetched_at: number | string;
+};
+
+type XPostSourceRow = {
+  handle: string;
+  user_id: string | null;
+  username: string | null;
+  last_seen_post_id: string | null;
+  last_checked_at: number | string;
+  updated_at: number | string;
+};
+
 type XUserCacheValue = {
   user: XApiUser | null;
 };
@@ -365,6 +389,200 @@ const writeD1Cache = async <T>(
   }
 };
 
+const getD1Results = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === "object") {
+    const results = (value as { results?: unknown }).results;
+    return Array.isArray(results) ? (results as T[]) : [];
+  }
+  return [];
+};
+
+const readStoredPostSource = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+): Promise<XPostSourceRow | null> => {
+  if (!cacheDb) return null;
+
+  try {
+    const row = await cacheDb
+      .prepare(
+        `SELECT handle, user_id, username, last_seen_post_id, last_checked_at, updated_at
+         FROM x_post_sources
+         WHERE handle = ?`,
+      )
+      .bind(normalizeHandle(handle))
+      .first<XPostSourceRow>();
+    return row ?? null;
+  } catch (error) {
+    console.warn("Failed to read stored X post source", error);
+    return null;
+  }
+};
+
+const parseStoredXPost = (row: XStoredPostRow): XPostItem | null => {
+  try {
+    return JSON.parse(row.value) as XPostItem;
+  } catch (error) {
+    console.warn("Failed to parse stored X post", { id: row.id, error });
+    return null;
+  }
+};
+
+const sortXPostsDesc = (posts: XPostItem[]) =>
+  [...posts].sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+const mergeXPosts = (...postGroups: XPostItem[][]) => {
+  const byId = new Map<string, XPostItem>();
+  for (const post of postGroups.flat()) {
+    if (!byId.has(post.id)) {
+      byId.set(post.id, post);
+    }
+  }
+  return sortXPostsDesc(Array.from(byId.values()));
+};
+
+const shouldUseFreshStoredPosts = (entry: StoredXPostsEntry) =>
+  entry.lastCheckedAt !== null && now() - entry.lastCheckedAt < X_POSTS_TTL_MS;
+
+const readStoredPosts = async (
+  handle: string,
+  maxResults: number,
+  richXLinkPreviewEnabled: boolean,
+  cacheDb?: XCacheDb,
+): Promise<StoredXPostsEntry | null> => {
+  if (!cacheDb) return null;
+
+  const normalizedHandle = normalizeHandle(handle);
+  try {
+    const [source, rowsResult] = await Promise.all([
+      readStoredPostSource(cacheDb, normalizedHandle),
+      cacheDb
+        .prepare(
+          `SELECT id, handle, user_id, username, value, created_at, fetched_at
+           FROM x_posts
+           WHERE handle = ?
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?`,
+        )
+        .bind(normalizedHandle, maxResults)
+        .all<XStoredPostRow>(),
+    ]);
+
+    const rows = getD1Results<XStoredPostRow>(rowsResult);
+    const posts = rows
+      .map(parseStoredXPost)
+      .filter((post): post is XPostItem => post !== null);
+    if (!source && posts.length === 0) return null;
+
+    const latestFetchedAt = rows.reduce((latest, row) => {
+      const value = Number(row.fetched_at);
+      return Number.isFinite(value) ? Math.max(latest, value) : latest;
+    }, 0);
+    const lastCheckedAt = source ? Number(source.last_checked_at) : latestFetchedAt;
+    const safeLastCheckedAt = Number.isFinite(lastCheckedAt)
+      ? lastCheckedAt
+      : null;
+    const fetchedAt = safeLastCheckedAt ?? latestFetchedAt;
+    const responsePosts = richXLinkPreviewEnabled
+      ? posts
+      : stripStoredXLinkedPostPreviews(posts);
+
+    return {
+      fetchedAt,
+      expiresAt: fetchedAt + X_POSTS_TTL_MS,
+      userId: source?.user_id ?? rows[0]?.user_id ?? null,
+      posts: responsePosts,
+      lastCheckedAt: safeLastCheckedAt,
+      lastSeenPostId:
+        source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+    };
+  } catch (error) {
+    console.warn("Failed to read stored X posts", error);
+    return null;
+  }
+};
+
+const writeStoredPosts = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+  user: XApiUser,
+  posts: XPostItem[],
+  fetchedAt: number,
+) => {
+  if (!cacheDb || posts.length === 0) return;
+
+  const normalizedHandle = normalizeHandle(handle);
+  try {
+    for (const post of posts) {
+      await cacheDb
+        .prepare(
+          `INSERT INTO x_posts (id, handle, user_id, username, value, created_at, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             handle = excluded.handle,
+             user_id = excluded.user_id,
+             username = excluded.username,
+             value = excluded.value,
+             created_at = excluded.created_at,
+             fetched_at = excluded.fetched_at`,
+        )
+        .bind(
+          post.id,
+          normalizedHandle,
+          user.id,
+          post.username,
+          JSON.stringify(post),
+          post.createdAt,
+          fetchedAt,
+        )
+        .run();
+    }
+  } catch (error) {
+    console.warn("Failed to write stored X posts", error);
+  }
+};
+
+const writeStoredPostSource = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+  user: XApiUser,
+  lastSeenPostId: string | null,
+  checkedAt: number,
+) => {
+  if (!cacheDb) return;
+
+  try {
+    await cacheDb
+      .prepare(
+        `INSERT INTO x_post_sources (
+           handle, user_id, username, last_seen_post_id, last_checked_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(handle) DO UPDATE SET
+           user_id = excluded.user_id,
+           username = excluded.username,
+           last_seen_post_id = COALESCE(excluded.last_seen_post_id, x_post_sources.last_seen_post_id),
+           last_checked_at = excluded.last_checked_at,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        normalizeHandle(handle),
+        user.id,
+        user.username,
+        lastSeenPostId,
+        checkedAt,
+        checkedAt,
+      )
+      .run();
+  } catch (error) {
+    console.warn("Failed to write stored X post source", error);
+  }
+};
+
 const getCachedUser = async (
   handle: string,
   cacheDb?: XCacheDb,
@@ -473,17 +691,18 @@ const getCachedPosts = async (
 
 const setCachedPosts = async (
   handle: string,
-  userId: string | null,
+  user: XApiUser,
   posts: XPostItem[],
   maxResults: number,
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
+  lastSeenPostId?: string | null,
 ): Promise<CachedXPostsEntry> => {
   const fetchedAt = now();
   const entry = {
     fetchedAt,
     expiresAt: fetchedAt + X_POSTS_TTL_MS,
-    userId,
+    userId: user.id,
     posts,
   };
   const cacheKey = getPostsCacheKey(
@@ -497,9 +716,17 @@ const setCachedPosts = async (
     cacheDb,
     cacheKey,
     "posts",
-    { userId, posts },
+    { userId: user.id, posts },
     fetchedAt,
     X_POSTS_TTL_MS,
+  );
+  await writeStoredPosts(cacheDb, handle, user, posts, fetchedAt);
+  await writeStoredPostSource(
+    cacheDb,
+    handle,
+    user,
+    lastSeenPostId ?? sortXPostsDesc(posts)[0]?.id ?? null,
+    fetchedAt,
   );
 
   return entry;
@@ -717,6 +944,28 @@ const collectLinkedXStatusIds = (posts: XPostItem[]) => {
   return ids;
 };
 
+const stripStoredXLinkedPostPreviews = (posts: XPostItem[]) =>
+  posts.map((post) => {
+    if (!post.links || post.links.length === 0) return post;
+
+    return {
+      ...post,
+      links: post.links.map((link) => {
+        const isXPostLink =
+          Boolean(link.linkedPost) ||
+          Boolean(extractLinkedXStatusId(link, post.id));
+        if (!isXPostLink) return link;
+
+        const rest = { ...link };
+        delete rest.linkedPost;
+        return {
+          ...rest,
+          previewStatus: "skipped" as const,
+        };
+      }),
+    };
+  });
+
 const getLinkedPostImageUrl = (post: XLinkedPostPreviewItem) => {
   const media = post.media.find((item) => item.url || item.previewImageUrl);
   return media?.url ?? media?.previewImageUrl ?? null;
@@ -855,6 +1104,16 @@ const fetchXPostsForUser = async (
   cacheDb?: XCacheDb,
   staleFallback?: CachedXPostsEntry,
 ): Promise<{ posts: XPostItem[]; stale: boolean }> => {
+  const stored = await readStoredPosts(
+    handle,
+    maxResults,
+    richXLinkPreviewEnabled,
+    cacheDb,
+  );
+  if (stored && shouldUseFreshStoredPosts(stored)) {
+    return { posts: stored.posts, stale: false };
+  }
+
   const cacheKey = getPostsCacheKey(
     handle,
     maxResults,
@@ -871,7 +1130,7 @@ const fetchXPostsForUser = async (
     return { posts: cached.posts, stale: false };
   }
 
-  const activeFallback = staleFallback ?? cached ?? null;
+  const activeFallback = stored ?? staleFallback ?? cached ?? null;
   const inFlight = X_POSTS_IN_FLIGHT.get(cacheKey);
   if (inFlight) {
     try {
@@ -892,6 +1151,13 @@ const fetchXPostsForUser = async (
     expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
+  const sinceId =
+    stored?.lastSeenPostId ??
+    sortXPostsDesc(activeFallback?.posts ?? [])[0]?.id ??
+    null;
+  if (sinceId) {
+    params.set("since_id", sinceId);
+  }
 
   const request = (async () => {
     const response = await requestXApi<XUserTimelineResponse>(
@@ -903,13 +1169,23 @@ const fetchXPostsForUser = async (
       bearerToken,
       richXLinkPreviewEnabled,
     );
+    const mergedPosts = mergeXPosts(
+      posts,
+      stored?.posts ?? activeFallback?.posts ?? [],
+    ).slice(
+      0,
+      maxResults,
+    );
+    const lastSeenPostId =
+      sortXPostsDesc(posts)[0]?.id ?? sinceId ?? mergedPosts[0]?.id ?? null;
     return setCachedPosts(
       handle,
-      user.id,
-      posts,
+      user,
+      mergedPosts,
       maxResults,
       richXLinkPreviewEnabled,
       cacheDb,
+      lastSeenPostId,
     );
   })();
 
@@ -1064,6 +1340,20 @@ export const fetchXPostsForHandles = async (
 
     if (cached && isCacheUsable(cached, X_POSTS_STALE_TTL_MS)) {
       stalePostsByHandle.set(handle, cached);
+    }
+
+    const stored = await readStoredPosts(
+      handle,
+      maxResults,
+      richXLinkPreviewEnabled,
+      cacheDb,
+    );
+    if (stored && shouldUseFreshStoredPosts(stored)) {
+      resultByHandle.set(handle, makeCachedPostsResult(handle, stored, false));
+      continue;
+    }
+    if (stored) {
+      stalePostsByHandle.set(handle, stored);
     }
     handlesToRefresh.push(handle);
   }

@@ -18,6 +18,7 @@ import {
   settings,
   updateLogs,
 } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import {
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
@@ -730,7 +731,10 @@ const approvePendingWithOptions = async (
 export const handleSettings = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const db = getDb(env);
-  const actor = getActorInfo(request);
+  const admin = await requireAdminUser(request, env);
+  if (!admin.ok) return admin.response;
+
+  const actor = getActorInfo(request, admin.user);
 
   // 관리자 설정 화면에서 노출하는 설정 키만 허용
   const ALLOWED_SETTINGS = [
@@ -739,6 +743,9 @@ export const handleSettings = async (request: Request, env: Env) => {
     "auto_update_last_run",
     "auto_update_range_days",
     "x_rich_link_preview_enabled",
+    "x_posts_visibility",
+    "naver_cafe_posts_enabled",
+    "naver_cafe_posts_visibility",
   ] as const;
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
@@ -871,6 +878,9 @@ export const handleSettings = async (request: Request, env: Env) => {
       settingsObj[row.key] = row.value;
     }
     settingsObj.x_rich_link_preview_enabled ??= "true";
+    settingsObj.x_posts_visibility ??= "members";
+    settingsObj.naver_cafe_posts_enabled ??= "true";
+    settingsObj.naver_cafe_posts_visibility ??= "members";
     const normalizedIntervalHours = normalizeAutoUpdateIntervalHours(
       settingsObj.auto_update_interval_hours,
     );
@@ -904,6 +914,29 @@ export const handleSettings = async (request: Request, env: Env) => {
           body[key] !== "false"
         ) {
           return badRequest("Invalid x_rich_link_preview_enabled");
+        }
+        if (
+          key === "x_posts_visibility" &&
+          body[key] !== "public" &&
+          body[key] !== "members" &&
+          body[key] !== "private"
+        ) {
+          return badRequest("Invalid x_posts_visibility");
+        }
+        if (
+          key === "naver_cafe_posts_enabled" &&
+          body[key] !== "true" &&
+          body[key] !== "false"
+        ) {
+          return badRequest("Invalid naver_cafe_posts_enabled");
+        }
+        if (
+          key === "naver_cafe_posts_visibility" &&
+          body[key] !== "public" &&
+          body[key] !== "members" &&
+          body[key] !== "private"
+        ) {
+          return badRequest("Invalid naver_cafe_posts_visibility");
         }
         // last_run은 시스템에서만 업데이트
         updates.push(updateSetting(db, key, body[key]));

@@ -127,6 +127,69 @@ export const xApiCache = sqliteTable(
 export type XApiCache = typeof xApiCache.$inferSelect;
 export type NewXApiCache = typeof xApiCache.$inferInsert;
 
+// X 게시글 영구 저장 테이블
+export const xPosts = sqliteTable(
+  "x_posts",
+  {
+    id: text().primaryKey(),
+    handle: text().notNull(),
+    user_id: text("user_id"),
+    username: text().notNull(),
+    value: text().notNull(),
+    created_at: text("created_at").notNull(),
+    fetched_at: integer("fetched_at").notNull(),
+  },
+  (table) => [
+    index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
+    index("idx_x_posts_user_id").on(table.user_id),
+  ],
+);
+
+export type XStoredPost = typeof xPosts.$inferSelect;
+export type NewXStoredPost = typeof xPosts.$inferInsert;
+
+// X 게시글 소스별 증분 수집 상태
+export const xPostSources = sqliteTable("x_post_sources", {
+  handle: text().primaryKey(),
+  user_id: text("user_id"),
+  username: text(),
+  last_seen_post_id: text("last_seen_post_id"),
+  last_checked_at: integer("last_checked_at").notNull(),
+  updated_at: integer("updated_at").notNull(),
+});
+
+export type XPostSource = typeof xPostSources.$inferSelect;
+export type NewXPostSource = typeof xPostSources.$inferInsert;
+
+// 네이버 카페 게시판 소스 테이블
+export const naverCafeSources = sqliteTable(
+  "naver_cafe_sources",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    name: text().notNull(),
+    cafe_id: text("cafe_id").notNull(),
+    menu_id: text("menu_id").notNull(),
+    cafe_url: text("cafe_url").notNull(),
+    member_uid: integer("member_uid"),
+    enabled: integer("enabled", { mode: "boolean" }).default(true),
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+    updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_naver_cafe_sources_enabled").on(table.enabled),
+    index("idx_naver_cafe_sources_member_uid").on(table.member_uid),
+    index("idx_naver_cafe_sources_sort_order").on(table.sort_order),
+    uniqueIndex("uidx_naver_cafe_sources_cafe_menu").on(
+      table.cafe_id,
+      table.menu_id,
+    ),
+  ],
+);
+
+export type NaverCafeSource = typeof naverCafeSources.$inferSelect;
+export type NewNaverCafeSource = typeof naverCafeSources.$inferInsert;
+
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(
   "update_logs",

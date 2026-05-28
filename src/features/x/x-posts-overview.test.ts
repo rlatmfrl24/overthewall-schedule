@@ -134,6 +134,7 @@ describe("XPostsOverview", () => {
     expect(screen.getByText("2개")).toBeTruthy();
     expect(screen.getByText("💙")).toBeTruthy();
     expect(screen.getByText("⭐")).toBeTruthy();
+    expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
     expect(screen.queryByText("수집 완료")).toBeNull();
     expect(screen.queryByText("게시글 없음")).toBeNull();
     expect(screen.queryByRole("button", { name: "임시 임베드" })).toBeNull();
@@ -370,7 +371,8 @@ describe("XPostsOverview", () => {
     expect(screen.getByText("Linked Member")).toBeTruthy();
     expect(screen.getByText(/@linked_member/)).toBeTruthy();
     expect(screen.getByText("linked post body")).toBeTruthy();
-    expect(screen.getByText("X 게시글")).toBeTruthy();
+    expect(screen.getAllByText("X 게시글").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
     expect(
       screen
         .getByRole("link", { name: "Linked Member 게시글 열기" })

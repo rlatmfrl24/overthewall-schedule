@@ -11,11 +11,24 @@ import { ExternalLinkIcon, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { ModeToggle } from "./mode-toggle";
 import { isAdminUser } from "@/lib/admin";
+import { useXPostsConfig } from "@/hooks/use-x-posts-config";
+import { useNaverCafePostsConfig } from "@/hooks/use-naver-cafe-posts-config";
 
 export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { isLoaded, isSignedIn, user } = useUser();
+  const { visibility: xPostsVisibility } = useXPostsConfig();
+  const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
+    useNaverCafePostsConfig();
   const isAdmin = isLoaded && isAdminUser(user?.id);
+  const showXPostsLink =
+    xPostsVisibility === "public" ||
+    (xPostsVisibility === "members" && isSignedIn);
+  const showCafePostsLink =
+    cafePostsEnabled &&
+    (cafePostsVisibility === "public" ||
+      (cafePostsVisibility === "members" && isSignedIn));
+  const showMemberPostsLink = showXPostsLink || showCafePostsLink;
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border-border">
@@ -45,7 +58,7 @@ export const Header = () => {
           <Link to="/vods" className="[&.active]:font-bold">
             <Button variant="ghost">VOD & 클립</Button>
           </Link>
-          {isSignedIn ? (
+          {showMemberPostsLink ? (
             <Link to="/x" className="[&.active]:font-bold">
               <Button variant="ghost">멤버 게시글</Button>
             </Link>
@@ -164,7 +177,7 @@ export const Header = () => {
                 VOD & 클립
               </Button>
             </Link>
-            {isSignedIn ? (
+            {showMemberPostsLink ? (
               <Link
                 to="/x"
                 className="w-full"

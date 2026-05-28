@@ -1,5 +1,10 @@
 import { apiFetch } from "./client";
-import type { Member, XPost, XPostsResponse } from "@/lib/types";
+import type {
+  Member,
+  XPost,
+  XPostsResponse,
+  XPostsVisibility,
+} from "@/lib/types";
 
 interface XPostsApiResponse {
   updatedAt: string;
@@ -10,6 +15,10 @@ interface XPostsApiResponse {
 interface FetchXPostsOptions {
   maxResults?: number;
   force?: boolean;
+}
+
+interface XPostsConfigResponse {
+  visibility: XPostsVisibility;
 }
 
 type MemberXHandle = {
@@ -26,6 +35,9 @@ const xPostsCache = new Map<
   string,
   { fetchedAt: number; content: XPostsResponse | null }
 >();
+let xPostsConfigCache:
+  | { fetchedAt: number; content: XPostsConfigResponse }
+  | null = null;
 
 const isCacheFresh = (fetchedAt: number) =>
   Date.now() - fetchedAt < X_POSTS_CACHE_TTL_MS;
@@ -233,6 +245,23 @@ export async function fetchMembersXPosts(
   };
 }
 
+export async function fetchXPostsConfig(options: { force?: boolean } = {}) {
+  if (
+    !options.force &&
+    xPostsConfigCache &&
+    Date.now() - xPostsConfigCache.fetchedAt < 60_000
+  ) {
+    return xPostsConfigCache.content;
+  }
+
+  const content = await apiFetch<XPostsConfigResponse>("/api/x/config", {
+    cache: options.force ? "no-store" : "default",
+  });
+  xPostsConfigCache = { fetchedAt: Date.now(), content };
+  return content;
+}
+
 export const clearXPostsCacheForTests = () => {
   xPostsCache.clear();
+  xPostsConfigCache = null;
 };

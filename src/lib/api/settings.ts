@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import type { NaverCafePostsVisibility, XPostsVisibility } from "@/lib/types";
 
 export interface AutoUpdateSettings {
   auto_update_enabled: string | null;
@@ -6,6 +7,9 @@ export interface AutoUpdateSettings {
   auto_update_last_run: string | null;
   auto_update_range_days: string | null;
   x_rich_link_preview_enabled: string | null;
+  x_posts_visibility: XPostsVisibility | null;
+  naver_cafe_posts_enabled: string | null;
+  naver_cafe_posts_visibility: NaverCafePostsVisibility | null;
 }
 
 export interface AutoUpdateRunDetail {
@@ -121,6 +125,9 @@ export async function updateSettings(
       | "auto_update_interval_hours"
       | "auto_update_range_days"
       | "x_rich_link_preview_enabled"
+      | "x_posts_visibility"
+      | "naver_cafe_posts_enabled"
+      | "naver_cafe_posts_visibility"
     >
   >
 ): Promise<void> {
