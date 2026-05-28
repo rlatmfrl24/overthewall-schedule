@@ -15,7 +15,7 @@ interface UseXPostsReturn {
 
 export function useXPosts(
   members: Member[],
-  options: { enabled?: boolean; maxResults?: number } = {},
+  options: { enabled?: boolean; maxResults?: number; admin?: boolean } = {},
 ): UseXPostsReturn {
   const [data, setData] = useState<XPostsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,7 @@ export function useXPosts(
   const [hasLoaded, setHasLoaded] = useState(false);
   const dataRef = useRef<XPostsResponse | null>(null);
 
-  const { enabled = true, maxResults = 5 } = options;
+  const { enabled = true, maxResults = 5, admin = false } = options;
   const twitterUrlsKey = useMemo(
     () =>
       members
@@ -53,7 +53,11 @@ export function useXPosts(
     setError(null);
 
     try {
-      const response = await fetchMembersXPosts(members, { force, maxResults });
+      const response = await fetchMembersXPosts(members, {
+        force,
+        maxResults,
+        admin,
+      });
       if (response) {
         setData(response);
         setError(
@@ -79,7 +83,7 @@ export function useXPosts(
       setLoading(false);
       setHasLoaded(true);
     }
-  }, [enabled, members, maxResults]);
+  }, [admin, enabled, members, maxResults]);
 
   const reload = useCallback(() => load(true), [load]);
 

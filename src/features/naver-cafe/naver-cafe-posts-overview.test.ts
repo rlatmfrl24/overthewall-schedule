@@ -144,17 +144,15 @@ describe("NaverCafePostsOverview", () => {
     useNaverCafePostsMock.mockReset();
   });
 
-  it("카페 최신글 피드, 상태 레일, 오시마크, 원문 링크를 표시한다", () => {
+  it("카페 최신글 피드, 오시마크, 원문 링크를 표시한다", () => {
     useNaverCafePostsMock.mockReturnValue(makeHookValue());
 
     const { container } = render(createElement(NaverCafePostsOverview));
 
     expect(screen.getByText("카페 최신글")).toBeTruthy();
-    expect(screen.getByText("피드 상태")).toBeTruthy();
-    expect(screen.getByText("표시 중 게시글")).toBeTruthy();
-    expect(screen.getByText("2건")).toBeTruthy();
-    expect(screen.getByText("등록된 게시판")).toBeTruthy();
-    expect(screen.getByText("2개")).toBeTruthy();
+    expect(screen.queryByText("피드 상태")).toBeNull();
+    expect(screen.queryByText("표시 중 게시글")).toBeNull();
+    expect(screen.queryByText("등록된 게시판")).toBeNull();
     expect(screen.getByText("🎴")).toBeTruthy();
     expect(screen.getByText("✝️")).toBeTruthy();
     expect(
@@ -221,6 +219,6 @@ describe("NaverCafePostsOverview", () => {
     expect(
       screen.getByText("새 카페글을 불러오지 못해 이전 데이터를 표시하고 있습니다."),
     ).toBeTruthy();
-    expect(screen.getByText("캐시")).toBeTruthy();
+    expect(screen.queryByText("캐시")).toBeNull();
   });
 });

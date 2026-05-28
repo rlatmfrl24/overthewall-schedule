@@ -1451,6 +1451,28 @@ describe("x worker service", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("관리자 모니터링 요청은 private 공개 범위에서도 저장 데이터만 조회한다", async () => {
+    const request = await makeAdminRequest(
+      "https://example.com/api/x/posts?handles=otw_member&admin=1",
+    );
+
+    const response = await handleXPosts(
+      request,
+      makeRouteEnv(
+        makeCacheDb({
+          x_posts_visibility: { value: "private" },
+        }).db,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      posts: [],
+      byHandle: [{ handle: "otw_member", posts: [] }],
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("debug 라우트는 관리자 설정이 꺼져 있으면 X 게시글 링크 lookup을 생략한다", async () => {
     const fetchMock = vi.mocked(fetch);
     const request = await makeAdminRequest(

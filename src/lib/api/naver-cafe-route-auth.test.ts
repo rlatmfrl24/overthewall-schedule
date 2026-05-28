@@ -59,6 +59,16 @@ describe("naver cafe posts route auth", () => {
     expect(await response.text()).toBe("Login required");
   });
 
+  it("관리자 모니터링 모드는 관리자 인증 없이는 허용하지 않는다", async () => {
+    const response = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?admin=1"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Login required");
+  });
+
   it("설정 조회 실패 시 config endpoint는 기본값으로 응답한다", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     getSettingMock.mockRejectedValue(new Error("D1 unavailable"));

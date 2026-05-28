@@ -195,6 +195,7 @@ describe("media hooks", () => {
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(fetchMembersXPostsMock).toHaveBeenCalledWith(members, {
+      admin: false,
       force: false,
       maxResults: 5,
     });

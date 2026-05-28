@@ -1,14 +1,11 @@
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import {
   AlertCircle,
-  CheckCircle2,
-  Clock3,
   Coffee,
   MessageSquareText,
   RefreshCw,
   Twitter,
 } from "lucide-react";
-import IconX from "@/assets/icon_x.svg";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNaverCafePosts } from "@/hooks/use-naver-cafe-posts";
@@ -16,7 +13,7 @@ import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useXPosts } from "@/hooks/use-x-posts";
 import { getMembersWithXHandles } from "@/lib/api/x";
 import type { Member, NaverCafePost, XPost } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, getContrastColor } from "@/lib/utils";
 import { NaverCafePostCard } from "@/features/naver-cafe/naver-cafe-post-card";
 import { XPostCard } from "@/features/x/x-post-card";
 
@@ -104,20 +101,6 @@ const formatPostTime = (value: string) => {
   });
 };
 
-const getLatestUpdatedAt = (...values: Array<string | null>) => {
-  const dates = values
-    .map((value) => (value ? new Date(value) : null))
-    .filter((value): value is Date =>
-      Boolean(value && !Number.isNaN(value.getTime())),
-    );
-  if (dates.length === 0) {
-    return null;
-  }
-  return new Date(
-    Math.max(...dates.map((date) => date.getTime())),
-  ).toISOString();
-};
-
 const groupPostsByDate = (posts: UnifiedMemberPost[]) => {
   const groups = new Map<
     string,
@@ -152,8 +135,10 @@ const filterUnifiedPostsByMember = (
   );
 };
 
+const MEMBER_POST_FEED_WIDTH_CLASS = "w-full max-w-[1040px]";
+
 const MemberPostsSkeleton = () => (
-  <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4">
+  <div className="flex w-full flex-col gap-4">
     {Array.from({ length: 4 }).map((_, index) => (
       <div
         key={index}
@@ -181,24 +166,40 @@ const MemberPostFilterBar = ({
   items,
   selectedUids,
   onChange,
+  layout = "wrap",
 }: {
   items: MemberPostSource[];
   selectedUids: number[] | null;
   onChange: (value: number[] | null) => void;
+  layout?: "wrap" | "vertical";
 }) => {
   const selectedList = selectedUids ?? [];
   const isAllSelected = selectedList.length === 0;
+  const isVertical = layout === "vertical";
 
   return (
-    <div className="flex gap-2 overflow-x-auto px-px py-1">
+    <div
+      className={cn(
+        "flex gap-2 px-px py-1",
+        isVertical ? "flex-col overflow-visible" : "flex-wrap",
+      )}
+    >
       <button
         type="button"
+        aria-pressed={isAllSelected}
         onClick={() => onChange(null)}
         className={cn(
-          "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-4 text-sm font-medium transition-colors",
-          isAllSelected
-            ? "border-foreground bg-foreground text-background"
-            : "border-border bg-background text-muted-foreground hover:text-foreground",
+          "relative inline-flex shrink-0 items-center gap-2 overflow-hidden border text-sm font-medium",
+          isVertical
+            ? "h-10 w-full justify-start rounded-md px-3 transition-colors"
+            : "rounded-full border-2 px-3 py-1.5 transition-all duration-200 ease-out hover:scale-105",
+          isVertical
+            ? isAllSelected
+              ? "border-foreground bg-foreground text-background"
+              : "border-border bg-background text-muted-foreground hover:text-foreground"
+            : isAllSelected
+              ? "border-primary bg-primary text-primary-foreground shadow-sm"
+              : "border-border bg-transparent text-muted-foreground hover:border-primary/50",
         )}
       >
         전체
@@ -206,28 +207,43 @@ const MemberPostFilterBar = ({
       {items.map(({ member }) => {
         const selected = selectedList.includes(member.uid);
         const accentColor = member.main_color || "#111111";
+        const textColor = selected
+          ? getContrastColor(accentColor)
+          : accentColor;
 
         return (
           <button
             key={member.uid}
             type="button"
             aria-label={member.name}
+            aria-pressed={selected}
             onClick={() => onChange([member.uid])}
             style={
-              selected
+              isVertical && selected
                 ? {
                     borderColor: accentColor,
                     boxShadow: `0 0 0 1px ${accentColor}`,
                   }
-                : undefined
+                : isVertical
+                  ? undefined
+                  : {
+                      backgroundColor: selected ? accentColor : "transparent",
+                      borderColor: accentColor,
+                      color: textColor,
+                    }
             }
             className={cn(
-              "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border bg-background px-3 text-sm font-medium transition-colors",
-              selected
-                ? "text-foreground shadow-sm"
-                : isAllSelected
-                  ? "border-border text-muted-foreground hover:text-foreground"
-                  : "border-border text-muted-foreground/60 opacity-60 hover:text-foreground hover:opacity-100",
+              "relative inline-flex shrink-0 items-center gap-2 overflow-hidden border px-3 text-sm font-medium",
+              isVertical
+                ? "h-10 w-full justify-start rounded-md bg-background transition-colors"
+                : "rounded-full border-2 py-1.5 transition-all duration-200 ease-out hover:scale-105",
+              isVertical
+                ? selected
+                  ? "text-foreground shadow-sm"
+                  : isAllSelected
+                    ? "border-border text-muted-foreground hover:text-foreground"
+                    : "border-border text-muted-foreground/60 opacity-60 hover:text-foreground hover:opacity-100"
+                : selected && "shadow-sm",
             )}
           >
             {member.oshi_mark ? (
@@ -240,7 +256,7 @@ const MemberPostFilterBar = ({
                 style={{ backgroundColor: accentColor }}
               />
             )}
-            <span>{member.name}</span>
+            <span className="truncate">{member.name}</span>
           </button>
         );
       })}
@@ -248,80 +264,73 @@ const MemberPostFilterBar = ({
   );
 };
 
-const FeedStatusRail = ({
+const SourceUpdateBadge = ({
+  icon,
+  label,
   updatedAt,
-  visiblePostCount,
-  xPostCount,
-  cafePostCount,
-  xSourceCount,
-  cafeSourceCount,
-  stale,
+  loading,
 }: {
+  icon: ReactNode;
+  label: string;
   updatedAt: string | null;
-  visiblePostCount: number;
-  xPostCount: number;
-  cafePostCount: number;
-  xSourceCount: number;
-  cafeSourceCount: number;
-  stale: boolean;
-}) => (
-  <aside className="order-first min-w-0 max-w-full space-y-4 lg:order-none lg:sticky lg:top-24">
-    <section className="min-w-0 rounded-lg border border-border/70 bg-card p-4 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">피드 상태</h2>
-        {stale ? (
-          <span className="hidden items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
-            <Clock3 className="h-3 w-3" />
-            캐시
-          </span>
-        ) : (
-          <span className="hidden items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline-flex dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" />
-            정상
-          </span>
-        )}
-      </div>
+  loading: boolean;
+}) => {
+  const value = loading ? "불러오는 중" : formatUpdatedAt(updatedAt);
 
-      <dl className="grid grid-cols-1 gap-3 text-center sm:grid-cols-3 lg:grid-cols-1 lg:text-left">
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">마지막 업데이트</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {formatUpdatedAt(updatedAt)}
-          </dd>
-        </div>
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">표시 중 게시글</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {visiblePostCount}건
-          </dd>
-        </div>
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">등록된 소스</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            X {xSourceCount}개 · 카페 {cafeSourceCount}개
-          </dd>
-        </div>
-      </dl>
+  return (
+    <div
+      aria-label={`${label} 마지막 업데이트 ${value}`}
+      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 text-xs text-muted-foreground"
+    >
+      {icon}
+      <span className="font-medium text-foreground">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+};
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-md border border-border/60 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <img src={IconX} alt="" className="h-3.5 w-3.5" />
-            X 게시글
+const MemberPostContentLayout = ({
+  filterItems,
+  selectedUids,
+  onFilterChange,
+  children,
+}: {
+  filterItems: MemberPostSource[];
+  selectedUids: number[] | null;
+  onFilterChange: (value: number[] | null) => void;
+  children: ReactNode;
+}) => {
+  const hasFilters = filterItems.length > 0;
+
+  return (
+    <div
+      data-testid="member-post-content-layout"
+      className={cn(
+        "mx-auto w-full min-w-0",
+        hasFilters
+          ? "grid max-w-[1320px] gap-5 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]"
+          : MEMBER_POST_FEED_WIDTH_CLASS,
+      )}
+    >
+      {hasFilters ? (
+        <aside
+          data-testid="member-post-filter-sidebar"
+          className="hidden min-w-0 lg:block"
+        >
+          <div className="sticky top-20 rounded-lg border border-border/70 bg-background p-2">
+            <MemberPostFilterBar
+              items={filterItems}
+              selectedUids={selectedUids}
+              onChange={onFilterChange}
+              layout="vertical"
+            />
           </div>
-          <p className="mt-1 font-semibold text-foreground">{xPostCount}건</p>
-        </div>
-        <div className="rounded-md border border-border/60 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Coffee className="h-3.5 w-3.5 text-emerald-600" />
-            카페글
-          </div>
-          <p className="mt-1 font-semibold text-foreground">{cafePostCount}건</p>
-        </div>
-      </div>
-    </section>
-  </aside>
-);
+        </aside>
+      ) : null}
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+};
 
 const combineErrors = (...errors: Array<string | null>) => {
   const messages = errors.filter((error): error is string => Boolean(error));
@@ -429,9 +438,7 @@ export const MemberPostsOverview = ({
     [timelinePosts],
   );
 
-  const updatedAt = getLatestUpdatedAt(xState.updatedAt, cafeState.updatedAt);
   const error = combineErrors(xState.error, cafeState.error);
-  const stale = xState.stale || cafeState.stale;
   const hasXSource = membersWithX.length > 0;
   const hasCafeSource = cafeSourceCount > 0;
   const hasAnySource = hasXSource || hasCafeSource;
@@ -454,7 +461,7 @@ export const MemberPostsOverview = ({
 
   return (
     <div className="flex w-full flex-1 flex-col overflow-y-auto overflow-x-hidden">
-      <div className="container mx-auto flex min-w-0 w-full max-w-7xl flex-col gap-4 px-4 pb-8 pt-5">
+      <div className="container mx-auto flex min-w-0 w-full max-w-[1520px] flex-col gap-4 px-4 pb-8 pt-5">
         <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
@@ -468,11 +475,23 @@ export const MemberPostsOverview = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="text-sm text-muted-foreground">
-              마지막 업데이트 ·{" "}
-              <span className="font-medium text-foreground">
-                {formatUpdatedAt(updatedAt)}
-              </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {loadX && hasXSource ? (
+                <SourceUpdateBadge
+                  icon={<Twitter className="h-3.5 w-3.5" />}
+                  label="X"
+                  updatedAt={xState.updatedAt}
+                  loading={xState.loading}
+                />
+              ) : null}
+              {loadCafe && hasCafeSource ? (
+                <SourceUpdateBadge
+                  icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
+                  label="네이버 카페"
+                  updatedAt={cafeState.updatedAt}
+                  loading={cafeState.loading}
+                />
+              ) : null}
             </div>
             <Button
               variant="outline"
@@ -490,25 +509,34 @@ export const MemberPostsOverview = ({
         </div>
 
         {memberSources.length > 0 ? (
-          <MemberPostFilterBar
-            items={memberSources}
-            selectedUids={selectedMemberUids}
-            onChange={setSelectedMemberUids}
-          />
+          <div
+            data-testid="member-post-filter-top"
+            className="sticky top-0 z-10 -mx-4 border-b border-border/70 bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:hidden"
+          >
+            <MemberPostFilterBar
+              items={memberSources}
+              selectedUids={selectedMemberUids}
+              onChange={setSelectedMemberUids}
+            />
+          </div>
         ) : null}
 
-        {showInitialLoading ? (
-          <MemberPostsSkeleton />
-        ) : !hasAnySource ? (
-          <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
-            <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />
-            <p className="text-sm text-muted-foreground">
-              등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
-            </p>
-          </div>
-        ) : timelinePosts.length === 0 ? (
-          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
+        <MemberPostContentLayout
+          filterItems={memberSources}
+          selectedUids={selectedMemberUids}
+          onFilterChange={setSelectedMemberUids}
+        >
+          {showInitialLoading ? (
+            <MemberPostsSkeleton />
+          ) : !hasAnySource ? (
             <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
+              <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />
+              <p className="text-sm text-muted-foreground">
+                등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
+              </p>
+            </div>
+          ) : timelinePosts.length === 0 ? (
+            <div className="flex min-h-[260px] w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
               {error ? (
                 <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
               ) : loadCafe && !loadX ? (
@@ -547,19 +575,10 @@ export const MemberPostsOverview = ({
                 </Button>
               ) : null}
             </div>
-            <FeedStatusRail
-              updatedAt={updatedAt}
-              visiblePostCount={timelinePosts.length}
-              xPostCount={xState.posts.length}
-              cafePostCount={cafeState.posts.length}
-              xSourceCount={membersWithX.length}
-              cafeSourceCount={cafeSourceCount}
-              stale={stale}
-            />
-          </div>
-        ) : (
-          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
-            <div className="min-w-0 space-y-8">
+          ) : (
+            <div
+              className={cn(MEMBER_POST_FEED_WIDTH_CLASS, "min-w-0 space-y-8")}
+            >
               {error ? (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
                   {error}
@@ -569,26 +588,27 @@ export const MemberPostsOverview = ({
               {timelineGroups.map((group) => (
                 <section
                   key={`${group.label}-${group.subLabel}`}
-                  className="grid min-w-0 gap-4 sm:grid-cols-[92px_minmax(0,1fr)]"
+                  className="min-w-0 space-y-3"
                 >
-                  <div className="relative hidden pt-5 text-sm text-muted-foreground sm:block">
-                    <div className="sticky top-24">
-                      <p className="font-semibold text-foreground">
-                        {group.label}
-                      </p>
-                      <p className="mt-1 text-xs">{group.subLabel}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-xs font-semibold text-foreground shadow-sm">
+                      {group.posts.length}
                     </div>
-                    <span className="absolute right-2 top-7 h-2.5 w-2.5 rounded-full border border-border bg-background" />
-                    <span className="absolute bottom-0 right-[12px] top-9 w-px bg-border" />
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-semibold text-foreground">
+                        {group.label}
+                      </h2>
+                      <p className="text-xs text-muted-foreground">
+                        {group.subLabel} · {group.posts.length}건
+                      </p>
+                    </div>
+                    <div className="h-px min-w-8 flex-1 bg-border" />
                   </div>
 
-                  <div className="min-w-0 space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground sm:hidden">
-                      <span className="font-semibold text-foreground">
-                        {group.label}
-                      </span>
-                      <span>{group.subLabel}</span>
-                    </div>
+                  <div
+                    data-testid="member-post-feed-list"
+                    className="flex min-w-0 flex-col gap-4"
+                  >
                     {group.posts.map((item) => {
                       const member = item.memberUid
                         ? memberMap.get(item.memberUid)
@@ -613,18 +633,8 @@ export const MemberPostsOverview = ({
                 </section>
               ))}
             </div>
-
-            <FeedStatusRail
-              updatedAt={updatedAt}
-              visiblePostCount={timelinePosts.length}
-              xPostCount={xState.posts.length}
-              cafePostCount={cafeState.posts.length}
-              xSourceCount={membersWithX.length}
-              cafeSourceCount={cafeSourceCount}
-              stale={stale}
-            />
-          </div>
-        )}
+          )}
+        </MemberPostContentLayout>
       </div>
     </div>
   );

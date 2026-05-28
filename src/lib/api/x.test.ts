@@ -107,6 +107,25 @@ describe("x api", () => {
     );
   });
 
+  it("관리자 모니터링 요청은 admin 파라미터를 포함한다", async () => {
+    const { fetchMembersXPosts } = await import("./x");
+    apiFetchMock.mockResolvedValueOnce({
+      updatedAt: "2026-02-13T00:00:00Z",
+      posts: [],
+      byHandle: [],
+    });
+
+    await fetchMembersXPosts([makeMember(1, "https://x.com/valid_user")], {
+      admin: true,
+      maxResults: 10,
+    });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v3&admin=1",
+      { cache: "default" },
+    );
+  });
+
   it("멤버 게시글 공개 설정을 조회하고 캐시한다", async () => {
     const { fetchXPostsConfig } = await import("./x");
     apiFetchMock.mockResolvedValueOnce({ visibility: "public" });

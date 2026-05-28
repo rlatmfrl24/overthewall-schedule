@@ -90,4 +90,15 @@ describe("naver-cafe api helpers", () => {
       { cache: "no-store" },
     );
   });
+
+  it("관리자 모니터링 요청은 admin 파라미터를 포함한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({ updatedAt: "", posts: [], sources: [] });
+
+    await fetchNaverCafePosts({ admin: true, size: 10 });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/naver-cafe/posts?size=10&admin=1",
+      { cache: "default" },
+    );
+  });
 });
