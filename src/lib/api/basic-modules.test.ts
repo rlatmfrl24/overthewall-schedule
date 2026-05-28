@@ -261,7 +261,10 @@ describe("api wrapper modules", () => {
 
     await fetchKirinukiVideos({ maxResults: 7 });
     await fetchSettings();
-    await updateSettings({ auto_update_enabled: "1" });
+    await updateSettings({
+      auto_update_enabled: "1",
+      x_rich_link_preview_enabled: "false",
+    });
     await runAutoUpdateNow();
     await fetchUpdateLogs();
     await fetchUpdateLogs({
@@ -296,7 +299,10 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings");
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
       method: "PUT",
-      json: { auto_update_enabled: "1" },
+      json: {
+        auto_update_enabled: "1",
+        x_rich_link_preview_enabled: "false",
+      },
     });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {
       method: "POST",

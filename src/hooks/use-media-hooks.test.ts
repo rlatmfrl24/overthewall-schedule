@@ -5,12 +5,14 @@ import type { Member } from "@/lib/types";
 import { useAllMembersClips } from "./use-chzzk-clips";
 import { useAllMembersLatestVods } from "./use-chzzk-vods";
 import { useKirinukiVideos } from "./use-kirinuki-videos";
+import { useXPosts } from "./use-x-posts";
 import { useYouTubeVideos } from "./use-youtube-videos";
 
 const fetchAllMembersClipsMock = vi.hoisted(() => vi.fn());
 const fetchAllMembersLatestVideosMock = vi.hoisted(() => vi.fn());
 const fetchKirinukiVideosMock = vi.hoisted(() => vi.fn());
 const fetchMembersYouTubeVideosMock = vi.hoisted(() => vi.fn());
+const fetchMembersXPostsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api/clips", () => ({
   fetchAllMembersClips: fetchAllMembersClipsMock,
@@ -28,9 +30,17 @@ vi.mock("@/lib/api/youtube", () => ({
   fetchMembersYouTubeVideos: fetchMembersYouTubeVideosMock,
 }));
 
+vi.mock("@/lib/api/x", () => ({
+  fetchMembersXPosts: fetchMembersXPostsMock,
+}));
+
 const makeMember = (
   uid: number,
-  options?: { youtubeChannelId?: string | null; chzzkChannelId?: string | null },
+  options?: {
+    youtubeChannelId?: string | null;
+    chzzkChannelId?: string | null;
+    xHandle?: string | null;
+  },
 ): Member =>
   ({
     uid,
@@ -39,7 +49,7 @@ const makeMember = (
     main_color: null,
     sub_color: null,
     oshi_mark: null,
-    url_twitter: null,
+    url_twitter: options?.xHandle ? `https://x.com/${options.xHandle}` : null,
     url_youtube: null,
     url_chzzk: options?.chzzkChannelId
       ? `https://chzzk.naver.com/${options.chzzkChannelId}`
@@ -59,6 +69,7 @@ describe("media hooks", () => {
     fetchAllMembersLatestVideosMock.mockReset();
     fetchKirinukiVideosMock.mockReset();
     fetchMembersYouTubeVideosMock.mockReset();
+    fetchMembersXPostsMock.mockReset();
   });
 
   it("useAllMembersClips: 초기 fetch 및 reload를 수행한다", async () => {
@@ -151,5 +162,44 @@ describe("media hooks", () => {
       await result.current.reload();
     });
     expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("useXPosts: enabled=false면 요청하지 않는다", async () => {
+    const members = [makeMember(1, { xHandle: "otw_member" })];
+    const { result } = renderHook(() =>
+      useXPosts(members, { enabled: false }),
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasLoaded).toBe(false);
+    expect(fetchMembersXPostsMock).not.toHaveBeenCalled();
+  });
+
+  it("useXPosts: 기본 조회 개수는 10개로 제한하고 상태 메타를 반환한다", async () => {
+    fetchMembersXPostsMock.mockResolvedValue({
+      posts: [],
+      updatedAt: "2026-02-13T00:00:00Z",
+      byHandle: [
+        {
+          handle: "otw_member",
+          userId: "u1",
+          posts: [],
+          error: null,
+          stale: true,
+        },
+      ],
+    });
+
+    const members = [makeMember(1, { xHandle: "otw_member" })];
+    const { result } = renderHook(() => useXPosts(members));
+
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(fetchMembersXPostsMock).toHaveBeenCalledWith(members, {
+      force: false,
+      maxResults: 10,
+    });
+    expect(result.current.updatedAt).toBe("2026-02-13T00:00:00Z");
+    expect(result.current.byHandle[0]?.handle).toBe("otw_member");
+    expect(result.current.stale).toBe(true);
   });
 });

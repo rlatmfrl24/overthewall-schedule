@@ -6,7 +6,11 @@ import {
 
 export interface Env {
   YOUTUBE_API_KEY: string;
+  X_BEARER_TOKEN?: string;
   otw_db: D1Database;
+  ASSETS?: {
+    fetch: (request: Request) => Response | Promise<Response>;
+  };
 }
 
 export type CachedLiveStatus = {
@@ -109,6 +113,63 @@ export type CachedYouTubeVideos = {
     videos: YouTubeVideoItem[];
     shorts: YouTubeVideoItem[];
   } | null;
+};
+
+export type XPostMediaItem = {
+  mediaKey: string;
+  type: string;
+  url: string | null;
+  previewImageUrl: string | null;
+  width: number | null;
+  height: number | null;
+  altText: string | null;
+};
+
+export type XLinkedPostPreviewItem = {
+  id: string;
+  text: string;
+  createdAt: string | null;
+  url: string;
+  username: string;
+  name: string | null;
+  profileImageUrl: string | null;
+  metrics: {
+    likeCount: number;
+    replyCount: number;
+    repostCount: number;
+    quoteCount: number;
+  };
+  media: XPostMediaItem[];
+};
+
+export type XPostLinkItem = {
+  url: string;
+  expandedUrl: string | null;
+  displayUrl: string | null;
+  resolvedUrl?: string | null;
+  domain?: string | null;
+  title?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  siteName?: string | null;
+  previewStatus?: "ready" | "unavailable" | "skipped";
+  linkedPost?: XLinkedPostPreviewItem | null;
+};
+
+export type XPostItem = {
+  id: string;
+  text: string;
+  createdAt: string;
+  url: string;
+  username: string;
+  metrics: {
+    likeCount: number;
+    replyCount: number;
+    repostCount: number;
+    quoteCount: number;
+  };
+  media: XPostMediaItem[];
+  links?: XPostLinkItem[];
 };
 
 export type UpdateLogPayload = {

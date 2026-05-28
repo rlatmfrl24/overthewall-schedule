@@ -5,6 +5,7 @@ export interface AutoUpdateSettings {
   auto_update_interval_hours: string | null;
   auto_update_last_run: string | null;
   auto_update_range_days: string | null;
+  x_rich_link_preview_enabled: string | null;
 }
 
 export interface AutoUpdateRunDetail {
@@ -119,6 +120,7 @@ export async function updateSettings(
       | "auto_update_enabled"
       | "auto_update_interval_hours"
       | "auto_update_range_days"
+      | "x_rich_link_preview_enabled"
     >
   >
 ): Promise<void> {

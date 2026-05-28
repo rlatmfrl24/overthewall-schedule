@@ -732,12 +732,13 @@ export const handleSettings = async (request: Request, env: Env) => {
   const db = getDb(env);
   const actor = getActorInfo(request);
 
-  // 자동 업데이트 관련 설정 키만 허용
+  // 관리자 설정 화면에서 노출하는 설정 키만 허용
   const ALLOWED_SETTINGS = [
     "auto_update_enabled",
     "auto_update_interval_hours",
     "auto_update_last_run",
     "auto_update_range_days",
+    "x_rich_link_preview_enabled",
   ] as const;
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
@@ -869,6 +870,7 @@ export const handleSettings = async (request: Request, env: Env) => {
     for (const row of data) {
       settingsObj[row.key] = row.value;
     }
+    settingsObj.x_rich_link_preview_enabled ??= "true";
     const normalizedIntervalHours = normalizeAutoUpdateIntervalHours(
       settingsObj.auto_update_interval_hours,
     );
@@ -895,6 +897,13 @@ export const handleSettings = async (request: Request, env: Env) => {
           !isAutoUpdateIntervalHours(body[key])
         ) {
           return badRequest("Invalid auto_update_interval_hours");
+        }
+        if (
+          key === "x_rich_link_preview_enabled" &&
+          body[key] !== "true" &&
+          body[key] !== "false"
+        ) {
+          return badRequest("Invalid x_rich_link_preview_enabled");
         }
         // last_run은 시스템에서만 업데이트
         updates.push(updateSetting(db, key, body[key]));

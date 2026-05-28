@@ -14,7 +14,7 @@ import { isAdminUser } from "@/lib/admin";
 
 export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { isLoaded, user } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const isAdmin = isLoaded && isAdminUser(user?.id);
 
   return (
@@ -45,6 +45,11 @@ export const Header = () => {
           <Link to="/vods" className="[&.active]:font-bold">
             <Button variant="ghost">VOD & 클립</Button>
           </Link>
+          {isSignedIn ? (
+            <Link to="/x" className="[&.active]:font-bold">
+              <Button variant="ghost">멤버 게시글</Button>
+            </Link>
+          ) : null}
           {isAdmin ? (
             <Link to="/admin" className="[&.active]:font-bold">
               <Button variant="ghost">관리자</Button>
@@ -159,6 +164,20 @@ export const Header = () => {
                 VOD & 클립
               </Button>
             </Link>
+            {isSignedIn ? (
+              <Link
+                to="/x"
+                className="w-full"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Button
+                  variant="ghost"
+                  className="justify-start h-12 text-lg rounded-xl w-full"
+                >
+                  멤버 게시글
+                </Button>
+              </Link>
+            ) : null}
             {isAdmin ? (
               <Link
                 to="/admin"

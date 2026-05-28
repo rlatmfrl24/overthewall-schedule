@@ -108,6 +108,25 @@ export const settings = sqliteTable("settings", {
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
 
+// X API 응답 캐시 테이블
+export const xApiCache = sqliteTable(
+  "x_api_cache",
+  {
+    key: text().primaryKey(),
+    type: text().notNull(),
+    value: text().notNull(),
+    fetched_at: integer("fetched_at").notNull(),
+    expires_at: integer("expires_at").notNull(),
+  },
+  (table) => [
+    index("idx_x_api_cache_type").on(table.type),
+    index("idx_x_api_cache_expires_at").on(table.expires_at),
+  ],
+);
+
+export type XApiCache = typeof xApiCache.$inferSelect;
+export type NewXApiCache = typeof xApiCache.$inferInsert;
+
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(
   "update_logs",

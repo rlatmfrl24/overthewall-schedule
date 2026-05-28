@@ -9,9 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as XRouteImport } from './routes/x'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
+import { Route as RightsRouteImport } from './routes/rights'
 import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -21,10 +23,16 @@ import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
+import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
 
+const XRoute = XRouteImport.update({
+  id: '/x',
+  path: '/x',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
@@ -38,6 +46,11 @@ const VodsRoute = VodsRouteImport.update({
 const SnapshotRoute = SnapshotRouteImport.update({
   id: '/snapshot',
   path: '/snapshot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RightsRoute = RightsRouteImport.update({
+  id: '/rights',
+  path: '/rights',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NoticeRoute = NoticeRouteImport.update({
@@ -85,6 +98,11 @@ const AdminNoticesRoute = AdminNoticesRouteImport.update({
   path: '/notices',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminMemberPostsRoute = AdminMemberPostsRouteImport.update({
+  id: '/member-posts',
+  path: '/member-posts',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminLogsRoute = AdminLogsRouteImport.update({
   id: '/logs',
   path: '/logs',
@@ -105,12 +123,15 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
+  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
+  '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
@@ -121,11 +142,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/notice': typeof NoticeRoute
+  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
+  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
+  '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
@@ -138,12 +162,15 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/notice': typeof NoticeRoute
+  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
+  '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
@@ -157,12 +184,15 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/notice'
+    | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
+    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
+    | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/settings'
     | '/admin/snapshot'
@@ -173,11 +203,14 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/notice'
+    | '/rights'
     | '/snapshot'
     | '/weekly'
+    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
+    | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/settings'
     | '/admin/snapshot'
@@ -189,12 +222,15 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/notice'
+    | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
+    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
+    | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/settings'
     | '/admin/snapshot'
@@ -207,14 +243,23 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   NoticeRoute: typeof NoticeRoute
+  RightsRoute: typeof RightsRoute
   SnapshotRoute: typeof SnapshotRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
+  XRoute: typeof XRoute
   ProfileCodeRoute: typeof ProfileCodeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/x': {
+      id: '/x'
+      path: '/x'
+      fullPath: '/x'
+      preLoaderRoute: typeof XRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/weekly': {
       id: '/weekly'
       path: '/weekly'
@@ -234,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/snapshot'
       fullPath: '/snapshot'
       preLoaderRoute: typeof SnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/rights': {
+      id: '/rights'
+      path: '/rights'
+      fullPath: '/rights'
+      preLoaderRoute: typeof RightsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notice': {
@@ -299,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminNoticesRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/member-posts': {
+      id: '/admin/member-posts'
+      path: '/member-posts'
+      fullPath: '/admin/member-posts'
+      preLoaderRoute: typeof AdminMemberPostsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/logs': {
       id: '/admin/logs'
       path: '/logs'
@@ -327,6 +386,7 @@ interface AdminRouteChildren {
   AdminDdaysRoute: typeof AdminDdaysRoute
   AdminKirinukiRoute: typeof AdminKirinukiRoute
   AdminLogsRoute: typeof AdminLogsRoute
+  AdminMemberPostsRoute: typeof AdminMemberPostsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminSnapshotRoute: typeof AdminSnapshotRoute
@@ -337,6 +397,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminDdaysRoute: AdminDdaysRoute,
   AdminKirinukiRoute: AdminKirinukiRoute,
   AdminLogsRoute: AdminLogsRoute,
+  AdminMemberPostsRoute: AdminMemberPostsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminSnapshotRoute: AdminSnapshotRoute,
@@ -359,9 +420,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   NoticeRoute: NoticeRoute,
+  RightsRoute: RightsRoute,
   SnapshotRoute: SnapshotRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,
+  XRoute: XRoute,
   ProfileCodeRoute: ProfileCodeRoute,
 }
 export const routeTree = rootRouteImport
