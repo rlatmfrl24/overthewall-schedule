@@ -246,7 +246,7 @@ export function MemberPostSettingsManager() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">X 게시글 공개 범위</CardTitle>
               <CardDescription>
-                사이트 헤더의 멤버 게시글 메뉴와 /x 피드 접근 권한을 설정합니다.
+                사이트 헤더의 멤버 게시글 메뉴와 /feed 접근 권한을 설정합니다.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

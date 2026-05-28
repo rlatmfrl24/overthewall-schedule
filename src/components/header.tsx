@@ -59,7 +59,7 @@ export const Header = () => {
             <Button variant="ghost">VOD & 클립</Button>
           </Link>
           {showMemberPostsLink ? (
-            <Link to="/x" className="[&.active]:font-bold">
+            <Link to="/feed" className="[&.active]:font-bold">
               <Button variant="ghost">멤버 게시글</Button>
             </Link>
           ) : null}
@@ -179,7 +179,7 @@ export const Header = () => {
             </Link>
             {showMemberPostsLink ? (
               <Link
-                to="/x"
+                to="/feed"
                 className="w-full"
                 onClick={() => setIsMenuOpen(false)}
               >

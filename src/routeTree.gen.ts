@@ -9,12 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as XRouteImport } from './routes/x'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
 import { Route as RightsRouteImport } from './routes/rights'
 import { Route as NoticeRouteImport } from './routes/notice'
+import { Route as FeedRouteImport } from './routes/feed'
 import { Route as CafeRouteImport } from './routes/cafe'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
@@ -29,11 +29,6 @@ import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
 
-const XRoute = XRouteImport.update({
-  id: '/x',
-  path: '/x',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
   path: '/weekly',
@@ -57,6 +52,11 @@ const RightsRoute = RightsRouteImport.update({
 const NoticeRoute = NoticeRouteImport.update({
   id: '/notice',
   path: '/notice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FeedRoute = FeedRouteImport.update({
+  id: '/feed',
+  path: '/feed',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CafeRoute = CafeRouteImport.update({
@@ -129,12 +129,12 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/cafe': typeof CafeRoute
+  '/feed': typeof FeedRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
-  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -149,11 +149,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cafe': typeof CafeRoute
+  '/feed': typeof FeedRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
-  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -170,12 +170,12 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/cafe': typeof CafeRoute
+  '/feed': typeof FeedRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
-  '/x': typeof XRoute
   '/admin/ddays': typeof AdminDdaysRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
@@ -193,12 +193,12 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/cafe'
+    | '/feed'
     | '/notice'
     | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
-    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
@@ -213,11 +213,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/cafe'
+    | '/feed'
     | '/notice'
     | '/rights'
     | '/snapshot'
     | '/weekly'
-    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
@@ -233,12 +233,12 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/cafe'
+    | '/feed'
     | '/notice'
     | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
-    | '/x'
     | '/admin/ddays'
     | '/admin/kirinuki'
     | '/admin/logs'
@@ -255,24 +255,17 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   CafeRoute: typeof CafeRoute
+  FeedRoute: typeof FeedRoute
   NoticeRoute: typeof NoticeRoute
   RightsRoute: typeof RightsRoute
   SnapshotRoute: typeof SnapshotRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
-  XRoute: typeof XRoute
   ProfileCodeRoute: typeof ProfileCodeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/x': {
-      id: '/x'
-      path: '/x'
-      fullPath: '/x'
-      preLoaderRoute: typeof XRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/weekly': {
       id: '/weekly'
       path: '/weekly'
@@ -306,6 +299,13 @@ declare module '@tanstack/react-router' {
       path: '/notice'
       fullPath: '/notice'
       preLoaderRoute: typeof NoticeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feed': {
+      id: '/feed'
+      path: '/feed'
+      fullPath: '/feed'
+      preLoaderRoute: typeof FeedRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cafe': {
@@ -440,12 +440,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   CafeRoute: CafeRoute,
+  FeedRoute: FeedRoute,
   NoticeRoute: NoticeRoute,
   RightsRoute: RightsRoute,
   SnapshotRoute: SnapshotRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,
-  XRoute: XRoute,
   ProfileCodeRoute: ProfileCodeRoute,
 }
 export const routeTree = rootRouteImport
