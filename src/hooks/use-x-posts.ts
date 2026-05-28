@@ -23,7 +23,7 @@ export function useXPosts(
   const [hasLoaded, setHasLoaded] = useState(false);
   const dataRef = useRef<XPostsResponse | null>(null);
 
-  const { enabled = true, maxResults = 10 } = options;
+  const { enabled = true, maxResults = 5 } = options;
   const twitterUrlsKey = useMemo(
     () =>
       members

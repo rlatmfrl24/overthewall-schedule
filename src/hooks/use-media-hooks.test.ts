@@ -175,7 +175,7 @@ describe("media hooks", () => {
     expect(fetchMembersXPostsMock).not.toHaveBeenCalled();
   });
 
-  it("useXPosts: 기본 조회 개수는 10개로 제한하고 상태 메타를 반환한다", async () => {
+  it("useXPosts: 기본 조회 개수는 5개로 제한하고 상태 메타를 반환한다", async () => {
     fetchMembersXPostsMock.mockResolvedValue({
       posts: [],
       updatedAt: "2026-02-13T00:00:00Z",
@@ -196,7 +196,7 @@ describe("media hooks", () => {
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(fetchMembersXPostsMock).toHaveBeenCalledWith(members, {
       force: false,
-      maxResults: 10,
+      maxResults: 5,
     });
     expect(result.current.updatedAt).toBe("2026-02-13T00:00:00Z");
     expect(result.current.byHandle[0]?.handle).toBe("otw_member");

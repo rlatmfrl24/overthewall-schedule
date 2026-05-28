@@ -22,6 +22,8 @@ import { requireAdminUser } from "../auth";
 import {
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
+  isXCollectionIntervalHours,
+  normalizeXCollectionIntervalHours,
 } from "../../src/lib/auto-update-interval";
 import { roundTimeToNearestScheduleHour } from "../../src/lib/pending-time";
 import {
@@ -34,6 +36,7 @@ import {
   updateSetting,
 } from "../utils/helpers";
 import { autoUpdateSchedules } from "../services/schedule";
+import { runXCollection } from "../services/x-collection";
 import type { DbInstance } from "../db";
 import type { Env } from "../types";
 
@@ -746,6 +749,10 @@ export const handleSettings = async (request: Request, env: Env) => {
     "x_posts_visibility",
     "naver_cafe_posts_enabled",
     "naver_cafe_posts_visibility",
+    "x_collection_enabled",
+    "x_collection_daily_budget_cents",
+    "x_collection_interval_hours",
+    "x_collection_last_run",
   ] as const;
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
@@ -877,10 +884,27 @@ export const handleSettings = async (request: Request, env: Env) => {
     for (const row of data) {
       settingsObj[row.key] = row.value;
     }
-    settingsObj.x_rich_link_preview_enabled ??= "true";
+    settingsObj.x_rich_link_preview_enabled ??= "false";
     settingsObj.x_posts_visibility ??= "members";
     settingsObj.naver_cafe_posts_enabled ??= "true";
     settingsObj.naver_cafe_posts_visibility ??= "members";
+    settingsObj.x_collection_enabled ??= "true";
+    settingsObj.x_collection_daily_budget_cents ??= "100";
+    settingsObj.x_collection_last_run ??= null;
+    const normalizedXCollectionIntervalHours =
+      normalizeXCollectionIntervalHours(settingsObj.x_collection_interval_hours);
+    if (
+      settingsObj.x_collection_interval_hours !==
+      normalizedXCollectionIntervalHours
+    ) {
+      await updateSetting(
+        db,
+        "x_collection_interval_hours",
+        normalizedXCollectionIntervalHours,
+      );
+      settingsObj.x_collection_interval_hours =
+        normalizedXCollectionIntervalHours;
+    }
     const normalizedIntervalHours = normalizeAutoUpdateIntervalHours(
       settingsObj.auto_update_interval_hours,
     );
@@ -938,8 +962,29 @@ export const handleSettings = async (request: Request, env: Env) => {
         ) {
           return badRequest("Invalid naver_cafe_posts_visibility");
         }
+        if (
+          key === "x_collection_enabled" &&
+          body[key] !== "true" &&
+          body[key] !== "false"
+        ) {
+          return badRequest("Invalid x_collection_enabled");
+        }
+        if (key === "x_collection_daily_budget_cents") {
+          const parsed = Number.parseInt(body[key], 10);
+          if (!Number.isFinite(parsed) || parsed < 1 || parsed > 100_000) {
+            return badRequest("Invalid x_collection_daily_budget_cents");
+          }
+        }
+        if (
+          key === "x_collection_interval_hours" &&
+          !isXCollectionIntervalHours(body[key])
+        ) {
+          return badRequest("Invalid x_collection_interval_hours");
+        }
         // last_run은 시스템에서만 업데이트
-        updates.push(updateSetting(db, key, body[key]));
+        if (key !== "x_collection_last_run") {
+          updates.push(updateSetting(db, key, body[key]));
+        }
       }
     }
 
@@ -949,6 +994,32 @@ export const handleSettings = async (request: Request, env: Env) => {
 
     await Promise.all(updates);
     return new Response("Settings updated", { status: 200 });
+  }
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/settings/x-collection/run-now"
+  ) {
+    try {
+      return Response.json(await runXCollection(env, "manual"));
+    } catch (error) {
+      console.error("Manual X collection failed:", error);
+      return Response.json(
+        {
+          success: false,
+          status: "failed",
+          checkedHandles: 0,
+          refreshedHandles: 0,
+          postsReturned: 0,
+          postsStored: 0,
+          apiCalls: 0,
+          estimatedCostMicros: 0,
+          error: error instanceof Error ? error.message : "unknown_error",
+          updatedAt: new Date().toISOString(),
+        },
+        { status: 500 },
+      );
+    }
   }
 
   // POST /api/settings/run-now - 수동 실행

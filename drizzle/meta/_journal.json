@@ -176,6 +176,13 @@
       "when": 1779944968171,
       "tag": "0025_high_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1779950844489,
+      "tag": "0026_first_toro",
+      "breakpoints": true
     }
   ]
 }

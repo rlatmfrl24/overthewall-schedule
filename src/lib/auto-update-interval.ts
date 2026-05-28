@@ -21,3 +21,17 @@ export const normalizeAutoUpdateIntervalHours = (
 export const parseAutoUpdateIntervalHours = (
   value: string | null | undefined,
 ) => Number(normalizeAutoUpdateIntervalHours(value));
+
+export const X_COLLECTION_INTERVAL_HOURS = AUTO_UPDATE_INTERVAL_HOURS;
+
+export type XCollectionIntervalHours = AutoUpdateIntervalHours;
+
+export const DEFAULT_X_COLLECTION_INTERVAL_HOURS =
+  DEFAULT_AUTO_UPDATE_INTERVAL_HOURS;
+
+export const isXCollectionIntervalHours = isAutoUpdateIntervalHours;
+
+export const normalizeXCollectionIntervalHours =
+  normalizeAutoUpdateIntervalHours;
+
+export const parseXCollectionIntervalHours = parseAutoUpdateIntervalHours;

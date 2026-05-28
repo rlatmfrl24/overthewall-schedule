@@ -48,8 +48,8 @@ const isCacheStale = (fetchedAt: number) =>
 const normalizeHandle = (handle: string) => handle.trim().toLowerCase();
 
 const normalizeMaxResults = (value: number | undefined) => {
-  if (!Number.isFinite(value)) return 10;
-  return Math.min(20, Math.max(5, Math.trunc(value ?? 10)));
+  if (!Number.isFinite(value)) return 5;
+  return Math.min(20, Math.max(5, Math.trunc(value ?? 5)));
 };
 
 const makeCacheKey = (handles: string[], maxResults: number) =>

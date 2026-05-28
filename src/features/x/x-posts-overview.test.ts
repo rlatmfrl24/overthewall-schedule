@@ -152,7 +152,7 @@ describe("XPostsOverview", () => {
           url_twitter: "https://x.com/otw_member",
         }),
       ]),
-      { enabled: true, maxResults: 10 },
+      { enabled: true, maxResults: 5 },
     );
   });
 

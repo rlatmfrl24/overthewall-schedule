@@ -10,6 +10,10 @@ export interface AutoUpdateSettings {
   x_posts_visibility: XPostsVisibility | null;
   naver_cafe_posts_enabled: string | null;
   naver_cafe_posts_visibility: NaverCafePostsVisibility | null;
+  x_collection_enabled: string | null;
+  x_collection_daily_budget_cents: string | null;
+  x_collection_interval_hours: string | null;
+  x_collection_last_run: string | null;
 }
 
 export interface AutoUpdateRunDetail {
@@ -27,6 +31,19 @@ export interface AutoUpdateRunResult {
   updated: number;
   checked: number;
   details: AutoUpdateRunDetail[];
+}
+
+export interface XCollectionRunResult {
+  success: boolean;
+  status: "success" | "skipped" | "failed";
+  checkedHandles: number;
+  refreshedHandles: number;
+  postsReturned: number;
+  postsStored: number;
+  apiCalls: number;
+  estimatedCostMicros: number;
+  error: string | null;
+  updatedAt: string;
 }
 
 export interface UpdateLog {
@@ -128,6 +145,9 @@ export async function updateSettings(
       | "x_posts_visibility"
       | "naver_cafe_posts_enabled"
       | "naver_cafe_posts_visibility"
+      | "x_collection_enabled"
+      | "x_collection_daily_budget_cents"
+      | "x_collection_interval_hours"
     >
   >
 ): Promise<void> {
@@ -139,6 +159,12 @@ export async function updateSettings(
 
 export async function runAutoUpdateNow(): Promise<AutoUpdateRunResult> {
   return apiFetch<AutoUpdateRunResult>("/api/settings/run-now", {
+    method: "POST",
+  });
+}
+
+export async function runXCollectionNow(): Promise<XCollectionRunResult> {
+  return apiFetch<XCollectionRunResult>("/api/settings/x-collection/run-now", {
     method: "POST",
   });
 }

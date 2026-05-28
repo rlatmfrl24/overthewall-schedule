@@ -3,7 +3,10 @@ import {
   DEFAULT_AUTO_UPDATE_INTERVAL_HOURS,
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
+  normalizeXCollectionIntervalHours,
   parseAutoUpdateIntervalHours,
+  parseXCollectionIntervalHours,
+  isXCollectionIntervalHours,
 } from "./auto-update-interval";
 
 describe("auto update interval helpers", () => {
@@ -29,5 +32,17 @@ describe("auto update interval helpers", () => {
     expect(parseAutoUpdateIntervalHours("2")).toBe(
       Number(DEFAULT_AUTO_UPDATE_INTERVAL_HOURS),
     );
+  });
+
+  it("X 게시글 수집 주기도 같은 허용 주기와 기본값을 사용한다", () => {
+    expect(isXCollectionIntervalHours("1")).toBe(true);
+    expect(isXCollectionIntervalHours("6")).toBe(true);
+    expect(isXCollectionIntervalHours("12")).toBe(true);
+    expect(isXCollectionIntervalHours("24")).toBe(true);
+    expect(isXCollectionIntervalHours("3")).toBe(false);
+    expect(normalizeXCollectionIntervalHours("3")).toBe(
+      DEFAULT_AUTO_UPDATE_INTERVAL_HOURS,
+    );
+    expect(parseXCollectionIntervalHours("12")).toBe(12);
   });
 });

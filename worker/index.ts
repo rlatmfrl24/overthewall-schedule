@@ -17,7 +17,21 @@ import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
 import { handleNaverCafe } from "./routes/naver-cafe";
 import { updateSetting } from "./utils/helpers";
+import { runScheduledXCollection } from "./services/x-collection";
 import type { Env } from "./types";
+
+const collectScheduledXPosts = async (env: Env) => {
+  const outcome = await runScheduledXCollection(env);
+  if (outcome.skipped) {
+    console.log(
+      `[scheduled] X collection skipped - last run was ${Math.round(
+        outcome.elapsedMs / 60000,
+      )}min ago, interval is ${outcome.intervalHours}h`,
+    );
+    return;
+  }
+  console.log("[scheduled] X collection completed", outcome.result);
+};
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -83,6 +97,12 @@ export default {
   // Cron Trigger로 실행되는 스케줄 자동 업데이트
   async scheduled(_controller: ScheduledController, env: Env) {
     const db = getDb(env);
+
+    try {
+      await collectScheduledXPosts(env);
+    } catch (error) {
+      console.error("[scheduled] X collection failed", error);
+    }
 
     // 1-3. 설정 일괄 조회
     const allSettings = await db
