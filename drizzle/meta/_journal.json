@@ -169,6 +169,13 @@
       "when": 1779933132968,
       "tag": "0024_unique_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1779944968171,
+      "tag": "0025_high_centennial",
+      "breakpoints": true
     }
   ]
 }

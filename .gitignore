@@ -31,5 +31,8 @@ coverage
 .env*
 !.env.example
 
+# generated router temporary files
+.tanstack/tmp/
+
 # YoYo AI version control directory
 .yoyo/

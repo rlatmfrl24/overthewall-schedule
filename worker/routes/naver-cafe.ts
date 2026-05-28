@@ -1,5 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 import { naverCafeSources } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import {
   buildNaverCafeBoardUrl,
   extractNaverCafeBoardIds,
@@ -128,6 +129,9 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
   }
 
   if (url.pathname === "/api/naver-cafe/sources") {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+
     if (request.method === "GET") {
       const sources = await db
         .select()

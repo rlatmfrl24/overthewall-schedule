@@ -20,6 +20,25 @@ type FakeCacheRecord = {
   expires_at?: number;
 };
 
+type FakeStoredPostRecord = {
+  id: string;
+  handle: string;
+  user_id: string | null;
+  username: string;
+  value: string;
+  created_at: string;
+  fetched_at: number;
+};
+
+type FakePostSourceRecord = {
+  handle: string;
+  user_id: string | null;
+  username: string | null;
+  last_seen_post_id: string | null;
+  last_checked_at: number;
+  updated_at: number;
+};
+
 const makePost = (id: string, username: string): XPostItem => ({
   id,
   text: `post ${id}`,
@@ -44,25 +63,93 @@ const makeMemberRequest = (url: string) =>
 
 const makeCacheDb = (initial: Record<string, FakeCacheRecord> = {}) => {
   const store = new Map(Object.entries(initial));
+  const posts = new Map<string, FakeStoredPostRecord>();
+  const sources = new Map<string, FakePostSourceRecord>();
   const db = {
     prepare(sql: string) {
       return {
         bind(...args: unknown[]) {
           return {
             async first<T>() {
-              if (sql.startsWith("SELECT")) {
+              if (sql.includes("FROM x_post_sources")) {
+                return (sources.get(String(args[0])) ?? null) as T | null;
+              }
+              if (
+                sql.includes("FROM x_api_cache") ||
+                sql.includes("FROM settings")
+              ) {
                 return (store.get(String(args[0])) ?? null) as T | null;
               }
               return null as T | null;
             },
+            async all<T>() {
+              if (sql.includes("FROM x_posts")) {
+                const handle = String(args[0]);
+                const limit = Number(args[1]);
+                const results = Array.from(posts.values())
+                  .filter((post) => post.handle === handle)
+                  .sort((a, b) => {
+                    const dateDiff =
+                      new Date(b.created_at).getTime() -
+                      new Date(a.created_at).getTime();
+                    return dateDiff || b.id.localeCompare(a.id);
+                  })
+                  .slice(0, limit) as T[];
+                return { results };
+              }
+              return { results: [] as T[] };
+            },
             async run() {
-              if (sql.startsWith("INSERT")) {
+              if (sql.includes("INSERT INTO x_api_cache")) {
                 const [key, type, value, fetchedAt, expiresAt] = args;
                 store.set(String(key), {
                   type: String(type),
                   value: String(value),
                   fetched_at: Number(fetchedAt),
                   expires_at: Number(expiresAt),
+                });
+              }
+              if (sql.includes("INSERT INTO x_posts")) {
+                const [
+                  id,
+                  handle,
+                  userId,
+                  username,
+                  value,
+                  createdAt,
+                  fetchedAt,
+                ] = args;
+                posts.set(String(id), {
+                  id: String(id),
+                  handle: String(handle),
+                  user_id: userId === null ? null : String(userId),
+                  username: String(username),
+                  value: String(value),
+                  created_at: String(createdAt),
+                  fetched_at: Number(fetchedAt),
+                });
+              }
+              if (sql.includes("INSERT INTO x_post_sources")) {
+                const [
+                  handle,
+                  userId,
+                  username,
+                  lastSeenPostId,
+                  lastCheckedAt,
+                  updatedAt,
+                ] = args;
+                const key = String(handle);
+                const current = sources.get(key);
+                sources.set(key, {
+                  handle: key,
+                  user_id: userId === null ? null : String(userId),
+                  username: username === null ? null : String(username),
+                  last_seen_post_id:
+                    lastSeenPostId === null
+                      ? current?.last_seen_post_id ?? null
+                      : String(lastSeenPostId),
+                  last_checked_at: Number(lastCheckedAt),
+                  updated_at: Number(updatedAt),
                 });
               }
               return {};
@@ -73,7 +160,7 @@ const makeCacheDb = (initial: Record<string, FakeCacheRecord> = {}) => {
     },
   } as unknown as Pick<D1Database, "prepare">;
 
-  return { db, store };
+  return { db, store, posts, sources };
 };
 
 describe("x worker service", () => {
@@ -204,6 +291,116 @@ describe("x worker service", () => {
     });
     expect(store.has("x:user:v1:otw_member")).toBe(true);
     expect(store.has("x:posts:v3:otw_member:5:rich")).toBe(true);
+  });
+
+  it("저장된 게시글이 stale이면 since_id로 새 글만 증분 조회한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p1",
+              text: "first post",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+
+    const { db, posts, sources } = makeCacheDb();
+    await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(posts.has("p1")).toBe(true);
+    expect(sources.get("otw_member")?.last_seen_post_id).toBe("p1");
+
+    clearXServiceCachesForTests();
+    vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: "p2",
+            text: "second post",
+            created_at: "2026-02-13T01:00:00Z",
+            public_metrics: {},
+          },
+        ],
+      }),
+    );
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("since_id=p1");
+    expect(result.posts.map((post) => post.id)).toEqual(["p2", "p1"]);
+    expect(sources.get("otw_member")?.last_seen_post_id).toBe("p2");
+  });
+
+  it("since_id 조회 결과가 비어 있으면 저장된 게시글을 유지하고 확인 시각만 갱신한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p1",
+              text: "first post",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+
+    const { db, sources } = makeCacheDb();
+    await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    clearXServiceCachesForTests();
+    vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("since_id=p1");
+    expect(result.posts.map((post) => post.id)).toEqual(["p1"]);
+    expect(sources.get("otw_member")).toMatchObject({
+      last_seen_post_id: "p1",
+      last_checked_at: Date.parse("2026-02-13T01:01:00Z"),
+    });
   });
 
   it("게시글 링크 메타데이터가 부족하면 HTML 프리뷰를 보강한다", async () => {

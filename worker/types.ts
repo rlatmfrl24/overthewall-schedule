@@ -7,6 +7,10 @@ import {
 export interface Env {
   YOUTUBE_API_KEY: string;
   X_BEARER_TOKEN?: string;
+  CLERK_JWKS_URL?: string;
+  CLERK_ISSUER?: string;
+  CLERK_JWT_AUDIENCE?: string;
+  CLERK_ADMIN_IDS?: string;
   otw_db: D1Database;
   ASSETS?: {
     fetch: (request: Request) => Response | Promise<Response>;

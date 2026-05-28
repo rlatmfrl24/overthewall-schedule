@@ -38,6 +38,9 @@
   // 실제 배포 시:
   //   wrangler secret put YOUTUBE_API_KEY
   //   wrangler secret put X_BEARER_TOKEN
+  //   wrangler secret put CLERK_ISSUER
+  //   wrangler secret put CLERK_ADMIN_IDS
+  //   wrangler secret put CLERK_JWKS_URL  // 선택: CLERK_ISSUER에서 자동 추론 가능
   /**
    * Smart Placement - 치지직 API가 한국 IP만 허용하므로 한국 데이터센터에서 실행
    * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

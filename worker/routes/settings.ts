@@ -18,6 +18,7 @@ import {
   settings,
   updateLogs,
 } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import {
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
@@ -730,7 +731,10 @@ const approvePendingWithOptions = async (
 export const handleSettings = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const db = getDb(env);
-  const actor = getActorInfo(request);
+  const admin = await requireAdminUser(request, env);
+  if (!admin.ok) return admin.response;
+
+  const actor = getActorInfo(request, admin.user);
 
   // 관리자 설정 화면에서 노출하는 설정 키만 허용
   const ALLOWED_SETTINGS = [

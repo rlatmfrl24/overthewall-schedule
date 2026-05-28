@@ -21,6 +21,9 @@ describe("apiFetch", () => {
           id: "user_1",
           fullName: "Admin User",
         },
+        session: {
+          getToken: vi.fn().mockResolvedValue("session-token"),
+        },
       },
     };
 
@@ -43,6 +46,7 @@ describe("apiFetch", () => {
         method: "POST",
         body: JSON.stringify({ a: 1 }),
         headers: expect.objectContaining({
+          Authorization: "Bearer session-token",
           "Content-Type": "application/json",
           "x-otw-user-id": "user_1",
           "x-otw-user-name": "Admin User",
