@@ -14,6 +14,7 @@ import { handleNotices } from "./routes/notices";
 import { handleDDays } from "./routes/ddays";
 import { handleKirinuki } from "./routes/kirinuki";
 import { handleSettings } from "./routes/settings";
+import { handleXPosts } from "./routes/x";
 import { updateSetting } from "./utils/helpers";
 import type { Env } from "./types";
 
@@ -53,6 +54,10 @@ export default {
       return handleKirinuki(request, env);
     }
 
+    if (url.pathname.startsWith("/api/x/posts")) {
+      return handleXPosts(request, env);
+    }
+
     if (url.pathname.startsWith("/api/settings")) {
       return handleSettings(request, env);
     }
@@ -61,6 +66,10 @@ export default {
       return Response.json({
         name: "Cloudflare",
       });
+    }
+
+    if (env.ASSETS) {
+      return env.ASSETS.fetch(request);
     }
 
     return new Response(null, { status: 404 });

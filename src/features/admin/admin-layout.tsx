@@ -9,6 +9,7 @@ import {
   History,
   LogOut,
   Menu,
+  MessageSquareText,
   Scissors,
   type LucideIcon,
 } from "lucide-react";
@@ -41,6 +42,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     label: "키리누키 채널",
     icon: Scissors,
     href: "/admin/kirinuki",
+  },
+  {
+    label: "멤버 게시글 관리",
+    icon: MessageSquareText,
+    href: "/admin/member-posts",
   },
   {
     label: "자동 업데이트 설정",

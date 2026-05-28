@@ -100,6 +100,79 @@ export interface YouTubeVideosResponse {
   updatedAt: string;
 }
 
+export interface XPostMedia {
+  mediaKey: string;
+  type: string;
+  url: string | null;
+  previewImageUrl: string | null;
+  width: number | null;
+  height: number | null;
+  altText: string | null;
+}
+
+export interface XLinkedPostPreview {
+  id: string;
+  text: string;
+  createdAt: string | null;
+  url: string;
+  username: string;
+  name: string | null;
+  profileImageUrl: string | null;
+  metrics: {
+    likeCount: number;
+    replyCount: number;
+    repostCount: number;
+    quoteCount: number;
+  };
+  media: XPostMedia[];
+}
+
+export interface XPostLink {
+  url: string;
+  expandedUrl: string | null;
+  displayUrl: string | null;
+  resolvedUrl?: string | null;
+  domain?: string | null;
+  title?: string | null;
+  description?: string | null;
+  imageUrl?: string | null;
+  siteName?: string | null;
+  previewStatus?: "ready" | "unavailable" | "skipped";
+  linkedPost?: XLinkedPostPreview | null;
+}
+
+export interface XPost {
+  id: string;
+  text: string;
+  createdAt: string;
+  url: string;
+  username: string;
+  metrics: {
+    likeCount: number;
+    replyCount: number;
+    repostCount: number;
+    quoteCount: number;
+  };
+  media: XPostMedia[];
+  links?: XPostLink[];
+  memberUid?: number;
+}
+
+export interface XPostsResponse {
+  posts: XPost[];
+  updatedAt: string;
+  clientStale?: boolean;
+  byHandle: Array<{
+    handle: string;
+    userId: string | null;
+    posts: XPost[];
+    error: string | null;
+    errorStatus?: number | null;
+    errorDetail?: string | null;
+    stale: boolean;
+  }>;
+}
+
 // Chzzk Clip Types
 export interface ChzzkClip {
   clipUID: string;
