@@ -15,6 +15,7 @@ import { handleDDays } from "./routes/ddays";
 import { handleKirinuki } from "./routes/kirinuki";
 import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
+import { handleNaverCafe } from "./routes/naver-cafe";
 import { updateSetting } from "./utils/helpers";
 import type { Env } from "./types";
 
@@ -54,8 +55,12 @@ export default {
       return handleKirinuki(request, env);
     }
 
-    if (url.pathname.startsWith("/api/x/posts")) {
+    if (url.pathname.startsWith("/api/x/")) {
       return handleXPosts(request, env);
+    }
+
+    if (url.pathname.startsWith("/api/naver-cafe")) {
+      return handleNaverCafe(request, env);
     }
 
     if (url.pathname.startsWith("/api/settings")) {

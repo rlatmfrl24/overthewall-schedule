@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo, useState } from "react";
 import type { Member, XPost, XPostLink } from "@/lib/types";
+import IconX from "@/assets/icon_x.svg";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -405,9 +406,19 @@ export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
                 {member?.name ?? post.username}
               </h2>
             </div>
-            <p className="truncate text-xs text-muted-foreground">
-              @{post.username} · {compactTime ?? formatRelativeDate(post.createdAt)}
-            </p>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                aria-label="X 게시글"
+                title="X 게시글"
+                className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center opacity-70"
+              >
+                <img src={IconX} alt="" className="h-3.5 w-3.5" />
+              </span>
+              <span className="truncate">
+                @{post.username} ·{" "}
+                {compactTime ?? formatRelativeDate(post.createdAt)}
+              </span>
+            </div>
           </div>
         </div>
 

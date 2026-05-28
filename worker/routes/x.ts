@@ -5,8 +5,11 @@ import type { Env } from "../types";
 const X_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600";
 const X_RICH_LINK_PREVIEW_SETTING_KEY = "x_rich_link_preview_enabled";
+const X_POSTS_VISIBILITY_SETTING_KEY = "x_posts_visibility";
 const HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
 const MEMBER_USER_ID_PATTERN = /^[A-Za-z0-9_-]{3,128}$/;
+
+type XPostsVisibility = "public" | "members" | "private";
 
 const parseHandles = (value: string | null) => {
   if (!value) return null;
@@ -46,13 +49,33 @@ const hasMemberAccess = (request: Request) => {
   return Boolean(userId && MEMBER_USER_ID_PATTERN.test(userId));
 };
 
+const readSetting = async (db: D1Database, key: string) => {
+  const row = await db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(key)
+    .first<{ value: string | null }>();
+  return row?.value ?? null;
+};
+
+const normalizeXPostsVisibility = (
+  value: string | null | undefined,
+): XPostsVisibility =>
+  value === "public" || value === "private" ? value : "members";
+
+const getXPostsVisibility = async (db: D1Database) => {
+  try {
+    return normalizeXPostsVisibility(
+      await readSetting(db, X_POSTS_VISIBILITY_SETTING_KEY),
+    );
+  } catch (error) {
+    console.warn("Failed to read X posts visibility setting", error);
+    return "members";
+  }
+};
+
 const getRichXLinkPreviewEnabled = async (db: D1Database) => {
   try {
-    const row = await db
-      .prepare("SELECT value FROM settings WHERE key = ?")
-      .bind(X_RICH_LINK_PREVIEW_SETTING_KEY)
-      .first<{ value: string | null }>();
-    return row?.value !== "false";
+    return (await readSetting(db, X_RICH_LINK_PREVIEW_SETTING_KEY)) !== "false";
   } catch (error) {
     console.warn("Failed to read X rich link preview setting", error);
     return true;
@@ -63,6 +86,21 @@ export const handleXPosts = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const debug = url.searchParams.get("debug") === "1";
 
+  if (url.pathname === "/api/x/config") {
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
+    return json(
+      {
+        visibility: await getXPostsVisibility(env.otw_db),
+      },
+      200,
+      {
+        headers: { "Cache-Control": "public, max-age=60" },
+      },
+    );
+  }
+
   if (!url.pathname.startsWith("/api/x/posts")) {
     return new Response(null, { status: 404 });
   }
@@ -71,7 +109,12 @@ export const handleXPosts = async (request: Request, env: Env) => {
     return methodNotAllowed();
   }
 
-  if (!hasMemberAccess(request)) {
+  const visibility = await getXPostsVisibility(env.otw_db);
+  if (visibility === "private") {
+    return new Response("Member posts are private", { status: 403 });
+  }
+
+  if (visibility === "members" && !hasMemberAccess(request)) {
     return new Response("Login required", { status: 401 });
   }
 

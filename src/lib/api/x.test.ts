@@ -107,6 +107,21 @@ describe("x api", () => {
     );
   });
 
+  it("멤버 게시글 공개 설정을 조회하고 캐시한다", async () => {
+    const { fetchXPostsConfig } = await import("./x");
+    apiFetchMock.mockResolvedValueOnce({ visibility: "public" });
+
+    const first = await fetchXPostsConfig();
+    const second = await fetchXPostsConfig();
+
+    expect(first.visibility).toBe("public");
+    expect(second.visibility).toBe("public");
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/x/config", {
+      cache: "default",
+    });
+  });
+
   it("게시글에 memberUid를 매핑하고 fresh cache를 재사용한다", async () => {
     const { fetchMembersXPosts } = await import("./x");
     const post = makePost("p1", "Valid_User");

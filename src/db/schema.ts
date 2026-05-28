@@ -127,6 +127,35 @@ export const xApiCache = sqliteTable(
 export type XApiCache = typeof xApiCache.$inferSelect;
 export type NewXApiCache = typeof xApiCache.$inferInsert;
 
+// 네이버 카페 게시판 소스 테이블
+export const naverCafeSources = sqliteTable(
+  "naver_cafe_sources",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    name: text().notNull(),
+    cafe_id: text("cafe_id").notNull(),
+    menu_id: text("menu_id").notNull(),
+    cafe_url: text("cafe_url").notNull(),
+    member_uid: integer("member_uid"),
+    enabled: integer("enabled", { mode: "boolean" }).default(true),
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+    updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_naver_cafe_sources_enabled").on(table.enabled),
+    index("idx_naver_cafe_sources_member_uid").on(table.member_uid),
+    index("idx_naver_cafe_sources_sort_order").on(table.sort_order),
+    uniqueIndex("uidx_naver_cafe_sources_cafe_menu").on(
+      table.cafe_id,
+      table.menu_id,
+    ),
+  ],
+);
+
+export type NaverCafeSource = typeof naverCafeSources.$inferSelect;
+export type NewNaverCafeSource = typeof naverCafeSources.$inferInsert;
+
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(
   "update_logs",

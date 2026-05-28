@@ -1,51 +1,22 @@
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useScheduleData } from "@/hooks/use-schedule-data";
-import { useFilteredXPosts, useXPosts } from "@/hooks/use-x-posts";
-import { getMembersWithXHandles } from "@/lib/api/x";
-import { cn } from "@/lib/utils";
-import { XPostCard } from "./x-post-card";
-import type { Member, XPost } from "@/lib/types";
 import {
   AlertCircle,
   CheckCircle2,
   Clock3,
+  Coffee,
   RefreshCw,
-  Twitter,
 } from "lucide-react";
-import IconX from "@/assets/icon_x.svg";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useNaverCafePosts, useFilteredNaverCafePosts } from "@/hooks/use-naver-cafe-posts";
+import { useScheduleData } from "@/hooks/use-schedule-data";
+import { cn } from "@/lib/utils";
+import type { Member, NaverCafePost } from "@/lib/types";
+import { NaverCafePostCard } from "./naver-cafe-post-card";
 
-type MemberXHandle = {
+type MemberCafeSource = {
   member: Member;
-  handle: string;
-};
-
-const XPostsSkeleton = () => {
-  return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={index}
-          className="flex flex-col gap-4 rounded-lg border border-border/70 bg-card p-5"
-        >
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-12 w-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-36" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-          <Skeleton className="aspect-video w-full rounded-lg" />
-        </div>
-      ))}
-    </div>
-  );
+  sourceCount: number;
 };
 
 const formatUpdatedAt = (value: string | null) => {
@@ -85,7 +56,6 @@ const formatGroupDate = (value: string) => {
   const diffDays = Math.floor(
     (startOfToday.getTime() - startOfDate.getTime()) / 86_400_000,
   );
-  const key = startOfDate.toISOString();
   const label =
     diffDays === 0 ? "오늘" : diffDays === 1 ? "어제" : `${diffDays}일 전`;
   const subLabel = date.toLocaleDateString("ko-KR", {
@@ -94,7 +64,7 @@ const formatGroupDate = (value: string) => {
     weekday: "short",
   });
 
-  return { key, label, subLabel };
+  return { key: startOfDate.toISOString(), label, subLabel };
 };
 
 const formatPostTime = (value: string) => {
@@ -106,10 +76,10 @@ const formatPostTime = (value: string) => {
   });
 };
 
-const groupPostsByDate = (posts: XPost[]) => {
+const groupPostsByDate = (posts: NaverCafePost[]) => {
   const groups = new Map<
     string,
-    { label: string; subLabel: string; posts: XPost[] }
+    { label: string; subLabel: string; posts: NaverCafePost[] }
   >();
 
   for (const post of posts) {
@@ -129,19 +99,42 @@ const groupPostsByDate = (posts: XPost[]) => {
   return Array.from(groups.values());
 };
 
-const XMemberFilterBar = ({
+const NaverCafePostsSkeleton = () => (
+  <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div
+        key={index}
+        className="flex flex-col gap-4 rounded-lg border border-border/70 bg-card p-5"
+      >
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-12 w-12 rounded-full" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-36" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-5/6" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+        <Skeleton className="aspect-video w-full rounded-lg" />
+      </div>
+    ))}
+  </div>
+);
+
+const NaverCafeMemberFilterBar = ({
   items,
   selectedUids,
   onChange,
 }: {
-  items: MemberXHandle[];
+  items: MemberCafeSource[];
   selectedUids: number[] | null;
   onChange: (value: number[] | null) => void;
 }) => {
   const selectedList = selectedUids ?? [];
   const isAllSelected = selectedList.length === 0;
-
-  const selectMember = (memberUid: number) => onChange([memberUid]);
 
   return (
     <div className="flex gap-2 overflow-x-auto px-px py-1">
@@ -157,16 +150,16 @@ const XMemberFilterBar = ({
       >
         전체
       </button>
-      {items.map(({ member, handle }) => {
+      {items.map(({ member }) => {
         const selected = selectedList.includes(member.uid);
-        const accentColor = member.main_color || "#111111";
+        const accentColor = member.main_color || "#03c75a";
 
         return (
           <button
-            key={`${member.uid}-${handle}`}
+            key={member.uid}
             type="button"
             aria-label={member.name}
-            onClick={() => selectMember(member.uid)}
+            onClick={() => onChange([member.uid])}
             style={
               selected
                 ? {
@@ -203,60 +196,58 @@ const XMemberFilterBar = ({
 };
 
 const FeedStatusRail = ({
-  membersWithXHandles,
   updatedAt,
   visiblePostCount,
+  sourceCount,
   stale,
 }: {
-  membersWithXHandles: MemberXHandle[];
   updatedAt: string | null;
   visiblePostCount: number;
+  sourceCount: number;
   stale: boolean;
-}) => {
-  return (
-    <aside className="order-first space-y-4 lg:order-none lg:sticky lg:top-24">
-      <section className="rounded-lg border border-border/70 bg-card p-4 shadow-sm">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-foreground">피드 상태</h2>
-          {stale ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
-              <Clock3 className="h-3 w-3" />
-              캐시
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2 className="h-3 w-3" />
-              정상
-            </span>
-          )}
+}) => (
+  <aside className="order-first min-w-0 max-w-full space-y-4 lg:order-none lg:sticky lg:top-24">
+    <section className="min-w-0 rounded-lg border border-border/70 bg-card p-4 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">피드 상태</h2>
+        {stale ? (
+          <span className="hidden items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
+            <Clock3 className="h-3 w-3" />
+            캐시
+          </span>
+        ) : (
+          <span className="hidden items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline-flex dark:text-emerald-300">
+            <CheckCircle2 className="h-3 w-3" />
+            정상
+          </span>
+        )}
+      </div>
+
+      <dl className="grid grid-cols-1 gap-3 text-center sm:grid-cols-3 lg:grid-cols-1 lg:text-left">
+        <div className="rounded-md bg-muted/40 p-3">
+          <dt className="text-xs text-muted-foreground">마지막 업데이트</dt>
+          <dd className="mt-1 text-sm font-semibold text-foreground">
+            {formatUpdatedAt(updatedAt)}
+          </dd>
         </div>
+        <div className="rounded-md bg-muted/40 p-3">
+          <dt className="text-xs text-muted-foreground">표시 중 게시글</dt>
+          <dd className="mt-1 text-sm font-semibold text-foreground">
+            {visiblePostCount}건
+          </dd>
+        </div>
+        <div className="rounded-md bg-muted/40 p-3">
+          <dt className="text-xs text-muted-foreground">등록된 게시판</dt>
+          <dd className="mt-1 text-sm font-semibold text-foreground">
+            {sourceCount}개
+          </dd>
+        </div>
+      </dl>
+    </section>
+  </aside>
+);
 
-        <dl className="grid grid-cols-3 gap-3 text-center lg:grid-cols-1 lg:text-left">
-          <div className="rounded-md bg-muted/40 p-3">
-            <dt className="text-xs text-muted-foreground">마지막 업데이트</dt>
-            <dd className="mt-1 text-sm font-semibold text-foreground">
-              {formatUpdatedAt(updatedAt)}
-            </dd>
-          </div>
-          <div className="rounded-md bg-muted/40 p-3">
-            <dt className="text-xs text-muted-foreground">표시 중 게시글</dt>
-            <dd className="mt-1 text-sm font-semibold text-foreground">
-              {visiblePostCount}건
-            </dd>
-          </div>
-          <div className="rounded-md bg-muted/40 p-3">
-            <dt className="text-xs text-muted-foreground">등록된 계정</dt>
-            <dd className="mt-1 text-sm font-semibold text-foreground">
-              {membersWithXHandles.length}개
-            </dd>
-          </div>
-        </dl>
-      </section>
-    </aside>
-  );
-};
-
-export const XPostsOverview = () => {
+export const NaverCafePostsOverview = () => {
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
     null,
   );
@@ -265,33 +256,36 @@ export const XPostsOverview = () => {
     loading: membersLoading,
     hasLoaded: membersLoaded,
   } = useScheduleData();
-
-  const membersWithXHandles = useMemo(
-    () => getMembersWithXHandles(members),
-    [members],
-  );
-  const membersWithX = useMemo(
-    () => membersWithXHandles.map(({ member }) => member),
-    [membersWithXHandles],
-  );
-  const memberMap = useMemo(
-    () => new Map(members.map((member) => [member.uid, member])),
-    [members],
-  );
-
   const {
     posts,
+    sources,
     updatedAt,
     loading: postsLoading,
     error,
     stale,
     hasLoaded: postsLoaded,
     reload,
-  } = useXPosts(membersWithX, {
-    enabled: true,
-    maxResults: 10,
-  });
-  const filteredPosts = useFilteredXPosts(posts, selectedMemberUids);
+  } = useNaverCafePosts({ enabled: true, size: 10 });
+
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
+  const memberSources = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const source of sources) {
+      if (!source.memberUid || !source.enabled) continue;
+      counts.set(source.memberUid, (counts.get(source.memberUid) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([memberUid, sourceCount]) => {
+        const member = memberMap.get(memberUid);
+        return member ? { member, sourceCount } : null;
+      })
+      .filter((item): item is MemberCafeSource => item !== null);
+  }, [memberMap, sources]);
+
+  const filteredPosts = useFilteredNaverCafePosts(posts, selectedMemberUids);
   const timelinePosts = useMemo(
     () =>
       [...filteredPosts].sort(
@@ -304,25 +298,24 @@ export const XPostsOverview = () => {
     () => groupPostsByDate(timelinePosts),
     [timelinePosts],
   );
-
+  const enabledSourceCount = sources.filter((source) => source.enabled).length;
   const showInitialLoading =
     membersLoading ||
     !membersLoaded ||
-    ((!postsLoaded && membersWithX.length > 0) ||
-      (postsLoading && posts.length === 0));
-  const hasMembersWithX = membersWithX.length > 0;
+    (!postsLoaded && posts.length === 0) ||
+    (postsLoading && posts.length === 0);
 
   return (
-    <div className="flex w-full flex-1 flex-col overflow-y-auto">
-      <div className="container mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 pb-8 pt-5">
+    <div className="flex w-full flex-1 flex-col overflow-y-auto overflow-x-hidden">
+      <div className="container mx-auto flex min-w-0 w-full max-w-7xl flex-col gap-4 px-4 pb-8 pt-5">
         <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-              <img src={IconX} alt="X" className="h-4.5 w-4.5" />
+              <Coffee className="h-4.5 w-4.5 text-emerald-600" />
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
-                멤버 최신 게시글
+                카페 최신글
               </h1>
             </div>
           </div>
@@ -339,7 +332,7 @@ export const XPostsOverview = () => {
               size="sm"
               className="w-fit gap-2 rounded-full"
               onClick={() => void reload()}
-              disabled={postsLoading || !hasMembersWithX}
+              disabled={postsLoading || enabledSourceCount === 0}
             >
               <RefreshCw
                 className={cn("h-4 w-4", postsLoading && "animate-spin")}
@@ -349,37 +342,37 @@ export const XPostsOverview = () => {
           </div>
         </div>
 
-        {hasMembersWithX ? (
-          <XMemberFilterBar
-            items={membersWithXHandles}
+        {memberSources.length > 0 ? (
+          <NaverCafeMemberFilterBar
+            items={memberSources}
             selectedUids={selectedMemberUids}
             onChange={setSelectedMemberUids}
           />
         ) : null}
 
         {showInitialLoading ? (
-          <XPostsSkeleton />
-        ) : !hasMembersWithX ? (
+          <NaverCafePostsSkeleton />
+        ) : enabledSourceCount === 0 ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
-            <Twitter className="h-10 w-10 text-muted-foreground/70" />
+            <Coffee className="h-10 w-10 text-muted-foreground/70" />
             <p className="text-sm text-muted-foreground">
-              X 계정이 등록된 멤버가 없습니다.
+              등록된 네이버 카페 게시판이 없습니다.
             </p>
           </div>
         ) : timelinePosts.length === 0 ? (
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
+          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
             <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
               {error ? (
                 <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
               ) : (
-                <Twitter className="h-10 w-10 text-muted-foreground/70" />
+                <Coffee className="h-10 w-10 text-muted-foreground/70" />
               )}
               <p className="text-sm text-muted-foreground">
                 {error
-                  ? "게시글을 불러오지 못했습니다."
+                  ? "카페 최신글을 불러오지 못했습니다."
                   : selectedMemberUids && selectedMemberUids.length > 0
-                    ? "선택한 멤버의 X 게시글이 없습니다."
-                    : "표시할 X 게시글이 없습니다."}
+                    ? "선택한 멤버의 카페 최신글이 없습니다."
+                    : "표시할 카페 최신글이 없습니다."}
               </p>
               {error ? (
                 <Button
@@ -406,15 +399,15 @@ export const XPostsOverview = () => {
               ) : null}
             </div>
             <FeedStatusRail
-              membersWithXHandles={membersWithXHandles}
               updatedAt={updatedAt}
               visiblePostCount={timelinePosts.length}
+              sourceCount={enabledSourceCount}
               stale={stale}
             />
           </div>
         ) : (
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
-            <div className="space-y-8">
+          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
+            <div className="min-w-0 space-y-8">
               {error ? (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
                   {error}
@@ -424,7 +417,7 @@ export const XPostsOverview = () => {
               {timelineGroups.map((group) => (
                 <section
                   key={`${group.label}-${group.subLabel}`}
-                  className="grid gap-4 sm:grid-cols-[92px_minmax(0,1fr)]"
+                  className="grid min-w-0 gap-4 sm:grid-cols-[92px_minmax(0,1fr)]"
                 >
                   <div className="relative hidden pt-5 text-sm text-muted-foreground sm:block">
                     <div className="sticky top-24">
@@ -437,7 +430,7 @@ export const XPostsOverview = () => {
                     <span className="absolute bottom-0 right-[12px] top-9 w-px bg-border" />
                   </div>
 
-                  <div className="space-y-4">
+                  <div className="min-w-0 space-y-4">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground sm:hidden">
                       <span className="font-semibold text-foreground">
                         {group.label}
@@ -445,7 +438,7 @@ export const XPostsOverview = () => {
                       <span>{group.subLabel}</span>
                     </div>
                     {group.posts.map((post) => (
-                      <XPostCard
+                      <NaverCafePostCard
                         key={post.id}
                         post={post}
                         compactTime={formatPostTime(post.createdAt)}
@@ -462,9 +455,9 @@ export const XPostsOverview = () => {
             </div>
 
             <FeedStatusRail
-              membersWithXHandles={membersWithXHandles}
               updatedAt={updatedAt}
               visiblePostCount={timelinePosts.length}
+              sourceCount={enabledSourceCount}
               stale={stale}
             />
           </div>

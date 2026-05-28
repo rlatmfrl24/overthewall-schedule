@@ -264,6 +264,7 @@ describe("api wrapper modules", () => {
     await updateSettings({
       auto_update_enabled: "1",
       x_rich_link_preview_enabled: "false",
+      x_posts_visibility: "public",
     });
     await runAutoUpdateNow();
     await fetchUpdateLogs();
@@ -302,6 +303,7 @@ describe("api wrapper modules", () => {
       json: {
         auto_update_enabled: "1",
         x_rich_link_preview_enabled: "false",
+        x_posts_visibility: "public",
       },
     });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {

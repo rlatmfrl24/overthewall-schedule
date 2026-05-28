@@ -1,248 +1,265 @@
 import { useMemo } from "react";
-import type { Member, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type { Member, ScheduleItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { GripHorizontal, Radio, Calendar, Flame } from "lucide-react";
+import { Ban, Calendar, Flame, HelpCircle, Moon, Radio, Zap } from "lucide-react";
 import { useAutoFitText } from "./use-auto-fit-text";
+import {
+  buildScheduleBoardModel,
+  formatScheduleTime,
+  getScheduleDisplayTitle,
+  hasScheduleBoardItems,
+  type ScheduleBoardEntry,
+  type ScheduleSideGroupKey,
+} from "../chronological-schedule-utils";
 
 interface SnapshotTimelineProps {
   members: Member[];
   schedules: ScheduleItem[];
 }
 
+const sideGroupMeta: Record<
+  ScheduleSideGroupKey,
+  {
+    title: string;
+    icon: typeof Zap;
+    className: string;
+  }
+> = {
+  guerrilla: {
+    title: "게릴라 예정",
+    icon: Zap,
+    className: "text-amber-700 bg-amber-50 border-amber-200",
+  },
+  undecided: {
+    title: "미정",
+    icon: HelpCircle,
+    className: "text-slate-700 bg-slate-50 border-slate-200",
+  },
+  off: {
+    title: "휴방",
+    icon: Moon,
+    className: "text-zinc-700 bg-zinc-50 border-zinc-200",
+  },
+};
+
 export const SnapshotTimeline = ({
   members,
   schedules,
 }: SnapshotTimelineProps) => {
-  const { timelineItems, otherItems } = useMemo(() => {
-    const activeSchedules = schedules.filter((s) => s.status !== "휴방");
-
-    const timeline = activeSchedules.filter(
-      (s) => s.start_time && s.status !== "게릴라" && s.status !== "미정",
-    );
-
-    const others = activeSchedules.filter(
-      (s) => !s.start_time || s.status === "게릴라" || s.status === "미정",
-    );
-
-    timeline.sort((a, b) => {
-      if (!a.start_time || !b.start_time) return 0;
-      return a.start_time.localeCompare(b.start_time);
-    });
-
-    return { timelineItems: timeline, otherItems: others };
-  }, [schedules]);
+  const boardModel = useMemo(
+    () => buildScheduleBoardModel(schedules),
+    [schedules],
+  );
 
   const memberMap = useMemo(
     () => new Map(members.map((member) => [member.uid, member])),
     [members],
   );
 
+  if (!hasScheduleBoardItems(boardModel)) {
+    return <EmptyState />;
+  }
+
   return (
-    <div className="flex flex-col gap-8 w-full max-w-none mx-0 px-0">
-      {/* SECTION: TIMELINE */}
-      <div className="relative">
-        {timelineItems.length > 0 ? (
-          <div className="space-y-3">
-            {timelineItems.map((schedule) => (
-              <div key={schedule.id} className="relative">
-                <SnapshotTimelineCard
-                  schedule={schedule}
-                  member={memberMap.get(schedule.member_uid)}
-                  isTimeline
+    <div className="flex flex-col gap-4 w-full max-w-none mx-0 px-0">
+      {boardModel.mainItems.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="grid min-h-10 grid-cols-[86px_1fr_70px] items-center border-b border-zinc-200 bg-zinc-50 px-3 text-xs font-extrabold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            <span className="text-center">시간</span>
+            <span>멤버 / 제목</span>
+            <span className="text-center">상태</span>
+          </div>
+          <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+            {boardModel.mainItems.map((entry) => {
+              const member = memberMap.get(entry.schedule.member_uid);
+              if (!member) return null;
+              return (
+                <SnapshotScheduleRow
+                  key={entry.schedule.id}
+                  entry={entry}
+                  member={member}
                 />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState />
-        )}
-      </div>
-
-      {/* SECTION: OTHERS */}
-      {otherItems.length > 0 && (
-        <div className="relative mt-4">
-          <div className="flex items-center gap-3 mb-5 pl-1">
-            <div className="p-2 rounded-lg bg-orange-500/12 text-orange-600 dark:bg-orange-400/15 dark:text-orange-300">
-              <Radio className="w-5 h-5" />
-            </div>
-            <h4 className="text-lg font-bold text-foreground">게릴라 · 미정</h4>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {otherItems.map((schedule) => (
-              <SnapshotTimelineCard
-                key={schedule.id}
-                schedule={schedule}
-                member={memberMap.get(schedule.member_uid)}
-              />
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
+
+      {(Object.keys(sideGroupMeta) as ScheduleSideGroupKey[]).map((key) => {
+        const items = boardModel.sideGroups[key];
+        if (items.length === 0) return null;
+        return (
+          <SnapshotSideGroup
+            key={key}
+            groupKey={key}
+            items={items}
+            memberMap={memberMap}
+          />
+        );
+      })}
     </div>
   );
 };
 
-const SnapshotTimelineCard = ({
-  schedule,
+const SnapshotScheduleRow = ({
+  entry,
   member,
-  isTimeline = false,
 }: {
-  schedule: ScheduleItem;
-  member?: Member;
-  isTimeline?: boolean;
+  entry: ScheduleBoardEntry;
+  member: Member;
 }) => {
+  const title = getScheduleDisplayTitle(entry.schedule);
+  const mainColor = member.main_color || "#14b8a6";
   const { textRef, textStyle } = useAutoFitText<HTMLHeadingElement>({
-    contentKey: `${schedule.id}:${displayTitleFromSchedule(schedule)}:${schedule.status}:${isTimeline ? "timeline" : "other"}`,
-    maxLines: 2,
-    minFontSizePx: isTimeline ? 18 : 16,
+    contentKey: `${entry.schedule.id}:${title}:snapshot-main`,
+    maxLines: 1,
+    minFontSizePx: 15,
     stepPx: 1,
   });
 
-  if (!member) return null;
-
-  const mainColor = member.main_color || "#71717a";
-  const isBroadcast = schedule.status === "방송";
-  const isGuerrilla = schedule.status === "게릴라";
-  const isUndecided = schedule.status === "미정";
-  const [hour, minute] = schedule.start_time
-    ? schedule.start_time.split(":")
-    : ["--", "--"];
-
-  const rawTitle = schedule.title?.trim() ?? "";
-  const isDuplicatedStatusTitle =
-    !isBroadcast && rawTitle.length > 0 && rawTitle === schedule.status;
-
-  const fallbackTitleByStatus: Record<ScheduleStatus, string> = {
-    방송: "방송 예정",
-    휴방: "오늘은 휴방입니다",
-    게릴라: "게릴라 방송 예정",
-    미정: "방송 시간 미정",
-  };
-
-  const displayTitle =
-    rawTitle && !isDuplicatedStatusTitle
-      ? rawTitle
-      : fallbackTitleByStatus[schedule.status];
-
-  const statusMeta =
-    isGuerrilla
-      ? {
-          label: "게릴라 방송",
-          className: "text-amber-700 dark:text-amber-300",
-          icon: Flame,
-        }
-      : isUndecided
-        ? {
-            label: "시간 미정",
-            className: "text-slate-600 dark:text-slate-300",
-            icon: Radio,
-          }
-        : null;
   return (
-    <div
-      className={cn(
-        "group relative w-full overflow-hidden rounded-2xl transition-all duration-300 isolate",
-        "bg-white border-zinc-200 shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:bg-[#18181b] dark:border-zinc-700/80 dark:shadow-[0_10px_20px_rgba(0,0,0,0.3)]",
-      )}
-    >
-      <div
-        className="absolute left-0 top-0 bottom-0 w-1 opacity-80"
-        style={{ backgroundColor: mainColor }}
-      />
-
-      <div className="grid grid-cols-[92px_1fr] items-stretch h-full">
-        {/* LEFT: TIME / ICON */}
-        <div className="flex flex-col items-center justify-center self-stretch shrink-0 w-[92px] min-w-[92px] py-0 bg-white border-r border-zinc-200 dark:bg-zinc-900/60 dark:border-zinc-700/70">
-          {isTimeline ? (
-            <div className="flex flex-col items-center leading-none">
-              <span className="font-black tracking-tight font-mono text-3xl text-zinc-900 dark:text-zinc-100">
-                {hour}
-              </span>
-              <span className="font-bold -mt-1 text-base text-zinc-500 dark:text-zinc-400">
-                {minute}
-              </span>
-            </div>
-          ) : (
-            <div className="p-3 rounded-xl bg-white shadow-xs ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700">
-              {isGuerrilla ? (
-                <Flame className="w-6 h-6 text-amber-600 dark:text-amber-300" />
-              ) : isUndecided ? (
-                <Radio className="w-6 h-6 text-slate-600 dark:text-slate-300" />
-              ) : (
-                <GripHorizontal className="w-6 h-6 text-muted-foreground" />
-              )}
-            </div>
-          )}
+    <div className="grid min-h-[68px] grid-cols-[86px_1fr_70px] items-center">
+      <div className="flex h-full items-center justify-center border-r border-zinc-200 bg-zinc-50/70 px-3 dark:border-zinc-700 dark:bg-zinc-800/60">
+        <span className="font-mono text-lg font-black tabular-nums text-zinc-800 dark:text-zinc-100">
+          {formatScheduleTime(entry.schedule.start_time)}
+        </span>
+      </div>
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3">
+        <span
+          className="h-9 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: mainColor }}
+        />
+        <img
+          src={`/profile/${member.code}.webp`}
+          alt={member.name}
+          className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-zinc-200"
+        />
+        <div className="min-w-0">
+          <p
+            className="truncate text-sm font-extrabold"
+            style={{ color: mainColor }}
+          >
+            {member.name}
+            {member.unit_name ? ` · ${member.unit_name}` : ""}
+          </p>
+          <h3
+            ref={textRef}
+            style={textStyle}
+            className="truncate text-lg font-black leading-tight text-zinc-950 dark:text-zinc-50"
+          >
+            {title}
+          </h3>
         </div>
-
-        {/* RIGHT: CONTENT */}
-        <div className="flex-1 flex flex-col justify-center py-4 px-5 min-w-0 h-full overflow-hidden gap-1">
-          {/* HEADER: Member Info */}
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            <div className="relative">
-              <img
-                src={`/profile/${member.code}.webp`}
-                alt={member.name}
-                className="w-5 h-5 rounded-full object-cover ring-1 ring-border/50"
-              />
-            </div>
-            <span
-              className="text-xs font-bold uppercase tracking-wide opacity-80 break-keep"
-              style={{ color: mainColor }}
-            >
-              {member.name}
-            </span>
-          </div>
-
-          {statusMeta && (
-            <div
-              className={cn(
-                "inline-flex items-center gap-1.5 text-sm font-extrabold leading-none tracking-tight",
-                statusMeta.className,
-              )}
-            >
-              <statusMeta.icon className="h-4 w-4" />
-              {statusMeta.label}
-            </div>
-          )}
-
-          {/* MAIN: Title */}
-          <div className="pr-2">
-            <h3
-              ref={textRef}
-              style={textStyle}
-              className={cn(
-                "text-xl sm:text-[1.3rem] font-bold text-foreground leading-snug break-keep",
-                !schedule.title && "text-muted-foreground opacity-50 italic",
-                !isBroadcast && "leading-relaxed",
-                "min-w-0",
-              )}
-            >
-              {displayTitle}
-            </h3>
-          </div>
-        </div>
+      </div>
+      <div className="flex items-center justify-center px-2">
+        <SnapshotStatusPill status={entry.schedule.status} />
       </div>
     </div>
   );
 };
 
-const displayTitleFromSchedule = (schedule: ScheduleItem) => {
-  const isBroadcast = schedule.status === "방송";
-  const rawTitle = schedule.title?.trim() ?? "";
-  const isDuplicatedStatusTitle =
-    !isBroadcast && rawTitle.length > 0 && rawTitle === schedule.status;
-  const fallbackTitleByStatus: Record<ScheduleStatus, string> = {
-    방송: "방송 예정",
-    휴방: "오늘은 휴방입니다",
-    게릴라: "게릴라 방송 예정",
-    미정: "방송 시간 미정",
-  };
+const SnapshotSideGroup = ({
+  groupKey,
+  items,
+  memberMap,
+}: {
+  groupKey: ScheduleSideGroupKey;
+  items: ScheduleBoardEntry[];
+  memberMap: Map<number, Member>;
+}) => {
+  const meta = sideGroupMeta[groupKey];
+  const Icon = meta.icon;
 
-  return rawTitle && !isDuplicatedStatusTitle
-    ? rawTitle
-    : fallbackTitleByStatus[schedule.status];
+  return (
+    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="flex min-h-11 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-4 dark:border-zinc-700 dark:bg-zinc-800">
+        <span
+          className={cn(
+            "inline-flex h-7 w-7 items-center justify-center rounded-lg border",
+            meta.className,
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-50">
+          {meta.title}
+        </h3>
+        <span className="rounded-md bg-zinc-200 px-1.5 py-0.5 text-xs font-black text-zinc-600">
+          {items.length}
+        </span>
+      </div>
+      <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
+        {items.map((entry) => {
+          const member = memberMap.get(entry.schedule.member_uid);
+          if (!member) return null;
+          return (
+            <div
+              key={entry.schedule.id}
+              className="grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-3"
+            >
+              <img
+                src={`/profile/${member.code}.webp`}
+                alt={member.name}
+                className="h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black text-zinc-950 dark:text-zinc-50">
+                  {member.name}
+                </p>
+                <p className="truncate text-xs font-semibold text-zinc-500 dark:text-zinc-300">
+                  {getScheduleDisplayTitle(entry.schedule)}
+                </p>
+              </div>
+              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-300">
+                {formatScheduleTime(entry.schedule.start_time) ??
+                  entry.schedule.status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+const SnapshotStatusPill = ({ status }: { status: ScheduleItem["status"] }) => {
+  const meta =
+    status === "게릴라"
+      ? {
+          label: "게릴라",
+          icon: Flame,
+          className: "border-amber-200 bg-amber-50 text-amber-700",
+        }
+      : status === "휴방"
+        ? {
+            label: "휴방",
+            icon: Ban,
+            className: "border-zinc-200 bg-zinc-50 text-zinc-700",
+          }
+        : status === "미정"
+          ? {
+              label: "미정",
+              icon: HelpCircle,
+              className: "border-slate-200 bg-slate-50 text-slate-700",
+            }
+          : {
+              label: "방송",
+              icon: Radio,
+              className: "border-teal-200 bg-teal-50 text-teal-700",
+            };
+  const Icon = meta.icon;
+
+  return (
+    <span
+      className={cn(
+        "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-black",
+        meta.className,
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {meta.label}
+    </span>
+  );
 };
 
 const EmptyState = () => (
@@ -256,3 +273,4 @@ const EmptyState = () => (
     </p>
   </div>
 );
+

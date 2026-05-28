@@ -100,6 +100,9 @@ export interface YouTubeVideosResponse {
   updatedAt: string;
 }
 
+export type XPostsVisibility = "public" | "members" | "private";
+export type NaverCafePostsVisibility = "public" | "members" | "private";
+
 export interface XPostMedia {
   mediaKey: string;
   type: string;
@@ -171,6 +174,48 @@ export interface XPostsResponse {
     errorDetail?: string | null;
     stale: boolean;
   }>;
+}
+
+export interface NaverCafePost {
+  id: string;
+  articleId: number;
+  cafeId: string;
+  menuId: string;
+  sourceName: string;
+  memberUid: number | null;
+  title: string;
+  summary: string;
+  createdAt: string;
+  url: string;
+  thumbnailUrl: string | null;
+  metrics: {
+    commentCount: number;
+    readCount: number;
+    likeCount: number;
+  };
+  isNew: boolean;
+}
+
+export interface NaverCafeSourceStatus {
+  id: number;
+  name: string;
+  cafeId: string;
+  menuId: string;
+  cafeUrl: string;
+  memberUid: number | null;
+  enabled: boolean;
+  sortOrder: number;
+  status: "ok" | "stale" | "error" | "private" | "invalid_response" | "disabled";
+  error: string | null;
+  postCount: number;
+  stale: boolean;
+}
+
+export interface NaverCafePostsResponse {
+  posts: NaverCafePost[];
+  sources: NaverCafeSourceStatus[];
+  updatedAt: string;
+  clientStale?: boolean;
 }
 
 // Chzzk Clip Types

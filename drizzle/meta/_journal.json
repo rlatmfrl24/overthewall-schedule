@@ -162,6 +162,13 @@
       "when": 1779919168535,
       "tag": "0023_groovy_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1779933132968,
+      "tag": "0024_unique_daimon_hellstrom",
+      "breakpoints": true
     }
   ]
 }

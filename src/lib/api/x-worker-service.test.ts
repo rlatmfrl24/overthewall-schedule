@@ -542,6 +542,77 @@ describe("x worker service", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("max_results=10");
   });
 
+  it("공개 설정 조회 endpoint는 로그인 없이 공개 범위를 반환한다", async () => {
+    const response = await handleXPosts(
+      new Request("https://example.com/api/x/config"),
+      {
+        YOUTUBE_API_KEY: "",
+        X_BEARER_TOKEN: "token",
+        otw_db: makeCacheDb({
+          x_posts_visibility: { value: "public" },
+        }).db,
+      } as Parameters<typeof handleXPosts>[1],
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ visibility: "public" });
+  });
+
+  it("멤버 게시글 공개 범위가 public이면 로그인 없이 게시글 API를 허용한다", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p1",
+              text: "public post",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+
+    const response = await handleXPosts(
+      new Request("https://example.com/api/x/posts?handles=otw_member"),
+      {
+        YOUTUBE_API_KEY: "",
+        X_BEARER_TOKEN: "token",
+        otw_db: makeCacheDb({
+          x_posts_visibility: { value: "public" },
+        }).db,
+      } as Parameters<typeof handleXPosts>[1],
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      posts: [{ id: "p1" }],
+    });
+  });
+
+  it("멤버 게시글 공개 범위가 private이면 게시글 API를 차단한다", async () => {
+    const response = await handleXPosts(
+      makeMemberRequest("https://example.com/api/x/posts?handles=otw_member"),
+      {
+        YOUTUBE_API_KEY: "",
+        X_BEARER_TOKEN: "token",
+        otw_db: makeCacheDb({
+          x_posts_visibility: { value: "private" },
+        }).db,
+      } as Parameters<typeof handleXPosts>[1],
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("Member posts are private");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("라우트는 관리자 설정이 꺼져 있으면 X 게시글 링크 lookup을 생략한다", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
