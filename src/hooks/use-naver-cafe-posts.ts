@@ -14,7 +14,7 @@ interface UseNaverCafePostsReturn {
 }
 
 export function useNaverCafePosts(
-  options: { enabled?: boolean; size?: number } = {},
+  options: { enabled?: boolean; size?: number; admin?: boolean } = {},
 ): UseNaverCafePostsReturn {
   const [data, setData] = useState<NaverCafePostsResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -22,7 +22,7 @@ export function useNaverCafePosts(
   const [hasLoaded, setHasLoaded] = useState(false);
   const dataRef = useRef<NaverCafePostsResponse | null>(null);
 
-  const { enabled = true, size = 10 } = options;
+  const { enabled = true, size = 10, admin = false } = options;
 
   const load = useCallback(
     async (force: boolean) => {
@@ -37,7 +37,7 @@ export function useNaverCafePosts(
       setError(null);
 
       try {
-        const response = await fetchNaverCafePosts({ force, size });
+        const response = await fetchNaverCafePosts({ force, size, admin });
         setData(response);
         setError(
           response.clientStale
@@ -56,7 +56,7 @@ export function useNaverCafePosts(
         setHasLoaded(true);
       }
     },
-    [enabled, size],
+    [admin, enabled, size],
   );
 
   const reload = useCallback(() => load(true), [load]);

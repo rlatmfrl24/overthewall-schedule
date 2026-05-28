@@ -35,6 +35,7 @@ describe("useNaverCafePosts", () => {
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(fetchNaverCafePostsMock).toHaveBeenCalledWith({
+      admin: false,
       force: false,
       size: 7,
     });
@@ -46,6 +47,7 @@ describe("useNaverCafePosts", () => {
       await result.current.reload();
     });
     expect(fetchNaverCafePostsMock).toHaveBeenLastCalledWith({
+      admin: false,
       force: true,
       size: 7,
     });

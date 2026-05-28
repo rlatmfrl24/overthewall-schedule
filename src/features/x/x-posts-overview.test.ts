@@ -95,7 +95,7 @@ describe("XPostsOverview", () => {
     useXPostsMock.mockReset();
   });
 
-  it("타임라인 피드, 상태 레일, 오시마크를 표시하고 임베드 옵션은 노출하지 않는다", () => {
+  it("타임라인 피드와 오시마크를 표시하고 임베드 옵션은 노출하지 않는다", () => {
     useXPostsMock.mockReturnValue({
       posts: [olderPost, post],
       updatedAt: "2026-05-27T12:10:00Z",
@@ -126,12 +126,10 @@ describe("XPostsOverview", () => {
 
     expect(screen.getByText("멤버 최신 게시글")).toBeTruthy();
     expect(screen.queryByText("공식 계정의 최신 원문 게시글")).toBeNull();
-    expect(screen.getByText("피드 상태")).toBeTruthy();
+    expect(screen.queryByText("피드 상태")).toBeNull();
     expect(screen.queryByText("멤버별 상태")).toBeNull();
-    expect(screen.getByText("표시 중 게시글")).toBeTruthy();
-    expect(screen.getByText("2건")).toBeTruthy();
-    expect(screen.getByText("등록된 계정")).toBeTruthy();
-    expect(screen.getByText("2개")).toBeTruthy();
+    expect(screen.queryByText("표시 중 게시글")).toBeNull();
+    expect(screen.queryByText("등록된 계정")).toBeNull();
     expect(screen.getByText("💙")).toBeTruthy();
     expect(screen.getByText("⭐")).toBeTruthy();
     expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
@@ -449,6 +447,6 @@ describe("XPostsOverview", () => {
     expect(
       screen.getByText("새 게시글을 불러오지 못해 이전 데이터를 표시하고 있습니다."),
     ).toBeTruthy();
-    expect(screen.getByText("캐시")).toBeTruthy();
+    expect(screen.queryByText("캐시")).toBeNull();
   });
 });

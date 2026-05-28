@@ -15,6 +15,7 @@ interface XPostsApiResponse {
 interface FetchXPostsOptions {
   maxResults?: number;
   force?: boolean;
+  admin?: boolean;
 }
 
 interface XPostsConfigResponse {
@@ -52,8 +53,8 @@ const normalizeMaxResults = (value: number | undefined) => {
   return Math.min(20, Math.max(5, Math.trunc(value ?? 5)));
 };
 
-const makeCacheKey = (handles: string[], maxResults: number) =>
-  `${X_POSTS_CLIENT_CACHE_VERSION}:${[...handles]
+const makeCacheKey = (handles: string[], maxResults: number, admin: boolean) =>
+  `${X_POSTS_CLIENT_CACHE_VERSION}:${admin ? "admin" : "feed"}:${[...handles]
     .map(normalizeHandle)
     .sort()
     .join(",")}:${maxResults}`;
@@ -150,7 +151,8 @@ async function fetchXPosts(
 
   const maxResults = normalizeMaxResults(options.maxResults);
   const force = options.force === true;
-  const cacheKey = makeCacheKey(validHandles, maxResults);
+  const admin = options.admin === true;
+  const cacheKey = makeCacheKey(validHandles, maxResults, admin);
   const cached = xPostsCache.get(cacheKey);
 
   if (!force && cached && isCacheFresh(cached.fetchedAt)) {
@@ -159,21 +161,27 @@ async function fetchXPosts(
 
   const shouldRevalidate = !cached || !isCacheFresh(cached.fetchedAt);
   if (!force && cached && !isCacheStale(cached.fetchedAt) && shouldRevalidate) {
-    void fetchAndCacheXPosts(validHandles, maxResults, cacheKey).catch(() => {
+    void fetchAndCacheXPosts(validHandles, maxResults, cacheKey, {
+      admin,
+    }).catch(() => {
       // Keep stale data when background revalidation fails.
     });
     return cached.content;
   }
 
-  return fetchAndCacheXPosts(validHandles, maxResults, cacheKey, force);
+  return fetchAndCacheXPosts(validHandles, maxResults, cacheKey, {
+    force,
+    admin,
+  });
 }
 
 async function fetchAndCacheXPosts(
   handles: string[],
   maxResults: number,
   cacheKey: string,
-  force = false,
+  options: { force?: boolean; admin?: boolean } = {},
 ): Promise<XPostsResponse | null> {
+  const force = options.force === true;
   const params = new URLSearchParams({
     handles: handles.join(","),
     maxResults: String(maxResults),
@@ -181,6 +189,9 @@ async function fetchAndCacheXPosts(
   });
   if (force) {
     params.set("_", String(Date.now()));
+  }
+  if (options.admin) {
+    params.set("admin", "1");
   }
 
   try {

@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm";
-import { naverCafeSources } from "../../src/db/schema";
+import { naverCafeSources, type NaverCafeSource } from "../../src/db/schema";
 import { authenticateRequest, requireAdminUser } from "../auth";
 import {
   buildNaverCafeBoardUrl,
@@ -24,6 +24,7 @@ const NAVER_CAFE_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
 const NAVER_CAFE_POSTS_ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";
 const NAVER_CAFE_POSTS_VISIBILITY_SETTING_KEY = "naver_cafe_posts_visibility";
+const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v1";
 
 type NaverCafePostsVisibility = "public" | "members" | "private";
 
@@ -76,6 +77,64 @@ const parseMemberUid = (value: unknown) => {
       ? value
       : Number.parseInt(String(value).trim(), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const shouldBypassPostsResponseCache = (request: Request, url: URL) =>
+  url.searchParams.has("_") || request.cache === "no-store";
+
+const getPostsResponseCacheKey = (
+  sources: NaverCafeSource[],
+  size: number,
+) => {
+  const sourceSignature = sources
+    .map((source) =>
+      [
+        source.id,
+        source.cafe_id,
+        source.menu_id,
+        source.enabled === false ? "0" : "1",
+        source.sort_order ?? 0,
+        source.updated_at ?? "",
+      ].join(":"),
+    )
+    .join("|");
+  const cacheUrl = new URL(
+    `https://otw.internal/cache/naver-cafe/posts/${NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION}`,
+  );
+  cacheUrl.searchParams.set("size", String(size));
+  cacheUrl.searchParams.set("sources", sourceSignature);
+  return new Request(cacheUrl.toString(), { method: "GET" });
+};
+
+const getPostsResponseCache = () => {
+  if (typeof caches === "undefined") return null;
+  return caches.default;
+};
+
+const readPostsResponseCache = async (cacheKey: Request) => {
+  const cache = getPostsResponseCache();
+  if (!cache) return null;
+
+  try {
+    return await cache.match(cacheKey);
+  } catch (error) {
+    console.warn("Failed to read Naver Cafe posts response cache", error);
+    return null;
+  }
+};
+
+const writePostsResponseCache = async (
+  cacheKey: Request,
+  response: Response,
+) => {
+  const cache = getPostsResponseCache();
+  if (!cache) return;
+
+  try {
+    await cache.put(cacheKey, response.clone());
+  } catch (error) {
+    console.warn("Failed to write Naver Cafe posts response cache", error);
+  }
 };
 
 const parseSourcePayload = (body: Record<string, unknown>) => {
@@ -186,11 +245,14 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
   if (url.pathname === "/api/naver-cafe/posts") {
     if (request.method !== "GET") return methodNotAllowed();
 
+    const adminView = url.searchParams.get("admin") === "1";
     const { enabled, visibility } = await getConfig(db);
-    if (!enabled || visibility === "private") {
+    if (adminView) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return admin.response;
+    } else if (!enabled || visibility === "private") {
       return new Response("Naver Cafe posts are private", { status: 403 });
-    }
-    if (visibility === "members") {
+    } else if (visibility === "members") {
       const auth = await authenticateRequest(request, env);
       if (!auth.ok) return auth.response;
     }
@@ -206,7 +268,7 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
       .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
 
     if (sources.length === 0) {
-      return json(
+      const response = json(
         {
           updatedAt: new Date().toISOString(),
           posts: [],
@@ -215,11 +277,22 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
         200,
         { headers: { "Cache-Control": NAVER_CAFE_POSTS_CACHE_CONTROL } },
       );
+      return response;
+    }
+
+    const responseCacheKey = shouldBypassPostsResponseCache(request, url)
+      ? null
+      : getPostsResponseCacheKey(sources, size);
+    const cachedResponse = responseCacheKey
+      ? await readPostsResponseCache(responseCacheKey)
+      : null;
+    if (cachedResponse) {
+      return cachedResponse;
     }
 
     try {
       const content = await fetchNaverCafePostsForSources(sources, { size });
-      return json(
+      const response = json(
         {
           updatedAt: new Date().toISOString(),
           ...content,
@@ -227,6 +300,10 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
         200,
         { headers: { "Cache-Control": NAVER_CAFE_POSTS_CACHE_CONTROL } },
       );
+      if (responseCacheKey) {
+        await writePostsResponseCache(responseCacheKey, response);
+      }
+      return response;
     } catch (error) {
       if (error instanceof NaverCafeApiError) {
         console.error("Failed to handle /api/naver-cafe/posts", {

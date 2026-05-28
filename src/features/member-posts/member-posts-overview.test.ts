@@ -156,21 +156,45 @@ describe("MemberPostsOverview", () => {
     render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
 
     expect(screen.getByText("멤버 게시글")).toBeTruthy();
+    expect(screen.getByLabelText(/X 마지막 업데이트/)).toBeTruthy();
+    expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
     expect(screen.getByText(xPost.text)).toBeTruthy();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
     expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
-    expect(screen.getByText("카페글")).toBeTruthy();
     expect(screen.getByLabelText("네이버 카페 게시글")).toBeTruthy();
-    expect(screen.getByText("X 1개 · 카페 1개")).toBeTruthy();
+    expect(screen.queryByText("피드 상태")).toBeNull();
+    expect(screen.queryByText("등록된 소스")).toBeNull();
+    expect(screen.getByTestId("member-post-filter-top").className).toContain(
+      "lg:hidden",
+    );
     expect(
-      within(screen.getByRole("button", { name: "테스트 멤버" })).queryByText(
-        "X",
-      ),
+      screen.getByTestId("member-post-filter-sidebar").className,
+    ).toContain("lg:block");
+    expect(screen.getByTestId("member-post-content-layout").className).toContain(
+      "lg:grid-cols-[220px_minmax(0,1fr)]",
+    );
+    const topFilterControls =
+      screen.getByTestId("member-post-filter-top").firstElementChild;
+    expect(topFilterControls?.className).toContain("flex-wrap");
+    expect(topFilterControls?.className).not.toContain("overflow-x-auto");
+    const feedList = screen.getAllByTestId("member-post-feed-list")[0];
+    expect(feedList.className).toContain("flex-col");
+    expect(feedList.className).not.toContain("grid-cols");
+    expect(
+      within(
+        within(screen.getByTestId("member-post-filter-top")).getByRole(
+          "button",
+          { name: "테스트 멤버" },
+        ),
+      ).queryByText("X"),
     ).toBeNull();
     expect(
-      within(screen.getByRole("button", { name: "테스트 멤버2" })).queryByText(
-        "카페",
-      ),
+      within(
+        within(screen.getByTestId("member-post-filter-top")).getByRole(
+          "button",
+          { name: "테스트 멤버2" },
+        ),
+      ).queryByText("카페"),
     ).toBeNull();
     expect(
       screen.getByText(cafePost.title).compareDocumentPosition(
@@ -185,12 +209,18 @@ describe("MemberPostsOverview", () => {
 
     render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
 
-    fireEvent.click(screen.getByRole("button", { name: "테스트 멤버2" }));
+    const topFilter = screen.getByTestId("member-post-filter-top");
+
+    fireEvent.click(
+      within(topFilter).getByRole("button", { name: "테스트 멤버2" }),
+    );
 
     expect(screen.queryByText(xPost.text)).toBeNull();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "테스트 멤버" }));
+    fireEvent.click(
+      within(topFilter).getByRole("button", { name: "테스트 멤버" }),
+    );
 
     expect(screen.getByText(xPost.text)).toBeTruthy();
     expect(screen.queryByText(cafePost.title)).toBeNull();
@@ -212,6 +242,8 @@ describe("MemberPostsOverview", () => {
       enabled: true,
       size: 10,
     });
+    expect(screen.queryByLabelText(/X 마지막 업데이트/)).toBeNull();
+    expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
     expect(screen.queryByText("X 최신 게시글입니다.")).toBeNull();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
   });

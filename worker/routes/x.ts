@@ -80,6 +80,7 @@ const getRichXLinkPreviewEnabled = async (db: D1Database) => {
 export const handleXPosts = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const debug = url.searchParams.get("debug") === "1";
+  const adminView = url.searchParams.get("admin") === "1";
 
   if (url.pathname === "/api/x/config") {
     if (request.method !== "GET") {
@@ -105,13 +106,11 @@ export const handleXPosts = async (request: Request, env: Env) => {
   }
 
   const visibility = await getXPostsVisibility(env.otw_db);
-  if (visibility === "private") {
-    return new Response("Member posts are private", { status: 403 });
-  }
-
-  if (debug) {
+  if (debug || adminView) {
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
+  } else if (visibility === "private") {
+    return new Response("Member posts are private", { status: 403 });
   } else if (visibility === "members") {
     const auth = await authenticateRequest(request, env);
     if (!auth.ok) return auth.response;

@@ -1,8 +1,6 @@
 import { useMemo, useState } from "react";
 import {
   AlertCircle,
-  CheckCircle2,
-  Clock3,
   Coffee,
   RefreshCw,
 } from "lucide-react";
@@ -195,58 +193,6 @@ const NaverCafeMemberFilterBar = ({
   );
 };
 
-const FeedStatusRail = ({
-  updatedAt,
-  visiblePostCount,
-  sourceCount,
-  stale,
-}: {
-  updatedAt: string | null;
-  visiblePostCount: number;
-  sourceCount: number;
-  stale: boolean;
-}) => (
-  <aside className="order-first min-w-0 max-w-full space-y-4 lg:order-none lg:sticky lg:top-24">
-    <section className="min-w-0 rounded-lg border border-border/70 bg-card p-4 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">피드 상태</h2>
-        {stale ? (
-          <span className="hidden items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
-            <Clock3 className="h-3 w-3" />
-            캐시
-          </span>
-        ) : (
-          <span className="hidden items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 sm:inline-flex dark:text-emerald-300">
-            <CheckCircle2 className="h-3 w-3" />
-            정상
-          </span>
-        )}
-      </div>
-
-      <dl className="grid grid-cols-1 gap-3 text-center sm:grid-cols-3 lg:grid-cols-1 lg:text-left">
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">마지막 업데이트</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {formatUpdatedAt(updatedAt)}
-          </dd>
-        </div>
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">표시 중 게시글</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {visiblePostCount}건
-          </dd>
-        </div>
-        <div className="rounded-md bg-muted/40 p-3">
-          <dt className="text-xs text-muted-foreground">등록된 게시판</dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {sourceCount}개
-          </dd>
-        </div>
-      </dl>
-    </section>
-  </aside>
-);
-
 export const NaverCafePostsOverview = () => {
   const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
     null,
@@ -262,7 +208,6 @@ export const NaverCafePostsOverview = () => {
     updatedAt,
     loading: postsLoading,
     error,
-    stale,
     hasLoaded: postsLoaded,
     reload,
   } = useNaverCafePosts({ enabled: true, size: 10 });
@@ -360,106 +305,87 @@ export const NaverCafePostsOverview = () => {
             </p>
           </div>
         ) : timelinePosts.length === 0 ? (
-          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
-            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
-              {error ? (
-                <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
-              ) : (
-                <Coffee className="h-10 w-10 text-muted-foreground/70" />
-              )}
-              <p className="text-sm text-muted-foreground">
-                {error
-                  ? "카페 최신글을 불러오지 못했습니다."
-                  : selectedMemberUids && selectedMemberUids.length > 0
-                    ? "선택한 멤버의 카페 최신글이 없습니다."
-                    : "표시할 카페 최신글이 없습니다."}
-              </p>
-              {error ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 rounded-full"
-                  onClick={() => void reload()}
-                  disabled={postsLoading}
-                >
-                  <RefreshCw
-                    className={cn("h-4 w-4", postsLoading && "animate-spin")}
-                  />
-                  다시 시도
-                </Button>
-              ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-full"
-                  onClick={() => setSelectedMemberUids(null)}
-                >
-                  전체 보기
-                </Button>
-              ) : null}
-            </div>
-            <FeedStatusRail
-              updatedAt={updatedAt}
-              visiblePostCount={timelinePosts.length}
-              sourceCount={enabledSourceCount}
-              stale={stale}
-            />
+          <div className="mx-auto flex min-h-[260px] w-full max-w-[760px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
+            {error ? (
+              <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
+            ) : (
+              <Coffee className="h-10 w-10 text-muted-foreground/70" />
+            )}
+            <p className="text-sm text-muted-foreground">
+              {error
+                ? "카페 최신글을 불러오지 못했습니다."
+                : selectedMemberUids && selectedMemberUids.length > 0
+                  ? "선택한 멤버의 카페 최신글이 없습니다."
+                  : "표시할 카페 최신글이 없습니다."}
+            </p>
+            {error ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={() => void reload()}
+                disabled={postsLoading}
+              >
+                <RefreshCw
+                  className={cn("h-4 w-4", postsLoading && "animate-spin")}
+                />
+                다시 시도
+              </Button>
+            ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={() => setSelectedMemberUids(null)}
+              >
+                전체 보기
+              </Button>
+            ) : null}
           </div>
         ) : (
-          <div className="grid min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,760px)_320px] lg:justify-center">
-            <div className="min-w-0 space-y-8">
-              {error ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-                  {error}
+          <div className="mx-auto w-full max-w-[760px] min-w-0 space-y-8">
+            {error ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                {error}
+              </div>
+            ) : null}
+
+            {timelineGroups.map((group) => (
+              <section
+                key={`${group.label}-${group.subLabel}`}
+                className="grid min-w-0 gap-4 sm:grid-cols-[92px_minmax(0,1fr)]"
+              >
+                <div className="relative hidden pt-5 text-sm text-muted-foreground sm:block">
+                  <div className="sticky top-24">
+                    <p className="font-semibold text-foreground">
+                      {group.label}
+                    </p>
+                    <p className="mt-1 text-xs">{group.subLabel}</p>
+                  </div>
+                  <span className="absolute right-2 top-7 h-2.5 w-2.5 rounded-full border border-border bg-background" />
+                  <span className="absolute bottom-0 right-[12px] top-9 w-px bg-border" />
                 </div>
-              ) : null}
 
-              {timelineGroups.map((group) => (
-                <section
-                  key={`${group.label}-${group.subLabel}`}
-                  className="grid min-w-0 gap-4 sm:grid-cols-[92px_minmax(0,1fr)]"
-                >
-                  <div className="relative hidden pt-5 text-sm text-muted-foreground sm:block">
-                    <div className="sticky top-24">
-                      <p className="font-semibold text-foreground">
-                        {group.label}
-                      </p>
-                      <p className="mt-1 text-xs">{group.subLabel}</p>
-                    </div>
-                    <span className="absolute right-2 top-7 h-2.5 w-2.5 rounded-full border border-border bg-background" />
-                    <span className="absolute bottom-0 right-[12px] top-9 w-px bg-border" />
+                <div className="min-w-0 space-y-4">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground sm:hidden">
+                    <span className="font-semibold text-foreground">
+                      {group.label}
+                    </span>
+                    <span>{group.subLabel}</span>
                   </div>
-
-                  <div className="min-w-0 space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground sm:hidden">
-                      <span className="font-semibold text-foreground">
-                        {group.label}
-                      </span>
-                      <span>{group.subLabel}</span>
-                    </div>
-                    {group.posts.map((post) => (
-                      <NaverCafePostCard
-                        key={post.id}
-                        post={post}
-                        compactTime={formatPostTime(post.createdAt)}
-                        member={
-                          post.memberUid
-                            ? memberMap.get(post.memberUid)
-                            : undefined
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-
-            <FeedStatusRail
-              updatedAt={updatedAt}
-              visiblePostCount={timelinePosts.length}
-              sourceCount={enabledSourceCount}
-              stale={stale}
-            />
+                  {group.posts.map((post) => (
+                    <NaverCafePostCard
+                      key={post.id}
+                      post={post}
+                      compactTime={formatPostTime(post.createdAt)}
+                      member={
+                        post.memberUid ? memberMap.get(post.memberUid) : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </div>

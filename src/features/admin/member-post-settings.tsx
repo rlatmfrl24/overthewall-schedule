@@ -48,6 +48,7 @@ import { X_POSTS_CONFIG_UPDATED_EVENT } from "@/hooks/use-x-posts-config";
 import { NAVER_CAFE_POSTS_CONFIG_UPDATED_EVENT } from "@/hooks/use-naver-cafe-posts-config";
 import type { NaverCafePostsVisibility, XPostsVisibility } from "@/lib/types";
 import { AdminSectionHeader } from "./components/admin-section-header";
+import { MemberPostFeedMonitor } from "./member-post-feed-monitor";
 import { NaverCafeSourceManager } from "./naver-cafe-source-manager";
 
 const VISIBILITY_OPTIONS: Array<{
@@ -628,6 +629,11 @@ export function MemberPostSettingsManager() {
               </div>
             </CardContent>
           </Card>
+
+          <MemberPostFeedMonitor
+            xCollectionEnabled={isXCollectionEnabled}
+            naverCafeEnabled={isNaverCafePostsEnabled}
+          />
 
           <Card>
             <CardHeader className="pb-3">

@@ -57,12 +57,15 @@ export async function deleteNaverCafeSource(id: number): Promise<void> {
 }
 
 export async function fetchNaverCafePosts(
-  options: { size?: number; force?: boolean } = {},
+  options: { size?: number; force?: boolean; admin?: boolean } = {},
 ): Promise<NaverCafePostsResponse> {
   const size = Math.min(20, Math.max(5, Math.trunc(options.size ?? 10)));
   const params = new URLSearchParams({ size: String(size) });
   if (options.force) {
     params.set("_", String(Date.now()));
+  }
+  if (options.admin) {
+    params.set("admin", "1");
   }
 
   return apiFetch<NaverCafePostsResponse>(`/api/naver-cafe/posts?${params}`, {
