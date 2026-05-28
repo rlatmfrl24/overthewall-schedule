@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../worker/types";
+
+const getSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../worker/db", () => ({
   getDb: vi.fn(() => ({})),
@@ -10,11 +12,7 @@ vi.mock("../../../worker/utils/helpers", async (importOriginal) => {
     await importOriginal<typeof import("../../../worker/utils/helpers")>();
   return {
     ...actual,
-    getSetting: vi.fn(async (_db: unknown, key: string) => {
-      if (key === "naver_cafe_posts_enabled") return "true";
-      if (key === "naver_cafe_posts_visibility") return "members";
-      return null;
-    }),
+    getSetting: getSettingMock,
   };
 });
 
@@ -28,6 +26,15 @@ const makeEnv = (): Env =>
   }) as Env;
 
 describe("naver cafe posts route auth", () => {
+  beforeEach(() => {
+    getSettingMock.mockReset();
+    getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
+      if (key === "naver_cafe_posts_enabled") return "true";
+      if (key === "naver_cafe_posts_visibility") return "members";
+      return null;
+    });
+  });
+
   it("Clerk 토큰이 없으면 회원 전용 카페 게시글 API 호출을 막는다", async () => {
     const response = await handleNaverCafe(
       new Request("https://example.com/api/naver-cafe/posts"),
@@ -50,5 +57,22 @@ describe("naver cafe posts route auth", () => {
 
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("Login required");
+  });
+
+  it("설정 조회 실패 시 config endpoint는 기본값으로 응답한다", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    getSettingMock.mockRejectedValue(new Error("D1 unavailable"));
+
+    const response = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/config"),
+      makeEnv(),
+    );
+    const body = (await response.json()) as {
+      enabled: boolean;
+      visibility: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ enabled: true, visibility: "members" });
   });
 });

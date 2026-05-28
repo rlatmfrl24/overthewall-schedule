@@ -38,6 +38,9 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
     ...overrides,
   }) as Env;
 
+const makePublishableKey = (issuer = ISSUER) =>
+  `pk_test_${base64UrlEncode(`${new URL(issuer).host}$`)}`;
+
 describe("worker auth", () => {
   let privateKey: CryptoKey;
   let publicJwk: JsonWebKey & { kid: string };
@@ -128,6 +131,28 @@ describe("worker auth", () => {
     }
   });
 
+  it("infers local Clerk auth config from the publishable key", async () => {
+    const token = await signToken();
+    const result = await authenticateRequest(
+      new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv({
+        CLERK_ISSUER: undefined,
+        CLERK_JWKS_URL: undefined,
+        VITE_CLERK_PUBLISHABLE_KEY: makePublishableKey(),
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.user.id).toBe("user_admin");
+    }
+    expect(fetch).toHaveBeenCalledWith(JWKS_URL, {
+      headers: { Accept: "application/json" },
+    });
+  });
+
   it("optional auth uses a valid Clerk token but allows anonymous requests", async () => {
     const token = await signToken({ sub: "user_member" });
     const anonymousUser = await authenticateOptionalRequest(
@@ -162,6 +187,24 @@ describe("worker auth", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(403);
+    }
+  });
+
+  it("uses the Vite admin allowlist when the worker-only allowlist is absent", async () => {
+    const token = await signToken();
+    const result = await requireAdminUser(
+      new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv({
+        CLERK_ADMIN_IDS: undefined,
+        VITE_CLERK_ADMIN_IDS: "user_admin",
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.user.id).toBe("user_admin");
     }
   });
 

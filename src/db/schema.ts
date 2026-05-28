@@ -138,10 +138,12 @@ export const xPosts = sqliteTable(
     value: text().notNull(),
     created_at: text("created_at").notNull(),
     fetched_at: integer("fetched_at").notNull(),
+    hidden_at: integer("hidden_at"),
   },
   (table) => [
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
     index("idx_x_posts_user_id").on(table.user_id),
+    index("idx_x_posts_hidden_at").on(table.hidden_at),
   ],
 );
 
@@ -156,10 +158,62 @@ export const xPostSources = sqliteTable("x_post_sources", {
   last_seen_post_id: text("last_seen_post_id"),
   last_checked_at: integer("last_checked_at").notNull(),
   updated_at: integer("updated_at").notNull(),
+  last_error: text("last_error"),
 });
 
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
+
+// X API 과금 추정 이벤트 로그
+export const xApiUsageEvents = sqliteTable(
+  "x_api_usage_events",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    operation: text().notNull(),
+    endpoint: text().notNull(),
+    resource_type: text("resource_type").notNull(),
+    resource_count: integer("resource_count").notNull(),
+    estimated_cost_micros: integer("estimated_cost_micros").notNull(),
+    status: integer().notNull(),
+    created_at: integer("created_at").notNull(),
+    detail: text(),
+  },
+  (table) => [
+    index("idx_x_api_usage_events_created_at").on(table.created_at),
+    index("idx_x_api_usage_events_operation").on(table.operation),
+  ],
+);
+
+export type XApiUsageEvent = typeof xApiUsageEvents.$inferSelect;
+export type NewXApiUsageEvent = typeof xApiUsageEvents.$inferInsert;
+
+// X 백그라운드 수집 실행 로그
+export const xCollectionRuns = sqliteTable(
+  "x_collection_runs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source: text().notNull(),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at"),
+    checked_handles: integer("checked_handles").notNull().default(0),
+    refreshed_handles: integer("refreshed_handles").notNull().default(0),
+    posts_returned: integer("posts_returned").notNull().default(0),
+    posts_stored: integer("posts_stored").notNull().default(0),
+    api_calls: integer("api_calls").notNull().default(0),
+    estimated_cost_micros: integer("estimated_cost_micros")
+      .notNull()
+      .default(0),
+    status: text().notNull(),
+    error: text(),
+  },
+  (table) => [
+    index("idx_x_collection_runs_started_at").on(table.started_at),
+    index("idx_x_collection_runs_status").on(table.status),
+  ],
+);
+
+export type XCollectionRun = typeof xCollectionRuns.$inferSelect;
+export type NewXCollectionRun = typeof xCollectionRuns.$inferInsert;
 
 // 네이버 카페 게시판 소스 테이블
 export const naverCafeSources = sqliteTable(

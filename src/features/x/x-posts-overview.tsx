@@ -289,7 +289,7 @@ export const XPostsOverview = () => {
     reload,
   } = useXPosts(membersWithX, {
     enabled: true,
-    maxResults: 10,
+    maxResults: 5,
   });
   const filteredPosts = useFilteredXPosts(posts, selectedMemberUids);
   const timelinePosts = useMemo(

@@ -7,6 +7,8 @@ import {
 export interface Env {
   YOUTUBE_API_KEY: string;
   X_BEARER_TOKEN?: string;
+  VITE_CLERK_PUBLISHABLE_KEY?: string;
+  VITE_CLERK_ADMIN_IDS?: string;
   CLERK_JWKS_URL?: string;
   CLERK_ISSUER?: string;
   CLERK_JWT_AUDIENCE?: string;

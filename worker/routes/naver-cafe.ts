@@ -33,11 +33,17 @@ const normalizeVisibility = (
   value === "public" || value === "private" ? value : "members";
 
 const getConfig = async (db: ReturnType<typeof getDb>) => {
-  const enabled = (await getSetting(db, NAVER_CAFE_POSTS_ENABLED_SETTING_KEY)) !== "false";
-  const visibility = normalizeVisibility(
-    await getSetting(db, NAVER_CAFE_POSTS_VISIBILITY_SETTING_KEY),
-  );
-  return { enabled, visibility };
+  try {
+    const enabled =
+      (await getSetting(db, NAVER_CAFE_POSTS_ENABLED_SETTING_KEY)) !== "false";
+    const visibility = normalizeVisibility(
+      await getSetting(db, NAVER_CAFE_POSTS_VISIBILITY_SETTING_KEY),
+    );
+    return { enabled, visibility };
+  } catch (error) {
+    console.warn("Failed to read Naver Cafe posts config", error);
+    return { enabled: true, visibility: "members" as const };
+  }
 };
 
 const parseSize = (value: string | null) => {

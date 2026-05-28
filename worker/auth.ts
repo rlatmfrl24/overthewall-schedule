@@ -56,6 +56,19 @@ const getNumericClaim = (value: unknown) =>
 const normalizeIssuer = (value: string | null | undefined) =>
   value?.trim().replace(/\/+$/, "") || null;
 
+const base64UrlToBytes = (value: string) => {
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
 const parseHttpsUrl = (value: string | null | undefined) => {
   if (!value?.trim()) return null;
   try {
@@ -74,10 +87,33 @@ const inferIssuerFromJwksUrl = (jwksUrl: URL | null) => {
   return normalizeIssuer(`${jwksUrl.origin}${issuerPath}`);
 };
 
+const inferIssuerFromPublishableKey = (value: string | null | undefined) => {
+  const encoded = value
+    ?.trim()
+    .match(/^pk_(?:test|live)_([A-Za-z0-9_-]+)$/)?.[1];
+  if (!encoded) return null;
+
+  try {
+    const decoded = new TextDecoder()
+      .decode(base64UrlToBytes(encoded))
+      .trim()
+      .replace(/\$$/, "");
+    const url = parseHttpsUrl(
+      /^https:\/\//i.test(decoded) ? decoded : `https://${decoded}`,
+    );
+    return url ? normalizeIssuer(url.origin) : null;
+  } catch {
+    return null;
+  }
+};
+
 const getAuthConfig = (env: Env) => {
   const configuredIssuer = normalizeIssuer(env.CLERK_ISSUER);
   const configuredJwksUrl = parseHttpsUrl(env.CLERK_JWKS_URL);
-  const issuer = configuredIssuer ?? inferIssuerFromJwksUrl(configuredJwksUrl);
+  const issuer =
+    configuredIssuer ??
+    inferIssuerFromJwksUrl(configuredJwksUrl) ??
+    inferIssuerFromPublishableKey(env.VITE_CLERK_PUBLISHABLE_KEY);
   const jwksUrl =
     configuredJwksUrl ??
     (issuer ? parseHttpsUrl(`${issuer}${CLERK_JWKS_SUFFIX}`) : null);
@@ -99,19 +135,6 @@ const getBearerToken = (request: Request) => {
   if (!authorization) return null;
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() || null;
-};
-
-const base64UrlToBytes = (value: string) => {
-  const padded = value
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(Math.ceil(value.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 };
 
 const decodeJwtPart = <T>(value: string): T | null => {
@@ -293,7 +316,10 @@ export const authenticateOptionalRequest = async (
 };
 
 export const isAdminUser = (env: Env, userId: string) => {
-  const adminIds = (env.CLERK_ADMIN_IDS ?? "")
+  const configuredAdminIds = env.CLERK_ADMIN_IDS?.trim()
+    ? env.CLERK_ADMIN_IDS
+    : env.VITE_CLERK_ADMIN_IDS;
+  const adminIds = (configuredAdminIds ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);

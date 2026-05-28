@@ -1,4 +1,4 @@
-import { authenticateRequest } from "../auth";
+import { authenticateRequest, requireAdminUser } from "../auth";
 import { fetchXPostsForHandles, XApiError } from "../services/x";
 import { badRequest, json, methodNotAllowed } from "../utils/helpers";
 import type { Env } from "../types";
@@ -25,7 +25,7 @@ const parseHandles = (value: string | null) => {
 };
 
 const parseMaxResults = (value: string | null) => {
-  if (value === null || value.trim() === "") return 10;
+  if (value === null || value.trim() === "") return 5;
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return null;
   const parsed = Number.parseInt(trimmed, 10);
@@ -70,10 +70,10 @@ const getXPostsVisibility = async (db: D1Database) => {
 
 const getRichXLinkPreviewEnabled = async (db: D1Database) => {
   try {
-    return (await readSetting(db, X_RICH_LINK_PREVIEW_SETTING_KEY)) !== "false";
+    return (await readSetting(db, X_RICH_LINK_PREVIEW_SETTING_KEY)) === "true";
   } catch (error) {
     console.warn("Failed to read X rich link preview setting", error);
-    return true;
+    return false;
   }
 };
 
@@ -109,7 +109,10 @@ export const handleXPosts = async (request: Request, env: Env) => {
     return new Response("Member posts are private", { status: 403 });
   }
 
-  if (visibility === "members") {
+  if (debug) {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  } else if (visibility === "members") {
     const auth = await authenticateRequest(request, env);
     if (!auth.ok) return auth.response;
   }
@@ -136,6 +139,7 @@ export const handleXPosts = async (request: Request, env: Env) => {
       cacheDb: env.otw_db,
       maxResults,
       richXLinkPreviewEnabled,
+      refresh: debug,
     });
     return json(
       {

@@ -91,7 +91,7 @@ describe("x api", () => {
     );
   });
 
-  it("기본 요청 개수는 10개로 제한한다", async () => {
+  it("기본 요청 개수는 5개로 제한한다", async () => {
     const { fetchMembersXPosts } = await import("./x");
     apiFetchMock.mockResolvedValueOnce({
       updatedAt: "2026-02-13T00:00:00Z",
@@ -102,7 +102,7 @@ describe("x api", () => {
     await fetchMembersXPosts([makeMember(1, "https://x.com/valid_user")]);
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v3",
+      "/api/x/posts?handles=valid_user&maxResults=5&clientVersion=v3",
       { cache: "default" },
     );
   });

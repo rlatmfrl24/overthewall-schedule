@@ -29,6 +29,7 @@ import {
   rejectPendingSchedule,
   resetPendingScheduleProcessed,
   runAutoUpdateNow,
+  runXCollectionNow,
   updateSettings,
 } from "./settings";
 import {
@@ -214,6 +215,18 @@ describe("api wrapper modules", () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ success: true, updated: 0, checked: 0, details: [] })
       .mockResolvedValueOnce({
+        success: true,
+        status: "success",
+        checkedHandles: 1,
+        refreshedHandles: 1,
+        postsReturned: 1,
+        postsStored: 1,
+        apiCalls: 2,
+        estimatedCostMicros: 20_000,
+        error: null,
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
         items: [],
         total: 0,
         page: 1,
@@ -265,8 +278,10 @@ describe("api wrapper modules", () => {
       auto_update_enabled: "1",
       x_rich_link_preview_enabled: "false",
       x_posts_visibility: "public",
+      x_collection_interval_hours: "6",
     });
     await runAutoUpdateNow();
+    await runXCollectionNow();
     await fetchUpdateLogs();
     await fetchUpdateLogs({
       page: 2,
@@ -304,11 +319,18 @@ describe("api wrapper modules", () => {
         auto_update_enabled: "1",
         x_rich_link_preview_enabled: "false",
         x_posts_visibility: "public",
+        x_collection_interval_hours: "6",
       },
     });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {
       method: "POST",
     });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/x-collection/run-now",
+      {
+        method: "POST",
+      },
+    );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/logs?page=1&pageSize=50&sort=created_desc",
     );
