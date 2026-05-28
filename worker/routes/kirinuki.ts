@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { kirinukiChannels } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import { badRequest, pMap, parseNumericId } from "../utils/helpers";
 import type { Env, YouTubeVideoItem } from "../types";
 import { fetchYouTubeVideosForChannel } from "../services/youtube";
@@ -9,6 +10,11 @@ const KIRINUKI_BATCH_CONCURRENCY = 4;
 
 export const handleKirinuki = async (request: Request, env: Env) => {
   const url = new URL(request.url);
+  if (url.pathname === "/api/kirinuki/channels") {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  }
+
   const db = getDb(env);
 
   // GET /api/kirinuki/channels - 전체 채널 목록 조회

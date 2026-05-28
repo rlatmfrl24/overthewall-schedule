@@ -54,12 +54,9 @@ const makePost = (id: string, username: string): XPostItem => ({
   media: [],
 });
 
-const makeMemberRequest = (url: string) =>
-  new Request(url, {
-    headers: {
-      "x-otw-user-id": "user_1",
-    },
-  });
+const publicXSettings = {
+  x_posts_visibility: { value: "public" },
+};
 
 const makeCacheDb = (initial: Record<string, FakeCacheRecord> = {}) => {
   const store = new Map(Object.entries(initial));
@@ -724,14 +721,14 @@ describe("x worker service", () => {
             },
           ],
         }),
-      );
+    );
 
     const response = await handleXPosts(
-      makeMemberRequest("https://example.com/api/x/posts?handles=otw_member"),
+      new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
-        otw_db: makeCacheDb().db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
 
@@ -745,9 +742,7 @@ describe("x worker service", () => {
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
-        otw_db: makeCacheDb({
-          x_posts_visibility: { value: "public" },
-        }).db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
 
@@ -781,9 +776,7 @@ describe("x worker service", () => {
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
-        otw_db: makeCacheDb({
-          x_posts_visibility: { value: "public" },
-        }).db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
 
@@ -795,7 +788,7 @@ describe("x worker service", () => {
 
   it("멤버 게시글 공개 범위가 private이면 게시글 API를 차단한다", async () => {
     const response = await handleXPosts(
-      makeMemberRequest("https://example.com/api/x/posts?handles=otw_member"),
+      new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
@@ -840,11 +833,12 @@ describe("x worker service", () => {
       );
 
     const response = await handleXPosts(
-      makeMemberRequest("https://example.com/api/x/posts?handles=otw_member"),
+      new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
         otw_db: makeCacheDb({
+          ...publicXSettings,
           x_rich_link_preview_enabled: { value: "false" },
         }).db,
       } as Parameters<typeof handleXPosts>[1],
@@ -959,9 +953,28 @@ describe("x worker service", () => {
     expect(result.byHandle[0]?.stale).toBe(true);
   });
 
-  it("로그인 사용자 헤더가 없으면 X API 호출을 막는다", async () => {
+  it("Clerk 토큰이 없으면 회원 전용 X API 호출을 막는다", async () => {
     const response = await handleXPosts(
       new Request("https://example.com/api/x/posts?handles=otw_member"),
+      {
+        YOUTUBE_API_KEY: "",
+        X_BEARER_TOKEN: "token",
+        otw_db: makeCacheDb().db,
+      } as Parameters<typeof handleXPosts>[1],
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Login required");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("클라이언트 사용자 헤더만으로는 회원 전용 X API를 허용하지 않는다", async () => {
+    const response = await handleXPosts(
+      new Request("https://example.com/api/x/posts?handles=otw_member", {
+        headers: {
+          "x-otw-user-id": "user_1",
+        },
+      }),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
@@ -994,16 +1007,14 @@ describe("x worker service", () => {
           },
           403,
         ),
-      );
+    );
 
     const response = await handleXPosts(
-      makeMemberRequest(
-        "https://example.com/api/x/posts?handles=otw_member&debug=1",
-      ),
+      new Request("https://example.com/api/x/posts?handles=otw_member&debug=1"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
-        otw_db: makeCacheDb().db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
 
@@ -1054,13 +1065,11 @@ describe("x worker service", () => {
       );
 
     const response = await handleXPosts(
-      makeMemberRequest(
-        "https://example.com/api/x/posts?handles=otw_member&debug=1",
-      ),
+      new Request("https://example.com/api/x/posts?handles=otw_member&debug=1"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "token",
-        otw_db: makeCacheDb().db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
     const body = (await response.json()) as { detail: string };
@@ -1078,11 +1087,11 @@ describe("x worker service", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const response = await handleXPosts(
-      makeMemberRequest("https://example.com/api/x/posts?handles=otw_member"),
+      new Request("https://example.com/api/x/posts?handles=otw_member"),
       {
         YOUTUBE_API_KEY: "",
         X_BEARER_TOKEN: "",
-        otw_db: makeCacheDb().db,
+        otw_db: makeCacheDb(publicXSettings).db,
       } as Parameters<typeof handleXPosts>[1],
     );
 

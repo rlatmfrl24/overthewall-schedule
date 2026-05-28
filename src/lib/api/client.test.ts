@@ -14,7 +14,7 @@ describe("apiFetch", () => {
     delete (globalThis as { window?: unknown }).window;
   });
 
-  it("json payload, actor header, json 응답을 처리한다", async () => {
+  it("json payload, Clerk token header, json 응답을 처리한다", async () => {
     (globalThis as { window?: unknown }).window = {
       Clerk: {
         user: {
@@ -48,11 +48,13 @@ describe("apiFetch", () => {
         headers: expect.objectContaining({
           Authorization: "Bearer session-token",
           "Content-Type": "application/json",
-          "x-otw-user-id": "user_1",
-          "x-otw-user-name": "Admin User",
         }),
       }),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toMatchObject({
+      "x-otw-user-id": expect.any(String),
+      "x-otw-user-name": expect.any(String),
+    });
   });
 
   it("204/empty 응답은 null로 반환한다", async () => {

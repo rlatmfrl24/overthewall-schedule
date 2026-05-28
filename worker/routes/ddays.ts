@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { ddays } from "../../src/db/schema";
+import { requireAdminUser } from "../auth";
 import {
   badRequest,
   json,
@@ -98,6 +99,15 @@ const updateDDay = async (
 
 export const handleDDays = async (request: Request, env: Env) => {
   const url = new URL(request.url);
+  if (
+    request.method === "POST" ||
+    request.method === "PUT" ||
+    request.method === "DELETE"
+  ) {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+  }
+
   const db = getDb(env);
 
   if (request.method === "GET") {

@@ -1,3 +1,4 @@
+import { authenticateRequest } from "../auth";
 import { fetchXPostsForHandles, XApiError } from "../services/x";
 import { badRequest, json, methodNotAllowed } from "../utils/helpers";
 import type { Env } from "../types";
@@ -7,7 +8,6 @@ const X_POSTS_CACHE_CONTROL =
 const X_RICH_LINK_PREVIEW_SETTING_KEY = "x_rich_link_preview_enabled";
 const X_POSTS_VISIBILITY_SETTING_KEY = "x_posts_visibility";
 const HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
-const MEMBER_USER_ID_PATTERN = /^[A-Za-z0-9_-]{3,128}$/;
 
 type XPostsVisibility = "public" | "members" | "private";
 
@@ -43,11 +43,6 @@ const getXErrorPayload = (error: XApiError) => ({
   detail: error.detail,
   diagnostics: error.diagnostics,
 });
-
-const hasMemberAccess = (request: Request) => {
-  const userId = request.headers.get("x-otw-user-id")?.trim();
-  return Boolean(userId && MEMBER_USER_ID_PATTERN.test(userId));
-};
 
 const readSetting = async (db: D1Database, key: string) => {
   const row = await db
@@ -114,8 +109,9 @@ export const handleXPosts = async (request: Request, env: Env) => {
     return new Response("Member posts are private", { status: 403 });
   }
 
-  if (visibility === "members" && !hasMemberAccess(request)) {
-    return new Response("Login required", { status: 401 });
+  if (visibility === "members") {
+    const auth = await authenticateRequest(request, env);
+    if (!auth.ok) return auth.response;
   }
 
   const handles = parseHandles(url.searchParams.get("handles"));

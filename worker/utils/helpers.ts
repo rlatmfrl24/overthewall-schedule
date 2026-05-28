@@ -45,17 +45,12 @@ export const getActorInfo = (
   request: Request,
   authenticatedUser?: AuthenticatedUser | null,
 ) => {
-  const headers = request.headers;
-  const actorId =
-    authenticatedUser?.id ??
-    headers.get("X-Actor-ID") ??
-    headers.get("x-otw-user-id");
-  const actorName =
-    authenticatedUser?.displayName ??
-    headers.get("X-Actor-Name") ??
-    headers.get("x-otw-user-name");
   const actorIp = getClientIp(request);
-  return { actorId, actorName, actorIp };
+  return {
+    actorId: authenticatedUser?.id ?? null,
+    actorName: authenticatedUser?.displayName ?? null,
+    actorIp,
+  };
 };
 
 const resolveMemberName = async (
