@@ -10,6 +10,7 @@ import { CardMemberCompact } from "@/features/daily/card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
 import { ScheduleDialog } from "@/shared/schedule/schedule-dialog";
 import { NoticeBanner } from "@/shared/notice/notice-banner";
+import { getLiveUrlForSchedule } from "@/features/daily/live-navigation";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -248,6 +249,22 @@ export const DailySchedule = () => {
       setAlertMessage("스케쥴 삭제 실패");
       setAlertOpen(true);
     }
+  };
+
+  const openEditScheduleDialog = (schedule: ScheduleItem) => {
+    setEditingSchedule(schedule);
+    setInitialMemberUid(null);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleScheduleClick = (schedule: ScheduleItem) => {
+    const liveUrl = getLiveUrlForSchedule(schedule, members, liveStatuses);
+    if (liveUrl) {
+      window.open(liveUrl, "_blank", "noreferrer");
+      return;
+    }
+
+    openEditScheduleDialog(schedule);
   };
 
   const createSnapshotBlob = async () => {
@@ -725,11 +742,7 @@ export const DailySchedule = () => {
                           member={member}
                           schedules={memberSchedules}
                           liveStatus={isToday ? liveStatuses[member.uid] : undefined}
-                          onScheduleClick={(schedule) => {
-                            setEditingSchedule(schedule);
-                            setInitialMemberUid(null);
-                            setIsEditDialogOpen(true);
-                          }}
+                          onScheduleClick={handleScheduleClick}
                           onAddSchedule={(memberUid) => {
                             setEditingSchedule(null);
                             setInitialMemberUid(memberUid);
@@ -742,11 +755,7 @@ export const DailySchedule = () => {
                           member={member}
                           schedules={memberSchedules}
                           liveStatus={isToday ? liveStatuses[member.uid] : undefined}
-                          onScheduleClick={(schedule) => {
-                            setEditingSchedule(schedule);
-                            setInitialMemberUid(null);
-                            setIsEditDialogOpen(true);
-                          }}
+                          onScheduleClick={handleScheduleClick}
                           onAddSchedule={(memberUid) => {
                             setEditingSchedule(null);
                             setInitialMemberUid(memberUid);
@@ -771,10 +780,7 @@ export const DailySchedule = () => {
               schedules={schedules}
               loading={isDailyScheduleLoading}
               liveStatuses={isToday ? liveStatuses : {}}
-              onScheduleClick={(schedule) => {
-                setEditingSchedule(schedule);
-                setIsEditDialogOpen(true);
-              }}
+              onScheduleClick={handleScheduleClick}
             />
           )}
         </div>
