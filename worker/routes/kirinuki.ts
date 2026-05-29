@@ -7,6 +7,8 @@ import type { Env, YouTubeVideoItem } from "../types";
 import { fetchYouTubeVideosForChannel } from "../services/youtube";
 
 const KIRINUKI_BATCH_CONCURRENCY = 4;
+const KIRINUKI_VIDEOS_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 export const handleKirinuki = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -124,12 +126,15 @@ export const handleKirinuki = async (request: Request, env: Env) => {
     // 1. 등록된 채널 목록 조회
     const channels = await db.select().from(kirinukiChannels);
     if (channels.length === 0) {
-      return Response.json({
-        updatedAt: new Date().toISOString(),
-        videos: [],
-        shorts: [],
-        byChannel: [],
-      });
+      return Response.json(
+        {
+          updatedAt: new Date().toISOString(),
+          videos: [],
+          shorts: [],
+          byChannel: [],
+        },
+        { headers: { "Cache-Control": KIRINUKI_VIDEOS_CACHE_CONTROL } },
+      );
     }
 
     // 2. 환경 변수에서 YouTube API 키 가져오기
@@ -180,16 +185,19 @@ export const handleKirinuki = async (request: Request, env: Env) => {
         new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
     );
 
-    return Response.json({
-      updatedAt: new Date().toISOString(),
-      videos: allVideos.slice(0, maxResults),
-      shorts: allShorts.slice(0, maxResults),
-      byChannel: channelResults.map((r) => ({
-        channelId: r.channelId,
-        channelName: r.channelName,
-        content: r.content,
-      })),
-    });
+    return Response.json(
+      {
+        updatedAt: new Date().toISOString(),
+        videos: allVideos.slice(0, maxResults),
+        shorts: allShorts.slice(0, maxResults),
+        byChannel: channelResults.map((r) => ({
+          channelId: r.channelId,
+          channelName: r.channelName,
+          content: r.content,
+        })),
+      },
+      { headers: { "Cache-Control": KIRINUKI_VIDEOS_CACHE_CONTROL } },
+    );
   }
 
   return new Response(null, { status: 404 });

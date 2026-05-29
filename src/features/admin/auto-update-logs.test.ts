@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import { AutoUpdateLogsManager } from "./auto-update-logs";
 
 const fetchUpdateLogsMock = vi.hoisted(() => vi.fn());
@@ -40,7 +41,9 @@ describe("AutoUpdateLogsManager", () => {
   });
 
   it("정렬된 필터 컨트롤과 상태 배지를 표시한다", async () => {
-    render(createElement(AutoUpdateLogsManager));
+    render(createElement(AutoUpdateLogsManager), {
+      wrapper: createQueryWrapper(),
+    });
 
     expect(screen.getByText("스케줄 업데이트 로그")).toBeTruthy();
     expect(screen.getByText("로그 필터")).toBeTruthy();
@@ -57,7 +60,9 @@ describe("AutoUpdateLogsManager", () => {
   });
 
   it("검색어 입력 시 활성 필터 수와 초기화 버튼 상태를 갱신한다", () => {
-    render(createElement(AutoUpdateLogsManager));
+    render(createElement(AutoUpdateLogsManager), {
+      wrapper: createQueryWrapper(),
+    });
 
     const resetButton = screen.getByRole("button", { name: "초기화" });
     expect(resetButton).toHaveProperty("disabled", true);

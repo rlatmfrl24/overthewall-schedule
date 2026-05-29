@@ -312,7 +312,9 @@ describe("api wrapper modules", () => {
     expect(approveAllResult.skippedCount).toBe(1);
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/kirinuki/videos?maxResults=7");
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
+      cache: "no-store",
+    });
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
       method: "PUT",
       json: {
@@ -333,11 +335,15 @@ describe("api wrapper modules", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/logs?page=1&pageSize=50&sort=created_desc",
+      { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/logs?page=2&pageSize=20&sort=created_desc&action=auto_update&member=%EB%A9%A4%EB%B2%84&dateFrom=2026-02-01&dateTo=2026-02-13&query=%EA%B2%80%EC%83%89",
+      { cache: "no-store" },
     );
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending", {
+      cache: "no-store",
+    });
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/11/approve",
       { method: "POST" },

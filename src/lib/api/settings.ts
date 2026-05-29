@@ -61,7 +61,7 @@ export interface UpdateLog {
   created_at: string | null;
 }
 
-interface UpdateLogQuery {
+export interface UpdateLogQuery {
   page?: number;
   pageSize?: number;
   sort?: "created_desc" | "created_asc" | "schedule_desc" | "schedule_asc" | "action_asc";
@@ -131,7 +131,7 @@ export interface PendingApprovalOptions {
 }
 
 export async function fetchSettings(): Promise<AutoUpdateSettings> {
-  return apiFetch<AutoUpdateSettings>("/api/settings");
+  return apiFetch<AutoUpdateSettings>("/api/settings", { cache: "no-store" });
 }
 
 export async function updateSettings(
@@ -192,12 +192,16 @@ export async function fetchUpdateLogs(
     dateTo: options.dateTo,
     query: options.query,
   });
-  return apiFetch<UpdateLogPageResponse>(`/api/settings/logs?${queryString}`);
+  return apiFetch<UpdateLogPageResponse>(`/api/settings/logs?${queryString}`, {
+    cache: "no-store",
+  });
 }
 
 // 대기 스케줄 API
 export async function fetchPendingSchedules(): Promise<PendingSchedule[]> {
-  return apiFetch<PendingSchedule[]>("/api/settings/pending");
+  return apiFetch<PendingSchedule[]>("/api/settings/pending", {
+    cache: "no-store",
+  });
 }
 
 export async function approvePendingSchedule(

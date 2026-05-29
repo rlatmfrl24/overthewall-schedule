@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchMembersXPosts } from "@/lib/api/x";
+import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { Member, XPost, XPostsResponse } from "@/lib/types";
 
 interface UseXPostsReturn {
@@ -17,12 +20,7 @@ export function useXPosts(
   members: Member[],
   options: { enabled?: boolean; maxResults?: number; admin?: boolean } = {},
 ): UseXPostsReturn {
-  const [data, setData] = useState<XPostsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const dataRef = useRef<XPostsResponse | null>(null);
-
+  const queryClient = useQueryClient();
   const { enabled = true, maxResults = 5, admin = false } = options;
   const twitterUrlsKey = useMemo(
     () =>
@@ -32,86 +30,57 @@ export function useXPosts(
         .join(","),
     [members],
   );
-
-  const load = useCallback(async (force: boolean) => {
-    const currentData = dataRef.current;
-    if (!enabled) {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    if (members.length === 0) {
-      setData(null);
-      setLoading(false);
-      setError(null);
-      setHasLoaded(true);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetchMembersXPosts(members, {
+  const queryEnabled = enabled && members.length > 0;
+  const queryKey = queryKeys.memberPosts.x(twitterUrlsKey, maxResults, admin);
+  const fetchPosts = useCallback(
+    (force: boolean) =>
+      fetchMembersXPosts(members, {
+        admin,
         force,
         maxResults,
-        admin,
-      });
-      if (response) {
-        setData(response);
-        setError(
-          response.clientStale
-            ? "새 게시글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
-            : null,
-        );
-      } else if (!currentData) {
-        setData({
-          posts: [],
-          updatedAt: new Date().toISOString(),
-          byHandle: [],
-        });
-      }
-    } catch (err) {
-      console.error("Failed to fetch X posts:", err);
-      setError(
-        currentData
+      }),
+    [admin, members, maxResults],
+  );
+
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchPosts(false),
+    enabled: queryEnabled,
+    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
+  });
+  const reloadMutation = useMutation({
+    mutationFn: () => fetchPosts(true),
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKey, response);
+    },
+  });
+
+  const reload = useCallback(async () => {
+    if (!queryEnabled) return;
+    await reloadMutation.mutateAsync();
+  }, [queryEnabled, reloadMutation]);
+
+  const data = queryEnabled ? query.data : null;
+  const hasData = Boolean(data);
+  const error =
+    data?.clientStale
+      ? "새 게시글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
+      : query.error || reloadMutation.error
+        ? hasData
           ? "새 게시글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
-          : "X 게시글을 불러오는데 실패했습니다.",
-      );
-    } finally {
-      setLoading(false);
-      setHasLoaded(true);
-    }
-  }, [admin, enabled, members, maxResults]);
-
-  const reload = useCallback(() => load(true), [load]);
-
-  useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
-
-  useEffect(() => {
-    if (enabled) return;
-    setLoading(false);
-    setError(null);
-  }, [enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    void load(false);
-  }, [enabled, twitterUrlsKey, load]);
+          : "X 게시글을 불러오는데 실패했습니다."
+        : null;
 
   return {
     posts: data?.posts ?? [],
     updatedAt: data?.updatedAt ?? null,
     byHandle: data?.byHandle ?? [],
-    loading,
+    loading: queryEnabled ? query.isFetching || reloadMutation.isPending : false,
     error,
     stale:
       Boolean(data?.clientStale) ||
       Boolean(data?.byHandle.some((item) => item.stale)),
-    hasLoaded,
+    hasLoaded: queryEnabled ? query.isFetched : members.length === 0 && enabled,
     reload,
   };
 }

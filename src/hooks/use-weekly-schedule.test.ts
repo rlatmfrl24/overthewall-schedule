@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import type { DDayItem, Member, ScheduleItem } from "@/lib/types";
 import { useWeeklySchedule } from "./use-weekly-schedule";
 
@@ -53,7 +54,9 @@ describe("useWeeklySchedule", () => {
     fetchSchedulesInRangeMock.mockResolvedValue([makeSchedule()]);
     saveScheduleWithConflictsMock.mockResolvedValue(undefined);
 
-    const { result } = renderHook(() => useWeeklySchedule());
+    const { result } = renderHook(() => useWeeklySchedule(), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.schedules).toHaveLength(1);
@@ -86,7 +89,9 @@ describe("useWeeklySchedule", () => {
     deleteScheduleMock.mockRejectedValueOnce(new Error("delete failed"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const { result } = renderHook(() => useWeeklySchedule());
+    const { result } = renderHook(() => useWeeklySchedule(), {
+      wrapper: createQueryWrapper(),
+    });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {

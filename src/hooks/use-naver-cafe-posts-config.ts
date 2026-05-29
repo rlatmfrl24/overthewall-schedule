@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchNaverCafePostsConfig } from "@/lib/api/naver-cafe";
+import { useCallback, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  fetchNaverCafePostsConfig,
+  type NaverCafePostsConfigResponse,
+} from "@/lib/api/naver-cafe";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { NaverCafePostsVisibility } from "@/lib/types";
 
 export const NAVER_CAFE_POSTS_CONFIG_UPDATED_EVENT =
@@ -17,32 +23,23 @@ const isVisibility = (value: unknown): value is NaverCafePostsVisibility =>
   value === "public" || value === "members" || value === "private";
 
 export function useNaverCafePostsConfig(): NaverCafePostsConfigState {
-  const [enabled, setEnabled] = useState(true);
-  const [visibility, setVisibility] =
-    useState<NaverCafePostsVisibility>("members");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.memberPosts.naverCafeConfig();
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchNaverCafePostsConfig(),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const reloadMutation = useMutation({
+    mutationFn: () => fetchNaverCafePostsConfig({ force: true }),
+    onSuccess: (config) => {
+      queryClient.setQueryData(queryKey, config);
+    },
+  });
 
-  const load = useCallback(async (force = false) => {
-    setLoading(true);
-    try {
-      const config = await fetchNaverCafePostsConfig({ force });
-      setEnabled(config.enabled);
-      setVisibility(config.visibility);
-      setError(null);
-    } catch (loadError) {
-      console.error("Failed to load Naver Cafe posts config:", loadError);
-      setEnabled(true);
-      setVisibility("members");
-      setError("카페 최신글 공개 설정을 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(false);
-  }, [load]);
+  const reload = useCallback(async () => {
+    await reloadMutation.mutateAsync();
+  }, [reloadMutation]);
 
   useEffect(() => {
     const handleConfigUpdate = (event: Event) => {
@@ -52,22 +49,27 @@ export function useNaverCafePostsConfig(): NaverCafePostsConfigState {
           visibility?: unknown;
         }>
       ).detail;
+      const current = queryClient.getQueryData<NaverCafePostsConfigResponse>(
+        queryKey,
+      );
+      const next = {
+        enabled:
+          typeof detail?.enabled === "boolean"
+            ? detail.enabled
+            : current?.enabled ?? true,
+        visibility: isVisibility(detail?.visibility)
+          ? detail.visibility
+          : current?.visibility ?? "members",
+      };
 
-      if (typeof detail?.enabled === "boolean") {
-        setEnabled(detail.enabled);
-      }
-      if (isVisibility(detail?.visibility)) {
-        setVisibility(detail.visibility);
-      }
       if (
         typeof detail?.enabled === "boolean" ||
         isVisibility(detail?.visibility)
       ) {
-        setError(null);
-        setLoading(false);
+        queryClient.setQueryData(queryKey, next);
         return;
       }
-      void load(true);
+      void reload();
     };
 
     window.addEventListener(
@@ -79,13 +81,16 @@ export function useNaverCafePostsConfig(): NaverCafePostsConfigState {
         NAVER_CAFE_POSTS_CONFIG_UPDATED_EVENT,
         handleConfigUpdate,
       );
-  }, [load]);
+  }, [queryClient, queryKey, reload]);
 
   return {
-    enabled,
-    visibility,
-    loading,
-    error,
-    reload: () => load(true),
+    enabled: query.data?.enabled ?? true,
+    visibility: query.data?.visibility ?? "members",
+    loading: query.isLoading || reloadMutation.isPending,
+    error:
+      query.error || reloadMutation.error
+        ? "카페 최신글 공개 설정을 불러오지 못했습니다."
+        : null,
+    reload,
   };
 }

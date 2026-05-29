@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import { MemberPostSettingsManager } from "./member-post-settings";
 
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
@@ -167,7 +168,9 @@ describe("MemberPostSettingsManager", () => {
   });
 
   it("X 수집 주기와 수동 실행 결과를 표시한다", async () => {
-    render(createElement(MemberPostSettingsManager));
+    render(createElement(MemberPostSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(fetchSettingsMock).toHaveBeenCalled());
     expect(screen.getByText("수집 주기")).toBeTruthy();

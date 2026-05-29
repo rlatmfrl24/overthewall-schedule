@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Clock3,
   DatabaseZap,
@@ -50,6 +51,7 @@ import type { NaverCafePostsVisibility, XPostsVisibility } from "@/lib/types";
 import { AdminSectionHeader } from "./components/admin-section-header";
 import { MemberPostFeedMonitor } from "./member-post-feed-monitor";
 import { NaverCafeSourceManager } from "./naver-cafe-source-manager";
+import { queryKeys } from "@/lib/query-keys";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -107,6 +109,7 @@ const getCollectionStatusLabel = (status: XCollectionRunResult["status"]) => {
 };
 
 export function MemberPostSettingsManager() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
   const [isFetching, setIsFetching] = useState(false);
@@ -119,7 +122,11 @@ export function MemberPostSettingsManager() {
   const loadSettings = useCallback(async () => {
     setIsFetching(true);
     try {
-      const data = await fetchSettings();
+      const data = await queryClient.fetchQuery({
+        queryKey: queryKeys.settings.detail(),
+        queryFn: fetchSettings,
+        staleTime: 0,
+      });
       setSettings(data);
       setBudgetDraft(data.x_collection_daily_budget_cents ?? "100");
       setCollectionResult(null);
@@ -132,7 +139,7 @@ export function MemberPostSettingsManager() {
     } finally {
       setIsFetching(false);
     }
-  }, [toast]);
+  }, [queryClient, toast]);
 
   useEffect(() => {
     void loadSettings();
@@ -155,6 +162,9 @@ export function MemberPostSettingsManager() {
     setIsSaving(true);
     try {
       await updateSettings({ x_posts_visibility: visibility });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({
         ...settings,
         x_posts_visibility: visibility,
@@ -186,6 +196,9 @@ export function MemberPostSettingsManager() {
       await updateSettings({
         x_collection_enabled: enabled ? "true" : "false",
       });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({
         ...settings,
         x_collection_enabled: enabled ? "true" : "false",
@@ -216,6 +229,9 @@ export function MemberPostSettingsManager() {
     try {
       await updateSettings({
         x_collection_daily_budget_cents: normalized,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
       });
       setSettings({
         ...settings,
@@ -249,6 +265,9 @@ export function MemberPostSettingsManager() {
     try {
       await updateSettings({
         x_collection_interval_hours: interval,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
       });
       setSettings({
         ...settings,
@@ -315,6 +334,9 @@ export function MemberPostSettingsManager() {
       await updateSettings({
         x_rich_link_preview_enabled: enabled ? "true" : "false",
       });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({
         ...settings,
         x_rich_link_preview_enabled: enabled ? "true" : "false",
@@ -342,6 +364,9 @@ export function MemberPostSettingsManager() {
     try {
       await updateSettings({
         naver_cafe_posts_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
       });
       setSettings({
         ...settings,
@@ -376,6 +401,9 @@ export function MemberPostSettingsManager() {
     setIsSaving(true);
     try {
       await updateSettings({ naver_cafe_posts_visibility: visibility });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({
         ...settings,
         naver_cafe_posts_visibility: visibility,

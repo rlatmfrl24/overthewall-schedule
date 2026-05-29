@@ -5,6 +5,8 @@ import type { YouTubeVideoItem, Env } from "../types";
 
 const CHZZK_BATCH_CONCURRENCY = 6;
 const YOUTUBE_BATCH_CONCURRENCY = 4;
+const MEDIA_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 
 export const handleVods = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -38,10 +40,14 @@ export const handleVods = async (request: Request, env: Env) => {
         CHZZK_BATCH_CONCURRENCY,
       );
 
-      return json({
-        updatedAt: new Date().toISOString(),
-        items,
-      });
+      return json(
+        {
+          updatedAt: new Date().toISOString(),
+          items,
+        },
+        200,
+        { headers: { "Cache-Control": MEDIA_CACHE_CONTROL } },
+      );
     }
 
     if (!channelId) {
@@ -49,10 +55,14 @@ export const handleVods = async (request: Request, env: Env) => {
     }
 
     const content = await fetchChzzkVideos(channelId, page, size);
-    return json({
-      updatedAt: new Date().toISOString(),
-      content,
-    });
+    return json(
+      {
+        updatedAt: new Date().toISOString(),
+        content,
+      },
+      200,
+      { headers: { "Cache-Control": MEDIA_CACHE_CONTROL } },
+    );
   }
 
   // Chzzk Clips API
@@ -84,10 +94,14 @@ export const handleVods = async (request: Request, env: Env) => {
         CHZZK_BATCH_CONCURRENCY,
       );
 
-      return json({
-        updatedAt: new Date().toISOString(),
-        items,
-      });
+      return json(
+        {
+          updatedAt: new Date().toISOString(),
+          items,
+        },
+        200,
+        { headers: { "Cache-Control": MEDIA_CACHE_CONTROL } },
+      );
     }
 
     if (!channelId) {
@@ -95,10 +109,14 @@ export const handleVods = async (request: Request, env: Env) => {
     }
 
     const content = await fetchChzzkClips(channelId, size);
-    return json({
-      updatedAt: new Date().toISOString(),
-      content,
-    });
+    return json(
+      {
+        updatedAt: new Date().toISOString(),
+        content,
+      },
+      200,
+      { headers: { "Cache-Control": MEDIA_CACHE_CONTROL } },
+    );
   }
 
   // YouTube Videos API
@@ -164,12 +182,16 @@ export const handleVods = async (request: Request, env: Env) => {
           new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
       );
 
-      return json({
-        updatedAt: new Date().toISOString(),
-        videos: allVideos,
-        shorts: allShorts,
-        byChannel: items,
-      });
+      return json(
+        {
+          updatedAt: new Date().toISOString(),
+          videos: allVideos,
+          shorts: allShorts,
+          byChannel: items,
+        },
+        200,
+        { headers: { "Cache-Control": MEDIA_CACHE_CONTROL } },
+      );
     } catch (error) {
       console.error("Failed to handle /api/youtube/videos", error);
       return new Response("Failed to fetch YouTube videos", { status: 502 });

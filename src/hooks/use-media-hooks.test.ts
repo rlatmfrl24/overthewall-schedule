@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import type { Member } from "@/lib/types";
 import { useAllMembersClips } from "./use-chzzk-clips";
 import { useAllMembersLatestVods, useAllMembersVods } from "./use-chzzk-vods";
@@ -79,7 +80,9 @@ describe("media hooks", () => {
     fetchAllMembersClipsMock.mockResolvedValue([{ clipUID: "c1" }]);
 
     const members = [makeMember(1, { chzzkChannelId: "aaa" })];
-    const { result } = renderHook(() => useAllMembersClips(members, 7));
+    const { result } = renderHook(() => useAllMembersClips(members, 7), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.clips).toEqual([{ clipUID: "c1" }]);
@@ -95,6 +98,7 @@ describe("media hooks", () => {
     const members = [makeMember(1, { chzzkChannelId: "aaa" })];
     const { result } = renderHook(() =>
       useAllMembersLatestVods(members, { enabled: false }),
+      { wrapper: createQueryWrapper() },
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -105,7 +109,9 @@ describe("media hooks", () => {
   it("useAllMembersLatestVods: 조회 결과를 상태에 반영한다", async () => {
     fetchAllMembersLatestVideosMock.mockResolvedValue({ 1: { videoId: "v1" } });
     const members = [makeMember(1, { chzzkChannelId: "aaa" })];
-    const { result } = renderHook(() => useAllMembersLatestVods(members));
+    const { result } = renderHook(() => useAllMembersLatestVods(members), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.vods[1]).toEqual({ videoId: "v1" });
@@ -114,7 +120,9 @@ describe("media hooks", () => {
   it("useAllMembersVods: 멤버당 다시보기 개수를 전달하고 배열 상태를 반영한다", async () => {
     fetchAllMembersVodVideosMock.mockResolvedValue([{ videoId: "v1" }]);
     const members = [makeMember(1, { chzzkChannelId: "aaa" })];
-    const { result } = renderHook(() => useAllMembersVods(members, 8));
+    const { result } = renderHook(() => useAllMembersVods(members, 8), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.vods).toEqual([{ videoId: "v1" }]);
@@ -130,6 +138,7 @@ describe("media hooks", () => {
 
     const { result, rerender } = renderHook(() =>
       useKirinukiVideos({ maxResults: 3 }),
+      { wrapper: createQueryWrapper() },
     );
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
@@ -148,7 +157,9 @@ describe("media hooks", () => {
   });
 
   it("useYouTubeVideos: 채널 없는 경우 즉시 로드 완료 처리한다", async () => {
-    const { result } = renderHook(() => useYouTubeVideos([makeMember(1)]));
+    const { result } = renderHook(() => useYouTubeVideos([makeMember(1)]), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.videos).toEqual([]);
@@ -163,7 +174,10 @@ describe("media hooks", () => {
     });
 
     const members = [makeMember(2, { youtubeChannelId: "UC1" })];
-    const { result } = renderHook(() => useYouTubeVideos(members, { maxResults: 9 }));
+    const { result } = renderHook(
+      () => useYouTubeVideos(members, { maxResults: 9 }),
+      { wrapper: createQueryWrapper() },
+    );
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.videos[0]?.videoId).toBe("v1");
@@ -181,6 +195,7 @@ describe("media hooks", () => {
     const members = [makeMember(1, { xHandle: "otw_member" })];
     const { result } = renderHook(() =>
       useXPosts(members, { enabled: false }),
+      { wrapper: createQueryWrapper() },
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -204,7 +219,9 @@ describe("media hooks", () => {
     });
 
     const members = [makeMember(1, { xHandle: "otw_member" })];
-    const { result } = renderHook(() => useXPosts(members));
+    const { result } = renderHook(() => useXPosts(members), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(fetchMembersXPostsMock).toHaveBeenCalledWith(members, {

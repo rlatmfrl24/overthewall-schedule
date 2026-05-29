@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { type Notice } from "@/db/schema";
 import { Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -11,6 +12,8 @@ import {
 } from "@/components/ui/tooltip";
 import { fetchNotices } from "@/lib/api/notices";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 
 const noticeTypeConfigs = {
   notice: {
@@ -32,21 +35,14 @@ const resolveNoticeType = (value?: string): NoticeTypeKey => {
 };
 
 export function NoticeBanner() {
-  const [notices, setNotices] = useState<Notice[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const navigate = useNavigate();
-  const loadNotices = useCallback(async () => {
-    try {
-      const data = await fetchNotices();
-      setNotices(data);
-    } catch (error) {
-      console.error("Failed to load notices:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadNotices();
-  }, [loadNotices]);
+  const noticesQuery = useQuery<Notice[]>({
+    queryKey: queryKeys.notices.public(),
+    queryFn: () => fetchNotices(),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
 
   const visibleNotices = useMemo(
     () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),

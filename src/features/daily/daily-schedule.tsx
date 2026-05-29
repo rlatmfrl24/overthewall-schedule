@@ -3,7 +3,8 @@ import type {
   ScheduleStatus,
   ChzzkLiveStatusMap,
 } from "@/lib/types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardMember } from "./card-member";
 import { CardMemberCompact } from "@/features/daily/card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
@@ -35,7 +36,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDDayLabel, getDDaysForDate } from "@/lib/dday";
-import { cn, getContrastColor } from "@/lib/utils";
+import {
+  cn,
+  extractChzzkChannelId,
+  extractChzzkChannelIdFromText,
+  getContrastColor,
+} from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -54,6 +60,7 @@ import {
 } from "@/lib/api/live-status";
 import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
+import { queryKeys } from "@/lib/query-keys";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -68,11 +75,9 @@ type LiveDebugRow = {
 };
 
 export const DailySchedule = () => {
+  const queryClient = useQueryClient();
   const { members, ddays, loading: isScheduleDataLoading, hasLoaded } =
     useScheduleData();
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [isSchedulesLoading, setIsSchedulesLoading] = useState(true);
-  const [hasSchedulesLoaded, setHasSchedulesLoaded] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -83,16 +88,66 @@ export const DailySchedule = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isSnapshotProcessing, setIsSnapshotProcessing] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "timeline">("grid");
-  const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
   const [showLiveDebug, setShowLiveDebug] = useState(false);
-  const [liveDebugRows, setLiveDebugRows] = useState<LiveDebugRow[]>([]);
-  const [liveDebugUpdatedAt, setLiveDebugUpdatedAt] = useState<string | null>(
-    null,
-  );
   const isLiveDebug = useMemo(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("liveDebug") === "1";
   }, []);
+  const currentDateString = format(currentDate, "yyyy-MM-dd");
+  const schedulesQuery = useQuery({
+    queryKey: queryKeys.schedules.byDate(currentDateString),
+    queryFn: () => fetchSchedulesByDate(currentDateString),
+  });
+  const schedules = useMemo(
+    () => schedulesQuery.data ?? [],
+    [schedulesQuery.data],
+  );
+  const isToday = isSameDay(currentDate, new Date());
+  const liveChannelIdsKey = useMemo(() => {
+    const channelIds = new Set<string>();
+    for (const member of members) {
+      const channelId = extractChzzkChannelId(member.url_chzzk);
+      if (channelId) channelIds.add(channelId);
+    }
+    for (const schedule of schedules) {
+      if (schedule.status !== "방송" && schedule.status !== "게릴라") continue;
+      const channelId = extractChzzkChannelIdFromText(schedule.title);
+      if (channelId) channelIds.add(channelId);
+    }
+    return Array.from(channelIds).sort().join(",");
+  }, [members, schedules]);
+  const liveSchedulesKey = useMemo(
+    () =>
+      schedules
+        .map((schedule) =>
+          [
+            schedule.id,
+            schedule.member_uid,
+            schedule.status,
+            schedule.title ?? "",
+          ].join(":"),
+        )
+        .sort()
+        .join("|"),
+    [schedules],
+  );
+  const liveStatusEnabled =
+    isToday && members.length > 0 && liveChannelIdsKey.length > 0;
+  const liveStatusQuery = useQuery({
+    queryKey: queryKeys.liveStatus.statuses(liveChannelIdsKey, liveSchedulesKey),
+    queryFn: () => fetchLiveStatusesForMembers(members, { schedules }),
+    enabled: liveStatusEnabled,
+    refetchInterval: liveStatusEnabled ? 60_000 : false,
+  });
+  const liveDiagnosticsQuery = useQuery({
+    queryKey: queryKeys.liveStatus.diagnostics(
+      liveChannelIdsKey,
+      liveSchedulesKey,
+    ),
+    queryFn: () => fetchLiveStatusDiagnostics(members, { schedules }),
+    enabled: liveStatusEnabled && isLiveDebug,
+    refetchInterval: liveStatusEnabled && isLiveDebug ? 60_000 : false,
+  });
 
   const SNAPSHOT_TIMEOUT = 12_000;
 
@@ -110,85 +165,33 @@ export const DailySchedule = () => {
   const handleNextDay = () => setCurrentDate((prev) => addDays(prev, 1));
   const handleToday = () => setCurrentDate(new Date());
 
-  const fetchLiveStatuses = useCallback(
-    async (
-      targetMembers: typeof members = members,
-      targetSchedules: ScheduleItem[] = schedules,
-    ) => {
-      if (targetMembers.length === 0) {
-        setLiveStatuses({});
-        setLiveDebugRows([]);
-        setLiveDebugUpdatedAt(null);
-        return;
-      }
-      try {
-        const nextMap = await fetchLiveStatusesForMembers(targetMembers, {
-          schedules: targetSchedules,
-        });
-        setLiveStatuses(nextMap);
-        if (isLiveDebug) {
-          const diagnostics = await fetchLiveStatusDiagnostics(targetMembers, {
-            schedules: targetSchedules,
-          });
-          const memberMap = new Map(
-            targetMembers.map((member) => [member.uid, member]),
-          );
-          const rows: LiveDebugRow[] = diagnostics.items.flatMap((item) => {
-            const memberUids =
-              diagnostics.channelToMembers[item.channelId] || [];
-            if (memberUids.length === 0) return [];
-            return memberUids.map((memberUid) => {
-              const member = memberMap.get(memberUid);
-              return {
-                memberUid,
-                memberName: member?.name || `UID:${memberUid}`,
-                channelId: item.channelId,
-                status: item.content?.status ?? null,
-                httpStatus: item.debug?.httpStatus ?? null,
-                cacheHit: item.debug?.cacheHit ?? null,
-                cacheAgeMs: item.debug?.cacheAgeMs ?? null,
-                fetchedAt: item.debug?.fetchedAt ?? null,
-                staleCacheUsed: item.debug?.staleCacheUsed ?? null,
-              };
-            });
-          });
-          setLiveDebugRows(rows);
-          setLiveDebugUpdatedAt(diagnostics.updatedAt ?? null);
-        }
-      } catch (err) {
-        console.error("Failed to fetch live statuses", err);
-      }
-    },
-    [isLiveDebug, members, schedules],
-  );
-
-  const fetchSchedules = useCallback(async () => {
-    setIsSchedulesLoading(true);
-    try {
-      const data = await fetchSchedulesByDate(
-        format(currentDate, "yyyy-MM-dd"),
-      );
-      setSchedules(data);
-    } catch (err) {
-      console.error("Failed to fetch schedules:", err);
-    } finally {
-      setIsSchedulesLoading(false);
-      setHasSchedulesLoaded(true);
-    }
-  }, [currentDate]);
-
-  useEffect(() => {
-    void fetchSchedules();
-  }, [fetchSchedules]);
-
-  useEffect(() => {
-    if (members.length === 0) return;
-    void fetchLiveStatuses(members, schedules);
-    const timer = setInterval(() => {
-      void fetchLiveStatuses(members, schedules);
-    }, 60_000);
-    return () => clearInterval(timer);
-  }, [members, schedules, fetchLiveStatuses]);
+  const liveStatuses: ChzzkLiveStatusMap = isToday
+    ? liveStatusQuery.data ?? {}
+    : {};
+  const liveDebugRows = useMemo<LiveDebugRow[]>(() => {
+    const diagnostics = liveDiagnosticsQuery.data;
+    if (!diagnostics) return [];
+    const memberMap = new Map(members.map((member) => [member.uid, member]));
+    return diagnostics.items.flatMap((item) => {
+      const memberUids = diagnostics.channelToMembers[item.channelId] || [];
+      if (memberUids.length === 0) return [];
+      return memberUids.map((memberUid) => {
+        const member = memberMap.get(memberUid);
+        return {
+          memberUid,
+          memberName: member?.name || `UID:${memberUid}`,
+          channelId: item.channelId,
+          status: item.content?.status ?? null,
+          httpStatus: item.debug?.httpStatus ?? null,
+          cacheHit: item.debug?.cacheHit ?? null,
+          cacheAgeMs: item.debug?.cacheAgeMs ?? null,
+          fetchedAt: item.debug?.fetchedAt ?? null,
+          staleCacheUsed: item.debug?.staleCacheUsed ?? null,
+        };
+      });
+    });
+  }, [liveDiagnosticsQuery.data, members]);
+  const liveDebugUpdatedAt = liveDiagnosticsQuery.data?.updatedAt ?? null;
 
   const schedulesByMemberUid = useMemo(() => {
     const grouped = new Map<number, ScheduleItem[]>();
@@ -205,8 +208,10 @@ export const DailySchedule = () => {
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
   const isDailyScheduleLoading =
-    isScheduleDataLoading || !hasLoaded || isSchedulesLoading || !hasSchedulesLoaded;
-  const isToday = isSameDay(currentDate, new Date());
+    isScheduleDataLoading ||
+    !hasLoaded ||
+    schedulesQuery.isLoading ||
+    !schedulesQuery.isFetched;
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -218,7 +223,9 @@ export const DailySchedule = () => {
   }) => {
     try {
       await saveScheduleWithConflicts(data);
-      await fetchSchedules();
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.schedules.all,
+      });
       setIsEditDialogOpen(false);
       setEditingSchedule(null);
     } catch (e) {
@@ -231,7 +238,9 @@ export const DailySchedule = () => {
   const handleDeleteSchedule = async (id: number) => {
     try {
       await deleteSchedule(id);
-      await fetchSchedules();
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.schedules.all,
+      });
       setEditingSchedule(null);
       setIsEditDialogOpen(false);
     } catch (e) {
