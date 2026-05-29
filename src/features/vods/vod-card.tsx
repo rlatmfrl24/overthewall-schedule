@@ -75,7 +75,10 @@ export const VodCard = ({
   const videoUrl = `https://chzzk.naver.com/video/${video.videoNo}`;
   const accentColor = member?.main_color || accentColorProp;
   const channelName = member?.name || video.channel.channelName;
-  const showMemberChip = showMemberBadge && Boolean(member);
+  const avatarSrc = member
+    ? `/profile/${member.code}.webp`
+    : video.channel.channelImageUrl;
+  const showMemberAvatar = showMemberBadge && Boolean(channelName);
 
   const sizeClasses = {
     sm: "w-full",
@@ -97,8 +100,8 @@ export const VodCard = ({
       aria-label={`${video.videoTitle} 다시보기 보기`}
       title={video.videoTitle}
       className={cn(
-        "group relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card transition-all duration-300",
-        "hover:-translate-y-1 hover:border-border hover:shadow-lg",
+        "group relative flex min-w-0 self-start flex-col overflow-hidden rounded-lg border border-border/45 bg-card/80 shadow-sm transition-all duration-200",
+        "hover:-translate-y-0.5 hover:border-foreground/20 hover:bg-card hover:shadow-md",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
         sizeClasses[size],
       )}
@@ -122,77 +125,73 @@ export const VodCard = ({
           </div>
         )}
 
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/50 via-black/15 to-transparent" />
+
         {/* 재생 오버레이 */}
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-300 group-hover:bg-black/30">
-          <PlayCircle
-            className="h-12 w-12 text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-            style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
-          />
+          <span className="rounded-full bg-black/45 p-2 opacity-0 shadow-lg backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100">
+            <PlayCircle className="h-9 w-9 text-white" />
+          </span>
         </div>
 
         {/* 재생 시간 */}
-        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-xs font-medium text-white">
+        <div className="absolute bottom-2 right-2 rounded bg-black/85 px-1.5 py-0.5 text-xs font-semibold text-white shadow-sm">
           {formatDuration(video.duration)}
         </div>
 
-        {/* 멤버 뱃지 */}
-        {showMemberChip && member && (
-          <div
-            className="absolute left-2 top-2 flex max-w-[calc(100%-5.25rem)] items-center gap-1.5 rounded-full px-1.5 py-1 text-xs font-medium text-white shadow-sm backdrop-blur-md"
-            style={{
-              backgroundColor: accentColor
-                ? `${accentColor}dd`
-                : "rgba(0,0,0,0.7)",
-            }}
-          >
-            <img
-              src={`/profile/${member.code}.webp`}
-              alt=""
-              className="h-5 w-5 rounded-full border border-white/50 object-cover"
-            />
-            <span className="truncate pr-1">{member.name}</span>
-          </div>
-        )}
-
         {/* 카테고리 뱃지 */}
         {video.videoCategoryValue && (
-          <div
-            className={cn(
-              "absolute top-2 max-w-[45%] truncate rounded-full px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm",
-              showMemberChip ? "right-2" : "left-2",
-            )}
-            style={{
-              backgroundColor: accentColor
-                ? `${accentColor}cc`
-                : "rgba(0,0,0,0.7)",
-            }}
-          >
+          <div className="absolute right-2 top-2 max-w-[55%] truncate rounded-full bg-black/85 px-2.5 py-1 text-xs font-semibold text-white shadow-sm backdrop-blur-sm">
             {video.videoCategoryValue}
           </div>
         )}
       </div>
 
       {/* 정보 */}
-      <div className="flex min-w-0 flex-col gap-1.5 p-3">
-        <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-foreground transition-colors group-hover:text-primary">
+      <div className="flex min-w-0 flex-col gap-3 p-3.5">
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
           {video.videoTitle}
         </h3>
 
-        {channelName && (
-          <p className="truncate text-xs text-muted-foreground">
-            {channelName}
-          </p>
-        )}
+        <div className="flex min-w-0 items-center gap-2.5">
+          {showMemberAvatar && (
+            <div
+              className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground"
+              style={{
+                borderColor: accentColor || undefined,
+              }}
+              title={channelName}
+            >
+              {avatarSrc ? (
+                <img
+                  src={avatarSrc}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span>{channelName.charAt(0)}</span>
+              )}
+            </div>
+          )}
 
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Eye className="h-3 w-3" />
-            {formatViewCount(video.readCount)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {formatRelativeDate(video.publishDate)}
-          </span>
+          <div className="min-w-0 flex-1">
+            {channelName && (
+              <p className="truncate text-xs font-medium text-foreground/80">
+                {channelName}
+              </p>
+            )}
+
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Eye className="h-3 w-3" />
+                {formatViewCount(video.readCount)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatRelativeDate(video.publishDate)}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </a>

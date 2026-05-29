@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { Member, ScheduleItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Ban, Calendar, Flame, HelpCircle, Moon, Radio, Zap } from "lucide-react";
+import { Calendar, HelpCircle, Moon, Zap } from "lucide-react";
 import { useAutoFitText } from "./use-auto-fit-text";
 import {
   buildScheduleBoardModel,
@@ -64,10 +64,9 @@ export const SnapshotTimeline = ({
     <div className="flex flex-col gap-4 w-full max-w-none mx-0 px-0">
       {boardModel.mainItems.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="grid min-h-10 grid-cols-[86px_1fr_70px] items-center border-b border-zinc-200 bg-zinc-50 px-3 text-xs font-extrabold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          <div className="grid min-h-10 grid-cols-[86px_1fr] items-center border-b border-zinc-200 bg-zinc-50 px-3 text-xs font-extrabold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
             <span className="text-center">시간</span>
             <span>멤버 / 제목</span>
-            <span className="text-center">상태</span>
           </div>
           <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
             {boardModel.mainItems.map((entry) => {
@@ -118,7 +117,7 @@ const SnapshotScheduleRow = ({
   });
 
   return (
-    <div className="grid min-h-[68px] grid-cols-[86px_1fr_70px] items-center">
+    <div className="grid min-h-[68px] grid-cols-[86px_1fr] items-center">
       <div className="flex h-full items-center justify-center border-r border-zinc-200 bg-zinc-50/70 px-3 dark:border-zinc-700 dark:bg-zinc-800/60">
         <span className="font-mono text-lg font-black tabular-nums text-zinc-800 dark:text-zinc-100">
           {formatScheduleTime(entry.schedule.start_time)}
@@ -150,9 +149,6 @@ const SnapshotScheduleRow = ({
             {title}
           </h3>
         </div>
-      </div>
-      <div className="flex items-center justify-center px-2">
-        <SnapshotStatusPill status={entry.schedule.status} />
       </div>
     </div>
   );
@@ -192,6 +188,7 @@ const SnapshotSideGroup = ({
         {items.map((entry) => {
           const member = memberMap.get(entry.schedule.member_uid);
           if (!member) return null;
+          const time = formatScheduleTime(entry.schedule.start_time);
           return (
             <div
               key={entry.schedule.id}
@@ -210,55 +207,16 @@ const SnapshotSideGroup = ({
                   {getScheduleDisplayTitle(entry.schedule)}
                 </p>
               </div>
-              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-300">
-                {formatScheduleTime(entry.schedule.start_time) ??
-                  entry.schedule.status}
-              </span>
+              {time && (
+                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-300">
+                  {time}
+                </span>
+              )}
             </div>
           );
         })}
       </div>
     </section>
-  );
-};
-
-const SnapshotStatusPill = ({ status }: { status: ScheduleItem["status"] }) => {
-  const meta =
-    status === "게릴라"
-      ? {
-          label: "게릴라",
-          icon: Flame,
-          className: "border-amber-200 bg-amber-50 text-amber-700",
-        }
-      : status === "휴방"
-        ? {
-            label: "휴방",
-            icon: Ban,
-            className: "border-zinc-200 bg-zinc-50 text-zinc-700",
-          }
-        : status === "미정"
-          ? {
-              label: "미정",
-              icon: HelpCircle,
-              className: "border-slate-200 bg-slate-50 text-slate-700",
-            }
-          : {
-              label: "방송",
-              icon: Radio,
-              className: "border-teal-200 bg-teal-50 text-teal-700",
-            };
-  const Icon = meta.icon;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-black",
-        meta.className,
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {meta.label}
-    </span>
   );
 };
 
