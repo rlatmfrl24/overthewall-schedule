@@ -111,8 +111,8 @@ const SnapshotScheduleRow = ({
   const mainColor = member.main_color || "#14b8a6";
   const { textRef, textStyle } = useAutoFitText<HTMLHeadingElement>({
     contentKey: `${entry.schedule.id}:${title}:snapshot-main`,
-    maxLines: 1,
-    minFontSizePx: 15,
+    maxLines: 2,
+    minFontSizePx: 14,
     stepPx: 1,
   });
 
@@ -144,7 +144,7 @@ const SnapshotScheduleRow = ({
           <h3
             ref={textRef}
             style={textStyle}
-            className="truncate text-lg font-black leading-tight text-zinc-950 dark:text-zinc-50"
+            className="whitespace-normal break-words text-lg font-black leading-tight text-zinc-950 dark:text-zinc-50"
           >
             {title}
           </h3>
@@ -203,7 +203,7 @@ const SnapshotSideGroup = ({
                 <p className="truncate text-sm font-black text-zinc-950 dark:text-zinc-50">
                   {member.name}
                 </p>
-                <p className="truncate text-xs font-semibold text-zinc-500 dark:text-zinc-300">
+                <p className="whitespace-normal break-words text-xs font-semibold text-zinc-500 dark:text-zinc-300">
                   {getScheduleDisplayTitle(entry.schedule)}
                 </p>
               </div>
