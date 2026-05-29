@@ -78,4 +78,27 @@ describe("snapshot output", () => {
     expect(screen.queryByText("상태")).toBeNull();
     expect(screen.queryByText("방송")).toBeNull();
   });
+
+  it("타임라인 스냅샷에서 긴 제목을 말줄임 없이 줄바꿈할 수 있다", () => {
+    const longTitle =
+      "아무 의미도 없는 그냥 테스트용 일정 주구장창 길게 적기 아아아아아아아아아아아아아아";
+
+    render(
+      createElement(SnapshotTimeline, {
+        members: [makeMember(1, "하네")],
+        schedules: [
+          makeSchedule({
+            status: "방송",
+            start_time: "21:00",
+            title: longTitle,
+          }),
+        ],
+      }),
+    );
+
+    const title = screen.getByText(longTitle);
+    expect(title.className).toContain("whitespace-normal");
+    expect(title.className).toContain("break-words");
+    expect(title.className).not.toContain("truncate");
+  });
 });

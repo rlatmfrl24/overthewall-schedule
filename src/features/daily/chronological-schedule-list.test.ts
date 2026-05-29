@@ -109,4 +109,75 @@ describe("ChronologicalScheduleList", () => {
 
     expect(screen.getByText("표시할 편성표가 없습니다")).toBeTruthy();
   });
+
+  it("긴 편성표 제목을 말줄임 없이 줄바꿈할 수 있다", () => {
+    const longTitle =
+      "아무 의미도 없는 그냥 테스트용 일정 주구장창 길게 써보기 1234557890 이아아아아아아아아아아아";
+
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: longTitle,
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const title = screen.getByText(longTitle);
+    expect(title.className).toContain("whitespace-normal");
+    expect(title.className).toContain("break-words");
+    expect(title.className).not.toContain("truncate");
+  });
+
+  it("편성표 점선 레일은 모바일 기본값에서 숨긴다", () => {
+    const { container } = render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const rail = container.querySelector("span[aria-hidden='true'].border-dashed");
+    expect(rail?.className).toContain("hidden");
+    expect(rail?.className).toContain("lg:block");
+  });
+
+  it("메인 편성표 멤버명은 말줄임 없이 표시할 수 있다", () => {
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "쿠레나이 나츠키")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const memberName = screen.getByText("쿠레나이 나츠키");
+    expect(memberName.className).toContain("whitespace-normal");
+    expect(memberName.className).toContain("break-words");
+    expect(memberName.className).not.toContain("truncate");
+  });
 });

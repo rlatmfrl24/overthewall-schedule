@@ -128,7 +128,7 @@ const ScheduleBoard = ({
   onScheduleClick: (schedule: ScheduleItem) => void;
 }) => (
   <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-    <div className="hidden min-h-11 grid-cols-[92px_minmax(170px,0.85fr)_minmax(420px,2.6fr)_88px_48px] items-center border-b border-border bg-muted/35 px-0 text-xs font-bold text-muted-foreground lg:grid">
+    <div className="hidden min-h-11 grid-cols-[92px_minmax(220px,0.95fr)_minmax(320px,2.5fr)_88px_48px] items-center border-b border-border bg-muted/35 px-0 text-xs font-bold text-muted-foreground lg:grid">
       <div className="px-4 text-center">시간</div>
       <div className="px-4">멤버</div>
       <div className="px-4">제목</div>
@@ -139,7 +139,7 @@ const ScheduleBoard = ({
     {items.length > 0 ? (
       <div className="relative divide-y divide-border">
         <span
-          className="pointer-events-none absolute inset-y-0 left-[74px] z-10 border-r border-dashed border-slate-300 dark:border-slate-700"
+          className="pointer-events-none absolute inset-y-0 left-[74px] z-10 hidden border-r border-dashed border-slate-300 dark:border-slate-700 lg:block"
           aria-hidden="true"
         />
         {items.map((entry) => {
@@ -205,7 +205,7 @@ const ScheduleBoardRow = ({
       tabIndex={0}
       onClick={() => onScheduleClick(schedule)}
       onKeyDown={handleRowKeyDown}
-      className="group grid min-h-[74px] w-full grid-cols-1 items-stretch bg-card text-left transition-colors hover:bg-muted/30 lg:grid-cols-[92px_minmax(170px,0.85fr)_minmax(420px,2.6fr)_88px_48px]"
+      className="group grid min-h-[74px] w-full grid-cols-1 items-stretch bg-card text-left transition-colors hover:bg-muted/30 lg:grid-cols-[92px_minmax(220px,0.95fr)_minmax(320px,2.5fr)_88px_48px]"
       aria-label={`${time} ${member.name} ${title}`}
     >
       <div className="flex items-center gap-3 border-b border-border/70 bg-muted/25 px-4 py-3 lg:justify-center lg:border-b-0 lg:border-r">
@@ -230,7 +230,7 @@ const ScheduleBoardRow = ({
           />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="truncate text-base font-black text-foreground">
+              <span className="whitespace-normal break-words text-base font-black leading-tight text-foreground">
                 {member.name}
               </span>
               {isLive && (
@@ -246,12 +246,12 @@ const ScheduleBoardRow = ({
         </div>
 
         <div className="col-span-2 flex min-w-0 flex-col justify-center lg:col-span-1 lg:px-4 lg:py-3">
-          <p className="truncate text-[15px] font-bold leading-snug text-foreground">
+          <p className="whitespace-normal break-words text-[15px] font-bold leading-snug text-foreground">
             {title}
           </p>
           {isLive && liveStatus?.liveTitle && liveStatus.liveTitle !== title && (
             <p
-              className="mt-1 truncate text-xs font-medium text-muted-foreground"
+              className="mt-1 whitespace-normal break-words text-xs font-medium text-muted-foreground"
               data-snapshot-exclude="true"
             >
               {liveStatus.liveTitle}
@@ -478,7 +478,7 @@ const SideScheduleItem = ({
             </span>
           )}
         </div>
-        <p className="mt-0.5 truncate text-xs font-medium text-muted-foreground">
+        <p className="mt-0.5 whitespace-normal break-words text-xs font-medium text-muted-foreground">
           {title}
         </p>
       </div>
