@@ -13,9 +13,10 @@ export const KirinukiSection = ({
   members,
   loadingMembers,
 }: KirinukiSectionProps) => {
-  const { videos, shorts, loading, error, hasLoaded } = useKirinukiVideos({
-    maxResults: 20,
-  });
+  const { videos, shorts, byChannel, loading, error, hasLoaded } =
+    useKirinukiVideos({
+      maxResults: 40,
+    });
 
   // 숏츠와 영상을 구분하지 않고 최신순으로 병합
   const allVideos = useMemo(() => {
@@ -26,6 +27,17 @@ export const KirinukiSection = ({
         new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
     );
   }, [videos, shorts]);
+
+  const kirinukiChannels = useMemo(
+    () =>
+      byChannel
+        .map((channel) => ({
+          channelId: channel.channelId,
+          channelTitle: channel.channelName,
+        }))
+        .filter((channel) => channel.channelTitle.trim().length > 0),
+    [byChannel],
+  );
 
   if (loadingMembers) {
     return <YouTubeSectionSkeleton />;
@@ -54,6 +66,8 @@ export const KirinukiSection = ({
           members={members}
           variant="default"
           isKirinuki
+          kirinukiChannels={kirinukiChannels}
+          layout="feed-grid"
           emptyMessage="등록된 키리누키 채널이 없거나 업로드된 영상이 없습니다."
         />
       )}

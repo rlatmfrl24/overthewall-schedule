@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:restart": "node scripts/dev-restart.mjs",
+    "dev:stop": "node scripts/dev-restart.mjs --kill-only",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
@@ -16,6 +18,7 @@
     "drizzle:generate:custom": "drizzle-kit generate --custom",
     "drizzle:migrate:remote": "wrangler d1 migrations apply otw-db --remote",
     "drizzle:migrate:local": "wrangler d1 migrations apply otw-db",
+    "d1:doctor": "node scripts/d1-doctor.mjs",
     "sync:agent-cursor": "node scripts/sync-agent-to-cursor.mjs",
     "sync:agent-cursor:check": "node scripts/sync-agent-to-cursor.mjs --check"
   },
@@ -71,6 +74,6 @@
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2",
     "vitest": "^4.0.18",
-    "wrangler": "^4.62.0"
+    "wrangler": "^4.95.0"
   }
 }

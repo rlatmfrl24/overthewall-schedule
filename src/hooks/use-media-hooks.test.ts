@@ -3,13 +3,14 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/lib/types";
 import { useAllMembersClips } from "./use-chzzk-clips";
-import { useAllMembersLatestVods } from "./use-chzzk-vods";
+import { useAllMembersLatestVods, useAllMembersVods } from "./use-chzzk-vods";
 import { useKirinukiVideos } from "./use-kirinuki-videos";
 import { useXPosts } from "./use-x-posts";
 import { useYouTubeVideos } from "./use-youtube-videos";
 
 const fetchAllMembersClipsMock = vi.hoisted(() => vi.fn());
 const fetchAllMembersLatestVideosMock = vi.hoisted(() => vi.fn());
+const fetchAllMembersVodVideosMock = vi.hoisted(() => vi.fn());
 const fetchKirinukiVideosMock = vi.hoisted(() => vi.fn());
 const fetchMembersYouTubeVideosMock = vi.hoisted(() => vi.fn());
 const fetchMembersXPostsMock = vi.hoisted(() => vi.fn());
@@ -20,6 +21,7 @@ vi.mock("@/lib/api/clips", () => ({
 
 vi.mock("@/lib/api/vods", () => ({
   fetchAllMembersLatestVideos: fetchAllMembersLatestVideosMock,
+  fetchAllMembersVodVideos: fetchAllMembersVodVideosMock,
 }));
 
 vi.mock("@/lib/api/kirinuki", () => ({
@@ -67,6 +69,7 @@ describe("media hooks", () => {
   beforeEach(() => {
     fetchAllMembersClipsMock.mockReset();
     fetchAllMembersLatestVideosMock.mockReset();
+    fetchAllMembersVodVideosMock.mockReset();
     fetchKirinukiVideosMock.mockReset();
     fetchMembersYouTubeVideosMock.mockReset();
     fetchMembersXPostsMock.mockReset();
@@ -106,6 +109,16 @@ describe("media hooks", () => {
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.vods[1]).toEqual({ videoId: "v1" });
+  });
+
+  it("useAllMembersVods: 멤버당 다시보기 개수를 전달하고 배열 상태를 반영한다", async () => {
+    fetchAllMembersVodVideosMock.mockResolvedValue([{ videoId: "v1" }]);
+    const members = [makeMember(1, { chzzkChannelId: "aaa" })];
+    const { result } = renderHook(() => useAllMembersVods(members, 8));
+
+    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.vods).toEqual([{ videoId: "v1" }]);
+    expect(fetchAllMembersVodVideosMock).toHaveBeenCalledWith(members, 8);
   });
 
   it("useKirinukiVideos: 성공/실패 상태를 처리한다", async () => {

@@ -1,17 +1,61 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchAllMembersLatestVideos } from "@/lib/api/vods";
+import {
+  fetchAllMembersLatestVideos,
+  fetchAllMembersVodVideos,
+} from "@/lib/api/vods";
 import type { ChzzkVideo, Member } from "@/lib/types";
 
-type UseAllMembersLatestVodsOptions = {
+type UseAllMembersVodsOptions = {
   enabled?: boolean;
 };
+
+/**
+ * 모든 멤버의 다시보기를 조회하는 훅
+ * @param members 멤버 목록
+ * @param videosPerMember 멤버당 가져올 다시보기 수 (기본 10개)
+ */
+export function useAllMembersVods(
+  members: Member[],
+  videosPerMember = 10,
+  options: UseAllMembersVodsOptions = {},
+) {
+  const [vods, setVods] = useState<ChzzkVideo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const { enabled = true } = options;
+
+  const reload = useCallback(async () => {
+    if (!enabled || members.length === 0) return;
+
+    setLoading(true);
+    try {
+      const data = await fetchAllMembersVodVideos(members, videosPerMember);
+      setVods(data);
+    } finally {
+      setLoading(false);
+      setHasLoaded(true);
+    }
+  }, [enabled, members, videosPerMember]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    void reload();
+  }, [enabled, reload]);
+
+  return {
+    vods,
+    loading,
+    hasLoaded,
+    reload,
+  };
+}
 
 /**
  * 모든 멤버의 최신 VOD를 조회하는 훅
  */
 export function useAllMembersLatestVods(
   members: Member[],
-  options: UseAllMembersLatestVodsOptions = {},
+  options: UseAllMembersVodsOptions = {},
 ) {
   const [vods, setVods] = useState<Record<number, ChzzkVideo | null>>({});
   const [loading, setLoading] = useState(false);

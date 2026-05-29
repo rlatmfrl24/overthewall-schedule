@@ -16,7 +16,16 @@ import {
 /**
  * 키리누키 안내 다이얼로그 버튼
  */
-const KirinukiInfoButton = () => {
+interface KirinukiChannelInfo {
+  channelId: string;
+  channelTitle: string;
+}
+
+const KirinukiInfoButton = ({
+  channels,
+}: {
+  channels: KirinukiChannelInfo[];
+}) => {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -56,6 +65,32 @@ const KirinukiInfoButton = () => {
                 에게 연락주시면 최대한 빠르게 조치하겠습니다.
               </strong>
             </p>
+            <div className="space-y-2 rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs font-semibold text-foreground">
+                현재 참여 채널
+              </p>
+              {channels.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {channels.map((channel) => (
+                    <a
+                      key={`${channel.channelId}-${channel.channelTitle}`}
+                      href={
+                        channel.channelId
+                          ? `https://www.youtube.com/channel/${channel.channelId}`
+                          : undefined
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex max-w-full items-center rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:border-primary/50"
+                    >
+                      <span className="truncate">{channel.channelTitle}</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs">현재 표시할 참여 채널이 없습니다.</p>
+              )}
+            </div>
             <div className="pt-4 mt-2 border-t">
               <div className="rounded-xl bg-primary/5 border border-primary/10 p-4 text-center">
                 <p className="font-semibold text-primary mb-1 break-keep">
@@ -85,6 +120,8 @@ interface YouTubePlaylistProps {
   variant?: "default" | "short";
   emptyMessage?: string;
   isKirinuki?: boolean;
+  kirinukiChannels?: KirinukiChannelInfo[];
+  layout?: "carousel" | "feed-grid" | "shorts-grid";
 }
 
 export const YouTubePlaylist = ({
@@ -94,16 +131,49 @@ export const YouTubePlaylist = ({
   variant = "default",
   emptyMessage = "동영상이 없습니다.",
   isKirinuki = false,
+  kirinukiChannels: providedKirinukiChannels,
+  layout = "carousel",
 }: YouTubePlaylistProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const isCarouselLayout = layout === "carousel";
 
   // 멤버 uid -> member 매핑
   const memberMap = useMemo(
     () => new Map(members.map((member) => [member.uid, member])),
     [members],
   );
+  const kirinukiChannels = useMemo(() => {
+    if (!isKirinuki) {
+      return [];
+    }
+
+    const channelMap = new Map<string, KirinukiChannelInfo>();
+    const sourceChannels =
+      providedKirinukiChannels ??
+      videos.map((video) => ({
+        channelId: video.channelId,
+        channelTitle: video.channelTitle,
+      }));
+
+    sourceChannels.forEach((channel) => {
+      const channelTitle = channel.channelTitle.trim();
+      if (!channelTitle) {
+        return;
+      }
+
+      const key = channel.channelId || channelTitle;
+      channelMap.set(key, {
+        channelId: channel.channelId,
+        channelTitle,
+      });
+    });
+
+    return [...channelMap.values()].sort((a, b) =>
+      a.channelTitle.localeCompare(b.channelTitle, "ko-KR"),
+    );
+  }, [isKirinuki, providedKirinukiChannels, videos]);
 
   const checkScrollability = () => {
     const el = scrollRef.current;
@@ -139,20 +209,39 @@ export const YouTubePlaylist = ({
     });
   };
 
-  const accentClassName =
-    variant === "short" ? "bg-fuchsia-500/80" : "bg-rose-500/80";
+  const accentClassName = isKirinuki
+    ? "bg-pink-500/80"
+    : variant === "short"
+      ? "bg-fuchsia-500/80"
+      : "bg-red-600";
+  const headerClassName =
+    layout === "carousel"
+      ? "rounded-2xl bg-muted/40 px-4 py-3 shadow-sm"
+      : "border-b border-border/70 pb-3";
 
   if (videos.length === 0) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-3",
+            headerClassName,
+          )}
+        >
           <div className="flex min-w-0 items-center gap-3">
-            <span className={cn("h-7 w-1.5 shrink-0 rounded-full", accentClassName)} />
+            <span
+              className={cn(
+                "h-7 w-1.5 shrink-0 rounded-full",
+                accentClassName,
+              )}
+            />
             <div className="min-w-0 flex items-center gap-2">
               <h2 className="truncate text-lg font-semibold text-foreground tracking-tight">
                 {title}
               </h2>
-              {isKirinuki && <KirinukiInfoButton />}
+              {isKirinuki && (
+                <KirinukiInfoButton channels={kirinukiChannels} />
+              )}
             </div>
           </div>
         </div>
@@ -165,73 +254,111 @@ export const YouTubePlaylist = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-4 py-3 shadow-sm">
+      <div
+        className={cn(
+          "flex items-center justify-between gap-3",
+          headerClassName,
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3">
-          <span className={cn("h-7 w-1.5 shrink-0 rounded-full", accentClassName)} />
+          <span
+            className={cn(
+              "h-7 w-1.5 shrink-0 rounded-full",
+              accentClassName,
+            )}
+          />
           <div className="min-w-0 flex items-center gap-2">
             <h2 className="truncate text-lg font-semibold text-foreground tracking-tight">
               {title}
             </h2>
-            {isKirinuki && <KirinukiInfoButton />}
+            {isKirinuki && (
+              <KirinukiInfoButton channels={kirinukiChannels} />
+            )}
           </div>
         </div>
-        <div className="hidden shrink-0 gap-1 sm:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => scroll("left")}
-            disabled={!canScrollLeft}
-            className={cn(
-              "w-8 h-8 rounded-full",
-              "transition-all duration-200 ease-out",
-              "hover:scale-110 active:scale-95",
-              !canScrollLeft && "opacity-30 hover:scale-100",
-            )}
-            aria-label="이전"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => scroll("right")}
-            disabled={!canScrollRight}
-            className={cn(
-              "w-8 h-8 rounded-full",
-              "transition-all duration-200 ease-out",
-              "hover:scale-110 active:scale-95",
-              !canScrollRight && "opacity-30 hover:scale-100",
-            )}
-            aria-label="다음"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Button>
-        </div>
+        {isCarouselLayout && (
+          <div className="hidden shrink-0 gap-1 sm:flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => scroll("left")}
+              disabled={!canScrollLeft}
+              className={cn(
+                "w-8 h-8 rounded-full",
+                "transition-all duration-200 ease-out",
+                "hover:scale-110 active:scale-95",
+                !canScrollLeft && "opacity-30 hover:scale-100",
+              )}
+              aria-label="이전"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => scroll("right")}
+              disabled={!canScrollRight}
+              className={cn(
+                "w-8 h-8 rounded-full",
+                "transition-all duration-200 ease-out",
+                "hover:scale-110 active:scale-95",
+                !canScrollRight && "opacity-30 hover:scale-100",
+              )}
+              aria-label="다음"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div
-        ref={scrollRef}
-        className={cn(
-          "flex gap-4 overflow-x-auto scrollbar-hide pt-1 pb-2",
-          "scroll-smooth",
-        )}
-        style={{
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-        }}
-      >
-        {videos.map((video) => (
-          <YouTubeVideoCard
-            key={video.videoId}
-            video={video}
-            member={
-              video.memberUid ? memberMap.get(video.memberUid) : undefined
-            }
-            variant={variant}
-            isKirinuki={isKirinuki}
-          />
-        ))}
-      </div>
+      {isCarouselLayout ? (
+        <div
+          ref={scrollRef}
+          className={cn(
+            "flex gap-4 overflow-x-auto scrollbar-hide pt-1 pb-2",
+            "scroll-smooth",
+          )}
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+        >
+          {videos.map((video) => (
+            <YouTubeVideoCard
+              key={video.videoId}
+              video={video}
+              member={
+                video.memberUid ? memberMap.get(video.memberUid) : undefined
+              }
+              variant={variant}
+              isKirinuki={isKirinuki}
+            />
+          ))}
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "pt-1",
+            layout === "shorts-grid"
+              ? "grid grid-cols-2 gap-x-3 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
+              : "grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4",
+          )}
+        >
+          {videos.map((video) => (
+            <YouTubeVideoCard
+              key={video.videoId}
+              video={video}
+              member={
+                video.memberUid ? memberMap.get(video.memberUid) : undefined
+              }
+              variant={variant}
+              isKirinuki={isKirinuki}
+              layout="grid"
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
