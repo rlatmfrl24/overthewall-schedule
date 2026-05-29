@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   RefreshCw,
@@ -56,6 +57,7 @@ import {
 import { roundTimeToNearestScheduleHour } from "@/lib/pending-time";
 import { cn } from "@/lib/utils";
 import { AdminSectionHeader } from "./components/admin-section-header";
+import { queryKeys } from "@/lib/query-keys";
 
 const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
   value,
@@ -296,6 +298,7 @@ const DiffRow = ({
 };
 
 export function AutoUpdateSettingsManager() {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
   const [pendingList, setPendingList] = useState<PendingSchedule[]>([]);
@@ -320,7 +323,11 @@ export function AutoUpdateSettingsManager() {
   const loadSettings = useCallback(async () => {
     setIsFetching(true);
     try {
-      const data = await fetchSettings();
+      const data = await queryClient.fetchQuery({
+        queryKey: queryKeys.settings.detail(),
+        queryFn: fetchSettings,
+        staleTime: 0,
+      });
       setSettings(data);
     } catch (error) {
       console.error("Failed to load settings:", error);
@@ -331,12 +338,16 @@ export function AutoUpdateSettingsManager() {
     } finally {
       setIsFetching(false);
     }
-  }, [toast]);
+  }, [queryClient, toast]);
 
   const loadPending = useCallback(async () => {
     setIsLoadingPending(true);
     try {
-      const data = await fetchPendingSchedules();
+      const data = await queryClient.fetchQuery({
+        queryKey: queryKeys.settings.pending(),
+        queryFn: fetchPendingSchedules,
+        staleTime: 0,
+      });
       setPendingList(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to load pending schedules:", error);
@@ -347,7 +358,7 @@ export function AutoUpdateSettingsManager() {
     } finally {
       setIsLoadingPending(false);
     }
-  }, [toast]);
+  }, [queryClient, toast]);
 
   useEffect(() => {
     void loadSettings();
@@ -438,6 +449,9 @@ export function AutoUpdateSettingsManager() {
       await updateSettings({
         auto_update_enabled: enabled ? "true" : "false",
       });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({
         ...settings,
         auto_update_enabled: enabled ? "true" : "false",
@@ -462,6 +476,9 @@ export function AutoUpdateSettingsManager() {
     setIsSaving(true);
     try {
       await updateSettings({ auto_update_interval_hours: interval });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({ ...settings, auto_update_interval_hours: interval });
       toast({
         variant: "success",
@@ -483,6 +500,9 @@ export function AutoUpdateSettingsManager() {
     setIsSaving(true);
     try {
       await updateSettings({ auto_update_range_days: range });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
       setSettings({ ...settings, auto_update_range_days: range });
       toast({
         variant: "success",

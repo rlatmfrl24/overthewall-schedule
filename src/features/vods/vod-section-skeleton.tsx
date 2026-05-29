@@ -5,41 +5,23 @@ import { Skeleton } from "@/components/ui/skeleton";
  */
 export const VodCardSkeleton = () => {
   return (
-    <div className="flex flex-col overflow-hidden rounded-xl bg-card border border-border/50">
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
       {/* 썸네일 */}
-      <Skeleton className="aspect-video w-full rounded-none" />
+      <div className="relative aspect-video w-full overflow-hidden bg-muted">
+        <Skeleton className="h-full w-full rounded-none" />
+        <div className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full bg-background/50 px-1.5 py-1 backdrop-blur-md">
+          <Skeleton className="h-5 w-5 rounded-full" />
+          <Skeleton className="h-3 w-14" />
+        </div>
+        <Skeleton className="absolute bottom-2 right-2 h-4 w-10 rounded" />
+      </div>
 
       {/* 정보 */}
-      <div className="flex flex-col gap-2 p-3">
+      <div className="flex flex-col gap-1.5 p-3">
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-3/4" />
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-3 w-16" />
-          <Skeleton className="h-3 w-12" />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/**
- * 멤버 + VOD 카드를 포함한 섹션 스켈레톤
- */
-const VodSectionSkeleton = () => {
-  return (
-    <div className="flex flex-col overflow-hidden rounded-[20px] bg-card border border-border">
-      {/* 헤더 */}
-      <Skeleton className="h-[72px] rounded-none rounded-t-[20px]" />
-
-      {/* 헤더 위 프로필/이름 오버레이 */}
-      <div className="relative -mt-[72px] flex items-center gap-3 p-4">
-        <Skeleton className="w-12 h-12 rounded-full" />
-        <Skeleton className="h-5 w-24" />
-      </div>
-
-      {/* 콘텐츠 */}
-      <div className="flex flex-col flex-1 p-4 gap-4 bg-muted/20">
-        <VodCardSkeleton />
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-3 w-28" />
       </div>
     </div>
   );
@@ -50,9 +32,9 @@ const VodSectionSkeleton = () => {
  */
 export const VodsGridSkeleton = () => {
   return (
-    <div className="grid md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 gap-5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <VodSectionSkeleton key={i} />
+    <div className="grid grid-cols-1 gap-x-4 gap-y-8 pt-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {Array.from({ length: 10 }).map((_, i) => (
+        <VodCardSkeleton key={i} />
       ))}
     </div>
   );

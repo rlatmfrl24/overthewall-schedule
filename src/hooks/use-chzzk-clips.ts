@@ -1,48 +1,46 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { fetchAllMembersClips } from "@/lib/api/clips";
-import type { ChzzkClip, Member } from "@/lib/types";
+import { MEDIA_QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
+import type { Member } from "@/lib/types";
+import { extractChzzkChannelId } from "@/lib/utils";
 
 type UseAllMembersClipsOptions = {
   enabled?: boolean;
 };
 
-/**
- * 모든 멤버의 최신 클립을 조회하는 훅
- * @param members 멤버 목록
- * @param clipsPerMember 멤버당 가져올 클립 수 (기본 10개)
- */
+const getChzzkChannelIdsKey = (members: Member[]) =>
+  members
+    .map((member) => extractChzzkChannelId(member.url_chzzk))
+    .filter((channelId): channelId is string => Boolean(channelId))
+    .sort()
+    .join(",");
+
 export function useAllMembersClips(
   members: Member[],
   clipsPerMember = 10,
   options: UseAllMembersClipsOptions = {},
 ) {
-  const [clips, setClips] = useState<ChzzkClip[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
   const { enabled = true } = options;
+  const channelIdsKey = useMemo(() => getChzzkChannelIdsKey(members), [members]);
+  const queryEnabled = enabled && channelIdsKey.length > 0;
+  const query = useQuery({
+    queryKey: queryKeys.media.chzzkClips(channelIdsKey, clipsPerMember),
+    queryFn: () => fetchAllMembersClips(members, clipsPerMember),
+    enabled: queryEnabled,
+    staleTime: MEDIA_QUERY_STALE_TIME_MS,
+  });
 
   const reload = useCallback(async () => {
-    if (!enabled || members.length === 0) return;
-
-    setLoading(true);
-    try {
-      const data = await fetchAllMembersClips(members, clipsPerMember);
-      setClips(data);
-    } finally {
-      setLoading(false);
-      setHasLoaded(true);
-    }
-  }, [enabled, members, clipsPerMember]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    void reload();
-  }, [enabled, reload]);
+    if (!queryEnabled) return;
+    await query.refetch();
+  }, [query, queryEnabled]);
 
   return {
-    clips,
-    loading,
-    hasLoaded,
+    clips: queryEnabled ? query.data ?? [] : [],
+    loading: queryEnabled ? query.isFetching : false,
+    hasLoaded: queryEnabled ? query.isFetched : false,
     reload,
   };
 }

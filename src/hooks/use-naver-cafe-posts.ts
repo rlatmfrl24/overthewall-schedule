@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchNaverCafePosts } from "@/lib/api/naver-cafe";
+import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { NaverCafePost, NaverCafePostsResponse } from "@/lib/types";
 
 interface UseNaverCafePostsReturn {
@@ -16,74 +19,52 @@ interface UseNaverCafePostsReturn {
 export function useNaverCafePosts(
   options: { enabled?: boolean; size?: number; admin?: boolean } = {},
 ): UseNaverCafePostsReturn {
-  const [data, setData] = useState<NaverCafePostsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const dataRef = useRef<NaverCafePostsResponse | null>(null);
-
+  const queryClient = useQueryClient();
   const { enabled = true, size = 10, admin = false } = options;
-
-  const load = useCallback(
-    async (force: boolean) => {
-      const currentData = dataRef.current;
-      if (!enabled) {
-        setLoading(false);
-        setError(null);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const response = await fetchNaverCafePosts({ force, size, admin });
-        setData(response);
-        setError(
-          response.clientStale
-            ? "새 카페글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
-            : null,
-        );
-      } catch (err) {
-        console.error("Failed to fetch Naver Cafe posts:", err);
-        setError(
-          currentData
-            ? "새 카페글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
-            : "카페 최신글을 불러오는데 실패했습니다.",
-        );
-      } finally {
-        setLoading(false);
-        setHasLoaded(true);
-      }
-    },
-    [admin, enabled, size],
+  const queryKey = queryKeys.memberPosts.naverCafe(size, admin);
+  const fetchPosts = useCallback(
+    (force: boolean) => fetchNaverCafePosts({ admin, force, size }),
+    [admin, size],
   );
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchPosts(false),
+    enabled,
+    staleTime: MEMBER_POSTS_QUERY_STALE_TIME_MS,
+  });
+  const reloadMutation = useMutation({
+    mutationFn: () => fetchPosts(true),
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKey, response);
+    },
+  });
 
-  const reload = useCallback(() => load(true), [load]);
+  const reload = useCallback(async () => {
+    if (!enabled) return;
+    await reloadMutation.mutateAsync();
+  }, [enabled, reloadMutation]);
 
-  useEffect(() => {
-    dataRef.current = data;
-  }, [data]);
-
-  useEffect(() => {
-    if (!enabled) {
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    void load(false);
-  }, [enabled, load]);
+  const data = enabled ? query.data : null;
+  const hasData = Boolean(data);
+  const error =
+    data?.clientStale
+      ? "새 카페글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
+      : query.error || reloadMutation.error
+        ? hasData
+          ? "새 카페글을 불러오지 못해 이전 데이터를 표시하고 있습니다."
+          : "카페 최신글을 불러오는데 실패했습니다."
+        : null;
 
   return {
     posts: data?.posts ?? [],
     sources: data?.sources ?? [],
     updatedAt: data?.updatedAt ?? null,
-    loading,
+    loading: enabled ? query.isFetching || reloadMutation.isPending : false,
     error,
     stale:
       Boolean(data?.clientStale) ||
       Boolean(data?.sources.some((source) => source.stale)),
-    hasLoaded,
+    hasLoaded: enabled ? query.isFetched : false,
     reload,
   };
 }

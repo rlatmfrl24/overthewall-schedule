@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -46,6 +47,7 @@ import {
 import { fetchUpdateLogs, type UpdateLog } from "@/lib/api/settings";
 import { useToast } from "@/components/ui/toast";
 import { AdminSectionHeader } from "./components/admin-section-header";
+import { queryKeys } from "@/lib/query-keys";
 
 const ACTION_LABELS: Record<string, string> = {
   create: "수동 생성",
@@ -118,11 +120,6 @@ type LogSortKey = (typeof LOG_SORT_OPTIONS)[number]["value"];
 
 export function AutoUpdateLogsManager() {
   const { toast } = useToast();
-  const [logs, setLogs] = useState<UpdateLog[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [filters, setFilters] = useState<LogFilters>(DEFAULT_FILTERS);
   const [debouncedFilters, setDebouncedFilters] =
     useState<LogFilters>(DEFAULT_FILTERS);
@@ -132,49 +129,34 @@ export function AutoUpdateLogsManager() {
   const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<UpdateLog | null>(null);
 
-  const loadLogs = useCallback(
-    async (
-      activeFilters: LogFilters,
-      pageNo: number,
-      size: number,
-      sort: LogSortKey,
-    ) => {
-      setIsLoading(true);
-      setErrorMessage(null);
-      try {
-        const data = await fetchUpdateLogs({
-          page: pageNo,
-          pageSize: size,
-          sort,
-          action:
-            activeFilters.action === "all" ? undefined : activeFilters.action,
-          member: activeFilters.member.trim() || undefined,
-          dateFrom: activeFilters.dateFrom || undefined,
-          dateTo: activeFilters.dateTo || undefined,
-          query: activeFilters.query.trim() || undefined,
-        });
-        setLogs(Array.isArray(data.items) ? data.items : []);
-        setTotalCount(data.total ?? 0);
-        setTotalPages(data.totalPages ?? 1);
-        if ((data.totalPages ?? 1) < pageNo) {
-          setPage(data.totalPages ?? 1);
-        }
-      } catch (error) {
-        console.error("Failed to load logs:", error);
-        setErrorMessage("로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
-        setLogs([]);
-        setTotalCount(0);
-        setTotalPages(1);
-        toast({
-          variant: "error",
-          description: "로그를 불러오지 못했습니다.",
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [toast],
+  const logQueryOptions = useMemo(
+    () => ({
+      page,
+      pageSize,
+      sort: sortKey,
+      action:
+        debouncedFilters.action === "all" ? undefined : debouncedFilters.action,
+      member: debouncedFilters.member.trim() || undefined,
+      dateFrom: debouncedFilters.dateFrom || undefined,
+      dateTo: debouncedFilters.dateTo || undefined,
+      query: debouncedFilters.query.trim() || undefined,
+    }),
+    [debouncedFilters, page, pageSize, sortKey],
   );
+  const logsQuery = useQuery({
+    queryKey: queryKeys.settings.logs(logQueryOptions),
+    queryFn: () => fetchUpdateLogs(logQueryOptions),
+    enabled: !dateRangeError,
+  });
+  const logs = Array.isArray(logsQuery.data?.items)
+    ? logsQuery.data.items
+    : [];
+  const totalCount = logsQuery.data?.total ?? 0;
+  const totalPages = logsQuery.data?.totalPages ?? 1;
+  const isLoading = logsQuery.isFetching;
+  const errorMessage = logsQuery.error
+    ? "로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."
+    : null;
 
   useEffect(() => {
     if (
@@ -195,9 +177,19 @@ export function AutoUpdateLogsManager() {
   }, [filters]);
 
   useEffect(() => {
-    if (dateRangeError) return;
-    void loadLogs(debouncedFilters, page, pageSize, sortKey);
-  }, [debouncedFilters, dateRangeError, loadLogs, page, pageSize, sortKey]);
+    if (totalPages < page) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  useEffect(() => {
+    if (!logsQuery.error) return;
+    console.error("Failed to load logs:", logsQuery.error);
+    toast({
+      variant: "error",
+      description: "로그를 불러오지 못했습니다.",
+    });
+  }, [logsQuery.error, toast]);
 
   const formatLogDate = (timestamp: string | null): string => {
     if (!timestamp) return "-";
@@ -252,7 +244,7 @@ export function AutoUpdateLogsManager() {
       });
       return;
     }
-    void loadLogs(debouncedFilters, page, pageSize, sortKey);
+    void logsQuery.refetch();
   };
 
   useEffect(() => {

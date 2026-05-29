@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { type Notice } from "@/db/schema";
@@ -7,6 +8,8 @@ import { ArrowLeft, Calendar, ExternalLink, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchNotices } from "@/lib/api/notices";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 
 const noticeTypeConfigs = {
   notice: {
@@ -28,28 +31,12 @@ export const Route = createFileRoute("/notice")({
 });
 
 function NoticePage() {
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadNotices = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await fetchNotices();
-      setNotices(data);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadNotices();
-  }, [loadNotices]);
+  const noticesQuery = useQuery<Notice[]>({
+    queryKey: queryKeys.notices.public(),
+    queryFn: () => fetchNotices(),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
 
   const activeNotices = useMemo(
     () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),
@@ -88,16 +75,20 @@ function NoticePage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {noticesQuery.isLoading ? (
           <div className="rounded-3xl border border-border/30 bg-card/70 backdrop-blur-sm p-8 text-center text-muted-foreground shadow-sm">
             <div className="inline-flex items-center gap-2">
               <div className="size-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></div>
               <span className="text-sm font-medium">불러오는 중입니다...</span>
             </div>
           </div>
-        ) : error ? (
+        ) : noticesQuery.error ? (
           <div className="rounded-3xl border border-destructive/30 bg-destructive/5 backdrop-blur-sm px-6 py-4 text-sm text-destructive shadow-sm">
-            <p className="font-medium">{error}</p>
+            <p className="font-medium">
+              {noticesQuery.error instanceof Error
+                ? noticesQuery.error.message
+                : "알 수 없는 오류가 발생했습니다."}
+            </p>
           </div>
         ) : activeNotices.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-muted/50 bg-muted/10 backdrop-blur-sm px-8 py-14 text-center space-y-3 shadow-sm">

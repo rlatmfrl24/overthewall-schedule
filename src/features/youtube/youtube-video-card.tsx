@@ -1,6 +1,6 @@
 import type { YouTubeVideo, Member } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Clock, Eye, PlayCircle } from "lucide-react";
+import { Clock, Eye, PlayCircle, Scissors } from "lucide-react";
 import IconYoutubeShorts from "@/assets/icon_youtube_shorts.svg";
 
 interface YouTubeVideoCardProps {
@@ -9,6 +9,7 @@ interface YouTubeVideoCardProps {
   variant?: "default" | "short";
   size?: "sm" | "md";
   isKirinuki?: boolean;
+  layout?: "carousel" | "grid";
 }
 
 /**
@@ -61,6 +62,7 @@ export const YouTubeVideoCard = ({
   variant = "default",
   size = "md",
   isKirinuki = false,
+  layout = "carousel",
 }: YouTubeVideoCardProps) => {
   const videoUrl = video.isShort
     ? `https://www.youtube.com/shorts/${video.videoId}`
@@ -71,8 +73,9 @@ export const YouTubeVideoCard = ({
   const accentColor = member?.main_color;
 
   // 키리누키일 때는 클리퍼명, 아니면 멤버명
-  const badgeName = isKirinuki ? video.channelTitle : member?.name;
-  const showBadge = isKirinuki ? Boolean(video.channelTitle) : Boolean(member);
+  const channelName = isKirinuki ? video.channelTitle : member?.name;
+  const isGridLayout = layout === "grid";
+  const showKirinukiChip = isKirinuki && Boolean(channelName);
 
   return (
     <a
@@ -80,16 +83,19 @@ export const YouTubeVideoCard = ({
       target="_blank"
       rel="noopener noreferrer"
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/50 transition-all duration-300",
-        "hover:shadow-lg hover:-translate-y-1 hover:border-border",
-        isShortLayout ? "w-[140px] shrink-0" : "w-[280px] shrink-0",
-        size === "sm" && !isShortLayout && "w-[220px]",
+        "group relative flex min-w-0 flex-col transition-colors",
+        isGridLayout
+          ? "w-full"
+          : isShortLayout
+            ? "w-[150px] shrink-0"
+            : "w-[300px] shrink-0",
+        size === "sm" && !isShortLayout && !isGridLayout && "w-[220px]",
       )}
     >
       {/* 썸네일 */}
       <div
         className={cn(
-          "relative overflow-hidden bg-muted",
+          "relative overflow-hidden rounded-xl bg-muted",
           isShortLayout ? "aspect-9/16" : "aspect-video",
         )}
       >
@@ -99,8 +105,6 @@ export const YouTubeVideoCard = ({
             alt={video.title}
             className={cn(
               "w-full h-full object-cover transition-transform duration-300 group-hover:scale-105",
-              // 키리누키 숏츠(일반 레이아웃)일 때 썸네일이 잘릴 수 있으므로 contain 대신 cover 유지하되 위치 조정 필요할 수 있음
-              // 일단 cover로 유지
             )}
           />
         ) : (
@@ -125,20 +129,10 @@ export const YouTubeVideoCard = ({
           {formatDuration(video.duration)}
         </div>
 
-        {/* 뱃지 (키리누키: 클리퍼명, 일반: 멤버명) */}
-        {showBadge && (
-          <div
-            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium backdrop-blur-sm"
-            style={{
-              backgroundColor: isKirinuki
-                ? "rgba(0,0,0,0.7)"
-                : accentColor
-                  ? `${accentColor}cc`
-                  : "rgba(0,0,0,0.7)",
-              color: "white",
-            }}
-          >
-            {badgeName}
+        {showKirinukiChip && (
+          <div className="absolute left-2 top-2 flex max-w-[calc(100%-3.5rem)] items-center gap-1 rounded-full bg-black/75 px-2 py-1 text-xs font-medium text-white shadow-sm backdrop-blur-sm">
+            <Scissors className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{channelName}</span>
           </div>
         )}
 
@@ -154,33 +148,67 @@ export const YouTubeVideoCard = ({
         )}
       </div>
 
-      {/* 정보 - flex-grow와 justify-between으로 조회수/날짜를 하단에 붙임 */}
       <div
-        className={cn("flex flex-col flex-grow p-3", isShortLayout && "p-2")}
+        className={cn(
+          "flex min-w-0 gap-3 pt-3",
+          isShortLayout && "block pt-2",
+        )}
       >
-        <h3
-          className={cn(
-            "font-semibold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors flex-grow",
-            isShortLayout ? "text-xs" : "text-sm",
-          )}
-        >
-          {video.title}
-        </h3>
+        {!isShortLayout && !isKirinuki && (
+          <div
+            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+            style={{
+              backgroundColor: accentColor ? accentColor : undefined,
+              color: accentColor ? "white" : undefined,
+            }}
+          >
+            {member ? (
+              <img
+                src={`/profile/${member.code}.webp`}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              "?"
+            )}
+          </div>
+        )}
 
-        <div
-          className={cn(
-            "flex items-center gap-2 text-muted-foreground mt-auto pt-1.5",
-            isShortLayout ? "text-[10px]" : "text-xs",
+        <div className="min-w-0 flex-1">
+          <h3
+            className={cn(
+              "line-clamp-2 font-semibold leading-snug text-foreground transition-colors group-hover:text-primary",
+              isShortLayout ? "text-sm" : "text-sm",
+            )}
+          >
+            {video.title}
+          </h3>
+
+          {!isShortLayout && !isKirinuki && channelName && (
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {channelName}
+            </p>
           )}
-        >
-          <span className="flex items-center gap-1">
-            <Eye className={cn(isShortLayout ? "w-2.5 h-2.5" : "w-3 h-3")} />
-            {formatViewCount(video.viewCount)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className={cn(isShortLayout ? "w-2.5 h-2.5" : "w-3 h-3")} />
-            {formatRelativeDate(video.publishedAt)}
-          </span>
+
+          <div
+            className={cn(
+              "mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground",
+              isShortLayout ? "text-[11px]" : "text-xs",
+            )}
+          >
+            <span className="flex items-center gap-1">
+              <Eye
+                className={cn(isShortLayout ? "w-2.5 h-2.5" : "w-3 h-3")}
+              />
+              {formatViewCount(video.viewCount)}
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock
+                className={cn(isShortLayout ? "w-2.5 h-2.5" : "w-3 h-3")}
+              />
+              {formatRelativeDate(video.publishedAt)}
+            </span>
+          </div>
         </div>
       </div>
     </a>

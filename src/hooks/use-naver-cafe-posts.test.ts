@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import { useNaverCafePosts } from "./use-naver-cafe-posts";
 
 const fetchNaverCafePostsMock = vi.hoisted(() => vi.fn());
@@ -17,6 +18,7 @@ describe("useNaverCafePosts", () => {
   it("enabled=false면 요청하지 않는다", async () => {
     const { result } = renderHook(() =>
       useNaverCafePosts({ enabled: false }),
+      { wrapper: createQueryWrapper() },
     );
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -31,7 +33,9 @@ describe("useNaverCafePosts", () => {
       updatedAt: "2026-05-27T00:00:00Z",
     });
 
-    const { result } = renderHook(() => useNaverCafePosts({ size: 7 }));
+    const { result } = renderHook(() => useNaverCafePosts({ size: 7 }), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(fetchNaverCafePostsMock).toHaveBeenCalledWith({

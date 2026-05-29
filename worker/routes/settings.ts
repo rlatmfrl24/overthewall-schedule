@@ -807,7 +807,9 @@ export const handleSettings = async (request: Request, env: Env) => {
       const logsData = await logQuery
         .orderBy(desc(updateLogs.created_at), desc(updateLogs.id))
         .limit(limit);
-      return Response.json(logsData);
+      return Response.json(logsData, {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
 
     const pageRaw = parseInt(pageParam || "1", 10);
@@ -861,15 +863,18 @@ export const handleSettings = async (request: Request, env: Env) => {
     }
 
     const items = await pagedQuery.limit(pageSize).offset(offset);
-    return Response.json({
-      items,
-      total,
-      page,
-      pageSize,
-      totalPages,
-      hasPrevPage: page > 1,
-      hasNextPage: page < totalPages,
-    });
+    return Response.json(
+      {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages,
+        hasPrevPage: page > 1,
+        hasNextPage: page < totalPages,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   // GET /api/settings - 설정 조회
@@ -916,7 +921,9 @@ export const handleSettings = async (request: Request, env: Env) => {
       );
       settingsObj.auto_update_interval_hours = normalizedIntervalHours;
     }
-    return Response.json(settingsObj);
+    return Response.json(settingsObj, {
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   if (request.method === "PUT") {
@@ -1080,7 +1087,9 @@ export const handleSettings = async (request: Request, env: Env) => {
   if (request.method === "GET" && url.pathname === "/api/settings/pending") {
     const pendingList = await selectPendingSchedules(db);
     const enrichedList = await enrichPendingSchedules(db, pendingList);
-    return Response.json(enrichedList);
+    return Response.json(enrichedList, {
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   // POST /api/settings/pending/:id/reset-processed - 처리 완료 판정 리셋

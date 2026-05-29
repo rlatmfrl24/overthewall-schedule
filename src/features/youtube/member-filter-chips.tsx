@@ -42,20 +42,10 @@ export const MemberFilterChips = ({
   };
 
   const handleMemberClick = (uid: number) => {
-    if (isAllSelected) {
-      // 전체 선택 상태에서 멤버 클릭 -> 해당 멤버만 선택
-      onChange([uid]);
-    } else if (selectedUids?.includes(uid)) {
-      // 이미 선택된 멤버 클릭 -> 선택 해제
-      const newUids = selectedUids.filter((id) => id !== uid);
-      if (newUids.length === 0) {
-        onChange(null); // 모두 해제되면 전체 선택
-      } else {
-        onChange(newUids);
-      }
+    if (!isAllSelected && selectedUids?.includes(uid)) {
+      onChange(null);
     } else {
-      // 선택되지 않은 멤버 클릭 -> 선택 추가
-      onChange([...(selectedUids || []), uid]);
+      onChange([uid]);
     }
   };
 
@@ -63,6 +53,7 @@ export const MemberFilterChips = ({
     <div className="flex flex-wrap gap-2">
       {/* 전체 선택 Chip */}
       <button
+        data-member-filter-chip="all"
         onClick={(event) => {
           createRipple(event);
           handleAllClick();
@@ -90,6 +81,8 @@ export const MemberFilterChips = ({
         return (
           <button
             key={member.uid}
+            data-member-filter-chip="member"
+            data-member-uid={member.uid}
             onClick={(event) => {
               createRipple(event);
               handleMemberClick(member.uid);

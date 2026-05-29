@@ -53,7 +53,11 @@ describe("vods api", () => {
       ],
     });
 
-    const members = [makeMember(1, "aaa"), makeMember(2, "bbb"), makeMember(3, "aaa")];
+    const members = [
+      makeMember(1, "aaa"),
+      makeMember(2, "bbb"),
+      makeMember(3, "aaa"),
+    ];
     const result = await fetchAllMembersLatestVideos(members);
 
     expect(result[1]?.videoId).toBe("v1");
@@ -61,6 +65,53 @@ describe("vods api", () => {
     expect(result[3]?.videoId).toBe("v1");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/vods/chzzk?channelIds=aaa%2Cbbb&page=0&size=1",
+    );
+  });
+
+  it("채널별 여러 vod를 멤버 uid가 포함된 최신순 배열로 반환한다", async () => {
+    const { fetchAllMembersVodVideos } = await import("./vods");
+
+    apiFetchMock.mockResolvedValueOnce({
+      items: [
+        {
+          channelId: "aaa",
+          content: {
+            data: [
+              {
+                videoNo: 101,
+                videoId: "new",
+                publishDate: "2026-02-14T11:00:00+09:00",
+              },
+              {
+                videoNo: 100,
+                videoId: "old",
+                publishDate: "2026-02-13T11:00:00+09:00",
+              },
+            ],
+          },
+        },
+        {
+          channelId: "bbb",
+          content: {
+            data: [
+              {
+                videoNo: 200,
+                videoId: "mid",
+                publishDate: "2026-02-14T09:00:00+09:00",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const members = [makeMember(1, "aaa"), makeMember(2, "bbb")];
+    const result = await fetchAllMembersVodVideos(members, 6);
+
+    expect(result.map((video) => video.videoId)).toEqual(["new", "mid", "old"]);
+    expect(result.map((video) => video.memberUid)).toEqual([1, 2, 1]);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/vods/chzzk?channelIds=aaa%2Cbbb&page=0&size=6",
     );
   });
 
@@ -89,7 +140,10 @@ describe("vods api", () => {
 
   it("유효 채널이 없으면 빈 객체를 반환한다", async () => {
     const { fetchAllMembersLatestVideos } = await import("./vods");
-    const result = await fetchAllMembersLatestVideos([makeMember(1), makeMember(2)]);
+    const result = await fetchAllMembersLatestVideos([
+      makeMember(1),
+      makeMember(2),
+    ]);
 
     expect(result).toEqual({});
     expect(apiFetchMock).not.toHaveBeenCalled();

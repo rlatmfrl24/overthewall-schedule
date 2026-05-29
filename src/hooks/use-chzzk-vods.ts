@@ -1,45 +1,76 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchAllMembersLatestVideos } from "@/lib/api/vods";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  fetchAllMembersLatestVideos,
+  fetchAllMembersVodVideos,
+} from "@/lib/api/vods";
+import { MEDIA_QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { ChzzkVideo, Member } from "@/lib/types";
+import { extractChzzkChannelId } from "@/lib/utils";
 
-type UseAllMembersLatestVodsOptions = {
+type UseAllMembersVodsOptions = {
   enabled?: boolean;
 };
 
-/**
- * 모든 멤버의 최신 VOD를 조회하는 훅
- */
-export function useAllMembersLatestVods(
+const getChzzkChannelIdsKey = (members: Member[]) =>
+  members
+    .map((member) => extractChzzkChannelId(member.url_chzzk))
+    .filter((channelId): channelId is string => Boolean(channelId))
+    .sort()
+    .join(",");
+
+export function useAllMembersVods(
   members: Member[],
-  options: UseAllMembersLatestVodsOptions = {},
+  videosPerMember = 10,
+  options: UseAllMembersVodsOptions = {},
 ) {
-  const [vods, setVods] = useState<Record<number, ChzzkVideo | null>>({});
-  const [loading, setLoading] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
   const { enabled = true } = options;
+  const channelIdsKey = useMemo(() => getChzzkChannelIdsKey(members), [members]);
+  const queryEnabled = enabled && channelIdsKey.length > 0;
+  const query = useQuery({
+    queryKey: queryKeys.media.chzzkVods(channelIdsKey, videosPerMember),
+    queryFn: () => fetchAllMembersVodVideos(members, videosPerMember),
+    enabled: queryEnabled,
+    staleTime: MEDIA_QUERY_STALE_TIME_MS,
+  });
 
   const reload = useCallback(async () => {
-    if (!enabled || members.length === 0) return;
-
-    setLoading(true);
-    try {
-      const data = await fetchAllMembersLatestVideos(members);
-      setVods(data);
-    } finally {
-      setLoading(false);
-      setHasLoaded(true);
-    }
-  }, [enabled, members]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    void reload();
-  }, [enabled, reload]);
+    if (!queryEnabled) return;
+    await query.refetch();
+  }, [query, queryEnabled]);
 
   return {
-    vods,
-    loading,
-    hasLoaded,
+    vods: queryEnabled ? query.data ?? [] : [],
+    loading: queryEnabled ? query.isFetching : false,
+    hasLoaded: queryEnabled ? query.isFetched : false,
+    reload,
+  };
+}
+
+export function useAllMembersLatestVods(
+  members: Member[],
+  options: UseAllMembersVodsOptions = {},
+) {
+  const { enabled = true } = options;
+  const channelIdsKey = useMemo(() => getChzzkChannelIdsKey(members), [members]);
+  const queryEnabled = enabled && channelIdsKey.length > 0;
+  const query = useQuery({
+    queryKey: queryKeys.media.chzzkLatestVods(channelIdsKey),
+    queryFn: () => fetchAllMembersLatestVideos(members),
+    enabled: queryEnabled,
+    staleTime: MEDIA_QUERY_STALE_TIME_MS,
+  });
+
+  const reload = useCallback(async () => {
+    if (!queryEnabled) return;
+    await query.refetch();
+  }, [query, queryEnabled]);
+
+  return {
+    vods: queryEnabled ? query.data ?? {} : ({} as Record<number, ChzzkVideo | null>),
+    loading: queryEnabled ? query.isFetching : false,
+    hasLoaded: queryEnabled ? query.isFetched : false,
     reload,
   };
 }

@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchXPostsConfig } from "@/lib/api/x";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
 import type { XPostsVisibility } from "@/lib/types";
 
 export const X_POSTS_CONFIG_UPDATED_EVENT = "otw:x-posts-config-updated";
@@ -15,40 +18,33 @@ const isXPostsVisibility = (value: unknown): value is XPostsVisibility =>
   value === "public" || value === "members" || value === "private";
 
 export function useXPostsConfig(): XPostsConfigState {
-  const [visibility, setVisibility] = useState<XPostsVisibility>("members");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.memberPosts.xConfig();
+  const query = useQuery({
+    queryKey,
+    queryFn: () => fetchXPostsConfig(),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const reloadMutation = useMutation({
+    mutationFn: () => fetchXPostsConfig({ force: true }),
+    onSuccess: (config) => {
+      queryClient.setQueryData(queryKey, config);
+    },
+  });
 
-  const load = useCallback(async (force = false) => {
-    setLoading(true);
-    try {
-      const config = await fetchXPostsConfig({ force });
-      setVisibility(config.visibility);
-      setError(null);
-    } catch (loadError) {
-      console.error("Failed to load X posts config:", loadError);
-      setVisibility("members");
-      setError("멤버 게시글 공개 설정을 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load(false);
-  }, [load]);
+  const reload = useCallback(async () => {
+    await reloadMutation.mutateAsync();
+  }, [reloadMutation]);
 
   useEffect(() => {
     const handleConfigUpdate = (event: Event) => {
       const visibility = (event as CustomEvent<{ visibility?: unknown }>).detail
         ?.visibility;
       if (isXPostsVisibility(visibility)) {
-        setVisibility(visibility);
-        setError(null);
-        setLoading(false);
+        queryClient.setQueryData(queryKey, { visibility });
         return;
       }
-      void load(true);
+      void reload();
     };
 
     window.addEventListener(X_POSTS_CONFIG_UPDATED_EVENT, handleConfigUpdate);
@@ -57,12 +53,15 @@ export function useXPostsConfig(): XPostsConfigState {
         X_POSTS_CONFIG_UPDATED_EVENT,
         handleConfigUpdate,
       );
-  }, [load]);
+  }, [queryClient, queryKey, reload]);
 
   return {
-    visibility,
-    loading,
-    error,
-    reload: () => load(true),
+    visibility: query.data?.visibility ?? "members",
+    loading: query.isLoading || reloadMutation.isPending,
+    error:
+      query.error || reloadMutation.error
+        ? "멤버 게시글 공개 설정을 불러오지 못했습니다."
+        : null,
+    reload,
   };
 }

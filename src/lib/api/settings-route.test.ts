@@ -105,6 +105,7 @@ describe("settings worker route", () => {
     const body = (await response.json()) as Record<string, string | null>;
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(body.x_collection_interval_hours).toBe("6");
     expect(body.x_collection_last_run).toBeNull();
     expect(fakeDbContext.state.writes).toContainEqual({

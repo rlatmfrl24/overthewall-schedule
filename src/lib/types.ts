@@ -70,6 +70,8 @@ export interface ChzzkVideo {
     channelName: string;
     channelImageUrl: string;
   };
+  // 프론트엔드에서 추가할 필드
+  memberUid?: number;
 }
 
 export interface ChzzkVideosResponse {

@@ -13,9 +13,6 @@ export const SnapshotCardSchedule = ({
   accentColor = "#000000",
 }: SnapshotCardScheduleProps) => {
   const isBroadcast = schedule.status === "방송";
-  const isOff = schedule.status === "휴방";
-  const isGuerrilla = schedule.status === "게릴라";
-  const isSimpleStatus = isOff || isGuerrilla;
   const broadcastBorderColor = hexToRgba(accentColor, 0.38);
 
   const rawTitle = schedule.title?.trim() ?? "";
@@ -27,20 +24,14 @@ export const SnapshotCardSchedule = ({
   };
 
   const displayTitle = rawTitle || fallbackTitleByStatus[schedule.status];
-  const shouldHideTitle =
-    isSimpleStatus && (displayTitle === "휴방" || displayTitle === "게릴라");
-  const statusLabel = isSimpleStatus ? schedule.status : null;
   const showTime = Boolean(schedule.start_time);
   const timeLabel = schedule.start_time ?? "--:--";
   const { textRef, textStyle } = useAutoFitText<HTMLParagraphElement>({
-    contentKey: `${schedule.id}:${displayTitle}:${schedule.status}`,
+    contentKey: `${schedule.id}:${displayTitle}`,
     maxLines: 2,
     minFontSizePx: isBroadcast ? 22 : 18,
     stepPx: 1,
   });
-  const statusToneClass = isOff
-    ? "text-rose-700 bg-rose-50 border-rose-200 dark:text-rose-200 dark:bg-rose-500/10 dark:border-rose-400/30"
-    : "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-200 dark:bg-amber-500/10 dark:border-amber-400/30";
 
   return (
     <div
@@ -52,57 +43,40 @@ export const SnapshotCardSchedule = ({
       )}
       style={isBroadcast ? { borderColor: broadcastBorderColor } : undefined}
     >
-      {(showTime || statusLabel) && (
+      {showTime && (
         <div className="flex w-full min-h-[52px] items-center justify-center gap-2.5 text-center">
-          {showTime && (
-            <div
+          <div
+            className={cn(
+              "inline-flex h-11 min-w-[124px] items-center justify-center gap-1.5 rounded-lg px-3 font-black leading-none tracking-tight tabular-nums border",
+              isBroadcast
+                ? "border-zinc-200 bg-white text-[1.88rem] text-zinc-900 shadow-xs dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-50 dark:shadow-none"
+                : "border-zinc-200 bg-white text-[1.42rem] text-zinc-800 shadow-xs dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-200 dark:shadow-none",
+            )}
+          >
+            <Clock3
               className={cn(
-                "inline-flex h-11 min-w-[124px] items-center justify-center gap-1.5 rounded-lg px-3 font-black leading-none tracking-tight tabular-nums border",
+                "h-5 w-5",
                 isBroadcast
-                  ? "border-zinc-200 bg-white text-[1.88rem] text-zinc-900 shadow-xs dark:border-zinc-700 dark:bg-zinc-800/80 dark:text-zinc-50 dark:shadow-none"
-                  : "border-zinc-200 bg-white text-[1.42rem] text-zinc-800 shadow-xs dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-200 dark:shadow-none",
+                  ? "text-zinc-500 dark:text-zinc-400"
+                  : "text-zinc-600 dark:text-zinc-400",
               )}
-            >
-              <Clock3
-                className={cn(
-                  "h-5 w-5",
-                  isBroadcast
-                    ? "text-zinc-500 dark:text-zinc-400"
-                    : "text-zinc-600 dark:text-zinc-400",
-                )}
-              />
-              {timeLabel}
-            </div>
-          )}
-          {statusLabel && (
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full border px-3 py-1 leading-none tracking-tight",
-                shouldHideTitle
-                  ? "text-[1.22rem] font-extrabold"
-                  : "text-[1rem] font-bold",
-                statusToneClass,
-              )}
-            >
-              {statusLabel}
-            </span>
-          )}
+            />
+            {timeLabel}
+          </div>
         </div>
       )}
-      {!shouldHideTitle && (
-        <p
-          ref={textRef}
-          style={textStyle}
-          className={cn(
-            "w-full text-center break-keep tracking-tight",
-            isBroadcast
-              ? "text-[1.95rem] font-black text-zinc-900 dark:text-zinc-50 leading-[1.16]"
-              : "text-[1.58rem] font-extrabold text-zinc-900 dark:text-zinc-100 leading-[1.22]",
-          )}
-        >
-          {displayTitle}
-        </p>
-      )}
+      <p
+        ref={textRef}
+        style={textStyle}
+        className={cn(
+          "w-full text-center break-keep tracking-tight",
+          isBroadcast
+            ? "text-[1.95rem] font-black text-zinc-900 dark:text-zinc-50 leading-[1.16]"
+            : "text-[1.58rem] font-extrabold text-zinc-900 dark:text-zinc-100 leading-[1.22]",
+        )}
+      >
+        {displayTitle}
+      </p>
     </div>
   );
 };

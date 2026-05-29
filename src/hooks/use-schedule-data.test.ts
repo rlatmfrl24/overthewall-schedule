@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
 import type { DDayItem, Member } from "@/lib/types";
 
 const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
@@ -49,7 +50,6 @@ describe("useScheduleData", () => {
   beforeEach(() => {
     fetchActiveMembersMock.mockReset();
     fetchDDaysMock.mockReset();
-    vi.resetModules();
   });
 
   it("초기 로드 후 fresh cache이면 reloadAll에서 API를 재호출하지 않는다", async () => {
@@ -57,7 +57,9 @@ describe("useScheduleData", () => {
     fetchDDaysMock.mockResolvedValueOnce([makeDday(1)]);
 
     const { useScheduleData } = await import("./use-schedule-data");
-    const { result } = renderHook(() => useScheduleData());
+    const { result } = renderHook(() => useScheduleData(), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
     expect(result.current.members.map((member) => member.uid)).toEqual([1]);
@@ -82,7 +84,9 @@ describe("useScheduleData", () => {
       .mockResolvedValueOnce([makeDday(2)]);
 
     const { useScheduleData } = await import("./use-schedule-data");
-    const { result } = renderHook(() => useScheduleData());
+    const { result } = renderHook(() => useScheduleData(), {
+      wrapper: createQueryWrapper(),
+    });
 
     await waitFor(() => expect(result.current.hasLoaded).toBe(true));
 
@@ -91,8 +95,12 @@ describe("useScheduleData", () => {
       await result.current.reloadDDays();
     });
 
-    expect(result.current.members.map((member) => member.uid)).toEqual([2]);
-    expect(result.current.ddays.map((dday) => dday.id)).toEqual([2]);
+    await waitFor(() =>
+      expect(result.current.members.map((member) => member.uid)).toEqual([2]),
+    );
+    await waitFor(() =>
+      expect(result.current.ddays.map((dday) => dday.id)).toEqual([2]),
+    );
     expect(fetchActiveMembersMock).toHaveBeenCalledTimes(2);
     expect(fetchDDaysMock).toHaveBeenCalledTimes(2);
   });
