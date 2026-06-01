@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { getMigrationListStatus } from "./d1-doctor-core.mjs";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -28,18 +29,22 @@ const baseUrl = getArgValue("--url", "http://127.0.0.1:5173").replace(
   /\/$/,
   "",
 );
-const skipApi = hasArg("--skip-api");
+const includeApi = hasArg("--api") || hasArg("--with-api");
+const skipApi = hasArg("--skip-api") || !includeApi;
 const skipLocal = hasArg("--skip-local");
-const skipRemote = hasArg("--skip-remote");
+const includeRemote = hasArg("--remote");
+const skipRemote = hasArg("--skip-remote") || !includeRemote;
 
 if (hasArg("--help") || hasArg("-h")) {
   console.log(`Usage: node scripts/d1-doctor.mjs [options]
 
 Options:
   --url=http://127.0.0.1:5173  API base URL to check
+  --api, --with-api            Include API health checks (disabled by default)
   --skip-api                   Skip API health checks
   --skip-local                 Skip local D1 checks
-  --skip-remote                Skip remote D1 checks
+  --remote                     Include remote D1 checks
+  --skip-remote                Skip remote D1 checks (default)
 `);
   process.exit(0);
 }
@@ -131,12 +136,7 @@ const checkMigrations = async (scope) => {
   }
 
   const output = `${result.stdout}\n${result.stderr}`;
-  return {
-    ok: true,
-    message: output.includes("No migrations to apply")
-      ? "no pending migrations"
-      : "review wrangler output for pending migrations",
-  };
+  return getMigrationListStatus(output);
 };
 
 const readTableColumns = async (scope, tableName) => {
@@ -199,7 +199,10 @@ const hasRemoteD1Binding = () => {
   const configPath = join(rootDir, "wrangler.jsonc");
   if (!existsSync(configPath)) return false;
   const config = readFileSync(configPath, "utf8");
-  return /"d1_databases"\s*:\s*\[[\s\S]*"remote"\s*:\s*true/.test(config);
+  const d1Block = config.match(
+    /"d1_databases"\s*:\s*\[([\s\S]*?)\]\s*,\s*"r2_buckets"/,
+  )?.[1];
+  return Boolean(d1Block && /"remote"\s*:\s*true/.test(d1Block));
 };
 
 let failures = 0;
@@ -209,8 +212,13 @@ console.log(`Project: ${rootDir}`);
 console.log(`API URL: ${baseUrl}`);
 if (hasRemoteD1Binding()) {
   printResult(
-    "info",
-    "wrangler.jsonc uses remote D1 bindings during dev; local D1 may differ from the running app.",
+    "warn",
+    "wrangler.jsonc uses remote D1 bindings during dev; remove remote:true for local-first development.",
+  );
+} else {
+  printResult(
+    "ok",
+    "wrangler.jsonc uses local D1 bindings during dev.",
   );
 }
 
@@ -243,7 +251,8 @@ for (const scope of ["remote", "local"]) {
   if (migrations.ok) {
     printResult("ok", `${scope} migrations: ${migrations.message}`);
   } else {
-    printResult("warn", `${scope} migrations: ${migrations.message}`);
+    printResult("fail", `${scope} migrations: ${migrations.message}`);
+    failures += 1;
   }
 
   failures += await checkSchema(scope);

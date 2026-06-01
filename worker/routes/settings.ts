@@ -31,6 +31,7 @@ import {
   getActorInfo,
   getSetting,
   insertUpdateLog,
+  json,
   parseNumericId,
   pMap,
   updateSetting,
@@ -731,7 +732,10 @@ const approvePendingWithOptions = async (
   };
 };
 
-export const handleSettings = async (request: Request, env: Env) => {
+export const handleSettings = async (
+  request: Request,
+  env: Env,
+): Promise<Response> => {
   const url = new URL(request.url);
   const db = getDb(env);
   const admin = await requireAdminUser(request, env);
@@ -754,6 +758,106 @@ export const handleSettings = async (request: Request, env: Env) => {
     "x_collection_interval_hours",
     "x_collection_last_run",
   ] as const;
+
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/settings/pending/actions"
+  ) {
+    const body = (await request.json()) as {
+      action?: "approve" | "reject" | "reset_processed";
+      mode?: "selected" | "all";
+      ids?: Array<number | string>;
+      options?: PendingApprovalOptions;
+    };
+    const action = body.action;
+    const mode = body.mode ?? "selected";
+    const ids =
+      body.ids
+        ?.map((value) => parseNumericId(value))
+        .filter((value): value is number => value !== null) ?? [];
+
+    if (
+      action !== "approve" &&
+      action !== "reject" &&
+      action !== "reset_processed"
+    ) {
+      return badRequest("Invalid pending action");
+    }
+    if (mode === "all" && action === "reset_processed") {
+      return badRequest("reset_processed does not support all mode");
+    }
+    if (mode !== "all" && ids.length === 0) {
+      return badRequest("ids are required");
+    }
+
+    const runInternalAction = async (
+      pathname: string,
+      payload?: Record<string, unknown>,
+    ): Promise<{ response: Response; data: unknown }> => {
+      const internalUrl = new URL(request.url);
+      internalUrl.pathname = pathname;
+      internalUrl.search = "";
+      const response = await handleSettings(
+        new Request(internalUrl.toString(), {
+          method: "POST",
+          headers: request.headers,
+          ...(payload ? { body: JSON.stringify(payload) } : {}),
+        }),
+        env,
+      );
+      const text = await response.text();
+      let data: unknown = text;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
+      return { response, data };
+    };
+
+    if (mode === "all") {
+      const pathname =
+        action === "approve"
+          ? "/api/settings/pending/approve-all"
+          : "/api/settings/pending/reject-all";
+      const { response, data } = await runInternalAction(pathname);
+      return json(data, response.status);
+    }
+
+    const results = [];
+    for (const pendingId of ids) {
+      const pathname =
+        action === "approve"
+          ? `/api/settings/pending/${pendingId}/approve`
+          : action === "reject"
+            ? `/api/settings/pending/${pendingId}/reject`
+            : `/api/settings/pending/${pendingId}/reset-processed`;
+      const { response, data } = await runInternalAction(
+        pathname,
+        action === "approve" && body.options ? body.options : undefined,
+      );
+      const success = response.ok && Boolean((data as { success?: boolean }).success);
+      results.push({
+        id: pendingId,
+        success,
+        action,
+        ...(typeof data === "object" && data !== null
+          ? (data as Record<string, unknown>)
+          : { message: String(data) }),
+      });
+    }
+
+    const successCount = results.filter((result) => result.success).length;
+    return json({
+      success: successCount === results.length,
+      totalRequested: ids.length,
+      successCount,
+      failedCount: ids.length - successCount,
+      results,
+    });
+  }
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
   if (request.method === "GET" && url.pathname === "/api/settings/logs") {

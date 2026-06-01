@@ -5,25 +5,15 @@ import { createQueryWrapper } from "@/test/query-client";
 import type { DDayItem, Member, ScheduleItem } from "@/lib/types";
 import { useWeeklySchedule } from "./use-weekly-schedule";
 
-const fetchSchedulesInRangeMock = vi.hoisted(() => vi.fn());
 const deleteScheduleMock = vi.hoisted(() => vi.fn());
 const saveScheduleWithConflictsMock = vi.hoisted(() => vi.fn());
+const useScheduleBoardMock = vi.hoisted(() => vi.fn());
 
-vi.mock("./use-schedule-data", () => ({
-  useScheduleData: () => ({
-    members: [
-      {
-        uid: 1,
-        code: "m1",
-        name: "멤버1",
-      } as Member,
-    ],
-    ddays: [{ id: 1, title: "기념일" } as DDayItem],
-  }),
+vi.mock("./use-schedule-board", () => ({
+  useScheduleBoard: useScheduleBoardMock,
 }));
 
 vi.mock("@/lib/api/schedules", () => ({
-  fetchSchedulesInRange: fetchSchedulesInRangeMock,
   deleteSchedule: deleteScheduleMock,
 }));
 
@@ -43,15 +33,31 @@ const makeSchedule = (partial: Partial<ScheduleItem> = {}) =>
     ...partial,
   }) as ScheduleItem;
 
+const makeBoardState = (schedules: ScheduleItem[] = [makeSchedule()]) => ({
+  members: [
+    {
+      uid: 1,
+      code: "m1",
+      name: "멤버1",
+    } as Member,
+  ],
+  ddays: [{ id: 1, title: "기념일" } as DDayItem],
+  notices: [],
+  schedules,
+  loading: false,
+  hasLoaded: true,
+  error: null,
+});
+
 describe("useWeeklySchedule", () => {
   beforeEach(() => {
-    fetchSchedulesInRangeMock.mockReset();
     deleteScheduleMock.mockReset();
     saveScheduleWithConflictsMock.mockReset();
+    useScheduleBoardMock.mockReset();
+    useScheduleBoardMock.mockReturnValue(makeBoardState());
   });
 
-  it("초기 조회 및 다이얼로그 동작을 처리한다", async () => {
-    fetchSchedulesInRangeMock.mockResolvedValue([makeSchedule()]);
+  it("주간 보드 aggregate 조회 결과와 다이얼로그 동작을 처리한다", async () => {
     saveScheduleWithConflictsMock.mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useWeeklySchedule(), {
@@ -60,7 +66,7 @@ describe("useWeeklySchedule", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.schedules).toHaveLength(1);
-    expect(fetchSchedulesInRangeMock).toHaveBeenCalledTimes(1);
+    expect(useScheduleBoardMock).toHaveBeenCalledTimes(1);
 
     act(() => {
       result.current.openAddDialog(new Date("2026-02-14T00:00:00Z"), 1);
@@ -85,7 +91,6 @@ describe("useWeeklySchedule", () => {
   });
 
   it("삭제 실패 시 alert 상태를 노출한다", async () => {
-    fetchSchedulesInRangeMock.mockResolvedValue([makeSchedule()]);
     deleteScheduleMock.mockRejectedValueOnce(new Error("delete failed"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 

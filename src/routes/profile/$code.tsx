@@ -1,9 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 import type { MemberProfile, MemberProfileLink } from "@/lib/types";
 import { fetchMemberProfile } from "@/lib/api/members";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { queryKeys } from "@/lib/query-keys";
+import { buildProfileBackgroundImageSources } from "@/lib/profile-background-images";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +37,26 @@ export const Route = createFileRoute("/profile/$code")({
 });
 
 const AUTO_ROTATE_MS = 9000;
+const PROFILE_BACKGROUND_MEDIA_QUERY = "(min-width: 640px)";
+
+const useMediaQuery = (query: string) => {
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const media = window.matchMedia(query);
+    const handleChange = () => setMatches(media.matches);
+
+    handleChange();
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, [query]);
+
+  return matches;
+};
 
 const formatProfileDate = (value: string | null | undefined) => {
   if (!value || value.startsWith("9999")) {
@@ -233,47 +257,31 @@ const ProfileInfoCapsule = ({
 
 function ProfilePage() {
   const { code } = Route.useParams();
-  const [member, setMember] = useState<MemberProfile | null>(null);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [failedProfileBackgroundCode, setFailedProfileBackgroundCode] =
     useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadMember() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const data = await fetchMemberProfile(code);
-        if (!cancelled) {
-          setMember(data);
-          setActiveImageIndex(0);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError((err as Error).message || "Failed to fetch member");
-          setMember(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void loadMember();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [code]);
+  const [
+    failedOptimizedProfileBackgroundCode,
+    setFailedOptimizedProfileBackgroundCode,
+  ] = useState<string | null>(null);
+  const canRenderProfileBackground = useMediaQuery(
+    PROFILE_BACKGROUND_MEDIA_QUERY,
+  );
+  const memberQuery = useQuery<MemberProfile>({
+    queryKey: queryKeys.members.profile(code),
+    queryFn: () => fetchMemberProfile(code),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const member = memberQuery.data ?? null;
+  const loading = memberQuery.isLoading;
+  const error = memberQuery.error
+    ? (memberQuery.error as Error).message || "Failed to fetch member"
+    : null;
 
   useEffect(() => {
     setFailedProfileBackgroundCode(null);
+    setFailedOptimizedProfileBackgroundCode(null);
+    setActiveImageIndex(0);
   }, [code]);
 
   const profileImages = useMemo(
@@ -308,14 +316,29 @@ function ProfilePage() {
   }, [hasMultipleImages, profileImages.length]);
 
   const activeImage = profileImages[activeImageIndex] ?? profileImages[0];
-  const profileBackgroundUrl = member
-    ? `/profile-background/${member.code}.webp`
+  const profileBackgroundSources = member
+    ? buildProfileBackgroundImageSources(member.code)
     : null;
   const shouldUseProfileBackground =
-    Boolean(profileBackgroundUrl) && failedProfileBackgroundCode !== member?.code;
+    canRenderProfileBackground &&
+    Boolean(profileBackgroundSources) &&
+    failedProfileBackgroundCode !== member?.code;
+  const shouldUseOptimizedProfileBackground =
+    shouldUseProfileBackground &&
+    failedOptimizedProfileBackgroundCode !== member?.code;
   const backgroundImageUrl = shouldUseProfileBackground
-    ? profileBackgroundUrl
-    : activeImage?.imageUrl;
+    ? shouldUseOptimizedProfileBackground
+      ? profileBackgroundSources?.src
+      : profileBackgroundSources?.fallbackSrc
+    : canRenderProfileBackground
+      ? activeImage?.imageUrl
+      : null;
+  const backgroundImageSrcSet = shouldUseOptimizedProfileBackground
+    ? profileBackgroundSources?.srcSet
+    : undefined;
+  const backgroundImageSizes = shouldUseOptimizedProfileBackground
+    ? profileBackgroundSources?.sizes
+    : undefined;
   const showImageControls = hasMultipleImages && !shouldUseProfileBackground;
 
   const { primaryLinks, secondaryLinks } = useMemo(() => {
@@ -384,14 +407,31 @@ function ProfilePage() {
           <motion.img
             key={backgroundImageUrl}
             src={backgroundImageUrl}
+            srcSet={backgroundImageSrcSet}
+            sizes={backgroundImageSizes}
             alt={activeImage?.alt ?? `${member.name} 프로필 이미지`}
             className="absolute inset-0 hidden size-full object-cover object-[50%_18%] sm:block sm:object-center"
+            decoding="async"
+            fetchPriority="high"
             initial={{ opacity: 0, scale: 1.03 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.015 }}
             transition={{ duration: 0.65, ease: "easeOut" }}
             onError={() => {
-              if (member && backgroundImageUrl === profileBackgroundUrl) {
+              if (
+                member &&
+                profileBackgroundSources &&
+                backgroundImageUrl === profileBackgroundSources.src
+              ) {
+                setFailedOptimizedProfileBackgroundCode(member.code);
+                return;
+              }
+
+              if (
+                member &&
+                profileBackgroundSources &&
+                backgroundImageUrl === profileBackgroundSources.fallbackSrc
+              ) {
                 setFailedProfileBackgroundCode(member.code);
               }
             }}
@@ -449,6 +489,8 @@ function ProfilePage() {
                   src={activeImage.imageUrl}
                   alt={activeImage.alt ?? `${member.name} 프로필 이미지`}
                   className="size-full object-cover object-[50%_18%]"
+                  decoding="async"
+                  loading="eager"
                 />
                 {hasMultipleImages && (
                   <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/12 bg-slate-950/44 px-2.5 py-1.5 backdrop-blur-md">

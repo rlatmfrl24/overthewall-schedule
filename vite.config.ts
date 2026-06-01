@@ -23,4 +23,25 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+          if (!normalizedId.includes("/node_modules/")) return;
+          if (normalizedId.includes("/node_modules/@clerk/")) return "clerk";
+          if (normalizedId.includes("/node_modules/@tanstack/")) return "tanstack";
+          if (normalizedId.includes("/node_modules/@radix-ui/")) return "radix";
+          if (normalizedId.includes("/node_modules/motion/")) return "motion";
+          if (
+            normalizedId.includes("/node_modules/react/") ||
+            normalizedId.includes("/node_modules/react-dom/") ||
+            normalizedId.includes("/node_modules/scheduler/")
+          ) {
+            return "react";
+          }
+        },
+      },
+    },
+  },
 });

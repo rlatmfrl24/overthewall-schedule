@@ -8,7 +8,16 @@ import {
   insertUpdateLog,
   parseNumericId,
 } from "../utils/helpers";
+import { saveScheduleWithConflicts } from "../use-cases/save-schedule";
 import type { SchedulePayload, UpdateSchedulePayload, Env } from "../types";
+
+const SCHEDULE_STATUSES = ["방송", "휴방", "게릴라", "미정"] as const;
+type ScheduleStatus = (typeof SCHEDULE_STATUSES)[number];
+const SCHEDULE_READ_CACHE_CONTROL = "no-store";
+
+const isScheduleStatus = (value: unknown): value is ScheduleStatus =>
+  typeof value === "string" &&
+  SCHEDULE_STATUSES.includes(value as ScheduleStatus);
 
 export const handleSchedules = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -22,6 +31,40 @@ export const handleSchedules = async (request: Request, env: Env) => {
     : null;
   const actor = getActorInfo(request, authenticatedUser);
 
+  if (url.pathname === "/api/schedules/save") {
+    if (request.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+
+    const body = (await request.json()) as Partial<
+      UpdateSchedulePayload & { id?: number | string | null }
+    >;
+    const { id, member_uid, date, start_time, title, status } = body;
+
+    if (!member_uid || !date || !isScheduleStatus(status)) {
+      return badRequest("Missing or invalid required fields");
+    }
+
+    const numericId = id === undefined || id === null ? null : parseNumericId(id);
+    if (id !== undefined && id !== null && numericId === null) {
+      return badRequest("Invalid id");
+    }
+
+    const result = await saveScheduleWithConflicts(
+      db,
+      {
+        id: numericId,
+        member_uid,
+        date,
+        start_time: start_time ?? null,
+        title: title ?? null,
+        status,
+      },
+      actor,
+    );
+    return Response.json(result);
+  }
+
   if (request.method === "GET") {
     const date = url.searchParams.get("date");
     const startDate = url.searchParams.get("startDate");
@@ -32,7 +75,9 @@ export const handleSchedules = async (request: Request, env: Env) => {
         .select()
         .from(schedules)
         .where(between(schedules.date, startDate, endDate));
-      return Response.json(data);
+      return Response.json(data, {
+        headers: { "Cache-Control": SCHEDULE_READ_CACHE_CONTROL },
+      });
     }
 
     if (!date) {
@@ -43,7 +88,9 @@ export const handleSchedules = async (request: Request, env: Env) => {
       .select()
       .from(schedules)
       .where(eq(schedules.date, date));
-    return Response.json(data);
+    return Response.json(data, {
+      headers: { "Cache-Control": SCHEDULE_READ_CACHE_CONTROL },
+    });
   }
 
   if (request.method === "POST") {

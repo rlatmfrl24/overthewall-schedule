@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   addDays,
   startOfWeek,
@@ -9,15 +9,14 @@ import {
   format,
 } from "date-fns";
 import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
-import { useScheduleData } from "./use-schedule-data";
-import { fetchSchedulesInRange, deleteSchedule } from "@/lib/api/schedules";
+import { useScheduleBoard } from "./use-schedule-board";
+import { deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useWeeklySchedule() {
   const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = useState(new Date());
-  const { members, ddays } = useScheduleData();
 
   // Dialog & Alert State
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
@@ -38,10 +37,7 @@ export function useWeeklySchedule() {
   const weekDays = Array.from({ length: 7 }).map((_, i) =>
     addDays(weekStart, i)
   );
-  const schedulesQuery = useQuery({
-    queryKey: queryKeys.schedules.range(startDateStr, endDateStr),
-    queryFn: () => fetchSchedulesInRange(startDateStr, endDateStr),
-  });
+  const scheduleBoard = useScheduleBoard(startDateStr, endDateStr);
 
   const nextWeek = () => setCurrentDate((prev) => addWeeks(prev, 1));
   const prevWeek = () => setCurrentDate((prev) => subWeeks(prev, 1));
@@ -98,10 +94,11 @@ export function useWeeklySchedule() {
 
   return {
     currentDate,
-    members,
-    schedules: schedulesQuery.data ?? [],
-    ddays,
-    loading: schedulesQuery.isLoading,
+    members: scheduleBoard.members,
+    schedules: scheduleBoard.schedules,
+    ddays: scheduleBoard.ddays,
+    notices: scheduleBoard.notices,
+    loading: scheduleBoard.loading,
     editingSchedule,
     initialMemberUid,
     dialogDate,

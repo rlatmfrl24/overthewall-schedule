@@ -93,6 +93,11 @@ export const schedules = sqliteTable(
       table.date,
       table.start_time,
     ),
+    index("idx_schedules_date_member_time").on(
+      table.date,
+      table.member_uid,
+      table.start_time,
+    ),
     check(
       "schedules_status_check",
       sql`status IN ('방송', '휴방', '게릴라', '미정')`,
@@ -318,6 +323,10 @@ export const updateLogs = sqliteTable(
       table.schedule_date,
       table.created_at,
     ),
+    index("idx_update_logs_member_created_at").on(
+      table.member_uid,
+      table.created_at,
+    ),
   ],
 );
 
@@ -354,6 +363,10 @@ export const pendingSchedules = sqliteTable(
       table.start_time,
     ),
     index("idx_pending_schedules_created_at").on(table.created_at),
+    index("idx_pending_schedules_date_created_at").on(
+      table.date,
+      table.created_at,
+    ),
     uniqueIndex("uidx_pending_schedules_vod_id")
       .on(table.vod_id)
       .where(sql`${table.vod_id} IS NOT NULL`),

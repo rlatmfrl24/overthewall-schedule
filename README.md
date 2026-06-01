@@ -45,6 +45,24 @@
 - 클립 목록 조회 및 상세 페이지 제공
 - 클립 재생 기능 제공
 
+## 개발 메모
+
+### 로컬 D1 개발
+
+- 개발/테스트 기본값은 로컬 D1입니다. `pnpm dev`와 `pnpm drizzle:migrate:local`은 원격 D1을 사용하지 않습니다.
+- 깨끗한 로컬 DB가 필요하면 `pnpm d1:reset:local` 후 `pnpm d1:seed:local`을 실행합니다.
+- 로컬 설정 점검은 `pnpm d1:doctor`를 사용합니다. 원격 점검은 release/deploy 단계에서만 `pnpm d1:doctor --remote`로 수행합니다.
+- 원격 migration은 명시적으로 `pnpm drizzle:migrate:remote`를 실행할 때만 수행합니다.
+
+### 프로필 배경 이미지 최적화
+
+- 프로필 배경 이미지는 R2를 원본으로 사용하며, `public/profile-background`에는 보관하지 않습니다.
+- 새 배경 업로드가 필요하면 배포 대상이 아닌 `r2/profile-background/*.webp`에 임시 원본을 두고 `pnpm images:profile-backgrounds`로 반응형 WebP variant를 생성합니다.
+- `pnpm r2:upload-profile-backgrounds`로 `otw-schedule` R2 버킷에 `members/{code}/backgrounds/default/{variant}.webp` 구조로 업로드합니다.
+- 프로필 화면은 기본적으로 Worker의 `/r2-assets/members/{code}/backgrounds/default/{variant}.webp` 경로를 통해 R2 이미지를 사용합니다.
+- R2 이미지 로드에 실패하면 프로필 화면은 기존 멤버 프로필 이미지로 대체합니다.
+- Cloudflare R2 커스텀 도메인 또는 별도 CDN을 직접 사용할 경우 `VITE_PROFILE_BACKGROUND_BASE_URL`을 예: `https://assets.example.com` 형태로 지정하면 동일한 key 구조를 사용합니다.
+
 ## 향후 업데이트 계획
 
 - **소셜 미디어 피드 연동**: 트위터/네이버 카페 등 최신 소식 연동

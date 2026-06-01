@@ -4,6 +4,8 @@ export const queryKeys = {
   members: {
     all: ["members"] as const,
     active: () => [...queryKeys.members.all, "active"] as const,
+    profile: (code: string) =>
+      [...queryKeys.members.all, "profile", code] as const,
   },
   ddays: {
     all: ["ddays"] as const,
@@ -16,6 +18,8 @@ export const queryKeys = {
   },
   schedules: {
     all: ["schedules"] as const,
+    board: (startDate: string, endDate: string) =>
+      [...queryKeys.schedules.all, "board", startDate, endDate] as const,
     byDate: (date: string) =>
       [...queryKeys.schedules.all, "by-date", date] as const,
     range: (startDate: string, endDate: string) =>
@@ -55,6 +59,22 @@ export const queryKeys = {
       [...queryKeys.memberPosts.all, "x", handlesKey, maxResults, admin] as const,
     naverCafe: (size: number, admin: boolean) =>
       [...queryKeys.memberPosts.all, "naver-cafe", size, admin] as const,
+    aggregate: (
+      includeX: boolean,
+      includeNaverCafe: boolean,
+      maxResults: number,
+      size: number,
+      admin: boolean,
+    ) =>
+      [
+        ...queryKeys.memberPosts.all,
+        "aggregate",
+        includeX,
+        includeNaverCafe,
+        maxResults,
+        size,
+        admin,
+      ] as const,
   },
   settings: {
     all: ["settings"] as const,

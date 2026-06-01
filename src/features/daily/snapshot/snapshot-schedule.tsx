@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { format, isSameDay, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useScheduleData } from "@/hooks/use-schedule-data";
-import { fetchSchedulesByDate } from "@/lib/api/schedules";
+import { useScheduleBoard } from "@/hooks/use-schedule-board";
 import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
 import type { ChzzkLiveStatusMap, ScheduleItem } from "@/lib/types";
 import { SnapshotCardMember } from "./snapshot-card-member";
@@ -19,10 +18,8 @@ export const SnapshotSchedule = ({
   mode,
   theme,
 }: SnapshotScheduleProps) => {
-  const { members, hasLoaded } = useScheduleData();
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const { members, schedules, hasLoaded } = useScheduleBoard(date, date);
   const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
-  const [isSchedulesLoaded, setIsSchedulesLoaded] = useState(false);
   const [isLiveStatusesLoaded, setIsLiveStatusesLoaded] = useState(false);
   const [isSnapshotReady, setIsSnapshotReady] = useState(false);
   const snapshotWidth = mode === "timeline" ? 520 : 1280;
@@ -35,34 +32,9 @@ export const SnapshotSchedule = ({
 
   useEffect(() => {
     let isActive = true;
-    const fetchSchedules = async () => {
-      setSchedules([]);
-      setIsSchedulesLoaded(false);
-      setIsSnapshotReady(false);
-      try {
-        const data = await fetchSchedulesByDate(date);
-        if (isActive) {
-          setSchedules(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch snapshot schedules:", error);
-      } finally {
-        if (isActive) {
-          setIsSchedulesLoaded(true);
-        }
-      }
-    };
-    void fetchSchedules();
-    return () => {
-      isActive = false;
-    };
-  }, [date]);
-
-  useEffect(() => {
-    let isActive = true;
 
     const fetchLiveStatuses = async () => {
-      if (!hasLoaded || !isSchedulesLoaded) {
+      if (!hasLoaded) {
         setIsLiveStatusesLoaded(false);
         return;
       }
@@ -97,7 +69,7 @@ export const SnapshotSchedule = ({
     return () => {
       isActive = false;
     };
-  }, [hasLoaded, isSchedulesLoaded, isSnapshotToday, members, schedules]);
+  }, [hasLoaded, isSnapshotToday, members, schedules]);
 
   useEffect(() => {
     if (!theme) return;
@@ -117,7 +89,7 @@ export const SnapshotSchedule = ({
   }, [theme]);
 
   useEffect(() => {
-    if (!hasLoaded || !isSchedulesLoaded || !isLiveStatusesLoaded) return;
+    if (!hasLoaded || !isLiveStatusesLoaded) return;
     let frame2: number | null = null;
     const frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
@@ -128,7 +100,7 @@ export const SnapshotSchedule = ({
       cancelAnimationFrame(frame1);
       if (frame2 !== null) cancelAnimationFrame(frame2);
     };
-  }, [hasLoaded, isSchedulesLoaded, isLiveStatusesLoaded]);
+  }, [hasLoaded, isLiveStatusesLoaded]);
 
   const schedulesByMemberUid = useMemo(() => {
     const grouped = new Map<number, ScheduleItem[]>();
@@ -143,8 +115,7 @@ export const SnapshotSchedule = ({
     return grouped;
   }, [schedules]);
 
-  const isReady =
-    hasLoaded && isSchedulesLoaded && isLiveStatusesLoaded && isSnapshotReady;
+  const isReady = hasLoaded && isLiveStatusesLoaded && isSnapshotReady;
 
   return (
     <div
