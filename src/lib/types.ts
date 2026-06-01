@@ -27,6 +27,12 @@ export interface MemberProfileImage {
   sortOrder: number;
 }
 
+export interface MemberProfileBackgroundImage {
+  id: string;
+  sortOrder: number;
+  version: string;
+}
+
 export interface MemberProfileLink {
   id?: number | null;
   type: MemberProfileLinkType;
@@ -39,6 +45,7 @@ export interface MemberProfileLink {
 
 export type MemberProfile = Member & {
   profileImages: MemberProfileImage[];
+  backgroundImages: MemberProfileBackgroundImage[];
   links: MemberProfileLink[];
 };
 

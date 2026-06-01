@@ -58,8 +58,10 @@
 
 - 프로필 배경 이미지는 R2를 원본으로 사용하며, `public/profile-background`에는 보관하지 않습니다.
 - 새 배경 업로드가 필요하면 배포 대상이 아닌 `r2/profile-background/*.webp`에 임시 원본을 두고 `pnpm images:profile-backgrounds`로 반응형 WebP variant를 생성합니다.
-- `pnpm r2:upload-profile-backgrounds`로 `otw-schedule` R2 버킷에 `members/{code}/backgrounds/default/{variant}.webp` 구조로 업로드합니다.
-- 프로필 화면은 기본적으로 Worker의 `/r2-assets/members/{code}/backgrounds/default/{variant}.webp` 경로를 통해 R2 이미지를 사용합니다.
+- 기본 배경은 `r2/profile-background/{code}.webp`, 추가 배경은 `r2/profile-background/{code}--{backgroundId}.webp` 파일명으로 둡니다.
+- `pnpm r2:upload-profile-backgrounds`로 `otw-schedule` R2 버킷에 `members/{code}/backgrounds/{backgroundId}/{variant}.webp` 구조로 업로드합니다.
+- 프로필 화면은 Worker가 R2의 `members/{code}/backgrounds/` 경로를 조회해 최대 3장의 배경을 자동으로 캐러셀 표시합니다.
+- 같은 `backgroundId`의 이미지를 덮어쓰면 R2 etag 기반 버전 쿼리가 바뀌어 기존 브라우저 캐시를 우회합니다.
 - R2 이미지 로드에 실패하면 프로필 화면은 기존 멤버 프로필 이미지로 대체합니다.
 - Cloudflare R2 커스텀 도메인 또는 별도 CDN을 직접 사용할 경우 `VITE_PROFILE_BACKGROUND_BASE_URL`을 예: `https://assets.example.com` 형태로 지정하면 동일한 key 구조를 사용합니다.
 

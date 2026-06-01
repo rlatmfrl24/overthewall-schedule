@@ -51,6 +51,30 @@ const putObject = ({ key, file }) => {
   }
 };
 
+const parseProfileBackgroundName = (name) => {
+  const parts = name.split("--");
+  if (parts.length > 2) {
+    throw new Error(
+      `Invalid profile background filename: ${name}. Use only one "--" separator.`,
+    );
+  }
+  const [code, backgroundId = "default"] = parts;
+
+  if (!code || !/^[a-z0-9_]+$/.test(code)) {
+    throw new Error(
+      `Invalid member code in profile background filename: ${name}. Use {code}.webp or {code}--{backgroundId}.webp.`,
+    );
+  }
+
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(backgroundId)) {
+    throw new Error(
+      `Invalid background id in profile background filename: ${name}. Use lowercase letters, numbers, hyphens, or underscores.`,
+    );
+  }
+
+  return { code, backgroundId };
+};
+
 if (!existsSync(sourceDir)) {
   throw new Error(`Profile background directory does not exist: ${sourceDir}`);
 }
@@ -75,10 +99,12 @@ if (originalFiles.length === 0 || optimizedFiles.length === 0) {
 const uploads = [];
 
 for (const file of originalFiles) {
-  const code = basename(file, ".webp");
+  const { code, backgroundId } = parseProfileBackgroundName(
+    basename(file, ".webp"),
+  );
   uploads.push({
     file: join(sourceDir, file),
-    key: `members/${code}/backgrounds/default/original.webp`,
+    key: `members/${code}/backgrounds/${backgroundId}/original.webp`,
   });
 }
 
@@ -89,10 +115,11 @@ for (const file of optimizedFiles) {
     continue;
   }
 
-  const [, code, width] = match;
+  const [, name, width] = match;
+  const { code, backgroundId } = parseProfileBackgroundName(name);
   uploads.push({
     file: join(optimizedDir, file),
-    key: `members/${code}/backgrounds/default/w${width}.webp`,
+    key: `members/${code}/backgrounds/${backgroundId}/w${width}.webp`,
   });
 }
 

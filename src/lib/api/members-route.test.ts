@@ -9,11 +9,12 @@ vi.mock("../../../worker/db", () => ({
 
 import { handleMembers } from "../../../worker/routes/members";
 
-const makeEnv = (): Env =>
+const makeEnv = (overrides: Partial<Env> = {}): Env =>
   ({
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
     otw_db: {} as D1Database,
+    ...overrides,
   }) as Env;
 
 const makeMember = (overrides: Record<string, unknown> = {}) => ({
@@ -181,6 +182,70 @@ describe("members route", () => {
         imageUrl: "/profile/fallback_member.webp",
         alt: "폴백 프로필 이미지",
         sortOrder: 0,
+      },
+    ]);
+  });
+
+  it("R2에 등록된 멤버 배경 이미지를 정렬된 목록으로 반환한다", async () => {
+    const member = makeMember({ code: "bing_hayu" });
+    const db = makeDb([
+      memberQuery([member]),
+      orderedRowsQuery([]),
+      orderedRowsQuery([]),
+      orderedRowsQuery([]),
+    ]);
+    const list = vi.fn(async () => ({
+      objects: [
+        {
+          key: "members/bing_hayu/backgrounds/stage-night/original.webp",
+          etag: "stage-original-etag",
+        },
+        {
+          key: "members/bing_hayu/backgrounds/default/original.webp",
+          etag: "default-original-etag",
+        },
+        {
+          key: "members/bing_hayu/backgrounds/default/w1280.webp",
+          etag: "default-w1280-etag",
+        },
+        {
+          key: "members/bing_hayu/backgrounds/incomplete/w1280.webp",
+          etag: "incomplete-w1280-etag",
+        },
+      ],
+    }));
+    getDbMock.mockReturnValue(db);
+
+    const response = await handleMembers(
+      new Request("https://example.com/api/members/bing_hayu"),
+      makeEnv({
+        ASSET_BUCKET: {
+          list,
+        } as unknown as R2Bucket,
+      }),
+    );
+    const body = (await response.json()) as {
+      backgroundImages: Array<{
+        id: string;
+        sortOrder: number;
+        version: string;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(list).toHaveBeenCalledWith({
+      prefix: "members/bing_hayu/backgrounds/",
+    });
+    expect(body.backgroundImages).toEqual([
+      {
+        id: "default",
+        sortOrder: 0,
+        version: "original:default-original-etag|w1280:default-w1280-etag",
+      },
+      {
+        id: "stage-night",
+        sortOrder: 1,
+        version: "original:stage-original-etag",
       },
     ]);
   });

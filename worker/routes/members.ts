@@ -11,6 +11,10 @@ import type { Env } from "../types";
 
 const MEMBERS_CACHE_CONTROL =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+const MEMBER_PROFILE_CACHE_CONTROL = "no-store";
+const MAX_MEMBER_PROFILE_BACKGROUNDS = 3;
+const PROFILE_BACKGROUND_KEY =
+  /^members\/[^/]+\/backgrounds\/([^/]+)\/(original|w(?:960|1280|1672))\.webp$/;
 
 export const handleMembers = async (request: Request, env: Env) => {
   const url = new URL(request.url);
@@ -37,14 +41,14 @@ export const handleMembers = async (request: Request, env: Env) => {
       if (!fallback) {
         return new Response("Member not found", { status: 404 });
       }
-      const profile = await buildMemberProfile(db, fallback);
+      const profile = await buildMemberProfile(db, fallback, env);
       return json(profile, 200, {
-        headers: { "Cache-Control": MEMBERS_CACHE_CONTROL },
+        headers: { "Cache-Control": MEMBER_PROFILE_CACHE_CONTROL },
       });
     }
-    const profile = await buildMemberProfile(db, data[0]);
+    const profile = await buildMemberProfile(db, data[0], env);
     return json(profile, 200, {
-      headers: { "Cache-Control": MEMBERS_CACHE_CONTROL },
+      headers: { "Cache-Control": MEMBER_PROFILE_CACHE_CONTROL },
     });
   }
 
@@ -76,7 +80,76 @@ const buildFallbackImage = (member: MemberRow) => ({
   sortOrder: 0,
 });
 
-const buildMemberProfile = async (db: Db, member: MemberRow) => {
+const buildMemberProfileBackgrounds = async (env: Env, member: MemberRow) => {
+  if (!env.ASSET_BUCKET) {
+    return [];
+  }
+
+  const prefix = `members/${member.code}/backgrounds/`;
+  const listed = await env.ASSET_BUCKET.list({ prefix }).catch((error) => {
+    console.warn("[members] failed to list profile backgrounds", {
+      code: member.code,
+      error,
+    });
+    return null;
+  });
+
+  if (!listed) {
+    return [];
+  }
+
+  const variantsById = new Map<
+    string,
+    {
+      variants: Set<string>;
+      versionParts: string[];
+    }
+  >();
+
+  for (const object of listed.objects) {
+    const match = object.key.match(PROFILE_BACKGROUND_KEY);
+    const backgroundId = match?.[1];
+    const variant = match?.[2];
+
+    if (!backgroundId || !variant) {
+      continue;
+    }
+
+    const background = variantsById.get(backgroundId) ?? {
+      variants: new Set<string>(),
+      versionParts: [],
+    };
+    background.variants.add(variant);
+    background.versionParts.push(
+      `${variant}:${object.etag || object.uploaded?.getTime?.() || object.key}`,
+    );
+    variantsById.set(backgroundId, background);
+  }
+
+  return [...variantsById.entries()]
+    .filter(([, background]) => background.variants.has("original"))
+    .map(([id, background]) => ({
+      id,
+      sortOrder: id === "default" ? 0 : 1,
+      version: background.versionParts.sort().join("|"),
+    }))
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder ||
+        (a.id === "default"
+          ? -1
+          : b.id === "default"
+            ? 1
+            : a.id.localeCompare(b.id)),
+    )
+    .slice(0, MAX_MEMBER_PROFILE_BACKGROUNDS)
+    .map((background, index) => ({
+      ...background,
+      sortOrder: index,
+    }));
+};
+
+const buildMemberProfile = async (db: Db, member: MemberRow, env: Env) => {
   const [imageRows, cafeRows, extraLinkRows] = await Promise.all([
     db
       .select()
@@ -99,6 +172,7 @@ const buildMemberProfile = async (db: Db, member: MemberRow) => {
       .where(and(eq(memberLinks.member_uid, member.uid), eq(memberLinks.enabled, true)))
       .orderBy(memberLinks.sort_order, memberLinks.id),
   ]);
+  const backgroundImages = await buildMemberProfileBackgrounds(env, member);
 
   const profileImages =
     imageRows.length > 0
@@ -162,6 +236,7 @@ const buildMemberProfile = async (db: Db, member: MemberRow) => {
   return {
     ...member,
     profileImages,
+    backgroundImages,
     links,
   };
 };

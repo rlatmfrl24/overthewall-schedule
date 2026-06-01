@@ -102,6 +102,7 @@ describe("api wrapper modules", () => {
     apiFetchMock.mockResolvedValueOnce({
       ...makeMember({ code: "member code" }),
       profileImages: [],
+      backgroundImages: [],
       links: [],
     });
 

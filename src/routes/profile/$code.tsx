@@ -7,7 +7,7 @@ import type { MemberProfile, MemberProfileLink } from "@/lib/types";
 import { fetchMemberProfile } from "@/lib/api/members";
 import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
-import { buildProfileBackgroundImageSources } from "@/lib/profile-background-images";
+import { buildProfileBackgroundImageSourceSets } from "@/lib/profile-background-images";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ExternalLink,
   Heart,
+  Info,
   PlaySquare,
   Sparkles,
   UserRound,
@@ -30,14 +31,20 @@ import iconYoutube from "@/assets/icon_youtube.svg";
 import logoHiblueming from "@/assets/logo_hiblueming.png";
 import logoLuvdia from "@/assets/logo_luvdia.webp";
 import logoStardays from "@/assets/logo_stardays.png";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/profile/$code")({
   component: ProfilePage,
 });
 
-const AUTO_ROTATE_MS = 9000;
+const PROFILE_BACKGROUND_AUTO_ROTATE_MS = 5000;
 const PROFILE_BACKGROUND_MEDIA_QUERY = "(min-width: 640px)";
+const AI_PROFILE_IMAGE_NOTICE = "프로필 이미지는 AI로 생성되었습니다.";
 
 const useMediaQuery = (query: string) => {
   const [matches, setMatches] = useState(() =>
@@ -255,15 +262,44 @@ const ProfileInfoCapsule = ({
   );
 };
 
+const ProfileAiImageNotice = ({ className }: { className?: string }) => {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "grid size-8 place-items-center rounded-full border border-white/18 bg-slate-950/42 text-white/86 shadow-lg shadow-black/20 backdrop-blur-md transition hover:border-white/28 hover:bg-white/14 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+            className,
+          )}
+          aria-label={AI_PROFILE_IMAGE_NOTICE}
+        >
+          <Info className="size-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="left"
+        align="center"
+        sideOffset={3}
+        className="max-w-none whitespace-nowrap border border-white/12 bg-slate-950 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl shadow-black/30"
+        arrowClassName="bg-slate-950 fill-slate-950"
+      >
+        {AI_PROFILE_IMAGE_NOTICE}
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
 function ProfilePage() {
   const { code } = Route.useParams();
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
-  const [failedProfileBackgroundCode, setFailedProfileBackgroundCode] =
-    useState<string | null>(null);
+  const [activeBackgroundIndex, setActiveBackgroundIndex] = useState(0);
+  const [failedProfileBackgroundIds, setFailedProfileBackgroundIds] = useState<
+    string[]
+  >([]);
   const [
-    failedOptimizedProfileBackgroundCode,
-    setFailedOptimizedProfileBackgroundCode,
-  ] = useState<string | null>(null);
+    failedOptimizedProfileBackgroundIds,
+    setFailedOptimizedProfileBackgroundIds,
+  ] = useState<string[]>([]);
   const canRenderProfileBackground = useMediaQuery(
     PROFILE_BACKGROUND_MEDIA_QUERY,
   );
@@ -279,9 +315,9 @@ function ProfilePage() {
     : null;
 
   useEffect(() => {
-    setFailedProfileBackgroundCode(null);
-    setFailedOptimizedProfileBackgroundCode(null);
-    setActiveImageIndex(0);
+    setFailedProfileBackgroundIds([]);
+    setFailedOptimizedProfileBackgroundIds([]);
+    setActiveBackgroundIndex(0);
   }, [code]);
 
   const profileImages = useMemo(
@@ -303,43 +339,65 @@ function ProfilePage() {
     [member],
   );
 
-  const hasMultipleImages = profileImages.length > 1;
+  const activeImage = profileImages[0];
+  const profileBackgroundSourceSets = useMemo(
+    () =>
+      member
+        ? buildProfileBackgroundImageSourceSets(
+          member.code,
+          member.backgroundImages,
+        ).filter((background) => !failedProfileBackgroundIds.includes(background.id))
+        : [],
+    [failedProfileBackgroundIds, member],
+  );
+  const hasMultipleBackgroundImages = profileBackgroundSourceSets.length > 1;
 
   useEffect(() => {
-    if (!hasMultipleImages) return;
+    if (!canRenderProfileBackground || !hasMultipleBackgroundImages) return;
 
     const timer = window.setInterval(() => {
-      setActiveImageIndex((current) => (current + 1) % profileImages.length);
-    }, AUTO_ROTATE_MS);
+      setActiveBackgroundIndex(
+        (current) => (current + 1) % profileBackgroundSourceSets.length,
+      );
+    }, PROFILE_BACKGROUND_AUTO_ROTATE_MS);
 
     return () => window.clearInterval(timer);
-  }, [hasMultipleImages, profileImages.length]);
+  }, [
+    canRenderProfileBackground,
+    hasMultipleBackgroundImages,
+    profileBackgroundSourceSets.length,
+  ]);
 
-  const activeImage = profileImages[activeImageIndex] ?? profileImages[0];
-  const profileBackgroundSources = member
-    ? buildProfileBackgroundImageSources(member.code)
-    : null;
+  useEffect(() => {
+    if (activeBackgroundIndex >= profileBackgroundSourceSets.length) {
+      setActiveBackgroundIndex(0);
+    }
+  }, [activeBackgroundIndex, profileBackgroundSourceSets.length]);
+
+  const activeProfileBackground =
+    profileBackgroundSourceSets[activeBackgroundIndex] ??
+    profileBackgroundSourceSets[0];
   const shouldUseProfileBackground =
     canRenderProfileBackground &&
-    Boolean(profileBackgroundSources) &&
-    failedProfileBackgroundCode !== member?.code;
+    Boolean(activeProfileBackground);
   const shouldUseOptimizedProfileBackground =
     shouldUseProfileBackground &&
-    failedOptimizedProfileBackgroundCode !== member?.code;
+    !failedOptimizedProfileBackgroundIds.includes(activeProfileBackground.id);
   const backgroundImageUrl = shouldUseProfileBackground
     ? shouldUseOptimizedProfileBackground
-      ? profileBackgroundSources?.src
-      : profileBackgroundSources?.fallbackSrc
+      ? activeProfileBackground?.sources.src
+      : activeProfileBackground?.sources.fallbackSrc
     : canRenderProfileBackground
       ? activeImage?.imageUrl
       : null;
   const backgroundImageSrcSet = shouldUseOptimizedProfileBackground
-    ? profileBackgroundSources?.srcSet
+    ? activeProfileBackground?.sources.srcSet
     : undefined;
   const backgroundImageSizes = shouldUseOptimizedProfileBackground
-    ? profileBackgroundSources?.sizes
+    ? activeProfileBackground?.sources.sizes
     : undefined;
-  const showImageControls = hasMultipleImages && !shouldUseProfileBackground;
+  const showBackgroundControls =
+    canRenderProfileBackground && hasMultipleBackgroundImages;
 
   const { primaryLinks, secondaryLinks } = useMemo(() => {
     const links = member?.links ?? [];
@@ -392,9 +450,12 @@ function ProfilePage() {
     hasInfoCapsules ||
     Boolean(member.introduction);
 
-  const goToImage = (index: number) => {
-    const next = (index + profileImages.length) % profileImages.length;
-    setActiveImageIndex(next);
+  const goToBackground = (index: number) => {
+    if (profileBackgroundSourceSets.length === 0) return;
+    const next =
+      (index + profileBackgroundSourceSets.length) %
+      profileBackgroundSourceSets.length;
+    setActiveBackgroundIndex(next);
   };
 
   return (
@@ -402,7 +463,7 @@ function ProfilePage() {
       className="relative flex h-dvh w-full overflow-x-hidden overflow-y-auto bg-[#07101a] text-white lg:overflow-hidden"
       style={styleVars}
     >
-      <AnimatePresence mode="wait">
+      <AnimatePresence initial={false}>
         {backgroundImageUrl && (
           <motion.img
             key={backgroundImageUrl}
@@ -413,26 +474,33 @@ function ProfilePage() {
             className="absolute inset-0 hidden size-full object-cover object-[50%_18%] sm:block sm:object-center"
             decoding="async"
             fetchPriority="high"
-            initial={{ opacity: 0, scale: 1.03 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.015 }}
-            transition={{ duration: 0.65, ease: "easeOut" }}
+            initial={{ opacity: 0, scale: 1.025, filter: "blur(10px)" }}
+            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+            exit={{ opacity: 0, scale: 1.015, filter: "blur(8px)" }}
+            transition={{ duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
+            style={{ willChange: "opacity, transform, filter" }}
             onError={() => {
               if (
-                member &&
-                profileBackgroundSources &&
-                backgroundImageUrl === profileBackgroundSources.src
+                activeProfileBackground &&
+                backgroundImageUrl === activeProfileBackground.sources.src
               ) {
-                setFailedOptimizedProfileBackgroundCode(member.code);
+                setFailedOptimizedProfileBackgroundIds((current) =>
+                  current.includes(activeProfileBackground.id)
+                    ? current
+                    : [...current, activeProfileBackground.id],
+                );
                 return;
               }
 
               if (
-                member &&
-                profileBackgroundSources &&
-                backgroundImageUrl === profileBackgroundSources.fallbackSrc
+                activeProfileBackground &&
+                backgroundImageUrl === activeProfileBackground.sources.fallbackSrc
               ) {
-                setFailedProfileBackgroundCode(member.code);
+                setFailedProfileBackgroundIds((current) =>
+                  current.includes(activeProfileBackground.id)
+                    ? current
+                    : [...current, activeProfileBackground.id],
+                );
               }
             }}
           />
@@ -453,6 +521,10 @@ function ProfilePage() {
           <span>스케줄로 돌아가기</span>
         </Link>
       </Button>
+
+      {activeImage && (
+        <ProfileAiImageNotice className="absolute right-5 top-5 z-20 hidden sm:grid sm:right-8" />
+      )}
 
       <div className="relative z-10 flex min-h-dvh w-full flex-col justify-start px-5 pb-12 pt-24 sm:justify-end sm:px-8 sm:pb-7 sm:pt-32 lg:grid lg:grid-cols-[minmax(0,1fr)_316px] lg:gap-8 lg:px-14 lg:pb-10 lg:pt-28">
         <section className="flex shrink-0 items-start lg:min-h-0 lg:items-end">
@@ -492,24 +564,6 @@ function ProfilePage() {
                   decoding="async"
                   loading="eager"
                 />
-                {hasMultipleImages && (
-                  <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/12 bg-slate-950/44 px-2.5 py-1.5 backdrop-blur-md">
-                    {profileImages.map((image, index) => (
-                      <button
-                        key={`${image.imageUrl}-mobile-dot-${index}`}
-                        type="button"
-                        className={cn(
-                          "size-2 rounded-full transition",
-                          activeImageIndex === index
-                            ? "bg-white"
-                            : "bg-white/36 hover:bg-white/64",
-                        )}
-                        onClick={() => goToImage(index)}
-                        aria-label={`${index + 1}번째 프로필 이미지 보기`}
-                      />
-                    ))}
-                  </div>
-                )}
               </div>
             )}
 
@@ -604,24 +658,24 @@ function ProfilePage() {
         <div className="h-16 shrink-0 sm:hidden" aria-hidden="true" />
       </div>
 
-      {showImageControls && (
+      {showBackgroundControls && (
         <div className="absolute bottom-8 left-1/2 z-20 hidden -translate-x-1/2 items-center gap-4 rounded-full border border-white/12 bg-slate-950/46 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur-xl lg:flex">
           <button
             type="button"
             className="grid size-8 place-items-center rounded-full text-white transition hover:bg-white/14"
-            onClick={() => goToImage(activeImageIndex - 1)}
-            aria-label="이전 프로필 이미지"
+            onClick={() => goToBackground(activeBackgroundIndex - 1)}
+            aria-label="이전 배경 이미지"
           >
             <ChevronLeft className="size-5" aria-hidden="true" />
           </button>
           <span className="min-w-16 text-center text-lg font-black tabular-nums tracking-wide">
-            {activeImageIndex + 1} / {profileImages.length}
+            {activeBackgroundIndex + 1} / {profileBackgroundSourceSets.length}
           </span>
           <button
             type="button"
             className="grid size-8 place-items-center rounded-full text-white transition hover:bg-white/14"
-            onClick={() => goToImage(activeImageIndex + 1)}
-            aria-label="다음 프로필 이미지"
+            onClick={() => goToBackground(activeBackgroundIndex + 1)}
+            aria-label="다음 배경 이미지"
           >
             <ChevronRight className="size-5" aria-hidden="true" />
           </button>
