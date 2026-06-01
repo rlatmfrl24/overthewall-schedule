@@ -25,9 +25,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   buildScheduleBoardModel,
+  buildNoScheduleMemberEntries,
   formatScheduleTime,
   getScheduleDisplayTitle,
   hasScheduleBoardItems,
+  type NoScheduleMemberEntry,
   type ScheduleBoardEntry,
   type ScheduleBoardModel,
   type ScheduleSideGroupKey,
@@ -88,6 +90,16 @@ export const ChronologicalScheduleList = ({
     () => buildScheduleBoardModel(schedules, liveStatuses),
     [schedules, liveStatuses],
   );
+  const noScheduleEntries = useMemo(
+    () => buildNoScheduleMemberEntries(members, schedules, liveStatuses),
+    [members, schedules, liveStatuses],
+  );
+  const unscheduledLiveEntries = useMemo(
+    () => noScheduleEntries.filter((entry) => entry.isLive),
+    [noScheduleEntries],
+  );
+  const hasBoardItems = hasScheduleBoardItems(boardModel);
+  const hasVisibleItems = hasBoardItems || noScheduleEntries.length > 0;
 
   if (loading) {
     return <ScheduleBoardSkeleton />;
@@ -98,19 +110,26 @@ export const ChronologicalScheduleList = ({
       aria-label="오늘의 편성표"
       className="flex w-full flex-col gap-4"
     >
-      {hasScheduleBoardItems(boardModel) ? (
-        <div className="grid w-full gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <ScheduleBoard
-            items={boardModel.mainItems}
-            memberMap={memberMap}
-            onScheduleClick={onScheduleClick}
-          />
-          <SideStatusRail
-            model={boardModel}
-            memberMap={memberMap}
-            onScheduleClick={onScheduleClick}
-          />
-        </div>
+      {unscheduledLiveEntries.length > 0 && (
+        <UnscheduledLiveNotice entries={unscheduledLiveEntries} />
+      )}
+
+      {hasVisibleItems ? (
+        <>
+          <div className="grid w-full items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <ScheduleBoard
+              items={boardModel.mainItems}
+              memberMap={memberMap}
+              onScheduleClick={onScheduleClick}
+            />
+            <SideStatusRail
+              model={boardModel}
+              memberMap={memberMap}
+              noScheduleEntries={noScheduleEntries}
+              onScheduleClick={onScheduleClick}
+            />
+          </div>
+        </>
       ) : (
         <EmptyState />
       )}
@@ -347,10 +366,12 @@ const StatusPill = ({
 const SideStatusRail = ({
   model,
   memberMap,
+  noScheduleEntries,
   onScheduleClick,
 }: {
   model: ScheduleBoardModel;
   memberMap: Map<number, Member>;
+  noScheduleEntries: NoScheduleMemberEntry[];
   onScheduleClick: (schedule: ScheduleItem) => void;
 }) => {
   const visibleGroups = (Object.keys(sideGroupMeta) as ScheduleSideGroupKey[])
@@ -360,7 +381,7 @@ const SideStatusRail = ({
     }))
     .filter(({ items }) => items.length > 0);
 
-  if (visibleGroups.length === 0) {
+  if (visibleGroups.length === 0 && noScheduleEntries.length === 0) {
     return (
       <aside className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         보조 일정이 없습니다.
@@ -379,6 +400,9 @@ const SideStatusRail = ({
           onScheduleClick={onScheduleClick}
         />
       ))}
+      {noScheduleEntries.length > 0 && (
+        <NoScheduleGroup entries={noScheduleEntries} />
+      )}
     </aside>
   );
 };
@@ -492,6 +516,175 @@ const SideScheduleItem = ({
         </span>
       </div>
     </button>
+  );
+};
+
+const getNoScheduleLiveUrl = (entry: NoScheduleMemberEntry) =>
+  buildChzzkLiveUrl(entry.liveStatus?.channelId) ||
+  convertChzzkToLiveUrl(entry.member.url_chzzk);
+
+const UnscheduledLiveNotice = ({
+  entries,
+}: {
+  entries: NoScheduleMemberEntry[];
+}) => (
+  <section className="overflow-hidden rounded-xl border border-red-300 bg-red-50 shadow-md shadow-red-950/5 dark:border-red-800/80 dark:bg-red-950/40">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-l-4 border-red-500 px-4 py-3.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white text-red-600 shadow-sm dark:border-red-800/80 dark:bg-red-950/70 dark:text-red-100">
+          <Signal className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-base font-black text-red-900 dark:text-red-50">
+              편성표 미등록 LIVE
+            </h3>
+            <span className="rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">
+              확인 필요
+            </span>
+          </div>
+          <p className="mt-0.5 text-sm font-semibold text-red-800/90 dark:text-red-100/85">
+            오늘 일정은 없지만 현재 방송 중인 멤버가 있습니다.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {entries.map((entry) => {
+          const liveUrl = getNoScheduleLiveUrl(entry);
+          return (
+            <button
+              key={`unscheduled-live-${entry.member.uid}`}
+              type="button"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-200 bg-white px-3 text-sm font-black text-red-800 shadow-sm transition hover:border-red-300 hover:bg-red-100 dark:border-red-800/70 dark:bg-red-950/70 dark:text-red-50 dark:hover:bg-red-950"
+              onClick={() => {
+                if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+              }}
+              disabled={!liveUrl}
+            >
+              <img
+                src={`/profile/${entry.member.code}.webp`}
+                alt=""
+                className="h-6 w-6 rounded-full object-cover ring-1 ring-red-200"
+              />
+              <span>{entry.member.name}</span>
+              {liveUrl && <ExternalLink className="h-3.5 w-3.5" />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  </section>
+);
+
+const NoScheduleGroup = ({
+  entries,
+}: {
+  entries: NoScheduleMemberEntry[];
+}) => {
+  const liveCount = entries.filter((entry) => entry.isLive).length;
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex min-h-12 items-center justify-between border-b border-border bg-muted/35 px-4 py-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-100">
+              <Calendar className="h-4 w-4" />
+            </span>
+            <h3 className="truncate text-sm font-black text-foreground">
+              일정 없음
+            </h3>
+            <span className="rounded-md bg-background px-1.5 py-0.5 text-xs font-black text-muted-foreground tabular-nums">
+              {entries.length}
+            </span>
+            {liveCount > 0 && (
+              <span className="rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">
+                미등록 LIVE {liveCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-h-[420px] divide-y divide-border overflow-y-auto">
+        {entries.map((entry) => (
+          <NoScheduleMemberItem
+            key={`no-schedule-${entry.member.uid}`}
+            entry={entry}
+          />
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const NoScheduleMemberItem = ({
+  entry,
+}: {
+  entry: NoScheduleMemberEntry;
+}) => {
+  const liveUrl = getNoScheduleLiveUrl(entry);
+  const liveTitle = entry.liveStatus?.liveTitle?.trim();
+  const content = (
+    <>
+      <img
+        src={`/profile/${entry.member.code}.webp`}
+        alt=""
+        className={cn(
+          "h-10 w-10 rounded-full object-cover ring-1 ring-border",
+          entry.isLive && "ring-2 ring-red-300 dark:ring-red-700",
+        )}
+      />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[15px] font-black text-foreground">
+            {entry.member.name}
+          </span>
+          {entry.isLive && (
+            <span className="shrink-0 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">
+              미등록 LIVE
+            </span>
+          )}
+        </div>
+        <p
+          className={cn(
+            "mt-1 line-clamp-2 text-xs leading-relaxed",
+            entry.isLive
+              ? "font-bold text-red-800 dark:text-red-100"
+              : "font-medium text-muted-foreground",
+          )}
+        >
+          {entry.isLive
+            ? liveTitle || "편성표에 없는 방송이 진행 중입니다"
+            : "오늘 등록된 일정이 없습니다"}
+        </p>
+      </div>
+      {entry.isLive && liveUrl && (
+        <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+      )}
+    </>
+  );
+
+  if (entry.isLive) {
+    return (
+      <button
+        type="button"
+        className="grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 border-l-4 border-red-500 bg-red-50/80 px-4 py-3 text-left transition-colors hover:bg-red-100/80 dark:bg-red-950/25 dark:hover:bg-red-950/35"
+        onClick={() => {
+          if (liveUrl) window.open(liveUrl, "_blank", "noreferrer");
+        }}
+        disabled={!liveUrl}
+        aria-label={`${entry.member.name} 미등록 LIVE`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
+      {content}
+    </div>
   );
 };
 

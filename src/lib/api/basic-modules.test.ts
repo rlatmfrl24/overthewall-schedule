@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member, ScheduleItem } from "@/lib/types";
-import { fetchActiveMembers } from "./members";
+import { fetchActiveMembers, fetchMemberProfile } from "./members";
 import { createDDay, deleteDDay, fetchDDays, updateDDay } from "./ddays";
 import {
   createNotice,
@@ -93,6 +93,18 @@ describe("api wrapper modules", () => {
 
     expect(result.map((member) => member.uid)).toEqual([1, 4]);
     expect(apiFetchMock).toHaveBeenCalledWith("/api/members");
+  });
+
+  it("멤버 프로필 상세 API는 code를 인코딩해 요청한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      ...makeMember({ code: "member code" }),
+      profileImages: [],
+      links: [],
+    });
+
+    await fetchMemberProfile("member code");
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/members/member%20code");
   });
 
   it("dday CRUD는 올바른 경로/메서드로 요청한다", async () => {

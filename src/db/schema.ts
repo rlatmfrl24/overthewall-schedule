@@ -32,6 +32,49 @@ export const members = sqliteTable(
   (table) => [index("idx_members_code").on(table.code)],
 );
 
+export const memberProfileImages = sqliteTable(
+  "member_profile_images",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    member_uid: integer("member_uid").notNull(),
+    image_url: text("image_url").notNull(),
+    alt: text(),
+    sort_order: integer("sort_order").notNull().default(0),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_member_profile_images_member_uid").on(table.member_uid),
+    index("idx_member_profile_images_member_sort").on(
+      table.member_uid,
+      table.sort_order,
+    ),
+  ],
+);
+
+export const memberLinks = sqliteTable(
+  "member_links",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    member_uid: integer("member_uid").notNull(),
+    type: text("type").notNull(),
+    label: text().notNull(),
+    url: text().notNull(),
+    youtube_channel_id: text("youtube_channel_id"),
+    sort_order: integer("sort_order").notNull().default(0),
+    enabled: integer("enabled", { mode: "boolean" }).default(true),
+    created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
+    updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_member_links_member_uid").on(table.member_uid),
+    index("idx_member_links_member_sort").on(table.member_uid, table.sort_order),
+    check(
+      "member_links_type_check",
+      sql`type IN ('youtube_vod', 'youtube_sub')`,
+    ),
+  ],
+);
+
 export const schedules = sqliteTable(
   "schedules",
   {
@@ -91,6 +134,10 @@ export const ddays = sqliteTable(
 
 export type Member = typeof members.$inferSelect;
 export type NewMember = typeof members.$inferInsert;
+export type MemberProfileImage = typeof memberProfileImages.$inferSelect;
+export type NewMemberProfileImage = typeof memberProfileImages.$inferInsert;
+export type MemberLink = typeof memberLinks.$inferSelect;
+export type NewMemberLink = typeof memberLinks.$inferInsert;
 export type Schedule = typeof schedules.$inferSelect;
 export type NewSchedule = typeof schedules.$inferInsert;
 export type Notice = typeof notices.$inferSelect;
