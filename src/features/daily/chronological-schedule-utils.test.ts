@@ -123,7 +123,7 @@ describe("buildScheduleBoardModel", () => {
     ).toBe("방송 예정");
   });
 
-  it("일정이 없는 멤버를 추리고 미등록 라이브를 먼저 정렬한다", () => {
+  it("일정이 없는 멤버를 추리고 방송 중인 멤버를 먼저 정렬한다", () => {
     const entries = buildNoScheduleMemberEntries(
       [makeMember(1), makeMember(7), makeMember(3)],
       [makeSchedule({ id: 1, member_uid: 1, status: "방송" })],

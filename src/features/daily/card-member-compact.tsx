@@ -7,7 +7,7 @@ import {
   hexToRgba,
 } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Plus, Radio } from "lucide-react";
+import { Plus } from "lucide-react";
 import { CardSchedule } from "./card-schedule";
 
 interface CardMemberCompactProps {
@@ -38,9 +38,6 @@ export const CardMemberCompact = ({
   const borderColor = hexToRgba(mainColor, 0.3);
 
   const isLive = liveStatus?.status === "OPEN";
-  const isUnscheduledLive = !hasSchedule && isLive;
-  const liveTitle = liveStatus?.liveTitle?.trim();
-  const viewerCount = liveStatus?.concurrentUserCount;
   const liveUrl =
     buildChzzkLiveUrl(liveStatus?.channelId) ||
     convertChzzkToLiveUrl(member.url_chzzk);
@@ -132,53 +129,6 @@ export const CardMemberCompact = ({
               </span>
             )}
           </>
-        ) : isUnscheduledLive ? (
-          <div className="rounded-lg border border-red-300 border-l-4 border-l-red-500 bg-red-50 px-3 py-2.5 text-red-950 shadow-sm dark:border-red-800/70 dark:border-l-red-500 dark:bg-red-950/35 dark:text-red-50">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-0.5 text-[10px] font-black text-white">
-                <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                미등록 LIVE
-              </span>
-              {typeof viewerCount === "number" && (
-                <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] font-black text-red-800 dark:bg-red-950/60 dark:text-red-100">
-                  {viewerCount.toLocaleString()} 시청중
-                </span>
-              )}
-            </div>
-            <p className="mt-1.5 line-clamp-2 text-[13px] font-black leading-snug">
-              {liveTitle || "편성표에 없는 방송이 진행 중입니다"}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {liveUrl && (
-                <Button
-                  size="sm"
-                  className="h-7 rounded-full bg-red-600 px-2 text-[11px] font-black text-white hover:bg-red-700"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    window.open(liveUrl, "_blank", "noreferrer");
-                  }}
-                >
-                  <Radio className="h-3 w-3" />
-                  보기
-                  <ExternalLink className="h-3 w-3" />
-                </Button>
-              )}
-              {onAddSchedule && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px] font-semibold"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onAddSchedule(member.uid);
-                  }}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  추가
-                </Button>
-              )}
-            </div>
-          </div>
         ) : (
           <div className="flex items-center justify-between rounded-lg border border-dashed border-border/60 bg-muted/50 px-2.5 py-2">
             <span className="text-xs font-medium text-muted-foreground">

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { ChzzkLiveStatusMap, Member, ScheduleItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Calendar, HelpCircle, Moon, Signal, Zap } from "lucide-react";
+import { Calendar, HelpCircle, Moon, Zap } from "lucide-react";
 import { useAutoFitText } from "./use-auto-fit-text";
 import {
   buildNoScheduleMemberEntries,
@@ -262,8 +262,8 @@ const SnapshotNoScheduleGroup = ({
           {entries.length}
         </span>
         {liveCount > 0 && (
-          <span className="rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">
-            미등록 LIVE {liveCount}
+          <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">
+            방송 중 {liveCount}
           </span>
         )}
       </div>
@@ -283,55 +283,38 @@ const SnapshotNoScheduleItem = ({
   entry,
 }: {
   entry: NoScheduleMemberEntry;
-}) => {
-  const liveTitle = entry.liveStatus?.liveTitle?.trim();
-
-  return (
-    <div
+}) => (
+  <div
+    className={cn(
+      "grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-2.5",
+      entry.isLive && "bg-red-50/50 dark:bg-red-950/15",
+    )}
+  >
+    <img
+      src={`/profile/${entry.member.code}.webp`}
+      alt={entry.member.name}
       className={cn(
-        "grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-2.5",
-        entry.isLive &&
-          "border-l-4 border-red-500 bg-red-50/90 dark:bg-red-950/30",
+        "h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200",
+        entry.isLive && "ring-2 ring-red-200 dark:ring-red-900/70",
       )}
-    >
-      <img
-        src={`/profile/${entry.member.code}.webp`}
-        alt={entry.member.name}
-        className={cn(
-          "h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200",
-          entry.isLive && "ring-2 ring-red-300 dark:ring-red-700",
-        )}
-      />
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-black leading-tight text-zinc-950 dark:text-zinc-50">
-            {entry.member.name}
-          </p>
-          {entry.isLive && (
-            <span className="shrink-0 rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-black text-white">
-              미등록 LIVE
-            </span>
-          )}
-        </div>
-        <p
-          className={cn(
-            "mt-0.5 whitespace-normal break-words text-xs leading-tight",
-            entry.isLive
-              ? "font-black text-red-800 dark:text-red-100"
-              : "font-semibold text-zinc-500 dark:text-zinc-300",
-          )}
-        >
-          {entry.isLive
-            ? liveTitle || "편성표에 없는 방송이 진행 중입니다"
-            : "오늘 등록된 일정이 없습니다"}
+    />
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <p className="truncate text-sm font-black leading-tight text-zinc-950 dark:text-zinc-50">
+          {entry.member.name}
         </p>
+        {entry.isLive && (
+          <span className="shrink-0 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">
+            방송 중
+          </span>
+        )}
       </div>
-      {entry.isLive && (
-        <Signal className="h-4 w-4 text-red-600 dark:text-red-300" />
-      )}
+      <p className="mt-0.5 whitespace-normal break-words text-xs font-semibold leading-tight text-zinc-500 dark:text-zinc-300">
+        {entry.isLive ? "현재 방송 중입니다" : "오늘 등록된 일정이 없습니다"}
+      </p>
     </div>
-  );
-};
+  </div>
+);
 
 const EmptyState = () => (
   <div className="flex flex-col items-center justify-center py-20 bg-muted/5 border-2 border-dashed border-muted rounded-3xl">

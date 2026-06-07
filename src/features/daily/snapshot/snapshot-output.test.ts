@@ -162,7 +162,7 @@ describe("snapshot output", () => {
     expect(screen.getByText("오늘 등록된 일정이 없습니다")).toBeTruthy();
   });
 
-  it("타임라인 스냅샷에서 일정 없는 라이브 멤버를 미등록 LIVE로 표시한다", () => {
+  it("타임라인 스냅샷에서 일정 없는 라이브 멤버를 방송 중으로 표시한다", () => {
     render(
       createElement(SnapshotTimeline, {
         members: [makeMember(1, "하네"), makeMember(2, "유리리")],
@@ -185,11 +185,13 @@ describe("snapshot output", () => {
       }),
     );
 
-    expect(screen.getByText("미등록 LIVE")).toBeTruthy();
-    expect(screen.getByText("즉흥 노래 방송")).toBeTruthy();
+    expect(screen.queryByText("미등록 LIVE")).toBeNull();
+    expect(screen.getAllByText(/방송 중/).length).toBeGreaterThan(0);
+    expect(screen.getByText("현재 방송 중입니다")).toBeTruthy();
+    expect(screen.queryByText("즉흥 노래 방송")).toBeNull();
   });
 
-  it("그리드 스냅샷 카드에서도 일정 없는 라이브를 표시한다", () => {
+  it("그리드 스냅샷 카드에서도 일정 없는 라이브 배지는 유지한다", () => {
     render(
       createElement(SnapshotCardMember, {
         member: makeMember(2, "유리리"),
@@ -202,8 +204,10 @@ describe("snapshot output", () => {
       }),
     );
 
-    expect(screen.getByText("미등록 LIVE")).toBeTruthy();
-    expect(screen.getByText("즉흥 노래 방송")).toBeTruthy();
-    expect(screen.getByText("42 시청중")).toBeTruthy();
+    expect(screen.queryByText("미등록 LIVE")).toBeNull();
+    expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(screen.getByText("일정 없음")).toBeTruthy();
+    expect(screen.queryByText("즉흥 노래 방송")).toBeNull();
+    expect(screen.queryByText("42 시청중")).toBeNull();
   });
 });

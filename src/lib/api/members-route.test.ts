@@ -123,6 +123,18 @@ describe("members route", () => {
           created_at: null,
           updated_at: null,
         },
+        {
+          id: 4,
+          member_uid: 1,
+          type: "twitcasting",
+          label: "트윗캐스팅",
+          url: "https://twitcasting.tv/member",
+          youtube_channel_id: null,
+          sort_order: 1,
+          enabled: true,
+          created_at: null,
+          updated_at: null,
+        },
       ]),
     ]);
     getDbMock.mockReturnValue(db);
@@ -147,12 +159,16 @@ describe("members route", () => {
       "youtube",
       "chzzk",
       "youtube_vod",
+      "twitcasting",
     ]);
     expect(body.links.find((link) => link.type === "youtube")?.youtubeChannelId).toBe(
       "UC_MEMBER",
     );
     expect(body.links.find((link) => link.type === "youtube_vod")?.url).toBe(
       "https://www.youtube.com/@member-vod",
+    );
+    expect(body.links.find((link) => link.type === "twitcasting")?.url).toBe(
+      "https://twitcasting.tv/member",
     );
   });
 
@@ -248,6 +264,28 @@ describe("members route", () => {
         version: "original:stage-original-etag",
       },
     ]);
+  });
+
+  it("잘못 인코딩된 멤버 코드는 DB 조회 없이 404를 반환한다", async () => {
+    const response = await handleMembers(
+      new Request("https://example.com/api/members/%E0%A4%A"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Member not found");
+    expect(getDbMock).not.toHaveBeenCalled();
+  });
+
+  it("path segment를 벗어나는 멤버 코드는 DB 조회 없이 404를 반환한다", async () => {
+    const response = await handleMembers(
+      new Request("https://example.com/api/members/bad%2Fcode"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Member not found");
+    expect(getDbMock).not.toHaveBeenCalled();
   });
 
   it("없는 멤버는 404를 반환한다", async () => {

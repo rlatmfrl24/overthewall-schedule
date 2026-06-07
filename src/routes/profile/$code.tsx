@@ -1,31 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
-import type { ComponentType, CSSProperties, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  ComponentType,
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 import type { MemberProfile, MemberProfileLink } from "@/lib/types";
 import { fetchMemberProfile } from "@/lib/api/members";
 import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { buildProfileBackgroundImageSourceSets } from "@/lib/profile-background-images";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   Cake,
   Calendar,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Heart,
   Info,
-  PlaySquare,
   Sparkles,
-  UserRound,
 } from "lucide-react";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import iconNaverCafe from "@/assets/icon_naver_cafe.svg";
+import iconTwitCasting from "@/assets/icon_twitcasting.svg";
 import iconX from "@/assets/icon_x.svg";
 import iconYoutube from "@/assets/icon_youtube.svg";
 import logoHiblueming from "@/assets/logo_hiblueming.png";
@@ -44,7 +46,17 @@ export const Route = createFileRoute("/profile/$code")({
 
 const PROFILE_BACKGROUND_AUTO_ROTATE_MS = 5000;
 const PROFILE_BACKGROUND_MEDIA_QUERY = "(min-width: 640px)";
+const PROFILE_BACKGROUND_SWIPE_MIN_DISTANCE_PX = 56;
+const PROFILE_BACKGROUND_SWIPE_DIRECTION_RATIO = 1.35;
 const AI_PROFILE_IMAGE_NOTICE = "프로필 이미지는 AI로 생성되었습니다.";
+
+type BackgroundSwipeState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+};
 
 const useMediaQuery = (query: string) => {
   const [matches, setMatches] = useState(() =>
@@ -101,6 +113,14 @@ const getUnitLogo = (unitName: string | null | undefined) => {
   const compact = normalized.replace(/\s+/g, "");
   return unitLogoMap[normalized] ?? unitLogoMap[compact] ?? null;
 };
+
+const isInteractiveSwipeTarget = (target: EventTarget | null) =>
+  target instanceof Element &&
+  Boolean(
+    target.closest(
+      "a, button, input, textarea, select, [role='button'], [data-profile-background-swipe-ignore='true']",
+    ),
+  );
 
 const LoadingAnimation = () => {
   return (
@@ -164,13 +184,18 @@ const linkMeta: Record<
   },
   youtube_vod: {
     label: "다시보기",
-    Icon: PlaySquare,
-    iconClassName: "text-white",
+    image: iconYoutube,
+    iconClassName: "",
   },
   youtube_sub: {
     label: "서브채널",
-    Icon: UserRound,
-    iconClassName: "text-white",
+    image: iconYoutube,
+    iconClassName: "",
+  },
+  twitcasting: {
+    label: "TwitCasting",
+    image: iconTwitCasting,
+    iconClassName: "",
   },
 };
 
@@ -197,10 +222,10 @@ const LinkIcon = ({ link }: { link: MemberProfileLink }) => {
 
 const ProfileLinkButton = ({
   link,
-  secondary = false,
+  variant = "primary",
 }: {
   link: MemberProfileLink;
-  secondary?: boolean;
+  variant?: "primary" | "secondary";
 }) => {
   const meta = linkMeta[link.type];
   const displayLabel =
@@ -213,25 +238,28 @@ const ProfileLinkButton = ({
       rel="noopener noreferrer"
       aria-label={displayLabel}
       title={displayLabel}
-      className="group flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border border-white/16 bg-slate-950/48 px-3 text-sm font-semibold text-white shadow-lg shadow-black/15 backdrop-blur-md transition duration-200 hover:border-white/28 hover:bg-white/10 sm:min-h-12 sm:shadow-xl sm:shadow-black/20 lg:min-h-14"
+      className={cn(
+        "group flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border px-3 text-sm font-semibold text-white backdrop-blur-md transition duration-200 sm:min-h-12 lg:min-h-14",
+        variant === "primary"
+          ? "border-white/16 bg-slate-950/48 shadow-lg shadow-black/15 hover:border-white/28 hover:bg-white/10 sm:shadow-xl sm:shadow-black/20"
+          : "border-white/12 bg-white/8 shadow-md shadow-black/10 hover:border-white/24 hover:bg-white/14",
+      )}
     >
       <span className="flex min-w-0 items-center gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/10 sm:rounded-md">
+        <span
+          className={cn(
+            "grid size-8 shrink-0 place-items-center rounded-full sm:rounded-md",
+            variant === "primary" ? "bg-white/10" : "bg-slate-950/32",
+          )}
+        >
           <LinkIcon link={link} />
         </span>
         <span className="truncate">{displayLabel}</span>
       </span>
-      {secondary ? (
-        <ChevronDown
-          className="size-4 shrink-0 opacity-75"
-          aria-hidden="true"
-        />
-      ) : (
-        <ExternalLink
-          className="size-4 shrink-0 opacity-65 transition group-hover:translate-x-0.5 group-hover:opacity-100"
-          aria-hidden="true"
-        />
-      )}
+      <ExternalLink
+        className="size-4 shrink-0 opacity-65 transition group-hover:translate-x-0.5 group-hover:opacity-100"
+        aria-hidden="true"
+      />
     </a>
   );
 };
@@ -292,7 +320,9 @@ const ProfileAiImageNotice = ({ className }: { className?: string }) => {
 
 function ProfilePage() {
   const { code } = Route.useParams();
-  const [activeBackgroundIndex, setActiveBackgroundIndex] = useState(0);
+  const [activeBackgroundLoadKey, setActiveBackgroundLoadKey] = useState<
+    string | null
+  >(null);
   const [failedProfileBackgroundIds, setFailedProfileBackgroundIds] = useState<
     string[]
   >([]);
@@ -300,6 +330,11 @@ function ProfilePage() {
     failedOptimizedProfileBackgroundIds,
     setFailedOptimizedProfileBackgroundIds,
   ] = useState<string[]>([]);
+  const [loadedProfileBackgroundKeys, setLoadedProfileBackgroundKeys] =
+    useState<string[]>([]);
+  const loadedProfileBackgroundKeysRef = useRef<Set<string>>(new Set());
+  const loadingProfileBackgroundKeysRef = useRef<Set<string>>(new Set());
+  const backgroundSwipeRef = useRef<BackgroundSwipeState | null>(null);
   const canRenderProfileBackground = useMediaQuery(
     PROFILE_BACKGROUND_MEDIA_QUERY,
   );
@@ -317,7 +352,10 @@ function ProfilePage() {
   useEffect(() => {
     setFailedProfileBackgroundIds([]);
     setFailedOptimizedProfileBackgroundIds([]);
-    setActiveBackgroundIndex(0);
+    setLoadedProfileBackgroundKeys([]);
+    loadedProfileBackgroundKeysRef.current.clear();
+    loadingProfileBackgroundKeysRef.current.clear();
+    setActiveBackgroundLoadKey(null);
   }, [code]);
 
   const profileImages = useMemo(
@@ -350,54 +388,198 @@ function ProfilePage() {
         : [],
     [failedProfileBackgroundIds, member],
   );
-  const hasMultipleBackgroundImages = profileBackgroundSourceSets.length > 1;
+  const resolvedProfileBackgroundSourceSets = useMemo(
+    () =>
+      profileBackgroundSourceSets.map((background) => {
+        const usesOptimized =
+          !failedOptimizedProfileBackgroundIds.includes(background.id);
+        const src = usesOptimized
+          ? background.sources.src
+          : background.sources.fallbackSrc;
+        const srcSet = usesOptimized ? background.sources.srcSet : undefined;
+        const sizes = usesOptimized ? background.sources.sizes : undefined;
+
+        return {
+          ...background,
+          image: {
+            sizes,
+            src,
+            srcSet,
+          },
+          loadKey: `${background.id}:${src}:${srcSet ?? ""}`,
+          usesOptimized,
+        };
+      }),
+    [failedOptimizedProfileBackgroundIds, profileBackgroundSourceSets],
+  );
+  const loadedProfileBackgroundSourceSets = useMemo(
+    () =>
+      resolvedProfileBackgroundSourceSets.filter((background) =>
+        loadedProfileBackgroundKeys.includes(background.loadKey),
+      ),
+    [loadedProfileBackgroundKeys, resolvedProfileBackgroundSourceSets],
+  );
+  const hasMultipleLoadedBackgroundImages =
+    loadedProfileBackgroundSourceSets.length > 1;
+  const activeBackgroundIndex = useMemo(() => {
+    if (!activeBackgroundLoadKey) {
+      return 0;
+    }
+
+    const index = loadedProfileBackgroundSourceSets.findIndex(
+      (background) => background.loadKey === activeBackgroundLoadKey,
+    );
+    return index >= 0 ? index : 0;
+  }, [activeBackgroundLoadKey, loadedProfileBackgroundSourceSets]);
+  const activeProfileBackground =
+    loadedProfileBackgroundSourceSets[activeBackgroundIndex] ??
+    loadedProfileBackgroundSourceSets[0];
 
   useEffect(() => {
-    if (!canRenderProfileBackground || !hasMultipleBackgroundImages) return;
+    loadedProfileBackgroundKeysRef.current = new Set(loadedProfileBackgroundKeys);
+  }, [loadedProfileBackgroundKeys]);
 
-    const timer = window.setInterval(() => {
-      setActiveBackgroundIndex(
-        (current) => (current + 1) % profileBackgroundSourceSets.length,
-      );
-    }, PROFILE_BACKGROUND_AUTO_ROTATE_MS);
+  useEffect(() => {
+    setActiveBackgroundLoadKey((current) => {
+      if (loadedProfileBackgroundSourceSets.length === 0) {
+        return null;
+      }
 
-    return () => window.clearInterval(timer);
+      if (
+        current &&
+        loadedProfileBackgroundSourceSets.some(
+          (background) => background.loadKey === current,
+        )
+      ) {
+        return current;
+      }
+
+      return loadedProfileBackgroundSourceSets[0]?.loadKey ?? null;
+    });
+  }, [loadedProfileBackgroundSourceSets]);
+
+  useEffect(() => {
+    if (!canRenderProfileBackground || resolvedProfileBackgroundSourceSets.length === 0) {
+      return;
+    }
+
+    const validLoadKeys = new Set(
+      resolvedProfileBackgroundSourceSets.map((background) => background.loadKey),
+    );
+    for (const loadKey of loadingProfileBackgroundKeysRef.current) {
+      if (!validLoadKeys.has(loadKey)) {
+        loadingProfileBackgroundKeysRef.current.delete(loadKey);
+      }
+    }
+
+    const cleanupImages: Array<() => void> = [];
+
+    for (const background of resolvedProfileBackgroundSourceSets) {
+      if (
+        loadedProfileBackgroundKeysRef.current.has(background.loadKey) ||
+        loadingProfileBackgroundKeysRef.current.has(background.loadKey)
+      ) {
+        continue;
+      }
+
+      let cancelled = false;
+      let settled = false;
+      const image = new Image();
+      loadingProfileBackgroundKeysRef.current.add(background.loadKey);
+
+      const markSettled = () => {
+        if (settled) {
+          return false;
+        }
+
+        settled = true;
+        loadingProfileBackgroundKeysRef.current.delete(background.loadKey);
+        return true;
+      };
+
+      const markLoaded = async () => {
+        if (image.decode) {
+          await image.decode().catch(() => undefined);
+        }
+
+        if (cancelled || !markSettled()) {
+          return;
+        }
+
+        loadedProfileBackgroundKeysRef.current.add(background.loadKey);
+        setLoadedProfileBackgroundKeys((current) =>
+          current.includes(background.loadKey)
+            ? current
+            : [...current, background.loadKey],
+        );
+      };
+
+      image.onload = () => {
+        void markLoaded();
+      };
+      image.onerror = () => {
+        if (cancelled || !markSettled()) {
+          return;
+        }
+
+        if (background.usesOptimized) {
+          setFailedOptimizedProfileBackgroundIds((current) =>
+            current.includes(background.id) ? current : [...current, background.id],
+          );
+          return;
+        }
+
+        setFailedProfileBackgroundIds((current) =>
+          current.includes(background.id) ? current : [...current, background.id],
+        );
+      };
+      image.decoding = "async";
+      if ("fetchPriority" in image) {
+        image.fetchPriority = "high";
+      }
+      if (background.image.sizes) {
+        image.sizes = background.image.sizes;
+      }
+      if (background.image.srcSet) {
+        image.srcset = background.image.srcSet;
+      }
+      image.src = background.image.src;
+
+      if (image.complete && image.naturalWidth > 0) {
+        void markLoaded();
+      }
+
+      cleanupImages.push(() => {
+        cancelled = true;
+        image.onload = null;
+        image.onerror = null;
+        loadingProfileBackgroundKeysRef.current.delete(background.loadKey);
+      });
+    }
+
+    return () => {
+      cleanupImages.forEach((cleanup) => cleanup());
+    };
   }, [
     canRenderProfileBackground,
-    hasMultipleBackgroundImages,
-    profileBackgroundSourceSets.length,
+    resolvedProfileBackgroundSourceSets,
   ]);
 
-  useEffect(() => {
-    if (activeBackgroundIndex >= profileBackgroundSourceSets.length) {
-      setActiveBackgroundIndex(0);
-    }
-  }, [activeBackgroundIndex, profileBackgroundSourceSets.length]);
-
-  const activeProfileBackground =
-    profileBackgroundSourceSets[activeBackgroundIndex] ??
-    profileBackgroundSourceSets[0];
+  const hasProfileBackgroundCandidates = profileBackgroundSourceSets.length > 0;
   const shouldUseProfileBackground =
     canRenderProfileBackground &&
     Boolean(activeProfileBackground);
-  const shouldUseOptimizedProfileBackground =
-    shouldUseProfileBackground &&
-    !failedOptimizedProfileBackgroundIds.includes(activeProfileBackground.id);
   const backgroundImageUrl = shouldUseProfileBackground
-    ? shouldUseOptimizedProfileBackground
-      ? activeProfileBackground?.sources.src
-      : activeProfileBackground?.sources.fallbackSrc
+    ? activeProfileBackground?.image.src
     : canRenderProfileBackground
-      ? activeImage?.imageUrl
+      ? hasProfileBackgroundCandidates
+        ? null
+        : activeImage?.imageUrl
       : null;
-  const backgroundImageSrcSet = shouldUseOptimizedProfileBackground
-    ? activeProfileBackground?.sources.srcSet
-    : undefined;
-  const backgroundImageSizes = shouldUseOptimizedProfileBackground
-    ? activeProfileBackground?.sources.sizes
-    : undefined;
+  const backgroundImageSrcSet = activeProfileBackground?.image.srcSet;
+  const backgroundImageSizes = activeProfileBackground?.image.sizes;
   const showBackgroundControls =
-    canRenderProfileBackground && hasMultipleBackgroundImages;
+    canRenderProfileBackground && hasMultipleLoadedBackgroundImages;
 
   const { primaryLinks, secondaryLinks } = useMemo(() => {
     const links = member?.links ?? [];
@@ -410,10 +592,133 @@ function ProfilePage() {
           link.type === "chzzk",
       ),
       secondaryLinks: links.filter(
-        (link) => link.type === "youtube_vod" || link.type === "youtube_sub",
+        (link) =>
+          link.type === "youtube_vod" ||
+          link.type === "youtube_sub" ||
+          link.type === "twitcasting",
       ),
     };
   }, [member]);
+
+  const goToBackground = useCallback(
+    (index: number) => {
+      if (loadedProfileBackgroundSourceSets.length === 0) return;
+
+      const next =
+        (index + loadedProfileBackgroundSourceSets.length) %
+        loadedProfileBackgroundSourceSets.length;
+      const nextBackground = loadedProfileBackgroundSourceSets[next];
+      if (!nextBackground) return;
+
+      setActiveBackgroundLoadKey(nextBackground.loadKey);
+    },
+    [loadedProfileBackgroundSourceSets],
+  );
+
+  useEffect(() => {
+    if (!canRenderProfileBackground || !hasMultipleLoadedBackgroundImages) return;
+
+    const timer = window.setTimeout(() => {
+      goToBackground(activeBackgroundIndex + 1);
+    }, PROFILE_BACKGROUND_AUTO_ROTATE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeBackgroundIndex,
+    canRenderProfileBackground,
+    goToBackground,
+    hasMultipleLoadedBackgroundImages,
+  ]);
+
+  const handleBackgroundPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (!showBackgroundControls || isInteractiveSwipeTarget(event.target)) {
+        return;
+      }
+
+      backgroundSwipeRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+      };
+
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may be unavailable in some embedded browser paths.
+      }
+    },
+    [showBackgroundControls],
+  );
+
+  const handleBackgroundPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const swipe = backgroundSwipeRef.current;
+      if (!swipe || swipe.pointerId !== event.pointerId) {
+        return;
+      }
+
+      swipe.lastX = event.clientX;
+      swipe.lastY = event.clientY;
+    },
+    [],
+  );
+
+  const clearBackgroundSwipe = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const swipe = backgroundSwipeRef.current;
+      if (!swipe || swipe.pointerId !== event.pointerId) {
+        return;
+      }
+
+      backgroundSwipeRef.current = null;
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released.
+      }
+    },
+    [],
+  );
+
+  const handleBackgroundPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      const swipe = backgroundSwipeRef.current;
+      if (!swipe || swipe.pointerId !== event.pointerId) {
+        return;
+      }
+
+      backgroundSwipeRef.current = null;
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released.
+      }
+
+      if (!showBackgroundControls) {
+        return;
+      }
+
+      const deltaX = event.clientX - swipe.startX;
+      const deltaY = event.clientY - swipe.startY;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+
+      if (
+        absX < PROFILE_BACKGROUND_SWIPE_MIN_DISTANCE_PX ||
+        absX < absY * PROFILE_BACKGROUND_SWIPE_DIRECTION_RATIO
+      ) {
+        return;
+      }
+
+      goToBackground(activeBackgroundIndex + (deltaX < 0 ? 1 : -1));
+    },
+    [activeBackgroundIndex, goToBackground, showBackgroundControls],
+  );
 
   if (loading) {
     return <LoadingAnimation />;
@@ -450,27 +755,28 @@ function ProfilePage() {
     hasInfoCapsules ||
     Boolean(member.introduction);
 
-  const goToBackground = (index: number) => {
-    if (profileBackgroundSourceSets.length === 0) return;
-    const next =
-      (index + profileBackgroundSourceSets.length) %
-      profileBackgroundSourceSets.length;
-    setActiveBackgroundIndex(next);
-  };
-
   return (
     <main
-      className="relative flex h-dvh w-full overflow-x-hidden overflow-y-auto bg-[#07101a] text-white lg:overflow-hidden"
+      className="relative flex h-dvh w-full overflow-x-hidden overflow-y-auto bg-[#07101a] text-white [touch-action:pan-y] lg:overflow-hidden"
       style={styleVars}
+      data-profile-background-carousel="true"
+      onPointerDown={handleBackgroundPointerDown}
+      onPointerMove={handleBackgroundPointerMove}
+      onPointerUp={handleBackgroundPointerUp}
+      onPointerCancel={clearBackgroundSwipe}
     >
       <AnimatePresence initial={false}>
         {backgroundImageUrl && (
           <motion.img
-            key={backgroundImageUrl}
+            key={activeProfileBackground?.loadKey ?? backgroundImageUrl}
             src={backgroundImageUrl}
             srcSet={backgroundImageSrcSet}
             sizes={backgroundImageSizes}
             alt={activeImage?.alt ?? `${member.name} 프로필 이미지`}
+            data-profile-background-index={activeBackgroundIndex}
+            data-profile-background-load-key={
+              activeProfileBackground?.loadKey ?? ""
+            }
             className="absolute inset-0 hidden size-full object-cover object-[50%_18%] sm:block sm:object-center"
             decoding="async"
             fetchPriority="high"
@@ -480,10 +786,18 @@ function ProfilePage() {
             transition={{ duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
             style={{ willChange: "opacity, transform, filter" }}
             onError={() => {
-              if (
-                activeProfileBackground &&
-                backgroundImageUrl === activeProfileBackground.sources.src
-              ) {
+              if (!activeProfileBackground) {
+                return;
+              }
+
+              setLoadedProfileBackgroundKeys((current) =>
+                current.filter((key) => key !== activeProfileBackground.loadKey),
+              );
+              loadedProfileBackgroundKeysRef.current.delete(
+                activeProfileBackground.loadKey,
+              );
+
+              if (activeProfileBackground.usesOptimized) {
                 setFailedOptimizedProfileBackgroundIds((current) =>
                   current.includes(activeProfileBackground.id)
                     ? current
@@ -492,16 +806,11 @@ function ProfilePage() {
                 return;
               }
 
-              if (
-                activeProfileBackground &&
-                backgroundImageUrl === activeProfileBackground.sources.fallbackSrc
-              ) {
-                setFailedProfileBackgroundIds((current) =>
-                  current.includes(activeProfileBackground.id)
-                    ? current
-                    : [...current, activeProfileBackground.id],
-                );
-              }
+              setFailedProfileBackgroundIds((current) =>
+                current.includes(activeProfileBackground.id)
+                  ? current
+                  : [...current, activeProfileBackground.id],
+              );
             }}
           />
         )}
@@ -620,46 +929,64 @@ function ProfilePage() {
               </div>
             )}
 
-            {secondaryLinks.length > 0 && (
-              <div className="mt-6 hidden flex-wrap gap-2 sm:flex lg:hidden">
-                {secondaryLinks.map((link) => (
-                  <Badge
-                    key={`${link.type}-${link.url}-badge`}
-                    className="rounded-lg border-white/18 bg-white/12 px-3 py-1 text-white hover:bg-white/12"
-                  >
-                    {link.label || linkMeta[link.type].label}
-                  </Badge>
-                ))}
-              </div>
-            )}
           </motion.div>
         </section>
 
         {(primaryLinks.length > 0 || secondaryLinks.length > 0) && (
           <motion.aside
-            className="mt-3 grid grid-cols-1 gap-2 sm:mt-6 sm:grid-cols-2 lg:absolute lg:bottom-10 lg:right-8 lg:mt-0 lg:flex lg:w-[316px] lg:flex-col lg:justify-end lg:gap-3"
+            className="mt-3 flex w-full flex-col gap-3 sm:mt-6 lg:absolute lg:bottom-10 lg:right-8 lg:mt-0 lg:w-[316px] lg:justify-end"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45, ease: "easeOut", delay: 0.08 }}
             aria-label="멤버 링크"
           >
-            {primaryLinks.map((link) => (
-              <ProfileLinkButton key={`${link.type}-${link.url}`} link={link} />
-            ))}
-            {secondaryLinks.map((link) => (
-              <ProfileLinkButton
-                key={`${link.type}-${link.url}`}
-                link={link}
-                secondary
-              />
-            ))}
+            {primaryLinks.length > 0 && (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-col lg:gap-3">
+                {primaryLinks.map((link) => (
+                  <ProfileLinkButton
+                    key={`${link.type}-${link.url}`}
+                    link={link}
+                  />
+                ))}
+              </div>
+            )}
+            {secondaryLinks.length > 0 && (
+              <section
+                className={cn(
+                  "border-t border-white/16 pt-3",
+                  primaryLinks.length === 0 && "border-t-0 pt-0",
+                )}
+                aria-label="추가 채널 링크"
+              >
+                <div className="mb-2 flex items-center gap-2 px-1">
+                  <span className="h-px flex-1 bg-white/14" aria-hidden="true" />
+                  <span className="shrink-0 text-[0.68rem] font-black uppercase tracking-[0.16em] text-white/58">
+                    추가 채널
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-col">
+                  {secondaryLinks.map((link) => (
+                    <ProfileLinkButton
+                      key={`${link.type}-${link.url}`}
+                      link={link}
+                      variant="secondary"
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
           </motion.aside>
         )}
         <div className="h-16 shrink-0 sm:hidden" aria-hidden="true" />
       </div>
 
       {showBackgroundControls && (
-        <div className="absolute bottom-8 left-1/2 z-20 hidden -translate-x-1/2 items-center gap-4 rounded-full border border-white/12 bg-slate-950/46 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur-xl lg:flex">
+        <div
+          className="absolute bottom-8 left-1/2 z-20 hidden -translate-x-1/2 items-center gap-4 rounded-full border border-white/12 bg-slate-950/46 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur-xl lg:flex"
+          data-profile-background-controls="true"
+          data-profile-background-active-index={activeBackgroundIndex}
+          data-profile-background-count={loadedProfileBackgroundSourceSets.length}
+        >
           <button
             type="button"
             className="grid size-8 place-items-center rounded-full text-white transition hover:bg-white/14"
@@ -669,7 +996,7 @@ function ProfilePage() {
             <ChevronLeft className="size-5" aria-hidden="true" />
           </button>
           <span className="min-w-16 text-center text-lg font-black tabular-nums tracking-wide">
-            {activeBackgroundIndex + 1} / {profileBackgroundSourceSets.length}
+            {activeBackgroundIndex + 1} / {loadedProfileBackgroundSourceSets.length}
           </span>
           <button
             type="button"

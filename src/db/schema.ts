@@ -70,7 +70,7 @@ export const memberLinks = sqliteTable(
     index("idx_member_links_member_sort").on(table.member_uid, table.sort_order),
     check(
       "member_links_type_check",
-      sql`type IN ('youtube_vod', 'youtube_sub')`,
+      sql`type IN ('youtube_vod', 'youtube_sub', 'twitcasting')`,
     ),
   ],
 );

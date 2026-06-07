@@ -17,7 +17,8 @@ export type MemberProfileLinkType =
   | "youtube"
   | "chzzk"
   | "youtube_vod"
-  | "youtube_sub";
+  | "youtube_sub"
+  | "twitcasting";
 
 export interface MemberProfileImage {
   id: number | null;

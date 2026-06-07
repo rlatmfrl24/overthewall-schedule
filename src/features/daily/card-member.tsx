@@ -12,7 +12,7 @@ import iconYoutube from "@/assets/icon_youtube.svg";
 import iconChzzk from "@/assets/icon_chzzk.png";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Plus, Radio, User } from "lucide-react";
+import { Plus, User } from "lucide-react";
 
 interface CardMemberProps {
   member: Member;
@@ -42,9 +42,7 @@ export const CardMember = ({
   const borderColor = hexToRgba(mainColor, 0.3);
   const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
   const isLive = liveStatus?.status === "OPEN";
-  const isUnscheduledLive = !hasSchedule && isLive;
   const viewerCount = liveStatus?.concurrentUserCount;
-  const liveTitle = liveStatus?.liveTitle?.trim();
   const liveUrl =
     buildChzzkLiveUrl(liveStatus?.channelId) ||
     convertChzzkToLiveUrl(member.url_chzzk);
@@ -210,56 +208,6 @@ export const CardMember = ({
                 accentColor={mainColor}
               />
             ))
-          ) : isUnscheduledLive ? (
-            <div className="flex flex-1 flex-col justify-center rounded-xl border border-red-300 border-l-4 border-l-red-500 bg-linear-to-br from-red-50 to-white p-4 text-red-950 shadow-sm dark:border-red-800/70 dark:border-l-red-500 dark:from-red-950/45 dark:to-red-950/20 dark:text-red-50">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-[10px] font-black text-white shadow-sm">
-                  <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-                  미등록 LIVE
-                </span>
-                {typeof viewerCount === "number" && (
-                  <span className="rounded-md bg-white/80 px-2 py-1 text-[11px] font-black text-red-800 dark:bg-red-950/60 dark:text-red-100">
-                    {viewerCount.toLocaleString()} 시청중
-                  </span>
-                )}
-              </div>
-              <p className="mt-2 line-clamp-2 text-base font-black leading-snug">
-                {liveTitle || "편성표에 없는 방송이 진행 중입니다"}
-              </p>
-              <p className="mt-1 text-xs font-semibold text-red-800/85 dark:text-red-100/80">
-                오늘 일정은 없지만 현재 방송 중입니다.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {liveUrl && (
-                  <Button
-                    size="sm"
-                    className="h-8 rounded-full bg-red-600 px-3 text-xs font-black text-white hover:bg-red-700"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(liveUrl, "_blank", "noreferrer");
-                    }}
-                  >
-                    <Radio className="h-3.5 w-3.5" />
-                    방송 보러가기
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                {onAddSchedule && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 rounded-full px-3 text-xs font-semibold"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAddSchedule(member.uid);
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    스케쥴 추가하기
-                  </Button>
-                )}
-              </div>
-            </div>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4 gap-2">
               <p className="text-sm font-medium text-muted-foreground">

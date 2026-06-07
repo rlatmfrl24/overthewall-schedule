@@ -13,15 +13,32 @@ const MEMBERS_CACHE_CONTROL =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
 const MEMBER_PROFILE_CACHE_CONTROL = "no-store";
 const MAX_MEMBER_PROFILE_BACKGROUNDS = 3;
+const MEMBER_CODE_PATTERN = /^[a-z0-9_-]{1,64}$/i;
 const PROFILE_BACKGROUND_KEY =
   /^members\/[^/]+\/backgrounds\/([^/]+)\/(original|w(?:960|1280|1672))\.webp$/;
 
+const memberNotFound = () => new Response("Member not found", { status: 404 });
+
+const decodeMemberCode = (rawCode: string) => {
+  try {
+    const code = decodeURIComponent(rawCode).trim();
+    return MEMBER_CODE_PATTERN.test(code) ? code : null;
+  } catch {
+    return null;
+  }
+};
+
 export const handleMembers = async (request: Request, env: Env) => {
   const url = new URL(request.url);
-  const db = getDb(env);
 
   const pathParts = url.pathname.split("/");
-  const code = pathParts[3] ? decodeURIComponent(pathParts[3]) : ""; // /api/members/:code
+  const rawCode = pathParts[3] ?? ""; // /api/members/:code
+  const code = rawCode ? decodeMemberCode(rawCode) : "";
+  if (rawCode && !code) {
+    return memberNotFound();
+  }
+
+  const db = getDb(env);
 
   const activeCondition = sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
 
@@ -39,7 +56,7 @@ export const handleMembers = async (request: Request, env: Env) => {
         (member) => member.code?.trim().toLowerCase() === normalizedCode,
       );
       if (!fallback) {
-        return new Response("Member not found", { status: 404 });
+        return memberNotFound();
       }
       const profile = await buildMemberProfile(db, fallback, env);
       return json(profile, 200, {
