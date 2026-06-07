@@ -91,6 +91,13 @@ const makeJsonRequest = (body: Record<string, unknown>) =>
     body: JSON.stringify(body),
   });
 
+const makePendingActionsRequest = (body: Record<string, unknown>) =>
+  new Request("https://example.com/api/settings/pending/actions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
 describe("settings worker route", () => {
   beforeEach(() => {
     fakeDbContext.state.rows = [];
@@ -150,5 +157,29 @@ describe("settings worker route", () => {
     expect(fakeDbContext.state.writes).toEqual([
       { key: "x_collection_interval_hours", value: "24" },
     ]);
+  });
+
+  it("pending batch action은 action과 ids를 route boundary에서 검증한다", async () => {
+    const invalidAction = await handleSettings(
+      makePendingActionsRequest({ action: "archive", ids: [1] }),
+      makeEnv(),
+    );
+    const missingIds = await handleSettings(
+      makePendingActionsRequest({ action: "approve", ids: [] }),
+      makeEnv(),
+    );
+    const invalidAllMode = await handleSettings(
+      makePendingActionsRequest({ action: "reset_processed", mode: "all" }),
+      makeEnv(),
+    );
+
+    expect(invalidAction.status).toBe(400);
+    expect(await invalidAction.text()).toBe("Invalid pending action");
+    expect(missingIds.status).toBe(400);
+    expect(await missingIds.text()).toBe("ids are required");
+    expect(invalidAllMode.status).toBe(400);
+    expect(await invalidAllMode.text()).toBe(
+      "reset_processed does not support all mode",
+    );
   });
 });

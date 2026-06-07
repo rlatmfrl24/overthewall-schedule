@@ -8,13 +8,17 @@
 - `worker/routes/vods.ts`
 - `worker/routes/members.ts`
 - `worker/routes/schedules.ts`
+- `worker/routes/schedule-board.ts`
 - `worker/routes/notices.ts`
 - `worker/routes/ddays.ts`
 - `worker/routes/kirinuki.ts`
+- `worker/routes/member-posts.ts`
 - `worker/routes/settings.ts`
 
 ## Worker Shared Logic
 - `worker/services/*`: integration and domain operations.
+- `worker/repositories/*`: D1 read models and aggregate query repositories.
+- `worker/use-cases/*`: command handlers and domain write orchestration.
 - `worker/utils/helpers.ts`: request parsing, validation helpers, response helpers, audit log helpers.
 - `worker/types.ts`: worker-side payload and contract types.
 

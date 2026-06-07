@@ -5,18 +5,22 @@ import { Footer } from "@/components/footer";
 const RootComponent = () => {
   const location = useLocation();
   const isSnapshotRoute = location.pathname.startsWith("/snapshot");
+  const isProfileRoute = location.pathname.startsWith("/profile/");
+  const hideAppChrome = isSnapshotRoute || isProfileRoute;
 
   return (
     <div
       className={
         isSnapshotRoute
           ? "min-h-screen w-full font-sans bg-background"
+          : isProfileRoute
+            ? "h-[100dvh] w-full font-sans overflow-hidden bg-background"
           : "flex flex-col items-center h-[100dvh] w-full font-sans overflow-hidden bg-background"
       }
     >
-      {!isSnapshotRoute && <Header />}
+      {!hideAppChrome && <Header />}
       <Outlet />
-      {!isSnapshotRoute && <Footer />}
+      {!hideAppChrome && <Footer />}
     </div>
   );
 };

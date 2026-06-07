@@ -86,6 +86,36 @@ describe("ChronologicalScheduleList", () => {
     expect(screen.getByText("게릴라 방송")).toBeTruthy();
   });
 
+  it("일정 없는 라이브 멤버는 미등록 경고 대신 방송 중으로 표시한다", () => {
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루"), makeMember(2, "하네")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        liveStatuses: {
+          2: {
+            status: "OPEN",
+            liveTitle: "즉흥 방송",
+            concurrentUserCount: 321,
+          },
+        } as ChzzkLiveStatusMap,
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.queryByText("편성표 미등록 LIVE")).toBeNull();
+    expect(screen.queryByText("미등록 LIVE")).toBeNull();
+    expect(screen.getAllByText(/방송 중/).length).toBeGreaterThan(0);
+    expect(screen.getByText("현재 방송 중입니다")).toBeTruthy();
+  });
+
   it("로딩과 빈 상태를 표시한다", () => {
     const { rerender } = render(
       createElement(ChronologicalScheduleList, {

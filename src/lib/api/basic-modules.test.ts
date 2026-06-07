@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member, ScheduleItem } from "@/lib/types";
-import { fetchActiveMembers } from "./members";
+import { fetchActiveMembers, fetchMemberProfile } from "./members";
 import { createDDay, deleteDDay, fetchDDays, updateDDay } from "./ddays";
 import {
   createNotice,
@@ -13,8 +13,11 @@ import {
   deleteSchedule,
   fetchSchedulesByDate,
   fetchSchedulesInRange,
+  saveSchedule,
   updateSchedule,
 } from "./schedules";
+import { fetchScheduleBoard } from "./schedule-board";
+import { fetchMemberPostsAggregate } from "./member-posts";
 import { fetchKirinukiVideos } from "./kirinuki";
 import {
   approveAllPendingSchedules,
@@ -95,6 +98,19 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/members");
   });
 
+  it("멤버 프로필 상세 API는 code를 인코딩해 요청한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      ...makeMember({ code: "member code" }),
+      profileImages: [],
+      backgroundImages: [],
+      links: [],
+    });
+
+    await fetchMemberProfile("member code");
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/members/member%20code");
+  });
+
   it("dday CRUD는 올바른 경로/메서드로 요청한다", async () => {
     await fetchDDays({ noCache: true });
     await createDDay({
@@ -165,10 +181,16 @@ describe("api wrapper modules", () => {
   it("schedule API는 경로를 조합하고 update id 유효성을 검사한다", async () => {
     await fetchSchedulesByDate("2026-02-13");
     await fetchSchedulesInRange("2026-02-10", "2026-02-16");
+    await fetchScheduleBoard("2026-02-10", "2026-02-16");
     await createSchedule({
       member_uid: 1,
       date: "2026-02-13",
       status: "방송",
+    });
+    await saveSchedule({
+      member_uid: 1,
+      date: "2026-02-13",
+      status: "휴방",
     });
 
     await expect(
@@ -190,21 +212,72 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/schedules?date=2026-02-13",
+      { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/schedules?startDate=2026-02-10&endDate=2026-02-16",
+      { cache: "no-store" },
     );
-    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/schedules", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/schedule-board?startDate=2026-02-10&endDate=2026-02-16",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/schedules", {
       method: "POST",
       json: expect.any(Object),
     });
-    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/schedules", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/schedules/save", {
+      method: "POST",
+      json: expect.objectContaining({ status: "휴방" }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(6, "/api/schedules", {
       method: "PUT",
       json: expect.objectContaining({ id: 3 }),
     });
-    expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/schedules?id=3", {
+    expect(apiFetchMock).toHaveBeenNthCalledWith(7, "/api/schedules?id=3", {
       method: "DELETE",
+    });
+  });
+
+  it("member-post aggregate API는 요청 소스와 페이지 크기를 조합한다", async () => {
+    await fetchMemberPostsAggregate({
+      includeX: false,
+      includeNaverCafe: true,
+      maxResults: 3,
+      size: 7,
+      admin: true,
+    });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/member-posts?sources=naver-cafe&maxResults=3&size=7&admin=1",
+      { cache: "default" },
+    );
+  });
+
+  it("pending 단건 action helper는 batch 내부 실패를 예외로 전파한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      success: false,
+      totalRequested: 1,
+      successCount: 0,
+      failedCount: 1,
+      results: [
+        {
+          id: 11,
+          success: false,
+          error: "conflict",
+          message: "이미 비슷한 시간에 스케줄이 존재합니다.",
+        },
+      ],
+    });
+
+    await expect(approvePendingSchedule(11)).rejects.toThrow(
+      "이미 비슷한 시간에 스케줄이 존재합니다.",
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending/actions", {
+      method: "POST",
+      json: { action: "approve", ids: [11] },
     });
   });
 
@@ -245,11 +318,41 @@ describe("api wrapper modules", () => {
         hasNextPage: false,
       })
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ success: true, action: "approved" })
-      .mockResolvedValueOnce({ success: true, action: "update", scheduleId: 16 })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 11, success: true, action: "create", scheduleId: 11 }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 16, success: true, action: "update", scheduleId: 16 }],
+      })
       .mockResolvedValueOnce({ success: true, scheduleId: 15 })
-      .mockResolvedValueOnce({ success: true, resetAt: "2026-05-27T00:00:00.000Z" })
-      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [
+          {
+            id: 17,
+            success: true,
+            resetAt: "2026-05-27T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 12, success: true, action: "reject" }],
+      })
       .mockResolvedValueOnce({
         success: true,
         totalRequested: 2,
@@ -345,18 +448,22 @@ describe("api wrapper modules", () => {
       cache: "no-store",
     });
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/11/approve",
-      { method: "POST" },
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", ids: [11] } },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/16/approve",
+      "/api/settings/pending/actions",
       {
         method: "POST",
         json: {
-          applyMode: "time",
-          targetMode: "update",
-          timeMode: "nearest_hour",
-          targetScheduleId: 160,
+          action: "approve",
+          ids: [16],
+          options: {
+            applyMode: "time",
+            targetMode: "update",
+            timeMode: "nearest_hour",
+            targetScheduleId: 160,
+          },
         },
       },
     );
@@ -365,27 +472,29 @@ describe("api wrapper modules", () => {
       { method: "POST" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/17/reset-processed",
-      { method: "POST" },
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reset_processed", ids: [17] } },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/12/reject",
-      { method: "POST" },
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", ids: [12] } },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/approve-selected",
-      { method: "POST", json: { ids: [11, 13] } },
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", ids: [11, 13] } },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/pending/reject-selected",
-      { method: "POST", json: { ids: [12, 14] } },
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", ids: [12, 14] } },
     );
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending/approve-all", {
-      method: "POST",
-    });
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending/reject-all", {
-      method: "POST",
-    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", mode: "all" } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", mode: "all" } },
+    );
   });
 
   it("라이브 상태 API는 채널-멤버 매핑 및 진단 응답을 변환한다", async () => {

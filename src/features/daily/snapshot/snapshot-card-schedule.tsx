@@ -1,7 +1,8 @@
-import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type { ScheduleItem } from "@/lib/types";
 import { cn, hexToRgba } from "@/lib/utils";
 import { Clock3 } from "lucide-react";
 import { useAutoFitText } from "./use-auto-fit-text";
+import { getScheduleDisplayTitle } from "../chronological-schedule-utils";
 
 interface SnapshotCardScheduleProps {
   schedule: ScheduleItem;
@@ -15,15 +16,7 @@ export const SnapshotCardSchedule = ({
   const isBroadcast = schedule.status === "방송";
   const broadcastBorderColor = hexToRgba(accentColor, 0.38);
 
-  const rawTitle = schedule.title?.trim() ?? "";
-  const fallbackTitleByStatus: Record<ScheduleStatus, string> = {
-    방송: "방송 예정",
-    휴방: "휴방",
-    게릴라: "게릴라",
-    미정: "미정",
-  };
-
-  const displayTitle = rawTitle || fallbackTitleByStatus[schedule.status];
+  const displayTitle = getScheduleDisplayTitle(schedule);
   const showTime = Boolean(schedule.start_time);
   const timeLabel = schedule.start_time ?? "--:--";
   const { textRef, textStyle } = useAutoFitText<HTMLParagraphElement>({

@@ -11,6 +11,45 @@ export type Member = Omit<DbMember, "is_deprecated"> & {
   is_deprecated?: string | number | boolean | null;
 };
 
+export type MemberProfileLinkType =
+  | "x"
+  | "naver_cafe"
+  | "youtube"
+  | "chzzk"
+  | "youtube_vod"
+  | "youtube_sub"
+  | "twitcasting";
+
+export interface MemberProfileImage {
+  id: number | null;
+  memberUid: number;
+  imageUrl: string;
+  alt: string | null;
+  sortOrder: number;
+}
+
+export interface MemberProfileBackgroundImage {
+  id: string;
+  sortOrder: number;
+  version: string;
+}
+
+export interface MemberProfileLink {
+  id?: number | null;
+  type: MemberProfileLinkType;
+  label: string;
+  url: string;
+  sortOrder: number;
+  youtubeChannelId?: string | null;
+  sourceId?: number | null;
+}
+
+export type MemberProfile = Member & {
+  profileImages: MemberProfileImage[];
+  backgroundImages: MemberProfileBackgroundImage[];
+  links: MemberProfileLink[];
+};
+
 export type ScheduleItem = Omit<DbSchedule, "status"> & {
   status: ScheduleStatus;
   start_time?: string | null;

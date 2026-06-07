@@ -14,6 +14,7 @@ export interface Env {
   CLERK_JWT_AUDIENCE?: string;
   CLERK_ADMIN_IDS?: string;
   otw_db: D1Database;
+  ASSET_BUCKET?: R2Bucket;
   ASSETS?: {
     fetch: (request: Request) => Response | Promise<Response>;
   };

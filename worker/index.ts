@@ -9,13 +9,16 @@ import { autoUpdateSchedules } from "./services/schedule";
 import { handleLiveStatus } from "./routes/live";
 import { handleVods } from "./routes/vods";
 import { handleMembers } from "./routes/members";
+import { handleScheduleBoard } from "./routes/schedule-board";
 import { handleSchedules } from "./routes/schedules";
 import { handleNotices } from "./routes/notices";
 import { handleDDays } from "./routes/ddays";
 import { handleKirinuki } from "./routes/kirinuki";
+import { handleMemberPosts } from "./routes/member-posts";
 import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
 import { handleNaverCafe } from "./routes/naver-cafe";
+import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
 import type { Env } from "./types";
@@ -100,6 +103,10 @@ export default {
     const url = new URL(request.url);
 
     try {
+      if (url.pathname.startsWith("/r2-assets/")) {
+        return handleR2Asset(request, env);
+      }
+
       if (url.pathname.startsWith("/api/live-status")) {
         return handleLiveStatus(request, env);
       }
@@ -116,6 +123,10 @@ export default {
         return handleMembers(request, env);
       }
 
+      if (url.pathname.startsWith("/api/schedule-board")) {
+        return handleScheduleBoard(request, env);
+      }
+
       if (url.pathname.startsWith("/api/schedules")) {
         return handleSchedules(request, env);
       }
@@ -130,6 +141,10 @@ export default {
 
       if (url.pathname.startsWith("/api/kirinuki")) {
         return handleKirinuki(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/member-posts")) {
+        return handleMemberPosts(request, env);
       }
 
       if (url.pathname.startsWith("/api/x/")) {

@@ -1,5 +1,6 @@
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "../src/db/schema";
+import type { Env } from "./types";
 
 export type DbInstance = DrizzleD1Database<typeof schema>;
 

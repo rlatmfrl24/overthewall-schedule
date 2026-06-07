@@ -24,7 +24,6 @@ import {
   Loader2,
   Info,
 } from "lucide-react";
-import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
 import { ChronologicalScheduleList } from "./chronological-schedule-list";
 import {
@@ -54,12 +53,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useScheduleData } from "@/hooks/use-schedule-data";
+import { useScheduleBoard } from "@/hooks/use-schedule-board";
 import {
   fetchLiveStatusDiagnostics,
   fetchLiveStatusesForMembers,
 } from "@/lib/api/live-status";
-import { fetchSchedulesByDate, deleteSchedule } from "@/lib/api/schedules";
+import { deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -77,8 +76,6 @@ type LiveDebugRow = {
 
 export const DailySchedule = () => {
   const queryClient = useQueryClient();
-  const { members, ddays, loading: isScheduleDataLoading, hasLoaded } =
-    useScheduleData();
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(
     null,
   );
@@ -95,14 +92,14 @@ export const DailySchedule = () => {
     return new URLSearchParams(window.location.search).get("liveDebug") === "1";
   }, []);
   const currentDateString = format(currentDate, "yyyy-MM-dd");
-  const schedulesQuery = useQuery({
-    queryKey: queryKeys.schedules.byDate(currentDateString),
-    queryFn: () => fetchSchedulesByDate(currentDateString),
-  });
-  const schedules = useMemo(
-    () => schedulesQuery.data ?? [],
-    [schedulesQuery.data],
-  );
+  const {
+    members,
+    ddays,
+    notices,
+    schedules,
+    loading: isScheduleBoardLoading,
+    hasLoaded,
+  } = useScheduleBoard(currentDateString, currentDateString);
   const isToday = isSameDay(currentDate, new Date());
   const liveChannelIdsKey = useMemo(() => {
     const channelIds = new Set<string>();
@@ -208,11 +205,7 @@ export const DailySchedule = () => {
   }, [schedules]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
-  const isDailyScheduleLoading =
-    isScheduleDataLoading ||
-    !hasLoaded ||
-    schedulesQuery.isLoading ||
-    !schedulesQuery.isFetched;
+  const isDailyScheduleLoading = isScheduleBoardLoading || !hasLoaded;
 
   const handleSaveSchedule = async (data: {
     id?: number;
@@ -346,6 +339,7 @@ export const DailySchedule = () => {
       const height = targetNode.scrollHeight;
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
 
+      const { toPng } = await import("html-to-image");
       const dataUrl = await toPng(targetNode, {
         cacheBust: true,
         width,
@@ -720,7 +714,7 @@ export const DailySchedule = () => {
               </div>
             )}
             <div className="w-full h-full flex-1">
-              <NoticeBanner />
+              <NoticeBanner notices={notices} />
             </div>
           </div>
 

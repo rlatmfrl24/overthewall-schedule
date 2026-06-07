@@ -8,11 +8,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useNaverCafePosts } from "@/hooks/use-naver-cafe-posts";
+import { useMemberPosts } from "@/hooks/use-member-posts";
 import { useScheduleData } from "@/hooks/use-schedule-data";
-import { useXPosts } from "@/hooks/use-x-posts";
 import { getMembersWithXHandles } from "@/lib/api/x";
-import type { Member, NaverCafePost, XPost } from "@/lib/types";
+import type { UnifiedMemberPost } from "@/lib/api/member-posts";
+import type { Member } from "@/lib/types";
 import { cn, getContrastColor } from "@/lib/utils";
 import { NaverCafePostCard } from "@/features/naver-cafe/naver-cafe-post-card";
 import { XPostCard } from "@/features/x/x-post-card";
@@ -22,22 +22,6 @@ type MemberPostSource = {
   xCount: number;
   cafeCount: number;
 };
-
-type UnifiedMemberPost =
-  | {
-      kind: "x";
-      id: string;
-      createdAt: string;
-      memberUid: number | null;
-      post: XPost;
-    }
-  | {
-      kind: "cafe";
-      id: string;
-      createdAt: string;
-      memberUid: number | null;
-      post: NaverCafePost;
-    };
 
 type MemberPostsOverviewProps = {
   loadX: boolean;
@@ -364,14 +348,14 @@ export const MemberPostsOverview = ({
     [members],
   );
 
-  const xState = useXPosts(membersWithX, {
-    enabled: loadX,
+  const memberPostsState = useMemberPosts({
+    includeX: loadX,
+    includeNaverCafe: loadCafe,
     maxResults: 10,
-  });
-  const cafeState = useNaverCafePosts({
-    enabled: loadCafe,
     size: 10,
   });
+  const xState = memberPostsState.x;
+  const cafeState = memberPostsState.naverCafe;
 
   const cafeSourceCount = cafeState.sources.filter(
     (source) => source.enabled,
@@ -402,25 +386,7 @@ export const MemberPostsOverview = ({
       .sort((a, b) => a.member.uid - b.member.uid);
   }, [cafeState.sources, memberMap, membersWithXHandles]);
 
-  const unifiedPosts = useMemo<UnifiedMemberPost[]>(
-    () => [
-      ...xState.posts.map((post) => ({
-        kind: "x" as const,
-        id: `x:${post.id}`,
-        createdAt: post.createdAt,
-        memberUid: post.memberUid ?? null,
-        post,
-      })),
-      ...cafeState.posts.map((post) => ({
-        kind: "cafe" as const,
-        id: `cafe:${post.id}`,
-        createdAt: post.createdAt,
-        memberUid: post.memberUid,
-        post,
-      })),
-    ],
-    [cafeState.posts, xState.posts],
-  );
+  const unifiedPosts = memberPostsState.posts;
   const filteredPosts = useMemo(
     () => filterUnifiedPostsByMember(unifiedPosts, selectedMemberUids),
     [selectedMemberUids, unifiedPosts],
@@ -444,7 +410,7 @@ export const MemberPostsOverview = ({
   const hasAnySource = hasXSource || hasCafeSource;
   const xLoading = loadX && !xState.hasLoaded && hasXSource;
   const cafeLoading = loadCafe && !cafeState.hasLoaded;
-  const postsLoading = xState.loading || cafeState.loading;
+  const postsLoading = memberPostsState.loading;
   const showInitialLoading =
     membersLoading ||
     !membersLoaded ||
@@ -453,10 +419,8 @@ export const MemberPostsOverview = ({
     (postsLoading && unifiedPosts.length === 0);
 
   const reload = async () => {
-    await Promise.all([
-      loadX && hasXSource ? xState.reload() : Promise.resolve(),
-      loadCafe ? cafeState.reload() : Promise.resolve(),
-    ]);
+    if (!hasAnySource) return;
+    await memberPostsState.reload();
   };
 
   return (

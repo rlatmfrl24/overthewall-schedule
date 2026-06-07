@@ -602,6 +602,9 @@ export function AutoUpdateSettingsManager() {
     setProcessingPendingId(pendingId);
     try {
       await approvePendingSchedule(pendingId, buildPendingApprovalPayload(pending));
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.schedules.all,
+      });
       setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };

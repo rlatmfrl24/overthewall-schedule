@@ -183,6 +183,48 @@
       "when": 1779950844489,
       "tag": "0026_first_toro",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1780020347136,
+      "tag": "0027_heavy_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1780020362776,
+      "tag": "0028_backfill_member_profile_images",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1780286794250,
+      "tag": "0029_fat_agent_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1780357320850,
+      "tag": "0030_tiresome_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1780359740883,
+      "tag": "0031_loving_wallflower",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1780359757400,
+      "tag": "0032_wakeful_boom_boom",
+      "breakpoints": true
     }
   ]
 }

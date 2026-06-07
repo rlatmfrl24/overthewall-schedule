@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { format, parseISO } from "date-fns";
+import { format, isSameDay, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { useScheduleData } from "@/hooks/use-schedule-data";
-import { fetchSchedulesByDate } from "@/lib/api/schedules";
-import type { ScheduleItem } from "@/lib/types";
+import { useScheduleBoard } from "@/hooks/use-schedule-board";
+import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
+import type { ChzzkLiveStatusMap, ScheduleItem } from "@/lib/types";
 import { SnapshotCardMember } from "./snapshot-card-member";
 import { SnapshotTimeline } from "./snapshot-timeline";
 
@@ -18,35 +18,58 @@ export const SnapshotSchedule = ({
   mode,
   theme,
 }: SnapshotScheduleProps) => {
-  const { members, hasLoaded } = useScheduleData();
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [isSchedulesLoaded, setIsSchedulesLoaded] = useState(false);
+  const { members, schedules, hasLoaded } = useScheduleBoard(date, date);
+  const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
+  const [isLiveStatusesLoaded, setIsLiveStatusesLoaded] = useState(false);
   const [isSnapshotReady, setIsSnapshotReady] = useState(false);
   const snapshotWidth = mode === "timeline" ? 520 : 1280;
 
   const currentDate = useMemo(() => parseISO(date), [date]);
+  const isSnapshotToday = useMemo(
+    () => isSameDay(currentDate, new Date()),
+    [currentDate],
+  );
 
   useEffect(() => {
     let isActive = true;
-    const fetchSchedules = async () => {
-      try {
-        const data = await fetchSchedulesByDate(date);
+
+    const fetchLiveStatuses = async () => {
+      if (!hasLoaded) {
+        setIsLiveStatusesLoaded(false);
+        return;
+      }
+
+      setLiveStatuses({});
+      setIsLiveStatusesLoaded(false);
+      setIsSnapshotReady(false);
+
+      if (!isSnapshotToday || members.length === 0) {
         if (isActive) {
-          setSchedules(data);
+          setIsLiveStatusesLoaded(true);
+        }
+        return;
+      }
+
+      try {
+        const data = await fetchLiveStatusesForMembers(members, { schedules });
+        if (isActive) {
+          setLiveStatuses(data);
         }
       } catch (error) {
-        console.error("Failed to fetch snapshot schedules:", error);
+        console.error("Failed to fetch snapshot live statuses:", error);
       } finally {
         if (isActive) {
-          setIsSchedulesLoaded(true);
+          setIsLiveStatusesLoaded(true);
         }
       }
     };
-    void fetchSchedules();
+
+    void fetchLiveStatuses();
+
     return () => {
       isActive = false;
     };
-  }, [date]);
+  }, [hasLoaded, isSnapshotToday, members, schedules]);
 
   useEffect(() => {
     if (!theme) return;
@@ -66,7 +89,7 @@ export const SnapshotSchedule = ({
   }, [theme]);
 
   useEffect(() => {
-    if (!hasLoaded || !isSchedulesLoaded) return;
+    if (!hasLoaded || !isLiveStatusesLoaded) return;
     let frame2: number | null = null;
     const frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
@@ -77,7 +100,7 @@ export const SnapshotSchedule = ({
       cancelAnimationFrame(frame1);
       if (frame2 !== null) cancelAnimationFrame(frame2);
     };
-  }, [hasLoaded, isSchedulesLoaded]);
+  }, [hasLoaded, isLiveStatusesLoaded]);
 
   const schedulesByMemberUid = useMemo(() => {
     const grouped = new Map<number, ScheduleItem[]>();
@@ -92,7 +115,7 @@ export const SnapshotSchedule = ({
     return grouped;
   }, [schedules]);
 
-  const isReady = hasLoaded && isSchedulesLoaded && isSnapshotReady;
+  const isReady = hasLoaded && isLiveStatusesLoaded && isSnapshotReady;
 
   return (
     <div
@@ -103,18 +126,25 @@ export const SnapshotSchedule = ({
         mode === "timeline" ? "p-4" : "p-5",
       )}
     >
-      <div className="flex flex-col gap-6" style={{ width: snapshotWidth }}>
-        <div className="flex flex-col gap-2">
-          <h1 className="text-[2.1rem] font-extrabold tracking-tight text-foreground">
+      <div
+        className={cn("flex flex-col", mode === "timeline" ? "gap-4" : "gap-5")}
+        style={{ width: snapshotWidth }}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <h1 className="shrink-0 text-[2rem] font-extrabold leading-none tracking-tight text-foreground">
             오늘의 편성표
           </h1>
-          <p className="text-xl font-semibold text-muted-foreground">
+          <p className="min-w-0 truncate text-lg font-bold leading-none text-muted-foreground">
             {format(currentDate, "yyyy년 M월 d일")}
           </p>
         </div>
 
         {mode === "timeline" ? (
-          <SnapshotTimeline members={members} schedules={schedules} />
+          <SnapshotTimeline
+            members={members}
+            schedules={schedules}
+            liveStatuses={liveStatuses}
+          />
         ) : (
           <div className="grid grid-cols-3 gap-4">
             {members.map((member) => {
@@ -125,6 +155,7 @@ export const SnapshotSchedule = ({
                   key={`snapshot-${member.uid}`}
                   member={member}
                   schedules={memberSchedules}
+                  liveStatus={liveStatuses[member.uid]}
                   theme={theme}
                 />
               );

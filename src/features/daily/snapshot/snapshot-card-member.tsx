@@ -1,19 +1,22 @@
-import type { Member, ScheduleItem } from "@/lib/types";
+import type { ChzzkLiveStatusMap, Member, ScheduleItem } from "@/lib/types";
 import { getContrastColor, hexToRgba } from "@/lib/utils";
 import { SnapshotCardSchedule } from "./snapshot-card-schedule";
 
 interface SnapshotCardMemberProps {
   member: Member;
   schedules: ScheduleItem[];
+  liveStatus?: ChzzkLiveStatusMap[number];
   theme?: "light" | "dark";
 }
 
 export const SnapshotCardMember = ({
   member,
   schedules,
+  liveStatus,
   theme,
 }: SnapshotCardMemberProps) => {
   const hasSchedule = schedules.length > 0;
+  const isLive = liveStatus?.status === "OPEN";
   const isDarkTheme =
     theme === "dark" ||
     (theme !== "light" &&
@@ -34,8 +37,9 @@ export const SnapshotCardMember = ({
         0.14,
       )} 0%, transparent 72%)`;
   const borderColor = hexToRgba(mainColor, 0.3);
-  const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1);
   const memberNameChipBgColor = hexToRgba(headerTextColor, 0.2);
+  const unitChipBgColor = hexToRgba(headerTextColor, 0.16);
+  const unitChipBorderColor = hexToRgba(headerTextColor, 0.34);
 
   return (
     <div
@@ -46,11 +50,19 @@ export const SnapshotCardMember = ({
         className="relative h-[112px] flex flex-col items-start justify-between px-4 py-3 transition-colors duration-300"
         style={{ backgroundColor: mainColor }}
       >
+        {isLive && (
+          <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-1 text-[10px] font-black text-white shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-white" />
+            LIVE
+          </span>
+        )}
+
         {member.unit_name && (
           <span
-            className="inline-block max-w-full rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm break-keep"
+            className="inline-flex max-w-[calc(100%-76px)] items-center rounded-full border px-2.5 py-1 text-[10px] font-black leading-none shadow-sm backdrop-blur-sm break-keep"
             style={{
-              backgroundColor: nameBgColor,
+              backgroundColor: unitChipBgColor,
+              borderColor: unitChipBorderColor,
               color: headerTextColor,
             }}
           >

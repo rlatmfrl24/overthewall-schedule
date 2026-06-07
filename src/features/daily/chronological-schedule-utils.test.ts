@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ChzzkLiveStatusMap, ScheduleItem } from "@/lib/types";
+import type { ChzzkLiveStatusMap, Member, ScheduleItem } from "@/lib/types";
 import {
+  buildNoScheduleMemberEntries,
   buildScheduleBoardModel,
   filterScheduleBoardModel,
   getScheduleDisplayTitle,
@@ -26,6 +27,26 @@ const liveStatuses = {
     concurrentUserCount: 1245,
   },
 } as ChzzkLiveStatusMap;
+
+const makeMember = (uid: number): Member =>
+  ({
+    uid,
+    code: `member-${uid}`,
+    name: `멤버 ${uid}`,
+    main_color: null,
+    sub_color: null,
+    oshi_mark: null,
+    url_twitter: null,
+    url_youtube: null,
+    url_chzzk: uid === 7 ? "https://chzzk.naver.com/live-channel" : null,
+    youtube_channel_id: null,
+    birth_date: null,
+    debut_date: null,
+    unit_name: null,
+    fan_name: null,
+    introduction: null,
+    is_deprecated: 0,
+  }) as Member;
 
 describe("buildScheduleBoardModel", () => {
   it("방송/게릴라/미정/휴방을 분류하고 시간순으로 정렬한다", () => {
@@ -100,6 +121,18 @@ describe("buildScheduleBoardModel", () => {
         makeSchedule({ id: 2, status: "방송", title: "" }),
       ),
     ).toBe("방송 예정");
+  });
+
+  it("일정이 없는 멤버를 추리고 방송 중인 멤버를 먼저 정렬한다", () => {
+    const entries = buildNoScheduleMemberEntries(
+      [makeMember(1), makeMember(7), makeMember(3)],
+      [makeSchedule({ id: 1, member_uid: 1, status: "방송" })],
+      liveStatuses,
+    );
+
+    expect(entries.map((entry) => entry.member.uid)).toEqual([7, 3]);
+    expect(entries[0].isLive).toBe(true);
+    expect(entries[1].isLive).toBe(false);
   });
 });
 

@@ -1,5 +1,5 @@
 import { apiFetch } from "./client";
-import type { Member } from "../types";
+import type { Member, MemberProfile } from "../types";
 
 const isActiveMember = (member: Member) => {
   const deprecated = member.is_deprecated;
@@ -13,4 +13,8 @@ async function fetchMembers() {
 export async function fetchActiveMembers() {
   const list = await fetchMembers();
   return list.filter(isActiveMember);
+}
+
+export async function fetchMemberProfile(code: string) {
+  return apiFetch<MemberProfile>(`/api/members/${encodeURIComponent(code)}`);
 }

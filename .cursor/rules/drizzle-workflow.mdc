@@ -13,6 +13,8 @@ alwaysApply: true
 - Use `pnpm drizzle:generate` for schema-diff migrations.
 - Use `pnpm drizzle:generate:custom` only when manual data transformation SQL is required.
 - Do not manually create numbered migration files in `drizzle/`.
+- Migration generation must work without Cloudflare account credentials. Do not
+  make `pnpm drizzle:generate` depend on remote D1 configuration.
 
 ## SQL Safety Review
 - Inspect generated SQL before applying migrations.
@@ -21,9 +23,12 @@ alwaysApply: true
 - Never edit already-applied migration files; create a new migration instead.
 
 ## Apply Order (Local -> Remote)
-1. Apply to local D1 first: `pnpm drizzle:migrate:local`.
-2. Validate behavior locally across affected APIs and UI flows.
-3. Apply to remote D1 only after local validation: `pnpm drizzle:migrate:remote`.
+1. Reset or migrate local D1 first: `pnpm d1:reset:local` or `pnpm drizzle:migrate:local`.
+2. Seed deterministic local fixtures when needed: `pnpm d1:seed:local`.
+3. Run the local D1 doctor: `pnpm d1:doctor`.
+4. Validate behavior locally across affected APIs and UI flows.
+5. Apply to remote D1 only after local validation and only from release/deploy
+   flow: `pnpm drizzle:migrate:remote`.
 
 ## Commit Requirements
 - Include related schema and migration artifacts in the same change:

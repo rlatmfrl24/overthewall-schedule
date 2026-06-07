@@ -204,30 +204,86 @@ export async function fetchPendingSchedules(): Promise<PendingSchedule[]> {
   });
 }
 
+type PendingActionsPayload = {
+  action: "approve" | "reject" | "reset_processed";
+  mode?: "selected" | "all";
+  ids?: number[];
+  options?: PendingApprovalOptions;
+};
+
+async function runPendingActions<T>(payload: PendingActionsPayload): Promise<T> {
+  return apiFetch<T>("/api/settings/pending/actions", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+function assertSinglePendingActionResult(
+  response: SelectedPendingBatchResponse,
+  pendingId: number,
+  fallbackMessage: string,
+) {
+  const result =
+    response.results.find((item) => item.id === pendingId) ??
+    response.results[0];
+  if (!result?.success) {
+    throw new Error(result?.message || result?.error || fallbackMessage);
+  }
+  return result;
+}
+
 export async function approvePendingSchedule(
   pendingId: number,
   options?: PendingApprovalOptions
 ): Promise<{ success: boolean; action: string; scheduleId?: number | null }> {
-  return apiFetch(`/api/settings/pending/${pendingId}/approve`, {
-    method: "POST",
-    ...(options ? { json: options } : {}),
+  const response = await runPendingActions<SelectedPendingBatchResponse>({
+    action: "approve",
+    ids: [pendingId],
+    ...(options ? { options } : {}),
   });
+  const result = assertSinglePendingActionResult(
+    response,
+    pendingId,
+    "Failed to approve pending schedule",
+  );
+  return {
+    success: true,
+    action: result.action ?? "approve",
+    scheduleId: result.scheduleId,
+  };
 }
 
 export async function rejectPendingSchedule(
   pendingId: number
 ): Promise<{ success: boolean }> {
-  return apiFetch(`/api/settings/pending/${pendingId}/reject`, {
-    method: "POST",
+  const response = await runPendingActions<SelectedPendingBatchResponse>({
+    action: "reject",
+    ids: [pendingId],
   });
+  assertSinglePendingActionResult(
+    response,
+    pendingId,
+    "Failed to reject pending schedule",
+  );
+  return { success: true };
 }
 
 export async function resetPendingScheduleProcessed(
   pendingId: number
 ): Promise<{ success: boolean; resetAt: string }> {
-  return apiFetch(`/api/settings/pending/${pendingId}/reset-processed`, {
-    method: "POST",
+  const response = await runPendingActions<SelectedPendingBatchResponse>({
+    action: "reset_processed",
+    ids: [pendingId],
   });
+  const result = assertSinglePendingActionResult(
+    response,
+    pendingId,
+    "Failed to reset pending schedule",
+  );
+  return {
+    success: true,
+    resetAt: result.resetAt ?? "",
+  };
 }
 
 export async function applyPendingScheduleToEmptyTarget(
@@ -244,8 +300,9 @@ export async function approveAllPendingSchedules(): Promise<{
   skippedCount: number;
   skippedItems?: Array<{ id: number; reason: string }>;
 }> {
-  return apiFetch("/api/settings/pending/approve-all", {
-    method: "POST",
+  return runPendingActions({
+    action: "approve",
+    mode: "all",
   });
 }
 
@@ -253,15 +310,18 @@ export async function rejectAllPendingSchedules(): Promise<{
   success: boolean;
   rejectedCount: number;
 }> {
-  return apiFetch("/api/settings/pending/reject-all", {
-    method: "POST",
+  return runPendingActions({
+    action: "reject",
+    mode: "all",
   });
 }
 
 export interface SelectedPendingBatchResult {
   id: number;
   success: boolean;
-  action?: "create" | "update" | "reject";
+  action?: "create" | "update" | "reject" | "reset_processed";
+  scheduleId?: number | null;
+  resetAt?: string;
   error?: string;
   message?: string;
 }
@@ -277,17 +337,17 @@ export interface SelectedPendingBatchResponse {
 export async function approveSelectedPendingSchedules(
   ids: number[]
 ): Promise<SelectedPendingBatchResponse> {
-  return apiFetch("/api/settings/pending/approve-selected", {
-    method: "POST",
-    json: { ids },
+  return runPendingActions({
+    action: "approve",
+    ids,
   });
 }
 
 export async function rejectSelectedPendingSchedules(
   ids: number[]
 ): Promise<SelectedPendingBatchResponse> {
-  return apiFetch("/api/settings/pending/reject-selected", {
-    method: "POST",
-    json: { ids },
+  return runPendingActions({
+    action: "reject",
+    ids,
   });
 }

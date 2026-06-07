@@ -34,15 +34,21 @@ const resolveNoticeType = (value?: string): NoticeTypeKey => {
   return "notice";
 };
 
-export function NoticeBanner() {
+export function NoticeBanner({
+  notices: providedNotices,
+}: { notices?: Notice[] } = {}) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const navigate = useNavigate();
   const noticesQuery = useQuery<Notice[]>({
     queryKey: queryKeys.notices.public(),
     queryFn: () => fetchNotices(),
     staleTime: QUERY_STALE_TIME_MS,
+    enabled: providedNotices === undefined,
   });
-  const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
+  const notices = useMemo(
+    () => providedNotices ?? noticesQuery.data ?? [],
+    [noticesQuery.data, providedNotices],
+  );
 
   const visibleNotices = useMemo(
     () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),

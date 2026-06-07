@@ -32,53 +32,90 @@ export const Header = () => {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60 border-border">
-      <div className="container mx-auto px-4 h-16 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+      <div className="container mx-auto grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 md:grid-cols-[auto_minmax(0,1fr)_auto]">
         {/* Logo & Title */}
-        <div className="flex items-center gap-3 min-w-0">
-          <img src="/logo_otw.svg" width={90} height={25} alt="logo" />
+        <Link
+          to="/"
+          className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          onClick={() => setIsMenuOpen(false)}
+        >
+          <img
+            src="/logo_otw.svg"
+            width={90}
+            height={25}
+            alt="오버더월"
+            className="h-auto w-[82px] shrink-0 sm:w-[90px]"
+          />
           <h1
             aria-label="title"
-            className="hidden sm:block text-xl font-bold tracking-tight mt-1 whitespace-nowrap"
+            className="hidden min-w-0 truncate whitespace-nowrap text-lg font-bold tracking-tight sm:block lg:text-xl"
           >
             오버더월 스케쥴표
           </h1>
-        </div>
+        </Link>
 
-        {/* Desktop Navigation - Centered */}
+        {/* Desktop Navigation */}
         <nav
           aria-label="menu"
-          className="hidden xl:flex items-center justify-center gap-1 justify-self-center"
+          className="hidden min-w-0 items-center justify-center gap-0.5 justify-self-center md:flex"
         >
           <Link to="/" className="[&.active]:font-bold">
-            <Button variant="ghost">오늘 스케쥴표</Button>
+            <Button
+              variant="ghost"
+              className="h-9 px-2.5 text-sm whitespace-nowrap lg:px-3"
+            >
+              오늘 스케쥴표
+            </Button>
           </Link>
           <Link to="/weekly" className="[&.active]:font-bold">
-            <Button variant="ghost">주간 스케쥴표</Button>
+            <Button
+              variant="ghost"
+              className="h-9 px-2.5 text-sm whitespace-nowrap lg:px-3"
+            >
+              주간 스케쥴표
+            </Button>
           </Link>
           <Link to="/vods" className="[&.active]:font-bold">
-            <Button variant="ghost">VOD & 클립</Button>
+            <Button
+              variant="ghost"
+              className="h-9 px-2.5 text-sm whitespace-nowrap lg:px-3"
+            >
+              VOD & 클립
+            </Button>
           </Link>
           {showMemberPostsLink ? (
-            <Link to="/feed" className="[&.active]:font-bold">
-              <Button variant="ghost">멤버 게시글</Button>
+            <Link to="/feed" className="hidden [&.active]:font-bold 2xl:block">
+              <Button
+                variant="ghost"
+                className="h-9 px-3 text-sm whitespace-nowrap"
+              >
+                멤버 게시글
+              </Button>
             </Link>
           ) : null}
           {isAdmin ? (
-            <Link to="/admin" className="[&.active]:font-bold">
-              <Button variant="ghost">관리자</Button>
+            <Link to="/admin" className="hidden [&.active]:font-bold 2xl:block">
+              <Button
+                variant="ghost"
+                className="h-9 px-3 text-sm whitespace-nowrap"
+              >
+                관리자
+              </Button>
             </Link>
           ) : null}
           <Button
             variant="ghost"
+            className="hidden h-9 px-3 text-sm whitespace-nowrap 2xl:inline-flex"
             onClick={() => {
               window.open("https://cafe.naver.com/otwoffical", "_blank");
             }}
           >
-            공식 팬카페 <ExternalLinkIcon className="h-4 w-4" />
+            공식 팬카페 <ExternalLinkIcon className="h-4 w-4 shrink-0" />
           </Button>
 
           <Button
             variant="ghost"
+            className="hidden h-9 px-3 text-sm whitespace-nowrap 2xl:inline-flex"
             onClick={() => {
               window.open(
                 "https://multiview-overthewall.vercel.app/",
@@ -86,12 +123,12 @@ export const Header = () => {
               );
             }}
           >
-            오버더월 멀티뷰 <ExternalLinkIcon className="h-4 w-4" />
+            오버더월 멀티뷰 <ExternalLinkIcon className="h-4 w-4 shrink-0" />
           </Button>
         </nav>
 
         {/* Right Actions */}
-        <div className="col-start-3 flex items-center gap-2 justify-self-end min-w-0">
+        <div className="flex min-w-0 items-center justify-self-end gap-1.5 sm:gap-2 md:col-start-3">
           {/* Auth */}
           <ModeToggle />
           <div aria-label="auth">
@@ -116,19 +153,21 @@ export const Header = () => {
           </div>
 
           {/* Mobile Menu Toggle */}
-          <div className="xl:hidden">
+          <div className="2xl:hidden">
             <Button
               variant="ghost"
-              size="icon"
-              className="rounded-full"
+              className="h-9 rounded-full px-2.5 xl:px-3"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
-              aria-label="Toggle menu"
+              aria-label={isMenuOpen ? "메뉴 닫기" : "메뉴 열기"}
             >
               {isMenuOpen ? (
-                <X className="h-6 w-6" />
+                <X className="h-5 w-5" />
               ) : (
-                <Menu className="h-6 w-6" />
+                <Menu className="h-5 w-5" />
               )}
+              <span className="hidden text-sm font-semibold lg:inline">
+                더보기
+              </span>
             </Button>
           </div>
         </div>
@@ -136,14 +175,14 @@ export const Header = () => {
 
       {/* Mobile Menu - Overlay/Drawer style */}
       {isMenuOpen && (
-        <div className="xl:hidden absolute top-16 left-0 w-full bg-background border-b border-border shadow-lg animate-in slide-in-from-top-2">
+        <div className="absolute top-full left-0 w-full border-b border-border bg-background shadow-lg animate-in slide-in-from-top-2 md:left-auto md:right-4 md:top-[calc(100%+0.5rem)] md:w-80 md:overflow-hidden md:rounded-xl md:border 2xl:hidden">
           <nav
             aria-label="mobile-menu"
             className="flex flex-col items-stretch p-4 gap-2"
           >
             <Link
               to="/"
-              className="w-full"
+              className="w-full md:hidden"
               onClick={() => setIsMenuOpen(false)}
             >
               <Button
@@ -155,7 +194,7 @@ export const Header = () => {
             </Link>
             <Link
               to="/weekly"
-              className="w-full"
+              className="w-full md:hidden"
               onClick={() => setIsMenuOpen(false)}
             >
               <Button
@@ -167,7 +206,7 @@ export const Header = () => {
             </Link>
             <Link
               to="/vods"
-              className="w-full"
+              className="w-full md:hidden"
               onClick={() => setIsMenuOpen(false)}
             >
               <Button
@@ -209,6 +248,17 @@ export const Header = () => {
               variant="ghost"
               className="justify-start h-12 text-lg rounded-xl w-full"
               onClick={() => {
+                setIsMenuOpen(false);
+                window.open("https://cafe.naver.com/otwoffical", "_blank");
+              }}
+            >
+              공식 팬카페 <ExternalLinkIcon className="ml-2 h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              className="justify-start h-12 text-lg rounded-xl w-full"
+              onClick={() => {
+                setIsMenuOpen(false);
                 window.open(
                   "https://multiview-overthewall.vercel.app/",
                   "_blank",

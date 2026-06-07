@@ -11,8 +11,17 @@ type SchedulePayload = {
 
 type UpsertSchedulePayload = SchedulePayload & { id?: number };
 
+export type SaveScheduleResult = {
+  success: boolean;
+  action: "create" | "update" | "delete_conflicts";
+  scheduleId: number | null;
+  deletedIds: number[];
+};
+
 export async function fetchSchedulesByDate(date: string) {
-  return apiFetch<ScheduleItem[]>(`/api/schedules?date=${date}`);
+  return apiFetch<ScheduleItem[]>(`/api/schedules?date=${date}`, {
+    cache: "no-store",
+  });
 }
 
 export async function fetchSchedulesInRange(
@@ -20,7 +29,8 @@ export async function fetchSchedulesInRange(
   endDate: string
 ) {
   return apiFetch<ScheduleItem[]>(
-    `/api/schedules?startDate=${startDate}&endDate=${endDate}`
+    `/api/schedules?startDate=${startDate}&endDate=${endDate}`,
+    { cache: "no-store" },
   );
 }
 
@@ -37,4 +47,11 @@ export async function updateSchedule(payload: UpsertSchedulePayload) {
 
 export async function deleteSchedule(id: number) {
   return apiFetch(`/api/schedules?id=${id}`, { method: "DELETE" });
+}
+
+export async function saveSchedule(payload: UpsertSchedulePayload) {
+  return apiFetch<SaveScheduleResult>("/api/schedules/save", {
+    method: "POST",
+    json: payload,
+  });
 }

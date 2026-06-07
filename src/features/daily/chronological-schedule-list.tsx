@@ -25,9 +25,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   buildScheduleBoardModel,
+  buildNoScheduleMemberEntries,
   formatScheduleTime,
   getScheduleDisplayTitle,
   hasScheduleBoardItems,
+  type NoScheduleMemberEntry,
   type ScheduleBoardEntry,
   type ScheduleBoardModel,
   type ScheduleSideGroupKey,
@@ -88,6 +90,12 @@ export const ChronologicalScheduleList = ({
     () => buildScheduleBoardModel(schedules, liveStatuses),
     [schedules, liveStatuses],
   );
+  const noScheduleEntries = useMemo(
+    () => buildNoScheduleMemberEntries(members, schedules, liveStatuses),
+    [members, schedules, liveStatuses],
+  );
+  const hasBoardItems = hasScheduleBoardItems(boardModel);
+  const hasVisibleItems = hasBoardItems || noScheduleEntries.length > 0;
 
   if (loading) {
     return <ScheduleBoardSkeleton />;
@@ -98,19 +106,22 @@ export const ChronologicalScheduleList = ({
       aria-label="오늘의 편성표"
       className="flex w-full flex-col gap-4"
     >
-      {hasScheduleBoardItems(boardModel) ? (
-        <div className="grid w-full gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <ScheduleBoard
-            items={boardModel.mainItems}
-            memberMap={memberMap}
-            onScheduleClick={onScheduleClick}
-          />
-          <SideStatusRail
-            model={boardModel}
-            memberMap={memberMap}
-            onScheduleClick={onScheduleClick}
-          />
-        </div>
+      {hasVisibleItems ? (
+        <>
+          <div className="grid w-full items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <ScheduleBoard
+              items={boardModel.mainItems}
+              memberMap={memberMap}
+              onScheduleClick={onScheduleClick}
+            />
+            <SideStatusRail
+              model={boardModel}
+              memberMap={memberMap}
+              noScheduleEntries={noScheduleEntries}
+              onScheduleClick={onScheduleClick}
+            />
+          </div>
+        </>
       ) : (
         <EmptyState />
       )}
@@ -347,10 +358,12 @@ const StatusPill = ({
 const SideStatusRail = ({
   model,
   memberMap,
+  noScheduleEntries,
   onScheduleClick,
 }: {
   model: ScheduleBoardModel;
   memberMap: Map<number, Member>;
+  noScheduleEntries: NoScheduleMemberEntry[];
   onScheduleClick: (schedule: ScheduleItem) => void;
 }) => {
   const visibleGroups = (Object.keys(sideGroupMeta) as ScheduleSideGroupKey[])
@@ -360,7 +373,7 @@ const SideStatusRail = ({
     }))
     .filter(({ items }) => items.length > 0);
 
-  if (visibleGroups.length === 0) {
+  if (visibleGroups.length === 0 && noScheduleEntries.length === 0) {
     return (
       <aside className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
         보조 일정이 없습니다.
@@ -379,6 +392,9 @@ const SideStatusRail = ({
           onScheduleClick={onScheduleClick}
         />
       ))}
+      {noScheduleEntries.length > 0 && (
+        <NoScheduleGroup entries={noScheduleEntries} />
+      )}
     </aside>
   );
 };
@@ -492,6 +508,114 @@ const SideScheduleItem = ({
         </span>
       </div>
     </button>
+  );
+};
+
+const getNoScheduleLiveUrl = (entry: NoScheduleMemberEntry) =>
+  buildChzzkLiveUrl(entry.liveStatus?.channelId) ||
+  convertChzzkToLiveUrl(entry.member.url_chzzk);
+
+const NoScheduleGroup = ({
+  entries,
+}: {
+  entries: NoScheduleMemberEntry[];
+}) => {
+  const liveCount = entries.filter((entry) => entry.isLive).length;
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="flex min-h-12 items-center justify-between border-b border-border bg-muted/35 px-4 py-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-100">
+              <Calendar className="h-4 w-4" />
+            </span>
+            <h3 className="truncate text-sm font-black text-foreground">
+              일정 없음
+            </h3>
+            <span className="rounded-md bg-background px-1.5 py-0.5 text-xs font-black text-muted-foreground tabular-nums">
+              {entries.length}
+            </span>
+            {liveCount > 0 && (
+              <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700 dark:bg-red-950/35 dark:text-red-200">
+                방송 중 {liveCount}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-h-[420px] divide-y divide-border overflow-y-auto">
+        {entries.map((entry) => (
+          <NoScheduleMemberItem
+            key={`no-schedule-${entry.member.uid}`}
+            entry={entry}
+          />
+        ))}
+      </div>
+    </section>
+  );
+};
+
+const NoScheduleMemberItem = ({
+  entry,
+}: {
+  entry: NoScheduleMemberEntry;
+}) => {
+  const liveUrl = getNoScheduleLiveUrl(entry);
+  const content = (
+    <>
+      <img
+        src={`/profile/${entry.member.code}.webp`}
+        alt=""
+        className={cn(
+          "h-10 w-10 rounded-full object-cover ring-1 ring-border",
+          entry.isLive && "ring-2 ring-red-200 dark:ring-red-900/70",
+        )}
+      />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[15px] font-black text-foreground">
+            {entry.member.name}
+          </span>
+          {entry.isLive && (
+            <span className="shrink-0 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700 dark:bg-red-950/35 dark:text-red-200">
+              방송 중
+            </span>
+          )}
+        </div>
+        <p className="mt-1 line-clamp-2 text-xs font-medium leading-relaxed text-muted-foreground">
+          {entry.isLive ? "현재 방송 중입니다" : "오늘 등록된 일정이 없습니다"}
+        </p>
+      </div>
+      {entry.isLive && liveUrl && (
+        <ExternalLink className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+      )}
+    </>
+  );
+
+  if (entry.isLive && liveUrl) {
+    return (
+      <button
+        type="button"
+        className="grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 bg-red-50/35 px-4 py-3 text-left transition-colors hover:bg-red-50/70 dark:bg-red-950/10 dark:hover:bg-red-950/20"
+        onClick={() => window.open(liveUrl, "_blank", "noreferrer")}
+        aria-label={`${entry.member.name} 방송 중`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3",
+        entry.isLive && "bg-red-50/35 dark:bg-red-950/10",
+      )}
+    >
+      {content}
+    </div>
   );
 };
 

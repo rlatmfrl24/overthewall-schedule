@@ -31,6 +31,9 @@ coverage
 .env*
 !.env.example
 
+# R2 upload staging files
+r2/profile-background/
+
 # generated router temporary files
 .tanstack/tmp/
 

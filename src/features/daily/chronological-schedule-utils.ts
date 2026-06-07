@@ -1,4 +1,9 @@
-import type { ChzzkLiveStatusMap, ScheduleItem, ScheduleStatus } from "@/lib/types";
+import type {
+  ChzzkLiveStatusMap,
+  Member,
+  ScheduleItem,
+  ScheduleStatus,
+} from "@/lib/types";
 
 export type ScheduleBoardFilter =
   | "all"
@@ -23,6 +28,12 @@ export type ScheduleBoardModel = {
   mainItems: ScheduleBoardEntry[];
   sideGroups: Record<ScheduleSideGroupKey, ScheduleBoardEntry[]>;
   counters: ScheduleBoardCounters;
+};
+
+export type NoScheduleMemberEntry = {
+  member: Member;
+  isLive: boolean;
+  liveStatus: ChzzkLiveStatusMap[number] | undefined;
 };
 
 export const scheduleBoardFilters: Array<{
@@ -204,3 +215,28 @@ export const hasScheduleBoardItems = (model: ScheduleBoardModel) =>
   model.sideGroups.guerrilla.length > 0 ||
   model.sideGroups.undecided.length > 0 ||
   model.sideGroups.off.length > 0;
+
+export const buildNoScheduleMemberEntries = (
+  members: Member[],
+  schedules: ScheduleItem[],
+  liveStatuses: ChzzkLiveStatusMap = {},
+): NoScheduleMemberEntry[] => {
+  const scheduledMemberUids = new Set(
+    schedules.map((schedule) => schedule.member_uid),
+  );
+
+  return members
+    .filter((member) => !scheduledMemberUids.has(member.uid))
+    .map((member) => {
+      const liveStatus = liveStatuses[member.uid];
+      return {
+        member,
+        liveStatus,
+        isLive: liveStatus?.status === "OPEN",
+      };
+    })
+    .sort((a, b) => {
+      if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
+      return a.member.uid - b.member.uid;
+    });
+};

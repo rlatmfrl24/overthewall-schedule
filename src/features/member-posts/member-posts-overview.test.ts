@@ -8,11 +8,11 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { UnifiedMemberPost } from "@/lib/api/member-posts";
 import type { Member, NaverCafePost, XPost } from "@/lib/types";
 import { MemberPostsOverview } from "./member-posts-overview";
 
-const useXPostsMock = vi.hoisted(() => vi.fn());
-const useNaverCafePostsMock = vi.hoisted(() => vi.fn());
+const useMemberPostsMock = vi.hoisted(() => vi.fn());
 
 const members: Member[] = [
   {
@@ -61,12 +61,8 @@ vi.mock("@/hooks/use-schedule-data", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-x-posts", () => ({
-  useXPosts: useXPostsMock,
-}));
-
-vi.mock("@/hooks/use-naver-cafe-posts", () => ({
-  useNaverCafePosts: useNaverCafePostsMock,
+vi.mock("@/hooks/use-member-posts", () => ({
+  useMemberPosts: useMemberPostsMock,
 }));
 
 const xPost: XPost = {
@@ -105,7 +101,27 @@ const cafePost: NaverCafePost = {
   isNew: true,
 };
 
-const makeXState = (posts: XPost[] = [xPost]) => ({
+const makeUnifiedPosts = (
+  xPosts: XPost[] = [xPost],
+  cafePosts: NaverCafePost[] = [cafePost],
+): UnifiedMemberPost[] => [
+  ...xPosts.map((post) => ({
+    kind: "x" as const,
+    id: `x:${post.id}`,
+    memberUid: post.memberUid ?? null,
+    createdAt: post.createdAt,
+    post,
+  })),
+  ...cafePosts.map((post) => ({
+    kind: "cafe" as const,
+    id: `naver-cafe:${post.id}`,
+    memberUid: post.memberUid ?? null,
+    createdAt: post.createdAt,
+    post,
+  })),
+];
+
+const makeXState = (posts: XPost[] = [xPost], reload = vi.fn()) => ({
   posts,
   updatedAt: "2026-05-27T12:10:00Z",
   byHandle: [],
@@ -113,10 +129,10 @@ const makeXState = (posts: XPost[] = [xPost]) => ({
   error: null,
   stale: false,
   hasLoaded: true,
-  reload: vi.fn(),
+  reload,
 });
 
-const makeCafeState = (posts: NaverCafePost[] = [cafePost]) => ({
+const makeCafeState = (posts: NaverCafePost[] = [cafePost], reload = vi.fn()) => ({
   posts,
   sources: [
     {
@@ -139,19 +155,37 @@ const makeCafeState = (posts: NaverCafePost[] = [cafePost]) => ({
   error: null,
   stale: false,
   hasLoaded: true,
-  reload: vi.fn(),
+  reload,
 });
+
+const makeMemberPostsState = ({
+  xPosts = [xPost],
+  cafePosts = [cafePost],
+}: {
+  xPosts?: XPost[];
+  cafePosts?: NaverCafePost[];
+} = {}) => {
+  const reload = vi.fn();
+  return {
+    posts: makeUnifiedPosts(xPosts, cafePosts),
+    updatedAt: "2026-05-28T01:05:00Z",
+    loading: false,
+    error: null,
+    hasLoaded: true,
+    reload,
+    x: makeXState(xPosts, reload),
+    naverCafe: makeCafeState(cafePosts, reload),
+  };
+};
 
 describe("MemberPostsOverview", () => {
   afterEach(() => {
     cleanup();
-    useXPostsMock.mockReset();
-    useNaverCafePostsMock.mockReset();
+    useMemberPostsMock.mockReset();
   });
 
   it("X 게시글과 네이버 카페 게시글을 한 타임라인에 최신순으로 표시한다", () => {
-    useXPostsMock.mockReturnValue(makeXState());
-    useNaverCafePostsMock.mockReturnValue(makeCafeState());
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState());
 
     render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
 
@@ -204,8 +238,7 @@ describe("MemberPostsOverview", () => {
   });
 
   it("멤버 칩은 단일 선택으로 X와 카페 게시글을 함께 필터링한다", () => {
-    useXPostsMock.mockReturnValue(makeXState());
-    useNaverCafePostsMock.mockReturnValue(makeCafeState());
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState());
 
     render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
 
@@ -227,19 +260,18 @@ describe("MemberPostsOverview", () => {
   });
 
   it("접근 가능한 소스만 로드한다", () => {
-    useXPostsMock.mockReturnValue(makeXState([]));
-    useNaverCafePostsMock.mockReturnValue(makeCafeState());
+    useMemberPostsMock.mockReturnValue(
+      makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
+    );
 
     render(
       createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
     );
 
-    expect(useXPostsMock).toHaveBeenCalledWith([], {
-      enabled: false,
+    expect(useMemberPostsMock).toHaveBeenCalledWith({
+      includeX: false,
+      includeNaverCafe: true,
       maxResults: 10,
-    });
-    expect(useNaverCafePostsMock).toHaveBeenCalledWith({
-      enabled: true,
       size: 10,
     });
     expect(screen.queryByLabelText(/X 마지막 업데이트/)).toBeNull();

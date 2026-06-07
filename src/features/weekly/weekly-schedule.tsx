@@ -20,6 +20,7 @@ export const WeeklySchedule = () => {
     members,
     schedules,
     ddays,
+    notices,
     loading,
     editingSchedule,
     initialMemberUid,
@@ -55,7 +56,7 @@ export const WeeklySchedule = () => {
 
         {/* Notice Banner */}
         <div className="container mx-auto mb-4 px-8">
-          <NoticeBanner />
+          <NoticeBanner notices={notices} />
         </div>
 
         {/* Integrated Table Section */}
