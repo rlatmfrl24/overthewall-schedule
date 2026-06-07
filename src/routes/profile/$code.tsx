@@ -419,6 +419,7 @@ function ProfilePage() {
       ),
     [loadedProfileBackgroundKeys, resolvedProfileBackgroundSourceSets],
   );
+  const initialProfileBackground = resolvedProfileBackgroundSourceSets[0];
   const hasMultipleLoadedBackgroundImages =
     loadedProfileBackgroundSourceSets.length > 1;
   const activeBackgroundIndex = useMemo(() => {
@@ -432,8 +433,9 @@ function ProfilePage() {
     return index >= 0 ? index : 0;
   }, [activeBackgroundLoadKey, loadedProfileBackgroundSourceSets]);
   const activeProfileBackground =
-    loadedProfileBackgroundSourceSets[activeBackgroundIndex] ??
-    loadedProfileBackgroundSourceSets[0];
+    activeBackgroundLoadKey
+      ? loadedProfileBackgroundSourceSets[activeBackgroundIndex]
+      : null;
 
   useEffect(() => {
     loadedProfileBackgroundKeysRef.current = new Set(loadedProfileBackgroundKeys);
@@ -454,9 +456,13 @@ function ProfilePage() {
         return current;
       }
 
-      return loadedProfileBackgroundSourceSets[0]?.loadKey ?? null;
+      const loadedInitialBackground = loadedProfileBackgroundSourceSets.find(
+        (background) => background.loadKey === initialProfileBackground?.loadKey,
+      );
+
+      return loadedInitialBackground?.loadKey ?? null;
     });
-  }, [loadedProfileBackgroundSourceSets]);
+  }, [initialProfileBackground?.loadKey, loadedProfileBackgroundSourceSets]);
 
   useEffect(() => {
     if (!canRenderProfileBackground || resolvedProfileBackgroundSourceSets.length === 0) {
