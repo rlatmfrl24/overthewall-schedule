@@ -165,20 +165,64 @@ const ProfileSignatureImage = ({
   }
 
   return (
-    <span
+    <motion.span
+      key={signatureSrc}
       className={cn(
-        "pointer-events-none block h-11 min-w-20 w-[clamp(5.5rem,34vw,12rem)] shrink select-none sm:h-14 sm:w-[13rem] lg:h-20 lg:w-[17rem]",
+        "pointer-events-none relative block h-11 min-w-20 w-[clamp(5.5rem,34vw,12rem)] shrink select-none sm:h-14 sm:w-[13rem] lg:h-20 lg:w-[17rem]",
         className,
       )}
+      initial={{ opacity: 0, y: 18, rotate: -2.5, scale: 0.94, filter: "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, rotate: 0, scale: 1, filter: "blur(0px)" }}
+      transition={{ duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+      style={{ willChange: "opacity, transform, filter" }}
     >
-      <img
+      <motion.img
+        src={signatureSrc}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 size-full origin-bottom-left scale-[4] object-contain object-left opacity-0 blur-[1.5px] brightness-150 drop-shadow-[0_0_28px_rgba(255,255,255,0.42)]"
+        decoding="async"
+        draggable={false}
+        initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+        animate={{
+          clipPath: "inset(0 0% 0 0)",
+          opacity: [0, 0.68, 0],
+        }}
+        transition={{
+          clipPath: { duration: 1.05, ease: [0.16, 1, 0.3, 1], delay: 0.12 },
+          opacity: { duration: 1.35, times: [0, 0.48, 1], delay: 0.12 },
+        }}
+      />
+      <motion.span
+        aria-hidden="true"
+        className="absolute -bottom-12 -left-8 h-24 w-[34rem] origin-left -rotate-6 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.24),rgba(255,255,255,0.08)_38%,transparent_70%)] blur-2xl"
+        initial={{ opacity: 0, scaleX: 0.22 }}
+        animate={{
+          opacity: [0, 0.36, 0],
+          scaleX: [0.22, 1.05, 1.18],
+        }}
+        transition={{ duration: 1.25, times: [0, 0.46, 1], ease: "easeOut", delay: 0.25 }}
+      />
+      <motion.img
         src={signatureSrc}
         alt={`${memberName} 사인`}
         className="size-full origin-bottom-left scale-[4] object-contain object-left opacity-90 drop-shadow-[0_8px_20px_rgba(0,0,0,0.62)]"
         decoding="async"
         draggable={false}
+        initial={{
+          clipPath: "inset(0 100% 0 0)",
+          opacity: 0,
+          filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.62)) brightness(1.4)",
+        }}
+        animate={{
+          clipPath: "inset(0 0% 0 0)",
+          opacity: 0.9,
+          filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.62)) brightness(1)",
+        }}
+        transition={{ duration: 1.12, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
+        style={{ willChange: "clip-path, opacity, filter" }}
       />
-    </span>
+    </motion.span>
   );
 };
 
