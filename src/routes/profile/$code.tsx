@@ -48,6 +48,7 @@ const PROFILE_BACKGROUND_AUTO_ROTATE_MS = 5000;
 const PROFILE_BACKGROUND_MEDIA_QUERY = "(min-width: 640px)";
 const PROFILE_BACKGROUND_SWIPE_MIN_DISTANCE_PX = 56;
 const PROFILE_BACKGROUND_SWIPE_DIRECTION_RATIO = 1.35;
+const PROFILE_SIGNATURE_IMAGE_EXTENSION = "png";
 const AI_PROFILE_IMAGE_NOTICE = "프로필 이미지는 AI로 생성되었습니다.";
 
 type BackgroundSwipeState = {
@@ -112,6 +113,117 @@ const getUnitLogo = (unitName: string | null | undefined) => {
   const normalized = unitName.toLowerCase().replace(/\s+/g, " ").trim();
   const compact = normalized.replace(/\s+/g, "");
   return unitLogoMap[normalized] ?? unitLogoMap[compact] ?? null;
+};
+
+const getProfileSignatureImageSrc = (memberCode: string) =>
+  `/profile/signatures/${encodeURIComponent(memberCode)}.${PROFILE_SIGNATURE_IMAGE_EXTENSION}`;
+
+const ProfileSignatureImage = ({
+  memberCode,
+  memberName,
+  className,
+}: {
+  memberCode: string;
+  memberName: string;
+  className?: string;
+}) => {
+  const signatureSrc = useMemo(
+    () => getProfileSignatureImageSrc(memberCode),
+    [memberCode],
+  );
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let isCurrent = true;
+    setIsLoaded(false);
+
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => {
+      if (isCurrent) {
+        setIsLoaded(true);
+      }
+    };
+    image.onerror = () => {
+      if (isCurrent) {
+        setIsLoaded(false);
+      }
+    };
+    image.src = signatureSrc;
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [signatureSrc]);
+
+  if (!isLoaded) {
+    return null;
+  }
+
+  return (
+    <motion.span
+      key={signatureSrc}
+      className={cn(
+        "pointer-events-none relative block h-11 min-w-20 w-[clamp(5.5rem,34vw,12rem)] shrink select-none sm:h-14 sm:w-[13rem] lg:h-20 lg:w-[17rem]",
+        className,
+      )}
+      initial={{ opacity: 0, y: 18, rotate: -2.5, scale: 0.94, filter: "blur(6px)" }}
+      animate={{ opacity: 1, y: 0, rotate: 0, scale: 1, filter: "blur(0px)" }}
+      transition={{ duration: 0.58, ease: [0.22, 1, 0.36, 1] }}
+      style={{ willChange: "opacity, transform, filter" }}
+    >
+      <motion.img
+        src={signatureSrc}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 size-full origin-bottom-left scale-[4] object-contain object-left opacity-0 blur-[1.5px] brightness-150 drop-shadow-[0_0_28px_rgba(255,255,255,0.42)]"
+        decoding="async"
+        draggable={false}
+        initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+        animate={{
+          clipPath: "inset(0 0% 0 0)",
+          opacity: [0, 0.68, 0],
+        }}
+        transition={{
+          clipPath: { duration: 1.05, ease: [0.16, 1, 0.3, 1], delay: 0.12 },
+          opacity: { duration: 1.35, times: [0, 0.48, 1], delay: 0.12 },
+        }}
+      />
+      <motion.span
+        aria-hidden="true"
+        className="absolute -bottom-12 -left-8 h-24 w-[34rem] origin-left -rotate-6 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.24),rgba(255,255,255,0.08)_38%,transparent_70%)] blur-2xl"
+        initial={{ opacity: 0, scaleX: 0.22 }}
+        animate={{
+          opacity: [0, 0.36, 0],
+          scaleX: [0.22, 1.05, 1.18],
+        }}
+        transition={{ duration: 1.25, times: [0, 0.46, 1], ease: "easeOut", delay: 0.25 }}
+      />
+      <motion.img
+        src={signatureSrc}
+        alt={`${memberName} 사인`}
+        className="size-full origin-bottom-left scale-[4] object-contain object-left opacity-90 drop-shadow-[0_8px_20px_rgba(0,0,0,0.62)]"
+        decoding="async"
+        draggable={false}
+        initial={{
+          clipPath: "inset(0 100% 0 0)",
+          opacity: 0,
+          filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.62)) brightness(1.4)",
+        }}
+        animate={{
+          clipPath: "inset(0 0% 0 0)",
+          opacity: 0.9,
+          filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.62)) brightness(1)",
+        }}
+        transition={{ duration: 1.12, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
+        style={{ willChange: "clip-path, opacity, filter" }}
+      />
+    </motion.span>
+  );
 };
 
 const isInteractiveSwipeTarget = (target: EventTarget | null) =>
@@ -841,6 +953,14 @@ function ProfilePage() {
         <ProfileAiImageNotice className="absolute right-5 top-5 z-20 hidden sm:grid sm:right-8" />
       )}
 
+      {canRenderProfileBackground && (
+        <ProfileSignatureImage
+          memberCode={member.code}
+          memberName={member.name}
+          className="absolute left-[clamp(14rem,18.5vw,21rem)] top-[clamp(18.5rem,44dvh,22rem)] z-10 hidden sm:block"
+        />
+      )}
+
       <div className="relative z-10 flex min-h-dvh w-full flex-col justify-start px-5 pb-12 pt-24 sm:justify-end sm:px-8 sm:pb-7 sm:pt-32 lg:grid lg:grid-cols-[minmax(0,1fr)_316px] lg:gap-8 lg:px-14 lg:pb-10 lg:pt-28">
         <section className="flex shrink-0 items-start lg:min-h-0 lg:items-end">
           <motion.div
@@ -850,12 +970,12 @@ function ProfilePage() {
             transition={{ duration: 0.45, ease: "easeOut" }}
           >
             {unitLogo && (
-              <div className="mb-5 flex items-center lg:mb-6">
+              <div className="mb-5 flex max-w-full items-center lg:mb-6">
                 <img
                   src={unitLogo}
                   alt={member.unit_name ? `${member.unit_name} 로고` : "소속 유닛 로고"}
                   className={cn(
-                    "h-auto object-contain drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)]",
+                    "h-auto shrink-0 object-contain drop-shadow-[0_10px_24px_rgba(0,0,0,0.45)]",
                     unitLogo === logoStardays
                       ? "w-28 sm:w-32 lg:w-40"
                       : "w-36 sm:w-44 lg:w-60",
