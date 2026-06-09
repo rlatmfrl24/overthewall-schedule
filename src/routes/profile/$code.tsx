@@ -875,7 +875,7 @@ function ProfilePage() {
 
   return (
     <main
-      className="relative flex h-dvh w-full overflow-x-hidden overflow-y-auto bg-[#07101a] text-white [touch-action:pan-y] lg:overflow-hidden"
+      className="relative flex h-dvh w-full overflow-x-hidden overflow-y-auto overscroll-y-contain bg-[#07101a] text-white [touch-action:pan-y]"
       style={styleVars}
       data-profile-background-carousel="true"
       onPointerDown={handleBackgroundPointerDown}
@@ -957,14 +957,14 @@ function ProfilePage() {
         <ProfileSignatureImage
           memberCode={member.code}
           memberName={member.name}
-          className="absolute left-[clamp(14rem,18.5vw,21rem)] top-[clamp(18.5rem,44dvh,22rem)] z-10 hidden sm:block"
+          className="absolute left-[clamp(14rem,18.5vw,21rem)] top-[clamp(18.5rem,44dvh,22rem)] z-10 hidden [@media_(min-width:1180px)_and_(min-height:680px)]:block"
         />
       )}
 
-      <div className="relative z-10 flex min-h-dvh w-full flex-col justify-start px-5 pb-12 pt-24 sm:justify-end sm:px-8 sm:pb-7 sm:pt-32 lg:grid lg:grid-cols-[minmax(0,1fr)_316px] lg:gap-8 lg:px-14 lg:pb-10 lg:pt-28">
+      <div className="relative z-10 flex min-h-dvh w-full flex-col justify-start px-5 pb-12 pt-24 sm:justify-end sm:px-8 sm:pb-7 sm:pt-32 lg:grid lg:grid-cols-[minmax(0,1fr)_316px] lg:gap-8 lg:px-14 lg:pb-10 lg:pt-28 [@media_(max-height:679px)]:justify-start [@media_(max-height:679px)]:pb-24 [@media_(max-height:679px)]:pt-24">
         <section className="flex shrink-0 items-start lg:min-h-0 lg:items-end">
           <motion.div
-            className="w-full max-w-[680px] pb-1 lg:-mb-8 lg:max-w-[780px] lg:pb-10"
+            className="w-full max-w-[680px] pb-1 lg:-mb-8 lg:max-w-[780px] lg:pb-10 [@media_(max-height:679px)]:mb-0 [@media_(max-height:679px)]:pb-0"
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, ease: "easeOut" }}
@@ -1060,7 +1060,7 @@ function ProfilePage() {
 
         {(primaryLinks.length > 0 || secondaryLinks.length > 0) && (
           <motion.aside
-            className="mt-3 flex w-full flex-col gap-3 sm:mt-6 lg:absolute lg:bottom-10 lg:right-8 lg:mt-0 lg:w-[316px] lg:justify-end"
+            className="mt-3 flex w-full flex-col gap-3 sm:mt-6 lg:absolute lg:bottom-10 lg:right-8 lg:mt-0 lg:w-[316px] lg:justify-end [@media_(max-height:679px)]:static [@media_(max-height:679px)]:mt-4 [@media_(max-height:679px)]:w-full [@media_(max-height:679px)]:justify-start"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45, ease: "easeOut", delay: 0.08 }}
@@ -1103,7 +1103,10 @@ function ProfilePage() {
             )}
           </motion.aside>
         )}
-        <div className="h-16 shrink-0 sm:hidden" aria-hidden="true" />
+        <div
+          className="h-16 shrink-0 [@media_(max-height:679px)]:h-20 [@media_(min-width:640px)_and_(min-height:680px)]:h-0"
+          aria-hidden="true"
+        />
       </div>
 
       {showBackgroundControls && (
