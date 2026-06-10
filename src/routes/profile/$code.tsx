@@ -883,56 +883,58 @@ function ProfilePage() {
       onPointerUp={handleBackgroundPointerUp}
       onPointerCancel={clearBackgroundSwipe}
     >
-      <AnimatePresence initial={false}>
-        {backgroundImageUrl && (
-          <motion.img
-            key={activeProfileBackground?.loadKey ?? backgroundImageUrl}
-            src={backgroundImageUrl}
-            srcSet={backgroundImageSrcSet}
-            sizes={backgroundImageSizes}
-            alt={activeImage?.alt ?? `${member.name} 프로필 이미지`}
-            data-profile-background-index={activeBackgroundIndex}
-            data-profile-background-load-key={
-              activeProfileBackground?.loadKey ?? ""
-            }
-            className="absolute inset-0 hidden size-full object-cover object-[50%_18%] sm:block sm:object-center"
-            decoding="async"
-            fetchPriority="high"
-            initial={{ opacity: 0, scale: 1.025, filter: "blur(10px)" }}
-            animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, scale: 1.015, filter: "blur(8px)" }}
-            transition={{ duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
-            style={{ willChange: "opacity, transform, filter" }}
-            onError={() => {
-              if (!activeProfileBackground) {
-                return;
+      <div className="absolute inset-0 overflow-hidden">
+        <AnimatePresence initial={false}>
+          {backgroundImageUrl && (
+            <motion.img
+              key={activeProfileBackground?.loadKey ?? backgroundImageUrl}
+              src={backgroundImageUrl}
+              srcSet={backgroundImageSrcSet}
+              sizes={backgroundImageSizes}
+              alt={activeImage?.alt ?? `${member.name} 프로필 이미지`}
+              data-profile-background-index={activeBackgroundIndex}
+              data-profile-background-load-key={
+                activeProfileBackground?.loadKey ?? ""
               }
+              className="absolute inset-0 hidden size-full object-cover object-[50%_18%] sm:block sm:object-center"
+              decoding="async"
+              fetchPriority="high"
+              initial={{ opacity: 0, scale: 1.025, filter: "blur(10px)" }}
+              animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, scale: 1.015, filter: "blur(8px)" }}
+              transition={{ duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
+              style={{ willChange: "opacity, transform, filter" }}
+              onError={() => {
+                if (!activeProfileBackground) {
+                  return;
+                }
 
-              setLoadedProfileBackgroundKeys((current) =>
-                current.filter((key) => key !== activeProfileBackground.loadKey),
-              );
-              loadedProfileBackgroundKeysRef.current.delete(
-                activeProfileBackground.loadKey,
-              );
+                setLoadedProfileBackgroundKeys((current) =>
+                  current.filter((key) => key !== activeProfileBackground.loadKey),
+                );
+                loadedProfileBackgroundKeysRef.current.delete(
+                  activeProfileBackground.loadKey,
+                );
 
-              if (activeProfileBackground.usesOptimized) {
-                setFailedOptimizedProfileBackgroundIds((current) =>
+                if (activeProfileBackground.usesOptimized) {
+                  setFailedOptimizedProfileBackgroundIds((current) =>
+                    current.includes(activeProfileBackground.id)
+                      ? current
+                      : [...current, activeProfileBackground.id],
+                  );
+                  return;
+                }
+
+                setFailedProfileBackgroundIds((current) =>
                   current.includes(activeProfileBackground.id)
                     ? current
                     : [...current, activeProfileBackground.id],
                 );
-                return;
-              }
-
-              setFailedProfileBackgroundIds((current) =>
-                current.includes(activeProfileBackground.id)
-                  ? current
-                  : [...current, activeProfileBackground.id],
-              );
-            }}
-          />
-        )}
-      </AnimatePresence>
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
       <div className="absolute inset-0 hidden bg-[linear-gradient(90deg,rgba(2,6,14,0.62)_0%,rgba(2,6,14,0.26)_34%,rgba(2,6,14,0.04)_61%,rgba(2,6,14,0.36)_100%)] sm:block" />
       <div className="absolute inset-0 hidden bg-[linear-gradient(180deg,rgba(3,7,18,0.16)_0%,rgba(3,7,18,0.03)_42%,rgba(3,7,18,0.58)_100%)] sm:block" />
