@@ -61,11 +61,29 @@ const DEFAULT_TIME: TimeParts = { hour: "00", minute: "00" };
 const QUICK_TIME_PRESET_GROUPS = [
   {
     label: "낮 시간대",
-    times: ["07:00", "09:00", "10:00", "11:00", "13:00", "14:00", "15:00"] as const,
+    times: [
+      "07:00",
+      "08:00",
+      "09:00",
+      "10:00",
+      "11:00",
+      "12:00",
+      "13:00",
+      "14:00",
+    ] as const,
   },
   {
     label: "저녁 시간대",
-    times: ["16:00", "17:00", "18:00", "19:00", "20:00", "21:00"] as const,
+    times: [
+      "15:00",
+      "16:00",
+      "17:00",
+      "18:00",
+      "19:00",
+      "20:00",
+      "21:00",
+      "22:00",
+    ] as const,
   },
 ] as const;
 
@@ -183,9 +201,9 @@ export const ScheduleDialog = ({
       setMemberUid(initialMemberUid || "");
       setDate(initialDate ? new Date(initialDate) : new Date());
       setStatus("방송");
-      setIsTimeUndecided(false);
+      setIsTimeUndecided(true);
       setLastDecidedTime(DEFAULT_TIME);
-      applyTime(DEFAULT_TIME.hour, DEFAULT_TIME.minute);
+      applyTime(DEFAULT_TIME.hour, DEFAULT_TIME.minute, { remember: false });
       setTitle("");
     }
     if (isOpen) {
@@ -488,10 +506,14 @@ export const ScheduleDialog = ({
                                 size="sm"
                                 className={cn(
                                   "w-full justify-center",
-                                  preset === currentTimeValue && "shadow-sm"
+                                  !isTimeUndecided &&
+                                    preset === currentTimeValue &&
+                                    "shadow-sm"
                                 )}
                                 variant={
-                                  preset === currentTimeValue ? "default" : "outline"
+                                  !isTimeUndecided && preset === currentTimeValue
+                                    ? "default"
+                                    : "outline"
                                 }
                                 disabled={isBusy}
                                 onClick={() => {
