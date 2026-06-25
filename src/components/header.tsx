@@ -36,7 +36,7 @@ export const Header = () => {
         {/* Logo & Title */}
         <Link
           to="/"
-          className="flex min-w-0 items-center gap-2.5 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="inline-flex w-fit max-w-full min-w-0 justify-self-start items-center gap-2.5 rounded-lg outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           onClick={() => setIsMenuOpen(false)}
         >
           <img
@@ -83,6 +83,17 @@ export const Header = () => {
               VOD & 클립
             </Button>
           </Link>
+          <Link
+            to="/multiview"
+            className="hidden [&.active]:font-bold 2xl:block"
+          >
+            <Button
+              variant="ghost"
+              className="h-9 px-3 text-sm whitespace-nowrap"
+            >
+              오버더월 멀티뷰
+            </Button>
+          </Link>
           {showMemberPostsLink ? (
             <Link to="/feed" className="hidden [&.active]:font-bold 2xl:block">
               <Button
@@ -111,19 +122,6 @@ export const Header = () => {
             }}
           >
             공식 팬카페 <ExternalLinkIcon className="h-4 w-4 shrink-0" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            className="hidden h-9 px-3 text-sm whitespace-nowrap 2xl:inline-flex"
-            onClick={() => {
-              window.open(
-                "https://multiview-overthewall.vercel.app/",
-                "_blank",
-              );
-            }}
-          >
-            오버더월 멀티뷰 <ExternalLinkIcon className="h-4 w-4 shrink-0" />
           </Button>
         </nav>
 
@@ -216,6 +214,18 @@ export const Header = () => {
                 VOD & 클립
               </Button>
             </Link>
+            <Link
+              to="/multiview"
+              className="w-full"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Button
+                variant="ghost"
+                className="justify-start h-12 text-lg rounded-xl w-full"
+              >
+                오버더월 멀티뷰
+              </Button>
+            </Link>
             {showMemberPostsLink ? (
               <Link
                 to="/feed"
@@ -253,19 +263,6 @@ export const Header = () => {
               }}
             >
               공식 팬카페 <ExternalLinkIcon className="ml-2 h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              className="justify-start h-12 text-lg rounded-xl w-full"
-              onClick={() => {
-                setIsMenuOpen(false);
-                window.open(
-                  "https://multiview-overthewall.vercel.app/",
-                  "_blank",
-                );
-              }}
-            >
-              오버더월 멀티뷰 <ExternalLinkIcon className="ml-2 h-4 w-4" />
             </Button>
           </nav>
         </div>

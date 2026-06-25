@@ -37,5 +37,8 @@ r2/profile-background/
 # generated router temporary files
 .tanstack/tmp/
 
+# extension release artifacts
+extensions/otw-multiview-helper/artifacts/
+
 # YoYo AI version control directory
 .yoyo/

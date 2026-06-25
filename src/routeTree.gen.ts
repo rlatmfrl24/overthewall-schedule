@@ -14,6 +14,7 @@ import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
 import { Route as RightsRouteImport } from './routes/rights'
 import { Route as NoticeRouteImport } from './routes/notice'
+import { Route as MultiviewRouteImport } from './routes/multiview'
 import { Route as FeedRouteImport } from './routes/feed'
 import { Route as CafeRouteImport } from './routes/cafe'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -52,6 +53,11 @@ const RightsRoute = RightsRouteImport.update({
 const NoticeRoute = NoticeRouteImport.update({
   id: '/notice',
   path: '/notice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MultiviewRoute = MultiviewRouteImport.update({
+  id: '/multiview',
+  path: '/multiview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FeedRoute = FeedRouteImport.update({
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/cafe': typeof CafeRoute
   '/feed': typeof FeedRoute
+  '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/cafe': typeof CafeRoute
   '/feed': typeof FeedRoute
+  '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -171,6 +179,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/cafe': typeof CafeRoute
   '/feed': typeof FeedRoute
+  '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cafe'
     | '/feed'
+    | '/multiview'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/'
     | '/cafe'
     | '/feed'
+    | '/multiview'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -234,6 +245,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cafe'
     | '/feed'
+    | '/multiview'
     | '/notice'
     | '/rights'
     | '/snapshot'
@@ -256,6 +268,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   CafeRoute: typeof CafeRoute
   FeedRoute: typeof FeedRoute
+  MultiviewRoute: typeof MultiviewRoute
   NoticeRoute: typeof NoticeRoute
   RightsRoute: typeof RightsRoute
   SnapshotRoute: typeof SnapshotRoute
@@ -299,6 +312,13 @@ declare module '@tanstack/react-router' {
       path: '/notice'
       fullPath: '/notice'
       preLoaderRoute: typeof NoticeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/multiview': {
+      id: '/multiview'
+      path: '/multiview'
+      fullPath: '/multiview'
+      preLoaderRoute: typeof MultiviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/feed': {
@@ -441,6 +461,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   CafeRoute: CafeRoute,
   FeedRoute: FeedRoute,
+  MultiviewRoute: MultiviewRoute,
   NoticeRoute: NoticeRoute,
   RightsRoute: RightsRoute,
   SnapshotRoute: SnapshotRoute,

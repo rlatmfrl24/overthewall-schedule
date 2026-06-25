@@ -21,10 +21,10 @@ export const Footer = () => {
           <Link
             to="/rights"
             className={footerLinkClassName}
-            aria-label="권리 고지"
+            aria-label="권리 고지 및 개인정보 처리방침"
           >
             <Scale className={footerIconClassName} />
-            <span>권리 고지</span>
+            <span>권리/개인정보</span>
           </Link>
           <a
             href="https://github.com/rlatmfrl24/overthewall-schedule/issues"

@@ -1,0 +1,14 @@
+{
+  "name": "@otw/schedule-plus-extension",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs --target=dev && node scripts/validate.mjs --target=dev",
+    "build:dev": "node scripts/build.mjs --target=dev && node scripts/validate.mjs --target=dev",
+    "build:store": "node scripts/build.mjs --target=store && node scripts/validate.mjs --target=store",
+    "validate": "node scripts/validate.mjs --target=store",
+    "zip": "node scripts/build.mjs --target=store && node scripts/validate.mjs --target=store && node scripts/zip.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
+}
