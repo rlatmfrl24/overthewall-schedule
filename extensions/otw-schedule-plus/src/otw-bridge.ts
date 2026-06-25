@@ -1,22 +1,17 @@
 (() => {
   const EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
-  const LEGACY_MULTIVIEW_EXTENSION_PROTOCOL = "OTW_MULTIVIEW_EXTENSION/V1";
   const EXTENSION_PROTOCOL_VERSION = 1;
-  const EXTENSION_PROTOCOLS = [
-    EXTENSION_PROTOCOL,
-    LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
-  ];
   const INTERNAL_WEB_APP_MESSAGE = "OTW_EXTENSION_WEB_APP_MESSAGE";
   const OTW_PRODUCTION_HOST = "otw-schedule.info";
   const OTW_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
   const OTW_DEV_PORTS = new Set(["5173", "5178", "5278"]);
+  const LOCATION_POLL_INTERVAL_MS = 500;
   const WEB_MESSAGE_TYPES = new Set([
     "PING",
     "GET_CAPABILITIES",
     "REQUEST_WIDE_MODE",
     "SET_CHAT_LOGIN_BRIDGE",
   ]);
-  const ACCEPTED_PROTOCOLS = new Set<string>(EXTENSION_PROTOCOLS);
 
   interface WebAppBridgeRequest {
     namespace: string;
@@ -31,6 +26,7 @@
   }
 
   let bridgeInvalidated = false;
+  let lastObservedHref = window.location.href;
 
   const getRuntime = (): RuntimeLike | undefined => {
     if (bridgeInvalidated) return undefined;
@@ -69,8 +65,7 @@
 
   const isWebAppRequest = (value: unknown): value is WebAppBridgeRequest =>
     isPlainObject(value) &&
-    typeof value.namespace === "string" &&
-    ACCEPTED_PROTOCOLS.has(value.namespace) &&
+    value.namespace === EXTENSION_PROTOCOL &&
     value.version === EXTENSION_PROTOCOL_VERSION &&
     value.direction === "web-to-extension" &&
     typeof value.requestId === "string" &&
@@ -147,21 +142,51 @@
 
   if (!getRuntime()) return;
 
-  if (isAllowedOtwMultiviewPage()) {
-    EXTENSION_PROTOCOLS.forEach((namespace) => {
-      postToPage(
-        createMessage(
-          "READY",
-          {
-            capabilities: ["wideMode", "chatLoginBridge"],
-            chatLoginBridgeStatus: "disabled",
-          },
-          undefined,
-          namespace,
-        ),
-      );
-    });
+  const postReady = () => {
+    if (!isAllowedOtwMultiviewPage()) return;
+
+    postToPage(
+      createMessage("READY", {
+        capabilities: ["wideMode", "chatLoginBridge"],
+        chatLoginBridgeStatus: "disabled",
+      }),
+    );
+  };
+
+  const scheduleReadyAnnouncement = () => {
+    window.setTimeout(postReady, 0);
+    window.setTimeout(postReady, 250);
+  };
+
+  const patchHistoryMethod = (method: "pushState" | "replaceState") => {
+    const original = window.history[method].bind(window.history);
+
+    window.history[method] = ((...args: Parameters<History["pushState"]>) => {
+      const result = original(...args);
+      scheduleReadyAnnouncement();
+      return result;
+    }) as History[typeof method];
+  };
+
+  try {
+    patchHistoryMethod("pushState");
+    patchHistoryMethod("replaceState");
+  } catch {
+    // Some browsers or test harnesses may prevent patching history methods.
   }
+
+  window.addEventListener("popstate", scheduleReadyAnnouncement);
+  window.addEventListener("pageshow", scheduleReadyAnnouncement);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) scheduleReadyAnnouncement();
+  });
+  window.setInterval(() => {
+    if (window.location.href === lastObservedHref) return;
+    lastObservedHref = window.location.href;
+    scheduleReadyAnnouncement();
+  }, LOCATION_POLL_INTERVAL_MS);
+
+  scheduleReadyAnnouncement();
 
   window.addEventListener("message", (event) => {
     if (!isAllowedOtwMultiviewPage()) return;

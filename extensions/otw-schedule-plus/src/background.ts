@@ -99,6 +99,20 @@ const pruneStaleFrames = () => {
   });
 };
 
+const removeFrameStateForTab = (tabId: number) => {
+  const keyPrefix = `${tabId}:`;
+
+  for (const key of frames.keys()) {
+    if (key.startsWith(keyPrefix)) frames.delete(key);
+  }
+  for (const key of pendingFrameOptimizations.keys()) {
+    if (key.startsWith(keyPrefix)) pendingFrameOptimizations.delete(key);
+  }
+  for (const key of optimizedFrameSignatures.keys()) {
+    if (key.startsWith(keyPrefix)) optimizedFrameSignatures.delete(key);
+  }
+};
+
 const getStorageValue = (key: string) =>
   new Promise<unknown>((resolve) => {
     const chromeApi = getChromeApi();
@@ -541,3 +555,4 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
 });
 
 registerCookieChangeListener();
+getChromeApi()?.tabs?.onRemoved?.addListener(removeFrameStateForTab);

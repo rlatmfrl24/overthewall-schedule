@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   EXTENSION_PROTOCOL,
   EXTENSION_PROTOCOL_VERSION,
-  LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
   extractChzzkFrameInfo,
   getOtwTopLevelSite,
   isAllowedOtwMultiviewUrl,
@@ -27,13 +26,13 @@ describe("extension protocol", () => {
 
     expect(
       isWebAppRequestMessage({
-        namespace: LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
+        namespace: "UNRELATED_OLD_EXTENSION/V1",
         version: EXTENSION_PROTOCOL_VERSION,
         direction: "web-to-extension",
         type: "PING",
         requestId: "request-1",
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       isWebAppRequestMessage({

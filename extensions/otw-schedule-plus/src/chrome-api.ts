@@ -182,6 +182,9 @@ export interface ChromeApi {
     };
   };
   tabs?: {
+    onRemoved?: {
+      addListener: (listener: (tabId: number) => void) => void;
+    };
     sendMessage: (
       tabId: number,
       message: unknown,

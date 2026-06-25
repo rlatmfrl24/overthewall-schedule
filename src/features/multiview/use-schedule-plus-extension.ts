@@ -7,7 +7,6 @@ import {
   parseExtensionCapabilities,
   parsePlayerOptimizationEnabled,
   parseTileStatuses,
-  SCHEDULE_PLUS_EXTENSION_PROTOCOLS,
   type SchedulePlusExtensionRequestType,
   type SchedulePlusExtensionResponseMessage,
   type SchedulePlusExtensionState,
@@ -29,6 +28,7 @@ interface PendingRequest {
 
 const REQUEST_TIMEOUT_MS = 8000;
 const CAPABILITY_POLL_INTERVAL_MS = 5000;
+const INITIAL_HANDSHAKE_DELAYS_MS = [0, 250, 1000, 2500] as const;
 
 export function useSchedulePlusExtension(channelIds: string[]) {
   const [state, setState] = useState<SchedulePlusExtensionState>(
@@ -38,6 +38,10 @@ export function useSchedulePlusExtension(channelIds: string[]) {
   const pendingRequestsRef = useRef(new Map<string, PendingRequest>());
   const optimizedRequestChannelIdsRef = useRef<string[]>([]);
   const channelKey = useMemo(() => channelIds.join(","), [channelIds]);
+  const stableChannelIds = useMemo(
+    () => (channelKey.length > 0 ? channelKey.split(",") : []),
+    [channelKey],
+  );
 
   const sendRequest = useCallback(
     (
@@ -56,28 +60,21 @@ export function useSchedulePlusExtension(channelIds: string[]) {
         }, REQUEST_TIMEOUT_MS);
 
         pendingRequestsRef.current.set(requestId, { resolve, timeoutId });
-        SCHEDULE_PLUS_EXTENSION_PROTOCOLS.forEach((namespace) => {
-          window.postMessage(
-            createSchedulePlusExtensionRequest(
-              type,
-              requestId,
-              payload,
-              namespace,
-            ),
-            window.location.origin,
-          );
-        });
+        window.postMessage(
+          createSchedulePlusExtensionRequest(type, requestId, payload),
+          window.location.origin,
+        );
       });
     },
     [],
   );
 
   const requestWideMode = useCallback(
-    (targetChannelIds = channelIds) => {
+    (targetChannelIds = stableChannelIds) => {
       if (targetChannelIds.length === 0) return Promise.resolve(null);
       return sendRequest("REQUEST_WIDE_MODE", { channelIds: targetChannelIds });
     },
-    [channelIds, sendRequest],
+    [sendRequest, stableChannelIds],
   );
 
   useEffect(() => {
@@ -160,12 +157,19 @@ export function useSchedulePlusExtension(channelIds: string[]) {
     };
 
     window.addEventListener("message", handleMessage);
-    void sendRequest("PING");
+    const handshakeTimeoutIds = INITIAL_HANDSHAKE_DELAYS_MS.map((delayMs) =>
+      window.setTimeout(() => {
+        void sendRequest(delayMs === 0 ? "PING" : "GET_CAPABILITIES");
+      }, delayMs),
+    );
     const capabilityPollId = window.setInterval(() => {
       void sendRequest("GET_CAPABILITIES");
     }, CAPABILITY_POLL_INTERVAL_MS);
 
     return () => {
+      handshakeTimeoutIds.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
       window.clearInterval(capabilityPollId);
       window.removeEventListener("message", handleMessage);
       pendingRequests.forEach((pending) => {
@@ -177,14 +181,14 @@ export function useSchedulePlusExtension(channelIds: string[]) {
   }, [sendRequest]);
 
   useEffect(() => {
-    if (state.status === "missing" || channelIds.length === 0) return;
+    if (state.status === "missing" || stableChannelIds.length === 0) return;
     if (!state.playerOptimizationEnabled) return;
 
     const previousChannelIds = new Set(optimizedRequestChannelIdsRef.current);
-    const addedChannelIds = channelIds.filter(
+    const addedChannelIds = stableChannelIds.filter(
       (channelId) => !previousChannelIds.has(channelId),
     );
-    optimizedRequestChannelIdsRef.current = channelIds;
+    optimizedRequestChannelIdsRef.current = stableChannelIds;
 
     if (addedChannelIds.length === 0) return;
 
@@ -200,10 +204,10 @@ export function useSchedulePlusExtension(channelIds: string[]) {
       window.clearTimeout(secondAttempt);
     };
   }, [
-    channelIds,
-    channelIds.length,
     channelKey,
     requestWideMode,
+    stableChannelIds,
+    stableChannelIds.length,
     state.playerOptimizationEnabled,
     state.status,
   ]);
