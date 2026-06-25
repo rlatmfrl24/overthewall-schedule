@@ -1,10 +1,5 @@
 export const SCHEDULE_PLUS_EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
-export const LEGACY_MULTIVIEW_EXTENSION_PROTOCOL = "OTW_MULTIVIEW_EXTENSION/V1";
 export const SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION = 1;
-export const SCHEDULE_PLUS_EXTENSION_PROTOCOLS = [
-  SCHEDULE_PLUS_EXTENSION_PROTOCOL,
-  LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
-] as const;
 export const SCHEDULE_PLUS_EXTENSION_HELP_DOC_URL =
   "https://github.com/rlatmfrl24/overthewall-schedule/blob/main/docs/otw-schedule-plus-extension.md";
 export const SCHEDULE_PLUS_EXTENSION_STORE_URL =
@@ -16,7 +11,7 @@ export const HAS_SCHEDULE_PLUS_EXTENSION_STORE_URL =
 
 export type SchedulePlusExtensionCapability = "wideMode" | "chatLoginBridge";
 export type SchedulePlusExtensionProtocol =
-  (typeof SCHEDULE_PLUS_EXTENSION_PROTOCOLS)[number];
+  typeof SCHEDULE_PLUS_EXTENSION_PROTOCOL;
 export type SchedulePlusExtensionStatus =
   | "missing"
   | "ready"
@@ -84,10 +79,6 @@ const RESPONSE_TYPES = new Set<SchedulePlusExtensionResponseType>([
   "CHAT_LOGIN_STATUS",
   "ERROR",
 ]);
-const ACCEPTED_PROTOCOLS = new Set<SchedulePlusExtensionProtocol>(
-  SCHEDULE_PLUS_EXTENSION_PROTOCOLS,
-);
-
 const CAPABILITIES = new Set<SchedulePlusExtensionCapability>([
   "wideMode",
   "chatLoginBridge",
@@ -136,8 +127,7 @@ export const isSchedulePlusExtensionResponseMessage = (
   if (!isPlainObject(value)) return false;
 
   return (
-    typeof value.namespace === "string" &&
-    ACCEPTED_PROTOCOLS.has(value.namespace as SchedulePlusExtensionProtocol) &&
+    value.namespace === SCHEDULE_PLUS_EXTENSION_PROTOCOL &&
     value.version === SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION &&
     value.direction === "extension-to-web" &&
     RESPONSE_TYPES.has(value.type as SchedulePlusExtensionResponseType)

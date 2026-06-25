@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
   SCHEDULE_PLUS_EXTENSION_PROTOCOL,
   SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
   createSchedulePlusExtensionRequest,
@@ -26,7 +25,7 @@ describe("schedule plus extension bridge helpers", () => {
     });
   });
 
-  it("accepts extension-to-web messages from current and legacy protocols", () => {
+  it("accepts extension-to-web messages only from the current protocol", () => {
     expect(
       isSchedulePlusExtensionResponseMessage({
         namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
@@ -38,12 +37,12 @@ describe("schedule plus extension bridge helpers", () => {
 
     expect(
       isSchedulePlusExtensionResponseMessage({
-        namespace: LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
+        namespace: "UNRELATED_OLD_EXTENSION/V1",
         version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
         direction: "extension-to-web",
         type: "CAPABILITIES",
       }),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       isSchedulePlusExtensionResponseMessage({

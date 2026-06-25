@@ -114,10 +114,16 @@ const useElementSize = <T extends HTMLElement>() => {
     if (!node) return;
 
     const updateSize = () => {
-      setSize({
+      const nextSize = {
         height: node.clientHeight,
         width: node.clientWidth,
-      });
+      };
+
+      setSize((current) =>
+        current.height === nextSize.height && current.width === nextSize.width
+          ? current
+          : nextSize,
+      );
     };
 
     updateSize();

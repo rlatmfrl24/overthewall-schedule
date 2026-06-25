@@ -1,11 +1,6 @@
 export const EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
-export const LEGACY_MULTIVIEW_EXTENSION_PROTOCOL = "OTW_MULTIVIEW_EXTENSION/V1";
 export const EXTENSION_PROTOCOL_VERSION = 1;
-export const EXTENSION_PROTOCOLS = [
-  EXTENSION_PROTOCOL,
-  LEGACY_MULTIVIEW_EXTENSION_PROTOCOL,
-] as const;
-export type ExtensionProtocol = (typeof EXTENSION_PROTOCOLS)[number];
+export type ExtensionProtocol = typeof EXTENSION_PROTOCOL;
 
 export type SchedulePlusExtensionCapability = "wideMode" | "chatLoginBridge";
 export type WideModeResult =
@@ -77,8 +72,6 @@ const WEB_MESSAGE_TYPES = new Set<WebAppMessageType>([
   "REQUEST_WIDE_MODE",
   "SET_CHAT_LOGIN_BRIDGE",
 ]);
-const ACCEPTED_PROTOCOLS = new Set<ExtensionProtocol>(EXTENSION_PROTOCOLS);
-
 export const EXTENSION_CAPABILITIES: SchedulePlusExtensionCapability[] = [
   "wideMode",
   "chatLoginBridge",
@@ -143,8 +136,7 @@ export const isWebAppRequestMessage = (
 ): value is WebAppRequestMessage => {
   if (!isPlainObject(value)) return false;
   return (
-    typeof value.namespace === "string" &&
-    ACCEPTED_PROTOCOLS.has(value.namespace as ExtensionProtocol) &&
+    value.namespace === EXTENSION_PROTOCOL &&
     value.version === EXTENSION_PROTOCOL_VERSION &&
     value.direction === "web-to-extension" &&
     typeof value.requestId === "string" &&

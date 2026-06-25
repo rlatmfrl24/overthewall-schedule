@@ -78,6 +78,9 @@ Version `0.1.2` adds Better MultiChzzk-style player optimization: wide-screen
 activation plus player-side chat hiding.
 Version `0.2.0` introduces Chrome Web Store build targets, optional Naver cookie
 permissions, store package validation, and a first-use chat login disclosure.
+Version `0.2.1` removes the old multiview bridge namespace and re-announces the
+extension bridge after SPA navigation into `/multiview`, so the production page
+can connect without a manual refresh.
 
 ## Store Release Build
 
