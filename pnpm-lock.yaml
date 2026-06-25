@@ -168,6 +168,8 @@ importers:
         specifier: ^4.95.0
         version: 4.95.0
 
+  extensions/otw-schedule-plus: {}
+
 packages:
 
   '@acemir/cssom@0.9.31':

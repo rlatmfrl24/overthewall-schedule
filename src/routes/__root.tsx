@@ -6,6 +6,7 @@ const RootComponent = () => {
   const location = useLocation();
   const isSnapshotRoute = location.pathname.startsWith("/snapshot");
   const isProfileRoute = location.pathname.startsWith("/profile/");
+  const isMultiviewRoute = location.pathname.startsWith("/multiview");
   const hideAppChrome = isSnapshotRoute || isProfileRoute;
 
   return (
@@ -15,12 +16,12 @@ const RootComponent = () => {
           ? "min-h-screen w-full font-sans bg-background"
           : isProfileRoute
             ? "h-[100dvh] w-full font-sans overflow-hidden bg-background"
-          : "flex flex-col items-center h-[100dvh] w-full font-sans overflow-hidden bg-background"
+            : "flex flex-col items-center h-[100dvh] w-full font-sans overflow-hidden bg-background"
       }
     >
       {!hideAppChrome && <Header />}
       <Outlet />
-      {!hideAppChrome && <Footer />}
+      {!hideAppChrome && !isMultiviewRoute && <Footer />}
     </div>
   );
 };

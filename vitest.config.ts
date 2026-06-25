@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "extensions/**/*.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
@@ -17,6 +17,7 @@ export default defineConfig({
         "src/lib/**/*.ts",
         "src/hooks/**/*.ts",
         "src/features/**/*.ts",
+        "extensions/*/src/**/*.ts",
       ],
       exclude: ["src/routeTree.gen.ts", "src/vite-env.d.ts"],
     },

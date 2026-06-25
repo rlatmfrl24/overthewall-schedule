@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OTW Schedule +</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <img src="icons/icon-48.png" alt="" width="32" height="32" />
+        <div>
+          <h1>OTW Schedule +</h1>
+          <p id="extension-version">Version</p>
+        </div>
+      </header>
+
+      <section class="toggle-list" aria-label="멀티뷰 기능 설정">
+        <button
+          id="player-optimization-toggle"
+          class="toggle-row"
+          type="button"
+          aria-pressed="true"
+        >
+          <span>
+            <span class="toggle-label">화면 자동 정리</span>
+            <span class="toggle-description">넓은 화면 전환과 채팅 숨김</span>
+          </span>
+          <span id="player-status" class="status-value">확인 중</span>
+        </button>
+        <button
+          id="chat-login-toggle"
+          class="toggle-row"
+          type="button"
+          aria-pressed="false"
+        >
+          <span>
+            <span class="toggle-label">채팅 로그인</span>
+            <span class="toggle-description">멀티뷰 채팅에만 로그인 상태 사용</span>
+          </span>
+          <span id="chat-status" class="status-value off">확인 중</span>
+        </button>
+      </section>
+
+      <p class="notice">
+        현재는 멀티뷰 화면 자동 정리와 채팅 로그인을 지원합니다. 채팅 로그인은
+        사용자가 직접 켰을 때만 동작하며, 쿠키 값은 OTW 서버로 전송되지 않습니다.
+      </p>
+
+      <button id="chat-permission-button" class="permission-button" type="button" hidden>
+        채팅 로그인 권한 허용
+      </button>
+
+      <nav class="link-list" aria-label="바로가기">
+        <a href="https://otw-schedule.info/multiview" target="_blank" rel="noreferrer">
+          OTW 멀티뷰 열기
+        </a>
+        <a href="https://otw-schedule.info" target="_blank" rel="noreferrer">
+          오버더월 스케줄표 열기
+        </a>
+        <a
+          href="https://github.com/rlatmfrl24/overthewall-schedule/blob/main/docs/otw-schedule-plus-extension.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          도움말 보기
+        </a>
+        <a
+          href="https://github.com/rlatmfrl24/overthewall-schedule/blob/main/docs/privacy.md"
+          target="_blank"
+          rel="noreferrer"
+        >
+          개인정보 안내
+        </a>
+      </nav>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

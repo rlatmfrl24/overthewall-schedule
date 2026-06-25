@@ -1,8 +1,8 @@
 packages:
   - "."
+  - "extensions/*"
 
 onlyBuiltDependencies:
   - "@clerk/shared"
   - esbuild
-  - sharp
   - workerd
