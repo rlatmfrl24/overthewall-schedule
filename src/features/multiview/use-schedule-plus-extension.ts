@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createSchedulePlusExtensionRequest,
-  getExtensionStatusFromChatStatus,
   isSchedulePlusExtensionResponseMessage,
   parseChatLoginBridgeStatus,
   parseExtensionCapabilities,
@@ -29,6 +28,42 @@ interface PendingRequest {
 const REQUEST_TIMEOUT_MS = 8000;
 const CAPABILITY_POLL_INTERVAL_MS = 5000;
 const INITIAL_HANDSHAKE_DELAYS_MS = [0, 250, 1000, 2500] as const;
+const CHZZK_FRAME_ORIGIN = "https://chzzk.naver.com";
+
+const isTrustedChzzkFrameSource = (source: MessageEvent["source"]) => {
+  if (!source || typeof document === "undefined") return false;
+
+  const frames = document.querySelectorAll<HTMLIFrameElement>(
+    "iframe[data-channel-id]",
+  );
+
+  for (const frame of frames) {
+    if (frame.contentWindow !== source) continue;
+
+    try {
+      const frameUrl = new URL(frame.src);
+      return (
+        frameUrl.origin === CHZZK_FRAME_ORIGIN &&
+        frameUrl.pathname.startsWith("/live/")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+};
+
+const isTrustedExtensionMessageEvent = (event: MessageEvent<unknown>) => {
+  if (event.source === window && event.origin === window.location.origin) {
+    return true;
+  }
+
+  return (
+    event.origin === CHZZK_FRAME_ORIGIN &&
+    isTrustedChzzkFrameSource(event.source)
+  );
+};
 
 export function useSchedulePlusExtension(channelIds: string[]) {
   const [state, setState] = useState<SchedulePlusExtensionState>(
@@ -83,8 +118,7 @@ export function useSchedulePlusExtension(channelIds: string[]) {
     const pendingRequests = pendingRequestsRef.current;
 
     const handleMessage = (event: MessageEvent<unknown>) => {
-      if (event.source !== window) return;
-      if (event.origin !== window.location.origin) return;
+      if (!isTrustedExtensionMessageEvent(event)) return;
       if (!isSchedulePlusExtensionResponseMessage(event.data)) return;
 
       const message = event.data;
@@ -108,7 +142,7 @@ export function useSchedulePlusExtension(channelIds: string[]) {
               chatLoginBridgeStatus: chatStatus,
               lastError: null,
               playerOptimizationEnabled,
-              status: getExtensionStatusFromChatStatus(chatStatus),
+              status: "ready",
             };
           }
           case "TILE_STATUS":
@@ -118,7 +152,7 @@ export function useSchedulePlusExtension(channelIds: string[]) {
               playerOptimizationEnabled:
                 parsePlayerOptimizationEnabled(message.payload) ??
                 current.playerOptimizationEnabled,
-              status: current.status === "missing" ? "ready" : current.status,
+              status: "ready",
               tileStatuses: {
                 ...current.tileStatuses,
                 ...parseTileStatuses(message.payload),
@@ -132,14 +166,14 @@ export function useSchedulePlusExtension(channelIds: string[]) {
               ...current,
               chatLoginBridgeStatus: chatStatus,
               lastError: null,
-              status: getExtensionStatusFromChatStatus(chatStatus),
+              status: "ready",
             };
           }
           case "ERROR":
             return {
               ...current,
               lastError: "확장 프로그램 응답을 처리하지 못했습니다.",
-              status: "error",
+              status: current.status === "missing" ? "ready" : current.status,
             };
           default:
             return current;

@@ -283,6 +283,90 @@ describe("MultiviewPage", () => {
       .toBeNull();
     expect(within(panel).queryByLabelText("화면 자동 정리")).toBeNull();
     expect(within(panel).queryByLabelText("채팅 로그인")).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CAPABILITIES",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "permission_missing",
+              playerOptimizationEnabled: true,
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    expect(within(panel).getByText("확장 연결됨")).toBeTruthy();
+    expect(within(panel).queryByText("권한 확인 필요")).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "ERROR",
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    expect(within(panel).getByText("확장 연결됨")).toBeTruthy();
+    expect(within(panel).queryByText("확인 필요")).toBeNull();
+  });
+
+  it("accepts extension ready signals from selected CHZZK frames", () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "멀티뷰 패널 열기" }));
+
+    const panel = screen.getByTestId("schedule-plus-extension-panel");
+    expect(within(panel).getByText("확장 미설치")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "라이브 멤버 테스트 라이브 1,234명 시청 중 멀티뷰 선택",
+      }),
+    );
+
+    const frame = screen.getByTestId(
+      "multiview-live-frame",
+    ) as HTMLIFrameElement;
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "READY",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              channelId: CHANNEL_A,
+              chatLoginBridgeStatus: "disabled",
+              frameKind: "live",
+              source: "chzzk-frame",
+            },
+          },
+          origin: "https://chzzk.naver.com",
+          source: frame.contentWindow,
+        }),
+      );
+    });
+
+    expect(within(panel).getByText("확장 연결됨")).toBeTruthy();
   });
 
   it("auto-collapses the source panel into a reserved rail when the viewport becomes narrow", () => {

@@ -1,4 +1,6 @@
 (() => {
+  const EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
+  const EXTENSION_PROTOCOL_VERSION = 1;
   const INTERNAL_FRAME_READY = "OTW_EXTENSION_FRAME_READY";
   const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
   const CHANNEL_ID_PATTERN = /^[a-f0-9]{32}$/i;
@@ -466,9 +468,36 @@
 
   if (!frameInfo || !runtime) return;
 
+  const announceFrameBridgeToParent = () => {
+    if (window.parent === window) return;
+
+    try {
+      window.parent.postMessage(
+        {
+          namespace: EXTENSION_PROTOCOL,
+          version: EXTENSION_PROTOCOL_VERSION,
+          direction: "extension-to-web",
+          type: "READY",
+          payload: {
+            capabilities: ["wideMode", "chatLoginBridge"],
+            channelId: frameInfo.channelId,
+            chatLoginBridgeStatus: "disabled",
+            frameKind: frameInfo.kind,
+            source: "chzzk-frame",
+          },
+        },
+        "*",
+      );
+    } catch {
+      // Cross-origin parent messaging can be unavailable in unusual embeds.
+    }
+  };
+
   const registerFrame = () => {
     const currentRuntime = getChromeRuntime();
     if (!currentRuntime) return;
+
+    announceFrameBridgeToParent();
 
     try {
       currentRuntime.sendMessage(
