@@ -183,20 +183,24 @@ const formatViewerCount = (value?: number | null) => {
   return `${new Intl.NumberFormat("ko-KR").format(value)}명 시청 중`;
 };
 
+const LOCAL_EXTENSION_BRIDGE_HOSTS = new Set(["localhost", "127.0.0.1"]);
+const LOCAL_EXTENSION_BRIDGE_PORTS = new Set(["5173", "5178", "5278"]);
+
+const isLocalExtensionBridgeOrigin = () => {
+  if (typeof window === "undefined") return false;
+
+  return (
+    LOCAL_EXTENSION_BRIDGE_HOSTS.has(window.location.hostname) &&
+    LOCAL_EXTENSION_BRIDGE_PORTS.has(window.location.port)
+  );
+};
+
 const getExtensionStatusLabel = (status: SchedulePlusExtensionState["status"]) => {
-  switch (status) {
-    case "ready":
-      return "확장 연결됨";
-    case "permission_missing":
-      return "권한 확인 필요";
-    case "unsupported":
-      return "지원 제한";
-    case "error":
-      return "확인 필요";
-    case "missing":
-    default:
-      return "확장 미설치";
+  if (status === "missing" && isLocalExtensionBridgeOrigin()) {
+    return "로컬 연결 대기";
   }
+
+  return status === "missing" ? "확장 미설치" : "확장 연결됨";
 };
 
 const getWideModeIssueLabel = (result?: MultiviewWideModeResult) => {
@@ -320,8 +324,9 @@ interface ExtensionStatusPanelProps {
 }
 
 const ExtensionStatusPanel = ({ extension }: ExtensionStatusPanelProps) => {
-  const extensionReady = extension.status === "ready";
+  const extensionConnected = extension.status !== "missing";
   const extensionMissing = extension.status === "missing";
+  const localBridgeOrigin = isLocalExtensionBridgeOrigin();
   const statusLabel = getExtensionStatusLabel(extension.status);
 
   return (
@@ -344,14 +349,14 @@ const ExtensionStatusPanel = ({ extension }: ExtensionStatusPanelProps) => {
           </span>
           {extensionMissing && (
             <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-              확장 설치 권장
+              {localBridgeOrigin ? "개발용 연결 확인" : "확장 설치 권장"}
             </span>
           )}
         </span>
         <span
           className={cn(
             "inline-flex h-6 shrink-0 items-center rounded-md px-2 text-[11px] font-semibold",
-            extensionReady
+            extensionConnected
               ? "bg-primary/15 text-primary"
               : "bg-muted text-muted-foreground",
           )}
@@ -362,21 +367,30 @@ const ExtensionStatusPanel = ({ extension }: ExtensionStatusPanelProps) => {
 
       {extensionMissing && (
         <div className="rounded-md border border-primary/20 bg-primary/5 px-2.5 py-2 text-[11px] leading-4">
-          <p className="font-medium text-foreground">
-            확장을 설치하면 화면 자동 정리와 채팅 로그인 기능을 확장 프로그램에서
-            관리할 수 있습니다.
-          </p>
-          <a
-            href={SCHEDULE_PLUS_EXTENSION_INSTALL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1.5 inline-flex items-center gap-1 font-semibold text-primary underline-offset-4 hover:underline"
-          >
-            {HAS_SCHEDULE_PLUS_EXTENSION_STORE_URL
-              ? "Chrome Web Store에서 설치"
-              : "설치 안내 보기"}
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+          {localBridgeOrigin ? (
+            <p className="font-medium text-foreground">
+              로컬 개발 주소에서는 개발용 확장을 다시 빌드하고 확장 관리
+              화면에서 새로고침해야 연결 상태를 확인할 수 있습니다.
+            </p>
+          ) : (
+            <>
+              <p className="font-medium text-foreground">
+                확장을 설치하면 화면 자동 정리와 채팅 로그인 기능을 확장
+                프로그램에서 관리할 수 있습니다.
+              </p>
+              <a
+                href={SCHEDULE_PLUS_EXTENSION_INSTALL_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1 font-semibold text-primary underline-offset-4 hover:underline"
+              >
+                {HAS_SCHEDULE_PLUS_EXTENSION_STORE_URL
+                  ? "Chrome Web Store에서 설치"
+                  : "설치 안내 보기"}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </>
+          )}
         </div>
       )}
     </div>
