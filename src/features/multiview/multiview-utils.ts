@@ -143,6 +143,10 @@ export function buildChzzkLiveUrl(channelId: string) {
   return `https://chzzk.naver.com/live/${channelId}`;
 }
 
+export function buildChzzkMultiviewLiveUrl(channelId: string) {
+  return `${buildChzzkLiveUrl(channelId)}?multichzzk`;
+}
+
 export function buildChzzkChatUrl(channelId: string) {
   return `https://chzzk.naver.com/live/${channelId}/chat`;
 }

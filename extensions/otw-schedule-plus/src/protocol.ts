@@ -53,6 +53,7 @@ export interface RegisteredChzzkFrame {
   frameId: number;
   kind: "live" | "chat";
   lastSeenAt: number;
+  referrer?: string;
   tabId: number;
   url: string;
 }
@@ -65,7 +66,6 @@ export interface ChzzkFrameInfo {
 const CHZZK_CHANNEL_ID_PATTERN = /^[a-f0-9]{32}$/i;
 const OTW_PRODUCTION_HOST = "otw-schedule.info";
 const OTW_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
-const OTW_DEV_PORTS = new Set(["5173", "5178", "5278"]);
 const WEB_MESSAGE_TYPES = new Set<WebAppMessageType>([
   "PING",
   "GET_CAPABILITIES",
@@ -103,6 +103,27 @@ export const normalizeChannelIds = (value: unknown) => {
 const isMultiviewPath = (pathname: string) =>
   pathname === "/multiview" || pathname.startsWith("/multiview/");
 
+const isAllowedOtwSite = (url: URL) => {
+  if (url.protocol === "https:" && url.hostname === OTW_PRODUCTION_HOST) {
+    return true;
+  }
+
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    OTW_DEV_HOSTS.has(url.hostname)
+  );
+};
+
+export const isAllowedOtwSiteUrl = (urlString?: string) => {
+  if (!urlString) return false;
+
+  try {
+    return isAllowedOtwSite(new URL(urlString));
+  } catch {
+    return false;
+  }
+};
+
 export const isAllowedOtwMultiviewUrl = (urlString?: string) => {
   if (!urlString) return false;
 
@@ -110,15 +131,7 @@ export const isAllowedOtwMultiviewUrl = (urlString?: string) => {
     const url = new URL(urlString);
     if (!isMultiviewPath(url.pathname)) return false;
 
-    if (url.protocol === "https:" && url.hostname === OTW_PRODUCTION_HOST) {
-      return true;
-    }
-
-    return (
-      (url.protocol === "http:" || url.protocol === "https:") &&
-      OTW_DEV_HOSTS.has(url.hostname) &&
-      OTW_DEV_PORTS.has(url.port)
-    );
+    return isAllowedOtwSite(url);
   } catch {
     return false;
   }

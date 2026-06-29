@@ -242,16 +242,16 @@ describe("MultiviewPage", () => {
     const panel = screen.getByTestId("schedule-plus-extension-panel");
     expect(within(panel).getByTestId("schedule-plus-extension-icon")).toBeTruthy();
     expect(within(panel).getByText("OTW Schedule +")).toBeTruthy();
-    expect(within(panel).getByText("확장 미설치")).toBeTruthy();
-    expect(within(panel).getByText("확장 설치 권장")).toBeTruthy();
+    expect(within(panel).getByText("로컬 연결 대기")).toBeTruthy();
+    expect(within(panel).getByText("개발용 연결 확인")).toBeTruthy();
     expect(
-      within(panel).getByText("확장을 설치하면 화면 자동 정리와 채팅 로그인", {
+      within(panel).getByText("로컬 개발 주소에서는 개발용 확장을", {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(
-      within(panel).getByRole("link", { name: "설치 안내 보기" }),
-    ).toBeTruthy();
+    expect(within(panel).queryByText("확장 설치 권장")).toBeNull();
+    expect(within(panel).queryByRole("link", { name: "설치 안내 보기" }))
+      .toBeNull();
     expect(within(panel).queryByText("개인정보 안내")).toBeNull();
     expect(within(panel).queryByText("도움말")).toBeNull();
     expect(within(panel).queryByLabelText("화면 자동 정리")).toBeNull();
@@ -332,7 +332,7 @@ describe("MultiviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "멀티뷰 패널 열기" }));
 
     const panel = screen.getByTestId("schedule-plus-extension-panel");
-    expect(within(panel).getByText("확장 미설치")).toBeTruthy();
+    expect(within(panel).getByText("로컬 연결 대기")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -420,6 +420,9 @@ describe("MultiviewPage", () => {
     );
     const liveFrame = screen.getByTestId("multiview-live-frame");
     expect(liveFrame.getAttribute("data-channel-id")).toBe(CHANNEL_A);
+    expect(liveFrame.getAttribute("src")).toBe(
+      `https://chzzk.naver.com/live/${CHANNEL_A}?multichzzk`,
+    );
     expect(liveFrame.className).toContain(
       "scale-[var(--mv-frame-scale)]",
     );

@@ -42,6 +42,39 @@ describe("wide mode automation", () => {
     expect(click).toHaveBeenCalledTimes(1);
   });
 
+  it("clicks CHZZK's viewmode button even while player controls are aria-hidden", async () => {
+    document.body.innerHTML = `
+      <div aria-hidden="true">
+        <button class="pzp-pc__viewmode-button"></button>
+      </div>
+    `;
+    const button = document.querySelector("button");
+    const click = vi.spyOn(button!, "click");
+
+    expect(findWideModeButton()).toBe(button);
+    await expect(
+      runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
+    ).resolves.toBe("applied");
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not click hidden CHZZK viewmode buttons", async () => {
+    document.body.innerHTML = `
+      <button class="pzp-pc__viewmode-button" style="display: none"></button>
+      <button aria-label="넓은 화면" style="visibility: hidden"></button>
+    `;
+    const buttons = document.querySelectorAll("button");
+    const firstClick = vi.spyOn(buttons[0]!, "click");
+    const secondClick = vi.spyOn(buttons[1]!, "click");
+
+    expect(findWideModeButton()).toBeNull();
+    await expect(
+      runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
+    ).resolves.toBe("selector_missing");
+    expect(firstClick).not.toHaveBeenCalled();
+    expect(secondClick).not.toHaveBeenCalled();
+  });
+
   it("does not click when the wide-screen button is already active", async () => {
     document.body.innerHTML = `<button aria-label="넓은 화면" aria-pressed="true">wide</button>`;
     const button = document.querySelector("button");

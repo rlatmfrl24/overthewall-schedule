@@ -2,14 +2,14 @@ import { Link } from "@tanstack/react-router";
 import { Github, Mail, Scale } from "lucide-react";
 
 const footerLinkClassName =
-  "inline-flex h-6 items-center gap-1.5 text-xs leading-none text-muted-foreground transition-colors hover:text-foreground sm:text-sm";
+  "inline-flex h-5 items-center gap-1.5 text-xs leading-none text-muted-foreground transition-colors hover:text-foreground sm:text-sm";
 
 const footerIconClassName = "h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4";
 
 export const Footer = () => {
   return (
-    <footer className="w-full border-t bg-muted/20 mt-auto py-1.5 sm:py-2">
-      <div className="container mx-auto px-4 flex flex-col items-center justify-center gap-1 text-center">
+    <footer className="mt-auto w-full shrink-0 border-t bg-muted/20 py-1 sm:py-1.5 lg:h-14 lg:py-0">
+      <div className="container mx-auto flex h-full flex-col items-center justify-center gap-0.5 px-4 text-center">
         <p className="text-xs sm:text-sm text-muted-foreground">
           <span className="sm:hidden">팬 운영 사이트입니다.</span>
           <span className="hidden sm:inline">
@@ -17,7 +17,7 @@ export const Footer = () => {
             알립니다.
           </span>
         </p>
-        <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-0.5">
+        <div className="mt-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 sm:gap-x-4">
           <Link
             to="/rights"
             className={footerLinkClassName}

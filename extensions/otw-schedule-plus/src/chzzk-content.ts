@@ -14,6 +14,12 @@
   ];
   const CHZZK_VIEWMODE_BUTTON_SELECTOR = ".pzp-pc__viewmode-button";
   const CHZZK_VIDEO_SELECTOR = "video.webplayer-internal-video";
+  const CHZZK_PLAYER_WAKE_TARGET_SELECTORS = [
+    CHZZK_VIDEO_SELECTOR,
+    "[class*='webplayer']",
+    "[class*='pzp']",
+    "body",
+  ];
   const CHZZK_SIDE_NAV_SELECTOR_HINTS = [
     "[class*='navigation']",
     "[class*='sidebar']",
@@ -101,6 +107,7 @@
     return {
       channelId: channelId.toLowerCase(),
       kind: segments[2] === "chat" ? "chat" : "live",
+      referrer: document.referrer,
       url: window.location.href,
     };
   };
@@ -183,6 +190,25 @@
     return rect;
   };
 
+  const isWideModeCandidateElement = (
+    element: Element,
+  ): element is HTMLElement => {
+    if (!(element instanceof HTMLElement)) return false;
+    if (element.closest("[hidden]")) return false;
+    if (element.getAttribute("aria-disabled") === "true") return false;
+    if (
+      "disabled" in element &&
+      Boolean((element as HTMLButtonElement).disabled)
+    ) {
+      return false;
+    }
+
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+
+    return Boolean(getElementRect(element));
+  };
+
   const isLikelyExpandedSideNavigation = (element: Element) => {
     const rect = getElementRect(element);
     if (!rect) return false;
@@ -226,7 +252,7 @@
   const findWideModeButton = () => {
     const chzzkViewmodeButtons = [
       ...document.querySelectorAll(CHZZK_VIEWMODE_BUTTON_SELECTOR),
-    ].filter(isClickableElement);
+    ].filter(isWideModeCandidateElement);
 
     if (chzzkViewmodeButtons.length === 1) return chzzkViewmodeButtons[0];
 
@@ -246,11 +272,43 @@
 
     for (const candidate of candidates) {
       if (!hasWideModeLabel(candidate)) continue;
-      if (!isClickableElement(candidate)) continue;
+      if (!isWideModeCandidateElement(candidate)) continue;
       return candidate;
     }
 
     return null;
+  };
+
+  const wakePlayerControls = () => {
+    const targets = new Set<EventTarget>();
+
+    CHZZK_PLAYER_WAKE_TARGET_SELECTORS.forEach((selector) => {
+      const element = document.querySelector(selector);
+      if (element) targets.add(element);
+    });
+    targets.add(document);
+
+    targets.forEach((target) => {
+      const rect =
+        target instanceof Element ? target.getBoundingClientRect() : null;
+      const eventInit = {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect ? Math.max(1, rect.left + rect.width / 2) : 1,
+        clientY: rect ? Math.max(1, rect.top + rect.height / 2) : 1,
+        view: window,
+      };
+
+      ["pointerover", "pointermove", "mouseover", "mousemove"].forEach(
+        (eventName) => {
+          try {
+            target.dispatchEvent(new MouseEvent(eventName, eventInit));
+          } catch {
+            target.dispatchEvent(new Event(eventName, { bubbles: true }));
+          }
+        },
+      );
+    });
   };
 
   const findChatHideButton = () => {
@@ -345,6 +403,7 @@
     for (let attempt = 0; attempt < 12; attempt += 1) {
       if (Date.now() - startedAt > 5000) return "timeout";
 
+      wakePlayerControls();
       const button = findWideModeButton();
       if (button) {
         if (

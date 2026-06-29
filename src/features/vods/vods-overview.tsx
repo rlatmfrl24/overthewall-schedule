@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { ContentPageShell } from "@/components/content-page-shell";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useAllMembersVods } from "@/hooks/use-chzzk-vods";
 import { useAllMembersClips } from "@/hooks/use-chzzk-clips";
@@ -113,7 +114,11 @@ const MediaTabSwitcher = ({
   activeTab,
   onTabChange,
 }: MediaTabSwitcherProps) => (
-  <div className="grid w-full grid-cols-2 gap-1 rounded-xl bg-muted p-1 sm:inline-grid sm:w-fit sm:grid-cols-4">
+  <div
+    className="grid w-full grid-cols-2 gap-1 rounded-lg border border-border/70 bg-card p-1 shadow-sm sm:inline-grid sm:w-fit sm:grid-cols-4"
+    role="group"
+    aria-label="미디어 종류"
+  >
     {MEDIA_TABS.map((tab) => {
       const isActive = activeTab === tab.value;
 
@@ -124,11 +129,11 @@ const MediaTabSwitcher = ({
           onClick={() => onTabChange(tab.value)}
           aria-pressed={isActive}
           className={cn(
-            "flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium",
-            "transition-colors duration-200 ease-out hover:text-foreground sm:px-4",
+            "flex min-h-10 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold",
+            "outline-none transition-colors duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:px-4",
             isActive
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground",
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:bg-muted hover:text-foreground",
           )}
         >
           {renderTabIcon(tab.icon, isActive)}
@@ -187,51 +192,53 @@ export const VodsOverview = () => {
     (isChzzkClipsTab && membersWithChzzk.length > 0 && !clipsLoaded);
 
   return (
-    <div className="flex flex-1 w-full flex-col overflow-y-auto">
-      <div className="container mx-auto px-4 pt-6 pb-8 space-y-4">
+    <ContentPageShell
+      title="VOD & 클립"
+      leadingIcon={<Video className="h-4.5 w-4.5 text-foreground" />}
+      actions={
         <MediaTabSwitcher activeTab={activeTab} onTabChange={setActiveTab} />
+      }
+    >
+      {activeTab === "official-youtube" && (
+        <MemberFilterChips
+          members={membersWithYouTube}
+          selectedUids={youtubeMemberFilter}
+          onChange={setYoutubeMemberFilter}
+        />
+      )}
 
-        {activeTab === "official-youtube" && (
-          <MemberFilterChips
-            members={membersWithYouTube}
-            selectedUids={youtubeMemberFilter}
-            onChange={setYoutubeMemberFilter}
-          />
-        )}
+      {activeTab === "official-youtube" && (
+        <YouTubeSection
+          members={members}
+          selectedMemberUids={youtubeMemberFilter}
+          loadingMembers={!membersLoaded}
+        />
+      )}
 
-        {activeTab === "official-youtube" && (
-          <YouTubeSection
-            members={members}
-            selectedMemberUids={youtubeMemberFilter}
-            loadingMembers={!membersLoaded}
-          />
-        )}
+      {activeTab === "kirinuki" && (
+        <KirinukiSection members={members} loadingMembers={!membersLoaded} />
+      )}
 
-        {activeTab === "kirinuki" && (
-          <KirinukiSection members={members} loadingMembers={!membersLoaded} />
-        )}
+      {activeTab === "chzzk-clips" && (
+        <ChzzkClipsPlaylist
+          clips={clips}
+          members={members}
+          loading={showChzzkClipsInitialLoading}
+        />
+      )}
 
-        {activeTab === "chzzk-clips" && (
-          <ChzzkClipsPlaylist
-            clips={clips}
-            members={members}
-            loading={showChzzkClipsInitialLoading}
-          />
-        )}
-
-        {activeTab === "chzzk-vods" && (
-          <ChzzkVodsPlaylist
-            vods={vods}
-            members={members}
-            loading={showChzzkVodsInitialLoading || vodsLoading}
-            emptyMessage={
-              membersWithChzzk.length === 0
-                ? "치지직 채널이 등록된 멤버가 없습니다."
-                : "다시보기가 없습니다."
-            }
-          />
-        )}
-      </div>
-    </div>
+      {activeTab === "chzzk-vods" && (
+        <ChzzkVodsPlaylist
+          vods={vods}
+          members={members}
+          loading={showChzzkVodsInitialLoading || vodsLoading}
+          emptyMessage={
+            membersWithChzzk.length === 0
+              ? "치지직 채널이 등록된 멤버가 없습니다."
+              : "다시보기가 없습니다."
+          }
+        />
+      )}
+    </ContentPageShell>
   );
 };

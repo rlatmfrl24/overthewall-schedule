@@ -35,7 +35,6 @@ export const CardMemberCompact = ({
   const subColor = member.sub_color || member.main_color || "#f3f4f6";
   const headerTextColor = getContrastColor(mainColor);
   const bodyBgColor = hexToRgba(subColor, 0.12);
-  const borderColor = hexToRgba(mainColor, 0.3);
   const headerTextInverseColor =
     headerTextColor === "#000000" ? "#ffffff" : "#000000";
   const unitChipBgColor = hexToRgba(headerTextInverseColor, 0.22);
@@ -56,10 +55,9 @@ export const CardMemberCompact = ({
   return (
     <div
       className={cn(
-        "group flex flex-col overflow-hidden rounded-2xl border bg-card transition-shadow",
+        "group flex flex-col overflow-hidden rounded-2xl border border-transparent bg-card shadow-sm transition-shadow",
         isLiveClickable && "cursor-pointer"
       )}
-      style={{ borderColor }}
       data-daily-member-card="true"
       onClick={handleCardClick}
     >

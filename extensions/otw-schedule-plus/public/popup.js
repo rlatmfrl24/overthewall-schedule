@@ -5,6 +5,7 @@ const CHAT_LOGIN_COOKIE_PERMISSION = {
   origins: ["https://nid.naver.com/*"],
   permissions: ["cookies"],
 };
+const INJECT_BRIDGE_ACTIVE_TAB_KIND = "OTW_EXTENSION_INJECT_BRIDGE_ACTIVE_TAB";
 
 const setText = (id, value) => {
   const element = document.getElementById(id);
@@ -76,6 +77,10 @@ const setStorageValue = (key, value, callback = refreshPopupState) => {
 
 const manifest = chrome.runtime.getManifest();
 setText("extension-version", `Version ${manifest.version}`);
+
+chrome.runtime.sendMessage({ kind: INJECT_BRIDGE_ACTIVE_TAB_KIND }, () => {
+  void chrome.runtime.lastError;
+});
 
 document
   .getElementById("player-optimization-toggle")

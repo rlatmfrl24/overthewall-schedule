@@ -5,6 +5,7 @@ import {
   extractChzzkFrameInfo,
   getOtwTopLevelSite,
   isAllowedOtwMultiviewUrl,
+  isAllowedOtwSiteUrl,
   isWebAppRequestMessage,
   normalizeChannelIds,
 } from "./protocol";
@@ -85,7 +86,7 @@ describe("extension protocol", () => {
     expect(extractChzzkFrameInfo("https://example.com/live/test")).toBeNull();
   });
 
-  it("allows only the OTW multiview page and known development ports", () => {
+  it("allows only the OTW multiview page and local development hosts", () => {
     expect(
       isAllowedOtwMultiviewUrl("https://otw-schedule.info/multiview"),
     ).toBe(true);
@@ -100,14 +101,27 @@ describe("extension protocol", () => {
     expect(
       isAllowedOtwMultiviewUrl("http://localhost:5173/multiview"),
     ).toBe(true);
+    expect(
+      isAllowedOtwMultiviewUrl("http://localhost:3000/multiview"),
+    ).toBe(true);
 
     expect(isAllowedOtwMultiviewUrl("https://otw-schedule.info/")).toBe(false);
-    expect(isAllowedOtwMultiviewUrl("http://127.0.0.1:3000/multiview"))
+    expect(isAllowedOtwMultiviewUrl("http://192.168.0.10:5173/multiview"))
       .toBe(false);
     expect(isAllowedOtwMultiviewUrl("http://127.0.0.1:5278/")).toBe(false);
     expect(isAllowedOtwMultiviewUrl("https://example.com/multiview")).toBe(
       false,
     );
+  });
+
+  it("allows OTW site origins for embedded CHZZK frame referrers", () => {
+    expect(isAllowedOtwSiteUrl("https://otw-schedule.info/")).toBe(true);
+    expect(isAllowedOtwSiteUrl("http://localhost:5173/")).toBe(true);
+    expect(isAllowedOtwSiteUrl("http://127.0.0.1:5278/")).toBe(true);
+    expect(isAllowedOtwSiteUrl("http://127.0.0.1:3000/")).toBe(true);
+
+    expect(isAllowedOtwSiteUrl("http://192.168.0.10:5173/")).toBe(false);
+    expect(isAllowedOtwSiteUrl("https://example.com/")).toBe(false);
   });
 
   it("returns top-level site only for allowed OTW multiview URLs", () => {
@@ -117,6 +131,8 @@ describe("extension protocol", () => {
     expect(getOtwTopLevelSite("http://localhost:5178/multiview")).toBe(
       "http://localhost",
     );
-    expect(getOtwTopLevelSite("http://localhost:3000/multiview")).toBeNull();
+    expect(getOtwTopLevelSite("http://localhost:3000/multiview")).toBe(
+      "http://localhost",
+    );
   });
 });

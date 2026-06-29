@@ -4,6 +4,7 @@ import {
   getOtwTopLevelSite,
   isPlainObject,
   isAllowedOtwMultiviewUrl,
+  isAllowedOtwSiteUrl,
   isWebAppRequestMessage,
   normalizeChannelIds,
   type ChatLoginBridgeStatus,
@@ -24,52 +25,74 @@ import {
 import { removeLegacyChatCookieBlockerForTab } from "./chat-cookie-blocker.js";
 
 const INTERNAL_FRAME_READY = "OTW_EXTENSION_FRAME_READY";
+const INTERNAL_MULTIVIEW_PAGE_READY = "OTW_EXTENSION_MULTIVIEW_PAGE_READY";
 const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
 const INTERNAL_WEB_APP_MESSAGE = "OTW_EXTENSION_WEB_APP_MESSAGE";
+const INTERNAL_INJECT_BRIDGE_ACTIVE_TAB =
+  "OTW_EXTENSION_INJECT_BRIDGE_ACTIVE_TAB";
+const OTW_BRIDGE_SCRIPT_FILE = "otw-bridge.js";
 const CHAT_LOGIN_STORAGE_KEY = "otwSchedulePlusChatLoginBridgeEnabled";
 const PLAYER_OPTIMIZATION_STORAGE_KEY =
   "otw:schedule-plus:multiview:player-optimization-enabled";
 const STALE_FRAME_TTL_MS = 60_000;
 const FRAME_REGISTRATION_WAIT_MS = 5_000;
 const FRAME_REGISTRATION_POLL_MS = 250;
+const AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS = [
+  600, 1_800, 4_000, 8_000, 12_000,
+] as const;
 const CHAT_LOGIN_COOKIE_PERMISSION: ChromePermissionsRequest = {
   origins: ["https://nid.naver.com/*"],
   permissions: ["cookies"],
 };
+const FALLBACK_OTW_BRIDGE_TAB_QUERY_URLS = [
+  "https://otw-schedule.info/*",
+];
 
 const frames = new Map<string, RegisteredChzzkFrame>();
-const pendingFrameOptimizations = new Map<string, string>();
+const pendingFrameOptimizations = new Map<
+  string,
+  { promise: Promise<WideModeResult>; signature: string }
+>();
 const optimizedFrameSignatures = new Map<string, string>();
+const scheduledFrameOptimizationSignatures = new Map<string, string>();
+const trustedMultiviewTabs = new Map<number, { lastSeenAt: number; url: string }>();
 let hasRegisteredCookieChangeListener = false;
 
 const getFrameKey = (tabId: number, frameId: number) => `${tabId}:${frameId}`;
 const getFrameSignature = (frame: RegisteredChzzkFrame) =>
   `${frame.channelId}:${frame.url}`;
 
+const removeFrameState = (key: string) => {
+  frames.delete(key);
+  pendingFrameOptimizations.delete(key);
+  optimizedFrameSignatures.delete(key);
+  scheduledFrameOptimizationSignatures.delete(key);
+};
+
 const isSuccessfulWideModeResult = (result: WideModeResult) =>
   result === "applied" || result === "already_applied";
 
-const hasFrameOptimizationState = (frame: RegisteredChzzkFrame) => {
+const hasOptimizedFrameSignature = (frame: RegisteredChzzkFrame) => {
   const key = getFrameKey(frame.tabId, frame.frameId);
   const signature = getFrameSignature(frame);
 
-  return (
-    pendingFrameOptimizations.get(key) === signature ||
-    optimizedFrameSignatures.get(key) === signature
-  );
+  return optimizedFrameSignatures.get(key) === signature;
 };
 
 const optimizeFrameOnce = async (frame: RegisteredChzzkFrame) => {
   const key = getFrameKey(frame.tabId, frame.frameId);
   const signature = getFrameSignature(frame);
 
-  if (hasFrameOptimizationState(frame)) {
+  if (hasOptimizedFrameSignature(frame)) {
     return "already_applied" satisfies WideModeResult;
   }
 
-  pendingFrameOptimizations.set(key, signature);
+  const pending = pendingFrameOptimizations.get(key);
+  if (pending?.signature === signature) {
+    return pending.promise;
+  }
 
-  try {
+  const promise = (async () => {
     const result = await sendFrameMessage(
       frame.tabId,
       frame.frameId,
@@ -81,8 +104,14 @@ const optimizeFrameOnce = async (frame: RegisteredChzzkFrame) => {
     }
 
     return result;
+  })();
+
+  pendingFrameOptimizations.set(key, { promise, signature });
+
+  try {
+    return await promise;
   } finally {
-    if (pendingFrameOptimizations.get(key) === signature) {
+    if (pendingFrameOptimizations.get(key)?.signature === signature) {
       pendingFrameOptimizations.delete(key);
     }
   }
@@ -92,25 +121,25 @@ const pruneStaleFrames = () => {
   const now = Date.now();
   frames.forEach((frame, key) => {
     if (now - frame.lastSeenAt > STALE_FRAME_TTL_MS) {
-      frames.delete(key);
-      pendingFrameOptimizations.delete(key);
-      optimizedFrameSignatures.delete(key);
+      removeFrameState(key);
     }
   });
 };
 
 const removeFrameStateForTab = (tabId: number) => {
   const keyPrefix = `${tabId}:`;
+  const keys = new Set([
+    ...frames.keys(),
+    ...pendingFrameOptimizations.keys(),
+    ...optimizedFrameSignatures.keys(),
+    ...scheduledFrameOptimizationSignatures.keys(),
+  ]);
 
-  for (const key of frames.keys()) {
-    if (key.startsWith(keyPrefix)) frames.delete(key);
+  for (const key of keys) {
+    if (key.startsWith(keyPrefix)) removeFrameState(key);
   }
-  for (const key of pendingFrameOptimizations.keys()) {
-    if (key.startsWith(keyPrefix)) pendingFrameOptimizations.delete(key);
-  }
-  for (const key of optimizedFrameSignatures.keys()) {
-    if (key.startsWith(keyPrefix)) optimizedFrameSignatures.delete(key);
-  }
+
+  trustedMultiviewTabs.delete(tabId);
 };
 
 const getStorageValue = (key: string) =>
@@ -159,7 +188,7 @@ const sendFrameMessage = (
       (response) => {
         const error = getChromeApi()?.runtime.lastError?.message;
         if (error) {
-          frames.delete(getFrameKey(tabId, frameId));
+          removeFrameState(getFrameKey(tabId, frameId));
           resolve("error");
           return;
         }
@@ -262,20 +291,227 @@ const runWideModeForChannels = async (
   return statuses;
 };
 
+const isTrustedMultiviewTab = (tabId: number, topLevelUrl?: string) => {
+  if (isAllowedOtwBridgeMultiviewUrl(topLevelUrl)) return true;
+
+  const trustedTab = trustedMultiviewTabs.get(tabId);
+  if (!trustedTab) return false;
+
+  if (Date.now() - trustedTab.lastSeenAt > STALE_FRAME_TTL_MS) {
+    trustedMultiviewTabs.delete(tabId);
+    return false;
+  }
+
+  return isAllowedOtwBridgeMultiviewUrl(trustedTab.url);
+};
+
+const isTrustedFrameReferrer = (referrer?: string) =>
+  isAllowedOtwBridgeMultiviewUrl(referrer) ||
+  isAllowedOtwBridgeSiteUrl(referrer);
+
+const scheduleFrameOptimizationRetries = (frame: RegisteredChzzkFrame) => {
+  const key = getFrameKey(frame.tabId, frame.frameId);
+  const signature = getFrameSignature(frame);
+
+  if (scheduledFrameOptimizationSignatures.get(key) === signature) return;
+  scheduledFrameOptimizationSignatures.set(key, signature);
+
+  AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS.forEach((delayMs) => {
+    setTimeout(() => {
+      const currentFrame = frames.get(key);
+
+      if (!currentFrame || getFrameSignature(currentFrame) !== signature) {
+        return;
+      }
+
+      if (optimizedFrameSignatures.get(key) === signature) {
+        return;
+      }
+
+      void getPlayerOptimizationEnabled().then((enabled) => {
+        if (!enabled) return;
+        void optimizeFrameOnce(currentFrame);
+      });
+    }, delayMs);
+  });
+};
+
 const runWideModeForRegisteredFrame = (
   frame: RegisteredChzzkFrame,
   topLevelUrl?: string,
 ) => {
   if (frame.kind !== "live") return;
-  if (!isAllowedOtwMultiviewUrl(topLevelUrl)) return;
+  if (
+    !isTrustedMultiviewTab(frame.tabId, topLevelUrl) &&
+    !isTrustedFrameReferrer(frame.referrer)
+  ) {
+    return;
+  }
 
   void getPlayerOptimizationEnabled().then((enabled) => {
     if (!enabled) return;
-
-    setTimeout(() => {
-      void optimizeFrameOnce(frame);
-    }, 600);
+    scheduleFrameOptimizationRetries(frame);
   });
+};
+
+const registerMultiviewTab = (sender: ChromeMessageSender) => {
+  const tabId = sender.tab?.id;
+  const url = sender.url ?? sender.tab?.url;
+
+  if (
+    typeof tabId !== "number" ||
+    typeof url !== "string" ||
+    !isAllowedOtwBridgeMultiviewUrl(url)
+  ) {
+    return;
+  }
+
+  trustedMultiviewTabs.set(tabId, {
+    lastSeenAt: Date.now(),
+    url,
+  });
+
+  for (const frame of frames.values()) {
+    if (frame.tabId === tabId) {
+      runWideModeForRegisteredFrame(frame, url);
+    }
+  }
+};
+
+const getOtwBridgeTabQueryUrls = () => {
+  const matches = getChromeApi()
+    ?.runtime.getManifest?.()
+    ?.content_scripts?.filter((script) =>
+      script.js?.some((file) => file === OTW_BRIDGE_SCRIPT_FILE),
+    )
+    .flatMap((script) => script.matches ?? [])
+    .filter((match): match is string => typeof match === "string");
+
+  return [
+    ...new Set(matches?.length ? matches : FALLBACK_OTW_BRIDGE_TAB_QUERY_URLS),
+  ];
+};
+
+const matchesChromeHostPattern = (url: URL, pattern: string) => {
+  const patternMatch = /^(https?|\*):\/\/([^/]+)\/\*$/u.exec(pattern);
+  if (!patternMatch) return false;
+
+  const [, scheme, host] = patternMatch;
+  if (scheme !== "*" && `${scheme}:` !== url.protocol) return false;
+
+  if (host === "*") return true;
+  if (host.startsWith("*.")) {
+    const baseHost = host.slice(2);
+    return url.hostname === baseHost || url.hostname.endsWith(`.${baseHost}`);
+  }
+
+  return url.hostname === host;
+};
+
+const isAllowedByOtwBridgeManifest = (urlString?: string) => {
+  if (!urlString) return false;
+
+  try {
+    const url = new URL(urlString);
+    return getOtwBridgeTabQueryUrls().some((pattern) =>
+      matchesChromeHostPattern(url, pattern),
+    );
+  } catch {
+    return false;
+  }
+};
+
+const isAllowedOtwBridgeSiteUrl = (urlString?: string) =>
+  isAllowedOtwSiteUrl(urlString) && isAllowedByOtwBridgeManifest(urlString);
+
+const isAllowedOtwBridgeMultiviewUrl = (urlString?: string) =>
+  isAllowedOtwMultiviewUrl(urlString) &&
+  isAllowedByOtwBridgeManifest(urlString);
+
+const injectOtwBridgeIntoOpenTabs = () => {
+  const chromeApi = getChromeApi();
+  const query = chromeApi?.tabs?.query;
+
+  if (!query) return;
+
+  const injectedTabIds = new Set<number>();
+
+  getOtwBridgeTabQueryUrls().forEach((urlPattern) => {
+    try {
+      query({ url: urlPattern }, (tabs) => {
+        tabs.forEach((tab) => {
+          if (typeof tab.id !== "number" || injectedTabIds.has(tab.id)) {
+            return;
+          }
+
+          injectedTabIds.add(tab.id);
+          injectOtwBridgeIntoTab(tab.id, tab.url);
+        });
+      });
+    } catch {
+      // Query can fail for host patterns that are unavailable in this build.
+    }
+  });
+};
+
+const injectOtwBridgeIntoTab = (tabId?: number, url?: string) => {
+  const executeScript = getChromeApi()?.scripting?.executeScript;
+
+  if (typeof tabId !== "number" || !executeScript) return;
+  if (typeof url !== "string" || !isAllowedOtwBridgeMultiviewUrl(url)) return;
+
+  try {
+    const result = executeScript({
+      files: [OTW_BRIDGE_SCRIPT_FILE],
+      target: {
+        allFrames: false,
+        tabId,
+      },
+    });
+
+    if (result instanceof Promise) {
+      result.catch(() => undefined);
+    }
+  } catch {
+    // The tab may have navigated or the host may not be available.
+  }
+};
+
+const injectOtwBridgeIntoActiveTab = () => {
+  const query = getChromeApi()?.tabs?.query;
+  if (!query) return;
+
+  try {
+    query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      injectOtwBridgeIntoTab(tab?.id, tab?.url);
+    });
+  } catch {
+    // Active tab access can be unavailable if the popup was not user-opened.
+  }
+};
+
+const injectOtwBridgeIntoTabAfterLookup = (tabId: number) => {
+  const getTab = getChromeApi()?.tabs?.get;
+  if (!getTab) return;
+
+  try {
+    getTab(tabId, (tab) => {
+      injectOtwBridgeIntoTab(tab.id ?? tabId, tab.url);
+    });
+  } catch {
+    // Tab lookup can fail while Chrome is switching tabs.
+  }
+};
+
+const maybeInjectOtwBridgeIntoUpdatedTab = (
+  tabId: number,
+  changeInfo: { status?: string; url?: string },
+  tab: { id?: number; url?: string },
+) => {
+  const url = changeInfo.url ?? tab.url;
+  if (changeInfo.status && changeInfo.status !== "complete") return;
+  injectOtwBridgeIntoTab(tab.id ?? tabId, url);
 };
 
 const hasChatLoginCookiePermission = () =>
@@ -409,7 +645,7 @@ const handleWebAppMessage = async (
     return createExtensionMessage("ERROR", { reason: "invalid_sender" });
   }
 
-  if (!isAllowedOtwMultiviewUrl(sender.url)) {
+  if (!isAllowedOtwBridgeMultiviewUrl(sender.url)) {
     return createExtensionMessage(
       "ERROR",
       { reason: "invalid_sender" },
@@ -492,6 +728,18 @@ const handleWebAppMessage = async (
 getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!isPlainObject(message) || typeof message.kind !== "string") return false;
 
+  if (message.kind === INTERNAL_INJECT_BRIDGE_ACTIVE_TAB) {
+    injectOtwBridgeIntoActiveTab();
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.kind === INTERNAL_MULTIVIEW_PAGE_READY) {
+    registerMultiviewTab(sender);
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.kind === INTERNAL_FRAME_READY) {
     const tabId = sender.tab?.id;
     const frameId = sender.frameId;
@@ -510,6 +758,8 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
         frameId,
         kind: frame.kind,
         lastSeenAt: Date.now(),
+        referrer:
+          typeof frame.referrer === "string" ? frame.referrer : undefined,
         tabId,
         url: frame.url,
       });
@@ -520,6 +770,8 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
           frameId,
           kind: frame.kind,
           lastSeenAt: Date.now(),
+          referrer:
+            typeof frame.referrer === "string" ? frame.referrer : undefined,
           tabId,
           url: frame.url,
         },
@@ -555,4 +807,11 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
 });
 
 registerCookieChangeListener();
+injectOtwBridgeIntoOpenTabs();
+getChromeApi()?.runtime.onInstalled?.addListener(injectOtwBridgeIntoOpenTabs);
+getChromeApi()?.runtime.onStartup?.addListener(injectOtwBridgeIntoOpenTabs);
+getChromeApi()?.tabs?.onActivated?.addListener(({ tabId }) => {
+  injectOtwBridgeIntoTabAfterLookup(tabId);
+});
 getChromeApi()?.tabs?.onRemoved?.addListener(removeFrameStateForTab);
+getChromeApi()?.tabs?.onUpdated?.addListener(maybeInjectOtwBridgeIntoUpdatedTab);

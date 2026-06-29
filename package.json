@@ -86,12 +86,5 @@
     "vite": "^7.3.3",
     "vitest": "^4.0.18",
     "wrangler": "^4.95.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "picomatch": "4.0.4",
-      "postcss": "8.5.15",
-      "rollup": "4.60.4"
-    }
   }
 }

@@ -1,10 +1,10 @@
 import { useMemo } from "react";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { ContentPageShell } from "@/components/content-page-shell";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { type Notice } from "@/db/schema";
-import { ArrowLeft, Calendar, ExternalLink, Sparkles } from "lucide-react";
+import { Calendar, ExternalLink, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchNotices } from "@/lib/api/notices";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
@@ -43,47 +43,21 @@ function NoticePage() {
     [notices],
   );
 
-  const router = useRouter();
-
   return (
-    <div className="w-full flex-1 overflow-y-auto bg-linear-to-b from-background via-background to-muted/10">
-      <div className="max-w-6xl mx-auto w-full px-4 py-6 md:py-10 space-y-6 md:space-y-8">
-        <div className="flex items-start gap-4 md:gap-5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-10 rounded-xl border border-border/40 bg-card/50 backdrop-blur-sm text-foreground/70 hover:text-foreground hover:bg-card hover:border-border/60 hover:shadow-md transition-all duration-200 hover:scale-105"
-            onClick={() => {
-              router.history.back();
-            }}
-            aria-label="공지사항 목록으로 돌아가기"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div className="flex-1 space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-6 h-6 text-primary/60" />
-                <h1 className="text-3xl font-bold tracking-tight bg-linear-to-r from-foreground via-foreground/95 to-foreground/80 bg-clip-text text-transparent">
-                  이벤트 및 공지사항
-                </h1>
-              </div>
-            </div>
-            <p className="text-sm md:text-base text-muted-foreground/80 leading-relaxed max-w-2xl">
-              최신 소식과 이벤트를 확인하고 놓치지 마세요
-            </p>
-          </div>
-        </div>
-
+    <ContentPageShell
+      title="공지사항"
+      leadingIcon={<Megaphone className="h-4.5 w-4.5 text-foreground" />}
+      contentClassName="max-w-6xl gap-5"
+    >
         {noticesQuery.isLoading ? (
-          <div className="rounded-3xl border border-border/30 bg-card/70 backdrop-blur-sm p-8 text-center text-muted-foreground shadow-sm">
+          <div className="rounded-lg border border-border/70 bg-card p-8 text-center text-muted-foreground shadow-sm">
             <div className="inline-flex items-center gap-2">
               <div className="size-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></div>
               <span className="text-sm font-medium">불러오는 중입니다...</span>
             </div>
           </div>
         ) : noticesQuery.error ? (
-          <div className="rounded-3xl border border-destructive/30 bg-destructive/5 backdrop-blur-sm px-6 py-4 text-sm text-destructive shadow-sm">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-4 text-sm text-destructive shadow-sm">
             <p className="font-medium">
               {noticesQuery.error instanceof Error
                 ? noticesQuery.error.message
@@ -91,8 +65,8 @@ function NoticePage() {
             </p>
           </div>
         ) : activeNotices.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-muted/50 bg-muted/10 backdrop-blur-sm px-8 py-14 text-center space-y-3 shadow-sm">
-            <Sparkles className="w-12 h-12 mx-auto text-muted-foreground/40" />
+          <div className="space-y-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-8 py-14 text-center shadow-sm">
+            <Megaphone className="mx-auto h-12 w-12 text-muted-foreground/40" />
             <p className="font-semibold text-base">
               표시할 공지사항이 없습니다.
             </p>
@@ -120,14 +94,11 @@ function NoticePage() {
                 <article
                   key={notice.id}
                   className={cn(
-                    "group flex h-full flex-col overflow-hidden rounded-3xl border border-border/50 bg-card/90",
-                    "shadow-[0_12px_32px_rgba(0,0,0,0.06)] transition-all duration-300 ease-out",
-                    "hover:shadow-[0_18px_38px_rgba(0,0,0,0.08)]",
-                    "bg-linear-to-br from-background via-card/95 to-muted/20",
-                    "backdrop-blur-sm",
+                    "group flex h-full flex-col overflow-hidden rounded-lg border border-border/70 bg-card",
+                    "shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md",
                   )}
                 >
-                  <header className="flex flex-wrap items-center justify-between gap-3 px-6 pt-6">
+                  <header className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5 sm:pt-5">
                     <div className="flex items-center gap-2">
                       <Badge
                         variant="secondary"
@@ -155,19 +126,19 @@ function NoticePage() {
                     </div>
                   </header>
 
-                  <div className="flex-1 px-6 py-5">
+                  <div className="flex-1 px-4 py-5 sm:px-5">
                     <p className="text-lg md:text-xl font-semibold leading-relaxed text-foreground whitespace-pre-wrap tracking-tight">
                       {notice.content}
                     </p>
                   </div>
 
-                  <footer className="flex flex-col gap-3 px-6 pb-6 pt-4 border-t border-border/30">
+                  <footer className="flex flex-col gap-3 border-t border-border/70 px-4 pb-4 pt-4 sm:px-5 sm:pb-5">
                     {notice.url ? (
                       <a
                         href={notice.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="group/link flex items-center gap-2.5 rounded-xl border border-border/40 bg-linear-to-r from-primary/5 to-primary/3 px-3 py-2 text-sm font-medium text-primary shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-linear-to-r hover:from-primary/10 hover:to-primary/5 hover:shadow-md hover:scale-[1.01] max-w-full"
+                        className="group/link flex max-w-full items-center gap-2.5 rounded-lg border border-border/70 bg-primary/5 px-3 py-2 text-sm font-medium text-primary shadow-sm transition-all duration-200 hover:border-primary/40 hover:bg-primary/10 hover:shadow-md"
                         title={notice.url}
                       >
                         <ExternalLink className="w-4 h-4 shrink-0 transition-transform duration-200 group-hover/link:translate-x-0.5" />
@@ -187,7 +158,6 @@ function NoticePage() {
             })}
           </section>
         )}
-      </div>
-    </div>
+    </ContentPageShell>
   );
 }

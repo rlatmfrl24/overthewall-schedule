@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Twitter,
 } from "lucide-react";
+import { ContentPageShell } from "@/components/content-page-shell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMemberPosts } from "@/hooks/use-member-posts";
@@ -126,7 +127,7 @@ const MemberPostsSkeleton = () => (
     {Array.from({ length: 4 }).map((_, index) => (
       <div
         key={index}
-        className="flex flex-col gap-4 rounded-lg border border-border/70 bg-card p-5"
+        className="flex flex-col gap-4 rounded-lg border border-border/70 bg-card p-4 shadow-sm sm:p-5"
       >
         <div className="flex items-center gap-3">
           <Skeleton className="h-12 w-12 rounded-full" />
@@ -301,7 +302,7 @@ const MemberPostContentLayout = ({
           data-testid="member-post-filter-sidebar"
           className="hidden min-w-0 lg:block"
         >
-          <div className="sticky top-20 rounded-lg border border-border/70 bg-background p-2">
+          <div className="sticky top-5 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
             <MemberPostFilterBar
               items={filterItems}
               selectedUids={selectedUids}
@@ -423,59 +424,49 @@ export const MemberPostsOverview = ({
     await memberPostsState.reload();
   };
 
+  const headerActions = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {loadX && hasXSource ? (
+          <SourceUpdateBadge
+            icon={<Twitter className="h-3.5 w-3.5" />}
+            label="X"
+            updatedAt={xState.updatedAt}
+            loading={xState.loading}
+          />
+        ) : null}
+        {loadCafe && hasCafeSource ? (
+          <SourceUpdateBadge
+            icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
+            label="네이버 카페"
+            updatedAt={cafeState.updatedAt}
+            loading={cafeState.loading}
+          />
+        ) : null}
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit gap-2 rounded-full"
+        onClick={() => void reload()}
+        disabled={postsLoading || !hasAnySource}
+      >
+        <RefreshCw className={cn("h-4 w-4", postsLoading && "animate-spin")} />
+        새로고침
+      </Button>
+    </>
+  );
+
   return (
-    <div className="flex w-full flex-1 flex-col overflow-y-auto overflow-x-hidden">
-      <div className="container mx-auto flex min-w-0 w-full max-w-[1520px] flex-col gap-4 px-4 pb-8 pt-5">
-        <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-              <MessageSquareText className="h-4.5 w-4.5 text-foreground" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
-                멤버 게시글
-              </h1>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {loadX && hasXSource ? (
-                <SourceUpdateBadge
-                  icon={<Twitter className="h-3.5 w-3.5" />}
-                  label="X"
-                  updatedAt={xState.updatedAt}
-                  loading={xState.loading}
-                />
-              ) : null}
-              {loadCafe && hasCafeSource ? (
-                <SourceUpdateBadge
-                  icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
-                  label="네이버 카페"
-                  updatedAt={cafeState.updatedAt}
-                  loading={cafeState.loading}
-                />
-              ) : null}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-fit gap-2 rounded-full"
-              onClick={() => void reload()}
-              disabled={postsLoading || !hasAnySource}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", postsLoading && "animate-spin")}
-              />
-              새로고침
-            </Button>
-          </div>
-        </div>
-
-        {memberSources.length > 0 ? (
+    <ContentPageShell
+      title="멤버 게시글"
+      leadingIcon={<MessageSquareText className="h-4.5 w-4.5 text-foreground" />}
+      actions={headerActions}
+      controls={
+        memberSources.length > 0 ? (
           <div
             data-testid="member-post-filter-top"
-            className="sticky top-0 z-10 -mx-4 border-b border-border/70 bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:hidden"
+            className="border-t border-border/60 pt-2 lg:hidden"
           >
             <MemberPostFilterBar
               items={memberSources}
@@ -483,123 +474,122 @@ export const MemberPostsOverview = ({
               onChange={setSelectedMemberUids}
             />
           </div>
-        ) : null}
+        ) : null
+      }
+    >
+      <MemberPostContentLayout
+        filterItems={memberSources}
+        selectedUids={selectedMemberUids}
+        onFilterChange={setSelectedMemberUids}
+      >
+        {showInitialLoading ? (
+          <MemberPostsSkeleton />
+        ) : !hasAnySource ? (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
+            <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />
+            <p className="text-sm font-medium text-muted-foreground">
+              등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
+            </p>
+          </div>
+        ) : timelinePosts.length === 0 ? (
+          <div className="flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
+            {error ? (
+              <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
+            ) : loadCafe && !loadX ? (
+              <Coffee className="h-10 w-10 text-muted-foreground/70" />
+            ) : (
+              <Twitter className="h-10 w-10 text-muted-foreground/70" />
+            )}
+            <p className="text-sm font-medium text-muted-foreground">
+              {error
+                ? "멤버 게시글을 불러오지 못했습니다."
+                : selectedMemberUids && selectedMemberUids.length > 0
+                  ? "선택한 멤버의 게시글이 없습니다."
+                  : "표시할 멤버 게시글이 없습니다."}
+            </p>
+            {error ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 rounded-full"
+                onClick={() => void reload()}
+                disabled={postsLoading}
+              >
+                <RefreshCw
+                  className={cn("h-4 w-4", postsLoading && "animate-spin")}
+                />
+                다시 시도
+              </Button>
+            ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full"
+                onClick={() => setSelectedMemberUids(null)}
+              >
+                전체 보기
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <div
+            className={cn(MEMBER_POST_FEED_WIDTH_CLASS, "min-w-0 space-y-6")}
+          >
+            {error ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800 dark:text-amber-200">
+                {error}
+              </div>
+            ) : null}
 
-        <MemberPostContentLayout
-          filterItems={memberSources}
-          selectedUids={selectedMemberUids}
-          onFilterChange={setSelectedMemberUids}
-        >
-          {showInitialLoading ? (
-            <MemberPostsSkeleton />
-          ) : !hasAnySource ? (
-            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
-              <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />
-              <p className="text-sm text-muted-foreground">
-                등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
-              </p>
-            </div>
-          ) : timelinePosts.length === 0 ? (
-            <div className="flex min-h-[260px] w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 text-center">
-              {error ? (
-                <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
-              ) : loadCafe && !loadX ? (
-                <Coffee className="h-10 w-10 text-muted-foreground/70" />
-              ) : (
-                <Twitter className="h-10 w-10 text-muted-foreground/70" />
-              )}
-              <p className="text-sm text-muted-foreground">
-                {error
-                  ? "멤버 게시글을 불러오지 못했습니다."
-                  : selectedMemberUids && selectedMemberUids.length > 0
-                    ? "선택한 멤버의 게시글이 없습니다."
-                    : "표시할 멤버 게시글이 없습니다."}
-              </p>
-              {error ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 rounded-full"
-                  onClick={() => void reload()}
-                  disabled={postsLoading}
-                >
-                  <RefreshCw
-                    className={cn("h-4 w-4", postsLoading && "animate-spin")}
-                  />
-                  다시 시도
-                </Button>
-              ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="rounded-full"
-                  onClick={() => setSelectedMemberUids(null)}
-                >
-                  전체 보기
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            <div
-              className={cn(MEMBER_POST_FEED_WIDTH_CLASS, "min-w-0 space-y-8")}
-            >
-              {error ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
-                  {error}
+            {timelineGroups.map((group) => (
+              <section
+                key={`${group.label}-${group.subLabel}`}
+                className="min-w-0 space-y-3"
+              >
+                <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border/70 bg-card/80 px-3 py-2 shadow-sm">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-foreground">
+                    {group.posts.length}
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {group.label}
+                    </h2>
+                    <p className="text-xs text-muted-foreground">
+                      {group.subLabel} · {group.posts.length}건
+                    </p>
+                  </div>
                 </div>
-              ) : null}
 
-              {timelineGroups.map((group) => (
-                <section
-                  key={`${group.label}-${group.subLabel}`}
-                  className="min-w-0 space-y-3"
+                <div
+                  data-testid="member-post-feed-list"
+                  className="flex min-w-0 flex-col gap-3"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card text-xs font-semibold text-foreground shadow-sm">
-                      {group.posts.length}
-                    </div>
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-semibold text-foreground">
-                        {group.label}
-                      </h2>
-                      <p className="text-xs text-muted-foreground">
-                        {group.subLabel} · {group.posts.length}건
-                      </p>
-                    </div>
-                    <div className="h-px min-w-8 flex-1 bg-border" />
-                  </div>
-
-                  <div
-                    data-testid="member-post-feed-list"
-                    className="flex min-w-0 flex-col gap-4"
-                  >
-                    {group.posts.map((item) => {
-                      const member = item.memberUid
-                        ? memberMap.get(item.memberUid)
-                        : undefined;
-                      return item.kind === "x" ? (
-                        <XPostCard
-                          key={item.id}
-                          post={item.post}
-                          compactTime={formatPostTime(item.createdAt)}
-                          member={member}
-                        />
-                      ) : (
-                        <NaverCafePostCard
-                          key={item.id}
-                          post={item.post}
-                          compactTime={formatPostTime(item.createdAt)}
-                          member={member}
-                        />
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
-        </MemberPostContentLayout>
-      </div>
-    </div>
+                  {group.posts.map((item) => {
+                    const member = item.memberUid
+                      ? memberMap.get(item.memberUid)
+                      : undefined;
+                    return item.kind === "x" ? (
+                      <XPostCard
+                        key={item.id}
+                        post={item.post}
+                        compactTime={formatPostTime(item.createdAt)}
+                        member={member}
+                      />
+                    ) : (
+                      <NaverCafePostCard
+                        key={item.id}
+                        post={item.post}
+                        compactTime={formatPostTime(item.createdAt)}
+                        member={member}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </MemberPostContentLayout>
+    </ContentPageShell>
   );
 };

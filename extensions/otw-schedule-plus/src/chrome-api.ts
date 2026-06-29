@@ -50,6 +50,15 @@ export interface ChromePermissionsRequest {
   permissions?: string[];
 }
 
+export interface ChromeManifestContentScript {
+  js?: string[];
+  matches?: string[];
+}
+
+export interface ChromeManifest {
+  content_scripts?: ChromeManifestContentScript[];
+}
+
 export type ChromeDeclarativeNetRequestResourceType =
   | "main_frame"
   | "sub_frame"
@@ -154,7 +163,14 @@ export interface ChromeApi {
   };
   runtime: {
     id: string;
+    getManifest?: () => ChromeManifest;
     lastError?: ChromeRuntimeLastError;
+    onInstalled?: {
+      addListener: (listener: () => void) => void;
+    };
+    onStartup?: {
+      addListener: (listener: () => void) => void;
+    };
     onMessage: {
       addListener: (
         listener: (
@@ -169,6 +185,18 @@ export interface ChromeApi {
       callback?: (response?: unknown) => void,
     ) => void;
   };
+  scripting?: {
+    executeScript: (
+      details: {
+        files: string[];
+        target: {
+          allFrames?: boolean;
+          tabId: number;
+        };
+      },
+      callback?: () => void,
+    ) => Promise<unknown> | void;
+  };
   storage?: {
     local: {
       get: (
@@ -182,9 +210,33 @@ export interface ChromeApi {
     };
   };
   tabs?: {
+    get?: (
+      tabId: number,
+      callback: (tab: { id?: number; url?: string }) => void,
+    ) => void;
+    onActivated?: {
+      addListener: (listener: (activeInfo: { tabId: number }) => void) => void;
+    };
     onRemoved?: {
       addListener: (listener: (tabId: number) => void) => void;
     };
+    onUpdated?: {
+      addListener: (
+        listener: (
+          tabId: number,
+          changeInfo: { status?: string; url?: string },
+          tab: { id?: number; url?: string },
+        ) => void,
+      ) => void;
+    };
+    query?: (
+      queryInfo: {
+        active?: boolean;
+        currentWindow?: boolean;
+        url?: string | string[];
+      },
+      callback: (tabs: Array<{ id?: number; url?: string }>) => void,
+    ) => void;
     sendMessage: (
       tabId: number,
       message: unknown,

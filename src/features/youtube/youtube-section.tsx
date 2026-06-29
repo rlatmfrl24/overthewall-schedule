@@ -92,6 +92,9 @@ export const YouTubeSection = ({
   const canCollapseVideos =
     filteredVideos.length > gridColumnCount &&
     clampedVisibleVideoCount >= filteredVideos.length;
+  const videoToggleLabel = canExpandVideos
+    ? `동영상 ${nextExpandCount}개 더 보기`
+    : "동영상 접기";
 
   useEffect(() => {
     setVisibleVideoCount(Math.min(gridColumnCount, filteredVideos.length));
@@ -148,22 +151,21 @@ export const YouTubeSection = ({
             <div className="flex justify-center">
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="outline"
+                size="default"
                 aria-expanded={clampedVisibleVideoCount > gridColumnCount}
+                aria-label={videoToggleLabel}
                 onClick={
                   canExpandVideos ? handleExpandVideos : handleCollapseVideos
                 }
-                className="h-9 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
+                className="h-10 w-full max-w-xs rounded-lg border-border/70 bg-card px-4 text-sm font-semibold text-foreground shadow-sm hover:border-primary/50 hover:bg-primary/10 hover:text-primary sm:w-auto"
               >
                 {canExpandVideos ? (
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
                 ) : (
                   <ChevronUp className="h-4 w-4" aria-hidden="true" />
                 )}
-                {canExpandVideos
-                  ? `동영상 ${nextExpandCount}개 더 보기`
-                  : "동영상 접기"}
+                {videoToggleLabel}
               </Button>
             </div>
           )}

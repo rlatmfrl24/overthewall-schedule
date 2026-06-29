@@ -39,7 +39,6 @@ export const CardMember = ({
   // Calculated Colors for Readability and Aesthetics
   const headerTextColor = getContrastColor(mainColor);
   const bodyBgColor = hexToRgba(subColor, 0.15); // Very light tint of sub color
-  const borderColor = hexToRgba(mainColor, 0.3);
   const headerTextInverseColor =
     headerTextColor === "#000000" ? "#ffffff" : "#000000";
   const unitChipBgColor = hexToRgba(headerTextInverseColor, 0.22);
@@ -59,14 +58,11 @@ export const CardMember = ({
   return (
     <div
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
-        "hover:shadow-xl hover:-translate-y-1",
+        "group relative flex flex-col overflow-hidden rounded-[24px] border border-transparent shadow-sm transition-all duration-300",
+        "hover:-translate-y-1 hover:shadow-xl",
         "h-full min-h-[216px] md:min-h-[232px] bg-card",
         isLiveClickable && "cursor-pointer"
       )}
-      style={{
-        border: `1px solid ${borderColor}`,
-      }}
       data-daily-member-card="true"
       onClick={handleCardClick}
     >
@@ -195,7 +191,7 @@ export const CardMember = ({
       >
         <Button
           size="sm"
-          className="absolute right-4 top-3 h-7 shrink-0 translate-x-3 rounded-full px-2.5 text-[11px] font-bold opacity-0 shadow-sm transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100"
+          className="absolute right-3 top-3 h-7 shrink-0 translate-x-3 rounded-full px-2.5 text-[11px] font-bold opacity-0 shadow-sm transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100"
           style={{
             backgroundColor: mainColor,
             color: headerTextColor,

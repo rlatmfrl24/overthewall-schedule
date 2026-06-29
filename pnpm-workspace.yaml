@@ -2,7 +2,18 @@ packages:
   - "."
   - "extensions/*"
 
+allowBuilds:
+  "@clerk/shared": true
+  esbuild: true
+  sharp: false
+  workerd: true
+
 onlyBuiltDependencies:
   - "@clerk/shared"
   - esbuild
   - workerd
+
+overrides:
+  picomatch: 4.0.4
+  postcss: 8.5.15
+  rollup: 4.60.4

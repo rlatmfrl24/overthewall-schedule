@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMulLiveUrl,
+  buildChzzkMultiviewLiveUrl,
   buildMultiviewSearchParams,
   calculateMultiviewFrameScale,
   calculateMultiviewFrameViewport,
@@ -211,6 +212,14 @@ describe("buildMulLiveUrl", () => {
   it("builds slash-separated Mul.Live fallback URLs", () => {
     expect(buildMulLiveUrl([CHANNEL_A, CHANNEL_B, CHANNEL_A])).toBe(
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
+    );
+  });
+});
+
+describe("buildChzzkMultiviewLiveUrl", () => {
+  it("marks embedded live frames as multichzzk-compatible", () => {
+    expect(buildChzzkMultiviewLiveUrl(CHANNEL_A)).toBe(
+      `https://chzzk.naver.com/live/${CHANNEL_A}?multichzzk`,
     );
   });
 });

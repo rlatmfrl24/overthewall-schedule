@@ -51,7 +51,7 @@ export const NaverCafePostCard = ({
   const authorName = member?.name ?? post.sourceName;
 
   return (
-    <article className="group relative flex min-w-0 flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-card p-5 shadow-sm transition-colors duration-200 hover:border-foreground/20">
+    <article className="group relative flex min-w-0 flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-5">
       <span
         className="absolute inset-y-0 left-0 w-1"
         style={{ backgroundColor: accentColor }}

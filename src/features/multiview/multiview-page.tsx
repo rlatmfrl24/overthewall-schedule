@@ -48,6 +48,7 @@ import {
   MULTIVIEW_FRAME_SIZE_STORAGE_KEY,
   buildChzzkChatUrl,
   buildChzzkLiveUrl,
+  buildChzzkMultiviewLiveUrl,
   buildMulLiveUrl,
   buildMultiviewSearchParams,
   calculateMultiviewFrameViewport,
@@ -184,15 +185,11 @@ const formatViewerCount = (value?: number | null) => {
 };
 
 const LOCAL_EXTENSION_BRIDGE_HOSTS = new Set(["localhost", "127.0.0.1"]);
-const LOCAL_EXTENSION_BRIDGE_PORTS = new Set(["5173", "5178", "5278"]);
 
 const isLocalExtensionBridgeOrigin = () => {
   if (typeof window === "undefined") return false;
 
-  return (
-    LOCAL_EXTENSION_BRIDGE_HOSTS.has(window.location.hostname) &&
-    LOCAL_EXTENSION_BRIDGE_PORTS.has(window.location.port)
-  );
+  return LOCAL_EXTENSION_BRIDGE_HOSTS.has(window.location.hostname);
 };
 
 const getExtensionStatusLabel = (status: SchedulePlusExtensionState["status"]) => {
@@ -485,7 +482,7 @@ const ChzzkLiveFrame = memo(
       data-testid="multiview-live-frame"
       data-channel-id={channelId}
       title={`CHZZK live: ${channelId}`}
-      src={buildChzzkLiveUrl(channelId)}
+      src={buildChzzkMultiviewLiveUrl(channelId)}
       className="absolute left-0 top-0 block h-[var(--mv-frame-height)] w-[var(--mv-frame-width)] origin-top-left scale-[var(--mv-frame-scale)] border-0"
       allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
       allowFullScreen

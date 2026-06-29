@@ -1,11 +1,22 @@
 (() => {
+  const bridgeWindow = window as Window & {
+    __otwSchedulePlusBridgeV1?: {
+      cleanup?: () => void;
+    };
+    __otwSchedulePlusBridgeV1Installed?: boolean;
+  };
+
+  bridgeWindow.__otwSchedulePlusBridgeV1?.cleanup?.();
+  bridgeWindow.__otwSchedulePlusBridgeV1Installed = true;
+
   const EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
   const EXTENSION_PROTOCOL_VERSION = 1;
+  const INTERNAL_MULTIVIEW_PAGE_READY = "OTW_EXTENSION_MULTIVIEW_PAGE_READY";
   const INTERNAL_WEB_APP_MESSAGE = "OTW_EXTENSION_WEB_APP_MESSAGE";
   const OTW_PRODUCTION_HOST = "otw-schedule.info";
   const OTW_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
-  const OTW_DEV_PORTS = new Set(["5173", "5178", "5278"]);
   const LOCATION_POLL_INTERVAL_MS = 500;
+  const READY_BROADCAST_INTERVAL_MS = 2000;
   const WEB_MESSAGE_TYPES = new Set([
     "PING",
     "GET_CAPABILITIES",
@@ -27,6 +38,18 @@
 
   let bridgeInvalidated = false;
   let lastObservedHref = window.location.href;
+  const cleanupCallbacks: Array<() => void> = [];
+
+  const registerCleanup = (cleanup: () => void) => {
+    cleanupCallbacks.push(cleanup);
+  };
+
+  bridgeWindow.__otwSchedulePlusBridgeV1 = {
+    cleanup: () => {
+      bridgeInvalidated = true;
+      cleanupCallbacks.splice(0).forEach((cleanup) => cleanup());
+    },
+  };
 
   const getRuntime = (): RuntimeLike | undefined => {
     if (bridgeInvalidated) return undefined;
@@ -58,8 +81,7 @@
     return (
       (window.location.protocol === "http:" ||
         window.location.protocol === "https:") &&
-      OTW_DEV_HOSTS.has(window.location.hostname) &&
-      OTW_DEV_PORTS.has(window.location.port)
+      OTW_DEV_HOSTS.has(window.location.hostname)
     );
   };
 
@@ -145,6 +167,20 @@
   const postReady = () => {
     if (!isAllowedOtwMultiviewPage()) return;
 
+    const runtime = getRuntime();
+    try {
+      runtime?.sendMessage(
+        {
+          kind: INTERNAL_MULTIVIEW_PAGE_READY,
+        },
+        () => {
+          void runtime.lastError;
+        },
+      );
+    } catch {
+      bridgeInvalidated = true;
+    }
+
     postToPage(
       createMessage("READY", {
         capabilities: ["wideMode", "chatLoginBridge"],
@@ -176,29 +212,46 @@
   }
 
   window.addEventListener("popstate", scheduleReadyAnnouncement);
+  registerCleanup(() =>
+    window.removeEventListener("popstate", scheduleReadyAnnouncement),
+  );
   window.addEventListener("pageshow", scheduleReadyAnnouncement);
-  document.addEventListener("visibilitychange", () => {
+  registerCleanup(() =>
+    window.removeEventListener("pageshow", scheduleReadyAnnouncement),
+  );
+  const handleVisibilityChange = () => {
     if (!document.hidden) scheduleReadyAnnouncement();
-  });
-  window.setInterval(() => {
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  registerCleanup(() =>
+    document.removeEventListener("visibilitychange", handleVisibilityChange),
+  );
+  const locationPollId = window.setInterval(() => {
     if (window.location.href === lastObservedHref) return;
     lastObservedHref = window.location.href;
     scheduleReadyAnnouncement();
   }, LOCATION_POLL_INTERVAL_MS);
+  registerCleanup(() => window.clearInterval(locationPollId));
+  const readyBroadcastId = window.setInterval(
+    scheduleReadyAnnouncement,
+    READY_BROADCAST_INTERVAL_MS,
+  );
+  registerCleanup(() => window.clearInterval(readyBroadcastId));
 
   scheduleReadyAnnouncement();
 
-  window.addEventListener("message", (event) => {
+  const handlePageMessage = (event: MessageEvent<unknown>) => {
     if (!isAllowedOtwMultiviewPage()) return;
     if (event.source !== window) return;
     if (event.origin !== window.location.origin) return;
-    if (!isWebAppRequest(event.data)) return;
+    const request = event.data;
+    if (!isWebAppRequest(request)) return;
 
     sendRuntimeMessage(
-      event.data,
+      request,
       {
         kind: INTERNAL_WEB_APP_MESSAGE,
-        message: event.data,
+        message: request,
       },
       (response, runtime) => {
         const error = runtime.lastError?.message;
@@ -207,17 +260,19 @@
             createMessage(
               "ERROR",
               { reason: "extension_unavailable", message: error },
-              event.data.requestId,
-              event.data.namespace,
+              request.requestId,
+              request.namespace,
             ),
           );
           return;
         }
 
         if (response) {
-          postToPage(withResponseNamespace(response, event.data.namespace));
+          postToPage(withResponseNamespace(response, request.namespace));
         }
       },
     );
-  });
+  };
+  window.addEventListener("message", handlePageMessage);
+  registerCleanup(() => window.removeEventListener("message", handlePageMessage));
 })();

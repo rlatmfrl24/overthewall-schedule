@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "OTW Schedule +",
   "description": "오버더월 스케줄표의 멀티뷰 기능을 보조하고 향후 방송 알림 등 편의 기능을 제공할 전용 확장입니다.",
-  "version": "0.2.2",
+  "version": "0.2.7",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -13,7 +13,7 @@
     "default_popup": "popup.html",
     "default_title": "OTW Schedule +"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "scripting"],
   "optional_permissions": ["cookies"],
   "host_permissions": [
     "https://chzzk.naver.com/*",

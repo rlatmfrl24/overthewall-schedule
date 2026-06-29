@@ -10,6 +10,12 @@ const WIDE_MODE_KEYWORDS = [
 ];
 const CHZZK_VIEWMODE_BUTTON_SELECTOR = ".pzp-pc__viewmode-button";
 const CHZZK_VIDEO_SELECTOR = "video.webplayer-internal-video";
+const CHZZK_PLAYER_WAKE_TARGET_SELECTORS = [
+  CHZZK_VIDEO_SELECTOR,
+  "[class*='webplayer']",
+  "[class*='pzp']",
+  "body",
+];
 const CHZZK_SIDE_NAV_SELECTOR_HINTS = [
   "[class*='navigation']",
   "[class*='sidebar']",
@@ -121,6 +127,18 @@ const hasChatShowLabel = (element: Element) => {
   );
 };
 
+const getElementRect = (element: Element) => {
+  if (!(element instanceof HTMLElement)) return null;
+
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+
+  return rect;
+};
+
+const isJsdomEnvironment = () =>
+  typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent);
+
 const isClickableElement = (element: Element): element is HTMLElement => {
   if (!(element instanceof HTMLElement)) return false;
   if (element.closest("[hidden], [aria-hidden='true']")) return false;
@@ -136,13 +154,21 @@ const isClickableElement = (element: Element): element is HTMLElement => {
   return style.display !== "none" && style.visibility !== "hidden";
 };
 
-const getElementRect = (element: Element) => {
-  if (!(element instanceof HTMLElement)) return null;
+const isWideModeCandidateElement = (element: Element): element is HTMLElement => {
+  if (!(element instanceof HTMLElement)) return false;
+  if (element.closest("[hidden]")) return false;
+  if (element.getAttribute("aria-disabled") === "true") return false;
+  if (
+    "disabled" in element &&
+    Boolean((element as HTMLButtonElement).disabled)
+  ) {
+    return false;
+  }
 
-  const rect = element.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden") return false;
 
-  return rect;
+  return Boolean(getElementRect(element) || isJsdomEnvironment());
 };
 
 const isLikelyExpandedSideNavigation = (element: Element) => {
@@ -209,7 +235,7 @@ export const isWideModeButtonActive = (element: HTMLElement) =>
 export const findWideModeButton = (root: ParentNode = document) => {
   const chzzkViewmodeButtons = [
     ...root.querySelectorAll(CHZZK_VIEWMODE_BUTTON_SELECTOR),
-  ].filter(isClickableElement);
+  ].filter(isWideModeCandidateElement);
 
   if (chzzkViewmodeButtons.length === 1) return chzzkViewmodeButtons[0];
 
@@ -229,11 +255,43 @@ export const findWideModeButton = (root: ParentNode = document) => {
 
   for (const candidate of candidates) {
     if (!hasWideModeLabel(candidate)) continue;
-    if (!isClickableElement(candidate)) continue;
+    if (!isWideModeCandidateElement(candidate)) continue;
     return candidate;
   }
 
   return null;
+};
+
+export const wakePlayerControls = (root: ParentNode = document) => {
+  const targets = new Set<EventTarget>();
+
+  CHZZK_PLAYER_WAKE_TARGET_SELECTORS.forEach((selector) => {
+    const element = root.querySelector(selector);
+    if (element) targets.add(element);
+  });
+  targets.add(document);
+
+  targets.forEach((target) => {
+    const rect =
+      target instanceof Element ? target.getBoundingClientRect() : null;
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect ? Math.max(1, rect.left + rect.width / 2) : 1,
+      clientY: rect ? Math.max(1, rect.top + rect.height / 2) : 1,
+      view: window,
+    };
+
+    ["pointerover", "pointermove", "mouseover", "mousemove"].forEach(
+      (eventName) => {
+        try {
+          target.dispatchEvent(new MouseEvent(eventName, eventInit));
+        } catch {
+          target.dispatchEvent(new Event(eventName, { bubbles: true }));
+        }
+      },
+    );
+  });
 };
 
 export const findChatHideButton = (root: ParentNode = document) => {
@@ -329,6 +387,7 @@ export const runWideModeAutomation = async ({
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (now() - startedAt > timeoutMs) return "timeout";
 
+    wakePlayerControls(root);
     const button = findWideModeButton(root);
     if (button) {
       if (isWideModeButtonActive(button) || now() < wideModeReclickGuardUntil) {

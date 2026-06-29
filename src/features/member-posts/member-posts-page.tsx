@@ -49,7 +49,7 @@ export function MemberPostsPage() {
 
   if (configLoading) {
     return (
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 sm:px-5 lg:px-7">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -58,8 +58,8 @@ export function MemberPostsPage() {
   if (!xCanLoad && !cafeCanLoad) {
     if (xLoginRequired || cafeLoginRequired) {
       return (
-        <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
-          <Card className="w-full max-w-md">
+        <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 py-10 sm:px-5 lg:px-7">
+          <Card className="w-full max-w-md shadow-sm">
             <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
               <LockKeyhole className="mb-2 h-10 w-10 text-muted-foreground" />
               <CardTitle className="text-xl">로그인이 필요합니다</CardTitle>
@@ -83,8 +83,8 @@ export function MemberPostsPage() {
     }
 
     return (
-      <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
-        <Card className="w-full max-w-md">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 py-10 sm:px-5 lg:px-7">
+        <Card className="w-full max-w-md shadow-sm">
           <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
             {xVisibility === "private" || cafeVisibility === "private" ? (
               <EyeOff className="mb-2 h-10 w-10 text-muted-foreground" />

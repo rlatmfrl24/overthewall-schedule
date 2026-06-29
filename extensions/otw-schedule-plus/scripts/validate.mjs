@@ -132,6 +132,14 @@ const validateStoreManifest = async (manifest) => {
     "Store manifest must include storage as a required permission",
   );
   assert(
+    permissions.includes("scripting"),
+    "Store manifest must include scripting for reload-free OTW bridge reinjection",
+  );
+  assert(
+    !permissions.includes("activeTab"),
+    "Store manifest must not include activeTab because declared host permissions already scope injection",
+  );
+  assert(
     !permissions.includes("cookies"),
     "Store manifest must request cookies only as an optional permission",
   );
