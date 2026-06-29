@@ -58,9 +58,12 @@ import {
   fetchLiveStatusDiagnostics,
   fetchLiveStatusesForMembers,
 } from "@/lib/api/live-status";
+import { fetchNotices } from "@/lib/api/notices";
 import { deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 import { queryKeys } from "@/lib/query-keys";
+import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -95,11 +98,19 @@ export const DailySchedule = () => {
   const {
     members,
     ddays,
-    notices,
     schedules,
     loading: isScheduleBoardLoading,
     hasLoaded,
   } = useScheduleBoard(currentDateString, currentDateString);
+  const publicNoticesQuery = useQuery({
+    queryKey: queryKeys.notices.public(),
+    queryFn: () => fetchNotices(),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  const publicNotices = useMemo(
+    () => publicNoticesQuery.data ?? [],
+    [publicNoticesQuery.data],
+  );
   const isToday = isSameDay(currentDate, new Date());
   const liveChannelIdsKey = useMemo(() => {
     const channelIds = new Set<string>();
@@ -205,6 +216,12 @@ export const DailySchedule = () => {
   }, [schedules]);
 
   const ddayForToday = getDDaysForDate(ddays, currentDate);
+  const visibleNotices = useMemo(
+    () => publicNotices.filter((notice) => isNoticeVisibleOnDate(notice)),
+    [publicNotices],
+  );
+  const hasDailyContextRow =
+    ddayForToday.length > 0 || visibleNotices.length > 0;
   const isDailyScheduleLoading = isScheduleBoardLoading || !hasLoaded;
 
   const handleSaveSchedule = async (data: {
@@ -419,7 +436,10 @@ export const DailySchedule = () => {
   return (
     <div className="flex flex-col flex-1 w-full overflow-y-auto bg-background">
       <div className="container mx-auto flex flex-col pt-6 pb-24 px-3 sm:py-8 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-4 sm:gap-8">
+        <div
+          className="flex flex-col gap-4 sm:gap-6"
+          data-daily-main-stack="true"
+        >
           {/* Header Section */}
           <div
             aria-label="Daily Schedule Header"
@@ -650,73 +670,83 @@ export const DailySchedule = () => {
           )}
 
           {/* D-Day & Notice Row */}
-          <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row">
-            {ddayForToday.length > 0 && (
-              <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
-                <div className="flex flex-col gap-2 w-full flex-1 h-full">
-                  {ddayForToday.map((dday) => {
-                    const palette =
-                      (dday.colors?.length ? dday.colors : undefined) ||
-                      (dday.color ? [dday.color] : []);
-                    const primary = palette[0];
-                    const contrastColor = primary
-                      ? getContrastColor(primary)
-                      : undefined;
-                    const gradient =
-                      palette.length > 1
-                        ? `linear-gradient(90deg, ${palette.join(", ")})`
-                        : primary;
-                    const cardStyle =
-                      dday.isToday && gradient
-                        ? {
-                            background: gradient,
-                            color: contrastColor,
-                          }
-                        : !dday.isToday && primary
-                          ? { color: primary }
-                          : undefined;
+          {hasDailyContextRow && (
+            <div
+              className="flex flex-col gap-3 sm:gap-4 lg:flex-row"
+              data-daily-context-row="true"
+            >
+              {ddayForToday.length > 0 && (
+                <div className="flex flex-col gap-2 h-full w-full lg:w-auto lg:min-w-[300px] lg:max-w-[460px]">
+                  <div className="flex flex-col gap-2 w-full flex-1 h-full">
+                    {ddayForToday.map((dday) => {
+                      const palette =
+                        (dday.colors?.length ? dday.colors : undefined) ||
+                        (dday.color ? [dday.color] : []);
+                      const primary = palette[0];
+                      const contrastColor = primary
+                        ? getContrastColor(primary)
+                        : undefined;
+                      const gradient =
+                        palette.length > 1
+                          ? `linear-gradient(90deg, ${palette.join(", ")})`
+                          : primary;
+                      const cardStyle =
+                        dday.isToday && gradient
+                          ? {
+                              background: gradient,
+                              color: contrastColor,
+                            }
+                          : !dday.isToday && primary
+                            ? { color: primary }
+                            : undefined;
 
-                    return (
-                      <div
-                        key={dday.id}
-                        className={cn(
-                          "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
-                          dday.isToday
-                            ? dday.colors?.length
-                              ? "text-white"
-                              : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
-                            : "bg-white text-foreground border-border dark:bg-card dark:border-border",
-                        )}
-                        style={cardStyle}
-                      >
-                        <span
+                      return (
+                        <div
+                          key={dday.id}
                           className={cn(
-                            "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                            "flex items-center gap-3 px-3 py-2 rounded-xl border shadow-md text-sm font-semibold h-full",
                             dday.isToday
-                              ? "bg-white/25"
-                              : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50",
+                              ? dday.colors?.length
+                                ? "text-white"
+                                : "bg-linear-to-r from-amber-400 via-pink-500 to-indigo-500 text-white"
+                              : "bg-white text-foreground border-border dark:bg-card dark:border-border",
                           )}
+                          style={cardStyle}
                         >
-                          {formatDDayLabel(dday.daysUntil)}
-                        </span>
-                        <div className="flex flex-col min-w-0">
-                          <span className="truncate">
-                            {dday.title}
-                            {dday.anniversaryLabel
-                              ? ` · ${dday.anniversaryLabel}`
-                              : ""}
+                          <span
+                            className={cn(
+                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-black",
+                              dday.isToday
+                                ? "bg-white/25"
+                                : "bg-white/80 text-amber-900 dark:bg-black/30 dark:text-amber-50",
+                            )}
+                          >
+                            {formatDDayLabel(dday.daysUntil)}
                           </span>
+                          <div className="flex flex-col min-w-0">
+                            <span className="truncate">
+                              {dday.title}
+                              {dday.anniversaryLabel
+                                ? ` · ${dday.anniversaryLabel}`
+                                : ""}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="w-full h-full flex-1">
-              <NoticeBanner notices={notices} />
+              )}
+              {visibleNotices.length > 0 && (
+                <div
+                  className="w-full h-full flex-1"
+                  data-daily-notice-slot="true"
+                >
+                  <NoticeBanner notices={visibleNotices} />
+                </div>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Grid Section */}
           {viewMode === "grid" ? (

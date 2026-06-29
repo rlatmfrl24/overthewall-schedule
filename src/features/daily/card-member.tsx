@@ -40,7 +40,10 @@ export const CardMember = ({
   const headerTextColor = getContrastColor(mainColor);
   const bodyBgColor = hexToRgba(subColor, 0.15); // Very light tint of sub color
   const borderColor = hexToRgba(mainColor, 0.3);
-  const nameBgColor = hexToRgba(getContrastColor(mainColor), 0.1); // Subtle background for name if needed
+  const headerTextInverseColor =
+    headerTextColor === "#000000" ? "#ffffff" : "#000000";
+  const unitChipBgColor = hexToRgba(headerTextInverseColor, 0.22);
+  const unitChipBorderColor = hexToRgba(headerTextColor, 0.28);
   const isLive = liveStatus?.status === "OPEN";
   const viewerCount = liveStatus?.concurrentUserCount;
   const liveUrl =
@@ -58,50 +61,42 @@ export const CardMember = ({
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-[24px] transition-all duration-300",
         "hover:shadow-xl hover:-translate-y-1",
-        "h-full min-h-[240px] md:min-h-[260px] bg-card",
+        "h-full min-h-[216px] md:min-h-[232px] bg-card",
         isLiveClickable && "cursor-pointer"
       )}
       style={{
         border: `1px solid ${borderColor}`,
       }}
+      data-daily-member-card="true"
       onClick={handleCardClick}
     >
       {/* Header Section (Solid Color) */}
       <div
-        className="relative h-24 flex items-start justify-between p-4 transition-colors duration-300"
+        className="relative h-20 transition-colors duration-300"
         style={{ backgroundColor: mainColor }}
+        data-member-card-header="true"
       >
-        {isLive && (
-          <div
-            className="absolute top-3 right-3 flex items-center gap-2 z-20"
-            data-snapshot-exclude="true"
-          >
-            <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-600 text-white text-[10px] font-black shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-              LIVE
+        <div className="absolute right-3 top-3 z-20 flex max-w-[calc(100%-7.25rem)] flex-col items-end gap-1.5">
+          {member.unit_name && (
+            <span
+              className="inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-extrabold leading-none shadow-sm backdrop-blur-sm break-keep"
+              style={{
+                backgroundColor: unitChipBgColor,
+                borderColor: unitChipBorderColor,
+                color: headerTextColor,
+              }}
+              title={member.unit_name}
+              data-member-unit-chip="true"
+            >
+              <span className="truncate">{member.unit_name}</span>
             </span>
-            {typeof viewerCount === "number" && (
-              <span className="text-[10px] font-semibold text-white/90 bg-black/30 px-2 py-1 rounded-full backdrop-blur-sm">
-                {viewerCount.toLocaleString()} 시청중
-              </span>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Unit Name Badge */}
-        {member.unit_name && (
-          <span
-            className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm"
-            style={{
-              backgroundColor: nameBgColor,
-              color: headerTextColor,
-            }}
-          >
-            {member.unit_name}
-          </span>
-        )}
-
-        <div className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1">
+        <div
+          className="absolute right-3 bottom-3 flex items-center gap-1 z-20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300 bg-black/10 backdrop-blur-sm rounded-full px-1.5 py-1"
+          data-member-social-group="true"
+        >
           {member.url_twitter && (
             <a
               href={member.url_twitter}
@@ -154,51 +149,79 @@ export const CardMember = ({
       </div>
 
       {/* Profile Image (Overlapping) */}
-      <div className="absolute top-14 md:top-12 left-4 z-10">
+      <div className="absolute left-4 top-4 z-10">
         <div className="relative">
           <div
-            className="absolute -inset-1 rounded-full opacity-20 blur-sm"
+            className="absolute -inset-1.5 rounded-full opacity-20 blur-sm"
             style={{ backgroundColor: mainColor }}
           />
           <img
             src={`/profile/${member.code}.webp`}
             alt={member.name}
-            className="relative h-16 w-16 md:h-20 md:w-20 rounded-full border-4 object-cover shadow-md transition-transform duration-300 group-hover:scale-105"
+            className="relative h-[5.5rem] w-[5.5rem] rounded-full border-4 object-cover shadow-lg transition-transform duration-300 group-hover:scale-105"
             style={{ borderColor: "white" }}
+            data-member-avatar="true"
           />
+          {isLive && (
+            <span
+              className="absolute -bottom-2 left-1/2 z-20 inline-flex h-6 max-w-[3.75rem] -translate-x-1/2 items-center justify-center gap-1 overflow-hidden rounded-full bg-red-600 px-2 text-[10px] font-black leading-none text-white shadow-md ring-2 ring-white transition-[max-width,background-color,box-shadow] duration-300 group-hover:max-w-[7.5rem] group-hover:bg-red-700 group-hover:shadow-lg group-focus-within:max-w-[7.5rem] group-focus-within:bg-red-700"
+              aria-label={
+                typeof viewerCount === "number"
+                  ? `LIVE, ${viewerCount.toLocaleString()}명 시청중`
+                  : "LIVE"
+              }
+              data-member-live-badge="true"
+              data-snapshot-exclude="true"
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white animate-pulse" />
+              <span className="shrink-0">LIVE</span>
+              {typeof viewerCount === "number" && (
+                <span
+                  className="max-w-0 shrink-0 translate-x-1 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity,transform] duration-200 group-hover:max-w-[4.5rem] group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:max-w-[4.5rem] group-focus-within:translate-x-0 group-focus-within:opacity-100"
+                  data-member-live-viewers="true"
+                >
+                  {viewerCount.toLocaleString()} 시청중
+                </span>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Body Section */}
       <div
-        className="flex flex-1 flex-col pt-10 pb-4 px-4"
+        className="relative flex flex-1 flex-col px-4 pb-3 pt-10"
         style={{ backgroundColor: bodyBgColor }}
       >
+        <Button
+          size="sm"
+          className="absolute right-4 top-3 h-7 shrink-0 translate-x-3 rounded-full px-2.5 text-[11px] font-bold opacity-0 shadow-sm transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100"
+          style={{
+            backgroundColor: mainColor,
+            color: headerTextColor,
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate({ to: "/profile/$code", params: { code: member.code } });
+          }}
+          data-member-profile-action="true"
+        >
+          <span>프로필</span>
+          <User className="h-3 w-3 ml-1.5" />
+        </Button>
+
         {/* Member Name */}
-        <div className="mb-4 flex items-center justify-between relative">
-          <h2 className="text-xl font-extrabold text-foreground leading-none">
+        <div className="mb-3 flex min-w-0 items-center relative">
+          <h2
+            className="min-w-0 break-keep text-xl font-black leading-tight text-foreground md:text-2xl"
+            data-member-name="true"
+          >
             {member.name}
           </h2>
-
-          <Button
-            size="sm"
-            className="opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-4 group-hover:translate-x-0 h-8 px-3 rounded-full shadow-sm text-xs font-bold"
-            style={{
-              backgroundColor: mainColor,
-              color: headerTextColor,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate({ to: "/profile/$code", params: { code: member.code } });
-            }}
-          >
-            <span>프로필</span>
-            <User className="h-3 w-3 ml-1.5" />
-          </Button>
         </div>
 
         {/* Schedules */}
-        <div className="flex flex-col gap-2.5 flex-1">
+        <div className="flex flex-col gap-2 flex-1">
           {hasSchedule ? (
             schedules.map((schedule) => (
               <CardSchedule
@@ -209,15 +232,18 @@ export const CardMember = ({
               />
             ))
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-muted/40 p-4 gap-2">
-              <p className="text-sm font-medium text-muted-foreground">
+            <div
+              className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/70 bg-background/55 p-3 text-center shadow-sm"
+              data-schedule-empty-state="true"
+            >
+              <p className="text-sm font-semibold text-foreground/70">
                 일정 없음
               </p>
               {onAddSchedule && (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 px-3 text-xs font-semibold"
+                  className="h-7 px-3 text-xs font-bold shadow-sm"
                   onClick={(e) => {
                     e.stopPropagation();
                     onAddSchedule(member.uid);

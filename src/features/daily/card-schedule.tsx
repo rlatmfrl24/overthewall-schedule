@@ -1,5 +1,5 @@
 import type { ScheduleItem, ScheduleStatus } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, getContrastColor } from "@/lib/utils";
 import { Ban, Clock3, Flame, Radio } from "lucide-react";
 
 interface CardScheduleProps {
@@ -16,6 +16,7 @@ export const CardSchedule = ({
   const isBroadcast = schedule.status === "방송";
   const isOff = schedule.status === "휴방";
   const isGuerrilla = schedule.status === "게릴라";
+  const accentTextColor = getContrastColor(accentColor);
 
   const rawTitle = schedule.title?.trim() ?? "";
   const isDuplicatedStatusTitle =
@@ -34,23 +35,42 @@ export const CardSchedule = ({
       : fallbackTitleByStatus[schedule.status];
 
   const statusMeta =
-    schedule.status === "휴방"
+    schedule.status === "방송"
       ? {
-        label: "휴방",
-        className: "text-rose-600 dark:text-rose-300",
-        icon: Ban,
-      }
-      : schedule.status === "게릴라"
-        ? {
-          label: "게릴라 방송",
-          className: "text-amber-600 dark:text-amber-300",
-          icon: Flame,
-        }
-        : {
-          label: "시간 미정",
-          className: "text-slate-600 dark:text-slate-300",
+          label: "방송",
           icon: Radio,
-        };
+          cardClassName: "border-border/75 bg-background/90",
+          chipClassName: "",
+        }
+      : schedule.status === "휴방"
+        ? {
+            label: "휴방",
+            icon: Ban,
+            cardClassName:
+              "border-rose-200/90 bg-background/90 dark:border-rose-900/70 dark:bg-card/90",
+            chipClassName:
+              "border-transparent bg-rose-600 text-white dark:bg-rose-500 dark:text-white",
+          }
+        : schedule.status === "게릴라"
+          ? {
+              label: "게릴라 방송",
+              icon: Flame,
+              cardClassName:
+                "border-amber-300/90 bg-background/90 dark:border-amber-800/80 dark:bg-card/90",
+              chipClassName:
+                "border-transparent bg-amber-200 text-amber-950 dark:bg-amber-300 dark:text-amber-950",
+            }
+          : {
+              label: "시간 미정",
+              icon: Radio,
+              cardClassName:
+                "border-slate-200/90 bg-background/90 dark:border-slate-800/80 dark:bg-card/90",
+              chipClassName:
+                "border-transparent bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-950",
+            };
+  const StatusIcon = statusMeta.icon;
+  const shouldShowTimeFallback = !schedule.start_time && !isOff;
+  const displayTime = schedule.start_time ?? (shouldShowTimeFallback ? "미정" : null);
 
   return (
     <div
@@ -58,47 +78,69 @@ export const CardSchedule = ({
         e.stopPropagation();
         onClick?.(schedule);
       }}
+      onKeyDown={(e) => {
+        if (!onClick || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClick(schedule);
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={`${schedule.status} ${displayTitle}${
+        displayTime ? ` ${displayTime}` : ""
+      }`}
       className={cn(
-        "group/schedule relative flex flex-col rounded-xl bg-card shadow-sm transition-all duration-200 min-h-[86px]",
-        "gap-2 p-3 hover:shadow-md hover:-translate-y-0.5 cursor-pointer active:scale-[0.98] border border-transparent hover:border-border",
-        isOff && "border-rose-200/70 bg-rose-50/40 dark:border-rose-900/50 dark:bg-rose-950/20",
-        isGuerrilla && "border-amber-200/70 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/20"
+        "group/schedule relative flex min-h-[84px] flex-col overflow-hidden rounded-xl border p-3 text-left shadow-sm transition-all duration-200",
+        "gap-2.5 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]",
+        onClick &&
+          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2",
+        statusMeta.cardClassName
       )}
+      data-schedule-card="true"
+      data-schedule-status={schedule.status}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex min-h-6 items-center justify-between gap-2">
         {isBroadcast ? (
           <span
-            className="inline-flex items-center rounded-md px-2 py-1 text-[11px] font-bold tracking-tight leading-none"
+            className="inline-flex min-h-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-extrabold leading-none tracking-tight shadow-sm"
             style={{
               backgroundColor: accentColor,
-              color: "#ffffff",
+              color: accentTextColor,
             }}
+            data-schedule-status-chip="true"
           >
-            {schedule.status}
+            <StatusIcon className="h-3.5 w-3.5" />
+            {statusMeta.label}
           </span>
         ) : (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-xs font-bold leading-none",
-              statusMeta.className
+              "inline-flex min-h-6 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-extrabold leading-none tracking-tight shadow-sm",
+              statusMeta.chipClassName
             )}
+            data-schedule-status-chip="true"
           >
-            <statusMeta.icon className="h-3.5 w-3.5" />
+            <StatusIcon className="h-3.5 w-3.5" />
             {statusMeta.label}
           </span>
         )}
-        {schedule.start_time && (
-          <div className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted/80 px-2 py-1 text-[13px] font-black leading-none tracking-tight text-foreground tabular-nums">
+        {displayTime && (
+          <div
+            className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/70 px-2 py-1 text-[13px] font-black leading-none tracking-tight text-foreground shadow-sm tabular-nums"
+            data-schedule-time="true"
+          >
             <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
-            {schedule.start_time}
+            {displayTime}
           </div>
         )}
       </div>
       <p
         className={cn(
-          "text-sm font-bold text-foreground line-clamp-2 leading-snug group-hover/schedule:text-foreground transition-colors",
-          !isBroadcast && "leading-relaxed"
+          "line-clamp-2 text-[15px] font-black leading-5 text-foreground transition-colors group-hover/schedule:text-foreground",
+          isOff && "text-foreground",
+          isGuerrilla && "text-foreground"
         )}
+        data-schedule-title="true"
       >
         {displayTitle}
       </p>
