@@ -162,6 +162,10 @@ const makeCacheDb = (
               return { results: [] as T[] };
             },
             async run() {
+              if (sql.includes("INSERT INTO settings")) {
+                const [key, value] = args;
+                store.set(String(key), { value: String(value) });
+              }
               if (sql.includes("INSERT INTO x_api_cache")) {
                 const [key, type, value, fetchedAt, expiresAt] = args;
                 store.set(String(key), {
@@ -219,6 +223,19 @@ const makeCacheDb = (
                   updated_at: Number(updatedAt),
                   last_error: lastError === null ? null : String(lastError),
                 });
+              }
+              if (sql.includes("UPDATE x_post_sources")) {
+                const [lastCheckedAt, updatedAt, lastError, handle] = args;
+                const key = String(handle);
+                const current = sources.get(key);
+                if (current) {
+                  sources.set(key, {
+                    ...current,
+                    last_checked_at: Number(lastCheckedAt),
+                    updated_at: Number(updatedAt),
+                    last_error: lastError === null ? null : String(lastError),
+                  });
+                }
               }
               if (sql.includes("INSERT INTO x_api_usage_events")) {
                 const [
@@ -772,6 +789,53 @@ describe("x worker service", () => {
     expect(posts.has("cached")).toBe(true);
   });
 
+  it("백그라운드 수집은 최근 확인한 저장 게시글이 있으면 X API 호출을 건너뛴다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const currentTime = Date.now();
+    const cachedPost = makePost("p1", "otw_member");
+    const { db, posts, sources, collectionRuns } = makeCacheDb();
+    posts.set("p1", {
+      id: "p1",
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(cachedPost),
+      created_at: cachedPost.createdAt,
+      fetched_at: currentTime,
+      hidden_at: null,
+    });
+    sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: "p1",
+      last_checked_at: currentTime,
+      updated_at: currentTime,
+      last_error: null,
+    });
+
+    const result = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      checkedHandles: 1,
+      refreshedHandles: 0,
+      apiCalls: 0,
+      status: "skipped",
+      error: "all_handles_cooldown",
+    });
+    expect(collectionRuns[0]).toMatchObject({
+      status: "skipped",
+      error: "all_handles_cooldown",
+      api_calls: 0,
+    });
+  });
+
   it("백그라운드 수집은 D1 게시글 저장 실패를 실패 결과로 기록한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
@@ -849,6 +913,45 @@ describe("x worker service", () => {
     expect(result.byHandle[0]).toMatchObject({
       error: "budget_exceeded",
       errorStatus: 429,
+    });
+  });
+
+  it("429 응답을 받으면 reset 시각까지 추가 X API 호출을 막는다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const fetchMock = vi.mocked(fetch);
+    const resetAt = Date.parse("2026-02-13T00:15:00Z");
+    fetchMock.mockResolvedValueOnce(
+      new Response("rate limited", {
+        status: 429,
+        headers: { "x-rate-limit-reset": String(Math.floor(resetAt / 1000)) },
+      }),
+    );
+    const { db, store } = makeCacheDb();
+
+    const first = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({
+      status: "failed",
+      apiCalls: 1,
+    });
+    expect(store.get("x_api_backoff_until")?.value).toBe(String(resetAt));
+
+    fetchMock.mockClear();
+    const second = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(second).toMatchObject({
+      status: "failed",
+      apiCalls: 0,
     });
   });
 
@@ -1200,6 +1303,81 @@ describe("x worker service", () => {
     });
   });
 
+  it("캐시된 X 게시글 링크 프리뷰는 추가 lookup 없이 사용한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p1",
+              text: "quoted https://t.co/status",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+              entities: {
+                urls: [
+                  {
+                    url: "https://t.co/status",
+                    expanded_url: "https://x.com/linked_member/status/9876543210",
+                    display_url: "x.com/linked_member/status/9876543210",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+
+    const cachedPreview = {
+      id: "9876543210",
+      text: "cached linked body",
+      createdAt: "2026-02-12T23:00:00Z",
+      url: "https://x.com/linked_member/status/9876543210",
+      username: "linked_member",
+      name: "Linked Member",
+      profileImageUrl: null,
+      metrics: {
+        likeCount: 1,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+      media: [],
+    };
+    const { db } = makeCacheDb({
+      "x:linked-post:v1:9876543210": {
+        type: "linked_post",
+        value: JSON.stringify({ post: cachedPreview }),
+        fetched_at: Date.now(),
+        expires_at: Date.now() + 7 * 24 * 60 * 60_000,
+      },
+    });
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.posts[0]?.links?.[0]).toMatchObject({
+      description: "cached linked body",
+      linkedPost: {
+        id: "9876543210",
+        text: "cached linked body",
+      },
+    });
+  });
+
   it("X 게시글 링크 프리뷰 옵션이 꺼져 있으면 추가 lookup을 호출하지 않는다", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
@@ -1417,10 +1595,31 @@ describe("x worker service", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600",
+    );
     await expect(response.json()).resolves.toMatchObject({
       posts: [],
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("회원 전용 X 게시글 응답은 공용 캐시에 저장되지 않도록 no-store로 반환한다", async () => {
+    const request = await makeAdminRequest(
+      "https://example.com/api/x/posts?handles=otw_member",
+    );
+
+    const response = await handleXPosts(
+      request,
+      makeRouteEnv(makeCacheDb().db),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization");
+    await expect(response.json()).resolves.toMatchObject({
+      posts: [],
+    });
   });
 
   it("public 공개 범위에서도 debug refresh는 관리자 인증 없이는 차단한다", async () => {
@@ -1466,6 +1665,8 @@ describe("x worker service", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization");
     await expect(response.json()).resolves.toMatchObject({
       posts: [],
       byHandle: [{ handle: "otw_member", posts: [] }],

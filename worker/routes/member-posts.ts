@@ -153,8 +153,9 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
   }
 
   const db = getDb(env);
-  const force = url.searchParams.has("_") || request.cache === "no-store";
   const adminView = url.searchParams.get("admin") === "1";
+  const requestedForce = url.searchParams.has("_") || request.cache === "no-store";
+  const force = adminView && requestedForce;
   const configs = await readPostConfigs(db);
 
   if (adminView) {

@@ -3,6 +3,7 @@
   const EXTENSION_PROTOCOL_VERSION = 1;
   const INTERNAL_FRAME_READY = "OTW_EXTENSION_FRAME_READY";
   const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
+  const INTERNAL_CHAT_LOGIN_SYNCED = "OTW_EXTENSION_CHAT_LOGIN_SYNCED";
   const CHANNEL_ID_PATTERN = /^[a-f0-9]{32}$/i;
   const WIDE_MODE_KEYWORDS = [
     "넓은",
@@ -12,7 +13,12 @@
     "theater",
     "theatre",
   ];
-  const CHZZK_VIEWMODE_BUTTON_SELECTOR = ".pzp-pc__viewmode-button";
+  const CHZZK_VIEWMODE_BUTTON_SELECTOR = [
+    ".pzp-pc__viewmode-button",
+    ".pzp-pc-viewmode-button",
+    "button[class*='viewmode-button']",
+    "[role='button'][class*='viewmode-button']",
+  ].join(",");
   const CHZZK_VIDEO_SELECTOR = "video.webplayer-internal-video";
   const CHZZK_PLAYER_WAKE_TARGET_SELECTORS = [
     CHZZK_VIDEO_SELECTOR,
@@ -527,6 +533,24 @@
 
   if (!frameInfo || !runtime) return;
 
+  const reloadChatFrameAfterLoginSync = (syncId?: unknown) => {
+    if (frameInfo.kind !== "chat") return false;
+
+    const key = `otwSchedulePlusChatLoginReloaded:${frameInfo.channelId}`;
+    const marker =
+      typeof syncId === "string" && syncId.trim() ? syncId : "legacy";
+
+    try {
+      if (window.sessionStorage.getItem(key) === marker) return false;
+      window.sessionStorage.setItem(key, marker);
+    } catch {
+      // If sessionStorage is unavailable, still prefer one best-effort reload.
+    }
+
+    window.location.reload();
+    return true;
+  };
+
   const announceFrameBridgeToParent = () => {
     if (window.parent === window) return;
 
@@ -540,7 +564,6 @@
           payload: {
             capabilities: ["wideMode", "chatLoginBridge"],
             channelId: frameInfo.channelId,
-            chatLoginBridgeStatus: "disabled",
             frameKind: frameInfo.kind,
             source: "chzzk-frame",
           },
@@ -583,8 +606,19 @@
         typeof message !== "object" ||
         message === null ||
         !("kind" in message) ||
-        message.kind !== INTERNAL_RUN_WIDE_MODE
+        (message.kind !== INTERNAL_RUN_WIDE_MODE &&
+          message.kind !== INTERNAL_CHAT_LOGIN_SYNCED)
       ) {
+        return false;
+      }
+
+      if (message.kind === INTERNAL_CHAT_LOGIN_SYNCED) {
+        sendResponse({
+          ok: true,
+          reloaded: reloadChatFrameAfterLoginSync(
+            "syncId" in message ? message.syncId : undefined,
+          ),
+        });
         return false;
       }
 

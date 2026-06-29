@@ -52,6 +52,47 @@ const setCookie = (chromeApi: ChromeApi, details: ChromeCookieSetDetails) =>
     });
   });
 
+const shouldUpdatePartitionedCookie = (
+  current: ChromeCookie | undefined,
+  next: ChromeCookieSetDetails,
+) => {
+  if (!current) return true;
+  if (current.value !== next.value) return true;
+  if (current.httpOnly !== next.httpOnly) return true;
+  if (current.secure !== true) return true;
+  if (current.sameSite !== "no_restriction") return true;
+
+  if (
+    typeof current.expirationDate === "number" &&
+    typeof next.expirationDate === "number" &&
+    Math.abs(current.expirationDate - next.expirationDate) > 60
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const setCookieIfChanged = async (
+  chromeApi: ChromeApi,
+  details: ChromeCookieSetDetails,
+) => {
+  const current = await getCookie(chromeApi, {
+    name: details.name,
+    partitionKey: details.partitionKey,
+    storeId: details.storeId,
+    url: details.url,
+  }).catch(() => undefined);
+
+  if (!shouldUpdatePartitionedCookie(current, details)) {
+    return "unchanged" as const;
+  }
+
+  return (await setCookie(chromeApi, details))
+    ? ("set" as const)
+    : ("failed" as const);
+};
+
 export const getNaverLoginCookies = async (chromeApi: ChromeApi) => {
   const cookies = await Promise.all(
     NAVER_LOGIN_COOKIE_SPECS.map(async (spec) => {
@@ -180,7 +221,9 @@ export const getChatFramePartitionKeys = async ({
     return dedupePartitionKeys(framePartitionKeys);
   }
 
-  return fallbackTopLevelSite ? [{ topLevelSite: fallbackTopLevelSite }] : [];
+  return fallbackTopLevelSite
+    ? expandLikelyPartitionKeys([{ topLevelSite: fallbackTopLevelSite }])
+    : [];
 };
 
 export const syncNaverLoginCookiesToPartitions = async ({
@@ -195,20 +238,38 @@ export const syncNaverLoginCookiesToPartitions = async ({
 
   try {
     const loginCookies = await getNaverLoginCookies(chromeApi);
-    if (loginCookies.length === 0) return "needs_login";
+    if (loginCookies.length < NAVER_LOGIN_COOKIE_SPECS.length) {
+      return "needs_login";
+    }
 
-    const results = await Promise.all(
-      partitionKeys.flatMap((partitionKey) =>
-        loginCookies.map(({ cookie, spec }) =>
-          setCookie(
-            chromeApi,
-            buildPartitionedLoginCookieDetails(cookie, spec.url, partitionKey),
+    const resultsByPartition = await Promise.all(
+      partitionKeys.map((partitionKey) =>
+        Promise.all(
+          loginCookies.map(({ cookie, spec }) =>
+            setCookieIfChanged(
+              chromeApi,
+              buildPartitionedLoginCookieDetails(
+                cookie,
+                spec.url,
+                partitionKey,
+              ),
+            ),
           ),
         ),
       ),
     );
 
-    return results.some(Boolean) ? "enabled" : "unsupported";
+    const hasCompletePartition = resultsByPartition.some((results) =>
+      results.every((result) => result === "set" || result === "unchanged"),
+    );
+
+    if (hasCompletePartition) return "enabled";
+
+    const hasFailedWrite = resultsByPartition.some((results) =>
+      results.some((result) => result === "failed"),
+    );
+
+    return hasFailedWrite ? "error" : "unsupported";
   } catch {
     return "error";
   }

@@ -369,6 +369,39 @@ describe("MultiviewPage", () => {
     expect(within(panel).getByText("확장 연결됨")).toBeTruthy();
   });
 
+  it("ignores extension state spoofing from selected CHZZK frames", () => {
+    window.history.replaceState(null, "", `/multiview?c=${CHANNEL_A}`);
+
+    renderPage();
+
+    const liveFrame = screen.getByTestId(
+      "multiview-live-frame",
+    ) as HTMLIFrameElement;
+    const chatFrame = screen.getByTitle("라이브 멤버 CHZZK chat");
+    expect(chatFrame.hasAttribute("credentialless")).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CHAT_LOGIN_STATUS",
+            payload: {
+              status: "enabled",
+            },
+          },
+          origin: "https://chzzk.naver.com",
+          source: liveFrame.contentWindow,
+        }),
+      );
+    });
+
+    expect(screen.getByTitle("라이브 멤버 CHZZK chat")).toBe(chatFrame);
+    expect(chatFrame.hasAttribute("credentialless")).toBe(true);
+  });
+
   it("auto-collapses the source panel into a reserved rail when the viewport becomes narrow", () => {
     const media = installMatchMedia({
       "(min-width: 1024px)": true,
@@ -666,6 +699,57 @@ describe("MultiviewPage", () => {
         .getByTitle("라이브 멤버 CHZZK chat")
         .hasAttribute("credentialless"),
     ).toBe(false);
+  });
+
+  it("keeps the chat iframe in login mode when periodic ready messages arrive", () => {
+    window.history.replaceState(null, "", `/multiview?c=${CHANNEL_A}`);
+
+    renderPage();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CAPABILITIES",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "enabled",
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    const chatFrame = screen.getByTitle("라이브 멤버 CHZZK chat");
+    expect(chatFrame.hasAttribute("credentialless")).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "READY",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "disabled",
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    const nextChatFrame = screen.getByTitle("라이브 멤버 CHZZK chat");
+    expect(nextChatFrame).toBe(chatFrame);
+    expect(nextChatFrame.hasAttribute("credentialless")).toBe(false);
   });
 
   it("opens the right chat dock by default when channels are restored", () => {

@@ -19,7 +19,6 @@ import {
 } from "./chrome-api.js";
 import {
   getChatFramePartitionKeys,
-  isNaverLoginCookieName,
   syncNaverLoginCookiesToPartitions,
 } from "./cookie-bridge.js";
 import { removeLegacyChatCookieBlockerForTab } from "./chat-cookie-blocker.js";
@@ -30,13 +29,19 @@ const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
 const INTERNAL_WEB_APP_MESSAGE = "OTW_EXTENSION_WEB_APP_MESSAGE";
 const INTERNAL_INJECT_BRIDGE_ACTIVE_TAB =
   "OTW_EXTENSION_INJECT_BRIDGE_ACTIVE_TAB";
+const INTERNAL_CHAT_LOGIN_SETTING_CHANGED =
+  "OTW_EXTENSION_CHAT_LOGIN_SETTING_CHANGED";
+const INTERNAL_CHAT_LOGIN_SYNCED = "OTW_EXTENSION_CHAT_LOGIN_SYNCED";
 const OTW_BRIDGE_SCRIPT_FILE = "otw-bridge.js";
 const CHAT_LOGIN_STORAGE_KEY = "otwSchedulePlusChatLoginBridgeEnabled";
+const CHAT_LOGIN_STATUS_STORAGE_KEY =
+  "otwSchedulePlusChatLoginBridgeStatus";
 const PLAYER_OPTIMIZATION_STORAGE_KEY =
   "otw:schedule-plus:multiview:player-optimization-enabled";
 const STALE_FRAME_TTL_MS = 60_000;
 const FRAME_REGISTRATION_WAIT_MS = 5_000;
 const FRAME_REGISTRATION_POLL_MS = 250;
+const CHAT_LOGIN_SYNC_COOLDOWN_MS = 30_000;
 const AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS = [
   600, 1_800, 4_000, 8_000, 12_000,
 ] as const;
@@ -55,8 +60,26 @@ const pendingFrameOptimizations = new Map<
 >();
 const optimizedFrameSignatures = new Map<string, string>();
 const scheduledFrameOptimizationSignatures = new Map<string, string>();
+const chatLoginReloadedFrameSignatures = new Map<string, string>();
+const chatLoginSyncInFlightByScope = new Map<
+  string,
+  Promise<ChatLoginBridgeStatus>
+>();
+const lastChatLoginSyncByScope = new Map<
+  string,
+  { lastSyncedAt: number; status: ChatLoginBridgeStatus }
+>();
 const trustedMultiviewTabs = new Map<number, { lastSeenAt: number; url: string }>();
-let hasRegisteredCookieChangeListener = false;
+let pendingUserRequestedChatLoginSync = false;
+
+const CHAT_LOGIN_STATUSES = new Set<ChatLoginBridgeStatus>([
+  "disabled",
+  "enabled",
+  "needs_login",
+  "permission_missing",
+  "unsupported",
+  "error",
+]);
 
 const getFrameKey = (tabId: number, frameId: number) => `${tabId}:${frameId}`;
 const getFrameSignature = (frame: RegisteredChzzkFrame) =>
@@ -67,6 +90,7 @@ const removeFrameState = (key: string) => {
   pendingFrameOptimizations.delete(key);
   optimizedFrameSignatures.delete(key);
   scheduledFrameOptimizationSignatures.delete(key);
+  chatLoginReloadedFrameSignatures.delete(key);
 };
 
 const isSuccessfulWideModeResult = (result: WideModeResult) =>
@@ -126,6 +150,18 @@ const pruneStaleFrames = () => {
   });
 };
 
+const removeChatLoginSyncStateForTab = (tabId: number) => {
+  const keyPrefix = `${tabId}:`;
+  for (const key of [
+    ...chatLoginSyncInFlightByScope.keys(),
+    ...lastChatLoginSyncByScope.keys(),
+  ]) {
+    if (!key.startsWith(keyPrefix)) continue;
+    chatLoginSyncInFlightByScope.delete(key);
+    lastChatLoginSyncByScope.delete(key);
+  }
+};
+
 const removeFrameStateForTab = (tabId: number) => {
   const keyPrefix = `${tabId}:`;
   const keys = new Set([
@@ -133,6 +169,7 @@ const removeFrameStateForTab = (tabId: number) => {
     ...pendingFrameOptimizations.keys(),
     ...optimizedFrameSignatures.keys(),
     ...scheduledFrameOptimizationSignatures.keys(),
+    ...chatLoginReloadedFrameSignatures.keys(),
   ]);
 
   for (const key of keys) {
@@ -140,6 +177,7 @@ const removeFrameStateForTab = (tabId: number) => {
   }
 
   trustedMultiviewTabs.delete(tabId);
+  removeChatLoginSyncStateForTab(tabId);
 };
 
 const getStorageValue = (key: string) =>
@@ -165,6 +203,20 @@ const setStorageValue = (key: string, value: unknown) =>
 
     chromeApi.storage.local.set({ [key]: value }, () => resolve());
   });
+
+const isChatLoginBridgeStatus = (
+  value: unknown,
+): value is ChatLoginBridgeStatus =>
+  typeof value === "string" &&
+  CHAT_LOGIN_STATUSES.has(value as ChatLoginBridgeStatus);
+
+const getStoredChatLoginStatus = async () => {
+  const status = await getStorageValue(CHAT_LOGIN_STATUS_STORAGE_KEY);
+  return isChatLoginBridgeStatus(status) ? status : null;
+};
+
+const setStoredChatLoginStatus = (status: ChatLoginBridgeStatus) =>
+  setStorageValue(CHAT_LOGIN_STATUS_STORAGE_KEY, status);
 
 const sendFrameMessage = (
   tabId: number,
@@ -292,7 +344,12 @@ const runWideModeForChannels = async (
 };
 
 const isTrustedMultiviewTab = (tabId: number, topLevelUrl?: string) => {
-  if (isAllowedOtwBridgeMultiviewUrl(topLevelUrl)) return true;
+  if (typeof topLevelUrl === "string") {
+    if (isAllowedOtwBridgeMultiviewUrl(topLevelUrl)) return true;
+    trustedMultiviewTabs.delete(tabId);
+    removeChatLoginSyncStateForTab(tabId);
+    return false;
+  }
 
   const trustedTab = trustedMultiviewTabs.get(tabId);
   if (!trustedTab) return false;
@@ -510,8 +567,45 @@ const maybeInjectOtwBridgeIntoUpdatedTab = (
   tab: { id?: number; url?: string },
 ) => {
   const url = changeInfo.url ?? tab.url;
+  const resolvedTabId = tab.id ?? tabId;
+  if (typeof url === "string" && !isAllowedOtwBridgeMultiviewUrl(url)) {
+    removeFrameStateForTab(resolvedTabId);
+    return;
+  }
+
   if (changeInfo.status && changeInfo.status !== "complete") return;
-  injectOtwBridgeIntoTab(tab.id ?? tabId, url);
+  injectOtwBridgeIntoTab(resolvedTabId, url);
+};
+
+const getMostRecentTrustedMultiviewUrl = () =>
+  [...trustedMultiviewTabs.values()]
+    .filter((tab) => Date.now() - tab.lastSeenAt <= STALE_FRAME_TTL_MS)
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+    .find((tab) => isAllowedOtwBridgeMultiviewUrl(tab.url))?.url;
+
+const getChatLoginFallbackTopLevelSite = ({
+  referrer,
+  tabId,
+  url,
+}: {
+  referrer?: string;
+  tabId?: number;
+  url?: string;
+}) => {
+  const candidates = [
+    url,
+    typeof tabId === "number" ? trustedMultiviewTabs.get(tabId)?.url : undefined,
+    referrer,
+    getMostRecentTrustedMultiviewUrl(),
+  ];
+
+  for (const candidate of candidates) {
+    if (!isAllowedOtwBridgeMultiviewUrl(candidate)) continue;
+    const topLevelSite = getOtwTopLevelSite(candidate);
+    if (topLevelSite) return topLevelSite;
+  }
+
+  return null;
 };
 
 const hasChatLoginCookiePermission = () =>
@@ -553,34 +647,14 @@ const requestChatLoginCookiePermission = () =>
     }
   });
 
-const registerCookieChangeListener = () => {
-  if (hasRegisteredCookieChangeListener) return;
-
-  const onChanged = getChromeApi()?.cookies?.onChanged;
-  if (!onChanged?.addListener) return;
-
-  onChanged.addListener(({ cookie, removed }) => {
-    if (removed || !isNaverLoginCookieName(cookie.name)) return;
-
-    void getChatLoginBridgeEnabled().then((enabled) => {
-      if (!enabled) return;
-      void syncChatLoginCookies({ topLevelSite: null });
-    });
-  });
-
-  hasRegisteredCookieChangeListener = true;
-};
-
 const ensureChatLoginCookiePermission = async (promptForPermission: boolean) => {
   if (await hasChatLoginCookiePermission()) {
-    registerCookieChangeListener();
     return true;
   }
 
   if (!promptForPermission) return false;
 
   const granted = await requestChatLoginCookiePermission();
-  if (granted) registerCookieChangeListener();
   return granted;
 };
 
@@ -611,10 +685,150 @@ const syncChatLoginCookies = async (
   return syncNaverLoginCookiesToPartitions({ chromeApi, partitionKeys });
 };
 
+const syncChatLoginCookiesWithCooldown = async (
+  input: Parameters<typeof syncChatLoginCookies>[0],
+  options: { force?: boolean } = {},
+) => {
+  const now = Date.now();
+  const scopeKey = `${input.tabId ?? "all"}:${input.topLevelSite ?? "unknown"}`;
+  const cached = lastChatLoginSyncByScope.get(scopeKey);
+
+  if (!options.force && cached) {
+    if (now - cached.lastSyncedAt < CHAT_LOGIN_SYNC_COOLDOWN_MS) {
+      return cached.status;
+    }
+  }
+
+  const inFlight = chatLoginSyncInFlightByScope.get(scopeKey);
+  if (inFlight) return inFlight;
+
+  const promise = syncChatLoginCookies(input)
+    .then((status) => {
+      lastChatLoginSyncByScope.set(scopeKey, {
+        lastSyncedAt: Date.now(),
+        status,
+      });
+      return status;
+    })
+    .finally(() => {
+      chatLoginSyncInFlightByScope.delete(scopeKey);
+    });
+
+  chatLoginSyncInFlightByScope.set(scopeKey, promise);
+  return promise;
+};
+
+const notifyChatLoginSyncedFrame = (
+  frame: RegisteredChzzkFrame,
+  status: ChatLoginBridgeStatus,
+) => {
+  if (status !== "enabled") return;
+
+  const key = getFrameKey(frame.tabId, frame.frameId);
+  const signature = getFrameSignature(frame);
+  if (chatLoginReloadedFrameSignatures.get(key) === signature) return;
+  chatLoginReloadedFrameSignatures.set(key, signature);
+
+  const chromeApi = getChromeApi();
+  if (!chromeApi?.tabs?.sendMessage) return;
+
+  chromeApi.tabs.sendMessage(
+    frame.tabId,
+    {
+      kind: INTERNAL_CHAT_LOGIN_SYNCED,
+      status,
+      syncId: `${Date.now()}:${signature}`,
+    },
+    { frameId: frame.frameId },
+    () => {
+      const error = getChromeApi()?.runtime.lastError?.message;
+      if (error && chatLoginReloadedFrameSignatures.get(key) === signature) {
+        chatLoginReloadedFrameSignatures.delete(key);
+      }
+    },
+  );
+};
+
+const notifyChatLoginSyncedFrames = (
+  tabId: number | undefined,
+  status: ChatLoginBridgeStatus,
+) => {
+  if (status !== "enabled") return;
+
+  for (const frame of frames.values()) {
+    if (frame.kind !== "chat") continue;
+    if (typeof tabId === "number" && frame.tabId !== tabId) continue;
+    if (
+      !isTrustedMultiviewTab(frame.tabId) &&
+      !isTrustedFrameReferrer(frame.referrer)
+    ) {
+      continue;
+    }
+
+    notifyChatLoginSyncedFrame(frame, status);
+  }
+};
+
+const enableChatLoginBridge = async (
+  input: Parameters<typeof syncChatLoginCookies>[0],
+) => {
+  await setStorageValue(CHAT_LOGIN_STORAGE_KEY, true);
+  chatLoginReloadedFrameSignatures.clear();
+
+  const status = await syncChatLoginCookiesWithCooldown(input, { force: true });
+  await setStoredChatLoginStatus(status);
+  pendingUserRequestedChatLoginSync = status !== "enabled";
+  notifyChatLoginSyncedFrames(input.tabId, status);
+
+  return status;
+};
+
 const disableChatLoginCookies = async (tabId?: number) => {
   const chromeApi = getChromeApi();
+  pendingUserRequestedChatLoginSync = false;
+  chatLoginReloadedFrameSignatures.clear();
+  lastChatLoginSyncByScope.clear();
   await removeLegacyChatCookieBlockerForTab(chromeApi, tabId);
+  await setStoredChatLoginStatus("disabled");
   return "disabled" satisfies ChatLoginBridgeStatus;
+};
+
+const runChatLoginSyncForRegisteredFrame = (
+  frame: RegisteredChzzkFrame,
+  sender: ChromeMessageSender,
+) => {
+  if (frame.kind !== "chat") return;
+  if (
+    !isTrustedMultiviewTab(frame.tabId, sender.tab?.url) &&
+    !isTrustedFrameReferrer(frame.referrer)
+  ) {
+    return;
+  }
+
+  const tabId = sender.tab?.id;
+  void getChatLoginBridgeEnabled().then((enabled) => {
+    if (!enabled) return;
+
+    void syncChatLoginCookiesWithCooldown(
+      {
+        promptForPermission: false,
+        tabId,
+        topLevelSite: getChatLoginFallbackTopLevelSite({
+          referrer:
+            typeof frame.referrer === "string" ? frame.referrer : undefined,
+          tabId,
+          url: sender.tab?.url,
+        }),
+      },
+      { force: pendingUserRequestedChatLoginSync },
+    ).then((status) => {
+      if (pendingUserRequestedChatLoginSync) {
+        pendingUserRequestedChatLoginSync = status !== "enabled";
+      }
+      void setStoredChatLoginStatus(status);
+      notifyChatLoginSyncedFrame(frame, status);
+    });
+  });
 };
 
 const getChatLoginBridgeEnabled = async () => {
@@ -628,7 +842,13 @@ const getPlayerOptimizationEnabled = async () => {
 };
 
 const getChatLoginStatus = async (): Promise<ChatLoginBridgeStatus> => {
-  return (await getChatLoginBridgeEnabled()) ? "enabled" : "disabled";
+  if (!(await getChatLoginBridgeEnabled())) return "disabled";
+  if (!(await hasChatLoginCookiePermission())) return "permission_missing";
+
+  const storedStatus = await getStoredChatLoginStatus();
+  if (storedStatus && storedStatus !== "disabled") return storedStatus;
+
+  return "enabled";
 };
 
 const buildCapabilitiesPayload = async () => ({
@@ -659,21 +879,9 @@ const handleWebAppMessage = async (
   switch (message.type) {
     case "PING":
     case "GET_CAPABILITIES": {
-      const chatLoginBridgeEnabled = await getChatLoginBridgeEnabled();
-      const chatLoginBridgeStatus = chatLoginBridgeEnabled
-        ? await syncChatLoginCookies({
-            promptForPermission: false,
-            tabId,
-            topLevelSite: getOtwTopLevelSite(sender.url),
-          })
-        : await disableChatLoginCookies(tabId);
-
       return createExtensionMessage(
         "CAPABILITIES",
-        {
-          ...(await buildCapabilitiesPayload()),
-          chatLoginBridgeStatus,
-        },
+        await buildCapabilitiesPayload(),
         message.requestId,
         message.namespace,
       );
@@ -698,15 +906,18 @@ const handleWebAppMessage = async (
       const payload = isPlainObject(message.payload) ? message.payload : {};
       const enabled = payload.enabled === true;
 
-      await setStorageValue(CHAT_LOGIN_STORAGE_KEY, enabled);
-
       const status = enabled
-        ? await syncChatLoginCookies({
-            promptForPermission: true,
-            tabId,
-            topLevelSite: getOtwTopLevelSite(sender.url),
-          })
+        ? await enableChatLoginBridge({
+              promptForPermission: true,
+              tabId,
+              topLevelSite: getChatLoginFallbackTopLevelSite({
+                tabId,
+                url: sender.url ?? sender.tab?.url,
+              }),
+            })
         : await disableChatLoginCookies(tabId);
+
+      if (!enabled) await setStorageValue(CHAT_LOGIN_STORAGE_KEY, false);
 
       return createExtensionMessage(
         "CHAT_LOGIN_STATUS",
@@ -725,6 +936,28 @@ const handleWebAppMessage = async (
   }
 };
 
+const handleChatLoginSettingChanged = async (
+  message: Record<string, unknown>,
+  sender: ChromeMessageSender,
+) => {
+  const enabled = message.enabled === true;
+  const tabId = sender.tab?.id;
+
+  return enabled
+    ? enableChatLoginBridge({
+          promptForPermission: false,
+          tabId,
+          topLevelSite: getChatLoginFallbackTopLevelSite({
+            tabId,
+            url: sender.url ?? sender.tab?.url,
+          }),
+        })
+    : disableChatLoginCookies(tabId).then(async (status) => {
+        await setStorageValue(CHAT_LOGIN_STORAGE_KEY, false);
+        return status;
+      });
+};
+
 getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!isPlainObject(message) || typeof message.kind !== "string") return false;
 
@@ -738,6 +971,13 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
     registerMultiviewTab(sender);
     sendResponse({ ok: true });
     return false;
+  }
+
+  if (message.kind === INTERNAL_CHAT_LOGIN_SETTING_CHANGED) {
+    handleChatLoginSettingChanged(message, sender)
+      .then((status) => sendResponse({ ok: true, status }))
+      .catch(() => sendResponse({ ok: false, status: "error" }));
+    return true;
   }
 
   if (message.kind === INTERNAL_FRAME_READY) {
@@ -778,16 +1018,19 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
         sender.tab?.url,
       );
 
-      if (frame.kind === "chat") {
-        void getChatLoginBridgeEnabled().then((enabled) => {
-          if (!enabled) return;
-          void syncChatLoginCookies({
-            promptForPermission: false,
-            tabId,
-            topLevelSite: null,
-          });
-        });
-      }
+      runChatLoginSyncForRegisteredFrame(
+        {
+          channelId: frame.channelId,
+          frameId,
+          kind: frame.kind,
+          lastSeenAt: Date.now(),
+          referrer:
+            typeof frame.referrer === "string" ? frame.referrer : undefined,
+          tabId,
+          url: frame.url,
+        },
+        sender,
+      );
     }
 
     sendResponse({ ok: true });
@@ -806,7 +1049,6 @@ getChromeApi()?.runtime.onMessage.addListener((message, sender, sendResponse) =>
   return false;
 });
 
-registerCookieChangeListener();
 injectOtwBridgeIntoOpenTabs();
 getChromeApi()?.runtime.onInstalled?.addListener(injectOtwBridgeIntoOpenTabs);
 getChromeApi()?.runtime.onStartup?.addListener(injectOtwBridgeIntoOpenTabs);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createSchedulePlusExtensionRequest,
+  isPlainObject,
   isSchedulePlusExtensionResponseMessage,
   parseChatLoginBridgeStatus,
   parseExtensionCapabilities,
@@ -29,6 +30,11 @@ const REQUEST_TIMEOUT_MS = 8000;
 const CAPABILITY_POLL_INTERVAL_MS = 5000;
 const INITIAL_HANDSHAKE_DELAYS_MS = [0, 250, 1000, 2500] as const;
 const CHZZK_FRAME_ORIGIN = "https://chzzk.naver.com";
+type SchedulePlusMessageSource = "otw-bridge" | "chzzk-frame" | "untrusted";
+
+const areStringArraysEqual = (left: string[], right: string[]) =>
+  left.length === right.length &&
+  left.every((value, index) => value === right[index]);
 
 const isTrustedChzzkFrameSource = (source: MessageEvent["source"]) => {
   if (!source || typeof document === "undefined") return false;
@@ -54,16 +60,29 @@ const isTrustedChzzkFrameSource = (source: MessageEvent["source"]) => {
   return false;
 };
 
-const isTrustedExtensionMessageEvent = (event: MessageEvent<unknown>) => {
+const getSchedulePlusMessageSource = (
+  event: MessageEvent<unknown>,
+): SchedulePlusMessageSource => {
   if (event.source === window && event.origin === window.location.origin) {
-    return true;
+    return "otw-bridge";
   }
 
-  return (
+  if (
     event.origin === CHZZK_FRAME_ORIGIN &&
     isTrustedChzzkFrameSource(event.source)
-  );
+  ) {
+    return "chzzk-frame";
+  }
+
+  return "untrusted";
 };
+
+const isChzzkFrameReadyMessage = (
+  message: SchedulePlusExtensionResponseMessage,
+) =>
+  message.type === "READY" &&
+  isPlainObject(message.payload) &&
+  message.payload.source === "chzzk-frame";
 
 export function useSchedulePlusExtension(channelIds: string[]) {
   const [state, setState] = useState<SchedulePlusExtensionState>(
@@ -118,27 +137,76 @@ export function useSchedulePlusExtension(channelIds: string[]) {
     const pendingRequests = pendingRequestsRef.current;
 
     const handleMessage = (event: MessageEvent<unknown>) => {
-      if (!isTrustedExtensionMessageEvent(event)) return;
+      const messageSource = getSchedulePlusMessageSource(event);
+      if (messageSource === "untrusted") return;
       if (!isSchedulePlusExtensionResponseMessage(event.data)) return;
 
       const message = event.data;
+      if (
+        messageSource === "chzzk-frame" &&
+        !isChzzkFrameReadyMessage(message)
+      ) {
+        return;
+      }
 
       setState((current) => {
         switch (message.type) {
-          case "READY":
+          case "READY": {
+            const capabilities =
+              messageSource === "otw-bridge"
+                ? parseExtensionCapabilities(message.payload)
+                : [];
+            const nextCapabilities =
+              capabilities.length > 0 ? capabilities : current.capabilities;
+            const playerOptimizationEnabled =
+              messageSource === "otw-bridge"
+                ? parsePlayerOptimizationEnabled(message.payload) ??
+                  current.playerOptimizationEnabled
+                : current.playerOptimizationEnabled;
+
+            if (
+              current.status === "ready" &&
+              current.lastError === null &&
+              current.playerOptimizationEnabled ===
+                playerOptimizationEnabled &&
+              areStringArraysEqual(current.capabilities, nextCapabilities)
+            ) {
+              return current;
+            }
+
+            return {
+              ...current,
+              capabilities: nextCapabilities,
+              lastError: null,
+              playerOptimizationEnabled,
+              status: "ready",
+            };
+          }
           case "CAPABILITIES": {
             const chatStatus =
               parseChatLoginBridgeStatus(message.payload) ??
               current.chatLoginBridgeStatus;
             const capabilities = parseExtensionCapabilities(message.payload);
+            const nextCapabilities =
+              capabilities.length > 0 ? capabilities : current.capabilities;
             const playerOptimizationEnabled =
               parsePlayerOptimizationEnabled(message.payload) ??
               current.playerOptimizationEnabled;
 
+            if (
+              current.status === "ready" &&
+              current.lastError === null &&
+              current.chatLoginBridgeStatus === chatStatus &&
+              current.playerOptimizationEnabled ===
+                playerOptimizationEnabled &&
+              areStringArraysEqual(current.capabilities, nextCapabilities)
+            ) {
+              return current;
+            }
+
             return {
               ...current,
-              capabilities:
-                capabilities.length > 0 ? capabilities : current.capabilities,
+              capabilities: nextCapabilities,
               chatLoginBridgeStatus: chatStatus,
               lastError: null,
               playerOptimizationEnabled,
@@ -180,7 +248,7 @@ export function useSchedulePlusExtension(channelIds: string[]) {
         }
       });
 
-      if (message.requestId) {
+      if (messageSource === "otw-bridge" && message.requestId) {
         const pending = pendingRequestsRef.current.get(message.requestId);
         if (pending) {
           window.clearTimeout(pending.timeoutId);

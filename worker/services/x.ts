@@ -113,6 +113,7 @@ type CachedXPostsEntry = {
 type StoredXPostsEntry = CachedXPostsEntry & {
   lastCheckedAt: number | null;
   lastSeenPostId: string | null;
+  lastError: string | null;
 };
 
 type StoredXPostsWriteResult = {
@@ -154,6 +155,10 @@ type XUserCacheValue = {
 type XPostsCacheValue = {
   userId: string | null;
   posts: XPostItem[];
+};
+
+type XLinkedPostCacheValue = {
+  post: XLinkedPostPreviewItem | null;
 };
 
 type XHandlePostsResult = {
@@ -240,17 +245,24 @@ export class XApiError extends Error {
 }
 
 const X_API_BASE_URL = "https://api.x.com/2";
+const X_API_BACKOFF_UNTIL_SETTING_KEY = "x_api_backoff_until";
 const X_USER_LOOKUP_TTL_MS = 30 * 24 * 60 * 60_000;
 const X_USER_NOT_FOUND_TTL_MS = 24 * 60 * 60_000;
 const X_USER_LOOKUP_STALE_TTL_MS = 90 * 24 * 60 * 60_000;
 const X_POSTS_TTL_MS = 60 * 60_000;
 const X_POSTS_STALE_TTL_MS = 24 * 60 * 60_000;
+const X_LINKED_POST_LOOKUP_TTL_MS = 7 * 24 * 60 * 60_000;
 const X_POSTS_CACHE_VERSION = "v3";
 const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
 const X_STORED_POSTS_RETAIN_LIMIT = 20;
 const X_COLLECTION_MAX_RESULTS = 5;
+const X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS = X_POSTS_TTL_MS;
+const X_COLLECTION_IDLE_CHECK_INTERVAL_MS = 12 * 60 * 60_000;
+const X_COLLECTION_DORMANT_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
+const X_COLLECTION_ERROR_BACKOFF_MS = 6 * 60 * 60_000;
+const X_COLLECTION_RATE_LIMIT_BACKOFF_MS = 60 * 60_000;
 const X_DAILY_BUDGET_CENTS_DEFAULT = 100;
 const X_POST_READ_COST_MICROS = 5_000;
 const X_USER_READ_COST_MICROS = 10_000;
@@ -285,6 +297,8 @@ const getPostsCacheKey = (
   `x:posts:${X_POSTS_CACHE_VERSION}:${normalizeHandle(
     handle,
   )}:${maxResults}:${richXLinkPreviewEnabled ? "rich" : "plain"}`;
+
+const getLinkedPostCacheKey = (id: string) => `x:linked-post:v1:${id}`;
 
 export const extractXHandleFromUrl = (value?: string | null): string | null => {
   if (!value) return null;
@@ -349,6 +363,29 @@ const readD1Setting = async (
   }
 };
 
+const writeD1Setting = async (
+  cacheDb: XCacheDb | undefined,
+  key: string,
+  value: string,
+) => {
+  if (!cacheDb) return;
+
+  try {
+    await cacheDb
+      .prepare(
+        `INSERT INTO settings (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(key, value, String(now()))
+      .run();
+  } catch (error) {
+    console.warn("Failed to write X setting", error);
+  }
+};
+
 const startOfUtcDay = (value = now()) => {
   const date = new Date(value);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -382,6 +419,54 @@ const readDailyBudgetMicros = async (cacheDb: XCacheDb | undefined) => {
   const safeCents =
     Number.isFinite(cents) && cents > 0 ? cents : X_DAILY_BUDGET_CENTS_DEFAULT;
   return safeCents * 10_000;
+};
+
+const readXApiBackoffUntil = async (cacheDb: XCacheDb | undefined) => {
+  const value = await readD1Setting(cacheDb, X_API_BACKOFF_UNTIL_SETTING_KEY);
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const assertXApiNotBackedOff = async (cacheDb: XCacheDb | undefined) => {
+  const backoffUntil = await readXApiBackoffUntil(cacheDb);
+  if (backoffUntil <= now()) return;
+
+  throw new XApiError("X API rate limit backoff active", 429, {
+    code: "rate_limited",
+    sourceStatus: 429,
+    detail: `X API calls are paused until ${new Date(backoffUntil).toISOString()}.`,
+  });
+};
+
+const getXRateLimitResetAt = (response: Response) => {
+  const resetSeconds = Number.parseInt(
+    response.headers.get("x-rate-limit-reset") ?? "",
+    10,
+  );
+  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
+    return resetSeconds * 1000;
+  }
+
+  const retryAfterSeconds = Number.parseInt(
+    response.headers.get("retry-after") ?? "",
+    10,
+  );
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    return now() + retryAfterSeconds * 1000;
+  }
+
+  return now() + X_COLLECTION_RATE_LIMIT_BACKOFF_MS;
+};
+
+const writeXApiBackoff = async (
+  cacheDb: XCacheDb | undefined,
+  response: Response,
+) => {
+  await writeD1Setting(
+    cacheDb,
+    X_API_BACKOFF_UNTIL_SETTING_KEY,
+    String(getXRateLimitResetAt(response)),
+  );
 };
 
 const getPositiveIntegerParam = (
@@ -605,6 +690,7 @@ const requestXApi = async <T>(
 ): Promise<T> => {
   let releaseBudgetReservation = () => {};
   if (options.operation) {
+    await assertXApiNotBackedOff(options.cacheDb);
     releaseBudgetReservation = await reserveXApiBudget(
       options.cacheDb,
       estimateXApiRequestCostMicros(options.operation, path),
@@ -621,6 +707,9 @@ const requestXApi = async <T>(
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        await writeXApiBackoff(options.cacheDb, response);
+      }
       if (options.operation) {
         await writeXApiUsageEvent(
           options.cacheDb,
@@ -706,7 +795,7 @@ const readD1Cache = async <T>(
 const writeD1Cache = async <T>(
   cacheDb: XCacheDb | undefined,
   key: string,
-  type: "user" | "posts",
+  type: "user" | "posts" | "linked_post",
   value: T,
   fetchedAt: number,
   ttlMs: number,
@@ -833,6 +922,7 @@ const readStoredPosts = async (
       lastCheckedAt: safeLastCheckedAt,
       lastSeenPostId:
         source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+      lastError: source?.last_error ?? null,
     };
   } catch (error) {
     console.warn("Failed to read stored X posts", error);
@@ -956,6 +1046,28 @@ const writeStoredPostSource = async (
       .run();
   } catch (error) {
     console.warn("Failed to write stored X post source", error);
+  }
+};
+
+const writeStoredPostSourceError = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+  lastError: string | null,
+) => {
+  if (!cacheDb || !lastError) return;
+
+  const checkedAt = now();
+  try {
+    await cacheDb
+      .prepare(
+        `UPDATE x_post_sources
+         SET last_checked_at = ?, updated_at = ?, last_error = ?
+         WHERE handle = ?`,
+      )
+      .bind(checkedAt, checkedAt, lastError, normalizeHandle(handle))
+      .run();
+  } catch (error) {
+    console.warn("Failed to write stored X post source error", error);
   }
 };
 
@@ -1402,10 +1514,34 @@ const fetchLinkedXPostsByIds = async (
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
 ): Promise<Map<string, XLinkedPostPreviewItem>> => {
-  if (ids.length === 0) return new Map();
+  const requestedIds = Array.from(new Set(ids.filter(Boolean))).slice(
+    0,
+    X_LINKED_POST_PREVIEW_MAX_IDS,
+  );
+  if (requestedIds.length === 0) return new Map();
+
+  const result = new Map<string, XLinkedPostPreviewItem>();
+  const idsToFetch: string[] = [];
+
+  for (const id of requestedIds) {
+    const cached = await readD1Cache<XLinkedPostCacheValue>(
+      cacheDb,
+      getLinkedPostCacheKey(id),
+      X_LINKED_POST_LOOKUP_TTL_MS,
+    );
+    if (cached) {
+      if (cached.value.post) {
+        result.set(id, cached.value.post);
+      }
+      continue;
+    }
+    idsToFetch.push(id);
+  }
+
+  if (idsToFetch.length === 0) return result;
 
   const params = new URLSearchParams({
-    ids: ids.join(","),
+    ids: idsToFetch.join(","),
     "tweet.fields": "created_at,public_metrics,attachments",
     expansions: "author_id,attachments.media_keys",
     "user.fields": "name,username,profile_image_url,protected",
@@ -1427,13 +1563,43 @@ const fetchLinkedXPostsByIds = async (
   const mediaByKey = new Map(
     (response.includes?.media ?? []).map((media) => [media.media_key, media]),
   );
-  const result = new Map<string, XLinkedPostPreviewItem>();
+  const fetchedIds = new Set<string>();
 
   for (const post of response.data ?? []) {
+    fetchedIds.add(post.id);
     const normalized = normalizeLinkedXPost(post, usersById, mediaByKey);
     if (normalized) {
       result.set(post.id, normalized);
+      await writeD1Cache<XLinkedPostCacheValue>(
+        cacheDb,
+        getLinkedPostCacheKey(post.id),
+        "linked_post",
+        { post: normalized },
+        now(),
+        X_LINKED_POST_LOOKUP_TTL_MS,
+      );
+    } else {
+      await writeD1Cache<XLinkedPostCacheValue>(
+        cacheDb,
+        getLinkedPostCacheKey(post.id),
+        "linked_post",
+        { post: null },
+        now(),
+        X_LINKED_POST_LOOKUP_TTL_MS,
+      );
     }
+  }
+
+  for (const id of idsToFetch) {
+    if (fetchedIds.has(id)) continue;
+    await writeD1Cache<XLinkedPostCacheValue>(
+      cacheDb,
+      getLinkedPostCacheKey(id),
+      "linked_post",
+      { post: null },
+      now(),
+      X_LINKED_POST_LOOKUP_TTL_MS,
+    );
   }
 
   return result;
@@ -2021,6 +2187,76 @@ const getCollectionFailureError = (byHandle: XHandlePostsResult[]) => {
   return null;
 };
 
+const getNewestStoredPostTime = (entry: StoredXPostsEntry) =>
+  sortXPostsDesc(entry.posts)
+    .map((post) => new Date(post.createdAt).getTime())
+    .find((time) => Number.isFinite(time)) ?? null;
+
+const getCollectionRefreshIntervalMs = (entry: StoredXPostsEntry) => {
+  if (entry.lastError === "rate_limited") {
+    return X_COLLECTION_RATE_LIMIT_BACKOFF_MS;
+  }
+  if (entry.lastError === "budget_exceeded") {
+    return X_COLLECTION_DORMANT_CHECK_INTERVAL_MS;
+  }
+  if (isRecoverableExternalError(entry.lastError)) {
+    return X_COLLECTION_ERROR_BACKOFF_MS;
+  }
+
+  const newestPostTime = getNewestStoredPostTime(entry);
+  if (!newestPostTime) {
+    return X_COLLECTION_DORMANT_CHECK_INTERVAL_MS;
+  }
+
+  const newestPostAgeMs = now() - newestPostTime;
+  if (newestPostAgeMs >= 7 * 24 * 60 * 60_000) {
+    return X_COLLECTION_DORMANT_CHECK_INTERVAL_MS;
+  }
+  if (newestPostAgeMs >= 24 * 60 * 60_000) {
+    return X_COLLECTION_IDLE_CHECK_INTERVAL_MS;
+  }
+  return X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS;
+};
+
+const shouldRefreshCollectionHandle = (entry: StoredXPostsEntry | null) => {
+  if (!entry || entry.lastCheckedAt === null) return true;
+  return now() - entry.lastCheckedAt >= getCollectionRefreshIntervalMs(entry);
+};
+
+const getXCollectionHandlesToRefresh = async (
+  handles: string[],
+  maxResults: number,
+  richXLinkPreviewEnabled: boolean,
+  cacheDb?: XCacheDb,
+) => {
+  if (!cacheDb) return handles;
+
+  const handlesToRefresh: string[] = [];
+  for (const handle of handles) {
+    const stored = await readStoredPosts(
+      handle,
+      maxResults,
+      richXLinkPreviewEnabled,
+      cacheDb,
+    );
+    if (shouldRefreshCollectionHandle(stored)) {
+      handlesToRefresh.push(handle);
+    }
+  }
+  return handlesToRefresh;
+};
+
+const writeXCollectionSourceErrors = async (
+  cacheDb: XCacheDb | undefined,
+  byHandle: XHandlePostsResult[],
+) => {
+  await Promise.all(
+    byHandle
+      .filter((item) => item.error)
+      .map((item) => writeStoredPostSourceError(cacheDb, item.handle, item.error)),
+  );
+};
+
 export const collectXPostsForHandles = async (
   handles: string[],
   options: CollectXPostsOptions = {},
@@ -2084,7 +2320,34 @@ export const collectXPostsForHandles = async (
   }
 
   try {
-    const content = await fetchXPostsForHandles(normalizedHandles, {
+    const handlesToRefresh = await getXCollectionHandlesToRefresh(
+      normalizedHandles,
+      maxResults,
+      richXLinkPreviewEnabled,
+      cacheDb,
+    );
+
+    if (handlesToRefresh.length === 0) {
+      const result = {
+        checkedHandles: normalizedHandles.length,
+        refreshedHandles: 0,
+        postsReturned: 0,
+        postsStored: 0,
+        apiCalls: 0,
+        estimatedCostMicros: 0,
+        status: "skipped" as const,
+        error: "all_handles_cooldown",
+      };
+      await writeXCollectionRun(cacheDb, {
+        source,
+        startedAt,
+        finishedAt: now(),
+        ...result,
+      });
+      return result;
+    }
+
+    const content = await fetchXPostsForHandles(handlesToRefresh, {
       bearerToken: token,
       cacheDb,
       maxResults,
@@ -2093,6 +2356,7 @@ export const collectXPostsForHandles = async (
       refresh: true,
       usageTracker: tracker,
     });
+    await writeXCollectionSourceErrors(cacheDb, content.byHandle);
     const refreshedHandles = content.byHandle.filter(
       (item) => !item.error && !item.stale && !item.storageError,
     ).length;
@@ -2119,6 +2383,15 @@ export const collectXPostsForHandles = async (
     });
     return result;
   } catch (error) {
+    if (error instanceof XApiError) {
+      await Promise.all(
+        error.diagnostics.flatMap((item) =>
+          item.handle && item.error
+            ? [writeStoredPostSourceError(cacheDb, item.handle, item.error)]
+            : [],
+        ),
+      );
+    }
     const result = {
       checkedHandles: normalizedHandles.length,
       refreshedHandles: 0,

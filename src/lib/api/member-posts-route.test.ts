@@ -188,6 +188,36 @@ describe("member-posts aggregate worker route", () => {
     expect(fetchNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 
+  it("비관리자 aggregate feed의 cache-busting 요청은 X API 강제 갱신으로 전달하지 않는다", async () => {
+    fetchXPostsForHandlesMock.mockResolvedValueOnce({
+      posts: [],
+      byHandle: [{ handle: "otw_member", posts: [], error: null }],
+    });
+    fetchNaverCafePostsForSourcesMock.mockResolvedValueOnce({
+      updatedAt: "2026-05-28T01:05:00Z",
+      sources: [],
+      posts: [],
+    });
+
+    const response = await handleMemberPosts(
+      new Request(
+        "https://example.com/api/member-posts?sources=x,naver-cafe&maxResults=5&size=5&_=123",
+        { cache: "no-store" },
+      ),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: {},
+      forceRefresh: false,
+      maxResults: 5,
+      richXLinkPreviewEnabled: true,
+    });
+    expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+  });
+
   it("멤버 권한이 필요한 aggregate feed는 shared cache를 허용하지 않는다", async () => {
     getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
       const values: Record<string, string> = {

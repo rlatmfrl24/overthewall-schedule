@@ -8,7 +8,12 @@ const WIDE_MODE_KEYWORDS = [
   "theater",
   "theatre",
 ];
-const CHZZK_VIEWMODE_BUTTON_SELECTOR = ".pzp-pc__viewmode-button";
+const CHZZK_VIEWMODE_BUTTON_SELECTOR = [
+  ".pzp-pc__viewmode-button",
+  ".pzp-pc-viewmode-button",
+  "button[class*='viewmode-button']",
+  "[role='button'][class*='viewmode-button']",
+].join(",");
 const CHZZK_VIDEO_SELECTOR = "video.webplayer-internal-video";
 const CHZZK_PLAYER_WAKE_TARGET_SELECTORS = [
   CHZZK_VIDEO_SELECTOR,

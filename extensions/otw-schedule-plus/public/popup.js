@@ -1,4 +1,5 @@
 const CHAT_LOGIN_STORAGE_KEY = "otwSchedulePlusChatLoginBridgeEnabled";
+const CHAT_LOGIN_STATUS_STORAGE_KEY = "otwSchedulePlusChatLoginBridgeStatus";
 const PLAYER_OPTIMIZATION_STORAGE_KEY =
   "otw:schedule-plus:multiview:player-optimization-enabled";
 const CHAT_LOGIN_COOKIE_PERMISSION = {
@@ -6,18 +7,33 @@ const CHAT_LOGIN_COOKIE_PERMISSION = {
   permissions: ["cookies"],
 };
 const INJECT_BRIDGE_ACTIVE_TAB_KIND = "OTW_EXTENSION_INJECT_BRIDGE_ACTIVE_TAB";
+const CHAT_LOGIN_SETTING_CHANGED_KIND =
+  "OTW_EXTENSION_CHAT_LOGIN_SETTING_CHANGED";
+const CHAT_LOGIN_STATUS_LABELS = {
+  disabled: "꺼짐",
+  enabled: "켜짐",
+  needs_login: "로그인 필요",
+  permission_missing: "권한 필요",
+  unsupported: "지원 안 됨",
+  error: "오류",
+};
+const CHAT_LOGIN_STATUSES = new Set(Object.keys(CHAT_LOGIN_STATUS_LABELS));
 
 const setText = (id, value) => {
   const element = document.getElementById(id);
   if (element) element.textContent = value;
 };
 
-const setStatus = (id, enabled) => {
+const setStatusText = (id, value, enabled) => {
   const element = document.getElementById(id);
   if (!element) return;
 
-  element.textContent = enabled ? "켜짐" : "꺼짐";
+  element.textContent = value;
   element.classList.toggle("off", !enabled);
+};
+
+const setStatus = (id, enabled) => {
+  setStatusText(id, enabled ? "켜짐" : "꺼짐", enabled);
 };
 
 const setToggle = (id, enabled) => {
@@ -32,6 +48,21 @@ const setChatPermissionButtonVisible = (visible) => {
   if (!button) return;
 
   button.hidden = !visible;
+};
+
+const normalizeChatLoginStatus = (value) =>
+  typeof value === "string" && CHAT_LOGIN_STATUSES.has(value) ? value : null;
+
+const renderChatLoginStatus = (status) => {
+  const normalizedStatus = normalizeChatLoginStatus(status) ?? "disabled";
+
+  setStatusText(
+    "chat-status",
+    CHAT_LOGIN_STATUS_LABELS[normalizedStatus],
+    normalizedStatus === "enabled",
+  );
+  setToggle("chat-login-toggle", normalizedStatus === "enabled");
+  setChatPermissionButtonVisible(normalizedStatus === "permission_missing");
 };
 
 const hasChatLoginPermission = (callback) => {
@@ -49,30 +80,70 @@ const refreshPopupState = () => {
   chrome.storage.local.get(
     {
       [CHAT_LOGIN_STORAGE_KEY]: false,
+      [CHAT_LOGIN_STATUS_STORAGE_KEY]: "disabled",
       [PLAYER_OPTIMIZATION_STORAGE_KEY]: true,
     },
     (items) => {
       const chatLoginEnabled = items[CHAT_LOGIN_STORAGE_KEY] === true;
+      const storedChatLoginStatus = normalizeChatLoginStatus(
+        items[CHAT_LOGIN_STATUS_STORAGE_KEY],
+      );
       const playerOptimizationEnabled =
         items[PLAYER_OPTIMIZATION_STORAGE_KEY] !== false;
 
       setStatus("player-status", playerOptimizationEnabled);
       setToggle("player-optimization-toggle", playerOptimizationEnabled);
-      setStatus("chat-status", chatLoginEnabled);
-      setToggle("chat-login-toggle", chatLoginEnabled);
+      renderChatLoginStatus(
+        chatLoginEnabled ? (storedChatLoginStatus ?? "enabled") : "disabled",
+      );
 
       hasChatLoginPermission((granted) => {
         if (chatLoginEnabled && !granted) {
-          setText("chat-status", "권한 필요");
+          renderChatLoginStatus("permission_missing");
+          return;
         }
-        setChatPermissionButtonVisible(chatLoginEnabled && !granted);
+
+        if (storedChatLoginStatus === "permission_missing") {
+          renderChatLoginStatus("enabled");
+          return;
+        }
+
+        setChatPermissionButtonVisible(false);
       });
     },
   );
 };
 
+const setStorageValues = (values, callback = refreshPopupState) => {
+  chrome.storage.local.set(values, callback);
+};
+
 const setStorageValue = (key, value, callback = refreshPopupState) => {
-  chrome.storage.local.set({ [key]: value }, callback);
+  setStorageValues({ [key]: value }, callback);
+};
+
+const setChatLoginEnabled = (enabled) => {
+  chrome.runtime.sendMessage(
+    { kind: CHAT_LOGIN_SETTING_CHANGED_KIND, enabled },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        const status = enabled ? "error" : "disabled";
+        const values = {
+          [CHAT_LOGIN_STATUS_STORAGE_KEY]: status,
+        };
+
+        if (!enabled) values[CHAT_LOGIN_STORAGE_KEY] = false;
+        setStorageValues(values);
+        return;
+      }
+
+      const status =
+        normalizeChatLoginStatus(response?.status) ??
+        (enabled ? "error" : "disabled");
+
+      setStorageValue(CHAT_LOGIN_STATUS_STORAGE_KEY, status);
+    },
+  );
 };
 
 const manifest = chrome.runtime.getManifest();
@@ -101,11 +172,11 @@ document.getElementById("chat-login-toggle")?.addEventListener("click", () => {
     const nextEnabled = items[CHAT_LOGIN_STORAGE_KEY] !== true;
 
     if (!nextEnabled) {
-      setStorageValue(CHAT_LOGIN_STORAGE_KEY, false);
+      setChatLoginEnabled(false);
       return;
     }
 
-    const enable = () => setStorageValue(CHAT_LOGIN_STORAGE_KEY, true);
+    const enable = () => setChatLoginEnabled(true);
 
     if (!chrome.permissions?.request) {
       enable();
@@ -124,8 +195,9 @@ document
   ?.addEventListener("click", () => {
     if (!chrome.permissions?.request) return;
 
-    chrome.permissions.request(CHAT_LOGIN_COOKIE_PERMISSION, () => {
-      refreshPopupState();
+    chrome.permissions.request(CHAT_LOGIN_COOKIE_PERMISSION, (granted) => {
+      if (granted) setChatLoginEnabled(true);
+      else refreshPopupState();
     });
   });
 

@@ -184,7 +184,6 @@
     postToPage(
       createMessage("READY", {
         capabilities: ["wideMode", "chatLoginBridge"],
-        chatLoginBridgeStatus: "disabled",
       }),
     );
   };

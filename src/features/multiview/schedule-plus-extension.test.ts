@@ -72,6 +72,12 @@ describe("schedule plus extension bridge helpers", () => {
     expect(parseChatLoginBridgeStatus({ status: "needs_login" })).toBe(
       "needs_login",
     );
+    expect(
+      parseChatLoginBridgeStatus({
+        chatLoginBridgeStatus: "disabled",
+        source: "chzzk-frame",
+      }),
+    ).toBeNull();
     expect(parseChatLoginBridgeStatus({ status: "cookie_leaked" })).toBeNull();
     expect(
       parsePlayerOptimizationEnabled({ playerOptimizationEnabled: false }),

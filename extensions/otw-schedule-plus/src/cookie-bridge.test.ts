@@ -92,7 +92,9 @@ describe("cookie bridge", () => {
     const set = vi.fn((_details, callback) => callback(makeCookie("NID_AUT")));
     const chromeApi = {
       cookies: {
-        get: vi.fn((details, callback) => callback(makeCookie(details.name))),
+        get: vi.fn((details, callback) =>
+          callback(details.partitionKey ? undefined : makeCookie(details.name)),
+        ),
         set,
       },
       runtime: {},
@@ -112,6 +114,62 @@ describe("cookie bridge", () => {
     ]);
   });
 
+  it("does not rewrite matching partitioned login cookies", async () => {
+    const set = vi.fn((_details, callback) => callback(makeCookie("NID_AUT")));
+    const chromeApi = {
+      cookies: {
+        get: vi.fn((details, callback) => {
+          const cookie = makeCookie(details.name);
+          callback(
+            details.partitionKey
+              ? {
+                  ...cookie,
+                  sameSite: "no_restriction",
+                }
+              : cookie,
+          );
+        }),
+        set,
+      },
+      runtime: {},
+    } as unknown as ChromeApi;
+
+    await expect(
+      syncNaverLoginCookiesToPartitions({
+        chromeApi,
+        partitionKeys: [{ topLevelSite: "https://otw-schedule.info" }],
+      }),
+    ).resolves.toBe("enabled");
+
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("requires every required Naver login cookie before reporting enabled", async () => {
+    const set = vi.fn((_details, callback) => callback(makeCookie("NID_AUT")));
+    const chromeApi = {
+      cookies: {
+        get: vi.fn((details, callback) =>
+          callback(
+            details.name === "NID_AUT" && !details.partitionKey
+              ? makeCookie(details.name)
+              : undefined,
+          ),
+        ),
+        set,
+      },
+      runtime: {},
+    } as unknown as ChromeApi;
+
+    await expect(
+      syncNaverLoginCookiesToPartitions({
+        chromeApi,
+        partitionKeys: [{ topLevelSite: "https://otw-schedule.info" }],
+      }),
+    ).resolves.toBe("needs_login");
+
+    expect(set).not.toHaveBeenCalled();
+  });
+
   it("expands fallback partition keys to include cross-site iframe variants", () => {
     expect(
       expandLikelyPartitionKeys([{ topLevelSite: "http://127.0.0.1" }]),
@@ -120,6 +178,36 @@ describe("cookie bridge", () => {
       {
         hasCrossSiteAncestor: true,
         topLevelSite: "http://127.0.0.1",
+      },
+    ]);
+  });
+
+  it("uses expanded fallback partition keys when Chrome cannot provide frame partition keys", async () => {
+    const chromeApi = {
+      cookies: {},
+    } as unknown as ChromeApi;
+
+    await expect(
+      getChatFramePartitionKeys({
+        chromeApi,
+        fallbackTopLevelSite: "http://localhost",
+        frames: [
+          {
+            channelId: "29a1ed5c0829fa620fab900dba7e011b",
+            frameId: 10,
+            kind: "chat",
+            lastSeenAt: Date.now(),
+            tabId: 1,
+            url: "https://chzzk.naver.com/live/29a1ed5c0829fa620fab900dba7e011b/chat",
+          },
+        ],
+        tabId: 1,
+      }),
+    ).resolves.toEqual([
+      { topLevelSite: "http://localhost" },
+      {
+        hasCrossSiteAncestor: true,
+        topLevelSite: "http://localhost",
       },
     ]);
   });

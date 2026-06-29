@@ -150,6 +150,8 @@ export const parseChatLoginBridgeStatus = (
   payload: unknown,
 ): MultiviewChatLoginBridgeStatus | null => {
   if (!isPlainObject(payload)) return null;
+  if (payload.source === "chzzk-frame") return null;
+
   const status = payload.chatLoginBridgeStatus ?? payload.status;
 
   return typeof status === "string" &&

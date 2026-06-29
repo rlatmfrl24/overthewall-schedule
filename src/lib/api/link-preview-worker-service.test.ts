@@ -94,6 +94,36 @@ describe("link preview worker service", () => {
     });
   });
 
+  it("trailing dot이 붙은 localhost URL도 fetch하지 않고 skipped 상태로 처리한다", async () => {
+    const links = await enrichLinksWithPreviews([
+      makeLink("https://localhost./admin"),
+    ]);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(links[0]).toMatchObject({
+      previewStatus: "skipped",
+    });
+  });
+
+  it("redirect 대상이 trailing dot localhost이면 내부 fetch를 중단한다", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { Location: "https://localhost./admin" },
+      }),
+    );
+
+    const links = await enrichLinksWithPreviews([
+      makeLink("https://example.com/redirect-to-localhost"),
+    ]);
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(links[0]).toMatchObject({
+      resolvedUrl: "https://example.com/redirect-to-localhost",
+      previewStatus: "unavailable",
+    });
+  });
+
   it("fetch 실패는 게시글 실패로 올리지 않고 unavailable 프리뷰로 남긴다", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response("nope", { status: 500 }));
 

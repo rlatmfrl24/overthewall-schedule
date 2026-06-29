@@ -4,9 +4,16 @@ import type { Env } from "../../../worker/types";
 const getDbMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
 const fetchNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const authenticateRequestMock = vi.hoisted(() => vi.fn());
+const requireAdminUserMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../worker/db", () => ({
   getDb: getDbMock,
+}));
+
+vi.mock("../../../worker/auth", () => ({
+  authenticateRequest: authenticateRequestMock,
+  requireAdminUser: requireAdminUserMock,
 }));
 
 vi.mock("../../../worker/utils/helpers", async (importOriginal) => {
@@ -82,9 +89,15 @@ const stubCache = () => {
 };
 
 describe("naver cafe posts route cache", () => {
+  let responseCache: ReturnType<typeof stubCache>;
+
   beforeEach(() => {
     getDbMock.mockReset();
     getDbMock.mockReturnValue(makeDb());
+    authenticateRequestMock.mockReset();
+    authenticateRequestMock.mockResolvedValue({ ok: true });
+    requireAdminUserMock.mockReset();
+    requireAdminUserMock.mockResolvedValue({ ok: true });
     getSettingMock.mockReset();
     getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
       if (key === "naver_cafe_posts_enabled") return "true";
@@ -96,7 +109,7 @@ describe("naver cafe posts route cache", () => {
       posts: [{ id: "post1" }],
       sources: [{ id: 1, status: "ok", stale: false }],
     });
-    stubCache();
+    responseCache = stubCache();
   });
 
   it("fresh response cache가 있으면 네이버 수집 서비스를 다시 호출하지 않는다", async () => {
@@ -129,5 +142,49 @@ describe("naver cafe posts route cache", () => {
     );
 
     expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("회원 전용 카페 게시글 응답은 response cache를 쓰지 않고 no-store로 반환한다", async () => {
+    getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
+      if (key === "naver_cafe_posts_enabled") return "true";
+      if (key === "naver_cafe_posts_visibility") return "members";
+      return null;
+    });
+
+    const first = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?size=10"),
+      makeEnv(),
+    );
+    const second = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?size=10"),
+      makeEnv(),
+    );
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Cache-Control")).toBe("no-store");
+    expect(first.headers.get("Vary")).toBe("Authorization");
+    expect(second.status).toBe(200);
+    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(responseCache.match).not.toHaveBeenCalled();
+    expect(responseCache.put).not.toHaveBeenCalled();
+  });
+
+  it("관리자 카페 게시글 응답은 response cache를 쓰지 않고 no-store로 반환한다", async () => {
+    const first = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?size=10&admin=1"),
+      makeEnv(),
+    );
+    const second = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?size=10&admin=1"),
+      makeEnv(),
+    );
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Cache-Control")).toBe("no-store");
+    expect(first.headers.get("Vary")).toBe("Authorization");
+    expect(second.status).toBe(200);
+    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(responseCache.match).not.toHaveBeenCalled();
+    expect(responseCache.put).not.toHaveBeenCalled();
   });
 });

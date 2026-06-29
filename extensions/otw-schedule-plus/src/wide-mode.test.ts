@@ -42,6 +42,18 @@ describe("wide mode automation", () => {
     expect(click).toHaveBeenCalledTimes(1);
   });
 
+  it("finds CHZZK's hyphenated player viewmode button", async () => {
+    document.body.innerHTML = `<button class="pzp-pc-viewmode-button"></button>`;
+    const button = document.querySelector("button");
+    const click = vi.spyOn(button!, "click");
+
+    expect(findWideModeButton()).toBe(button);
+    await expect(
+      runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
+    ).resolves.toBe("applied");
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
   it("clicks CHZZK's viewmode button even while player controls are aria-hidden", async () => {
     document.body.innerHTML = `
       <div aria-hidden="true">
