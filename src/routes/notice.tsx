@@ -216,7 +216,7 @@ function NoticePage() {
     <ContentPageShell
       title="공지사항&이벤트"
       leadingIcon={<Megaphone className="h-4.5 w-4.5 text-foreground" />}
-      contentClassName="max-w-4xl gap-5"
+      contentClassName="max-w-6xl gap-6"
     >
       {noticesQuery.isLoading ? (
         <NoticePageSkeleton />
@@ -233,17 +233,6 @@ function NoticePage() {
         <NoticeEmptyState />
       ) : (
         <>
-          <section className="space-y-1">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-muted-foreground">
-                현재 진행중인 안내 {activeNotices.length}건
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold leading-tight text-foreground">
-                지금 확인할 공지와 이벤트
-              </h2>
-            </div>
-          </section>
-
           <FeaturedNoticeCard
             notice={featuredNotice}
             memberMap={memberMap}
@@ -380,8 +369,8 @@ function NoticeThumbnail({
         "relative isolate overflow-hidden rounded-lg border shadow-sm",
         config.thumbnailClass,
         variant === "compact"
-          ? "flex aspect-[4/3] min-h-24 items-center justify-center sm:h-28 sm:w-36 sm:shrink-0"
-          : "flex min-h-48 items-center justify-center sm:min-h-56 lg:min-h-full",
+          ? "flex aspect-[4/3] min-h-28 items-center justify-center sm:h-32 sm:w-44 sm:shrink-0"
+          : "flex min-h-56 items-center justify-center sm:min-h-64 lg:min-h-full",
       )}
       aria-hidden="true"
     >
@@ -432,14 +421,14 @@ function FeaturedNoticeCard({
         config.featuredClass,
       )}
     >
-      <div className="grid min-h-[300px] lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className="grid min-h-[360px] lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[26rem_minmax(0,1fr)]">
         <NoticeThumbnail
           notice={notice}
           memberMap={memberMap}
           profileImageMap={profileImageMap}
         />
 
-        <div className="flex min-w-0 flex-col justify-between gap-8 p-5 sm:p-6 lg:p-7">
+        <div className="flex min-w-0 flex-col justify-between gap-9 p-6 sm:p-7 lg:p-8 xl:p-9">
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
@@ -454,7 +443,7 @@ function FeaturedNoticeCard({
           </div>
 
           <div className="min-w-0 space-y-5">
-            <p className="max-w-4xl whitespace-pre-wrap text-2xl font-semibold leading-relaxed text-foreground sm:text-3xl">
+            <p className="max-w-5xl whitespace-pre-wrap text-2xl font-semibold leading-relaxed text-foreground sm:text-3xl lg:text-[2.35rem]">
               {notice.content}
             </p>
             <NoticeMeta notice={notice} memberMap={memberMap} />
@@ -497,7 +486,7 @@ function NoticeListItem({
   profileImageMap: NoticeProfileImageMap;
 }) {
   return (
-    <article className="grid gap-4 border-b border-border/70 p-4 last:border-b-0 sm:grid-cols-[9rem_minmax(0,1fr)_auto] sm:items-center sm:p-5">
+    <article className="grid gap-5 border-b border-border/70 p-5 last:border-b-0 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-center sm:p-6">
       <NoticeThumbnail
         notice={notice}
         memberMap={memberMap}
@@ -514,7 +503,7 @@ function NoticeListItem({
             {formatPeriod(notice)}
           </span>
         </div>
-        <p className="whitespace-pre-wrap text-base font-semibold leading-relaxed text-foreground sm:text-lg">
+        <p className="whitespace-pre-wrap text-lg font-semibold leading-relaxed text-foreground sm:text-xl">
           {notice.content}
         </p>
       </div>
@@ -540,19 +529,15 @@ function NoticeListItem({
 function NoticePageSkeleton() {
   return (
     <div className="space-y-5" aria-label="공지사항 로딩 중">
-      <div className="space-y-2">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-8 w-64" />
-      </div>
-      <div className="grid overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm lg:grid-cols-[19rem_minmax(0,1fr)]">
-        <Skeleton className="min-h-48 rounded-none lg:min-h-[300px]" />
-        <div className="p-5 sm:p-6 lg:p-7">
+      <div className="grid min-h-[360px] overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[26rem_minmax(0,1fr)]">
+        <Skeleton className="min-h-56 rounded-none sm:min-h-64 lg:min-h-full" />
+        <div className="p-6 sm:p-7 lg:p-8 xl:p-9">
           <div className="mb-10 flex items-center gap-2">
             <Skeleton className="h-9 w-9 rounded-lg" />
             <Skeleton className="h-7 w-24 rounded-full" />
           </div>
-          <Skeleton className="h-8 w-full max-w-3xl" />
-          <Skeleton className="mt-3 h-8 w-4/5 max-w-2xl" />
+          <Skeleton className="h-10 w-full max-w-4xl" />
+          <Skeleton className="mt-4 h-10 w-4/5 max-w-3xl" />
           <Skeleton className="mt-8 h-10 w-32" />
         </div>
       </div>

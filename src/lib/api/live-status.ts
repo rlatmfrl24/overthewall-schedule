@@ -24,6 +24,20 @@ type LiveStatusDiagnostics = {
   channelToMembers: Record<string, number[]>;
 };
 
+type LiveStatusApiResponse = {
+  items?: { channelId: string; content: ChzzkLiveStatusMap[number] }[];
+  scheduleAutoFill?: {
+    updated: number;
+  };
+};
+
+export type LiveStatusesForMembersResult = {
+  statuses: ChzzkLiveStatusMap;
+  scheduleAutoFill: {
+    updated: number;
+  };
+};
+
 const buildChannelToMembers = (
   members: Member[],
   schedules?: ScheduleItem[]
@@ -68,15 +82,25 @@ export async function fetchLiveStatusesForMembers(
   members: Member[],
   options?: { schedules?: ScheduleItem[] }
 ) {
+  const result = await fetchLiveStatusesForMembersWithMeta(members, options);
+  return result.statuses;
+}
+
+export async function fetchLiveStatusesForMembersWithMeta(
+  members: Member[],
+  options?: { schedules?: ScheduleItem[] }
+): Promise<LiveStatusesForMembersResult> {
   const { channelToMembers, uniqueChannelIds } = buildChannelToMembers(
     members,
     options?.schedules
   );
-  if (uniqueChannelIds.length === 0) return {};
+  if (uniqueChannelIds.length === 0) {
+    return { statuses: {}, scheduleAutoFill: { updated: 0 } };
+  }
 
-  const data = await apiFetch<{
-    items?: { channelId: string; content: ChzzkLiveStatusMap[number] }[];
-  }>(`/api/live-status?channelIds=${uniqueChannelIds.join(",")}`);
+  const data = await apiFetch<LiveStatusApiResponse>(
+    `/api/live-status?channelIds=${uniqueChannelIds.join(",")}`
+  );
 
   const nextMap: ChzzkLiveStatusMap = {};
   data.items?.forEach(({ channelId, content }) => {
@@ -86,7 +110,12 @@ export async function fetchLiveStatusesForMembers(
     });
   });
 
-  return nextMap;
+  return {
+    statuses: nextMap,
+    scheduleAutoFill: {
+      updated: data.scheduleAutoFill?.updated ?? 0,
+    },
+  };
 }
 
 export async function fetchLiveStatusDiagnostics(

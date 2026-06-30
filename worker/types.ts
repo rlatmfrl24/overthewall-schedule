@@ -28,6 +28,7 @@ export type CachedLiveStatus = {
     concurrentUserCount: number;
     liveImageUrl: string;
     defaultThumbnailImageUrl: string;
+    openDate?: string | null;
     channelId: string;
     channelName: string;
     channelImageUrl: string;

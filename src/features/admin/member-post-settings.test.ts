@@ -50,6 +50,7 @@ const makeSettings = () => ({
   auto_update_interval_hours: "6",
   auto_update_last_run: null,
   auto_update_range_days: "3",
+  live_schedule_auto_fill_enabled: "true",
   x_rich_link_preview_enabled: "false",
   x_posts_visibility: "members",
   naver_cafe_posts_enabled: "true",

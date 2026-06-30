@@ -56,7 +56,7 @@ import {
 import { useScheduleBoard } from "@/hooks/use-schedule-board";
 import {
   fetchLiveStatusDiagnostics,
-  fetchLiveStatusesForMembers,
+  fetchLiveStatusesForMembersWithMeta,
 } from "@/lib/api/live-status";
 import { fetchNotices } from "@/lib/api/notices";
 import { deleteSchedule } from "@/lib/api/schedules";
@@ -144,7 +144,7 @@ export const DailySchedule = () => {
     isToday && members.length > 0 && liveChannelIdsKey.length > 0;
   const liveStatusQuery = useQuery({
     queryKey: queryKeys.liveStatus.statuses(liveChannelIdsKey, liveSchedulesKey),
-    queryFn: () => fetchLiveStatusesForMembers(members, { schedules }),
+    queryFn: () => fetchLiveStatusesForMembersWithMeta(members, { schedules }),
     enabled: liveStatusEnabled,
     refetchInterval: liveStatusEnabled ? 60_000 : false,
   });
@@ -166,6 +166,18 @@ export const DailySchedule = () => {
     }
   }, [isLiveDebug]);
 
+  useEffect(() => {
+    if (!liveStatusQuery.data?.scheduleAutoFill.updated) return;
+
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.schedules.all,
+    });
+  }, [
+    liveStatusQuery.data?.scheduleAutoFill.updated,
+    liveStatusQuery.dataUpdatedAt,
+    queryClient,
+  ]);
+
   const handleToggleView = () => {
     setViewMode((prev) => (prev === "grid" ? "timeline" : "grid"));
   };
@@ -175,7 +187,7 @@ export const DailySchedule = () => {
   const handleToday = () => setCurrentDate(new Date());
 
   const liveStatuses: ChzzkLiveStatusMap = isToday
-    ? liveStatusQuery.data ?? {}
+    ? liveStatusQuery.data?.statuses ?? {}
     : {};
   const liveDebugRows = useMemo<LiveDebugRow[]>(() => {
     const diagnostics = liveDiagnosticsQuery.data;

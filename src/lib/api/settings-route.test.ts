@@ -113,6 +113,7 @@ describe("settings worker route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(body.live_schedule_auto_fill_enabled).toBe("true");
     expect(body.x_collection_interval_hours).toBe("2");
     expect(body.x_collection_last_run).toBeNull();
     expect(fakeDbContext.state.writes).toContainEqual({
@@ -131,6 +132,30 @@ describe("settings worker route", () => {
     expect(fakeDbContext.state.writes).toEqual([
       { key: "x_collection_interval_hours", value: "2" },
     ]);
+  });
+
+  it("라이브 스케줄 자동 입력 설정은 boolean 문자열만 저장한다", async () => {
+    const validResponse = await handleSettings(
+      makeJsonRequest({ live_schedule_auto_fill_enabled: "false" }),
+      makeEnv(),
+    );
+
+    expect(validResponse.status).toBe(200);
+    expect(fakeDbContext.state.writes).toEqual([
+      { key: "live_schedule_auto_fill_enabled", value: "false" },
+    ]);
+
+    fakeDbContext.state.writes = [];
+    const invalidResponse = await handleSettings(
+      makeJsonRequest({ live_schedule_auto_fill_enabled: "yes" }),
+      makeEnv(),
+    );
+
+    expect(invalidResponse.status).toBe(400);
+    expect(await invalidResponse.text()).toBe(
+      "Invalid live_schedule_auto_fill_enabled",
+    );
+    expect(fakeDbContext.state.writes).toEqual([]);
   });
 
   it("잘못된 X 수집 주기를 거부한다", async () => {

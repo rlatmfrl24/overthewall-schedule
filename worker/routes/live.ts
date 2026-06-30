@@ -2,13 +2,17 @@ import {
   fetchChzzkLiveStatus,
   fetchChzzkLiveStatusWithDebug,
 } from "../services/chzzk";
+import { getDb } from "../db";
+import {
+  autoFillUndecidedLiveSchedules,
+  isLiveScheduleAutoFillEnabled,
+} from "../services/live-schedule";
 import { badRequest, methodNotAllowed, pMap } from "../utils/helpers";
 import type { Env } from "../types";
 
 const LIVE_STATUS_CONCURRENCY = 6;
 
-export const handleLiveStatus = async (request: Request, _env: Env) => {
-  void _env;
+export const handleLiveStatus = async (request: Request, env: Env) => {
   const url = new URL(request.url);
 
   if (request.method !== "GET") {
@@ -45,10 +49,25 @@ export const handleLiveStatus = async (request: Request, _env: Env) => {
     LIVE_STATUS_CONCURRENCY,
   );
 
+  let scheduleAutoFill = { updated: 0 };
+  try {
+    const db = getDb(env);
+    if (await isLiveScheduleAutoFillEnabled(db)) {
+      const result = await autoFillUndecidedLiveSchedules(db, items);
+      scheduleAutoFill = { updated: result.updated };
+      if (result.updated > 0) {
+        console.log("[live-status] Auto-filled live schedules", result);
+      }
+    }
+  } catch (error) {
+    console.error("[live-status] Failed to auto-fill live schedules", error);
+  }
+
   return Response.json(
     {
       updatedAt: new Date().toISOString(),
       items,
+      scheduleAutoFill,
     },
     {
       status: 200,

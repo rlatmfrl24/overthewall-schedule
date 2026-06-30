@@ -7,6 +7,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -57,6 +58,13 @@ type TimeParts = {
 };
 
 const DEFAULT_TIME: TimeParts = { hour: "00", minute: "00" };
+const LEGACY_UNSCHEDULED_STATUS: ScheduleStatus = "미정";
+const EXCLUSIVE_STATUSES: ScheduleStatus[] = ["휴방", "게릴라"];
+const AUTO_TITLE_STATUSES: ScheduleStatus[] = [
+  ...EXCLUSIVE_STATUSES,
+  LEGACY_UNSCHEDULED_STATUS,
+];
+const STATUS_OPTIONS: ScheduleStatus[] = ["방송", ...EXCLUSIVE_STATUSES];
 const QUICK_TIME_PRESET_GROUPS = [
   {
     label: "낮 시간대",
@@ -136,10 +144,11 @@ export const ScheduleDialog = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isImpactChecking, setIsImpactChecking] = useState(false);
 
+  const isEditMode = Boolean(schedule);
   const isBusy = isSubmitting || isImpactChecking;
   const hasMemberError = hasAttemptedSubmit && memberUid === "";
   const isExclusiveStatus = (nextStatus: ScheduleStatus) =>
-    nextStatus === "휴방" || nextStatus === "미정" || nextStatus === "게릴라";
+    EXCLUSIVE_STATUSES.includes(nextStatus);
   const canSubmit = memberUid !== "" && !isBusy;
   const currentTimeValue = `${startHour}:${startMinute}`;
 
@@ -174,11 +183,31 @@ export const ScheduleDialog = ({
     }
   };
 
+  const handleStatusChange = (nextStatus: ScheduleStatus) => {
+    if (isBusy || nextStatus === status) return;
+
+    if (isExclusiveStatus(nextStatus)) {
+      setLastDecidedTime({ hour: startHour, minute: startMinute });
+      setIsTimeUndecided(true);
+      setTitle(nextStatus);
+      setStatus(nextStatus);
+      return;
+    }
+
+    if (AUTO_TITLE_STATUSES.includes(title as ScheduleStatus)) {
+      setTitle("");
+    }
+    setStatus(nextStatus);
+  };
+
   useEffect(() => {
     if (schedule) {
+      const normalizedStatus =
+        schedule.status === LEGACY_UNSCHEDULED_STATUS ? "방송" : schedule.status;
+
       setMemberUid(schedule.member_uid);
       setDate(new Date(schedule.date));
-      setStatus(schedule.status);
+      setStatus(normalizedStatus);
 
       if (schedule.start_time) {
         setIsTimeUndecided(false);
@@ -194,7 +223,9 @@ export const ScheduleDialog = ({
         applyTime(DEFAULT_TIME.hour, DEFAULT_TIME.minute, { remember: false });
       }
 
-      setTitle(schedule.title || "");
+      setTitle(
+        schedule.status === LEGACY_UNSCHEDULED_STATUS ? "" : schedule.title || ""
+      );
     } else if (isOpen) {
       // Initialize form when opening in "add" mode
       setMemberUid(initialMemberUid || "");
@@ -234,11 +265,9 @@ export const ScheduleDialog = ({
 
   const estimateDeleteCount = async (data: ScheduleSubmitData) => {
     const existing = await fetchSchedulesByDate(format(data.date, "yyyy-MM-dd"));
-    const memberSchedules = existing.filter((item) => item.member_uid === data.member_uid);
-
-    if (data.status === "미정") {
-      return memberSchedules.length;
-    }
+    const memberSchedules = existing.filter(
+      (item) => item.member_uid === data.member_uid
+    );
 
     return memberSchedules.filter((item) => item.id !== data.id).length;
   };
@@ -333,107 +362,112 @@ export const ScheduleDialog = ({
     members.find((member) => member.uid === pendingSubmitData?.member_uid)?.name ||
     (pendingSubmitData ? `UID ${pendingSubmitData.member_uid}` : "");
   const impactDateLabel = pendingSubmitData?.date.toLocaleDateString("ko-KR");
+  const dialogDescription = isEditMode
+    ? "기존 스케쥴을 수정합니다. 삭제가 필요하면 하단 삭제 버튼을 사용하세요."
+    : "새 스케쥴을 추가합니다.";
+  const submitLabel = isImpactChecking
+    ? "영향 계산 중..."
+    : isSubmitting
+      ? "저장 중..."
+      : isEditMode
+        ? "수정 저장"
+        : "스케쥴 추가";
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{schedule ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
-          <DialogDescription>스케쥴을 추가하거나 수정합니다.</DialogDescription>
+          <DialogTitle>{isEditMode ? "스케쥴 수정" : "스케쥴 추가"}</DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(e)} aria-busy={isBusy}>
           <FieldGroup>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel>멤버</FieldLabel>
+                <Select
+                  disabled={isBusy}
+                  value={memberUid.toString()}
+                  onValueChange={(value) => setMemberUid(Number(value))}
+                >
+                  <SelectTrigger aria-invalid={hasMemberError}>
+                    <SelectValue placeholder="멤버 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {members.map((member) => (
+                        <SelectItem
+                          key={member.uid}
+                          value={member.uid.toString()}
+                        >
+                          {member.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldError>{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
+              </Field>
+              <Field>
+                <FieldLabel>날짜</FieldLabel>
+                <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      id="date"
+                      disabled={isBusy}
+                      className={cn(
+                        "w-full justify-between text-left font-normal",
+                        !date && "text-muted-foreground"
+                      )}
+                    >
+                      {date ? date.toLocaleDateString() : "날짜 선택"}
+                      <ChevronDownIcon className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-auto overflow-hidden p-0"
+                    align="start"
+                  >
+                    <Calendar
+                      mode="single"
+                      selected={date}
+                      captionLayout="dropdown"
+                      onSelect={(date) => {
+                        if (!date) return;
+                        setDate(date);
+                        setIsCalendarOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </Field>
+            </div>
             <Field>
               <FieldLabel>상태</FieldLabel>
-              {status === "휴방" || status === "미정" || status === "게릴라" ? (
-                <FieldDescription>
-                  휴방, 미정, 게릴라 입력 시 다른 일정은 모두 삭제되니
-                  주의해주세요.
-                </FieldDescription>
-              ) : null}
+              <FieldDescription>
+                휴방/게릴라는 기존 일정 정리 확인 후 저장됩니다.
+              </FieldDescription>
 
               <div
                 role="group"
                 aria-label="스케쥴 상태"
-                className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4"
+                className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
               >
-                <Button
-                  type="button"
-                  disabled={isBusy}
-                  variant={status === "방송" ? "default" : "outline"}
-                  className="justify-center"
-                  onClick={() => setStatus("방송")}
-                >
-                  방송
-                </Button>
-                <Button
-                  type="button"
-                  disabled={isBusy}
-                  variant={status === "휴방" ? "default" : "outline"}
-                  className="justify-center"
-                  onClick={() => {
-                    setLastDecidedTime({ hour: startHour, minute: startMinute });
-                    setStatus("휴방");
-                    setIsTimeUndecided(true);
-                    setTitle("휴방");
-                  }}
-                >
-                  휴방
-                </Button>
-                <Button
-                  type="button"
-                  disabled={isBusy}
-                  variant={status === "미정" ? "default" : "outline"}
-                  className="justify-center"
-                  onClick={() => {
-                    setLastDecidedTime({ hour: startHour, minute: startMinute });
-                    setStatus("미정");
-                    setIsTimeUndecided(true);
-                    setTitle("미정");
-                  }}
-                >
-                  미정
-                </Button>
-                <Button
-                  type="button"
-                  disabled={isBusy}
-                  variant={status === "게릴라" ? "default" : "outline"}
-                  className="justify-center"
-                  onClick={() => {
-                    setLastDecidedTime({ hour: startHour, minute: startMinute });
-                    setStatus("게릴라");
-                    setIsTimeUndecided(true);
-                    setTitle("게릴라");
-                  }}
-                >
-                  게릴라
-                </Button>
+                {STATUS_OPTIONS.map((option) => (
+                  <Button
+                    key={option}
+                    type="button"
+                    disabled={isBusy}
+                    variant={status === option ? "default" : "outline"}
+                    aria-pressed={status === option}
+                    className="justify-center"
+                    onClick={() => handleStatusChange(option)}
+                  >
+                    {option}
+                  </Button>
+                ))}
               </div>
-            </Field>
-            <Field>
-              <FieldLabel>멤버</FieldLabel>
-              <Select
-                disabled={isBusy}
-                value={memberUid.toString()}
-                onValueChange={(value) => setMemberUid(Number(value))}
-              >
-                <SelectTrigger aria-invalid={hasMemberError}>
-                  <SelectValue placeholder="멤버 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {members.map((member) => (
-                      <SelectItem
-                        key={member.uid}
-                        value={member.uid.toString()}
-                      >
-                        {member.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldError>{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
             </Field>
             <Field>
               <FieldLabel>제목</FieldLabel>
@@ -444,41 +478,7 @@ export const ScheduleDialog = ({
                 onChange={(e) => setTitle(e.target.value)}
               />
             </Field>
-            <Field>
-              <FieldLabel>날짜</FieldLabel>
-              <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    id="date"
-                    disabled={isBusy}
-                    className={cn(
-                      "w-full justify-between text-left font-normal",
-                      !date && "text-muted-foreground"
-                    )}
-                  >
-                    {date ? date.toLocaleDateString() : "날짜 선택"}
-                    <ChevronDownIcon className="h-4 w-4 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  className="w-auto overflow-hidden p-0"
-                  align="start"
-                >
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    captionLayout="dropdown"
-                    onSelect={(date) => {
-                      if (!date) return;
-                      setDate(date);
-                      setIsCalendarOpen(false);
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
-            </Field>
-            {status == "방송" && (
+            {status === "방송" && (
               <Field>
                 <FieldLabel>시간</FieldLabel>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
@@ -561,22 +561,34 @@ export const ScheduleDialog = ({
                 </div>
               </Field>
             )}
-            <div className="flex gap-2">
-              <Button type="submit" className="flex-1" disabled={!canSubmit}>
-                {isImpactChecking ? "영향 계산 중..." : isSubmitting ? "저장 중..." : schedule ? "수정" : "추가"}
-              </Button>
-              {schedule && onDelete && (
+            <DialogFooter className="border-t pt-4 sm:justify-between">
+              {isEditMode && onDelete ? (
                 <Button
                   type="button"
                   variant="destructive"
                   disabled={isBusy}
-                  aria-label="스케쥴 삭제"
                   onClick={handleDelete}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  스케쥴 삭제
                 </Button>
+              ) : (
+                <div />
               )}
-            </div>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => handleDialogOpenChange(false)}
+                >
+                  취소
+                </Button>
+                <Button type="submit" disabled={!canSubmit}>
+                  {submitLabel}
+                </Button>
+              </div>
+            </DialogFooter>
           </FieldGroup>
         </form>
       </DialogContent>
@@ -620,9 +632,6 @@ export const ScheduleDialog = ({
                   ? "삭제될 일정 수를 계산하지 못했습니다."
                   : `삭제될 일정: ${impactDeleteCount}건`}
               </p>
-              {impactStatus === "미정" ? (
-                <p>미정은 기존 일정 삭제만 수행되고 새 일정은 저장되지 않습니다.</p>
-              ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -631,7 +640,7 @@ export const ScheduleDialog = ({
               disabled={isSubmitting}
               onClick={() => void onConfirmImpactSubmit()}
             >
-              {impactStatus === "미정" ? "삭제 후 적용" : "삭제 후 저장"}
+              삭제 후 저장
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -642,7 +651,7 @@ export const ScheduleDialog = ({
           <AlertDialogHeader>
             <AlertDialogTitle>삭제 확인</AlertDialogTitle>
             <AlertDialogDescription>
-              정말 삭제하시겠습니까?
+              이 스케쥴을 삭제합니다. 삭제 후에는 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

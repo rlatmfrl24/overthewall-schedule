@@ -2,7 +2,7 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Member } from "@/lib/types";
+import type { Member, ScheduleItem } from "@/lib/types";
 import { ScheduleDialog } from "./schedule-dialog";
 
 class ResizeObserverMock {
@@ -30,8 +30,24 @@ const member: Member = {
   is_deprecated: 0,
 };
 
-const renderDialog = () => {
+const schedule: ScheduleItem = {
+  id: 10,
+  member_uid: member.uid,
+  date: "2026-06-23",
+  start_time: "22:00",
+  title: "테스트 방송",
+  status: "방송",
+  created_at: "2026-06-20T00:00:00.000Z",
+};
+
+const renderDialog = (
+  options: {
+    schedule?: ScheduleItem | null;
+    onDelete?: (id: number) => void | Promise<void>;
+  } = {},
+) => {
   const onSubmit = vi.fn();
+  const onDelete = options.onDelete ?? vi.fn();
 
   render(
     React.createElement(ScheduleDialog, {
@@ -41,11 +57,12 @@ const renderDialog = () => {
       members: [member],
       initialDate: new Date("2026-06-23T00:00:00+09:00"),
       initialMemberUid: member.uid,
-      schedule: null,
+      schedule: options.schedule ?? null,
+      onDelete,
     }),
   );
 
-  return { onSubmit };
+  return { onSubmit, onDelete };
 };
 
 describe("ScheduleDialog", () => {
@@ -76,7 +93,7 @@ describe("ScheduleDialog", () => {
     expect(timeUndecided.getAttribute("aria-checked")).toBe("true");
     expect(timeInput.disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -112,7 +129,7 @@ describe("ScheduleDialog", () => {
     expect(timeUndecided.getAttribute("aria-checked")).toBe("false");
     expect(timeInput.disabled).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    fireEvent.click(screen.getByRole("button", { name: "스케쥴 추가" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -121,5 +138,25 @@ describe("ScheduleDialog", () => {
         status: "방송",
       }),
     );
+  });
+
+  it("추가 모드에서도 미정 상태를 표시하지 않는다", () => {
+    renderDialog();
+
+    expect(screen.queryByRole("button", { name: "미정" })).toBeNull();
+    expect(screen.getByRole("button", { name: "방송" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "휴방" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "게릴라" })).toBeTruthy();
+  });
+
+  it("수정 모드에서는 미정 상태를 숨기고 삭제 액션을 명확히 표시한다", () => {
+    renderDialog({ schedule });
+
+    expect(screen.queryByRole("button", { name: "미정" })).toBeNull();
+    expect(screen.getByRole("button", { name: "방송" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "휴방" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "게릴라" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "스케쥴 삭제" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "수정 저장" })).toBeTruthy();
   });
 });

@@ -6,6 +6,7 @@ export interface AutoUpdateSettings {
   auto_update_interval_hours: string | null;
   auto_update_last_run: string | null;
   auto_update_range_days: string | null;
+  live_schedule_auto_fill_enabled: string | null;
   x_rich_link_preview_enabled: string | null;
   x_posts_visibility: XPostsVisibility | null;
   naver_cafe_posts_enabled: string | null;
@@ -141,6 +142,7 @@ export async function updateSettings(
       | "auto_update_enabled"
       | "auto_update_interval_hours"
       | "auto_update_range_days"
+      | "live_schedule_auto_fill_enabled"
       | "x_rich_link_preview_enabled"
       | "x_posts_visibility"
       | "naver_cafe_posts_enabled"
