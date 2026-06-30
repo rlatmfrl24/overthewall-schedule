@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "mode": "light",
+  "createdAt": "2026-06-30T06:46:37.902Z",
+  "updatedAt": "2026-06-30T07:08:20.799Z",
+  "briefPath": ".superloopy/brief.md",
+  "evidencePath": ".superloopy/evidence",
+  "goalsPath": ".superloopy/goals.json",
+  "ledgerPath": ".superloopy/ledger.jsonl",
+  "goals": [
+    {
+      "id": "G001",
+      "title": "snapshot page: remove lower header chips and all live-related indicat...",
+      "objective": "snapshot page: remove lower header chips and all live-related indicators while keeping date visible",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-06-30T06:46:37.902Z",
+      "updatedAt": "2026-06-30T07:08:20.799Z",
+      "criteria": [
+        {
+          "id": "C001",
+          "kind": "happy",
+          "scenario": "Happy path works from the real user-facing surface.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/evidence/frontend/20260630-154900-snapshot-header-live-removal/VISUAL_QA.md",
+          "capturedAt": "2026-06-30T07:07:25.456Z",
+          "notes": "Browser captures verify the header has no chip group, keeps the date as plain text, and shows no live indicators."
+        },
+        {
+          "id": "C002",
+          "kind": "risk",
+          "scenario": "Riskiest edge or failure path is handled.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/evidence/G001-C002-capture.txt",
+          "capturedAt": "2026-06-30T07:08:20.799Z",
+          "notes": "Focused snapshot tests, lint, TypeScript build, and production build pass after the date is plain header text and live indicators are removed.",
+          "command": [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "pnpm vitest run src/features/daily/snapshot/snapshot-output.test.ts; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm lint; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm exec tsc -b; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm build; exit $LASTEXITCODE"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "startedAt": "2026-06-30T06:46:37.925Z",
+      "completedAt": "2026-06-30T07:02:48.394Z",
+      "evidence": "Snapshot header chips reduced to date-only and snapshot live indicators removed, with browser visual QA and validation command evidence."
+    }
+  ],
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-30T07:02:48.394Z",
+    "evidence": "Snapshot header chips reduced to date-only and snapshot live indicators removed, with browser visual QA and validation command evidence.",
+    "qualityGate": {
+      "status": "passed",
+      "artifacts": [
+        {
+          "absolutePath": "C:\\Develop\\overthewall-schedule\\.superloopy\\evidence\\frontend\\20260630-145657-snapshot-design\\VISUAL_QA.md",
+          "relativePath": ".superloopy/evidence/frontend/20260630-145657-snapshot-design/VISUAL_QA.md",
+          "size": 2453
+        },
+        {
+          "absolutePath": "C:\\Develop\\overthewall-schedule\\.superloopy\\evidence\\G001-C002-capture.txt",
+          "relativePath": ".superloopy/evidence/G001-C002-capture.txt",
+          "size": 11449
+        }
+      ]
+    }
+  }
+}

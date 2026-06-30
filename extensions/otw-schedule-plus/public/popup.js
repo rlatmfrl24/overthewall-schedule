@@ -18,6 +18,7 @@ const CHAT_LOGIN_STATUS_LABELS = {
   error: "오류",
 };
 const CHAT_LOGIN_STATUSES = new Set(Object.keys(CHAT_LOGIN_STATUS_LABELS));
+const CHAT_LOGIN_TRANSIENT_FAILURE_STATUSES = new Set(["unsupported"]);
 
 const setText = (id, value) => {
   const element = document.getElementById(id);
@@ -65,6 +66,18 @@ const renderChatLoginStatus = (status) => {
   setChatPermissionButtonVisible(normalizedStatus === "permission_missing");
 };
 
+const getDisplayChatLoginStatus = (enabled, storedStatus, permissionGranted) => {
+  if (!enabled) return "disabled";
+  if (!permissionGranted) return "permission_missing";
+  if (
+    storedStatus &&
+    !CHAT_LOGIN_TRANSIENT_FAILURE_STATUSES.has(storedStatus)
+  ) {
+    return storedStatus;
+  }
+  return "enabled";
+};
+
 const hasChatLoginPermission = (callback) => {
   if (!chrome.permissions?.contains) {
     callback(Boolean(chrome.cookies));
@@ -93,22 +106,15 @@ const refreshPopupState = () => {
 
       setStatus("player-status", playerOptimizationEnabled);
       setToggle("player-optimization-toggle", playerOptimizationEnabled);
-      renderChatLoginStatus(
-        chatLoginEnabled ? (storedChatLoginStatus ?? "enabled") : "disabled",
-      );
 
       hasChatLoginPermission((granted) => {
-        if (chatLoginEnabled && !granted) {
-          renderChatLoginStatus("permission_missing");
-          return;
-        }
-
-        if (storedChatLoginStatus === "permission_missing") {
-          renderChatLoginStatus("enabled");
-          return;
-        }
-
-        setChatPermissionButtonVisible(false);
+        renderChatLoginStatus(
+          getDisplayChatLoginStatus(
+            chatLoginEnabled,
+            storedChatLoginStatus,
+            granted,
+          ),
+        );
       });
     },
   );

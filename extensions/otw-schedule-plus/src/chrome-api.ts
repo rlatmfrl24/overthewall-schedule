@@ -59,44 +59,6 @@ export interface ChromeManifest {
   content_scripts?: ChromeManifestContentScript[];
 }
 
-export type ChromeDeclarativeNetRequestResourceType =
-  | "main_frame"
-  | "sub_frame"
-  | "stylesheet"
-  | "script"
-  | "image"
-  | "font"
-  | "object"
-  | "xmlhttprequest"
-  | "ping"
-  | "csp_report"
-  | "media"
-  | "websocket"
-  | "other";
-
-export interface ChromeDeclarativeNetRequestRule {
-  action: {
-    requestHeaders?: Array<{
-      header: string;
-      operation: "remove" | "set" | "append";
-      value?: string;
-    }>;
-    responseHeaders?: Array<{
-      header: string;
-      operation: "remove" | "set" | "append";
-      value?: string;
-    }>;
-    type: "modifyHeaders";
-  };
-  condition: {
-    resourceTypes?: ChromeDeclarativeNetRequestResourceType[];
-    tabIds?: number[];
-    urlFilter?: string;
-  };
-  id: number;
-  priority?: number;
-}
-
 export interface ChromeCookieSetDetails {
   domain?: string;
   expirationDate?: number;
@@ -141,15 +103,6 @@ export interface ChromeApi {
       details: ChromeCookieSetDetails,
       callback: (cookie?: ChromeCookie) => void,
     ) => void;
-  };
-  declarativeNetRequest?: {
-    updateSessionRules: (
-      options: {
-        addRules?: ChromeDeclarativeNetRequestRule[];
-        removeRuleIds?: number[];
-      },
-      callback?: () => void,
-    ) => Promise<void> | void;
   };
   permissions?: {
     contains: (

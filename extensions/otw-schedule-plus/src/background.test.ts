@@ -3,6 +3,9 @@ import type { ChromeApi, ChromeMessageSender } from "./chrome-api";
 
 const CHANNEL_ID = "00000000000000000000000000000001";
 const FRAME_READY_KIND = "OTW_EXTENSION_FRAME_READY";
+const FRAME_REGISTRATION_REQUEST_KIND =
+  "OTW_EXTENSION_REQUEST_FRAME_REGISTRATION";
+const RUN_WIDE_MODE_KIND = "OTW_EXTENSION_RUN_WIDE_MODE";
 const PAGE_READY_KIND = "OTW_EXTENSION_MULTIVIEW_PAGE_READY";
 const INJECT_BRIDGE_ACTIVE_TAB_KIND = "OTW_EXTENSION_INJECT_BRIDGE_ACTIVE_TAB";
 const WEB_APP_MESSAGE_KIND = "OTW_EXTENSION_WEB_APP_MESSAGE";
@@ -38,6 +41,28 @@ const flushMicrotasks = async () => {
     await Promise.resolve();
   }
 };
+
+const getRunWideModeCalls = (sendMessage: ReturnType<typeof vi.fn>) =>
+  sendMessage.mock.calls.filter(([, message]) => {
+    return (
+      typeof message === "object" &&
+      message !== null &&
+      "kind" in message &&
+      message.kind === RUN_WIDE_MODE_KIND
+    );
+  });
+
+const getFrameRegistrationRequestCalls = (
+  sendMessage: ReturnType<typeof vi.fn>,
+) =>
+  sendMessage.mock.calls.filter(([, message]) => {
+    return (
+      typeof message === "object" &&
+      message !== null &&
+      "kind" in message &&
+      message.kind === FRAME_REGISTRATION_REQUEST_KIND
+    );
+  });
 
 const makeNaverLoginCookie = (name: string) => ({
   domain: ".naver.com",
@@ -156,13 +181,182 @@ describe("background player optimization", () => {
     expect(sendMessage).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(600);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
 
     await vi.advanceTimersByTimeAsync(1_200);
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(2);
 
     await vi.advanceTimersByTimeAsync(12_000);
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(2);
+  });
+
+  it("allows player optimization to be scheduled again after all retries fail", async () => {
+    const sendMessage = vi.fn((...args: Parameters<TabsSendMessage>) => {
+      args[3]({ result: "selector_missing" });
+    });
+    const listener = await importBackgroundWithChrome(sendMessage);
+
+    listener(
+      {
+        kind: FRAME_READY_KIND,
+        frame: {
+          channelId: CHANNEL_ID,
+          kind: "live",
+          url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+        },
+      },
+      {
+        frameId: 7,
+        tab: {
+          id: 11,
+          url: "http://localhost:5173/multiview",
+        },
+        url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+      },
+      vi.fn(),
+    );
+    await flushMicrotasks();
+
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(5);
+
+    listener(
+      {
+        kind: PAGE_READY_KIND,
+      },
+      {
+        tab: {
+          id: 11,
+        },
+        url: "http://localhost:5173/multiview",
+      },
+      vi.fn(),
+    );
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(6);
+  });
+
+  it("re-discovers existing CHZZK frames after the service worker loses frame state", async () => {
+    const listenerRef: { current?: RuntimeMessageListener } = {};
+    const sendMessage = vi.fn((...args: Parameters<TabsSendMessage>) => {
+      const [tabId, message, , callback] = args;
+
+      if (
+        typeof message === "object" &&
+        message !== null &&
+        "kind" in message &&
+        message.kind === FRAME_REGISTRATION_REQUEST_KIND
+      ) {
+        callback({ ok: true });
+        listenerRef.current?.(
+          {
+            kind: FRAME_READY_KIND,
+            frame: {
+              channelId: CHANNEL_ID,
+              kind: "live",
+              referrer: "http://localhost:5173/multiview",
+              url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+            },
+          },
+          {
+            frameId: 7,
+            tab: {
+              id: tabId,
+              url: "http://localhost:5173/multiview",
+            },
+            url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+          },
+          vi.fn(),
+        );
+        return;
+      }
+
+      callback({ result: "applied" });
+    });
+    listenerRef.current = await importBackgroundWithChrome(sendMessage);
+    const sendResponse = vi.fn();
+
+    listenerRef.current(
+      {
+        kind: WEB_APP_MESSAGE_KIND,
+        message: {
+          namespace: EXTENSION_PROTOCOL,
+          version: 1,
+          direction: "web-to-extension",
+          type: "REQUEST_WIDE_MODE",
+          requestId: "wide-1",
+          payload: {
+            channelIds: [CHANNEL_ID],
+          },
+        },
+      },
+      {
+        tab: {
+          id: 11,
+        },
+        url: "http://localhost:5173/multiview",
+      },
+      sendResponse,
+    );
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(250);
+    await flushMicrotasks();
+
+    expect(getFrameRegistrationRequestCalls(sendMessage)).toHaveLength(1);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          statuses: {
+            [CHANNEL_ID]: "applied",
+          },
+        }),
+        requestId: "wide-1",
+        type: "TILE_STATUS",
+      }),
+    );
+  });
+
+  it("rechecks a previously optimized frame after the optimization TTL expires", async () => {
+    const sendMessage = vi.fn((...args: Parameters<TabsSendMessage>) => {
+      args[3]({ result: "already_applied" });
+    });
+    const listener = await importBackgroundWithChrome(sendMessage);
+    const frameMessage = {
+      kind: FRAME_READY_KIND,
+      frame: {
+        channelId: CHANNEL_ID,
+        kind: "live",
+        url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+      },
+    };
+    const sender = {
+      frameId: 7,
+      tab: {
+        id: 11,
+        url: "http://localhost:5173/multiview",
+      },
+      url: `https://chzzk.naver.com/live/${CHANNEL_ID}`,
+    };
+
+    listener(frameMessage, sender, vi.fn());
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
+
+    listener(frameMessage, sender, vi.fn());
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    listener(frameMessage, sender, vi.fn());
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(2);
   });
 
   it("uses the OTW bridge registration when frame messages omit the top-level tab URL", async () => {
@@ -209,7 +403,7 @@ describe("background player optimization", () => {
     await flushMicrotasks();
 
     await vi.advanceTimersByTimeAsync(600);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
   });
 
   it("clears trusted multiview tab state when the tab navigates away", async () => {
@@ -269,7 +463,7 @@ describe("background player optimization", () => {
     await flushMicrotasks();
 
     await vi.advanceTimersByTimeAsync(600);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(0);
   });
 
   it("trusts an OTW site referrer when a CHZZK frame registers before the page bridge", async () => {
@@ -301,7 +495,7 @@ describe("background player optimization", () => {
     await flushMicrotasks();
 
     await vi.advanceTimersByTimeAsync(600);
-    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(getRunWideModeCalls(sendMessage)).toHaveLength(1);
   });
 
   it("does not trust localhost referrers in a store manifest without localhost matches", async () => {
@@ -559,7 +753,68 @@ describe("background player optimization", () => {
       expect.objectContaining({
         type: "CAPABILITIES",
         payload: expect.objectContaining({
+          chatLoginBridgeEnabled: true,
           chatLoginBridgeStatus: "enabled",
+          chatLoginLastSyncStatus: null,
+        }),
+      }),
+    );
+  });
+
+  it("does not report a stale transient chat login failure as current capability state", async () => {
+    const sendMessage = vi.fn((...args: Parameters<TabsSendMessage>) => {
+      args[3]({ result: "applied" });
+    });
+    const listener = await importBackgroundWithChrome(sendMessage, {
+      cookies: {
+        get: vi.fn((details, callback) => {
+          callback(makeNaverLoginCookie(details.name));
+        }),
+        getAll: vi.fn((_details, callback) => callback([])),
+        remove: vi.fn((_details, callback) => callback()),
+        set: vi.fn((_details, callback) => callback?.()),
+      },
+      storage: {
+        local: {
+          get: vi.fn((_keys, callback) =>
+            callback({
+              [CHAT_LOGIN_STORAGE_KEY]: true,
+              [CHAT_LOGIN_STATUS_STORAGE_KEY]: "unsupported",
+              [PLAYER_OPTIMIZATION_STORAGE_KEY]: true,
+            }),
+          ),
+          set: vi.fn((_items, callback) => callback?.()),
+        },
+      },
+    });
+    const sendResponse = vi.fn();
+
+    listener(
+      {
+        kind: WEB_APP_MESSAGE_KIND,
+        message: {
+          namespace: EXTENSION_PROTOCOL,
+          version: 1,
+          direction: "web-to-extension",
+          type: "GET_CAPABILITIES",
+          requestId: "capabilities-1",
+        },
+      },
+      {
+        tab: { id: 11 },
+        url: "http://localhost:5173/multiview",
+      },
+      sendResponse,
+    );
+    await flushMicrotasks();
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "CAPABILITIES",
+        payload: expect.objectContaining({
+          chatLoginBridgeEnabled: true,
+          chatLoginBridgeStatus: "enabled",
+          chatLoginLastSyncStatus: "unsupported",
         }),
       }),
     );

@@ -14,6 +14,7 @@
 - `worker/routes/kirinuki.ts`
 - `worker/routes/member-posts.ts`
 - `worker/routes/settings.ts`
+- `worker/routes/youtube.ts` when YouTube source behavior is split into a route module.
 
 ## Worker Shared Logic
 - `worker/services/*`: integration and domain operations.
@@ -31,6 +32,7 @@
 - `src/hooks/*`: data loading and transformation hooks.
 - `src/features/*`: UI state and behavior bound to API payload shapes.
 - `src/routes/*`: route-level integration points.
+- `src/components/app-navigation.ts`: public navigation visibility when API-backed source visibility changes.
 
 ## Contract Change Checklist
 1. Update worker handler and route wiring.

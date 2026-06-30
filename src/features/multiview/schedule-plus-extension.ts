@@ -25,6 +25,7 @@ export type MultiviewWideModeResult =
   | "timeout"
   | "error";
 export type MultiviewChatLoginBridgeStatus =
+  | "unknown"
   | "disabled"
   | "enabled"
   | "needs_login"
@@ -192,6 +193,7 @@ export const parseTileStatuses = (
 export const getExtensionStatusFromChatStatus = (
   status: MultiviewChatLoginBridgeStatus,
 ): SchedulePlusExtensionStatus => {
+  if (status === "unknown") return "missing";
   if (status === "permission_missing") return "permission_missing";
   if (status === "unsupported") return "unsupported";
   if (status === "error") return "error";

@@ -378,7 +378,30 @@ describe("MultiviewPage", () => {
       "multiview-live-frame",
     ) as HTMLIFrameElement;
     const chatFrame = screen.getByTitle("라이브 멤버 CHZZK chat");
-    expect(chatFrame.hasAttribute("credentialless")).toBe(true);
+    expect(chatFrame.hasAttribute("credentialless")).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CAPABILITIES",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "disabled",
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    const guestChatFrame = screen.getByTitle("라이브 멤버 CHZZK chat");
+    expect(guestChatFrame).not.toBe(chatFrame);
+    expect(guestChatFrame.hasAttribute("credentialless")).toBe(true);
 
     act(() => {
       window.dispatchEvent(
@@ -398,8 +421,8 @@ describe("MultiviewPage", () => {
       );
     });
 
-    expect(screen.getByTitle("라이브 멤버 CHZZK chat")).toBe(chatFrame);
-    expect(chatFrame.hasAttribute("credentialless")).toBe(true);
+    expect(screen.getByTitle("라이브 멤버 CHZZK chat")).toBe(guestChatFrame);
+    expect(guestChatFrame.hasAttribute("credentialless")).toBe(true);
   });
 
   it("auto-collapses the source panel into a reserved rail when the viewport becomes narrow", () => {
@@ -569,6 +592,93 @@ describe("MultiviewPage", () => {
     ).toBe(true);
   });
 
+  it("retries player optimization when the OTW bridge connects after a CHZZK frame ready signal", () => {
+    vi.useFakeTimers();
+    const postMessage = vi.spyOn(window, "postMessage");
+    window.history.replaceState(null, "", `/multiview?c=${CHANNEL_A}`);
+
+    renderPage();
+
+    const frame = screen.getByTestId(
+      "multiview-live-frame",
+    ) as HTMLIFrameElement;
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "READY",
+            payload: {
+              channelId: CHANNEL_A,
+              frameKind: "live",
+              source: "chzzk-frame",
+            },
+          },
+          origin: "https://chzzk.naver.com",
+          source: frame.contentWindow,
+        }),
+      );
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+
+    const requestsBeforeBridge = postMessage.mock.calls.filter(
+      ([message]) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "REQUEST_WIDE_MODE",
+    );
+    expect(requestsBeforeBridge).toHaveLength(1);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CAPABILITIES",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "disabled",
+              playerOptimizationEnabled: true,
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(900);
+    });
+
+    const requestsAfterBridge = postMessage.mock.calls
+      .map(([message]) => message)
+      .filter(
+        (message): message is { payload: { channelIds: string[] }; type: string } =>
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "REQUEST_WIDE_MODE" &&
+          "payload" in message &&
+          typeof message.payload === "object" &&
+          message.payload !== null &&
+          "channelIds" in message.payload &&
+          Array.isArray(message.payload.channelIds),
+      );
+
+    expect(requestsAfterBridge).toHaveLength(2);
+    expect(requestsAfterBridge[1]?.payload.channelIds).toEqual([CHANNEL_A]);
+  });
+
   it("warns before adding a member that is not currently live", () => {
     renderPage();
 
@@ -659,10 +769,40 @@ describe("MultiviewPage", () => {
     expect(screen.getByTestId("multiview-live-frame")).toBeTruthy();
   });
 
-  it("loads only the chat iframe credentialless while chat login bridge is disabled", () => {
+  it("keeps the chat iframe in normal mode until the bridge explicitly reports disabled", () => {
     window.history.replaceState(null, "", `/multiview?c=${CHANNEL_A}`);
 
     renderPage();
+
+    expect(
+      screen
+        .getByTitle("라이브 멤버 CHZZK chat")
+        .hasAttribute("credentialless"),
+    ).toBe(false);
+    expect(
+      screen
+        .getByTestId("multiview-live-frame")
+        .hasAttribute("credentialless"),
+    ).toBe(false);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            namespace: SCHEDULE_PLUS_EXTENSION_PROTOCOL,
+            version: SCHEDULE_PLUS_EXTENSION_PROTOCOL_VERSION,
+            direction: "extension-to-web",
+            type: "CAPABILITIES",
+            payload: {
+              capabilities: ["wideMode", "chatLoginBridge"],
+              chatLoginBridgeStatus: "disabled",
+            },
+          },
+          origin: window.location.origin,
+          source: window,
+        }),
+      );
+    });
 
     expect(
       screen

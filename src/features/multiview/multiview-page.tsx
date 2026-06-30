@@ -41,6 +41,7 @@ import {
   HAS_SCHEDULE_PLUS_EXTENSION_STORE_URL,
   SCHEDULE_PLUS_EXTENSION_INSTALL_URL,
   type SchedulePlusExtensionState,
+  type MultiviewChatLoginBridgeStatus,
   type MultiviewWideModeResult,
 } from "./schedule-plus-extension";
 import {
@@ -565,7 +566,7 @@ const PlayerTile = ({
 };
 
 interface ChatDockProps {
-  chatSessionKey: string;
+  chatLoginBridgeStatus: MultiviewChatLoginBridgeStatus;
   source: SelectedMultiviewSource;
   selectedSources: SelectedMultiviewSource[];
   onClose: () => void;
@@ -573,13 +574,13 @@ interface ChatDockProps {
 }
 
 const ChatDock = ({
-  chatSessionKey,
+  chatLoginBridgeStatus,
   source,
   selectedSources,
   onClose,
   onSelect,
 }: ChatDockProps) => {
-  const isCredentialless = chatSessionKey !== "enabled";
+  const isCredentialless = chatLoginBridgeStatus === "disabled";
   const credentiallessProps = isCredentialless
     ? { credentialless: "" }
     : {};
@@ -963,7 +964,7 @@ export const MultiviewPage = () => {
 
         {canRenderChatDock && chatOpen && chatSource ? (
           <ChatDock
-            chatSessionKey={schedulePlusExtension.chatLoginBridgeStatus}
+            chatLoginBridgeStatus={schedulePlusExtension.chatLoginBridgeStatus}
             source={chatSource}
             selectedSources={selectedSources}
             onClose={() => setChatOpen(false)}

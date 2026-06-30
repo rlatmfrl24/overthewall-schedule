@@ -14,7 +14,7 @@ import {
 
 const INITIAL_EXTENSION_STATE: SchedulePlusExtensionState = {
   capabilities: [],
-  chatLoginBridgeStatus: "disabled",
+  chatLoginBridgeStatus: "unknown",
   lastError: null,
   playerOptimizationEnabled: true,
   status: "missing",
@@ -29,6 +29,7 @@ interface PendingRequest {
 const REQUEST_TIMEOUT_MS = 8000;
 const CAPABILITY_POLL_INTERVAL_MS = 5000;
 const INITIAL_HANDSHAKE_DELAYS_MS = [0, 250, 1000, 2500] as const;
+const PLAYER_OPTIMIZATION_RETRY_DELAYS_MS = [800, 2500, 5000, 9000] as const;
 const CHZZK_FRAME_ORIGIN = "https://chzzk.naver.com";
 type SchedulePlusMessageSource = "otw-bridge" | "chzzk-frame" | "untrusted";
 
@@ -84,17 +85,26 @@ const isChzzkFrameReadyMessage = (
   isPlainObject(message.payload) &&
   message.payload.source === "chzzk-frame";
 
+const isSuccessfulWideModeResult = (result: unknown) =>
+  result === "applied" || result === "already_applied";
+
 export function useSchedulePlusExtension(channelIds: string[]) {
   const [state, setState] = useState<SchedulePlusExtensionState>(
     INITIAL_EXTENSION_STATE,
   );
   const requestSeqRef = useRef(0);
   const pendingRequestsRef = useRef(new Map<string, PendingRequest>());
-  const optimizedRequestChannelIdsRef = useRef<string[]>([]);
+  const optimizedRequestChannelIdsRef = useRef(new Set<string>());
+  const pendingOptimizationChannelIdsRef = useRef(new Set<string>());
+  const hasSeenOtwBridgeRef = useRef(false);
   const channelKey = useMemo(() => channelIds.join(","), [channelIds]);
   const stableChannelIds = useMemo(
     () => (channelKey.length > 0 ? channelKey.split(",") : []),
     [channelKey],
+  );
+  const capabilitiesKey = useMemo(
+    () => state.capabilities.join(","),
+    [state.capabilities],
   );
 
   const sendRequest = useCallback(
@@ -147,6 +157,15 @@ export function useSchedulePlusExtension(channelIds: string[]) {
         !isChzzkFrameReadyMessage(message)
       ) {
         return;
+      }
+
+      if (
+        messageSource === "otw-bridge" &&
+        !hasSeenOtwBridgeRef.current &&
+        (message.type === "READY" || message.type === "CAPABILITIES")
+      ) {
+        hasSeenOtwBridgeRef.current = true;
+        pendingOptimizationChannelIdsRef.current.clear();
       }
 
       setState((current) => {
@@ -286,27 +305,78 @@ export function useSchedulePlusExtension(channelIds: string[]) {
     if (state.status === "missing" || stableChannelIds.length === 0) return;
     if (!state.playerOptimizationEnabled) return;
 
-    const previousChannelIds = new Set(optimizedRequestChannelIdsRef.current);
+    const selectedChannelIds = new Set(stableChannelIds);
+    optimizedRequestChannelIdsRef.current.forEach((channelId) => {
+      if (!selectedChannelIds.has(channelId)) {
+        optimizedRequestChannelIdsRef.current.delete(channelId);
+      }
+    });
+    pendingOptimizationChannelIdsRef.current.forEach((channelId) => {
+      if (!selectedChannelIds.has(channelId)) {
+        pendingOptimizationChannelIdsRef.current.delete(channelId);
+      }
+    });
+
+    const previousChannelIds = optimizedRequestChannelIdsRef.current;
+    const pendingChannelIds = pendingOptimizationChannelIdsRef.current;
     const addedChannelIds = stableChannelIds.filter(
-      (channelId) => !previousChannelIds.has(channelId),
+      (channelId) =>
+        !previousChannelIds.has(channelId) && !pendingChannelIds.has(channelId),
     );
-    optimizedRequestChannelIdsRef.current = stableChannelIds;
 
     if (addedChannelIds.length === 0) return;
+    addedChannelIds.forEach((channelId) => {
+      pendingChannelIds.add(channelId);
+    });
 
-    const firstAttempt = window.setTimeout(() => {
-      void requestWideMode(addedChannelIds);
-    }, 800);
-    const secondAttempt = window.setTimeout(() => {
-      void requestWideMode(addedChannelIds);
-    }, 2500);
+    const requestOptimization = async (isFinalAttempt: boolean) => {
+      const targetChannelIds = addedChannelIds.filter((channelId) =>
+        pendingOptimizationChannelIdsRef.current.has(channelId) &&
+        !optimizedRequestChannelIdsRef.current.has(channelId),
+      );
+      if (targetChannelIds.length === 0) return;
+
+      const message = await requestWideMode(targetChannelIds);
+      if (message?.type === "TILE_STATUS") {
+        const statuses = parseTileStatuses(message.payload);
+        targetChannelIds.forEach((channelId) => {
+          if (isSuccessfulWideModeResult(statuses[channelId])) {
+            optimizedRequestChannelIdsRef.current.add(channelId);
+            pendingOptimizationChannelIdsRef.current.delete(channelId);
+            return;
+          }
+
+          if (isFinalAttempt) {
+            pendingOptimizationChannelIdsRef.current.delete(channelId);
+          }
+        });
+        return;
+      }
+
+      if (!isFinalAttempt) return;
+
+      targetChannelIds.forEach((channelId) => {
+        pendingOptimizationChannelIdsRef.current.delete(channelId);
+      });
+    };
+
+    const attemptTimeoutIds = PLAYER_OPTIMIZATION_RETRY_DELAYS_MS.map(
+      (delayMs, index) =>
+        window.setTimeout(() => {
+          void requestOptimization(
+            index === PLAYER_OPTIMIZATION_RETRY_DELAYS_MS.length - 1,
+          );
+        }, delayMs),
+    );
 
     return () => {
-      window.clearTimeout(firstAttempt);
-      window.clearTimeout(secondAttempt);
+      attemptTimeoutIds.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId);
+      });
     };
   }, [
     channelKey,
+    capabilitiesKey,
     requestWideMode,
     stableChannelIds,
     stableChannelIds.length,

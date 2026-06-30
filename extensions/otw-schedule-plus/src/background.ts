@@ -21,9 +21,10 @@ import {
   getChatFramePartitionKeys,
   syncNaverLoginCookiesToPartitions,
 } from "./cookie-bridge.js";
-import { removeLegacyChatCookieBlockerForTab } from "./chat-cookie-blocker.js";
 
 const INTERNAL_FRAME_READY = "OTW_EXTENSION_FRAME_READY";
+const INTERNAL_REQUEST_FRAME_REGISTRATION =
+  "OTW_EXTENSION_REQUEST_FRAME_REGISTRATION";
 const INTERNAL_MULTIVIEW_PAGE_READY = "OTW_EXTENSION_MULTIVIEW_PAGE_READY";
 const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
 const INTERNAL_WEB_APP_MESSAGE = "OTW_EXTENSION_WEB_APP_MESSAGE";
@@ -39,12 +40,16 @@ const CHAT_LOGIN_STATUS_STORAGE_KEY =
 const PLAYER_OPTIMIZATION_STORAGE_KEY =
   "otw:schedule-plus:multiview:player-optimization-enabled";
 const STALE_FRAME_TTL_MS = 60_000;
+const OPTIMIZED_FRAME_SIGNATURE_TTL_MS = 45_000;
 const FRAME_REGISTRATION_WAIT_MS = 5_000;
 const FRAME_REGISTRATION_POLL_MS = 250;
 const CHAT_LOGIN_SYNC_COOLDOWN_MS = 30_000;
 const AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS = [
   600, 1_800, 4_000, 8_000, 12_000,
 ] as const;
+const CHAT_LOGIN_TRANSIENT_FAILURE_STATUSES = new Set<ChatLoginBridgeStatus>([
+  "unsupported",
+]);
 const CHAT_LOGIN_COOKIE_PERMISSION: ChromePermissionsRequest = {
   origins: ["https://nid.naver.com/*"],
   permissions: ["cookies"],
@@ -58,7 +63,10 @@ const pendingFrameOptimizations = new Map<
   string,
   { promise: Promise<WideModeResult>; signature: string }
 >();
-const optimizedFrameSignatures = new Map<string, string>();
+const optimizedFrameSignatures = new Map<
+  string,
+  { expiresAt: number; signature: string }
+>();
 const scheduledFrameOptimizationSignatures = new Map<string, string>();
 const chatLoginReloadedFrameSignatures = new Map<string, string>();
 const chatLoginSyncInFlightByScope = new Map<
@@ -99,8 +107,21 @@ const isSuccessfulWideModeResult = (result: WideModeResult) =>
 const hasOptimizedFrameSignature = (frame: RegisteredChzzkFrame) => {
   const key = getFrameKey(frame.tabId, frame.frameId);
   const signature = getFrameSignature(frame);
+  const optimized = optimizedFrameSignatures.get(key);
 
-  return optimizedFrameSignatures.get(key) === signature;
+  if (!optimized) return false;
+  if (optimized.signature !== signature) return false;
+  if (optimized.expiresAt > Date.now()) return true;
+
+  optimizedFrameSignatures.delete(key);
+  return false;
+};
+
+const setOptimizedFrameSignature = (frame: RegisteredChzzkFrame) => {
+  optimizedFrameSignatures.set(getFrameKey(frame.tabId, frame.frameId), {
+    expiresAt: Date.now() + OPTIMIZED_FRAME_SIGNATURE_TTL_MS,
+    signature: getFrameSignature(frame),
+  });
 };
 
 const optimizeFrameOnce = async (frame: RegisteredChzzkFrame) => {
@@ -124,7 +145,7 @@ const optimizeFrameOnce = async (frame: RegisteredChzzkFrame) => {
     );
 
     if (isSuccessfulWideModeResult(result)) {
-      optimizedFrameSignatures.set(key, signature);
+      setOptimizedFrameSignature(frame);
     }
 
     return result;
@@ -270,6 +291,31 @@ const sleep = (durationMs: number) =>
     setTimeout(resolve, durationMs);
   });
 
+const requestFrameRegistrationFromTab = (tabId: number) =>
+  new Promise<void>((resolve) => {
+    const chromeApi = getChromeApi();
+    if (!chromeApi?.tabs?.sendMessage) {
+      resolve();
+      return;
+    }
+
+    try {
+      chromeApi.tabs.sendMessage(
+        tabId,
+        {
+          kind: INTERNAL_REQUEST_FRAME_REGISTRATION,
+        },
+        {},
+        () => {
+          void getChromeApi()?.runtime.lastError;
+          resolve();
+        },
+      );
+    } catch {
+      resolve();
+    }
+  });
+
 const buildLiveFrameTargetMap = (tabId: number, channelIds: string[]) => {
   const channelSet = new Set(channelIds);
   const targetsByChannel = new Map<string, RegisteredChzzkFrame[]>();
@@ -296,6 +342,7 @@ const waitForLiveFrameTargetMap = async (
   channelIds: string[],
 ) => {
   const startedAt = Date.now();
+  let requestedRegistration = false;
 
   while (Date.now() - startedAt <= FRAME_REGISTRATION_WAIT_MS) {
     pruneStaleFrames();
@@ -303,6 +350,11 @@ const waitForLiveFrameTargetMap = async (
     const targetsByChannel = buildLiveFrameTargetMap(tabId, channelIds);
     if (channelIds.every((channelId) => targetsByChannel.has(channelId))) {
       return targetsByChannel;
+    }
+
+    if (!requestedRegistration) {
+      requestedRegistration = true;
+      await requestFrameRegistrationFromTab(tabId);
     }
 
     await sleep(FRAME_REGISTRATION_POLL_MS);
@@ -373,21 +425,38 @@ const scheduleFrameOptimizationRetries = (frame: RegisteredChzzkFrame) => {
   if (scheduledFrameOptimizationSignatures.get(key) === signature) return;
   scheduledFrameOptimizationSignatures.set(key, signature);
 
-  AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS.forEach((delayMs) => {
+  AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS.forEach((delayMs, index) => {
     setTimeout(() => {
       const currentFrame = frames.get(key);
+      const isFinalAttempt =
+        index === AUTO_FRAME_OPTIMIZATION_RETRY_DELAYS_MS.length - 1;
 
       if (!currentFrame || getFrameSignature(currentFrame) !== signature) {
         return;
       }
 
-      if (optimizedFrameSignatures.get(key) === signature) {
+      if (hasOptimizedFrameSignature(currentFrame)) {
+        scheduledFrameOptimizationSignatures.delete(key);
         return;
       }
 
       void getPlayerOptimizationEnabled().then((enabled) => {
-        if (!enabled) return;
-        void optimizeFrameOnce(currentFrame);
+        if (!enabled) {
+          if (isFinalAttempt) {
+            scheduledFrameOptimizationSignatures.delete(key);
+          }
+          return;
+        }
+
+        void optimizeFrameOnce(currentFrame).then((result) => {
+          if (isSuccessfulWideModeResult(result)) {
+            scheduledFrameOptimizationSignatures.delete(key);
+            return;
+          }
+          if (isFinalAttempt) {
+            scheduledFrameOptimizationSignatures.delete(key);
+          }
+        });
       });
     }, delayMs);
   });
@@ -427,6 +496,8 @@ const registerMultiviewTab = (sender: ChromeMessageSender) => {
     lastSeenAt: Date.now(),
     url,
   });
+
+  void requestFrameRegistrationFromTab(tabId);
 
   for (const frame of frames.values()) {
     if (frame.tabId === tabId) {
@@ -673,8 +744,6 @@ const syncChatLoginCookies = async (
   const chromeApi = getChromeApi();
   if (!chromeApi?.cookies) return "permission_missing";
 
-  await removeLegacyChatCookieBlockerForTab(chromeApi, input.tabId);
-
   const partitionKeys = await getChatFramePartitionKeys({
     chromeApi,
     fallbackTopLevelSite: input.topLevelSite,
@@ -783,12 +852,10 @@ const enableChatLoginBridge = async (
   return status;
 };
 
-const disableChatLoginCookies = async (tabId?: number) => {
-  const chromeApi = getChromeApi();
+const disableChatLoginCookies = async () => {
   pendingUserRequestedChatLoginSync = false;
   chatLoginReloadedFrameSignatures.clear();
   lastChatLoginSyncByScope.clear();
-  await removeLegacyChatCookieBlockerForTab(chromeApi, tabId);
   await setStoredChatLoginStatus("disabled");
   return "disabled" satisfies ChatLoginBridgeStatus;
 };
@@ -846,14 +913,31 @@ const getChatLoginStatus = async (): Promise<ChatLoginBridgeStatus> => {
   if (!(await hasChatLoginCookiePermission())) return "permission_missing";
 
   const storedStatus = await getStoredChatLoginStatus();
-  if (storedStatus && storedStatus !== "disabled") return storedStatus;
+  if (
+    storedStatus &&
+    storedStatus !== "disabled" &&
+    !CHAT_LOGIN_TRANSIENT_FAILURE_STATUSES.has(storedStatus)
+  ) {
+    return storedStatus;
+  }
 
   return "enabled";
 };
 
+const buildChatLoginCapabilityPayload = async () => {
+  const chatLoginBridgeEnabled = await getChatLoginBridgeEnabled();
+  const chatLoginLastSyncStatus = await getStoredChatLoginStatus();
+
+  return {
+    chatLoginBridgeEnabled,
+    chatLoginBridgeStatus: await getChatLoginStatus(),
+    chatLoginLastSyncStatus,
+  };
+};
+
 const buildCapabilitiesPayload = async () => ({
   capabilities: EXTENSION_CAPABILITIES,
-  chatLoginBridgeStatus: await getChatLoginStatus(),
+  ...(await buildChatLoginCapabilityPayload()),
   playerOptimizationEnabled: await getPlayerOptimizationEnabled(),
 });
 
@@ -915,13 +999,17 @@ const handleWebAppMessage = async (
                 url: sender.url ?? sender.tab?.url,
               }),
             })
-        : await disableChatLoginCookies(tabId);
+        : await disableChatLoginCookies();
 
       if (!enabled) await setStorageValue(CHAT_LOGIN_STORAGE_KEY, false);
 
       return createExtensionMessage(
         "CHAT_LOGIN_STATUS",
-        { status },
+        {
+          chatLoginBridgeEnabled: enabled,
+          chatLoginLastSyncStatus: status,
+          status,
+        },
         message.requestId,
         message.namespace,
       );
@@ -952,7 +1040,7 @@ const handleChatLoginSettingChanged = async (
             url: sender.url ?? sender.tab?.url,
           }),
         })
-    : disableChatLoginCookies(tabId).then(async (status) => {
+    : disableChatLoginCookies().then(async (status) => {
         await setStorageValue(CHAT_LOGIN_STORAGE_KEY, false);
         return status;
       });

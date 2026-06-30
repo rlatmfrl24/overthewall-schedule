@@ -238,7 +238,7 @@ Existing OTW assets make Phase 1 straightforward:
 - `members.url_chzzk` already stores CHZZK URLs.
 - `src/lib/api/live-status.ts` can map members and schedule titles to CHZZK channel IDs.
 - `worker/routes/live.ts` already fetches CHZZK live status.
-- `src/components/header.tsx` already has a product slot for multiview.
+- Historical note: this analysis originally referenced `src/components/header.tsx`; the current product slot lives in `src/components/app-navigation.ts` and `src/components/app-shell.tsx`.
 - No new D1 table is needed unless official presets are introduced.
 
 Optional new shared helper:

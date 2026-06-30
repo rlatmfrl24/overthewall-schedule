@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { format, isSameDay, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useScheduleBoard } from "@/hooks/use-schedule-board";
-import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
-import type { ChzzkLiveStatusMap, ScheduleItem } from "@/lib/types";
+import type { ScheduleItem } from "@/lib/types";
 import { SnapshotCardMember } from "./snapshot-card-member";
 import { SnapshotTimeline } from "./snapshot-timeline";
 
@@ -19,57 +18,10 @@ export const SnapshotSchedule = ({
   theme,
 }: SnapshotScheduleProps) => {
   const { members, schedules, hasLoaded } = useScheduleBoard(date, date);
-  const [liveStatuses, setLiveStatuses] = useState<ChzzkLiveStatusMap>({});
-  const [isLiveStatusesLoaded, setIsLiveStatusesLoaded] = useState(false);
   const [isSnapshotReady, setIsSnapshotReady] = useState(false);
   const snapshotWidth = mode === "timeline" ? 520 : 1280;
 
   const currentDate = useMemo(() => parseISO(date), [date]);
-  const isSnapshotToday = useMemo(
-    () => isSameDay(currentDate, new Date()),
-    [currentDate],
-  );
-
-  useEffect(() => {
-    let isActive = true;
-
-    const fetchLiveStatuses = async () => {
-      if (!hasLoaded) {
-        setIsLiveStatusesLoaded(false);
-        return;
-      }
-
-      setLiveStatuses({});
-      setIsLiveStatusesLoaded(false);
-      setIsSnapshotReady(false);
-
-      if (!isSnapshotToday || members.length === 0) {
-        if (isActive) {
-          setIsLiveStatusesLoaded(true);
-        }
-        return;
-      }
-
-      try {
-        const data = await fetchLiveStatusesForMembers(members, { schedules });
-        if (isActive) {
-          setLiveStatuses(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch snapshot live statuses:", error);
-      } finally {
-        if (isActive) {
-          setIsLiveStatusesLoaded(true);
-        }
-      }
-    };
-
-    void fetchLiveStatuses();
-
-    return () => {
-      isActive = false;
-    };
-  }, [hasLoaded, isSnapshotToday, members, schedules]);
 
   useEffect(() => {
     if (!theme) return;
@@ -89,7 +41,8 @@ export const SnapshotSchedule = ({
   }, [theme]);
 
   useEffect(() => {
-    if (!hasLoaded || !isLiveStatusesLoaded) return;
+    setIsSnapshotReady(false);
+    if (!hasLoaded) return;
     let frame2: number | null = null;
     const frame1 = requestAnimationFrame(() => {
       frame2 = requestAnimationFrame(() => {
@@ -100,7 +53,7 @@ export const SnapshotSchedule = ({
       cancelAnimationFrame(frame1);
       if (frame2 !== null) cancelAnimationFrame(frame2);
     };
-  }, [hasLoaded, isLiveStatusesLoaded]);
+  }, [date, hasLoaded, members.length, schedules.length]);
 
   const schedulesByMemberUid = useMemo(() => {
     const grouped = new Map<number, ScheduleItem[]>();
@@ -115,7 +68,7 @@ export const SnapshotSchedule = ({
     return grouped;
   }, [schedules]);
 
-  const isReady = hasLoaded && isLiveStatusesLoaded && isSnapshotReady;
+  const isReady = hasLoaded && isSnapshotReady;
 
   return (
     <div
@@ -123,28 +76,21 @@ export const SnapshotSchedule = ({
       data-snapshot-ready={isReady ? "true" : "false"}
       className={cn(
         "inline-block bg-background text-foreground",
-        mode === "timeline" ? "p-4" : "p-5",
+        mode === "timeline" ? "p-3" : "p-5",
       )}
     >
       <div
-        className={cn("flex flex-col", mode === "timeline" ? "gap-4" : "gap-5")}
+        className={cn("flex flex-col", mode === "timeline" ? "gap-3" : "gap-5")}
         style={{ width: snapshotWidth }}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <h1 className="shrink-0 text-[2rem] font-extrabold leading-tight tracking-tight text-foreground">
-            오늘의 편성표
-          </h1>
-          <p className="min-w-0 truncate text-lg font-bold leading-none text-muted-foreground">
-            {format(currentDate, "yyyy년 M월 d일")}
-          </p>
-        </div>
+        <SnapshotHeader
+          dateLabel={format(currentDate, "yyyy년 M월 d일")}
+          dateValue={date}
+          mode={mode}
+        />
 
         {mode === "timeline" ? (
-          <SnapshotTimeline
-            members={members}
-            schedules={schedules}
-            liveStatuses={liveStatuses}
-          />
+          <SnapshotTimeline members={members} schedules={schedules} />
         ) : (
           <div className="grid grid-cols-3 gap-4">
             {members.map((member) => {
@@ -155,7 +101,6 @@ export const SnapshotSchedule = ({
                   key={`snapshot-${member.uid}`}
                   member={member}
                   schedules={memberSchedules}
-                  liveStatus={liveStatuses[member.uid]}
                   theme={theme}
                 />
               );
@@ -166,3 +111,100 @@ export const SnapshotSchedule = ({
     </div>
   );
 };
+
+function SnapshotHeader({
+  dateLabel,
+  dateValue,
+  mode,
+}: {
+  dateLabel: string;
+  dateValue: string;
+  mode: "grid" | "timeline";
+}) {
+  return (
+    <header
+      className={cn(
+        "overflow-hidden border border-zinc-200/80 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-zinc-950 dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]",
+        mode === "timeline" ? "rounded-[24px] p-3" : "rounded-[28px] p-5",
+      )}
+    >
+      <div
+        className={cn(
+          "flex min-w-0 items-center",
+          mode === "timeline" ? "gap-3" : "gap-4",
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-white/15",
+              mode === "timeline" ? "h-11 w-[76px]" : "h-14 w-24",
+            )}
+          >
+            <img
+              src="/logo_otw.svg"
+              width={90}
+              height={25}
+              alt="오버더월"
+              className={cn(
+                "h-auto shrink-0",
+                mode === "timeline" ? "w-16" : "w-20",
+              )}
+            />
+          </div>
+          <div className="min-w-0">
+            <p
+              className={cn(
+                "font-black uppercase leading-none text-zinc-500 dark:text-zinc-400",
+                mode === "timeline"
+                  ? "text-[10px] tracking-[0.14em]"
+                  : "text-[11px] tracking-[0.18em]",
+              )}
+            >
+              OTW Schedule
+            </p>
+            <div className="mt-1 flex min-w-0 items-center gap-2">
+              <h1
+                className={cn(
+                  "shrink-0 whitespace-nowrap font-black leading-none text-zinc-950 dark:text-zinc-50",
+                  mode === "timeline" ? "text-[1.55rem]" : "text-[2.35rem]",
+                )}
+              >
+                오늘의 편성표
+              </h1>
+              <SnapshotDateText
+                value={dateLabel}
+                dateTime={dateValue}
+                compact={mode === "timeline"}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function SnapshotDateText({
+  value,
+  dateTime,
+  compact = false,
+}: {
+  value: string;
+  dateTime: string;
+  compact?: boolean;
+}) {
+  return (
+    <p
+      aria-label={`편성표 날짜 ${value}`}
+      className={cn(
+        "shrink-0 whitespace-nowrap font-black leading-none text-zinc-500 dark:text-zinc-300",
+        compact ? "text-[0.95rem]" : "text-base",
+      )}
+    >
+      <time dateTime={dateTime} className="tabular-nums">
+        {value}
+      </time>
+    </p>
+  );
+}

@@ -1,74 +1,99 @@
-# OverTheWall Schedule (OTW Schedule)
+# OverTheWall Schedule
 
-**OverTheWall Schedule**은 크리에이터 그룹 "Over The Wall"의 방송 일정을 한눈에 보기 쉽게 정리하고, 팬들이 빠르게 확인할 수 있도록 돕는 스케줄 허브입니다.  
-모바일과 데스크탑 모두에서 직관적인 일정 탐색 경험을 제공하는 것을 목표로 합니다.
+OverTheWall Schedule is a fan-operated schedule hub for the Over The Wall
+creator group. It focuses on fast schedule scanning, live status awareness,
+content discovery, and lightweight admin workflows.
 
-## 프로젝트 성격
+## Active Surfaces
 
-- 멤버들의 방송 일정과 공지 정보를 집약한 **팬 중심 스케줄 플랫폼**
-- 빠른 일정 확인과 상태 파악에 최적화된 **가벼운 정보 허브**
-- 일정/공지/기념일을 통합적으로 관리하는 **운영 도구**
+- **Public app shell**: responsive sidebar navigation, mobile sheet menu,
+  account/theme controls, and compact site footer.
+- **Daily schedule**: member cards with readable schedule states, integrated
+  live indicators, image export, and profile links.
+- **Weekly schedule**: dense weekly grid with sticky headers and schedule items
+  optimized for contrast and scannability.
+- **Notices and events**: date-windowed notices plus always-on notices when no
+  display period is configured.
+- **VOD and clips**: YouTube, CHZZK VOD, and clip browsing with shared content
+  headers and media cards.
+- **Member posts**: X and Naver Cafe post feeds with member-aware filtering and
+  shared content page spacing.
+- **OTW Multiview**: member/source selection, shareable multiview state, and an
+  optional OTW Schedule + extension bridge for CHZZK iframe helpers.
+- **Profile and snapshot routes**: chrome-free profile pages and stable image
+  capture surfaces for schedule sharing.
+- **Admin**: notices, schedules, content source settings, auto-update review,
+  and operational logs.
 
-## 지원 기능
+## Documentation
 
-### 오늘의 스케줄 (Daily)
+- `Design.md`: current UI patterns, tone, layout, accessibility, and component
+  guidance.
+- `docs/README.md`: documentation index and archive policy.
+- `AGENTS.md`: agent rules, canonical `.agent` source policy, and available
+  project skills.
+- `docs/otw-schedule-plus-extension.md`: extension behavior and install notes.
+- `docs/otw-schedule-plus-deployment-guide.md`: Chrome Web Store release
+  runbook.
 
-- Bento Grid 기반 카드 레이아웃으로 멤버별 일정 시각화
-- 방송/휴방/게릴라/미정 상태를 색상과 아이콘으로 구분
-- 모바일/데스크탑 반응형 지원
-- 스케쥴 일정표 이미지 다운로드 및 복사 기능
+## Development
 
-### 주간 통합 일정표 (Weekly)
+Use `pnpm` for project commands.
 
-- 일주일치 멤버 일정 한 화면 통합 뷰
-- 이전/다음 주 이동 및 오늘 이동
-- 스크롤 시에도 날짜/멤버가 유지되는 고정 헤더/컬럼
+```bash
+pnpm dev
+pnpm lint
+pnpm test
+pnpm build
+```
 
-### 일정 관리
+Local development defaults to local D1. Remote D1 is used only by explicit
+release or deploy commands.
 
-- 일정 추가/수정/삭제를 통합 다이얼로그에서 처리
-- 상태 충돌 자동 정리 (휴방/미정 설정 시 일정 정리, 방송 등록 시 충돌 해소)
+```bash
+pnpm drizzle:migrate:local
+pnpm d1:reset:local
+pnpm d1:seed:local
+pnpm d1:doctor
+```
 
-### 공지사항 및 D-Day 관리
+Apply remote migrations only after local validation:
 
-- 공지사항 등록/수정/비활성화 지원
-- 기념일(D-Day) 등록/관리 및 일정과 함께 표시
+```bash
+pnpm drizzle:migrate:remote
+```
 
-### 자동 스케줄 업데이트(개발중)
+## OTW Schedule +
 
-- 미정/휴방/게릴라 상태의 스케줄을 치지직 라이브/VOD 상태로 자동 업데이트
-- 관리자 UI에서 주기 설정 및 수동 실행 지원
+The Chrome extension lives under `extensions/otw-schedule-plus`.
 
-### VOD & 클립
+```bash
+pnpm extension:build:dev
+pnpm extension:build:store
+pnpm extension:validate
+pnpm extension:zip
+```
 
-- VOD 목록 조회 및 상세 페이지 제공
-- 클립 목록 조회 및 상세 페이지 제공
-- 클립 재생 기능 제공
+The current Store release scope is `/multiview` support: CHZZK player layout
+helpers and optional chat login bridging. Update the extension docs whenever
+permissions, user disclosures, package behavior, or Store form values change.
 
-## 개발 메모
+## Profile Background Images
 
-### 로컬 D1 개발
+Profile background images use R2 as the source of truth. Do not store final
+background assets under `public/profile-background`.
 
-- 개발/테스트 기본값은 로컬 D1입니다. `pnpm dev`와 `pnpm drizzle:migrate:local`은 원격 D1을 사용하지 않습니다.
-- 깨끗한 로컬 DB가 필요하면 `pnpm d1:reset:local` 후 `pnpm d1:seed:local`을 실행합니다.
-- 로컬 설정 점검은 `pnpm d1:doctor`를 사용합니다. 원격 점검은 release/deploy 단계에서만 `pnpm d1:doctor --remote`로 수행합니다.
-- 원격 migration은 명시적으로 `pnpm drizzle:migrate:remote`를 실행할 때만 수행합니다.
+- Put temporary originals in `r2/profile-background/*.webp`.
+- Run `pnpm images:profile-backgrounds` to generate responsive WebP variants.
+- Run `pnpm r2:upload-profile-backgrounds` to upload to the `otw-schedule` R2
+  bucket under `members/{code}/backgrounds/{backgroundId}/{variant}.webp`.
+- The profile route falls back to the member profile image if R2 loading fails.
 
-### 프로필 배경 이미지 최적화
+## Roadmap Notes
 
-- 프로필 배경 이미지는 R2를 원본으로 사용하며, `public/profile-background`에는 보관하지 않습니다.
-- 새 배경 업로드가 필요하면 배포 대상이 아닌 `r2/profile-background/*.webp`에 임시 원본을 두고 `pnpm images:profile-backgrounds`로 반응형 WebP variant를 생성합니다.
-- 기본 배경은 `r2/profile-background/{code}.webp`, 추가 배경은 `r2/profile-background/{code}--{backgroundId}.webp` 파일명으로 둡니다.
-- `pnpm r2:upload-profile-backgrounds`로 `otw-schedule` R2 버킷에 `members/{code}/backgrounds/{backgroundId}/{variant}.webp` 구조로 업로드합니다.
-- 프로필 화면은 Worker가 R2의 `members/{code}/backgrounds/` 경로를 조회해 최대 3장의 배경을 자동으로 캐러셀 표시합니다.
-- 같은 `backgroundId`의 이미지를 덮어쓰면 R2 etag 기반 버전 쿼리가 바뀌어 기존 브라우저 캐시를 우회합니다.
-- R2 이미지 로드에 실패하면 프로필 화면은 기존 멤버 프로필 이미지로 대체합니다.
-- Cloudflare R2 커스텀 도메인 또는 별도 CDN을 직접 사용할 경우 `VITE_PROFILE_BACKGROUND_BASE_URL`을 예: `https://assets.example.com` 형태로 지정하면 동일한 key 구조를 사용합니다.
-
-## 향후 업데이트 계획
-
-- **소셜 미디어 피드 연동**: 트위터/네이버 카페 등 최신 소식 연동
-- **팬카페 연동**: 팬카페(네이버) 최신 게시글 연동
-- **플레이리스트 작성 및 플레이어 기능 추가**: 플레이리스트 작성 및 플레이어 기능 추가
-- **멀티뷰 기능 자체 개발 및 내재화**: 멀티뷰 기능 자체 개발 및 내재화
-- **트윗캐스팅/스페이스 연동**: 트윗캐스팅/스페이스 최신 게시글 연동
+- Music catalog/player work should start from the archived MVP analysis in
+  `docs/archive/` and must respect YouTube embed and rights constraints.
+- Future social/content integrations should reuse the shared content page shell
+  and member post/feed card patterns.
+- New release or migration workflows should update `.agent` first, then mirror
+  with `pnpm sync:agent-cursor`.

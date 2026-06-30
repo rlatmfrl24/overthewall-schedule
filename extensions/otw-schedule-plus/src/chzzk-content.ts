@@ -2,6 +2,8 @@
   const EXTENSION_PROTOCOL = "OTW_SCHEDULE_PLUS_EXTENSION/V1";
   const EXTENSION_PROTOCOL_VERSION = 1;
   const INTERNAL_FRAME_READY = "OTW_EXTENSION_FRAME_READY";
+  const INTERNAL_REQUEST_FRAME_REGISTRATION =
+    "OTW_EXTENSION_REQUEST_FRAME_REGISTRATION";
   const INTERNAL_RUN_WIDE_MODE = "OTW_EXTENSION_RUN_WIDE_MODE";
   const INTERNAL_CHAT_LOGIN_SYNCED = "OTW_EXTENSION_CHAT_LOGIN_SYNCED";
   const CHANNEL_ID_PATTERN = /^[a-f0-9]{32}$/i;
@@ -81,6 +83,7 @@
   ];
   const WIDE_MODE_RECLICK_GUARD_MS = 4_000;
   const CHAT_HIDE_RECLICK_GUARD_MS = 4_000;
+  const FRAME_REGISTRATION_KEEPALIVE_INTERVAL_MS = 30_000;
   let wideModeReclickGuardUntil = 0;
   let chatHideReclickGuardUntil = 0;
   let hasAppliedChatHide = false;
@@ -599,6 +602,7 @@
   registerFrame();
   window.setTimeout(registerFrame, 1500);
   window.setTimeout(registerFrame, 4000);
+  window.setInterval(registerFrame, FRAME_REGISTRATION_KEEPALIVE_INTERVAL_MS);
 
   try {
     runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -607,8 +611,15 @@
         message === null ||
         !("kind" in message) ||
         (message.kind !== INTERNAL_RUN_WIDE_MODE &&
+          message.kind !== INTERNAL_REQUEST_FRAME_REGISTRATION &&
           message.kind !== INTERNAL_CHAT_LOGIN_SYNCED)
       ) {
+        return false;
+      }
+
+      if (message.kind === INTERNAL_REQUEST_FRAME_REGISTRATION) {
+        registerFrame();
+        sendResponse({ ok: true });
         return false;
       }
 

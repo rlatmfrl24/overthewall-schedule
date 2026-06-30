@@ -32,7 +32,7 @@ The repository already has useful building blocks for both ideas:
 | VOD and clips page | `src/features/vods/vods-overview.tsx`, `src/features/youtube/*`, `src/features/clips/*` | A media browsing UI already exists and can inform `/music`. |
 | CHZZK live status | `worker/routes/live.ts`, `worker/services/chzzk.ts`, `src/lib/api/live-status.ts` | Multiview can auto-suggest currently live CHZZK channels. |
 | Admin management | `src/features/admin/*`, `worker/auth.ts` | Music catalog curation and multiview source presets can use existing admin patterns. |
-| External multiview link | `src/components/header.tsx` | The header already links to an external OTW multiview, so the product slot exists. |
+| External multiview link | Historical: `src/components/header.tsx`; current: `src/components/app-navigation.ts`, `src/components/app-shell.tsx` | The public navigation already has a product slot for multiview. |
 
 ## External Reference Notes
 

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "sessionId": null,
+  "auditsAccepted": 0,
+  "updatedAt": "2026-06-30T07:09:24.939Z",
+  "criteria": [
+    {
+      "criterion": "G001/C001",
+      "scenario": "Happy path works from the real user-facing surface.",
+      "inputHash": "d199614404e77afba09ea42e7ea0854242b313caa01fae104d5438bab71a2f77",
+      "sourceHash": "1d02d739ba693e693faf5a161d3f5fceb41f7307d2d9d4f0875f86ada2ea58ef",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-06-30T07:08:33.973Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/evidence/frontend/20260630-154900-snapshot-header-live-removal/VISUAL_QA.md",
+      "rerunArtifactHash": "1d02d739ba693e693faf5a161d3f5fceb41f7307d2d9d4f0875f86ada2ea58ef",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    },
+    {
+      "criterion": "G001/C002",
+      "scenario": "Riskiest edge or failure path is handled.",
+      "inputHash": "88b32e192ff05407e32915dbf29f670282987121bb6319759270efcf2b0aa76b",
+      "sourceHash": "630df2fdd84347a3d0b6837522a6a6a577da6654c53371f0da299c0d4c14d957",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-06-30T07:08:33.985Z",
+      "command": [
+        "powershell",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "pnpm vitest run src/features/daily/snapshot/snapshot-output.test.ts; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm lint; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm exec tsc -b; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; pnpm build; exit $LASTEXITCODE"
+      ],
+      "rerunStatus": "pass",
+      "rerunExitCode": 0,
+      "rerunArtifact": ".superloopy/evidence/audit/G001-C002-rerun.txt",
+      "rerunArtifactHash": "4cdc0696bd0259718ca76bf615d65ad141cf4a2b5e2bd2032c52f1a6038c8264",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    }
+  ]
+}

@@ -81,6 +81,9 @@ permissions, store package validation, and a first-use chat login disclosure.
 Version `0.2.1` removes the old multiview bridge namespace and re-announces the
 extension bridge after SPA navigation into `/multiview`, so the production page
 can connect without a manual refresh.
+Version `0.2.11` improves Manifest V3 service worker recovery by re-registering
+existing CHZZK frames, keeps player optimization retryable after stale state
+expires, and reports chat-login diagnostics without exposing cookie values.
 
 ## Store Release Build
 

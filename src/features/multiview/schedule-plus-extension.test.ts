@@ -100,6 +100,7 @@ describe("schedule plus extension bridge helpers", () => {
   });
 
   it("maps chat bridge failures to extension-level statuses", () => {
+    expect(getExtensionStatusFromChatStatus("unknown")).toBe("missing");
     expect(getExtensionStatusFromChatStatus("enabled")).toBe("ready");
     expect(getExtensionStatusFromChatStatus("permission_missing")).toBe(
       "permission_missing",
