@@ -43,13 +43,23 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
 export async function apiFetch<T>(path: string, options: ApiOptions = {}) {
   const { json, headers, ...rest } = options;
   const authHeaders = await getAuthHeaders();
+  const isFormDataBody =
+    typeof FormData !== "undefined" && rest.body instanceof FormData;
+  const mergedHeaders = new Headers();
+  if (json !== undefined || !isFormDataBody) {
+    mergedHeaders.set("Content-Type", "application/json");
+  }
+  for (const [key, value] of Object.entries(authHeaders)) {
+    mergedHeaders.set(key, value);
+  }
+  if (headers) {
+    new Headers(headers).forEach((value, key) => {
+      mergedHeaders.set(key, value);
+    });
+  }
   const init: RequestInit = {
     ...rest,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-      ...headers,
-    },
+    headers: mergedHeaders,
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   };
 

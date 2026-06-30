@@ -3,7 +3,6 @@ import {
   AlertCircle,
   Coffee,
   MessageSquareText,
-  RefreshCw,
   Twitter,
 } from "lucide-react";
 import { ContentPageShell } from "@/components/content-page-shell";
@@ -109,15 +108,26 @@ const groupPostsByDate = (posts: UnifiedMemberPost[]) => {
   return Array.from(groups.values());
 };
 
-const filterUnifiedPostsByMember = (
+const groupVisiblePostsByDate = (
   posts: UnifiedMemberPost[],
-  selectedMemberUids: number[] | null,
+  selectedMemberUidSet: Set<number> | null,
 ) => {
-  if (!selectedMemberUids || selectedMemberUids.length === 0) return posts;
-  const uidSet = new Set(selectedMemberUids);
-  return posts.filter(
-    (post) => post.memberUid !== null && uidSet.has(post.memberUid),
-  );
+  if (!selectedMemberUidSet) {
+    return { groups: groupPostsByDate(posts), postCount: posts.length };
+  }
+
+  const visiblePosts: UnifiedMemberPost[] = [];
+  for (const post of posts) {
+    if (post.memberUid === null || !selectedMemberUidSet.has(post.memberUid)) {
+      continue;
+    }
+    visiblePosts.push(post);
+  }
+
+  return {
+    groups: groupPostsByDate(visiblePosts),
+    postCount: visiblePosts.length,
+  };
 };
 
 const MEMBER_POST_FEED_WIDTH_CLASS = "w-full max-w-[1040px]";
@@ -358,9 +368,10 @@ export const MemberPostsOverview = ({
   const xState = memberPostsState.x;
   const cafeState = memberPostsState.naverCafe;
 
-  const cafeSourceCount = cafeState.sources.filter(
-    (source) => source.enabled,
-  ).length;
+  const cafeSourceCount = useMemo(
+    () => cafeState.sources.filter((source) => source.enabled).length,
+    [cafeState.sources],
+  );
   const memberSources = useMemo(() => {
     const byUid = new Map<number, { xCount: number; cafeCount: number }>();
     for (const { member } of membersWithXHandles) {
@@ -388,21 +399,16 @@ export const MemberPostsOverview = ({
   }, [cafeState.sources, memberMap, membersWithXHandles]);
 
   const unifiedPosts = memberPostsState.posts;
-  const filteredPosts = useMemo(
-    () => filterUnifiedPostsByMember(unifiedPosts, selectedMemberUids),
-    [selectedMemberUids, unifiedPosts],
-  );
-  const timelinePosts = useMemo(
+  const selectedMemberUidSet = useMemo(
     () =>
-      [...filteredPosts].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      ),
-    [filteredPosts],
+      selectedMemberUids && selectedMemberUids.length > 0
+        ? new Set(selectedMemberUids)
+        : null,
+    [selectedMemberUids],
   );
-  const timelineGroups = useMemo(
-    () => groupPostsByDate(timelinePosts),
-    [timelinePosts],
+  const { groups: timelineGroups, postCount: timelinePostCount } = useMemo(
+    () => groupVisiblePostsByDate(unifiedPosts, selectedMemberUidSet),
+    [selectedMemberUidSet, unifiedPosts],
   );
 
   const error = combineErrors(xState.error, cafeState.error);
@@ -419,42 +425,25 @@ export const MemberPostsOverview = ({
     cafeLoading ||
     (postsLoading && unifiedPosts.length === 0);
 
-  const reload = async () => {
-    if (!hasAnySource) return;
-    await memberPostsState.reload();
-  };
-
   const headerActions = (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        {loadX && hasXSource ? (
-          <SourceUpdateBadge
-            icon={<Twitter className="h-3.5 w-3.5" />}
-            label="X"
-            updatedAt={xState.updatedAt}
-            loading={xState.loading}
-          />
-        ) : null}
-        {loadCafe && hasCafeSource ? (
-          <SourceUpdateBadge
-            icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
-            label="네이버 카페"
-            updatedAt={cafeState.updatedAt}
-            loading={cafeState.loading}
-          />
-        ) : null}
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-fit gap-2 rounded-full"
-        onClick={() => void reload()}
-        disabled={postsLoading || !hasAnySource}
-      >
-        <RefreshCw className={cn("h-4 w-4", postsLoading && "animate-spin")} />
-        새로고침
-      </Button>
-    </>
+    <div className="flex flex-wrap items-center gap-2">
+      {loadX && hasXSource ? (
+        <SourceUpdateBadge
+          icon={<Twitter className="h-3.5 w-3.5" />}
+          label="X"
+          updatedAt={xState.updatedAt}
+          loading={xState.loading}
+        />
+      ) : null}
+      {loadCafe && hasCafeSource ? (
+        <SourceUpdateBadge
+          icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
+          label="네이버 카페"
+          updatedAt={cafeState.updatedAt}
+          loading={cafeState.loading}
+        />
+      ) : null}
+    </div>
   );
 
   return (
@@ -491,7 +480,7 @@ export const MemberPostsOverview = ({
               등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
             </p>
           </div>
-        ) : timelinePosts.length === 0 ? (
+        ) : timelinePostCount === 0 ? (
           <div className="flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
             {error ? (
               <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
@@ -508,18 +497,9 @@ export const MemberPostsOverview = ({
                   : "표시할 멤버 게시글이 없습니다."}
             </p>
             {error ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={() => void reload()}
-                disabled={postsLoading}
-              >
-                <RefreshCw
-                  className={cn("h-4 w-4", postsLoading && "animate-spin")}
-                />
-                다시 시도
-              </Button>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                자동 수집이 재시도되면 최신 게시글이 갱신됩니다.
+              </p>
             ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
               <Button
                 variant="ghost"
@@ -574,6 +554,8 @@ export const MemberPostsOverview = ({
                         post={item.post}
                         compactTime={formatPostTime(item.createdAt)}
                         member={member}
+                        openPostOnCardClick
+                        showExternalLinkButton={false}
                       />
                     ) : (
                       <NaverCafePostCard
@@ -581,6 +563,8 @@ export const MemberPostsOverview = ({
                         post={item.post}
                         compactTime={formatPostTime(item.createdAt)}
                         member={member}
+                        openPostOnCardClick
+                        showExternalLinkButton={false}
                       />
                     );
                   })}

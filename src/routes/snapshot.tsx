@@ -31,5 +31,9 @@ export const Route = createFileRoute("/snapshot")({
 
 function RouteComponent() {
   const { date, mode, theme } = Route.useSearch();
-  return <SnapshotSchedule date={date} mode={mode} theme={theme} />;
+  return (
+    <main className="h-screen w-screen overflow-auto bg-background">
+      <SnapshotSchedule date={date} mode={mode} theme={theme} />
+    </main>
+  );
 }

@@ -131,7 +131,7 @@ export const SnapshotSchedule = ({
         style={{ width: snapshotWidth }}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <h1 className="shrink-0 text-[2rem] font-extrabold leading-none tracking-tight text-foreground">
+          <h1 className="shrink-0 text-[2rem] font-extrabold leading-tight tracking-tight text-foreground">
             오늘의 편성표
           </h1>
           <p className="min-w-0 truncate text-lg font-bold leading-none text-muted-foreground">

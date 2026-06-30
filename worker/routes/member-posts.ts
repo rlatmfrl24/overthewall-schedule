@@ -174,9 +174,16 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
     }
   }
 
+  const shouldLoadXRows =
+    includeX && (adminView || configs.x.visibility !== "private");
+  const shouldLoadCafeSources =
+    includeNaverCafe &&
+    (adminView ||
+      (configs.naverCafe.enabled && configs.naverCafe.visibility !== "private"));
+
   const [memberRows, cafeSources] = await Promise.all([
-    includeX ? getActiveMemberRows(db) : Promise.resolve([]),
-    includeNaverCafe
+    shouldLoadXRows ? getActiveMemberRows(db) : Promise.resolve([]),
+    shouldLoadCafeSources
       ? db
           .select()
           .from(naverCafeSources)

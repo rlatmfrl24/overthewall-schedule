@@ -5,8 +5,10 @@ import { createDDay, deleteDDay, fetchDDays, updateDDay } from "./ddays";
 import {
   createNotice,
   deleteNotice,
+  deleteNoticeThumbnail,
   fetchNotices,
   updateNotice,
+  uploadNoticeThumbnail,
 } from "./notices";
 import {
   createSchedule,
@@ -150,15 +152,26 @@ describe("api wrapper modules", () => {
     await createNotice({
       content: "공지",
       type: "notice",
+      thumbnail_url: "/profile/member.webp",
+      publisher_type: "member",
+      publisher_member_uid: 1,
       is_active: 0,
     });
     await updateNotice({
       id: 9,
       content: "이벤트",
       type: "event",
+      thumbnail_url: "https://example.com/event.jpg",
+      publisher_type: "otw",
+      publisher_member_uid: null,
       is_active: true,
     });
     await deleteNotice(9);
+    const thumbnailFile = new File(["thumb"], "thumb.png", {
+      type: "image/png",
+    });
+    await uploadNoticeThumbnail(thumbnailFile);
+    await deleteNoticeThumbnail("/r2-assets/notices/thumbnails/thumb.png");
 
     expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/api/notices");
     expect(apiFetchMock).toHaveBeenNthCalledWith(
@@ -167,15 +180,43 @@ describe("api wrapper modules", () => {
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/notices", {
       method: "POST",
-      json: expect.objectContaining({ is_active: "0" }),
+      json: expect.objectContaining({
+        is_active: "0",
+        thumbnail_url: "/profile/member.webp",
+        publisher_type: "member",
+        publisher_member_uid: 1,
+      }),
     });
     expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/notices", {
       method: "PUT",
-      json: expect.objectContaining({ is_active: "1" }),
+      json: expect.objectContaining({
+        is_active: "1",
+        thumbnail_url: "https://example.com/event.jpg",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+      }),
     });
     expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/notices?id=9", {
       method: "DELETE",
     });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/notices/thumbnail",
+      {
+        method: "POST",
+        body: expect.any(FormData),
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/api/notices/thumbnail",
+      {
+        method: "DELETE",
+        json: {
+          thumbnail_url: "/r2-assets/notices/thumbnails/thumb.png",
+        },
+      },
+    );
   });
 
   it("schedule API는 경로를 조합하고 update id 유효성을 검사한다", async () => {

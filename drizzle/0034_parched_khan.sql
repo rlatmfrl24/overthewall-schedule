@@ -1,0 +1,1 @@
+ALTER TABLE `notices` ADD `thumbnail_url` text;

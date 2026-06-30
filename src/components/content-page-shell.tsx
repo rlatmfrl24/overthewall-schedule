@@ -43,7 +43,7 @@ export function ContentPageShell({
             headerInnerClassName,
           )}
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               {leadingIcon ? (
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-card shadow-sm">
@@ -56,7 +56,7 @@ export function ContentPageShell({
             </div>
 
             {actions ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
                 {actions}
               </div>
             ) : null}

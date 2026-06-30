@@ -1,6 +1,13 @@
-import { useEffect } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ClipboardEvent,
+} from "react";
 import { useForm, Controller } from "react-hook-form";
 import { type Notice } from "@/db/schema";
+import type { Member } from "@/lib/types";
 import {
   Dialog,
   DialogContent,
@@ -21,7 +28,18 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldError, FieldLabel } from "@/components/ui/field";
-import { Loader2 } from "lucide-react";
+import { ImageIcon, Loader2, Upload, X } from "lucide-react";
+import {
+  deleteNoticeThumbnail,
+  uploadNoticeThumbnail,
+  type NoticePublisherType,
+} from "@/lib/api/notices";
+import {
+  isAcceptedNoticeThumbnailType,
+  NOTICE_THUMBNAIL_ACCEPT,
+  NOTICE_THUMBNAIL_MAX_BYTES,
+  NOTICE_THUMBNAIL_MAX_LABEL,
+} from "@/lib/notice-thumbnails";
 
 const noticeTypeConfigs = {
   notice: { label: "공지사항" },
@@ -29,6 +47,8 @@ const noticeTypeConfigs = {
 } as const;
 
 type NoticeTypeKey = keyof typeof noticeTypeConfigs;
+
+const NO_PUBLISHER_MEMBER_VALUE = "__none__";
 
 const formatDateInput = (date: Date) => {
   const year = date.getFullYear();
@@ -54,11 +74,20 @@ const isValidHttpUrl = (value: string) => {
   }
 };
 
+const isValidImageResourceUrl = (value: string) => {
+  const url = value.trim();
+  if (!url || url.startsWith("/")) return true;
+  return isValidHttpUrl(url);
+};
+
 export interface NoticeFormValues {
   id?: number;
   content: string;
   url: string;
+  thumbnail_url: string;
   type: NoticeTypeKey;
+  publisher_type: NoticePublisherType;
+  publisher_member_uid: string;
   started_at: string;
   ended_at: string;
   is_active: boolean;
@@ -69,6 +98,7 @@ interface NoticeFormDialogProps {
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: NoticeFormValues) => Promise<void>;
   initialValues?: Notice | null;
+  members: Member[];
   isSaving?: boolean;
 }
 
@@ -77,13 +107,18 @@ export function NoticeFormDialog({
   onOpenChange,
   onSubmit,
   initialValues,
+  members,
   isSaving = false,
 }: NoticeFormDialogProps) {
+  const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingThumbnailUrlsRef = useRef<Set<string>>(new Set());
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const {
     register,
     handleSubmit,
     control,
     reset,
+    watch,
     setValue,
     getValues,
     setError,
@@ -93,21 +128,64 @@ export function NoticeFormDialog({
     defaultValues: {
       content: "",
       url: "",
+      thumbnail_url: "",
       type: "notice",
+      publisher_type: "otw",
+      publisher_member_uid: NO_PUBLISHER_MEMBER_VALUE,
       started_at: "",
       ended_at: "",
       is_active: true,
     },
   });
+  const watchedPublisherType = watch("publisher_type");
+  const watchedPublisherMemberUid = watch("publisher_member_uid");
+  const watchedThumbnailUrl = watch("thumbnail_url").trim();
+
+  const cleanupNoticeThumbnail = (thumbnailUrl: string) => {
+    void deleteNoticeThumbnail(thumbnailUrl).catch((error) => {
+      console.warn("Failed to clean up unused notice thumbnail:", error);
+    });
+  };
+
+  const cleanupPendingThumbnail = (thumbnailUrl?: string | null) => {
+    const normalized = thumbnailUrl?.trim();
+    if (!normalized || !pendingThumbnailUrlsRef.current.delete(normalized)) {
+      return;
+    }
+    cleanupNoticeThumbnail(normalized);
+  };
+
+  const cleanupUnusedPendingThumbnails = (preservedUrl?: string | null) => {
+    const preserved = preservedUrl?.trim() ?? "";
+    for (const thumbnailUrl of Array.from(pendingThumbnailUrlsRef.current)) {
+      if (thumbnailUrl === preserved) continue;
+      cleanupPendingThumbnail(thumbnailUrl);
+    }
+  };
+
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      if (isSaving || isUploadingThumbnail) return;
+      cleanupUnusedPendingThumbnails();
+    }
+    onOpenChange(nextOpen);
+  };
 
   useEffect(() => {
     if (open) {
+      pendingThumbnailUrlsRef.current.clear();
       if (initialValues) {
         reset({
           id: initialValues.id,
           content: initialValues.content ?? "",
           url: initialValues.url ?? "",
+          thumbnail_url: initialValues.thumbnail_url ?? "",
           type: (initialValues.type as NoticeTypeKey) ?? "notice",
+          publisher_type:
+            initialValues.publisher_type === "member" ? "member" : "otw",
+          publisher_member_uid: initialValues.publisher_member_uid
+            ? String(initialValues.publisher_member_uid)
+            : NO_PUBLISHER_MEMBER_VALUE,
           started_at: initialValues.started_at ?? "",
           ended_at: initialValues.ended_at ?? "",
           is_active: initialValues.is_active !== false,
@@ -116,7 +194,10 @@ export function NoticeFormDialog({
         reset({
           content: "",
           url: "",
+          thumbnail_url: "",
           type: "notice",
+          publisher_type: "otw",
+          publisher_member_uid: NO_PUBLISHER_MEMBER_VALUE,
           started_at: "",
           ended_at: "",
           is_active: true,
@@ -124,6 +205,88 @@ export function NoticeFormDialog({
       }
     }
   }, [open, initialValues, reset]);
+
+  const clearThumbnail = () => {
+    cleanupPendingThumbnail(getValues("thumbnail_url"));
+    setValue("thumbnail_url", "", { shouldDirty: true, shouldValidate: true });
+    clearErrors("thumbnail_url");
+    if (thumbnailInputRef.current) {
+      thumbnailInputRef.current.value = "";
+    }
+  };
+
+  const uploadThumbnailFile = async (file: File) => {
+    if (!isAcceptedNoticeThumbnailType(file.type)) {
+      setError("thumbnail_url", {
+        type: "validate",
+        message: "webp, png, jpg 이미지만 업로드할 수 있습니다.",
+      });
+      return;
+    }
+
+    if (file.size > NOTICE_THUMBNAIL_MAX_BYTES) {
+      setError("thumbnail_url", {
+        type: "validate",
+        message: `${NOTICE_THUMBNAIL_MAX_LABEL} 이하 이미지만 업로드할 수 있습니다.`,
+      });
+      return;
+    }
+
+    setIsUploadingThumbnail(true);
+    clearErrors("thumbnail_url");
+    try {
+      const previousThumbnailUrl = getValues("thumbnail_url").trim();
+      const result = await uploadNoticeThumbnail(file);
+      const uploadedThumbnailUrl = result.thumbnail_url.trim();
+      pendingThumbnailUrlsRef.current.add(uploadedThumbnailUrl);
+      setValue("thumbnail_url", result.thumbnail_url, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      if (previousThumbnailUrl !== uploadedThumbnailUrl) {
+        cleanupPendingThumbnail(previousThumbnailUrl);
+      }
+    } catch (error) {
+      console.error("Failed to upload notice thumbnail:", error);
+      setError("thumbnail_url", {
+        type: "validate",
+        message: "이미지 업로드에 실패했습니다.",
+      });
+    } finally {
+      setIsUploadingThumbnail(false);
+    }
+  };
+
+  const handleThumbnailFileChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await uploadThumbnailFile(file);
+    }
+    event.target.value = "";
+  };
+
+  const getClipboardImageFile = (clipboardData: DataTransfer) => {
+    const fileFromList = Array.from(clipboardData.files).find((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (fileFromList) return fileFromList;
+
+    const imageItem = Array.from(clipboardData.items).find(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
+    );
+    return imageItem?.getAsFile() ?? null;
+  };
+
+  const handleThumbnailPaste = (event: ClipboardEvent<HTMLFormElement>) => {
+    const file = getClipboardImageFile(event.clipboardData);
+    if (!file) return;
+
+    event.preventDefault();
+    if (isUploadingThumbnail || isSaving) return;
+    void uploadThumbnailFile(file);
+  };
 
   const handleFormSubmit = async (values: NoticeFormValues) => {
     if (
@@ -137,8 +300,25 @@ export function NoticeFormDialog({
       });
       return;
     }
+    if (
+      values.publisher_type === "member" &&
+      (!values.publisher_member_uid ||
+        values.publisher_member_uid === NO_PUBLISHER_MEMBER_VALUE)
+    ) {
+      setError("publisher_member_uid", {
+        type: "validate",
+        message: "게시자로 표시할 멤버를 선택해주세요.",
+      });
+      return;
+    }
     clearErrors("ended_at");
+    clearErrors("publisher_member_uid");
     await onSubmit(values);
+    const savedThumbnailUrl = values.thumbnail_url.trim();
+    if (savedThumbnailUrl) {
+      pendingThumbnailUrlsRef.current.delete(savedThumbnailUrl);
+    }
+    cleanupUnusedPendingThumbnails();
   };
 
   const applyPeriodPreset = (days: number) => {
@@ -156,9 +336,24 @@ export function NoticeFormDialog({
     clearErrors("ended_at");
   };
 
+  const thumbnailUrlField = register("thumbnail_url", {
+    validate: (value) =>
+      isValidImageResourceUrl(value) ||
+      "http(s) URL 또는 / 로 시작하는 내부 경로를 입력해주세요.",
+  });
+
+  const handleThumbnailUrlChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const previousThumbnailUrl = getValues("thumbnail_url").trim();
+    void thumbnailUrlField.onChange(event);
+    const nextThumbnailUrl = event.target.value.trim();
+    if (previousThumbnailUrl !== nextThumbnailUrl) {
+      cleanupPendingThumbnail(previousThumbnailUrl);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {initialValues ? "공지사항 수정" : "새 공지사항 등록"}
@@ -170,7 +365,11 @@ export function NoticeFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 py-4">
+        <form
+          onSubmit={handleSubmit(handleFormSubmit)}
+          onPaste={handleThumbnailPaste}
+          className="space-y-6 py-4"
+        >
           <div className="space-y-2">
             <FieldLabel htmlFor="content">내용</FieldLabel>
             <Textarea
@@ -193,6 +392,76 @@ export function NoticeFormDialog({
               })}
             />
             <FieldError errors={[errors.url]} />
+          </div>
+
+          <div className="space-y-2">
+            <FieldLabel htmlFor="thumbnail_url">썸네일 이미지</FieldLabel>
+            <div
+              className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[132px_minmax(0,1fr)]"
+              title="클립보드 이미지 붙여넣기"
+            >
+              <div className="relative aspect-[4/3] overflow-hidden rounded-md border bg-background">
+                {watchedThumbnailUrl ? (
+                  <img
+                    src={watchedThumbnailUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                    <ImageIcon className="h-8 w-8" />
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0 space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={thumbnailInputRef}
+                    type="file"
+                    accept={NOTICE_THUMBNAIL_ACCEPT}
+                    className="sr-only"
+                    onChange={(event) => void handleThumbnailFileChange(event)}
+                    disabled={isUploadingThumbnail || isSaving}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => thumbnailInputRef.current?.click()}
+                    disabled={isUploadingThumbnail || isSaving}
+                  >
+                    {isUploadingThumbnail ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    이미지 업로드
+                  </Button>
+                  {watchedThumbnailUrl ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearThumbnail}
+                      disabled={isUploadingThumbnail || isSaving}
+                    >
+                      <X className="h-4 w-4" />
+                      제거
+                    </Button>
+                  ) : null}
+                </div>
+
+                <Input
+                  id="thumbnail_url"
+                  placeholder="https://..."
+                  {...thumbnailUrlField}
+                  onChange={handleThumbnailUrlChange}
+                />
+              </div>
+            </div>
+            <FieldError errors={[errors.thumbnail_url]} />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
@@ -256,6 +525,69 @@ export function NoticeFormDialog({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[140px_minmax(0,1fr)]">
+            <div className="space-y-2">
+              <FieldLabel htmlFor="publisher_type">게시자</FieldLabel>
+              <Controller
+                name="publisher_type"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      if (value === "otw") {
+                        clearErrors("publisher_member_uid");
+                      }
+                    }}
+                    value={field.value}
+                  >
+                    <SelectTrigger id="publisher_type" className="bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="otw">OTW</SelectItem>
+                      <SelectItem value="member">멤버</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel htmlFor="publisher_member_uid">멤버 선택</FieldLabel>
+              <Select
+                value={watchedPublisherMemberUid}
+                disabled={watchedPublisherType !== "member"}
+                onValueChange={(value) => {
+                  setValue("publisher_member_uid", value, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  });
+                  clearErrors("publisher_member_uid");
+                }}
+              >
+                <SelectTrigger
+                  id="publisher_member_uid"
+                  className="bg-background disabled:opacity-60"
+                >
+                  <SelectValue placeholder="멤버 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PUBLISHER_MEMBER_VALUE}>
+                    멤버 선택
+                  </SelectItem>
+                  {members.map((member) => (
+                    <SelectItem key={member.uid} value={String(member.uid)}>
+                      {member.oshi_mark ? `${member.oshi_mark} ` : ""}
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldError errors={[errors.publisher_member_uid]} />
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2 pb-1">
             <Button
               type="button"
@@ -307,11 +639,12 @@ export function NoticeFormDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleDialogOpenChange(false)}
+              disabled={isSaving || isUploadingThumbnail}
             >
               취소
             </Button>
-            <Button type="submit" disabled={isSaving}>
+            <Button type="submit" disabled={isSaving || isUploadingThumbnail}>
               {isSaving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {initialValues ? "수정 완료" : "등록하기"}
             </Button>

@@ -65,6 +65,21 @@ describe("r2 asset route", () => {
     expect(get).not.toHaveBeenCalled();
   });
 
+  it("serves uploaded notice thumbnails with their image content type", async () => {
+    const get = vi.fn(async () => makeR2Object());
+    const response = await handleR2Asset(
+      new Request(
+        "https://otw-schedule.info/r2-assets/notices/thumbnails/notice-thumb.png",
+      ),
+      makeEnv(get),
+    );
+
+    expect(get).toHaveBeenCalledWith("notices/thumbnails/notice-thumb.png");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    await expect(response.text()).resolves.toBe("asset-body");
+  });
+
   it("returns 405 for methods other than get and head", async () => {
     const response = await handleR2Asset(
       new Request(

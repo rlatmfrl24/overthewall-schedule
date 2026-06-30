@@ -41,7 +41,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
-import { ButtonGroup, ButtonGroupSeparator } from "@/components/ui/button-group";
 
 type ScheduleSubmitData = {
   id?: number;
@@ -353,20 +352,25 @@ export const ScheduleDialog = ({
                 </FieldDescription>
               ) : null}
 
-              <ButtonGroup>
+              <div
+                role="group"
+                aria-label="스케쥴 상태"
+                className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4"
+              >
                 <Button
                   type="button"
                   disabled={isBusy}
                   variant={status === "방송" ? "default" : "outline"}
+                  className="justify-center"
                   onClick={() => setStatus("방송")}
                 >
                   방송
                 </Button>
-                <ButtonGroupSeparator />
                 <Button
                   type="button"
                   disabled={isBusy}
                   variant={status === "휴방" ? "default" : "outline"}
+                  className="justify-center"
                   onClick={() => {
                     setLastDecidedTime({ hour: startHour, minute: startMinute });
                     setStatus("휴방");
@@ -376,11 +380,11 @@ export const ScheduleDialog = ({
                 >
                   휴방
                 </Button>
-                <ButtonGroupSeparator />
                 <Button
                   type="button"
                   disabled={isBusy}
                   variant={status === "미정" ? "default" : "outline"}
+                  className="justify-center"
                   onClick={() => {
                     setLastDecidedTime({ hour: startHour, minute: startMinute });
                     setStatus("미정");
@@ -390,11 +394,11 @@ export const ScheduleDialog = ({
                 >
                   미정
                 </Button>
-                <ButtonGroupSeparator />
                 <Button
                   type="button"
                   disabled={isBusy}
                   variant={status === "게릴라" ? "default" : "outline"}
+                  className="justify-center"
                   onClick={() => {
                     setLastDecidedTime({ hour: startHour, minute: startMinute });
                     setStatus("게릴라");
@@ -404,7 +408,7 @@ export const ScheduleDialog = ({
                 >
                   게릴라
                 </Button>
-              </ButtonGroup>
+              </div>
             </Field>
             <Field>
               <FieldLabel>멤버</FieldLabel>

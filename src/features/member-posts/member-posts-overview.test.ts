@@ -104,22 +104,26 @@ const cafePost: NaverCafePost = {
 const makeUnifiedPosts = (
   xPosts: XPost[] = [xPost],
   cafePosts: NaverCafePost[] = [cafePost],
-): UnifiedMemberPost[] => [
-  ...xPosts.map((post) => ({
-    kind: "x" as const,
-    id: `x:${post.id}`,
-    memberUid: post.memberUid ?? null,
-    createdAt: post.createdAt,
-    post,
-  })),
-  ...cafePosts.map((post) => ({
-    kind: "cafe" as const,
-    id: `naver-cafe:${post.id}`,
-    memberUid: post.memberUid ?? null,
-    createdAt: post.createdAt,
-    post,
-  })),
-];
+): UnifiedMemberPost[] =>
+  [
+    ...xPosts.map((post) => ({
+      kind: "x" as const,
+      id: `x:${post.id}`,
+      memberUid: post.memberUid ?? null,
+      createdAt: post.createdAt,
+      post,
+    })),
+    ...cafePosts.map((post) => ({
+      kind: "cafe" as const,
+      id: `naver-cafe:${post.id}`,
+      memberUid: post.memberUid ?? null,
+      createdAt: post.createdAt,
+      post,
+    })),
+  ].sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 
 const makeXState = (posts: XPost[] = [xPost], reload = vi.fn()) => ({
   posts,
@@ -192,10 +196,23 @@ describe("MemberPostsOverview", () => {
     expect(screen.getByText("멤버 게시글")).toBeTruthy();
     expect(screen.getByLabelText(/X 마지막 업데이트/)).toBeTruthy();
     expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "새로고침" })).toBeNull();
     expect(screen.getByText(xPost.text)).toBeTruthy();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
     expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("네이버 카페 게시글")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /X에서 보기/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /카페에서 보기/ })).toBeNull();
+    expect(
+      screen.getByRole("link", {
+        name: "테스트 멤버 X 원문 게시글 열기",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", {
+        name: "테스트 멤버2 네이버 카페 원문 게시글 열기",
+      }),
+    ).toBeTruthy();
     expect(screen.queryByText("피드 상태")).toBeNull();
     expect(screen.queryByText("등록된 소스")).toBeNull();
     expect(screen.getByTestId("member-post-filter-top").className).toContain(
@@ -235,6 +252,76 @@ describe("MemberPostsOverview", () => {
         screen.getByText(xPost.text),
       ) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("카드 클릭은 원문을 열고 X 본문 내부 링크 클릭은 내부 링크로 유지한다", () => {
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockImplementation(() => null);
+    const linkedXPost: XPost = {
+      ...xPost,
+      text: "본문 링크 https://example.com/inside",
+      links: [
+        {
+          url: "https://example.com/inside",
+          expandedUrl: "https://example.com/inside",
+          displayUrl: "example.com/inside",
+          previewStatus: "skipped",
+        },
+      ],
+    };
+    useMemberPostsMock.mockReturnValue(
+      makeMemberPostsState({ xPosts: [linkedXPost], cafePosts: [] }),
+    );
+
+    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+
+    fireEvent.click(
+      screen.getByRole("link", {
+        name: "테스트 멤버 X 원문 게시글 열기",
+      }),
+    );
+
+    expect(openSpy).toHaveBeenCalledWith(
+      linkedXPost.url,
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    openSpy.mockClear();
+    const innerLink = screen.getByRole("link", {
+      name: "https://example.com/inside",
+    });
+    expect(innerLink.getAttribute("href")).toBe("https://example.com/inside");
+
+    fireEvent.click(innerLink);
+
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
+  it("카페 게시글 카드 클릭은 카페 원문을 연다", () => {
+    const openSpy = vi
+      .spyOn(window, "open")
+      .mockImplementation(() => null);
+    useMemberPostsMock.mockReturnValue(
+      makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
+    );
+
+    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+
+    fireEvent.click(
+      screen.getByRole("link", {
+        name: "테스트 멤버2 네이버 카페 원문 게시글 열기",
+      }),
+    );
+
+    expect(openSpy).toHaveBeenCalledWith(
+      cafePost.url,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    openSpy.mockRestore();
   });
 
   it("멤버 칩은 단일 선택으로 X와 카페 게시글을 함께 필터링한다", () => {

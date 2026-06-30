@@ -6,6 +6,8 @@ export const queryKeys = {
     active: () => [...queryKeys.members.all, "active"] as const,
     profile: (code: string) =>
       [...queryKeys.members.all, "profile", code] as const,
+    noticePublisherProfiles: (uidsKey: string) =>
+      [...queryKeys.members.all, "notice-publisher-profiles", uidsKey] as const,
   },
   ddays: {
     all: ["ddays"] as const,

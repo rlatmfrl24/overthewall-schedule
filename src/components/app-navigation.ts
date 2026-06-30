@@ -129,7 +129,7 @@ export function getPublicNavigationSections({
       items: [
         {
           id: "notice",
-          label: "공지사항",
+          label: "공지사항&이벤트",
           icon: Megaphone,
           group: "content",
           to: "/notice",

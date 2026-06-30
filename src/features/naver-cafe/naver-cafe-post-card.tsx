@@ -1,5 +1,7 @@
+import type { KeyboardEvent, MouseEvent } from "react";
 import type { Member, NaverCafePost } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Coffee,
   ExternalLink,
@@ -12,6 +14,8 @@ interface NaverCafePostCardProps {
   post: NaverCafePost;
   member?: Member;
   compactTime?: string;
+  openPostOnCardClick?: boolean;
+  showExternalLinkButton?: boolean;
 }
 
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
@@ -41,17 +45,51 @@ const formatRelativeDate = (dateString: string) => {
   });
 };
 
+const shouldIgnoreCardNavigation = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  Boolean(target.closest("a, button, input, select, textarea, [role='button']"));
+
+const openExternalUrl = (url: string) => {
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
 export const NaverCafePostCard = ({
   post,
   member,
   compactTime,
+  openPostOnCardClick = false,
+  showExternalLinkButton = true,
 }: NaverCafePostCardProps) => {
   const profileSrc = member ? `/profile/${member.code}.webp` : null;
   const accentColor = member?.main_color || "#03c75a";
   const authorName = member?.name ?? post.sourceName;
+  const navigableProps = openPostOnCardClick
+    ? {
+        "aria-label": `${authorName} 네이버 카페 원문 게시글 열기`,
+        onClick: (event: MouseEvent<HTMLElement>) => {
+          if (shouldIgnoreCardNavigation(event.target)) return;
+          openExternalUrl(post.url);
+        },
+        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+          if (shouldIgnoreCardNavigation(event.target)) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openExternalUrl(post.url);
+        },
+        role: "link",
+        tabIndex: 0,
+      }
+    : {};
 
   return (
-    <article className="group relative flex min-w-0 flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-5">
+    <article
+      {...navigableProps}
+      className={cn(
+        "group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-4",
+        openPostOnCardClick &&
+          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      )}
+    >
       <span
         className="absolute inset-y-0 left-0 w-1"
         style={{ backgroundColor: accentColor }}
@@ -64,10 +102,10 @@ export const NaverCafePostCard = ({
             <img
               src={profileSrc}
               alt={authorName}
-              className="h-12 w-12 shrink-0 rounded-full border border-border object-cover"
+              className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
             />
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-sm font-semibold text-emerald-700">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-sm font-semibold text-emerald-700">
               N
             </div>
           )}
@@ -102,25 +140,27 @@ export const NaverCafePostCard = ({
           </div>
         </div>
 
-        <Button
-          asChild
-          variant="ghost"
-          size="sm"
-          className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
-        >
-          <a href={post.url} target="_blank" rel="noopener noreferrer">
-            <span className="hidden sm:inline">카페에서 보기</span>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
+        {showExternalLinkButton ? (
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
+          >
+            <a href={post.url} target="_blank" rel="noopener noreferrer">
+              <span className="hidden sm:inline">카페에서 보기</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        ) : null}
       </div>
 
       <div className="space-y-2 pl-1">
-        <h3 className="break-words text-base font-semibold leading-7 text-foreground">
+        <h3 className="break-words text-sm font-semibold leading-6 text-foreground">
           {post.title}
         </h3>
         {post.summary ? (
-          <p className="line-clamp-4 whitespace-pre-wrap break-all text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">
+          <p className="line-clamp-3 whitespace-pre-wrap break-all text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
             {post.summary}
           </p>
         ) : null}
@@ -143,7 +183,7 @@ export const NaverCafePostCard = ({
         </a>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/70 pl-1 pt-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <MessageCircle className="h-3.5 w-3.5" />
           {formatMetric(post.metrics.commentCount)}

@@ -225,6 +225,20 @@
       "when": 1780359757400,
       "tag": "0032_wakeful_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1782780852846,
+      "tag": "0033_lovely_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1782781878148,
+      "tag": "0034_parched_khan",
+      "breakpoints": true
     }
   ]
 }

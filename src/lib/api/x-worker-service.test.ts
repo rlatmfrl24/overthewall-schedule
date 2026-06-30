@@ -836,6 +836,48 @@ describe("x worker service", () => {
     });
   });
 
+  it("백그라운드 수집은 활성 계정도 2시간 쿨다운 전에는 재조회하지 않는다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const currentTime = Date.now();
+    const cachedPost = makePost("p1", "otw_member");
+    const { db, posts, sources } = makeCacheDb();
+    posts.set("p1", {
+      id: "p1",
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(cachedPost),
+      created_at: cachedPost.createdAt,
+      fetched_at: currentTime,
+      hidden_at: null,
+    });
+    sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: "p1",
+      last_checked_at: currentTime - 90 * 60_000,
+      updated_at: currentTime - 90 * 60_000,
+      last_error: null,
+    });
+
+    const result = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      checkedHandles: 1,
+      refreshedHandles: 0,
+      apiCalls: 0,
+      status: "skipped",
+      error: "all_handles_cooldown",
+    });
+  });
+
   it("백그라운드 수집은 D1 게시글 저장 실패를 실패 결과로 기록한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));

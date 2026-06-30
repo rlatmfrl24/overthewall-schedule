@@ -112,8 +112,8 @@ function PublicSidebar({
     >
       <div
         className={cn(
-          "flex h-16 shrink-0 items-center border-b border-sidebar-border px-3",
-          collapsed && "justify-center px-2",
+          "flex h-16 shrink-0 items-center justify-center border-b border-sidebar-border px-3",
+          collapsed && "px-2",
         )}
       >
         <BrandLink collapsed={collapsed} />

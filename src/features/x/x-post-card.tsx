@@ -1,4 +1,10 @@
-import { type ReactNode, useMemo, useState } from "react";
+import {
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  useMemo,
+  useState,
+} from "react";
 import type { Member, XPost, XPostLink } from "@/lib/types";
 import IconX from "@/assets/icon_x.svg";
 import { Button } from "@/components/ui/button";
@@ -16,6 +22,8 @@ interface XPostCardProps {
   post: XPost;
   member?: Member;
   compactTime?: string;
+  openPostOnCardClick?: boolean;
+  showExternalLinkButton?: boolean;
 }
 
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
@@ -110,6 +118,21 @@ const trimUrlMatch = (value: string) => {
 const getLinkHref = (link?: XPostLink | null) =>
   link?.resolvedUrl ?? link?.expandedUrl ?? link?.url ?? "#";
 
+const toUrl = (value?: string | null) => {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+
+  try {
+    return new URL(normalized);
+  } catch {
+    try {
+      return new URL(`https://${normalized}`);
+    } catch {
+      return null;
+    }
+  }
+};
+
 const getLinkDomain = (link: XPostLink) => {
   if (link.domain) return link.domain;
 
@@ -121,6 +144,31 @@ const getLinkDomain = (link: XPostLink) => {
     return link.displayUrl ?? link.url;
   }
 };
+
+const isXStatusUrl = (value?: string | null) => {
+  const url = toUrl(value);
+  if (!url) return false;
+
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "x.com" && host !== "twitter.com") return false;
+
+  const segments = url.pathname.split("/").filter(Boolean);
+  return segments.some((segment, index) => {
+    const normalized = segment.toLowerCase();
+    return (
+      (normalized === "status" || normalized === "statuses") &&
+      Boolean(segments[index + 1]?.match(/^\d{5,25}/))
+    );
+  });
+};
+
+const isXStatusLink = (link: XPostLink) =>
+  [
+    link.resolvedUrl,
+    link.expandedUrl,
+    link.displayUrl,
+    link.url,
+  ].some((value) => isXStatusUrl(value));
 
 const isTcoOnlyLink = (link: XPostLink) => {
   const domain = getLinkDomain(link);
@@ -144,13 +192,16 @@ const isPreviewRenderable = (link: XPostLink) => {
   );
 };
 
+const shouldShowLinkPreview = (link: XPostLink) =>
+  isPreviewRenderable(link) || isXStatusLink(link);
+
 const getPreviewLinks = (post: XPost) => {
   const seen = new Set<string>();
   const links: XPostLink[] = [];
 
   for (const link of post.links ?? []) {
     const href = getLinkHref(link);
-    if (!isPreviewRenderable(link)) continue;
+    if (!shouldShowLinkPreview(link)) continue;
 
     const key = href.toLowerCase();
     if (seen.has(key)) continue;
@@ -177,16 +228,16 @@ const XLinkPreviewCard = ({ link }: { link: XPostLink }) => {
 
     return (
       <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
-        <div className="flex min-w-0 items-start gap-3 p-3">
+        <div className="flex min-w-0 items-start gap-2.5 p-2.5">
           {profileImage ? (
             <img
               src={profileImage}
               alt=""
-              className="h-9 w-9 shrink-0 rounded-full border border-border object-cover"
+              className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
               loading="lazy"
             />
           ) : (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold">
               X
             </div>
           )}
@@ -212,7 +263,7 @@ const XLinkPreviewCard = ({ link }: { link: XPostLink }) => {
               </a>
             </div>
             {linkedPost.text ? (
-              <div className="line-clamp-4 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+              <div className="line-clamp-3 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
                 {linkedPost.text}
               </div>
             ) : null}
@@ -261,22 +312,57 @@ const XLinkPreviewCard = ({ link }: { link: XPostLink }) => {
     );
   }
 
+  if (isXStatusLink(link)) {
+    const displayUrl = link.displayUrl ?? link.resolvedUrl ?? link.expandedUrl ?? href;
+
+    return (
+      <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
+        <div className="flex min-w-0 items-center gap-2 p-2.5">
+          <span
+            aria-label="X 게시글 링크"
+            title="X 게시글 링크"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-background"
+          >
+            <img src={IconX} alt="" className="h-3 w-3" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold text-foreground">
+              X 게시글 링크
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {displayUrl}
+            </div>
+          </div>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${displayUrl} 열기`}
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   const title = link.title ?? link.displayUrl ?? domain;
   const description = link.description;
 
   return (
-    <div className="flex min-h-20 overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
+    <div className="flex min-h-16 overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
       {link.imageUrl ? (
-        <div className="h-auto w-24 shrink-0 bg-muted sm:w-32">
+        <div className="h-auto w-20 shrink-0 bg-muted sm:w-28">
           <img
             src={link.imageUrl}
             alt=""
-            className="h-full min-h-20 w-full object-cover"
+            className="h-full min-h-16 w-full object-cover"
             loading="lazy"
           />
         </div>
       ) : null}
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
         <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <span className="truncate">{link.siteName ?? domain}</span>
           <a
@@ -293,7 +379,7 @@ const XLinkPreviewCard = ({ link }: { link: XPostLink }) => {
           {title}
         </div>
         {description ? (
-          <div className="line-clamp-2 break-words text-xs leading-5 text-muted-foreground">
+          <div className="line-clamp-1 break-words text-xs leading-5 text-muted-foreground">
             {description}
           </div>
         ) : (
@@ -311,7 +397,7 @@ const XLinkPreviewList = ({ post }: { post: XPost }) => {
   if (links.length === 0) return null;
 
   return (
-    <div className="space-y-2 pl-1">
+    <div className="space-y-1.5 pl-1">
       {links.map((link) => (
         <XLinkPreviewCard key={getLinkHref(link)} link={link} />
       ))}
@@ -337,7 +423,7 @@ const renderPostText = (post: XPost) => {
     }
 
     nodes.push(
-      link && isPreviewRenderable(link) ? (
+      link && shouldShowLinkPreview(link) ? (
         <span key={`${url}-${startIndex}`} className="text-muted-foreground">
           {url}
         </span>
@@ -369,14 +455,52 @@ const renderPostText = (post: XPost) => {
   return nodes.length > 0 ? nodes : post.text;
 };
 
-export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
+const shouldIgnoreCardNavigation = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  Boolean(target.closest("a, button, input, select, textarea, [role='button']"));
+
+const openExternalUrl = (url: string) => {
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
+export const XPostCard = ({
+  post,
+  member,
+  compactTime,
+  openPostOnCardClick = false,
+  showExternalLinkButton = true,
+}: XPostCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const profileSrc = member ? `/profile/${member.code}.webp` : null;
   const accentColor = member?.main_color || "#111111";
   const canExpand = useMemo(() => shouldClampText(post.text), [post.text]);
+  const navigableProps = openPostOnCardClick
+    ? {
+        "aria-label": `${member?.name ?? post.username} X 원문 게시글 열기`,
+        onClick: (event: MouseEvent<HTMLElement>) => {
+          if (shouldIgnoreCardNavigation(event.target)) return;
+          openExternalUrl(post.url);
+        },
+        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+          if (shouldIgnoreCardNavigation(event.target)) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openExternalUrl(post.url);
+        },
+        role: "link",
+        tabIndex: 0,
+      }
+    : {};
 
   return (
-    <article className="group relative flex flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-5">
+    <article
+      {...navigableProps}
+      className={cn(
+        "group relative flex flex-col gap-3 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-4",
+        openPostOnCardClick &&
+          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      )}
+    >
       <span
         className="absolute inset-y-0 left-0 w-1"
         style={{ backgroundColor: accentColor }}
@@ -389,10 +513,10 @@ export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
             <img
               src={profileSrc}
               alt={member?.name ?? post.username}
-              className="h-12 w-12 shrink-0 rounded-full border border-border object-cover"
+              className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
             />
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
               X
             </div>
           )}
@@ -422,23 +546,25 @@ export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
           </div>
         </div>
 
-        <Button
-          asChild
-          variant="ghost"
-          size="sm"
-          className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
-        >
-          <a href={post.url} target="_blank" rel="noopener noreferrer">
-            <span className="hidden sm:inline">X에서 보기</span>
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        </Button>
+        {showExternalLinkButton ? (
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
+          >
+            <a href={post.url} target="_blank" rel="noopener noreferrer">
+              <span className="hidden sm:inline">X에서 보기</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        ) : null}
       </div>
 
       <p
         className={cn(
-          "whitespace-pre-wrap break-words pl-1 text-[15px] leading-7 text-foreground",
-          canExpand && !expanded && "line-clamp-7",
+          "whitespace-pre-wrap break-words pl-1 text-sm leading-6 text-foreground",
+          canExpand && !expanded && "line-clamp-5",
         )}
       >
         {renderPostText(post)}
@@ -449,7 +575,7 @@ export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
           type="button"
           variant="ghost"
           size="sm"
-          className="ml-1 h-7 w-fit rounded-full px-3 text-xs text-muted-foreground"
+          className="ml-1 h-6 w-fit rounded-full px-2.5 text-xs text-muted-foreground"
           onClick={() => setExpanded((value) => !value)}
         >
           {expanded ? "접기" : "더보기"}
@@ -462,7 +588,7 @@ export const XPostCard = ({ post, member, compactTime }: XPostCardProps) => {
         <XMediaGrid post={post} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border/70 pl-1 pt-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <MessageCircle className="h-3.5 w-3.5" />
           {formatMetric(post.metrics.replyCount)}
