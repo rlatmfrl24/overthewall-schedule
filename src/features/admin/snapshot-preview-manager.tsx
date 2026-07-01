@@ -33,8 +33,6 @@ interface SnapshotPreviewManagerProps {
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MIN_IFRAME_HEIGHT = 640;
-const MIN_PREVIEW_VIEWPORT_HEIGHT = 320;
-const PREVIEW_VIEWPORT_BOTTOM_GAP = 16;
 const PREVIEW_CANVAS_PADDING = 24;
 const HEIGHT_SYNC_INTERVAL_MS = 200;
 const HEIGHT_SYNC_MAX_TICKS = 50;
@@ -42,6 +40,12 @@ const SNAPSHOT_WIDTH_BY_MODE = {
   grid: 1280,
   timeline: 520,
 } as const;
+const SNAPSHOT_ROOT_PADDING_BY_MODE = {
+  grid: 40,
+  timeline: 24,
+} as const;
+const getSnapshotPreviewIframeWidth = (mode: "grid" | "timeline") =>
+  SNAPSHOT_WIDTH_BY_MODE[mode] + SNAPSHOT_ROOT_PADDING_BY_MODE[mode];
 const SNAPSHOT_MODE_OPTIONS = [
   { value: "grid", label: "일정표" },
   { value: "timeline", label: "편성표" },
@@ -63,10 +67,10 @@ export function SnapshotPreviewManager({
   const [isFrameLoading, setIsFrameLoading] = useState(true);
   const [isFrameError, setIsFrameError] = useState(false);
   const [iframeHeight, setIframeHeight] = useState<number>(MIN_IFRAME_HEIGHT);
-  const [previewViewport, setPreviewViewport] = useState({
-    width: 0,
-    height: MIN_IFRAME_HEIGHT,
-  });
+  const [iframeWidth, setIframeWidth] = useState(() =>
+    getSnapshotPreviewIframeWidth(mode),
+  );
+  const [previewViewportWidth, setPreviewViewportWidth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const previewViewportRef = useRef<HTMLDivElement | null>(null);
   const heightSyncTimerRef = useRef<number | null>(null);
@@ -87,6 +91,7 @@ export function SnapshotPreviewManager({
   const modeLabel = mode === "grid" ? "일정표" : "편성표";
   const themeLabel = theme === "dark" ? "다크" : "라이트";
   const snapshotWidth = SNAPSHOT_WIDTH_BY_MODE[mode];
+  const defaultIframeWidth = getSnapshotPreviewIframeWidth(mode);
   const widthLabel = `${snapshotWidth}px`;
 
   const iframeSrc = useMemo(
@@ -96,19 +101,14 @@ export function SnapshotPreviewManager({
   const previewScale = useMemo(() => {
     const availableWidth = Math.max(
       0,
-      previewViewport.width - PREVIEW_CANVAS_PADDING,
+      previewViewportWidth - PREVIEW_CANVAS_PADDING,
     );
-    const availableHeight = Math.max(
-      0,
-      previewViewport.height - PREVIEW_CANVAS_PADDING,
-    );
-    const widthScale = availableWidth > 0 ? availableWidth / snapshotWidth : 1;
-    const heightScale = availableHeight > 0 ? availableHeight / iframeHeight : 1;
+    const widthScale = availableWidth > 0 ? availableWidth / iframeWidth : 1;
 
-    return Math.min(1, widthScale, heightScale);
-  }, [iframeHeight, previewViewport.height, previewViewport.width, snapshotWidth]);
+    return Math.min(1, widthScale);
+  }, [iframeWidth, previewViewportWidth]);
   const scaledPreviewHeight = Math.ceil(iframeHeight * previewScale);
-  const scaledPreviewWidth = Math.ceil(snapshotWidth * previewScale);
+  const scaledPreviewWidth = Math.ceil(iframeWidth * previewScale);
   const previewScaleLabel = `${Math.round(previewScale * 100)}%`;
 
   const measurePreviewViewport = useCallback(() => {
@@ -118,19 +118,9 @@ export function SnapshotPreviewManager({
     if (!element) return;
 
     const rect = element.getBoundingClientRect();
-    const nextViewport = {
-      width: Math.max(0, Math.floor(rect.width)),
-      height: Math.max(
-        MIN_PREVIEW_VIEWPORT_HEIGHT,
-        Math.floor(window.innerHeight - rect.top - PREVIEW_VIEWPORT_BOTTOM_GAP),
-      ),
-    };
+    const nextWidth = Math.max(0, Math.floor(rect.width));
 
-    setPreviewViewport((prev) =>
-      prev.width === nextViewport.width && prev.height === nextViewport.height
-        ? prev
-        : nextViewport,
-    );
+    setPreviewViewportWidth((prev) => (prev === nextWidth ? prev : nextWidth));
   }, []);
 
   useEffect(() => {
@@ -141,6 +131,10 @@ export function SnapshotPreviewManager({
     setIsFrameLoading(true);
     setIsFrameError(false);
   }, [iframeSrc]);
+
+  useEffect(() => {
+    setIframeWidth(defaultIframeWidth);
+  }, [defaultIframeWidth]);
 
   const stopHeightSync = useCallback(() => {
     if (heightSyncTimerRef.current !== null) {
@@ -154,10 +148,19 @@ export function SnapshotPreviewManager({
     const doc = iframe?.contentDocument;
     if (!doc) return false;
 
-    const snapshotRoot = doc.querySelector<HTMLElement>("[data-snapshot-root='true']");
+    const snapshotRoot = doc.querySelector<HTMLElement>(
+      "[data-snapshot-root='true']",
+    );
+    const rootWidth = snapshotRoot
+      ? Math.ceil(
+          snapshotRoot.getBoundingClientRect().width ||
+            snapshotRoot.scrollWidth,
+        )
+      : 0;
     const rootHeight = snapshotRoot?.scrollHeight ?? 0;
     const bodyHeight = doc.body?.scrollHeight ?? 0;
     const documentHeight = doc.documentElement?.scrollHeight ?? 0;
+    const nextWidth = Math.max(rootWidth, defaultIframeWidth);
     const nextHeight = Math.max(
       rootHeight,
       bodyHeight,
@@ -165,10 +168,11 @@ export function SnapshotPreviewManager({
       MIN_IFRAME_HEIGHT,
     );
 
+    setIframeWidth((prev) => (prev === nextWidth ? prev : nextWidth));
     setIframeHeight((prev) => (prev === nextHeight ? prev : nextHeight));
 
     return snapshotRoot?.dataset.snapshotReady === "true";
-  }, []);
+  }, [defaultIframeWidth]);
 
   const startHeightSync = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -226,7 +230,7 @@ export function SnapshotPreviewManager({
 
   useEffect(() => {
     measurePreviewViewport();
-  }, [iframeHeight, measurePreviewViewport, mode]);
+  }, [iframeHeight, iframeWidth, measurePreviewViewport, mode]);
 
   const handleDateInputChange = (value: string) => {
     if (!DATE_REGEX.test(value)) return;
@@ -351,10 +355,7 @@ export function SnapshotPreviewManager({
           </header>
           <CardContent
             ref={previewViewportRef}
-            className="relative overflow-auto bg-muted/20 p-0"
-            style={{
-              maxHeight: `${previewViewport.height}px`,
-            }}
+            className="relative overflow-hidden bg-muted/20 p-0"
           >
             <div className="flex justify-center p-3">
               <div
@@ -369,8 +370,9 @@ export function SnapshotPreviewManager({
                   title="스냅샷 프리뷰"
                   src={iframeSrc}
                   className="block border-0 bg-background"
+                  scrolling="no"
                   style={{
-                    width: `${snapshotWidth}px`,
+                    width: `${iframeWidth}px`,
                     height: `${iframeHeight}px`,
                     transform: `scale(${previewScale})`,
                     transformOrigin: "top left",
