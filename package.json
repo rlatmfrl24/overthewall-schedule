@@ -73,6 +73,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "baseline-browser-mapping": "^2.10.40",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9.33.0",
     "eslint-plugin-react-hooks": "^5.2.0",

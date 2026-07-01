@@ -15,7 +15,7 @@ export const Route = createFileRoute("/multiview")({
   component: RouteComponent,
 });
 
-export function RouteComponent() {
+function RouteComponent() {
   const { isLoaded, isSignedIn } = useUser();
 
   if (!isLoaded) {

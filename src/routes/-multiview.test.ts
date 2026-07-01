@@ -16,7 +16,9 @@ vi.mock("@/features/multiview/multiview-page", () => ({
     React.createElement("div", { "data-testid": "multiview-page" }, "multiview"),
 }));
 
-import { RouteComponent } from "./multiview";
+import { Route } from "./multiview";
+
+const RouteComponent = Route.options.component;
 
 describe("/multiview route", () => {
   afterEach(() => {

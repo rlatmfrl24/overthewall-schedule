@@ -130,29 +130,29 @@ function SnapshotHeader({
     >
       <div
         className={cn(
-          "flex min-w-0 items-center",
+          "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center",
           mode === "timeline" ? "gap-3" : "gap-4",
         )}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <div
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-white/15",
+            mode === "timeline" ? "h-11 w-[76px]" : "h-14 w-24",
+          )}
+        >
+          <img
+            src="/logo_otw.svg"
+            width={90}
+            height={25}
+            alt="오버더월"
             className={cn(
-              "flex shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-white/15",
-              mode === "timeline" ? "h-11 w-[76px]" : "h-14 w-24",
+              "h-auto shrink-0",
+              mode === "timeline" ? "w-16" : "w-20",
             )}
-          >
-            <img
-              src="/logo_otw.svg"
-              width={90}
-              height={25}
-              alt="오버더월"
-              className={cn(
-                "h-auto shrink-0",
-                mode === "timeline" ? "w-16" : "w-20",
-              )}
-            />
-          </div>
-          <div className="min-w-0">
+          />
+        </div>
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <p
               className={cn(
                 "font-black uppercase leading-none text-zinc-500 dark:text-zinc-400",
@@ -163,22 +163,26 @@ function SnapshotHeader({
             >
               OTW Schedule
             </p>
-            <div className="mt-1 flex min-w-0 items-center gap-2">
-              <h1
-                className={cn(
-                  "shrink-0 whitespace-nowrap font-black leading-none text-zinc-950 dark:text-zinc-50",
-                  mode === "timeline" ? "text-[1.55rem]" : "text-[2.35rem]",
-                )}
-              >
-                오늘의 편성표
-              </h1>
-              <SnapshotDateText
-                value={dateLabel}
-                dateTime={dateValue}
-                compact={mode === "timeline"}
-              />
-            </div>
+            <span
+              aria-hidden="true"
+              className="text-[10px] font-black leading-none text-zinc-300 dark:text-zinc-600"
+            >
+              /
+            </span>
+            <SnapshotDateText
+              value={dateLabel}
+              dateTime={dateValue}
+              compact={mode === "timeline"}
+            />
           </div>
+          <h1
+            className={cn(
+              "mt-1 truncate font-black leading-none text-zinc-950 dark:text-zinc-50",
+              mode === "timeline" ? "text-[1.75rem]" : "text-[2.45rem]",
+            )}
+          >
+            오늘의 편성표
+          </h1>
         </div>
       </div>
     </header>
@@ -198,13 +202,11 @@ function SnapshotDateText({
     <p
       aria-label={`편성표 날짜 ${value}`}
       className={cn(
-        "shrink-0 whitespace-nowrap font-black leading-none text-zinc-500 dark:text-zinc-300",
-        compact ? "text-[0.95rem]" : "text-base",
+        "shrink-0 whitespace-nowrap font-black leading-none tabular-nums text-zinc-500 dark:text-zinc-300",
+        compact ? "text-[0.74rem]" : "text-sm",
       )}
     >
-      <time dateTime={dateTime} className="tabular-nums">
-        {value}
-      </time>
+      <time dateTime={dateTime}>{value}</time>
     </p>
   );
 }
