@@ -2,6 +2,7 @@
   "name": "overthewall-schedule",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@10.11.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
