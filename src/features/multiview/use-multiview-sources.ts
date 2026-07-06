@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLiveStatusesForMembers } from "@/lib/api/live-status";
-import { MEDIA_QUERY_STALE_TIME_MS } from "@/lib/query-client";
+import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import type { ChzzkLiveStatusMap, Member } from "@/lib/types";
 import { extractMultiviewChzzkChannelId } from "./multiview-utils";
 import type { MultiviewSource } from "./types";
+
+export const MULTIVIEW_LIVE_STATUS_REFRESH_INTERVAL_MS = 60_000;
 
 const UNIT_ORDER = [
   ["스타데이즈", "stardays", "star days"],
@@ -64,7 +66,10 @@ export function useMultiviewSources(members: Member[]) {
     queryKey: queryKeys.liveStatus.statuses(channelIdsKey, "multiview"),
     queryFn: () => fetchLiveStatusesForMembers(membersWithChzzk),
     enabled: membersWithChzzk.length > 0,
-    staleTime: MEDIA_QUERY_STALE_TIME_MS,
+    refetchInterval: MULTIVIEW_LIVE_STATUS_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: QUERY_STALE_TIME_MS,
   });
 
   const sources = useMemo(() => {

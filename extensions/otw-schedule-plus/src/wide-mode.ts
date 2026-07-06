@@ -8,6 +8,31 @@ const WIDE_MODE_KEYWORDS = [
   "theater",
   "theatre",
 ];
+const WIDE_MODE_EXIT_KEYWORDS = [
+  "기본",
+  "일반",
+  "작게",
+  "좁",
+  "원래",
+  "종료",
+  "나가기",
+  "normal",
+  "default",
+  "exit",
+  "leave",
+  "restore",
+  "narrow",
+  "small",
+];
+const WIDE_MODE_STATE_KEYWORDS = [
+  "wide",
+  "theater",
+  "theatre",
+  "cinema",
+  "expanded",
+  "wide-screen",
+  "widescreen",
+];
 const CHZZK_VIEWMODE_BUTTON_SELECTOR = [
   ".pzp-pc__viewmode-button",
   ".pzp-pc-viewmode-button",
@@ -20,6 +45,14 @@ const CHZZK_PLAYER_WAKE_TARGET_SELECTORS = [
   "[class*='webplayer']",
   "[class*='pzp']",
   "body",
+];
+const CHZZK_PLAYER_SHORTCUT_TARGET_SELECTORS = [
+  CHZZK_VIDEO_SELECTOR,
+  "[class*='webplayer']",
+];
+const CHZZK_PLAYER_STATE_SELECTORS = [
+  "[class*='webplayer']",
+  "[class*='pzp']",
 ];
 const CHZZK_SIDE_NAV_SELECTOR_HINTS = [
   "[class*='navigation']",
@@ -71,6 +104,7 @@ const CHAT_HIDE_RECLICK_GUARD_MS = 4_000;
 
 let wideModeReclickGuardUntil = 0;
 let chatHideReclickGuardUntil = 0;
+let hasAppliedWideMode = false;
 let hasAppliedChatHide = false;
 
 const sleep = (durationMs: number) =>
@@ -94,6 +128,56 @@ const hasWideModeLabel = (element: Element) => {
   );
 
   return WIDE_MODE_KEYWORDS.some((keyword) => label.includes(keyword));
+};
+
+const hasWideModeExitLabel = (element: Element) => {
+  const label = normalizeText(
+    [
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("data-tooltip"),
+      element.textContent,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return WIDE_MODE_EXIT_KEYWORDS.some((keyword) => label.includes(keyword));
+};
+
+const getElementStateText = (element: Element) => {
+  const className =
+    typeof element.className === "string" ? element.className : "";
+
+  return normalizeText(
+    [
+      className,
+      element.id,
+      element.getAttribute("data-state"),
+      element.getAttribute("data-mode"),
+      element.getAttribute("data-view-mode"),
+      element.getAttribute("aria-label"),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+};
+
+const hasWideModeStateMarker = (root: ParentNode = document) => {
+  for (const selector of CHZZK_PLAYER_STATE_SELECTORS) {
+    const candidates = root.querySelectorAll(selector);
+
+    for (const candidate of candidates) {
+      const state = getElementStateText(candidate);
+      if (
+        WIDE_MODE_STATE_KEYWORDS.some((keyword) => state.includes(keyword))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 };
 
 const hasChatHideLabel = (element: Element) => {
@@ -237,6 +321,19 @@ export const isWideModeButtonActive = (element: HTMLElement) =>
   element.classList.contains("active") ||
   element.classList.contains("selected");
 
+export const isWideModeLikelyActive = (root: ParentNode = document) => {
+  if (hasWideModeStateMarker(root)) return true;
+
+  const button = findWideModeButton(root);
+  if (!button) return false;
+
+  return (
+    isWideModeButtonActive(button) ||
+    (button.matches(CHZZK_VIEWMODE_BUTTON_SELECTOR) &&
+      hasWideModeExitLabel(button))
+  );
+};
+
 export const findWideModeButton = (root: ParentNode = document) => {
   const chzzkViewmodeButtons = [
     ...root.querySelectorAll(CHZZK_VIEWMODE_BUTTON_SELECTOR),
@@ -297,6 +394,43 @@ export const wakePlayerControls = (root: ParentNode = document) => {
       },
     );
   });
+};
+
+export const sendWideModeShortcut = (root: ParentNode = document) => {
+  const target = CHZZK_PLAYER_SHORTCUT_TARGET_SELECTORS.map((selector) =>
+    root.querySelector(selector),
+  ).find(
+    (element): element is HTMLElement =>
+      element instanceof HTMLElement && isWideModeCandidateElement(element),
+  );
+
+  if (!target) return false;
+
+  wakePlayerControls(root);
+
+  try {
+    if (!target.hasAttribute("tabindex")) {
+      target.setAttribute("tabindex", "-1");
+    }
+    target.focus({ preventScroll: true });
+  } catch {
+    // Focus is best-effort. Keyboard listeners can still be attached to document/window.
+  }
+
+  const eventInit: KeyboardEventInit = {
+    bubbles: true,
+    cancelable: true,
+    code: "KeyT",
+    composed: true,
+    key: "t",
+  };
+
+  [target, document, window].forEach((eventTarget) => {
+    eventTarget.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+    eventTarget.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+  });
+
+  return true;
 };
 
 export const findChatHideButton = (root: ParentNode = document) => {
@@ -376,6 +510,7 @@ interface WideModeAutomationOptions {
 export const resetWideModeAutomationGuard = () => {
   wideModeReclickGuardUntil = 0;
   chatHideReclickGuardUntil = 0;
+  hasAppliedWideMode = false;
   hasAppliedChatHide = false;
 };
 
@@ -393,19 +528,37 @@ export const runWideModeAutomation = async ({
     if (now() - startedAt > timeoutMs) return "timeout";
 
     wakePlayerControls(root);
+    if (isWideModeLikelyActive(root)) {
+      hasAppliedWideMode = true;
+      return "already_applied";
+    }
+
     const button = findWideModeButton(root);
     if (button) {
-      if (isWideModeButtonActive(button) || now() < wideModeReclickGuardUntil) {
+      if (now() < wideModeReclickGuardUntil) {
+        return "already_applied";
+      }
+
+      if (hasAppliedWideMode && !hasWideModeLabel(button)) {
         return "already_applied";
       }
 
       try {
         button.click();
+        hasAppliedWideMode = true;
         wideModeReclickGuardUntil = now() + reclickGuardMs;
         return "applied";
       } catch {
         return "error";
       }
+    }
+
+    if (hasAppliedWideMode) return "already_applied";
+
+    if (sendWideModeShortcut(root)) {
+      hasAppliedWideMode = true;
+      wideModeReclickGuardUntil = now() + reclickGuardMs;
+      return "applied";
     }
 
     await sleep(delayMs);

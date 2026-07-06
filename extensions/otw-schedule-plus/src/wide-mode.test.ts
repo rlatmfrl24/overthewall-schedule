@@ -6,11 +6,13 @@ import {
   findWideModeButton,
   isChatPanelVisible,
   isWideModeButtonActive,
+  isWideModeLikelyActive,
   resetWideModeAutomationGuard,
   runChatHideAutomation,
   runLivePlayerAutomation,
   runSideNavigationCollapseAutomation,
   runWideModeAutomation,
+  sendWideModeShortcut,
 } from "./wide-mode";
 
 describe("wide mode automation", () => {
@@ -99,17 +101,18 @@ describe("wide mode automation", () => {
     expect(click).not.toHaveBeenCalled();
   });
 
-  it("still clicks CHZZK's viewmode button when the readable label is ambiguous", async () => {
+  it("treats CHZZK's return-to-normal viewmode label as already wide", async () => {
     document.body.innerHTML = `<button class="pzp-pc__viewmode-button" aria-label="기본 화면"></button>`;
     const button = document.querySelector("button");
     const click = vi.spyOn(button!, "click");
 
     expect(isWideModeButtonActive(button!)).toBe(false);
     expect(findWideModeButton()).toBe(button);
+    expect(isWideModeLikelyActive()).toBe(true);
     await expect(
       runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
-    ).resolves.toBe("applied");
-    expect(click).toHaveBeenCalledTimes(1);
+    ).resolves.toBe("already_applied");
+    expect(click).not.toHaveBeenCalled();
   });
 
   it("does not click the wide-screen toggle again immediately after applying", async () => {
@@ -124,6 +127,55 @@ describe("wide mode automation", () => {
       runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
     ).resolves.toBe("already_applied");
     expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not toggle an unlabeled CHZZK viewmode button off on periodic rechecks", async () => {
+    document.body.innerHTML = `<button class="pzp-pc__viewmode-button"></button>`;
+    const button = document.querySelector("button");
+    const click = vi.spyOn(button!, "click");
+    let now = 1_000;
+
+    await expect(
+      runWideModeAutomation({
+        delayMs: 0,
+        maxAttempts: 1,
+        now: () => now,
+        reclickGuardMs: 4_000,
+      }),
+    ).resolves.toBe("applied");
+
+    now += 5_000;
+
+    await expect(
+      runWideModeAutomation({
+        delayMs: 0,
+        maxAttempts: 1,
+        now: () => now,
+        reclickGuardMs: 4_000,
+      }),
+    ).resolves.toBe("already_applied");
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the CHZZK player t shortcut when no viewmode button is available", async () => {
+    document.body.innerHTML = `<video class="webplayer-internal-video"></video>`;
+    const keydown = vi.fn();
+    document.addEventListener("keydown", keydown);
+
+    expect(sendWideModeShortcut()).toBe(true);
+    expect(keydown).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "KeyT",
+        key: "t",
+      }),
+    );
+
+    keydown.mockClear();
+
+    await expect(
+      runWideModeAutomation({ delayMs: 0, maxAttempts: 1 }),
+    ).resolves.toBe("applied");
+    expect(keydown).toHaveBeenCalled();
   });
 
   it("reports selector_missing when no matching control exists", async () => {

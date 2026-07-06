@@ -6,10 +6,10 @@
 
 ### 업로드 파일
 
-- ZIP 파일: `extensions/otw-schedule-plus/artifacts/otw-schedule-plus-0.2.11.zip`
+- ZIP 파일: `extensions/otw-schedule-plus/artifacts/otw-schedule-plus-0.2.12.zip`
 - Manifest 버전: `3`
 - 확장 이름: `OTW Schedule +`
-- 버전: `0.2.11`
+- 버전: `0.2.12`
 
 ### Manifest 설명
 
@@ -218,7 +218,7 @@ https://otw-schedule.info/rights
 
 ## 6. 제출 전 체크리스트
 
-- `extensions/otw-schedule-plus/artifacts/otw-schedule-plus-0.2.11.zip`가 최신 빌드인지 확인
+- `extensions/otw-schedule-plus/artifacts/otw-schedule-plus-0.2.12.zip`가 최신 빌드인지 확인
 - `manifest.json`의 `name`, `description`, `version` 확인
 - 스토어 아이콘 128x128 확인
 - 실제 화면 기반 스크린샷 1장 이상 준비

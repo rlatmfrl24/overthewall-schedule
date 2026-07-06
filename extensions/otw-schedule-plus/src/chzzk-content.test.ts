@@ -136,11 +136,76 @@ describe("CHZZK content script entry", () => {
 
     expect(keepChannelOpen).toBe(true);
     await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(3_000);
+    await flushMicrotasks();
 
     expect(sendResponse).toHaveBeenCalledWith({ result: "applied" });
     expect(menuClick).toHaveBeenCalledTimes(1);
     expect(wideClick).toHaveBeenCalledTimes(1);
     expect(chatClick).toHaveBeenCalledTimes(1);
+
+    sendResponse.mockClear();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    listener?.(
+      {
+        channelId: CHANNEL_ID,
+        kind: RUN_WIDE_MODE_KIND,
+      },
+      {},
+      sendResponse,
+    );
+    await flushMicrotasks();
+
+    expect(sendResponse).toHaveBeenCalledWith({ result: "applied" });
+    expect(wideClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to CHZZK's t shortcut when the viewmode button is unavailable", async () => {
+    document.body.innerHTML = `
+      <nav class="navigation_area__abc">
+        <button aria-label="메뉴">menu</button>
+      </nav>
+      <video class="webplayer-internal-video"></video>
+    `;
+    const nav = document.querySelector("nav")!;
+    const menuButton = document.querySelector("nav button") as HTMLButtonElement;
+    const video = document.querySelector("video") as HTMLVideoElement;
+    setRect(nav, { height: 720, left: 0, top: 0, width: 240 });
+    setRect(menuButton, { height: 40, left: 16, top: 8, width: 40 });
+    Object.defineProperty(video, "readyState", {
+      configurable: true,
+      value: 1,
+    });
+    const menuClick = vi.spyOn(menuButton, "click");
+    const keydown = vi.fn();
+    document.addEventListener("keydown", keydown);
+
+    // @ts-expect-error chzzk-content is a classic content-script entrypoint.
+    await import("./chzzk-content");
+
+    const listener = runtimeMessageListeners[0];
+    const sendResponse = vi.fn();
+    const keepChannelOpen = listener?.(
+      {
+        channelId: CHANNEL_ID,
+        kind: RUN_WIDE_MODE_KIND,
+      },
+      {},
+      sendResponse,
+    );
+
+    expect(keepChannelOpen).toBe(true);
+    await flushMicrotasks();
+
+    expect(sendResponse).toHaveBeenCalledWith({ result: "applied" });
+    expect(menuClick).toHaveBeenCalledTimes(1);
+    expect(keydown).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "KeyT",
+        key: "t",
+      }),
+    );
   });
 
   it("re-registers the frame when the background service worker asks", async () => {
