@@ -64,6 +64,28 @@ const makeUpdateDb = (
   })),
 });
 
+const makeReadDb = (rows: unknown[] = []) => ({
+  update: vi.fn(() => ({
+    set: () => ({
+      where: async () => ({ success: true }),
+    }),
+  })),
+  select: vi.fn(() => ({
+    from: () => ({
+      where: () => ({
+        orderBy: async () => rows,
+      }),
+      orderBy: async () => rows,
+    }),
+  })),
+});
+
+const makeCreateDb = () => ({
+  insert: vi.fn(() => ({
+    values: async () => ({ success: true }),
+  })),
+});
+
 const makeThumbnailUploadRequest = (blob: Blob, filename = "thumb.png") => {
   const formData = new FormData();
   formData.append("file", blob, filename);
@@ -118,6 +140,39 @@ describe("notices route thumbnail handling", () => {
     expect(body.thumbnail_url).toBe(`/r2-assets/${key}`);
   });
 
+  it("returns no-store headers for public notice reads", async () => {
+    getDbMock.mockReturnValue(makeReadDb([{ id: 1, content: "notice" }]));
+
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("returns no-store headers for notice mutations", async () => {
+    getDbMock.mockReturnValue(makeCreateDb());
+
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: "created",
+          type: "notice",
+          publisher_type: "otw",
+          is_active: true,
+        }),
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it("rejects oversized thumbnail uploads before storing them", async () => {
     const put = vi.fn(async () => ({}));
     const response = await handleNotices(
@@ -154,6 +209,7 @@ describe("notices route thumbnail handling", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/owned.webp");
   });
 
@@ -175,6 +231,7 @@ describe("notices route thumbnail handling", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(deleteObject).not.toHaveBeenCalled();
   });
 
@@ -192,6 +249,7 @@ describe("notices route thumbnail handling", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(deleteObject).not.toHaveBeenCalled();
   });
 
@@ -222,6 +280,7 @@ describe("notices route thumbnail handling", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/old.jpg");
   });
 

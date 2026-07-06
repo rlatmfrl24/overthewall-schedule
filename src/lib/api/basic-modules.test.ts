@@ -173,10 +173,13 @@ describe("api wrapper modules", () => {
     await uploadNoticeThumbnail(thumbnailFile);
     await deleteNoticeThumbnail("/r2-assets/notices/thumbnails/thumb.png");
 
-    expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/api/notices");
+    expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/api/notices", {
+      cache: "no-store",
+    });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/notices?includeInactive=1",
+      { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/notices", {
       method: "POST",

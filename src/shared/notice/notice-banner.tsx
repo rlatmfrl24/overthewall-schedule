@@ -7,7 +7,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import { fetchNotices } from "@/lib/api/notices";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
-import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
 const noticeTypeConfigs = {
@@ -55,7 +54,7 @@ export function NoticeBanner({
   const noticesQuery = useQuery<Notice[]>({
     queryKey: queryKeys.notices.public(),
     queryFn: () => fetchNotices(),
-    staleTime: QUERY_STALE_TIME_MS,
+    staleTime: 0,
     enabled: providedNotices === undefined,
   });
   const notices = useMemo(

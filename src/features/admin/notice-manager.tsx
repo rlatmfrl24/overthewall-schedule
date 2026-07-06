@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { type Notice } from "@/db/schema";
 import type { Member } from "@/lib/types";
 import {
@@ -36,6 +37,7 @@ import {
   updateNotice,
 } from "@/lib/api/notices";
 import { fetchActiveMembers } from "@/lib/api/members";
+import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmActionDialog } from "./components/confirm-action-dialog";
 import { AdminSectionHeader } from "./components/admin-section-header";
@@ -85,6 +87,7 @@ const getPublisherLabel = (
 
 export function NoticeManager() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [isFetching, setIsFetching] = useState(false);
@@ -171,6 +174,7 @@ export function NoticeManager() {
     try {
       await deleteNotice(deletingNotice.id);
       await loadNotices();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notices.all });
       toast({
         variant: "success",
         description: "공지사항을 삭제했습니다.",
@@ -210,6 +214,7 @@ export function NoticeManager() {
       }
 
       await loadNotices();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notices.all });
       setIsDialogOpen(false);
       toast({
         variant: "success",
