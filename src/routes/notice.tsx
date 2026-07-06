@@ -138,7 +138,7 @@ function NoticePage() {
   const noticesQuery = useQuery<Notice[]>({
     queryKey: queryKeys.notices.public(),
     queryFn: () => fetchNotices(),
-    staleTime: QUERY_STALE_TIME_MS,
+    staleTime: 0,
   });
   const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
   const hasMemberPublisher = useMemo(

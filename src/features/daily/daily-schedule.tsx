@@ -63,7 +63,6 @@ import { deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 import { queryKeys } from "@/lib/query-keys";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
-import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -105,7 +104,7 @@ export const DailySchedule = () => {
   const publicNoticesQuery = useQuery({
     queryKey: queryKeys.notices.public(),
     queryFn: () => fetchNotices(),
-    staleTime: QUERY_STALE_TIME_MS,
+    staleTime: 0,
   });
   const publicNotices = useMemo(
     () => publicNoticesQuery.data ?? [],

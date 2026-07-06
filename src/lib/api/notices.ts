@@ -30,7 +30,7 @@ const normalizeActive = (value: NoticePayload["is_active"]) =>
 
 export async function fetchNotices(options?: { includeInactive?: boolean }) {
   const qs = options?.includeInactive ? "?includeInactive=1" : "";
-  return apiFetch<Notice[]>(`/api/notices${qs}`);
+  return apiFetch<Notice[]>(`/api/notices${qs}`, { cache: "no-store" });
 }
 
 export async function createNotice(payload: NoticePayload) {

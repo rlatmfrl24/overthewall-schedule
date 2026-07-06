@@ -17,9 +17,9 @@ import {
   NOTICE_THUMBNAIL_MAX_BYTES,
 } from "../../src/lib/notice-thumbnails";
 
-const NOTICES_CACHE_CONTROL =
-  "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+const NOTICES_CACHE_CONTROL = "no-store";
 const NOTICE_THUMBNAIL_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const NOTICE_PUBLISHER_TYPES = ["otw", "member"] as const;
@@ -357,9 +357,7 @@ export const handleNotices = async (request: Request, env: Env) => {
 
     const data = await filteredStatement.orderBy(notices.id);
     return json(data, 200, {
-      headers: {
-        "Cache-Control": includeInactive ? "no-store" : NOTICES_CACHE_CONTROL,
-      },
+      headers: { "Cache-Control": NOTICES_CACHE_CONTROL },
     });
   }
 
@@ -394,7 +392,10 @@ export const handleNotices = async (request: Request, env: Env) => {
     });
 
     if (result.success) {
-      return new Response("Created", { status: 201 });
+      return new Response("Created", {
+        status: 201,
+        headers: NO_STORE_HEADERS,
+      });
     }
     return new Response("Failed to create", { status: 500 });
   }
@@ -443,7 +444,10 @@ export const handleNotices = async (request: Request, env: Env) => {
         previousRows[0]?.thumbnail_url,
         thumbnailUrl.value,
       );
-      return new Response("Updated", { status: 200 });
+      return new Response("Updated", {
+        status: 200,
+        headers: NO_STORE_HEADERS,
+      });
     }
     return new Response("Failed to update", { status: 500 });
   }
@@ -469,7 +473,10 @@ export const handleNotices = async (request: Request, env: Env) => {
         db,
         previousRows[0]?.thumbnail_url,
       );
-      return new Response("Deleted", { status: 200 });
+      return new Response("Deleted", {
+        status: 200,
+        headers: NO_STORE_HEADERS,
+      });
     }
     return new Response("Failed to delete", { status: 500 });
   }
