@@ -13,26 +13,16 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `../AGENTS.md` | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy. |
 | `auto-update.md` | Admin-approved CHZZK VOD based schedule auto-update flow. |
 | `youtube-optimization.md` | YouTube API quota, caching, and fallback strategy. |
-| `otw-schedule-plus-extension.md` | User-facing OTW Schedule + extension behavior and install notes. |
-| `otw-schedule-plus-deployment-guide.md` | Chrome Web Store and production CTA release runbook. |
-| `otw-schedule-plus-chrome-store-form.md` | Concrete Chrome Web Store form values for the current extension package. |
-| `privacy.md` | OTW Schedule + privacy policy text. |
 
 ## Archived Context
 
 `docs/archive/` contains exploratory analysis and drafts that remain useful as
-background but should not be treated as current implementation guidance:
-
-- CZViewer and external multiview research.
-- Music player MVP analysis.
-- Superseded OTW Schedule + release and Store listing drafts.
+background but should not be treated as current implementation guidance.
 
 ## Maintenance Rules
 
 - Update `Design.md` when app shell, page header, card, navigation, color, or
   accessibility patterns change.
-- Update extension docs whenever `extensions/otw-schedule-plus` permissions,
-  user disclosures, or Store package behavior changes.
 - Prefer one current runbook plus archived background notes over multiple active
   drafts for the same workflow.
 - `.agent` is the source of truth for agent rules and skills. Do not edit

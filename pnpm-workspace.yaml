@@ -1,6 +1,5 @@
 packages:
   - "."
-  - "extensions/*"
 
 allowBuilds:
   "@clerk/shared": true

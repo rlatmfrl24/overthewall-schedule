@@ -25,9 +25,9 @@ export type InternalNavTo =
   | "/"
   | "/weekly"
   | "/vods"
+  | "/multiview"
   | "/feed"
   | "/notice"
-  | "/multiview"
   | "/admin/notices";
 
 export type NavGroup =

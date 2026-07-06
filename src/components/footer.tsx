@@ -1,5 +1,4 @@
-import { Link } from "@tanstack/react-router";
-import { Github, Mail, Scale } from "lucide-react";
+import { Github, Mail } from "lucide-react";
 
 const footerLinkClassName =
   "inline-flex h-5 items-center gap-1.5 text-xs leading-none text-muted-foreground transition-colors hover:text-foreground sm:text-sm";
@@ -18,14 +17,6 @@ export const Footer = () => {
           </span>
         </p>
         <div className="mt-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 sm:gap-x-4">
-          <Link
-            to="/rights"
-            className={footerLinkClassName}
-            aria-label="권리 고지 및 개인정보 처리방침"
-          >
-            <Scale className={footerIconClassName} />
-            <span>권리/개인정보</span>
-          </Link>
           <a
             href="https://github.com/rlatmfrl24/overthewall-schedule/issues"
             target="_blank"

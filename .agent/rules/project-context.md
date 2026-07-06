@@ -20,10 +20,6 @@ trigger: always_on
 - Drizzle ORM with schema in `src/db/schema.ts`.
 - Worker route handlers in `worker/routes/*`.
 
-### Extension
-- OTW Schedule + lives under `extensions/otw-schedule-plus`.
-- Current Store scope is `/multiview` helper behavior for CHZZK iframe layout and optional chat login bridging.
-
 ## Core Application Flows
 - Browser UI -> `src/lib/api/*` -> `apiFetch` -> `/api/*` worker routes -> services/repositories/use-cases -> D1.
 - Public chrome is selected by `getAppChromeMode` and rendered by `PublicAppShell`.
@@ -31,7 +27,6 @@ trigger: always_on
 - Daily and weekly schedule views consume worker APIs through typed client modules.
 - Admin screens control notices, schedules, source settings, auto-update settings, pending schedules, and logs.
 - Scheduled worker trigger reads settings, collects VOD candidates, and writes `pending_schedules` and `update_logs`.
-- `/multiview` can work without the extension; OTW Schedule + only adds optional iframe helper behavior.
 
 ## Key Directories
 - `src/components`: app shell, navigation, footer, shared primitives, and UI components.
@@ -42,7 +37,6 @@ trigger: always_on
 - `src/db/schema.ts`: canonical Drizzle schema.
 - `worker/routes`: HTTP route handlers.
 - `worker/services`, `worker/repositories`, `worker/use-cases`: backend domain logic.
-- `extensions/otw-schedule-plus`: Chrome extension source, manifests, tests, and Store assets.
 - `docs`: active project docs plus archived research.
 - `.agent`: canonical agent rules and skills.
 
@@ -57,8 +51,6 @@ trigger: always_on
 - `pnpm drizzle:migrate:local`: apply migrations to local D1.
 - `pnpm drizzle:migrate:remote`: apply migrations to remote D1.
 - `pnpm deploy`: build and deploy to Cloudflare Workers.
-- `pnpm extension:build:dev`: build the dev extension package.
-- `pnpm extension:build:store`: build and validate the Store extension package.
 - `pnpm sync:agent-cursor`: regenerate `.cursor` mirrors from `.agent`.
 
 ## Generated Artifacts

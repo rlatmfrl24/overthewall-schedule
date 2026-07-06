@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
-import { Route as RightsRouteImport } from './routes/rights'
 import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as MultiviewRouteImport } from './routes/multiview'
 import { Route as FeedRouteImport } from './routes/feed'
@@ -43,11 +42,6 @@ const VodsRoute = VodsRouteImport.update({
 const SnapshotRoute = SnapshotRouteImport.update({
   id: '/snapshot',
   path: '/snapshot',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RightsRoute = RightsRouteImport.update({
-  id: '/rights',
-  path: '/rights',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NoticeRoute = NoticeRouteImport.update({
@@ -138,7 +132,6 @@ export interface FileRoutesByFullPath {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
-  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
@@ -159,7 +152,6 @@ export interface FileRoutesByTo {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
-  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
   '/admin/ddays': typeof AdminDdaysRoute
@@ -181,7 +173,6 @@ export interface FileRoutesById {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
-  '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
@@ -205,7 +196,6 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
-    | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
@@ -226,7 +216,6 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
-    | '/rights'
     | '/snapshot'
     | '/weekly'
     | '/admin/ddays'
@@ -247,7 +236,6 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
-    | '/rights'
     | '/snapshot'
     | '/vods'
     | '/weekly'
@@ -270,7 +258,6 @@ export interface RootRouteChildren {
   FeedRoute: typeof FeedRoute
   MultiviewRoute: typeof MultiviewRoute
   NoticeRoute: typeof NoticeRoute
-  RightsRoute: typeof RightsRoute
   SnapshotRoute: typeof SnapshotRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
@@ -298,13 +285,6 @@ declare module '@tanstack/react-router' {
       path: '/snapshot'
       fullPath: '/snapshot'
       preLoaderRoute: typeof SnapshotRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/rights': {
-      id: '/rights'
-      path: '/rights'
-      fullPath: '/rights'
-      preLoaderRoute: typeof RightsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notice': {
@@ -463,7 +443,6 @@ const rootRouteChildren: RootRouteChildren = {
   FeedRoute: FeedRoute,
   MultiviewRoute: MultiviewRoute,
   NoticeRoute: NoticeRoute,
-  RightsRoute: RightsRoute,
   SnapshotRoute: SnapshotRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,

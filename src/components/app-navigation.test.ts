@@ -10,8 +10,8 @@ describe("app navigation", () => {
   it("resolves app chrome modes by route family", () => {
     expect(getAppChromeMode("/")).toBe("public");
     expect(getAppChromeMode("/weekly")).toBe("public");
-    expect(getAppChromeMode("/admin/notices")).toBe("admin");
     expect(getAppChromeMode("/multiview")).toBe("public");
+    expect(getAppChromeMode("/admin/notices")).toBe("admin");
     expect(getAppChromeMode("/snapshot")).toBe("none");
     expect(getAppChromeMode("/profile/yang_mei")).toBe("none");
   });
@@ -87,6 +87,27 @@ describe("app navigation", () => {
     expect(adminItem?.to).toBe("/admin/notices");
   });
 
+  it("keeps multiview public even when member posts require auth", () => {
+    const sections = getPublicNavigationSections({
+      isAdmin: false,
+      memberPosts: { visible: true, requiresAuth: true },
+    });
+    const contentItems =
+      sections.find((section) => section.id === "content")?.items ?? [];
+    const feedItem = contentItems.find((item) => item.id === "feed");
+    const multiviewItem = contentItems.find((item) => item.id === "multiview");
+
+    expect(contentItems.map((item) => item.id)).toEqual([
+      "notice",
+      "vods",
+      "feed",
+      "multiview",
+    ]);
+    expect(feedItem?.requiresAuth).toBe(true);
+    expect(multiviewItem?.requiresAuth).toBeUndefined();
+    expect(multiviewItem?.to).toBe("/multiview");
+  });
+
   it("matches nested route active states", () => {
     const sections = getPublicNavigationSections({
       isAdmin: true,
@@ -98,11 +119,16 @@ describe("app navigation", () => {
     const dailyItem = sections
       .flatMap((section) => section.items)
       .find((item) => item.id === "daily");
+    const multiviewItem = sections
+      .flatMap((section) => section.items)
+      .find((item) => item.id === "multiview");
 
     expect(vodItem).toBeDefined();
     expect(dailyItem).toBeDefined();
+    expect(multiviewItem).toBeDefined();
     expect(isNavItemActive("/vods", vodItem!)).toBe(true);
     expect(isNavItemActive("/vods/", vodItem!)).toBe(true);
+    expect(isNavItemActive("/multiview", multiviewItem!)).toBe(true);
     expect(isNavItemActive("/", dailyItem!)).toBe(true);
     expect(isNavItemActive("/weekly", dailyItem!)).toBe(false);
   });

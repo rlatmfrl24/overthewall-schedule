@@ -18,8 +18,8 @@ content discovery, and lightweight admin workflows.
   headers and media cards.
 - **Member posts**: X and Naver Cafe post feeds with member-aware filtering and
   shared content page spacing.
-- **OTW Multiview**: member/source selection, shareable multiview state, and an
-  optional OTW Schedule + extension bridge for CHZZK iframe helpers.
+- **Multiview**: temporary Mul.Live embed surface with top member chips for
+  quick CHZZK channel selection.
 - **Profile and snapshot routes**: chrome-free profile pages and stable image
   capture surfaces for schedule sharing.
 - **Admin**: notices, schedules, content source settings, auto-update review,
@@ -32,9 +32,6 @@ content discovery, and lightweight admin workflows.
 - `docs/README.md`: documentation index and archive policy.
 - `AGENTS.md`: agent rules, canonical `.agent` source policy, and available
   project skills.
-- `docs/otw-schedule-plus-extension.md`: extension behavior and install notes.
-- `docs/otw-schedule-plus-deployment-guide.md`: Chrome Web Store release
-  runbook.
 
 ## Development
 
@@ -62,21 +59,6 @@ Apply remote migrations only after local validation:
 ```bash
 pnpm drizzle:migrate:remote
 ```
-
-## OTW Schedule +
-
-The Chrome extension lives under `extensions/otw-schedule-plus`.
-
-```bash
-pnpm extension:build:dev
-pnpm extension:build:store
-pnpm extension:validate
-pnpm extension:zip
-```
-
-The current Store release scope is `/multiview` support: CHZZK player layout
-helpers and optional chat login bridging. Update the extension docs whenever
-permissions, user disclosures, package behavior, or Store form values change.
 
 ## Profile Background Images
 

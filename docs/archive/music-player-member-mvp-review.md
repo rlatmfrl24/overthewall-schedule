@@ -14,7 +14,7 @@ YouTube 기반 음악 라이브러리"로 접근해야 한다. 오디오 추출,
 
 ## 현재 프로젝트 재사용 포인트
 
-- `/multiview`의 Clerk 로그인 게이트를 `/music`에도 재사용한다.
+- Clerk의 로그인 상태 컴포넌트와 기존 회원 전용 UI 패턴을 `/music`에도 재사용한다.
 - `members.youtube_channel_id`, `members.url_youtube`, `member_links`를 출처 데이터로
   재사용한다.
 - `worker/services/youtube.ts`의 `channels.list -> playlistItems.list -> videos.list`
@@ -219,7 +219,7 @@ MVP에서는 시스템 필터 기반 목록으로 시작해도 된다. 다만 "�
 
 ## 참고
 
-- 기존 분석: `docs/archive/music-player-multiview-analysis.md`
+- 기존 통합 분석에서 뮤직 플레이어 관련 결론만 이 문서로 정리했다.
 - YouTube IFrame Player API: https://developers.google.com/youtube/iframe_api_reference
 - YouTube Player Parameters: https://developers.google.com/youtube/player_parameters
 - YouTube Data API Quota: https://developers.google.com/youtube/v3/determine_quota_cost

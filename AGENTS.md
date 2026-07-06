@@ -14,13 +14,13 @@
 - `code-review-otw`: Review OTW code changes for correctness, security, performance, accessibility, and regression risks. Path: `.agent/skills/code-review/SKILL.md`
 - `db-migration`: Execute safe Drizzle and D1 migration workflows. Path: `.agent/skills/db-migration/SKILL.md`
 - `worker-api-change`: Implement `/api` contract changes across worker routes and frontend API clients. Path: `.agent/skills/worker-api-change/SKILL.md`
-- `release-ops`: Run release and deployment preflight checks for the web app, Worker, and OTW Schedule + extension. Path: `.agent/skills/release-ops/SKILL.md`
+- `release-ops`: Run release and deployment preflight checks for the web app and Worker. Path: `.agent/skills/release-ops/SKILL.md`
 
 ### Trigger rules
 - Use `code-review-otw` for review, PR review, risk review, or regression review requests.
 - Use `db-migration` for schema or migration changes.
 - Use `worker-api-change` for `/api` endpoints, payloads, query params, or frontend API client changes.
-- Use `release-ops` for deployment readiness, Store package readiness, and release safety checks.
+- Use `release-ops` for deployment readiness and release safety checks.
 
 ### Skill usage order
 1. Use the minimum set of relevant skills for the request.

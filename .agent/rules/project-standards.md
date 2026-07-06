@@ -1,5 +1,5 @@
 ---
-description: OTW repository coding and documentation standards across frontend, worker, extension, and shared contracts
+description: OTW repository coding and documentation standards across frontend, worker, and shared contracts
 alwaysApply: true
 ---
 
@@ -21,7 +21,6 @@ alwaysApply: true
 - `src/db/schema.ts`: canonical Drizzle schema.
 - `worker/routes`: HTTP route handlers.
 - `worker/services`, `worker/repositories`, `worker/use-cases`: worker domain logic.
-- `extensions/otw-schedule-plus`: Chrome extension source, manifests, tests, and Store package support.
 - `docs`: active documentation and `docs/archive` for superseded research or drafts.
 
 ## Naming and Exports
@@ -56,11 +55,6 @@ alwaysApply: true
 - Generate migrations; do not handcraft numbered migration files.
 - Review generated SQL for destructive operations before applying.
 
-## Extension Hygiene
-- Keep dev and Store manifests aligned intentionally; Store builds must not include localhost-only permissions.
-- Update `docs/otw-schedule-plus-*` and `docs/privacy.md` when extension permissions, disclosures, or package behavior change.
-- Run extension-specific checks when touching `extensions/otw-schedule-plus`.
-
 ## Documentation Hygiene
 - Keep `README.md` high level and current.
 - Keep `Design.md` as the current UI guidance source.
@@ -71,5 +65,4 @@ alwaysApply: true
 - Run `pnpm lint` after meaningful code changes.
 - Run `pnpm test` for regression coverage.
 - Run `pnpm build` when changes impact routing, types, build configuration, or release paths.
-- Run `pnpm extension:build:store` or targeted extension tests when Store extension behavior changes.
 - If full verification is not possible, document what was skipped and why.
