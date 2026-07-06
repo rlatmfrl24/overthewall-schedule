@@ -29,4 +29,29 @@ describe("notice visibility", () => {
       ),
     ).toBe(true);
   });
+
+  it("기간이 설정되지 않은 공지와 이벤트는 기준 날짜와 무관하게 표시한다", () => {
+    expect(
+      isNoticeVisibleOnDate(
+        makeNotice({ started_at: null, ended_at: null }),
+        "2026-01-01",
+      ),
+    ).toBe(true);
+    expect(
+      isNoticeVisibleOnDate(
+        makeNotice({ started_at: "", ended_at: "" }),
+        "2026-12-31",
+      ),
+    ).toBe(true);
+    expect(
+      isNoticeVisibleOnDate(
+        makeNotice({
+          is_active: "0",
+          started_at: null,
+          ended_at: null,
+        }),
+        "2026-12-31",
+      ),
+    ).toBe(false);
+  });
 });

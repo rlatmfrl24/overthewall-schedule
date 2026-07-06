@@ -1,4 +1,8 @@
 import type { Env } from "../types";
+import {
+  getNoticeThumbnailContentTypeFromKey,
+  isNoticeThumbnailAssetKey,
+} from "../../src/lib/notice-thumbnails";
 
 const R2_ASSET_PREFIX = "/r2-assets/";
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -21,7 +25,12 @@ const getR2AssetKey = (pathname: string) => {
 };
 
 const isAllowedAssetKey = (key: string) =>
-  ALLOWED_PROFILE_BACKGROUND_KEY.test(key);
+  ALLOWED_PROFILE_BACKGROUND_KEY.test(key) || isNoticeThumbnailAssetKey(key);
+
+const getAssetContentType = (key: string) => {
+  if (ALLOWED_PROFILE_BACKGROUND_KEY.test(key)) return WEBP_CONTENT_TYPE;
+  return getNoticeThumbnailContentTypeFromKey(key);
+};
 
 export const handleR2Asset = async (request: Request, env: Env) => {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -43,6 +52,10 @@ export const handleR2Asset = async (request: Request, env: Env) => {
   if (!key || !isAllowedAssetKey(key)) {
     return new Response("Not found", { status: 404 });
   }
+  const contentType = getAssetContentType(key);
+  if (!contentType) {
+    return new Response("Not found", { status: 404 });
+  }
 
   const object = await env.ASSET_BUCKET.get(key);
 
@@ -52,7 +65,7 @@ export const handleR2Asset = async (request: Request, env: Env) => {
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  headers.set("Content-Type", WEBP_CONTENT_TYPE);
+  headers.set("Content-Type", contentType);
   headers.set("Cache-Control", CACHE_CONTROL);
   headers.set("ETag", object.httpEtag);
   headers.set("X-Content-Type-Options", "nosniff");

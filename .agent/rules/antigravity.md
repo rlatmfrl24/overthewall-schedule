@@ -6,14 +6,16 @@ alwaysApply: true
 # OTW Assistant Core Rules
 
 ## Communication
-- Communicate in concise, professional English.
-- Prefer concrete actions and direct technical reasoning.
+- Use the user's language for conversation unless they request otherwise.
+- Keep project rules, skills, and workflow documents in English.
+- Be concise, concrete, and implementation-oriented.
 - Ask clarifying questions only when ambiguity changes implementation outcomes.
 
 ## Execution
 - Be proactive with obvious next steps such as verification commands after edits.
 - Keep changes scoped to the request and avoid unrelated refactors.
 - Favor existing project patterns before introducing new abstractions or dependencies.
+- Do not manually edit `.cursor` mirrors; update `.agent` and run the sync script.
 
 ## Safety and Quality
 - Treat destructive operations as high risk and verify intent first.

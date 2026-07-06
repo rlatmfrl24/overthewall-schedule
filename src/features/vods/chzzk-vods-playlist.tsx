@@ -64,25 +64,25 @@ export const ChzzkVodsPlaylist = ({
 
   if (vodDateGroups.length === 0) {
     return (
-      <div className="flex items-center justify-center py-8 text-muted-foreground">
+      <div className="flex min-h-32 items-center justify-center rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-8 text-sm font-medium text-muted-foreground">
         {emptyMessage}
       </div>
     );
   }
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       {vodDateGroups.map((group) => {
         const isCollapsed = collapsedDateKeys.has(group.dateKey);
         const gridId = `${DATE_GROUP_GRID_ID_PREFIX}-${group.dateKey}`;
 
         return (
           <section key={group.dateKey} className="space-y-3 scroll-mt-24">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-card/80 px-3 py-2 shadow-sm">
               <button
                 type="button"
                 onClick={() => toggleDateGroup(group.dateKey)}
-                className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 pr-2 text-left transition-colors hover:text-primary"
+                className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 pr-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 aria-expanded={!isCollapsed}
                 aria-controls={gridId}
               >
@@ -110,7 +110,7 @@ export const ChzzkVodsPlaylist = ({
               <div
                 id={gridId}
                 className={cn(
-                  "grid grid-cols-1 items-start gap-x-4 gap-y-8",
+                  "grid grid-cols-1 items-start gap-x-4 gap-y-6",
                   "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
                 )}
               >

@@ -153,8 +153,9 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
   }
 
   const db = getDb(env);
-  const force = url.searchParams.has("_") || request.cache === "no-store";
   const adminView = url.searchParams.get("admin") === "1";
+  const requestedForce = url.searchParams.has("_") || request.cache === "no-store";
+  const force = adminView && requestedForce;
   const configs = await readPostConfigs(db);
 
   if (adminView) {
@@ -173,9 +174,16 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
     }
   }
 
+  const shouldLoadXRows =
+    includeX && (adminView || configs.x.visibility !== "private");
+  const shouldLoadCafeSources =
+    includeNaverCafe &&
+    (adminView ||
+      (configs.naverCafe.enabled && configs.naverCafe.visibility !== "private"));
+
   const [memberRows, cafeSources] = await Promise.all([
-    includeX ? getActiveMemberRows(db) : Promise.resolve([]),
-    includeNaverCafe
+    shouldLoadXRows ? getActiveMemberRows(db) : Promise.resolve([]),
+    shouldLoadCafeSources
       ? db
           .select()
           .from(naverCafeSources)

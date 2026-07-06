@@ -1,0 +1,61 @@
+{
+  "liveStatusRequests": [],
+  "results": [
+    {
+      "name": "grid-light",
+      "mode": "grid",
+      "theme": "light",
+      "viewport": {
+        "width": 1320,
+        "height": 900
+      },
+      "screenshot": "after-grid-light.png",
+      "headerText": "OTW SCHEDULE\n\n오늘의 편성표\n\n2026년 5월 29일",
+      "missingDate": false,
+      "forbiddenHeaderTerms": [],
+      "forbiddenBodyTerms": []
+    },
+    {
+      "name": "grid-dark",
+      "mode": "grid",
+      "theme": "dark",
+      "viewport": {
+        "width": 1320,
+        "height": 900
+      },
+      "screenshot": "after-grid-dark.png",
+      "headerText": "OTW SCHEDULE\n\n오늘의 편성표\n\n2026년 5월 29일",
+      "missingDate": false,
+      "forbiddenHeaderTerms": [],
+      "forbiddenBodyTerms": []
+    },
+    {
+      "name": "timeline-light",
+      "mode": "timeline",
+      "theme": "light",
+      "viewport": {
+        "width": 560,
+        "height": 900
+      },
+      "screenshot": "after-timeline-light.png",
+      "headerText": "OTW SCHEDULE\n\n오늘의 편성표\n\n2026년 5월 29일",
+      "missingDate": false,
+      "forbiddenHeaderTerms": [],
+      "forbiddenBodyTerms": []
+    },
+    {
+      "name": "timeline-dark",
+      "mode": "timeline",
+      "theme": "dark",
+      "viewport": {
+        "width": 560,
+        "height": 900
+      },
+      "screenshot": "after-timeline-dark.png",
+      "headerText": "OTW SCHEDULE\n\n오늘의 편성표\n\n2026년 5월 29일",
+      "missingDate": false,
+      "forbiddenHeaderTerms": [],
+      "forbiddenBodyTerms": []
+    }
+  ]
+}

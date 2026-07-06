@@ -22,16 +22,26 @@ export const parseAutoUpdateIntervalHours = (
   value: string | null | undefined,
 ) => Number(normalizeAutoUpdateIntervalHours(value));
 
-export const X_COLLECTION_INTERVAL_HOURS = AUTO_UPDATE_INTERVAL_HOURS;
+export const X_COLLECTION_INTERVAL_HOURS = ["2", "6", "12", "24"] as const;
 
-export type XCollectionIntervalHours = AutoUpdateIntervalHours;
+export type XCollectionIntervalHours =
+  (typeof X_COLLECTION_INTERVAL_HOURS)[number];
 
-export const DEFAULT_X_COLLECTION_INTERVAL_HOURS =
-  DEFAULT_AUTO_UPDATE_INTERVAL_HOURS;
+export const DEFAULT_X_COLLECTION_INTERVAL_HOURS: XCollectionIntervalHours = "2";
 
-export const isXCollectionIntervalHours = isAutoUpdateIntervalHours;
+export const isXCollectionIntervalHours = (
+  value: unknown,
+): value is XCollectionIntervalHours =>
+  typeof value === "string" &&
+  (X_COLLECTION_INTERVAL_HOURS as readonly string[]).includes(value);
 
-export const normalizeXCollectionIntervalHours =
-  normalizeAutoUpdateIntervalHours;
+export const normalizeXCollectionIntervalHours = (
+  value: string | null | undefined,
+): XCollectionIntervalHours =>
+  isXCollectionIntervalHours(value)
+    ? value
+    : DEFAULT_X_COLLECTION_INTERVAL_HOURS;
 
-export const parseXCollectionIntervalHours = parseAutoUpdateIntervalHours;
+export const parseXCollectionIntervalHours = (
+  value: string | null | undefined,
+) => Number(normalizeXCollectionIntervalHours(value));

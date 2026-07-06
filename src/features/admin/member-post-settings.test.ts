@@ -50,13 +50,14 @@ const makeSettings = () => ({
   auto_update_interval_hours: "6",
   auto_update_last_run: null,
   auto_update_range_days: "3",
+  live_schedule_auto_fill_enabled: "true",
   x_rich_link_preview_enabled: "false",
   x_posts_visibility: "members",
   naver_cafe_posts_enabled: "true",
   naver_cafe_posts_visibility: "members",
   x_collection_enabled: "true",
   x_collection_daily_budget_cents: "100",
-  x_collection_interval_hours: "6",
+  x_collection_interval_hours: "2",
   x_collection_last_run: null,
 });
 
@@ -174,7 +175,7 @@ describe("MemberPostSettingsManager", () => {
 
     await waitFor(() => expect(fetchSettingsMock).toHaveBeenCalled());
     expect(screen.getByText("수집 주기")).toBeTruthy();
-    expect(screen.getByText("6시간마다")).toBeTruthy();
+    expect(screen.getByText("2시간마다")).toBeTruthy();
     expect(screen.getByText(/마지막 실행:/)).toBeTruthy();
     expect(screen.getByText("피드 모니터링")).toBeTruthy();
     expect(screen.getByText("조회 응답 게시글")).toBeTruthy();

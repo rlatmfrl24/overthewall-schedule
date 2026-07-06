@@ -1,6 +1,6 @@
 ---
 name: code-review-otw
-description: Review OTW code changes for bugs, regressions, security gaps, and performance risks. Use when a user asks for code review, PR review, change review, risk review, or includes words like review or 리뷰.
+description: Review OTW code changes for correctness, regressions, security, performance, accessibility, release, and documentation risks. Use when a user asks for code review, PR review, change review, risk review, UI review, or includes words like review or 리뷰.
 ---
 
 # Code Review (OTW)
@@ -10,6 +10,9 @@ description: Review OTW code changes for bugs, regressions, security gaps, and p
 - Prioritize correctness and behavior regressions first.
 - Evaluate security concerns at trust boundaries (input validation, auth or audit, sensitive data).
 - Evaluate performance risks (wasteful rerenders, unnecessary API calls, expensive loops or queries).
+- For UI changes, evaluate accessibility, dark mode, responsive layout, and consistency with `Design.md`.
+- For extension changes, evaluate manifest permissions, optional permission UX, privacy disclosures, and Store-readiness risks.
+- For documentation changes, evaluate whether docs point to current source-of-truth files and avoid duplicate active drafts.
 - Validate test impact and identify missing coverage for changed behavior.
 
 ## Workflow
@@ -56,3 +59,4 @@ Use this structure:
 - Sort findings by severity, then by likelihood.
 - If no material issues are found, explicitly state "No material findings."
 - Keep explanations concise and actionable.
+- Lead with findings; keep summaries secondary.

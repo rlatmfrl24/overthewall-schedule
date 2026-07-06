@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { type Notice } from "@/db/schema";
+import type { Member } from "@/lib/types";
 import {
   Loader2,
   PlusCircle,
@@ -34,6 +35,7 @@ import {
   fetchNotices,
   updateNotice,
 } from "@/lib/api/notices";
+import { fetchActiveMembers } from "@/lib/api/members";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmActionDialog } from "./components/confirm-action-dialog";
 import { AdminSectionHeader } from "./components/admin-section-header";
@@ -42,7 +44,7 @@ const noticeTypeConfigs = {
   notice: {
     label: "공지사항",
     badgeClass:
-      "bg-blue-100 text-blue-700 hover:bg-blue-100/80 border-blue-200",
+      "bg-indigo-100 text-indigo-700 hover:bg-indigo-100/80 border-indigo-200",
   },
   event: {
     label: "이벤트",
@@ -69,9 +71,22 @@ const formatPeriod = (notice: Notice) => {
   }`;
 };
 
+const getPublisherLabel = (
+  notice: Notice,
+  memberMap: Map<number, Member>,
+) => {
+  if (notice.publisher_type !== "member") return "OTW";
+  const member = notice.publisher_member_uid
+    ? memberMap.get(notice.publisher_member_uid)
+    : null;
+  if (!member) return "멤버";
+  return `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`;
+};
+
 export function NoticeManager() {
   const { toast } = useToast();
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -82,8 +97,15 @@ export function NoticeManager() {
   const loadNotices = useCallback(async () => {
     setIsFetching(true);
     try {
-      const data = await fetchNotices({ includeInactive: true });
-      setNotices(data);
+      const noticeData = await fetchNotices({ includeInactive: true });
+      setNotices(noticeData);
+      try {
+        const memberData = await fetchActiveMembers();
+        setMembers(memberData);
+      } catch (memberError) {
+        console.warn("Failed to load notice publisher members:", memberError);
+        setMembers([]);
+      }
     } catch (error) {
       console.error("Failed to load notices:", error);
       toast({
@@ -98,6 +120,11 @@ export function NoticeManager() {
   useEffect(() => {
     void loadNotices();
   }, [loadNotices]);
+
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.uid, member])),
+    [members],
+  );
 
   const sortedNotices = useMemo(() => {
     const list = [...notices];
@@ -164,8 +191,14 @@ export function NoticeManager() {
     try {
       const payload = {
         ...data,
+        publisher_member_uid:
+          data.publisher_type === "member" &&
+          Number.isInteger(Number(data.publisher_member_uid))
+            ? Number(data.publisher_member_uid)
+            : null,
         is_active: data.is_active,
         url: data.url || undefined,
+        thumbnail_url: data.thumbnail_url || undefined,
         started_at: data.started_at || undefined,
         ended_at: data.ended_at || undefined,
       };
@@ -190,6 +223,7 @@ export function NoticeManager() {
         variant: "error",
         description: "공지사항 저장에 실패했습니다.",
       });
+      throw error;
     } finally {
       setIsSaving(false);
     }
@@ -248,11 +282,12 @@ export function NoticeManager() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[980px]">
+          <Table className="min-w-[1080px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[96px]">상태</TableHead>
                 <TableHead className="w-[110px]">유형</TableHead>
+                <TableHead className="w-[150px]">게시자</TableHead>
                 <TableHead>내용</TableHead>
                 <TableHead className="w-[190px]">기간</TableHead>
                 <TableHead className="w-[220px]">링크</TableHead>
@@ -280,6 +315,13 @@ export function NoticeManager() {
                       {noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ??
                         notice.type}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    <span className="inline-flex max-w-[130px] truncate rounded-md border bg-background px-2 py-1 font-medium text-muted-foreground">
+                      <span className="truncate">
+                        {getPublisherLabel(notice, memberMap)}
+                      </span>
+                    </span>
                   </TableCell>
                   <TableCell
                     className="max-w-[420px] truncate text-sm"
@@ -342,6 +384,7 @@ export function NoticeManager() {
         onOpenChange={setIsDialogOpen}
         onSubmit={handleSubmit}
         initialValues={editingNotice}
+        members={members}
         isSaving={isSaving}
       />
 

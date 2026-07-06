@@ -93,56 +93,58 @@ export const ClipCard = ({
       aria-label={`${clip.clipTitle} 클립 보기`}
       title={clip.clipTitle}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/50 transition-all duration-300",
-        "hover:shadow-lg hover:-translate-y-1 hover:border-border",
+        "group relative flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-all duration-200",
+        "hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
         // row variant: 고정 너비
         variant === "row" && "w-[260px] shrink-0",
         // grid variant: 반응형 너비
-        variant === "grid" && "w-full"
+        variant === "grid" && "w-full",
       )}
     >
       {/* 썸네일 */}
-      <div className="relative overflow-hidden bg-muted aspect-video">
+      <div className="relative aspect-video overflow-hidden bg-muted">
         {clip.thumbnailImageUrl ? (
           <img
             src={clip.thumbnailImageUrl}
             alt={clip.clipTitle}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-muted">
-            <Scissors className="w-10 h-10 text-muted-foreground/50" />
+          <div className="flex h-full w-full items-center justify-center bg-muted">
+            <Scissors className="h-10 w-10 text-muted-foreground/50" />
           </div>
         )}
 
         {/* 재생 오버레이 */}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors duration-300">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-300 group-hover:bg-black/30">
           <PlayCircle
-            className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+            className="h-10 w-10 text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100"
             style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
           />
         </div>
 
         {/* 재생 시간 */}
-        <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-white text-xs font-medium">
+        <div className="absolute bottom-2 right-2 rounded bg-black/85 px-1.5 py-0.5 text-xs font-semibold text-white shadow-sm">
           {formatDuration(clip.duration)}
         </div>
 
         {/* 멤버 아바타 (그리드 뷰 전용) */}
         {isGrid && showMemberAvatar && member && (
           <div
-            className="absolute bottom-2 left-2 flex items-center gap-1.5 px-1.5 py-1 rounded-full backdrop-blur-md"
+            className="absolute bottom-2 left-2 flex max-w-[70%] items-center gap-1.5 rounded-full px-1.5 py-1 shadow-sm backdrop-blur-md"
             style={{
-              backgroundColor: accentColor ? `${accentColor}dd` : "rgba(0,0,0,0.7)",
+              backgroundColor: accentColor
+                ? `${accentColor}dd`
+                : "rgba(0,0,0,0.78)",
             }}
           >
             <img
               src={`/profile/${member.code}.webp`}
               alt={member.name}
-              className="w-5 h-5 rounded-full border border-white/50 object-cover"
+              className="h-5 w-5 rounded-full border border-white/50 object-cover"
             />
-            <span className="text-xs font-medium text-white pr-1">
+            <span className="truncate pr-1 text-xs font-semibold text-white">
               {member.name}
             </span>
           </div>
@@ -151,9 +153,11 @@ export const ClipCard = ({
         {/* 멤버 뱃지 (row 뷰에서만, 그리드에서는 아바타로 대체) */}
         {!isGrid && member && (
           <div
-            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-medium backdrop-blur-sm"
+            className="absolute left-2 top-2 max-w-[70%] truncate rounded-full px-2 py-0.5 text-xs font-semibold shadow-sm backdrop-blur-sm"
             style={{
-              backgroundColor: accentColor ? `${accentColor}cc` : "rgba(0,0,0,0.7)",
+              backgroundColor: accentColor
+                ? `${accentColor}dd`
+                : "rgba(0,0,0,0.78)",
               color: "white",
             }}
           >
@@ -162,24 +166,24 @@ export const ClipCard = ({
         )}
 
         {/* 클립 아이콘 */}
-        <div className="absolute top-2 right-2 p-1 rounded-full bg-green-500/90 backdrop-blur-sm">
-          <Scissors className="w-3 h-3 text-white" />
+        <div className="absolute right-2 top-2 rounded-full bg-emerald-600 p-1 shadow-sm backdrop-blur-sm">
+          <Scissors className="h-3 w-3 text-white" />
         </div>
       </div>
 
       {/* 정보 */}
-      <div className="flex flex-col gap-1.5 p-3">
-        <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
+      <div className="flex flex-col gap-2 p-3">
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
           {clip.clipTitle}
         </h3>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
-            <Eye className="w-3 h-3" />
+            <Eye className="h-3 w-3" />
             {formatViewCount(clip.readCount)}
           </span>
           <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
+            <Clock className="h-3 w-3" />
             {formatDateCombined(clip.createdDate)}
           </span>
         </div>

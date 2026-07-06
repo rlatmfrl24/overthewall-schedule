@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { ChzzkLiveStatusMap, Member, ScheduleItem } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import type { Member, ScheduleItem } from "@/lib/types";
+import { cn, hexToRgba } from "@/lib/utils";
 import { Calendar, HelpCircle, Moon, Zap } from "lucide-react";
 import { useAutoFitText } from "./use-auto-fit-text";
 import {
@@ -17,7 +17,6 @@ import {
 interface SnapshotTimelineProps {
   members: Member[];
   schedules: ScheduleItem[];
-  liveStatuses?: ChzzkLiveStatusMap;
 }
 
 const sideGroupMeta: Record<
@@ -31,32 +30,34 @@ const sideGroupMeta: Record<
   guerrilla: {
     title: "게릴라 예정",
     icon: Zap,
-    className: "text-amber-700 bg-amber-50 border-amber-200",
+    className:
+      "text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-200 dark:bg-amber-950/50 dark:border-amber-700",
   },
   undecided: {
     title: "미정",
     icon: HelpCircle,
-    className: "text-slate-700 bg-slate-50 border-slate-200",
+    className:
+      "text-slate-700 bg-slate-50 border-slate-200 dark:text-slate-100 dark:bg-slate-900 dark:border-slate-600",
   },
   off: {
     title: "휴방",
     icon: Moon,
-    className: "text-zinc-700 bg-zinc-50 border-zinc-200",
+    className:
+      "text-zinc-700 bg-zinc-50 border-zinc-200 dark:text-zinc-100 dark:bg-zinc-900 dark:border-zinc-600",
   },
 };
 
 export const SnapshotTimeline = ({
   members,
   schedules,
-  liveStatuses = {},
 }: SnapshotTimelineProps) => {
   const boardModel = useMemo(
-    () => buildScheduleBoardModel(schedules, liveStatuses),
-    [schedules, liveStatuses],
+    () => buildScheduleBoardModel(schedules),
+    [schedules],
   );
   const noScheduleEntries = useMemo(
-    () => buildNoScheduleMemberEntries(members, schedules, liveStatuses),
-    [members, schedules, liveStatuses],
+    () => buildNoScheduleMemberEntries(members, schedules),
+    [members, schedules],
   );
 
   const memberMap = useMemo(
@@ -141,24 +142,22 @@ const SnapshotScheduleRow = ({
       </div>
       <div className="flex min-w-0 items-center gap-3 px-4 py-3">
         <span
-          className="h-9 w-1.5 shrink-0 rounded-full"
+          className="h-10 w-1.5 shrink-0 rounded-full shadow-sm"
           style={{ backgroundColor: mainColor }}
         />
         <img
           src={`/profile/${member.code}.webp`}
           alt={member.name}
-          className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-zinc-200"
+          className="h-11 w-11 shrink-0 rounded-full border-2 object-cover shadow-sm"
+          style={{ borderColor: hexToRgba(mainColor, 0.55) }}
         />
         <div className="min-w-0">
           <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
-            <p
-              className="min-w-0 truncate text-sm font-extrabold"
-              style={{ color: mainColor }}
-            >
+            <p className="min-w-0 truncate text-sm font-black text-zinc-950 dark:text-zinc-50">
               {member.name}
             </p>
             {member.unit_name && (
-              <span className="inline-flex max-w-full shrink-0 items-center rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-black leading-none text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+              <span className="inline-flex max-w-full shrink-0 items-center rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-black leading-none text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {member.unit_name}
               </span>
             )}
@@ -247,8 +246,6 @@ const SnapshotNoScheduleGroup = ({
 }: {
   entries: NoScheduleMemberEntry[];
 }) => {
-  const liveCount = entries.filter((entry) => entry.isLive).length;
-
   return (
     <section className="overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
       <div className="flex min-h-11 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-4 dark:border-zinc-700 dark:bg-zinc-800">
@@ -261,11 +258,6 @@ const SnapshotNoScheduleGroup = ({
         <span className="rounded-md bg-zinc-200 px-1.5 py-0.5 text-xs font-black text-zinc-600 dark:bg-zinc-700 dark:text-zinc-200">
           {entries.length}
         </span>
-        {liveCount > 0 && (
-          <span className="rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">
-            방송 중 {liveCount}
-          </span>
-        )}
       </div>
       <div className="divide-y divide-zinc-200 dark:divide-zinc-700">
         {entries.map((entry) => (
@@ -284,33 +276,20 @@ const SnapshotNoScheduleItem = ({
 }: {
   entry: NoScheduleMemberEntry;
 }) => (
-  <div
-    className={cn(
-      "grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 px-4 py-2.5",
-      entry.isLive && "bg-red-50/50 dark:bg-red-950/15",
-    )}
-  >
+  <div className="grid min-h-[58px] grid-cols-[40px_1fr] items-center gap-3 px-4 py-2.5">
     <img
       src={`/profile/${entry.member.code}.webp`}
       alt={entry.member.name}
-      className={cn(
-        "h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200",
-        entry.isLive && "ring-2 ring-red-200 dark:ring-red-900/70",
-      )}
+      className="h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200"
     />
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-2">
         <p className="truncate text-sm font-black leading-tight text-zinc-950 dark:text-zinc-50">
           {entry.member.name}
         </p>
-        {entry.isLive && (
-          <span className="shrink-0 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-black text-red-700">
-            방송 중
-          </span>
-        )}
       </div>
       <p className="mt-0.5 whitespace-normal break-words text-xs font-semibold leading-tight text-zinc-500 dark:text-zinc-300">
-        {entry.isLive ? "현재 방송 중입니다" : "오늘 등록된 일정이 없습니다"}
+        오늘 등록된 일정이 없습니다
       </p>
     </div>
   </div>

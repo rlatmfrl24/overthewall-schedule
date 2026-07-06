@@ -14,7 +14,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { useState } from "react";
 
 interface AdminLayoutProps {
@@ -136,6 +142,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="p-0 w-72">
+            <SheetTitle className="sr-only">Admin Center 메뉴</SheetTitle>
+            <SheetDescription className="sr-only">
+              관리자 화면 이동 메뉴
+            </SheetDescription>
             <SidebarContent />
           </SheetContent>
         </Sheet>

@@ -38,6 +38,7 @@ import {
 } from "../utils/helpers";
 import { autoUpdateSchedules } from "../services/schedule";
 import { runXCollection } from "../services/x-collection";
+import { LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY } from "../services/live-schedule";
 import type { DbInstance } from "../db";
 import type { Env } from "../types";
 
@@ -757,6 +758,7 @@ export const handleSettings = async (
     "x_collection_daily_budget_cents",
     "x_collection_interval_hours",
     "x_collection_last_run",
+    LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
   ] as const;
 
   if (
@@ -1000,6 +1002,7 @@ export const handleSettings = async (
     settingsObj.x_collection_enabled ??= "true";
     settingsObj.x_collection_daily_budget_cents ??= "100";
     settingsObj.x_collection_last_run ??= null;
+    settingsObj[LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY] ??= "true";
     const normalizedXCollectionIntervalHours =
       normalizeXCollectionIntervalHours(settingsObj.x_collection_interval_hours);
     if (
@@ -1079,6 +1082,13 @@ export const handleSettings = async (
           body[key] !== "false"
         ) {
           return badRequest("Invalid x_collection_enabled");
+        }
+        if (
+          key === LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY &&
+          body[key] !== "true" &&
+          body[key] !== "false"
+        ) {
+          return badRequest(`Invalid ${LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY}`);
         }
         if (key === "x_collection_daily_budget_cents") {
           const parsed = Number.parseInt(body[key], 10);

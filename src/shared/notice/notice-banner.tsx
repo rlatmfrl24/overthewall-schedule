@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Notice } from "@/db/schema";
-import { Megaphone } from "lucide-react";
+import { ChevronRight, ExternalLink, Megaphone } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { fetchNotices } from "@/lib/api/notices";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
 import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
@@ -17,12 +12,16 @@ import { queryKeys } from "@/lib/query-keys";
 
 const noticeTypeConfigs = {
   notice: {
-    label: "공지사항",
-    badgeClass: "bg-primary text-primary-foreground",
+    label: "공지",
+    badgeClass:
+      "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-200",
+    accentClass: "bg-indigo-600",
   },
   event: {
     label: "이벤트",
-    badgeClass: "bg-secondary text-secondary-foreground",
+    badgeClass:
+      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200",
+    accentClass: "bg-amber-500",
   },
 } as const;
 type NoticeTypeKey = keyof typeof noticeTypeConfigs;
@@ -33,6 +32,20 @@ const resolveNoticeType = (value?: string): NoticeTypeKey => {
   }
   return "notice";
 };
+
+const getNoticeSortTime = (notice: Notice) => {
+  if (!notice.created_at) return notice.id ?? 0;
+
+  const time = new Date(String(notice.created_at)).getTime();
+  return Number.isNaN(time) ? notice.id ?? 0 : time;
+};
+
+const sortNoticesByLatest = (notices: Notice[]) =>
+  [...notices].sort((a, b) => {
+    const timeDiff = getNoticeSortTime(b) - getNoticeSortTime(a);
+    if (timeDiff !== 0) return timeDiff;
+    return (b.id ?? 0) - (a.id ?? 0);
+  });
 
 export function NoticeBanner({
   notices: providedNotices,
@@ -51,7 +64,10 @@ export function NoticeBanner({
   );
 
   const visibleNotices = useMemo(
-    () => notices.filter((notice) => isNoticeVisibleOnDate(notice)),
+    () =>
+      sortNoticesByLatest(
+        notices.filter((notice) => isNoticeVisibleOnDate(notice)),
+      ),
     [notices],
   );
 
@@ -72,81 +88,97 @@ export function NoticeBanner({
   }, [visibleNotices.length]);
 
   const currentNotice = visibleNotices[currentIndex];
-  const hasLink = Boolean(currentNotice?.url);
+
+  if (!currentNotice) return null;
+
+  const noticeType = resolveNoticeType(currentNotice.type);
+  const noticeConfig = noticeTypeConfigs[noticeType];
+  const hasLink = Boolean(currentNotice.url);
+  const noticeIndexLabel =
+    visibleNotices.length > 1
+      ? `${currentIndex + 1}/${visibleNotices.length}`
+      : null;
 
   const handleNoticeClick = () => {
-    if (!hasLink) return;
-    window.open(currentNotice.url!, "_blank", "noopener,noreferrer");
+    if (hasLink) {
+      window.open(currentNotice.url!, "_blank", "noopener,noreferrer");
+      return;
+    }
+    navigate({ to: "/notice" });
   };
 
-  if (visibleNotices.length === 0) return null;
-
   return (
-    <div className="container mx-auto h-full" data-snapshot-exclude="true">
-      <div className="relative h-full overflow-hidden rounded-xl bg-card border border-border shadow-sm backdrop-blur-md group/banner">
-        <div className="absolute inset-0 bg-linear-to-r from-primary/5 via-transparent to-transparent pointer-events-none" />
+    <div className="h-full w-full" data-snapshot-exclude="true">
+      <div className="group/banner relative h-full min-h-12 overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm transition-colors hover:border-foreground/20">
+        <div
+          className={cn("absolute inset-y-0 left-0 w-1", noticeConfig.accentClass)}
+          aria-hidden="true"
+        />
 
-        <div className="flex items-center gap-2 py-2.5 px-3 sm:px-4 h-full">
-          <Tooltip>
-            <TooltipTrigger>
-              <Link
-                to="/notice"
-                title="전체 공지사항 보러가기"
-                aria-label="전체 공지사항 보러가기"
-                className="shrink-0"
-              >
-                <div className="p-1.5 bg-primary/10 rounded-lg group-hover/banner:bg-primary/20 transition-colors">
-                  <Megaphone className="w-4 h-4 text-primary" />
-                </div>
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>전체 공지사항 보러가기</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <div
-            className={cn(
-              "flex-1 overflow-hidden h-5 relative",
-              hasLink ? "cursor-pointer" : "cursor-default",
-            )}
-            onClick={() => {
-              if (hasLink) {
-                handleNoticeClick();
-                return;
-              }
-              //Go to notice page
-              navigate({ to: "/notice" });
-            }}
+        <div className="flex h-full min-h-12 items-center gap-2 py-2 pl-3 pr-2 sm:pl-4 sm:pr-3">
+          <Link
+            to="/notice"
+            title="공지사항&이벤트 전체보기"
+            aria-label="공지사항&이벤트 전체보기"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground transition-colors group-hover/banner:bg-muted/80"
           >
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentNotice?.id ?? currentIndex}
-                initial={{ y: 15, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -15, opacity: 0 }}
-                transition={{ duration: 0.3, ease: "easeInOut" }}
-                className={cn(
-                  "absolute w-fit truncate text-[13.5px] font-bold text-foreground",
-                  hasLink &&
-                    "hover:underline decoration-primary/30 underline-offset-4",
-                )}
-              >
-                <span
-                  className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-black mr-2 shadow-sm leading-none align-middle mb-0.5 ${
-                    noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
-                      .badgeClass
-                  }`}
+            <Megaphone className="h-4 w-4" />
+          </Link>
+
+          <button
+            type="button"
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left transition-colors",
+              "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+            )}
+            onClick={handleNoticeClick}
+            aria-label={
+              hasLink ? "안내 링크 열기" : "공지사항&이벤트 페이지로 이동"
+            }
+          >
+            <div className="relative h-6 min-w-0 flex-1 overflow-hidden">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentNotice.id ?? currentIndex}
+                  initial={{ y: 14, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -14, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="absolute inset-0 flex min-w-0 items-center gap-2"
+                  aria-live="polite"
                 >
-                  {
-                    noticeTypeConfigs[resolveNoticeType(currentNotice?.type)]
-                      .label
-                  }
-                </span>
-                <span className="align-middle">{currentNotice?.content}</span>
-              </motion.div>
-            </AnimatePresence>
-          </div>
+                  <span
+                    className={cn(
+                      "inline-flex h-6 shrink-0 items-center rounded-md border px-2 text-[11px] font-bold leading-none",
+                      noticeConfig.badgeClass,
+                    )}
+                  >
+                    {noticeConfig.label}
+                  </span>
+                  <span className="min-w-0 truncate text-[13px] font-semibold text-foreground sm:text-sm">
+                    {currentNotice.content}
+                  </span>
+                  {hasLink ? (
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : null}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </button>
+
+          {noticeIndexLabel ? (
+            <span className="hidden shrink-0 text-xs font-semibold text-muted-foreground sm:inline">
+              {noticeIndexLabel}
+            </span>
+          ) : null}
+
+          <Link
+            to="/notice"
+            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-foreground bg-foreground px-2 text-xs font-semibold text-background shadow-xs transition-colors hover:bg-foreground/90 sm:px-3"
+          >
+            <span className="hidden sm:inline">전체보기</span>
+            <ChevronRight className="h-4 w-4" />
+          </Link>
         </div>
       </div>
     </div>

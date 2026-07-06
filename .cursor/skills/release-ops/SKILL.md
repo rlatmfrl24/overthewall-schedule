@@ -1,6 +1,6 @@
 ---
 name: release-ops
-description: Run OTW release and deployment preflight operations for Cloudflare Worker and frontend artifacts. Use when preparing production deploys, validating release readiness, or checking post-change operational safety.
+description: Run OTW release and deployment preflight operations for the web app and Cloudflare Worker. Use when preparing production deploys, release readiness checks, or post-change operational safety validation.
 ---
 
 # Release Ops (OTW)
@@ -13,13 +13,13 @@ Use this skill for release readiness and deploy operations:
 - post-deploy sanity checks
 
 ## Procedure
-1. Confirm change type (code-only, migration, API contract, or mixed).
+1. Confirm change type (code-only, migration, API contract, documentation, or mixed).
 2. Run preflight checks in order:
    - `pnpm lint`
    - `pnpm test`
    - `pnpm build`
 3. If schema changed, ensure migration workflow completed (`db-migration` skill).
-4. Deploy with `pnpm deploy`.
+4. Deploy with `pnpm deploy` only when production deployment is requested.
 5. Run targeted smoke checks on critical routes and admin flows.
 6. Record validated scope and residual risks.
 
