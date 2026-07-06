@@ -38,7 +38,7 @@ The repository already has useful building blocks for both ideas:
 
 The references below were checked on 2026-06-23.
 
-- Mul.Live is a thin multiview service for CHZZK, SOOP, Twitch, and YouTube. Its URL accepts slash-separated stream identifiers, including `y:` for YouTube handles, custom URLs, channels, or video IDs. It uses a browser extension for chat and login-dependent features.
+- Mul.Live is a thin multiview service for CHZZK, SOOP, Twitch, and YouTube. Its URL accepts slash-separated stream identifiers, including `y:` for YouTube handles, custom URLs, channels, or video IDs. For OTW, it should be treated as an external fallback iframe/page rather than a feature surface controlled by this repository.
 - Mul.Live's public source shows a simple model: resolve stream IDs, build player/chat URLs, render multiple iframes, and resize a grid based on viewport and chat visibility.
 - Holodex exposes a public API for VTuber live/upcoming data. Its docs require `X-APIKEY` and recommend the quick `/api/v2/users/live` endpoint for fixed channel lists.
 - YouTube's IFrame Player API supports JavaScript control for embedded players, including play, pause, stop, volume, and player-state events.

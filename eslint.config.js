@@ -11,7 +11,6 @@ export default tseslint.config([
     "coverage",
     ".yoyo",
     "worker-configuration.d.ts",
-    "extensions/*/dist",
   ]),
   {
     files: ["**/*.{ts,tsx}"],

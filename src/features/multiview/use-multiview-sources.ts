@@ -12,6 +12,7 @@ const UNIT_ORDER = [
   ["러브다이아", "럽다", "리브다이아", "luvdia", "luv dia"],
   ["하이블루밍", "하블", "hiblueming", "hi blueming", "hi-blueming"],
 ];
+const MULTIVIEW_LIVE_STATUS_REFETCH_INTERVAL_MS = 90_000;
 
 const normalizeUnitName = (value?: string | null) =>
   value?.toLowerCase().replace(/[\s_-]/g, "") ?? "";
@@ -64,6 +65,8 @@ export function useMultiviewSources(members: Member[]) {
     queryKey: queryKeys.liveStatus.statuses(channelIdsKey, "multiview"),
     queryFn: () => fetchLiveStatusesForMembers(membersWithChzzk),
     enabled: membersWithChzzk.length > 0,
+    refetchInterval: MULTIVIEW_LIVE_STATUS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
     staleTime: MEDIA_QUERY_STALE_TIME_MS,
   });
 
