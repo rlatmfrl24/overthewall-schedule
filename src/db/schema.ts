@@ -111,13 +111,18 @@ export const notices = sqliteTable(
     id: integer().primaryKey({ autoIncrement: true }),
     content: text().notNull(),
     url: text(),
+    thumbnail_url: text("thumbnail_url"),
     type: text("type").notNull().default("notice"),
+    publisher_type: text("publisher_type").notNull().default("otw"),
+    publisher_member_uid: integer("publisher_member_uid"),
     is_active: integer("is_active", { mode: "boolean" }).default(true),
     started_at: text("started_at"),
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
-  () => [check("notices_type_check", sql`type IN ('notice', 'event')`)],
+  () => [
+    check("notices_type_check", sql`type IN ('notice', 'event')`),
+  ],
 );
 
 export const ddays = sqliteTable(

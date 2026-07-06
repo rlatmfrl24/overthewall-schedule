@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AUTO_UPDATE_INTERVAL_HOURS,
+  DEFAULT_X_COLLECTION_INTERVAL_HOURS,
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
   normalizeXCollectionIntervalHours,
@@ -34,15 +35,21 @@ describe("auto update interval helpers", () => {
     );
   });
 
-  it("X 게시글 수집 주기도 같은 허용 주기와 기본값을 사용한다", () => {
-    expect(isXCollectionIntervalHours("1")).toBe(true);
+  it("X 게시글 수집 주기는 2시간 이상만 허용하고 기본값도 2시간을 사용한다", () => {
+    expect(isXCollectionIntervalHours("1")).toBe(false);
+    expect(isXCollectionIntervalHours("2")).toBe(true);
     expect(isXCollectionIntervalHours("6")).toBe(true);
     expect(isXCollectionIntervalHours("12")).toBe(true);
     expect(isXCollectionIntervalHours("24")).toBe(true);
     expect(isXCollectionIntervalHours("3")).toBe(false);
-    expect(normalizeXCollectionIntervalHours("3")).toBe(
-      DEFAULT_AUTO_UPDATE_INTERVAL_HOURS,
+    expect(normalizeXCollectionIntervalHours("1")).toBe(
+      DEFAULT_X_COLLECTION_INTERVAL_HOURS,
     );
+    expect(normalizeXCollectionIntervalHours("3")).toBe(
+      DEFAULT_X_COLLECTION_INTERVAL_HOURS,
+    );
+    expect(parseXCollectionIntervalHours("1")).toBe(2);
+    expect(parseXCollectionIntervalHours("2")).toBe(2);
     expect(parseXCollectionIntervalHours("12")).toBe(12);
   });
 });

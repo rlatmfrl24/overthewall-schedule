@@ -23,7 +23,7 @@ export const WeeklyGridDayCell = ({
   onAddSchedule,
   onEditSchedule,
 }: WeeklyGridDayCellProps) => {
-  const bgTint = hexToRgba(subColor, 0.05);
+  const bgTint = hexToRgba(subColor, 0.06);
 
   // Sort: Time -> Title
   const sortedSchedules = useMemo(() => {
@@ -41,8 +41,8 @@ export const WeeklyGridDayCell = ({
   return (
     <div
       className={cn(
-        "flex flex-col gap-1 p-1 md:p-1.5 min-h-[60px] md:min-h-[72px] transition-all border-b border-r border-border last:border-r-0 group-last:border-b-0",
-        hasSchedule ? "bg-card" : "bg-muted/30"
+        "flex min-h-[84px] flex-col gap-1.5 border-b border-r border-border p-1.5 transition-all last:border-r-0 group-last:border-b-0 md:min-h-[96px] md:p-2",
+        hasSchedule ? "bg-card" : "bg-muted/20"
       )}
       style={hasSchedule ? { backgroundColor: bgTint } : {}}
     >
@@ -56,12 +56,14 @@ export const WeeklyGridDayCell = ({
           />
         ))
       ) : (
-        <div
-          className="flex-1 flex items-center justify-center cursor-pointer group/slot hover:bg-muted rounded-lg transition-colors"
+        <button
+          type="button"
+          className="group/slot flex flex-1 items-center justify-center rounded-lg border border-dashed border-transparent text-muted-foreground/60 transition-colors hover:border-border hover:bg-muted/70 hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2"
           onClick={() => onAddSchedule(day, member.uid)}
+          aria-label={`${member.name} ${day.toLocaleDateString("ko-KR")} 스케쥴 추가`}
         >
-          <Plus className="w-4 h-4 text-muted-foreground/50 group-hover/slot:text-muted-foreground transition-colors" />
-        </div>
+          <Plus className="h-4 w-4 transition-colors" />
+        </button>
       )}
     </div>
   );

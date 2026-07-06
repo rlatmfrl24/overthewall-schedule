@@ -22,6 +22,7 @@ import type { Env } from "../types";
 
 const NAVER_CAFE_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
+const NAVER_CAFE_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
 const NAVER_CAFE_POSTS_ENABLED_SETTING_KEY = "naver_cafe_posts_enabled";
 const NAVER_CAFE_POSTS_VISIBILITY_SETTING_KEY = "naver_cafe_posts_visibility";
 const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v1";
@@ -81,6 +82,38 @@ const parseMemberUid = (value: unknown) => {
 
 const shouldBypassPostsResponseCache = (request: Request, url: URL) =>
   url.searchParams.has("_") || request.cache === "no-store";
+
+const canUsePostsResponseCache = ({
+  adminView,
+  request,
+  url,
+  visibility,
+}: {
+  adminView: boolean;
+  request: Request;
+  url: URL;
+  visibility: NaverCafePostsVisibility;
+}) =>
+  !adminView &&
+  visibility === "public" &&
+  !shouldBypassPostsResponseCache(request, url);
+
+const getPostsResponseHeaders = ({
+  adminView,
+  visibility,
+}: {
+  adminView: boolean;
+  visibility: NaverCafePostsVisibility;
+}): Record<string, string> => {
+  if (!adminView && visibility === "public") {
+    return { "Cache-Control": NAVER_CAFE_POSTS_CACHE_CONTROL };
+  }
+
+  return {
+    "Cache-Control": NAVER_CAFE_AUTHENTICATED_POSTS_CACHE_CONTROL,
+    Vary: "Authorization",
+  };
+};
 
 const getPostsResponseCacheKey = (
   sources: NaverCafeSource[],
@@ -247,6 +280,7 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
 
     const adminView = url.searchParams.get("admin") === "1";
     const { enabled, visibility } = await getConfig(db);
+    const responseHeaders = getPostsResponseHeaders({ adminView, visibility });
     if (adminView) {
       const admin = await requireAdminUser(request, env);
       if (!admin.ok) return admin.response;
@@ -275,14 +309,19 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
           sources: [],
         },
         200,
-        { headers: { "Cache-Control": NAVER_CAFE_POSTS_CACHE_CONTROL } },
+        { headers: responseHeaders },
       );
       return response;
     }
 
-    const responseCacheKey = shouldBypassPostsResponseCache(request, url)
-      ? null
-      : getPostsResponseCacheKey(sources, size);
+    const responseCacheKey = canUsePostsResponseCache({
+      adminView,
+      request,
+      url,
+      visibility,
+    })
+      ? getPostsResponseCacheKey(sources, size)
+      : null;
     const cachedResponse = responseCacheKey
       ? await readPostsResponseCache(responseCacheKey)
       : null;
@@ -298,7 +337,7 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
           ...content,
         },
         200,
-        { headers: { "Cache-Control": NAVER_CAFE_POSTS_CACHE_CONTROL } },
+        { headers: responseHeaders },
       );
       if (responseCacheKey) {
         await writePostsResponseCache(responseCacheKey, response);

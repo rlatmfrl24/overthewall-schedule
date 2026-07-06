@@ -28,6 +28,9 @@ All three gates must pass before deploy.
 - User baseline:
   - `/`
   - `/weekly`
+  - `/notice`
+  - `/vods`
+  - `/feed` when member post sources are visible
 
 ## Release Notes Checklist
 - Document validated scope.

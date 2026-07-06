@@ -181,7 +181,7 @@ export const ChzzkClipsPlaylist = ({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       <ClipsMemberFilter
         members={membersWithClips}
         selectedUids={selectedMemberUids}
@@ -193,18 +193,18 @@ export const ChzzkClipsPlaylist = ({
           선택한 멤버의 클립이 없습니다.
         </div>
       ) : (
-        <div className="space-y-7">
+        <div className="space-y-6">
           {clipDateGroups.map((group) => {
             const isCollapsed = collapsedDateKeys.has(group.dateKey);
             const gridId = `${DATE_GROUP_GRID_ID_PREFIX}-${group.dateKey}`;
 
             return (
               <section key={group.dateKey} className="space-y-3 scroll-mt-24">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-card/80 px-3 py-2 shadow-sm">
                   <button
                     type="button"
                     onClick={() => toggleDateGroup(group.dateKey)}
-                    className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 pr-2 text-left transition-colors hover:text-primary"
+                    className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 pr-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     aria-expanded={!isCollapsed}
                     aria-controls={gridId}
                   >
@@ -230,7 +230,7 @@ export const ChzzkClipsPlaylist = ({
                 {!isCollapsed && (
                   <div
                     id={gridId}
-                    className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+                    className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
                   >
                     {group.clips.map((clip) => (
                       <ClipCard
@@ -259,7 +259,7 @@ export const ChzzkClipsPlaylist = ({
 // ============ 스켈레톤 컴포넌트 ============
 
 const ClipsGridSkeleton = () => (
-  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+  <div className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
     {Array.from({ length: 10 }).map((_, i) => (
       <ClipCardSkeleton key={i} variant="grid" />
     ))}

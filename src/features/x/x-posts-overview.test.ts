@@ -126,6 +126,7 @@ describe("XPostsOverview", () => {
 
     expect(screen.getByText("멤버 최신 게시글")).toBeTruthy();
     expect(screen.queryByText("공식 계정의 최신 원문 게시글")).toBeNull();
+    expect(screen.queryByRole("button", { name: "새로고침" })).toBeNull();
     expect(screen.queryByText("피드 상태")).toBeNull();
     expect(screen.queryByText("멤버별 상태")).toBeNull();
     expect(screen.queryByText("표시 중 게시글")).toBeNull();
@@ -419,6 +420,47 @@ describe("XPostsOverview", () => {
       name: "example.com/docs 열기",
     });
     expect(previewLink?.getAttribute("href")).toBe("https://example.com/docs");
+  });
+
+  it("X 게시글 링크 프리뷰가 생략되어도 인링크 카드를 표시한다", () => {
+    useXPostsMock.mockReturnValue({
+      posts: [
+        {
+          ...post,
+          text: "인링크 https://t.co/status",
+          links: [
+            {
+              url: "https://t.co/status",
+              expandedUrl: "https://x.com/linked_member/status/9876543210",
+              resolvedUrl: "https://x.com/linked_member/status/9876543210",
+              displayUrl: "x.com/linked_member/status/9876543210",
+              previewStatus: "skipped",
+            },
+          ],
+        },
+      ],
+      updatedAt: "2026-05-27T12:10:00Z",
+      byHandle: [],
+      loading: false,
+      error: null,
+      stale: false,
+      hasLoaded: true,
+      reload: vi.fn(),
+    });
+
+    render(createElement(XPostsOverview));
+
+    expect(screen.getByText("X 게시글 링크")).toBeTruthy();
+    expect(
+      screen.getByText("x.com/linked_member/status/9876543210"),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", {
+          name: "x.com/linked_member/status/9876543210 열기",
+        })
+        .getAttribute("href"),
+    ).toBe("https://x.com/linked_member/status/9876543210");
   });
 
   it("stale 데이터가 있으면 조용한 경고와 캐시 상태를 표시한다", () => {

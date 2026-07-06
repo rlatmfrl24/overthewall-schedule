@@ -100,8 +100,8 @@ export const VodCard = ({
       aria-label={`${video.videoTitle} 다시보기 보기`}
       title={video.videoTitle}
       className={cn(
-        "group relative flex min-w-0 self-start flex-col overflow-hidden rounded-lg border border-border/45 bg-card/80 shadow-sm transition-all duration-200",
-        "hover:-translate-y-0.5 hover:border-foreground/20 hover:bg-card hover:shadow-md",
+        "group relative flex min-w-0 self-start flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-all duration-200",
+        "hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
         sizeClasses[size],
       )}
@@ -141,22 +141,22 @@ export const VodCard = ({
 
         {/* 카테고리 뱃지 */}
         {video.videoCategoryValue && (
-          <div className="absolute right-2 top-2 max-w-[55%] truncate rounded-full bg-black/85 px-2.5 py-1 text-xs font-semibold text-white shadow-sm backdrop-blur-sm">
+          <div className="absolute right-2 top-2 max-w-[65%] truncate rounded-full bg-black/85 px-2.5 py-1 text-xs font-semibold text-white shadow-sm backdrop-blur-sm">
             {video.videoCategoryValue}
           </div>
         )}
       </div>
 
       {/* 정보 */}
-      <div className="flex min-w-0 flex-col gap-3 p-3.5">
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
+      <div className="flex min-w-0 flex-col gap-3 p-3">
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
           {video.videoTitle}
         </h3>
 
         <div className="flex min-w-0 items-center gap-2.5">
           {showMemberAvatar && (
             <div
-              className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground"
+              className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted text-xs font-semibold text-muted-foreground"
               style={{
                 borderColor: accentColor || undefined,
               }}
@@ -176,12 +176,12 @@ export const VodCard = ({
 
           <div className="min-w-0 flex-1">
             {channelName && (
-              <p className="truncate text-xs font-medium text-foreground/80">
+              <p className="truncate text-[13px] font-semibold text-foreground/85">
                 {channelName}
               </p>
             )}
 
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Eye className="h-3 w-3" />
                 {formatViewCount(video.readCount)}

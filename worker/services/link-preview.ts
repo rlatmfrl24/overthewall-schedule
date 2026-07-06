@@ -96,8 +96,13 @@ const safeUrl = (value: string | null | undefined, baseUrl?: string) => {
 const getPreviewTarget = (link: XPostLinkItem) =>
   safeUrl(link.resolvedUrl) ?? safeUrl(link.expandedUrl) ?? safeUrl(link.url);
 
+const normalizeHostnameForBlocklist = (hostname: string) =>
+  hostname.trim().toLowerCase().replace(/\.+$/g, "");
+
 const isBlockedHostname = (hostname: string) => {
-  const lower = hostname.toLowerCase();
+  const lower = normalizeHostnameForBlocklist(hostname);
+  if (!lower) return true;
+
   if (
     lower === "localhost" ||
     lower.endsWith(".localhost") ||

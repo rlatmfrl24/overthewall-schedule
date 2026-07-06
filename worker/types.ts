@@ -28,6 +28,7 @@ export type CachedLiveStatus = {
     concurrentUserCount: number;
     liveImageUrl: string;
     defaultThumbnailImageUrl: string;
+    openDate?: string | null;
     channelId: string;
     channelName: string;
     channelImageUrl: string;
@@ -205,7 +206,10 @@ export type NoticePayload = {
   id?: number | string;
   content?: string;
   url?: string;
+  thumbnail_url?: string | null;
   type?: string;
+  publisher_type?: string;
+  publisher_member_uid?: number | string | null;
   is_active?: string | number | boolean;
   started_at?: string;
   ended_at?: string;

@@ -5,6 +5,7 @@ import type { Env } from "../types";
 
 const X_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600";
+const X_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
 const X_RICH_LINK_PREVIEW_SETTING_KEY = "x_rich_link_preview_enabled";
 const X_POSTS_VISIBILITY_SETTING_KEY = "x_posts_visibility";
 const HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
@@ -77,6 +78,25 @@ const getRichXLinkPreviewEnabled = async (db: D1Database) => {
   }
 };
 
+const getXPostsCacheHeaders = ({
+  adminView,
+  debug,
+  visibility,
+}: {
+  adminView: boolean;
+  debug: boolean;
+  visibility: XPostsVisibility;
+}): Record<string, string> => {
+  if (!adminView && !debug && visibility === "public") {
+    return { "Cache-Control": X_POSTS_CACHE_CONTROL };
+  }
+
+  return {
+    "Cache-Control": X_AUTHENTICATED_POSTS_CACHE_CONTROL,
+    Vary: "Authorization",
+  };
+};
+
 export const handleXPosts = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const debug = url.searchParams.get("debug") === "1";
@@ -147,7 +167,7 @@ export const handleXPosts = async (request: Request, env: Env) => {
       },
       200,
       {
-        headers: { "Cache-Control": X_POSTS_CACHE_CONTROL },
+        headers: getXPostsCacheHeaders({ adminView, debug, visibility }),
       },
     );
   } catch (error) {

@@ -9,7 +9,6 @@ import { XPostCard } from "./x-post-card";
 import type { Member, XPost } from "@/lib/types";
 import {
   AlertCircle,
-  RefreshCw,
   Twitter,
 } from "lucide-react";
 import IconX from "@/assets/icon_x.svg";
@@ -229,7 +228,6 @@ export const XPostsOverview = () => {
     loading: postsLoading,
     error,
     hasLoaded: postsLoaded,
-    reload,
   } = useXPosts(membersWithX, {
     enabled: true,
     maxResults: 5,
@@ -277,18 +275,6 @@ export const XPostsOverview = () => {
                 {formatUpdatedAt(updatedAt)}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-fit gap-2 rounded-full"
-              onClick={() => void reload()}
-              disabled={postsLoading || !hasMembersWithX}
-            >
-              <RefreshCw
-                className={cn("h-4 w-4", postsLoading && "animate-spin")}
-              />
-              새로고침
-            </Button>
           </div>
         </div>
 
@@ -324,18 +310,9 @@ export const XPostsOverview = () => {
                   : "표시할 X 게시글이 없습니다."}
             </p>
             {error ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={() => void reload()}
-                disabled={postsLoading}
-              >
-                <RefreshCw
-                  className={cn("h-4 w-4", postsLoading && "animate-spin")}
-                />
-                다시 시도
-              </Button>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                자동 수집이 재시도되면 최신 게시글이 갱신됩니다.
+              </p>
             ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
               <Button
                 variant="ghost"

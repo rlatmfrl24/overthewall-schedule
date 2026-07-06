@@ -12,6 +12,7 @@ import {
   Check,
   X,
   AlertCircle,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -519,6 +520,37 @@ export function AutoUpdateSettingsManager() {
     }
   };
 
+  const handleLiveScheduleAutoFillToggle = async (enabled: boolean) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        live_schedule_auto_fill_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
+      setSettings({
+        ...settings,
+        live_schedule_auto_fill_enabled: enabled ? "true" : "false",
+      });
+      toast({
+        variant: "success",
+        description: enabled
+          ? "라이브 자동 입력을 활성화했습니다."
+          : "라이브 자동 입력을 비활성화했습니다.",
+      });
+    } catch (error) {
+      console.error("Failed to update live schedule auto-fill setting:", error);
+      toast({
+        variant: "error",
+        description: "라이브 자동 입력 설정 변경에 실패했습니다.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleRunNow = async () => {
     setIsRunning(true);
     setLastRunResult(null);
@@ -759,6 +791,8 @@ export function AutoUpdateSettingsManager() {
   };
 
   const isEnabled = settings?.auto_update_enabled === "true";
+  const isLiveScheduleAutoFillEnabled =
+    settings?.live_schedule_auto_fill_enabled !== "false";
   const intervalHours = normalizeAutoUpdateIntervalHours(
     settings?.auto_update_interval_hours,
   );
@@ -809,7 +843,7 @@ export function AutoUpdateSettingsManager() {
         </div>
       ) : (
         <>
-          <div className="grid auto-rows-fr gap-2 rounded-lg border bg-card p-2 md:grid-cols-[minmax(180px,1fr)_minmax(160px,220px)_minmax(160px,220px)] md:items-stretch">
+          <div className="grid auto-rows-fr gap-2 rounded-lg border bg-card p-2 md:grid-cols-2 md:items-stretch xl:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,220px)_minmax(160px,220px)]">
             <div className="flex h-full min-h-12 items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <Power className="h-4 w-4 text-muted-foreground" />
@@ -831,6 +865,31 @@ export function AutoUpdateSettingsManager() {
                 id="auto-update-enabled"
                 checked={isEnabled}
                 onCheckedChange={handleToggleEnabled}
+                disabled={isSaving}
+              />
+            </div>
+
+            <div className="flex h-full min-h-12 items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <Radio className="h-4 w-4 text-muted-foreground" />
+                <Label
+                  htmlFor="live-schedule-auto-fill-enabled"
+                  className="whitespace-nowrap text-sm font-medium"
+                >
+                  라이브 자동 입력
+                </Label>
+                {isLiveScheduleAutoFillEnabled ? (
+                  <Badge variant="default" className="bg-green-600">
+                    활성화
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">비활성</Badge>
+                )}
+              </div>
+              <Switch
+                id="live-schedule-auto-fill-enabled"
+                checked={isLiveScheduleAutoFillEnabled}
+                onCheckedChange={handleLiveScheduleAutoFillToggle}
                 disabled={isSaving}
               />
             </div>

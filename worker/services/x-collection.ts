@@ -97,7 +97,11 @@ export const runXCollection = async (
   });
   const updatedAtMs = Date.now();
 
-  if (result.status === "success" || result.status === "failed") {
+  if (
+    result.status === "success" ||
+    result.status === "failed" ||
+    ("error" in result && result.error === "all_handles_cooldown")
+  ) {
     await updateSetting(
       db,
       X_COLLECTION_LAST_RUN_SETTING_KEY,

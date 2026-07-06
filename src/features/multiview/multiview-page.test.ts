@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/lib/types";
 import type { MultiviewSource } from "./types";
@@ -72,6 +78,7 @@ describe("MultiviewPage", () => {
     window.history.replaceState(null, "", "/multiview");
     useScheduleDataMock.mockReturnValue({
       members: [memberA, memberB],
+      loading: false,
     });
     useMultiviewSourcesMock.mockReturnValue({
       sources: [liveSource, offlineSource],
@@ -86,37 +93,59 @@ describe("MultiviewPage", () => {
     vi.clearAllMocks();
   });
 
-  it("renders member chips above a full-height Mul.Live iframe", () => {
+  it("renders a compact header toggle above a full-height Mul.Live iframe", () => {
     render(React.createElement(MultiviewPage));
 
     expect(screen.getByTestId("multiview-root").className).toContain(
       "overflow-hidden",
     );
-    expect(screen.getByRole("button", { name: "라이브 멤버 선택" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "오프라인 멤버 선택" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "라이브 멤버 선택" }),
+    ).toBeNull();
     expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
   });
 
-  it("updates the Mul.Live iframe and URL when member chips are toggled", () => {
+  it("opens the member overlay and updates the Mul.Live iframe and URL", async () => {
     render(React.createElement(MultiviewPage));
 
-    fireEvent.click(screen.getByRole("button", { name: "라이브 멤버 선택" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
+    );
+
+    expect(screen.getByLabelText("멀티뷰 멤버 목록")).toBeTruthy();
+    expect(screen.getByText("라이브 리스트")).toBeTruthy();
+    expect(screen.getByText("멤버 목록")).toBeTruthy();
+    expect(screen.getByText("테스트 라이브")).toBeTruthy();
+    expect(screen.getByText("1,234명 시청 중")).toBeTruthy();
+    expect(screen.queryByText("현재 방송 없음")).toBeNull();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "라이브 멤버 선택" })[0],
+    );
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}`,
     );
-    expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([
-      CHANNEL_A,
-    ]);
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([
+        CHANNEL_A,
+      ]);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "오프라인 멤버 선택" }));
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "라이브 멤버 선택 해제" }));
-    expect(getMulLiveFrame().getAttribute("src")).toBe(
-      `https://mul.live/${CHANNEL_B}`,
-    );
+    fireEvent.click(screen.getByRole("button", { name: "초기화" }));
+    expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).getAll("c")).toEqual(
+        [],
+      );
+    });
   });
 
   it("restores selected channels from URL state", () => {
@@ -131,8 +160,11 @@ describe("MultiviewPage", () => {
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
+    );
     expect(
-      screen.getByRole("button", { name: "라이브 멤버 선택 해제" }),
+      screen.getAllByRole("button", { name: "라이브 멤버 선택 해제" })[0],
     ).toBeTruthy();
   });
 });
