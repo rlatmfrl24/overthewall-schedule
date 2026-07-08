@@ -1,4 +1,4 @@
 interface:
   display_name: "Release Ops"
-  short_description: "Run OTW app and extension release safety checks"
+  short_description: "Run OTW web app, Worker, and D1 release safety checks"
   default_prompt: "Use $release-ops to run preflight checks before deployment."

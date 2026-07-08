@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleKirinuki } from "../../../worker/routes/kirinuki";
 import { handleVods } from "../../../worker/routes/vods";
+import { handleYouTube } from "../../../worker/routes/youtube";
 import type { Env } from "../../../worker/types";
 
 const fetchChzzkVideosMock = vi.hoisted(() => vi.fn());
@@ -14,6 +15,7 @@ vi.mock("../../../worker/services/chzzk", () => ({
 
 vi.mock("../../../worker/services/youtube", () => ({
   fetchYouTubeVideosForChannel: fetchYouTubeVideosForChannelMock,
+  getYouTubeCacheStatus: vi.fn(),
 }));
 
 vi.mock("../../../worker/db", () => ({
@@ -61,7 +63,7 @@ describe("media route cache headers", () => {
       shorts: [],
     });
 
-    const youtubeResponse = await handleVods(
+    const youtubeResponse = await handleYouTube(
       new Request("https://example.com/api/youtube/videos?channelIds=UC_A"),
       makeEnv(),
     );

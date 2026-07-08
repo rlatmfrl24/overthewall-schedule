@@ -123,6 +123,57 @@ export type CachedYouTubeVideos = {
   } | null;
 };
 
+export type YouTubeCacheType = "uploads_playlist" | "channel_videos";
+export type YouTubeCacheStatus = "fresh" | "stale" | "expired";
+export type YouTubeApiOperation =
+  | "channels.list"
+  | "playlistItems.list"
+  | "videos.list";
+
+export type YouTubeCacheStatusResponse = {
+  updatedAt: string;
+  window: { hours: number; since: number };
+  cache: {
+    total: number;
+    fresh: number;
+    stale: number;
+    expired: number;
+    byType: Array<{
+      type: YouTubeCacheType;
+      total: number;
+      fresh: number;
+      stale: number;
+      expired: number;
+    }>;
+  };
+  usage: {
+    apiCalls: number;
+    quotaUnits: number;
+    successCount: number;
+    failureCount: number;
+    rateLimitCount: number;
+    quotaErrorCount: number;
+    byOperation: Array<{
+      operation: YouTubeApiOperation;
+      apiCalls: number;
+      quotaUnits: number;
+      failureCount: number;
+    }>;
+  };
+  channels: Array<{
+    channelId: string;
+    cacheKey: string;
+    maxResults: number | null;
+    type: YouTubeCacheType;
+    status: YouTubeCacheStatus;
+    fetchedAt: number;
+    expiresAt: number;
+    staleUntil: number;
+    lastStatus: number | null;
+    lastError: string | null;
+  }>;
+};
+
 export type XPostMediaItem = {
   mediaKey: string;
   type: string;

@@ -7,6 +7,11 @@
 
 All three gates must pass before deploy.
 
+## Agent Mirror Gate
+- If `.agent/*` changed:
+  - run `pnpm sync:agent-cursor`
+  - run `pnpm sync:agent-cursor:check`
+
 ## Schema-Aware Release Gate
 - If `src/db/schema.ts` or `drizzle/*` changed:
   - complete local migration and validation first
@@ -36,3 +41,6 @@ All three gates must pass before deploy.
 - Document validated scope.
 - Document skipped checks and rationale.
 - Document known residual risks and follow-up owners.
+
+## Out of Scope
+- Chrome extension packages, Web Store metadata, and extension permission checks are not part of the current repository release path.

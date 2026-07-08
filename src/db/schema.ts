@@ -272,6 +272,63 @@ export const xCollectionRuns = sqliteTable(
 export type XCollectionRun = typeof xCollectionRuns.$inferSelect;
 export type NewXCollectionRun = typeof xCollectionRuns.$inferInsert;
 
+// YouTube API 응답 캐시 테이블
+export const youtubeApiCache = sqliteTable(
+  "youtube_api_cache",
+  {
+    key: text().primaryKey(),
+    type: text().notNull(),
+    value: text().notNull(),
+    fetched_at: integer("fetched_at").notNull(),
+    expires_at: integer("expires_at").notNull(),
+    stale_until: integer("stale_until").notNull(),
+    last_status: integer("last_status"),
+    last_error: text("last_error"),
+  },
+  (table) => [
+    index("idx_youtube_api_cache_type").on(table.type),
+    index("idx_youtube_api_cache_expires_at").on(table.expires_at),
+    index("idx_youtube_api_cache_stale_until").on(table.stale_until),
+    check(
+      "youtube_api_cache_type_check",
+      sql`type IN ('uploads_playlist', 'channel_videos')`,
+    ),
+  ],
+);
+
+export type YouTubeApiCache = typeof youtubeApiCache.$inferSelect;
+export type NewYouTubeApiCache = typeof youtubeApiCache.$inferInsert;
+
+// YouTube API 호출 사용량 이벤트 로그
+export const youtubeApiUsageEvents = sqliteTable(
+  "youtube_api_usage_events",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    operation: text().notNull(),
+    channel_id: text("channel_id"),
+    cache_key: text("cache_key"),
+    quota_units: integer("quota_units").notNull(),
+    status: integer().notNull(),
+    duration_ms: integer("duration_ms").notNull(),
+    created_at: integer("created_at").notNull(),
+    error: text(),
+  },
+  (table) => [
+    index("idx_youtube_api_usage_events_created_at").on(table.created_at),
+    index("idx_youtube_api_usage_events_operation").on(table.operation),
+    index("idx_youtube_api_usage_events_status").on(table.status),
+    index("idx_youtube_api_usage_events_cache_key").on(table.cache_key),
+    check(
+      "youtube_api_usage_events_operation_check",
+      sql`operation IN ('channels.list', 'playlistItems.list', 'videos.list')`,
+    ),
+  ],
+);
+
+export type YouTubeApiUsageEvent = typeof youtubeApiUsageEvents.$inferSelect;
+export type NewYouTubeApiUsageEvent =
+  typeof youtubeApiUsageEvents.$inferInsert;
+
 // 네이버 카페 게시판 소스 테이블
 export const naverCafeSources = sqliteTable(
   "naver_cafe_sources",

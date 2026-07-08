@@ -1,6 +1,6 @@
 ---
 name: release-ops
-description: Run OTW release and deployment preflight operations for the web app and Cloudflare Worker. Use when preparing production deploys, release readiness checks, or post-change operational safety validation.
+description: Run OTW release and deployment preflight operations for the web app, Cloudflare Worker, and D1-backed changes. Use when preparing production deploys, release readiness checks, migration-aware releases, or post-change operational safety validation.
 ---
 
 # Release Ops (OTW)
@@ -10,6 +10,7 @@ Use this skill for release readiness and deploy operations:
 - build, lint, and test gates
 - worker deploy sequencing
 - migration gating before deployment
+- agent and documentation mirror checks when `.agent` changed
 - post-deploy sanity checks
 
 ## Procedure
@@ -18,14 +19,16 @@ Use this skill for release readiness and deploy operations:
    - `pnpm lint`
    - `pnpm test`
    - `pnpm build`
-3. If schema changed, ensure migration workflow completed (`db-migration` skill).
-4. Deploy with `pnpm deploy` only when production deployment is requested.
-5. Run targeted smoke checks on critical routes and admin flows.
-6. Record validated scope and residual risks.
+3. If `.agent` changed, run `pnpm sync:agent-cursor` and `pnpm sync:agent-cursor:check`.
+4. If schema changed, ensure migration workflow completed (`db-migration` skill).
+5. Deploy with `pnpm deploy` only when production deployment is requested.
+6. Run targeted smoke checks on critical routes and admin flows.
+7. Record validated scope and residual risks.
 
 ## Safety Rules
 - Do not deploy when lint, test, or build fails.
 - Do not run remote migration and deploy out of order for schema-dependent releases.
+- Do not add Chrome extension packaging or Web Store checks to this repository's release path unless that package is explicitly restored.
 - Document skipped checks explicitly.
 
 ## References

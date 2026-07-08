@@ -17,6 +17,7 @@ import { handleKirinuki } from "./routes/kirinuki";
 import { handleMemberPosts } from "./routes/member-posts";
 import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
+import { handleYouTube } from "./routes/youtube";
 import { handleNaverCafe } from "./routes/naver-cafe";
 import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
@@ -113,10 +114,13 @@ export default {
 
       if (
         url.pathname.startsWith("/api/vods/chzzk") ||
-        url.pathname.startsWith("/api/clips/chzzk") ||
-        url.pathname.startsWith("/api/youtube/videos")
+        url.pathname.startsWith("/api/clips/chzzk")
       ) {
         return handleVods(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/youtube/")) {
+        return handleYouTube(request, env);
       }
 
       if (url.pathname.startsWith("/api/members")) {
