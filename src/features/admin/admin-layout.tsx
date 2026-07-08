@@ -11,6 +11,7 @@ import {
   Menu,
   MessageSquareText,
   Scissors,
+  Youtube,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,11 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
     label: "자동 업데이트 설정",
     icon: Settings,
     href: "/admin/settings",
+  },
+  {
+    label: "YouTube 캐시",
+    icon: Youtube,
+    href: "/admin/youtube-cache",
   },
   {
     label: "스냅샷 프리뷰",

@@ -35,10 +35,10 @@
       "remote": true,
     },
   ],
-  // 스케줄 자동 업데이트를 위한 Cron Trigger (매시 정각 실행)
-  // 실제 업데이트 주기는 DB settings 테이블에서 제어
+  // 스케줄 자동 업데이트, X 수집, YouTube 캐시 예열을 위한 Cron Trigger
+  // 실제 실행 주기는 DB settings 테이블에서 제어
   "triggers": {
-    "crons": ["0 * * * *"],
+    "crons": ["*/15 * * * *"],
   },
   // 외부 API 키는 wrangler secret으로만 관리 (레포에 값 저장 금지)
   // 실제 배포 시:

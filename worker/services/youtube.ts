@@ -600,17 +600,22 @@ export const fetchYouTubeVideosForChannel = async (
   apiKey: string,
   maxResults = 20,
   cacheDb?: YouTubeCacheDb,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<CachedYouTubeVideos["content"]> => {
   const cacheKey = getVideosCacheKey(channelId, maxResults);
   const cached = YOUTUBE_VIDEOS_CACHE.get(cacheKey);
   const timestamp = now();
 
-  if (cached && timestamp - cached.fetchedAt < YOUTUBE_VIDEOS_TTL_MS) {
+  if (
+    !options.forceRefresh &&
+    cached &&
+    timestamp - cached.fetchedAt < YOUTUBE_VIDEOS_TTL_MS
+  ) {
     return cached.content;
   }
 
   const d1Cached = await readCachedVideos(cacheDb, cacheKey);
-  if (d1Cached?.status === "fresh") {
+  if (!options.forceRefresh && d1Cached?.status === "fresh") {
     const content = d1Cached.value;
     YOUTUBE_VIDEOS_CACHE.set(cacheKey, {
       fetchedAt: toNumber(d1Cached.row.fetched_at, timestamp),

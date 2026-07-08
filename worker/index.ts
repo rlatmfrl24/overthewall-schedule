@@ -22,6 +22,7 @@ import { handleNaverCafe } from "./routes/naver-cafe";
 import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
+import { runScheduledYouTubeWarmup } from "./services/youtube-warmup";
 import type { Env } from "./types";
 
 const collectScheduledXPosts = async (env: Env) => {
@@ -35,6 +36,15 @@ const collectScheduledXPosts = async (env: Env) => {
     return;
   }
   console.log("[scheduled] X collection completed", outcome.result);
+};
+
+const warmScheduledYouTubeCache = async (env: Env) => {
+  const result = await runScheduledYouTubeWarmup(env);
+  if (result.status === "skipped") {
+    console.log("[scheduled] YouTube warmup skipped", result.error);
+    return;
+  }
+  console.log("[scheduled] YouTube warmup completed", result);
 };
 
 type SerializedError = {
@@ -190,6 +200,12 @@ export default {
       await collectScheduledXPosts(env);
     } catch (error) {
       console.error("[scheduled] X collection failed", error);
+    }
+
+    try {
+      await warmScheduledYouTubeCache(env);
+    } catch (error) {
+      console.error("[scheduled] YouTube warmup failed", error);
     }
 
     // 1-3. 설정 일괄 조회

@@ -52,6 +52,11 @@ export const queryKeys = {
     kirinuki: (maxResults: number) =>
       [...queryKeys.media.all, "kirinuki", maxResults] as const,
   },
+  youtubeCache: {
+    all: ["youtube-cache"] as const,
+    status: (windowHours: number) =>
+      [...queryKeys.youtubeCache.all, "status", windowHours] as const,
+  },
   memberPosts: {
     all: ["member-posts"] as const,
     xConfig: () => [...queryKeys.memberPosts.all, "x-config"] as const,
