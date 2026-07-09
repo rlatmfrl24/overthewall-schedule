@@ -24,6 +24,7 @@ import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
 import { runScheduledYouTubeWarmup } from "./services/youtube-warmup";
+import { runScheduledNaverCafeCollection } from "./services/naver-cafe";
 import { runScheduledDataRetentionPrune } from "./services/data-retention";
 import type { Env } from "./types";
 
@@ -47,6 +48,19 @@ const warmScheduledYouTubeCache = async (env: Env) => {
     return;
   }
   console.log("[scheduled] YouTube warmup completed", result);
+};
+
+const collectScheduledNaverCafePosts = async (env: Env) => {
+  const outcome = await runScheduledNaverCafeCollection(env);
+  if (outcome.skipped) {
+    console.log(
+      `[scheduled] Naver Cafe collection skipped - last run was ${Math.round(
+        outcome.elapsedMs / 60000,
+      )}min ago, interval is ${outcome.intervalHours}h`,
+    );
+    return;
+  }
+  console.log("[scheduled] Naver Cafe collection completed", outcome.result);
 };
 
 const pruneScheduledD1Data = async (env: Env) => {
@@ -227,6 +241,12 @@ export default {
       await warmScheduledYouTubeCache(env);
     } catch (error) {
       console.error("[scheduled] YouTube warmup failed", error);
+    }
+
+    try {
+      await collectScheduledNaverCafePosts(env);
+    } catch (error) {
+      console.error("[scheduled] Naver Cafe collection failed", error);
     }
 
     try {

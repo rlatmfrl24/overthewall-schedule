@@ -10,16 +10,18 @@ const requireAdminUserMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true, user: { id: "admin" } })),
 );
 const fetchXPostsForHandlesMock = vi.hoisted(() => vi.fn());
-const fetchNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const readStoredNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
 const fakeState = vi.hoisted(() => ({
   members: [] as Array<{ uid: number; url_twitter: string | null }>,
   cafeSources: [] as Array<{
     id: number;
     name: string;
-    cafeId: string;
-    menuId: string;
+    cafe_id: string;
+    menu_id: string;
+    cafe_url: string | null;
     enabled: boolean;
-    memberUid: number | null;
+    member_uid: number | null;
+    sort_order: number | null;
   }>,
 }));
 
@@ -66,8 +68,7 @@ vi.mock("../../../worker/services/x", () => ({
 }));
 
 vi.mock("../../../worker/services/naver-cafe", () => ({
-  NaverCafeApiError: class NaverCafeApiError extends Error {},
-  fetchNaverCafePostsForSources: fetchNaverCafePostsForSourcesMock,
+  readStoredNaverCafePostsForSources: readStoredNaverCafePostsForSourcesMock,
 }));
 
 const makeEnv = (): Env =>
@@ -77,13 +78,86 @@ const makeEnv = (): Env =>
     otw_db: {} as D1Database,
   }) as Env;
 
+const mockXPosts = (createdAt = "2026-05-27T12:00:00Z") => {
+  fetchXPostsForHandlesMock.mockResolvedValueOnce({
+    posts: [
+      {
+        id: "x1",
+        text: "X 글",
+        createdAt,
+        url: "https://x.com/otw_member/status/x1",
+        username: "otw_member",
+        metrics: {},
+        media: [],
+      },
+    ],
+    byHandle: [
+      {
+        handle: "otw_member",
+        userId: "u1",
+        posts: [
+          {
+            id: "x1",
+            text: "X 글",
+            createdAt,
+            url: "https://x.com/otw_member/status/x1",
+            username: "otw_member",
+            metrics: {},
+            media: [],
+          },
+        ],
+        error: null,
+        stale: false,
+      },
+    ],
+  });
+};
+
+const mockNaverCafePosts = (createdAt = "2026-05-28T01:00:00Z") => {
+  readStoredNaverCafePostsForSourcesMock.mockResolvedValueOnce({
+    sources: [
+      {
+        id: 1,
+        name: "공지",
+        cafeId: "31352147",
+        menuId: "9",
+        cafeUrl: "https://cafe.naver.com/f-e/cafes/31352147/menus/9",
+        memberUid: 2,
+        enabled: true,
+        sortOrder: 0,
+        status: "ok",
+        error: null,
+        postCount: 1,
+        stale: false,
+      },
+    ],
+    posts: [
+      {
+        id: "cafe1",
+        articleId: 1,
+        cafeId: "31352147",
+        menuId: "9",
+        sourceName: "공지",
+        memberUid: 2,
+        title: "카페 글",
+        summary: "",
+        createdAt,
+        url: "https://cafe.naver.com/articles/1",
+        thumbnailUrl: null,
+        metrics: { commentCount: 0, readCount: 0, likeCount: 0 },
+        isNew: true,
+      },
+    ],
+  });
+};
+
 describe("member-posts aggregate worker route", () => {
   beforeEach(() => {
     getSettingMock.mockReset();
     authenticateRequestMock.mockClear();
     requireAdminUserMock.mockClear();
     fetchXPostsForHandlesMock.mockReset();
-    fetchNaverCafePostsForSourcesMock.mockReset();
+    readStoredNaverCafePostsForSourcesMock.mockReset();
     fakeState.members = [
       { uid: 1, url_twitter: "https://x.com/otw_member" },
     ];
@@ -91,10 +165,12 @@ describe("member-posts aggregate worker route", () => {
       {
         id: 1,
         name: "공지",
-        cafeId: "31352147",
-        menuId: "9",
+        cafe_id: "31352147",
+        menu_id: "9",
+        cafe_url: "https://cafe.naver.com/f-e/cafes/31352147/menus/9",
         enabled: true,
-        memberUid: 2,
+        member_uid: 2,
+        sort_order: 0,
       },
     ];
     getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
@@ -109,47 +185,15 @@ describe("member-posts aggregate worker route", () => {
   });
 
   it("X와 네이버 카페 게시글을 단일 최신순 타임라인으로 반환한다", async () => {
-    fetchXPostsForHandlesMock.mockResolvedValueOnce({
-      posts: [
-        {
-          id: "x1",
-          text: "X 글",
-          createdAt: "2026-05-27T12:00:00Z",
-          url: "https://x.com/otw_member/status/x1",
-          username: "otw_member",
-          metrics: {},
-          media: [],
-        },
-      ],
-      byHandle: [{ handle: "otw_member", posts: [], error: null }],
-    });
-    fetchNaverCafePostsForSourcesMock.mockResolvedValueOnce({
-      updatedAt: "2026-05-28T01:05:00Z",
-      sources: fakeState.cafeSources,
-      posts: [
-        {
-          id: "cafe1",
-          articleId: 1,
-          cafeId: "31352147",
-          menuId: "9",
-          sourceName: "공지",
-          memberUid: 2,
-          title: "카페 글",
-          summary: "",
-          createdAt: "2026-05-28T01:00:00Z",
-          url: "https://cafe.naver.com/articles/1",
-          thumbnailUrl: null,
-          metrics: {},
-          isNew: true,
-        },
-      ],
-    });
+    mockXPosts();
+    mockNaverCafePosts();
+    const env = makeEnv();
 
     const response = await handleMemberPosts(
       new Request(
         "https://example.com/api/member-posts?sources=x,naver-cafe&maxResults=5&size=5",
       ),
-      makeEnv(),
+      env,
     );
     const body = (await response.json()) as {
       posts: Array<{ kind: string; memberUid: number | null }>;
@@ -164,16 +208,17 @@ describe("member-posts aggregate worker route", () => {
     expect(response.headers.get("Cache-Control")).toContain("max-age=300");
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       bearerToken: "token",
-      cacheDb: {},
+      cacheDb: env.otw_db,
       forceRefresh: false,
       forceRefreshPath: null,
       maxResults: 5,
+      refresh: false,
       richXLinkPreviewEnabled: true,
       usageSource: "member-posts",
     });
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledWith(
+    expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledWith(
       fakeState.cafeSources,
-      { size: 5 },
+      { cacheDb: env.otw_db, size: 5 },
     );
     expect(body.posts.map((post) => post.kind)).toEqual(["cafe", "x"]);
     expect(body.posts.map((post) => post.memberUid)).toEqual([2, 1]);
@@ -189,6 +234,29 @@ describe("member-posts aggregate worker route", () => {
     });
   });
 
+  it("compact 응답은 canonical posts만 유지하고 중복 post payload를 제거한다", async () => {
+    mockXPosts();
+    mockNaverCafePosts();
+
+    const response = await handleMemberPosts(
+      new Request(
+        "https://example.com/api/member-posts?sources=x,naver-cafe&compact=1",
+      ),
+      makeEnv(),
+    );
+    const body = (await response.json()) as {
+      posts: Array<{ kind: string }>;
+      x: { posts: unknown[]; byHandle: Array<{ posts: unknown[] }> };
+      naverCafe: { posts: unknown[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.posts.map((post) => post.kind)).toEqual(["cafe", "x"]);
+    expect(body.x.posts).toEqual([]);
+    expect(body.x.byHandle[0]?.posts).toEqual([]);
+    expect(body.naverCafe.posts).toEqual([]);
+  });
+
   it("잘못된 page size는 서비스 호출 전에 거부한다", async () => {
     const response = await handleMemberPosts(
       new Request("https://example.com/api/member-posts?size=100"),
@@ -198,7 +266,7 @@ describe("member-posts aggregate worker route", () => {
     expect(response.status).toBe(400);
     expect(await response.text()).toBe("size must be an integer between 5 and 20");
     expect(fetchXPostsForHandlesMock).not.toHaveBeenCalled();
-    expect(fetchNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+    expect(readStoredNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 
   it("비관리자 aggregate feed의 cache-busting 요청은 X API 강제 갱신으로 전달하지 않는다", async () => {
@@ -206,31 +274,60 @@ describe("member-posts aggregate worker route", () => {
       posts: [],
       byHandle: [{ handle: "otw_member", posts: [], error: null }],
     });
-    fetchNaverCafePostsForSourcesMock.mockResolvedValueOnce({
-      updatedAt: "2026-05-28T01:05:00Z",
+    readStoredNaverCafePostsForSourcesMock.mockResolvedValueOnce({
       sources: [],
       posts: [],
     });
+    const env = makeEnv();
 
     const response = await handleMemberPosts(
       new Request(
         "https://example.com/api/member-posts?sources=x,naver-cafe&maxResults=5&size=5&_=123",
         { cache: "no-store" },
       ),
-      makeEnv(),
+      env,
     );
 
     expect(response.status).toBe(200);
     expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
       bearerToken: "token",
-      cacheDb: {},
+      cacheDb: env.otw_db,
       forceRefresh: false,
       forceRefreshPath: null,
       maxResults: 5,
+      refresh: false,
       richXLinkPreviewEnabled: true,
       usageSource: "member-posts",
     });
     expect(response.headers.get("Cache-Control")).toContain("max-age=300");
+  });
+
+  it("관리자 강제 새로고침에서만 X refresh를 켠다", async () => {
+    fetchXPostsForHandlesMock.mockResolvedValueOnce({
+      posts: [],
+      byHandle: [{ handle: "otw_member", posts: [], error: null }],
+    });
+    const env = makeEnv();
+
+    const response = await handleMemberPosts(
+      new Request(
+        "https://example.com/api/member-posts?sources=x&maxResults=5&admin=1&_=123",
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(requireAdminUserMock).toHaveBeenCalledTimes(1);
+    expect(fetchXPostsForHandlesMock).toHaveBeenCalledWith(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: env.otw_db,
+      forceRefresh: true,
+      forceRefreshPath: "member-posts:admin",
+      maxResults: 5,
+      refresh: true,
+      richXLinkPreviewEnabled: true,
+      usageSource: "member-posts:admin",
+    });
   });
 
   it("멤버 권한이 필요한 aggregate feed는 shared cache를 허용하지 않는다", async () => {
@@ -317,7 +414,7 @@ describe("member-posts aggregate worker route", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(fetchNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+    expect(readStoredNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
     expect(body.naverCafe.error).toBe("Naver Cafe posts are disabled");
     expect(body.naverCafe.sources).toEqual([]);
     expect(body.naverCafe.policy).toMatchObject({

@@ -3,8 +3,7 @@ import { members, naverCafeSources } from "../../src/db/schema";
 import { authenticateRequest, requireAdminUser } from "../auth";
 import { getDb } from "../db";
 import {
-  fetchNaverCafePostsForSources,
-  NaverCafeApiError,
+  readStoredNaverCafePostsForSources,
 } from "../services/naver-cafe";
 import {
   extractXHandleFromUrl,
@@ -71,6 +70,9 @@ const parseSources = (value: string | null) => {
     requested.has("naver-cafe") || requested.has("cafe");
   return { includeX, includeNaverCafe };
 };
+
+const parseCompact = (value: string | null) =>
+  value === "1" || value === "true";
 
 const readPostConfigs = async (db: ReturnType<typeof getDb>) => {
   const [
@@ -275,6 +277,7 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
 
   const db = getDb(env);
   const adminView = url.searchParams.get("admin") === "1";
+  const compact = parseCompact(url.searchParams.get("compact"));
   const requestedForce = url.searchParams.has("_") || request.cache === "no-store";
   const force = adminView && requestedForce;
   const configs = await readPostConfigs(db);
@@ -346,6 +349,7 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
           cacheDb: env.otw_db,
           maxResults,
           richXLinkPreviewEnabled: configs.x.richLinkPreviewEnabled,
+          refresh: force,
           forceRefresh: force,
           usageSource: adminView ? "member-posts:admin" : "member-posts",
           forceRefreshPath: force ? "member-posts:admin" : null,
@@ -386,7 +390,8 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
       if (cafeSources.length === 0) return emptyNaverCafe(naverCafePolicy);
 
       try {
-        const content = await fetchNaverCafePostsForSources(cafeSources, {
+        const content = await readStoredNaverCafePostsForSources(cafeSources, {
+          cacheDb: env.otw_db,
           size,
         });
         return {
@@ -396,9 +401,6 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
           policy: naverCafePolicy,
         };
       } catch (error) {
-        if (error instanceof NaverCafeApiError) {
-          return emptyNaverCafe(naverCafePolicy, error.message);
-        }
         console.error("Failed to aggregate Naver Cafe posts", error);
         return emptyNaverCafe(naverCafePolicy, "Failed to fetch Naver Cafe posts");
       }
@@ -429,8 +431,14 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
     {
       updatedAt: new Date().toISOString(),
       posts,
-      x,
-      naverCafe,
+      x: compact
+        ? {
+            ...x,
+            posts: [],
+            byHandle: x.byHandle.map((item) => ({ ...item, posts: [] })),
+          }
+        : x,
+      naverCafe: compact ? { ...naverCafe, posts: [] } : naverCafe,
     },
     200,
     {

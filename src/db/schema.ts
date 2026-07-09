@@ -199,6 +199,11 @@ export const xPosts = sqliteTable(
   },
   (table) => [
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
+    index("idx_x_posts_handle_hidden_created").on(
+      table.handle,
+      table.hidden_at,
+      table.created_at,
+    ),
     index("idx_x_posts_user_id").on(table.user_id),
     index("idx_x_posts_hidden_at").on(table.hidden_at),
   ],
@@ -420,7 +425,7 @@ export const naverCafeSourceChecks = sqliteTable(
     index("idx_naver_cafe_source_checks_status").on(table.status),
     check(
       "naver_cafe_source_checks_trigger_check",
-      sql`${table.trigger} IN ('manual')`,
+      sql`${table.trigger} IN ('manual', 'scheduled')`,
     ),
     check(
       "naver_cafe_source_checks_status_check",
@@ -433,6 +438,50 @@ export type NaverCafeSourceCheck =
   typeof naverCafeSourceChecks.$inferSelect;
 export type NewNaverCafeSourceCheck =
   typeof naverCafeSourceChecks.$inferInsert;
+
+// 네이버 카페 게시글 저장 테이블
+export const naverCafePosts = sqliteTable(
+  "naver_cafe_posts",
+  {
+    id: text().primaryKey(),
+    article_id: integer("article_id").notNull(),
+    source_id: integer("source_id").notNull(),
+    source_name: text("source_name").notNull(),
+    cafe_id: text("cafe_id").notNull(),
+    menu_id: text("menu_id").notNull(),
+    member_uid: integer("member_uid"),
+    title: text().notNull(),
+    summary: text().notNull(),
+    created_at: text("created_at").notNull(),
+    url: text().notNull(),
+    thumbnail_url: text("thumbnail_url"),
+    comment_count: integer("comment_count").notNull().default(0),
+    read_count: integer("read_count").notNull().default(0),
+    like_count: integer("like_count").notNull().default(0),
+    is_new: integer("is_new", { mode: "boolean" }).notNull().default(false),
+    fetched_at: integer("fetched_at").notNull(),
+    hidden_at: integer("hidden_at"),
+  },
+  (table) => [
+    index("idx_naver_cafe_posts_source_hidden_created").on(
+      table.source_id,
+      table.hidden_at,
+      table.created_at,
+    ),
+    index("idx_naver_cafe_posts_member_hidden_created").on(
+      table.member_uid,
+      table.hidden_at,
+      table.created_at,
+    ),
+    index("idx_naver_cafe_posts_hidden_created").on(
+      table.hidden_at,
+      table.created_at,
+    ),
+  ],
+);
+
+export type NaverCafePost = typeof naverCafePosts.$inferSelect;
+export type NewNaverCafePost = typeof naverCafePosts.$inferInsert;
 
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(

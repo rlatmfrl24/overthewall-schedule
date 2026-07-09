@@ -1,12 +1,15 @@
-import type { NaverCafeSource } from "../../src/db/schema";
+import { asc, sql } from "drizzle-orm";
+import { naverCafeSources, type NaverCafeSource } from "../../src/db/schema";
 import {
   buildNaverCafeArticleUrl,
   buildNaverCafeBoardUrl,
 } from "../../src/lib/naver-cafe";
 import { CACHE_POLICY } from "../../src/lib/cache-policy";
-import { pMap } from "../utils/helpers";
+import { getDb } from "../db";
+import { getSetting, pMap, updateSetting } from "../utils/helpers";
+import type { Env } from "../types";
 
-type NaverCafeSourceInput = Pick<
+export type NaverCafeSourceInput = Pick<
   NaverCafeSource,
   | "id"
   | "name"
@@ -18,7 +21,7 @@ type NaverCafeSourceInput = Pick<
   | "sort_order"
 >;
 
-type NaverCafePostItem = {
+export type NaverCafePostItem = {
   id: string;
   articleId: number;
   cafeId: string;
@@ -38,7 +41,7 @@ type NaverCafePostItem = {
   isNew: boolean;
 };
 
-type NaverCafeSourceStatus =
+export type NaverCafeSourceStatus =
   | "ok"
   | "stale"
   | "error"
@@ -46,7 +49,7 @@ type NaverCafeSourceStatus =
   | "invalid_response"
   | "disabled";
 
-type NaverCafeSourceResult = {
+export type NaverCafeSourceResult = {
   id: number;
   name: string;
   cafeId: string;
@@ -61,9 +64,18 @@ type NaverCafeSourceResult = {
   stale: boolean;
 };
 
-type NaverCafePostsResult = {
+export type NaverCafePostsResult = {
   posts: NaverCafePostItem[];
   sources: NaverCafeSourceResult[];
+};
+
+export type NaverCafeCollectionTrigger = "manual" | "scheduled";
+
+export type NaverCafeCollectionResult = NaverCafePostsResult & {
+  success: boolean;
+  updatedAt: string;
+  checkedAt: number;
+  durationMs: number;
 };
 
 type CachedSourcePosts = {
@@ -99,6 +111,41 @@ type NaverCafeBoardListResponse = {
   };
   errorCode?: string;
   message?: string;
+};
+
+type NaverCafePostRow = {
+  id: string;
+  article_id: number | string;
+  source_id: number;
+  source_name: string;
+  cafe_id: string;
+  menu_id: string;
+  member_uid: number | null;
+  title: string;
+  summary: string;
+  created_at: string;
+  url: string;
+  thumbnail_url: string | null;
+  comment_count: number | string;
+  read_count: number | string;
+  like_count: number | string;
+  is_new: number | boolean | null;
+  fetched_at: number | string;
+  hidden_at: number | null;
+};
+
+type NaverCafeSourceCheckRow = {
+  id: number;
+  source_id: number;
+  source_name: string;
+  cafe_id: string;
+  menu_id: string;
+  trigger: NaverCafeCollectionTrigger;
+  status: NaverCafeSourceStatus;
+  checked_at: number | string;
+  duration_ms: number | string;
+  post_count: number | string;
+  error: string | null;
 };
 
 export class NaverCafeApiError extends Error {
@@ -143,10 +190,31 @@ const NAVER_CAFE_BOARD_API_BASE =
 const NAVER_CAFE_POSTS_CACHE_POLICY = CACHE_POLICY.worker.naverCafe.posts;
 const NAVER_CAFE_FETCH_CONCURRENCY = 3;
 const NAVER_CAFE_FETCH_TIMEOUT_MS = 5_000;
+const NAVER_CAFE_SCHEDULED_INTERVAL_MS = 60 * 60_000;
+const NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY =
+  "naver_cafe_collection_last_run";
+const NAVER_CAFE_COLLECTION_SIZE = 15;
 
 const SOURCE_POSTS_CACHE = new Map<string, CachedSourcePosts>();
 
 const now = () => Date.now();
+
+const getD1Results = <T>(value: unknown): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === "object") {
+    const results = (value as { results?: unknown }).results;
+    return Array.isArray(results) ? (results as T[]) : [];
+  }
+  return [];
+};
+
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const createSqlPlaceholders = (count: number) =>
+  Array.from({ length: count }, () => "?").join(", ");
 
 const clampMaxResults = (value: number | undefined) => {
   if (!Number.isFinite(value)) return 10;
@@ -353,10 +421,11 @@ const requestNaverCafeBoardList = async (
 const fetchPostsForSource = async (
   source: NaverCafeSourceInput,
   size: number,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<{ posts: NaverCafePostItem[]; source: NaverCafeSourceResult }> => {
   const cacheKey = getCacheKey(source, size);
   const cached = SOURCE_POSTS_CACHE.get(cacheKey);
-  if (cached && isFresh(cached)) {
+  if (!options.forceRefresh && cached && isFresh(cached)) {
     return {
       posts: cached.posts,
       source: sourceToStatus(source, "ok", { postCount: cached.posts.length }),
@@ -403,7 +472,7 @@ const fetchPostsForSource = async (
 
 export const fetchNaverCafePostsForSources = async (
   sources: NaverCafeSourceInput[],
-  options: { size?: number } = {},
+  options: { size?: number; forceRefresh?: boolean } = {},
 ): Promise<NaverCafePostsResult> => {
   const size = clampMaxResults(options.size);
   const disabledSources = sources.filter((source) => !normalizeBoolean(source.enabled));
@@ -418,7 +487,10 @@ export const fetchNaverCafePostsForSources = async (
 
   const results = await pMap(
     enabledSources,
-    (source) => fetchPostsForSource(source, size),
+    (source) =>
+      fetchPostsForSource(source, size, {
+        forceRefresh: options.forceRefresh,
+      }),
     NAVER_CAFE_FETCH_CONCURRENCY,
   );
   const posts = results
@@ -449,6 +521,374 @@ export const fetchNaverCafePostsForSources = async (
   }
 
   return { posts, sources: sourceResults };
+};
+
+const rowToPost = (row: NaverCafePostRow): NaverCafePostItem => ({
+  id: row.id,
+  articleId: toFiniteNumber(row.article_id),
+  cafeId: row.cafe_id,
+  menuId: row.menu_id,
+  sourceName: row.source_name,
+  memberUid: row.member_uid ?? null,
+  title: row.title,
+  summary: row.summary,
+  createdAt: row.created_at,
+  url: row.url,
+  thumbnailUrl: row.thumbnail_url ?? null,
+  metrics: {
+    commentCount: toFiniteNumber(row.comment_count),
+    readCount: toFiniteNumber(row.read_count),
+    likeCount: toFiniteNumber(row.like_count),
+  },
+  isNew: row.is_new === true || row.is_new === 1,
+});
+
+const readLatestSourceChecks = async (
+  cacheDb: D1Database | undefined,
+  sourceIds: number[],
+) => {
+  if (!cacheDb || sourceIds.length === 0) {
+    return new Map<number, NaverCafeSourceCheckRow>();
+  }
+
+  const rows = getD1Results<NaverCafeSourceCheckRow>(
+    await cacheDb
+      .prepare(
+        `SELECT id, source_id, source_name, cafe_id, menu_id, trigger, status,
+                checked_at, duration_ms, post_count, error
+         FROM naver_cafe_source_checks
+         WHERE source_id IN (${createSqlPlaceholders(sourceIds.length)})
+         ORDER BY checked_at DESC, id DESC`,
+      )
+      .bind(...sourceIds)
+      .all<NaverCafeSourceCheckRow>(),
+  );
+  const bySource = new Map<number, NaverCafeSourceCheckRow>();
+  for (const row of rows) {
+    if (!bySource.has(row.source_id)) {
+      bySource.set(row.source_id, row);
+    }
+  }
+  return bySource;
+};
+
+const readStoredPostsForSource = async (
+  cacheDb: D1Database | undefined,
+  source: NaverCafeSourceInput,
+  size: number,
+) => {
+  if (!cacheDb) return [];
+
+  const rows = getD1Results<NaverCafePostRow>(
+    await cacheDb
+      .prepare(
+        `SELECT id, article_id, source_id, source_name, cafe_id, menu_id,
+                member_uid, title, summary, created_at, url, thumbnail_url,
+                comment_count, read_count, like_count, is_new, fetched_at,
+                hidden_at
+         FROM naver_cafe_posts
+         WHERE source_id = ? AND hidden_at IS NULL
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .bind(source.id, size)
+      .all<NaverCafePostRow>(),
+  );
+
+  return rows.map(rowToPost);
+};
+
+const storedSourceStatus = (
+  source: NaverCafeSourceInput,
+  latestCheck: NaverCafeSourceCheckRow | null,
+  postCount: number,
+): NaverCafeSourceResult => {
+  if (!normalizeBoolean(source.enabled)) {
+    return sourceToStatus(source, "disabled");
+  }
+
+  if (!latestCheck) {
+    return sourceToStatus(source, "stale", {
+      error: "No Naver Cafe collection history",
+      postCount,
+      stale: true,
+    });
+  }
+
+  const checkedAt = toFiniteNumber(latestCheck.checked_at);
+  const stale = now() - checkedAt > NAVER_CAFE_POSTS_CACHE_POLICY.staleTtlMs;
+  const status =
+    stale && ["ok", "stale"].includes(latestCheck.status)
+      ? "stale"
+      : latestCheck.status;
+  return sourceToStatus(source, status, {
+    error: latestCheck.error,
+    postCount: Math.max(postCount, toFiniteNumber(latestCheck.post_count)),
+    stale,
+  });
+};
+
+export const readStoredNaverCafePostsForSources = async (
+  sources: NaverCafeSourceInput[],
+  options: {
+    cacheDb?: D1Database;
+    size?: number;
+  } = {},
+): Promise<NaverCafePostsResult> => {
+  const size = clampMaxResults(options.size);
+  const sourceIds = sources.map((source) => source.id);
+  const latestChecks = await readLatestSourceChecks(options.cacheDb, sourceIds);
+  const sourcePosts = await Promise.all(
+    sources.map(async (source) => ({
+      source,
+      posts: normalizeBoolean(source.enabled)
+        ? await readStoredPostsForSource(options.cacheDb, source, size)
+        : [],
+    })),
+  );
+  const posts = sourcePosts
+    .flatMap((item) => item.posts)
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  const sourceResults = sourcePosts
+    .map(({ source, posts }) =>
+      storedSourceStatus(source, latestChecks.get(source.id) ?? null, posts.length),
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+
+  return { posts, sources: sourceResults };
+};
+
+const writeStoredNaverCafeSourcePosts = async (
+  cacheDb: D1Database | undefined,
+  sources: NaverCafeSourceInput[],
+  posts: NaverCafePostItem[],
+  fetchedAt: number,
+) => {
+  if (!cacheDb || posts.length === 0) return;
+
+  const sourceKeyToId = new Map(
+    sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
+  );
+
+  for (const post of posts) {
+    const sourceId = sourceKeyToId.get(`${post.cafeId}:${post.menuId}`);
+    if (!sourceId) continue;
+    await cacheDb
+      .prepare(
+        `INSERT INTO naver_cafe_posts (
+           id, article_id, source_id, source_name, cafe_id, menu_id,
+           member_uid, title, summary, created_at, url, thumbnail_url,
+           comment_count, read_count, like_count, is_new, fetched_at, hidden_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         ON CONFLICT(id) DO UPDATE SET
+           source_id = excluded.source_id,
+           source_name = excluded.source_name,
+           cafe_id = excluded.cafe_id,
+           menu_id = excluded.menu_id,
+           member_uid = excluded.member_uid,
+           title = excluded.title,
+           summary = excluded.summary,
+           created_at = excluded.created_at,
+           url = excluded.url,
+           thumbnail_url = excluded.thumbnail_url,
+           comment_count = excluded.comment_count,
+           read_count = excluded.read_count,
+           like_count = excluded.like_count,
+           is_new = excluded.is_new,
+           fetched_at = excluded.fetched_at,
+           hidden_at = NULL`,
+      )
+      .bind(
+        post.id,
+        post.articleId,
+        sourceId,
+        post.sourceName,
+        post.cafeId,
+        post.menuId,
+        post.memberUid,
+        post.title,
+        post.summary,
+        post.createdAt,
+        post.url,
+        post.thumbnailUrl,
+        post.metrics.commentCount,
+        post.metrics.readCount,
+        post.metrics.likeCount,
+        post.isNew ? 1 : 0,
+        fetchedAt,
+      )
+      .run();
+  }
+};
+
+const writeNaverCafeSourceChecks = async (
+  cacheDb: D1Database | undefined,
+  trigger: NaverCafeCollectionTrigger,
+  checkedAt: number,
+  durationMs: number,
+  sources: NaverCafeSourceResult[],
+) => {
+  if (!cacheDb || sources.length === 0) return;
+
+  for (const source of sources) {
+    await cacheDb
+      .prepare(
+        `INSERT INTO naver_cafe_source_checks (
+           source_id, source_name, cafe_id, menu_id, trigger, status,
+           checked_at, duration_ms, post_count, error
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        source.id,
+        source.name,
+        source.cafeId,
+        source.menuId,
+        trigger,
+        source.status,
+        checkedAt,
+        durationMs,
+        source.postCount,
+        source.error,
+      )
+      .run();
+  }
+};
+
+const errorSourcesFromDiagnostics = (
+  sources: NaverCafeSourceInput[],
+  error: NaverCafeApiError,
+) => {
+  const diagnostics = new Map(
+    error.diagnostics.map((item) => [item.sourceId, item]),
+  );
+  return sources.map((source) => {
+    const diagnostic = diagnostics.get(source.id);
+    return sourceToStatus(source, diagnostic?.status ?? "error", {
+      error: diagnostic?.error ?? error.message,
+    });
+  });
+};
+
+export const collectNaverCafePostsForSources = async (
+  sources: NaverCafeSourceInput[],
+  options: {
+    cacheDb?: D1Database;
+    size?: number;
+    trigger: NaverCafeCollectionTrigger;
+  },
+): Promise<NaverCafeCollectionResult> => {
+  const startedAt = now();
+  let posts: NaverCafePostItem[] = [];
+  let sourceResults: NaverCafeSourceResult[] = [];
+
+  try {
+    const content = await fetchNaverCafePostsForSources(sources, {
+      size: options.size,
+      forceRefresh: true,
+    });
+    posts = content.posts;
+    sourceResults = content.sources;
+  } catch (error) {
+    sourceResults =
+      error instanceof NaverCafeApiError
+        ? errorSourcesFromDiagnostics(sources, error)
+        : sources.map((source) =>
+            sourceToStatus(source, "error", {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Failed to fetch Naver Cafe posts",
+            }),
+          );
+  }
+
+  const checkedAt = now();
+  const durationMs = checkedAt - startedAt;
+  await writeStoredNaverCafeSourcePosts(
+    options.cacheDb,
+    sources,
+    posts,
+    checkedAt,
+  );
+  await writeNaverCafeSourceChecks(
+    options.cacheDb,
+    options.trigger,
+    checkedAt,
+    durationMs,
+    sourceResults,
+  );
+
+  return {
+    success: sourceResults.every((source) =>
+      ["ok", "stale", "disabled"].includes(source.status),
+    ),
+    updatedAt: new Date(checkedAt).toISOString(),
+    checkedAt,
+    durationMs,
+    posts,
+    sources: sourceResults,
+  };
+};
+
+export const runScheduledNaverCafeCollection = async (env: Env) => {
+  const db = getDb(env);
+  const lastRun = Number.parseInt(
+    (await getSetting(db, NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY)) ?? "",
+    10,
+  );
+  const currentTime = now();
+  const elapsedMs = Number.isFinite(lastRun)
+    ? currentTime - lastRun
+    : Number.POSITIVE_INFINITY;
+  if (elapsedMs < NAVER_CAFE_SCHEDULED_INTERVAL_MS) {
+    return {
+      skipped: true as const,
+      reason: "interval_not_elapsed" as const,
+      intervalHours: 1,
+      lastRun: Number.isFinite(lastRun) ? lastRun : null,
+      elapsedMs,
+    };
+  }
+
+  const sources = await db
+    .select()
+    .from(naverCafeSources)
+    .where(sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`)
+    .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
+  const result =
+    sources.length === 0
+      ? {
+          success: true,
+          updatedAt: new Date(currentTime).toISOString(),
+          checkedAt: currentTime,
+          durationMs: 0,
+          posts: [],
+          sources: [],
+        }
+      : await collectNaverCafePostsForSources(sources, {
+          cacheDb: env.otw_db,
+          size: NAVER_CAFE_COLLECTION_SIZE,
+          trigger: "scheduled",
+        });
+
+  await updateSetting(
+    db,
+    NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY,
+    String(result.checkedAt),
+  );
+
+  return {
+    skipped: false as const,
+    intervalHours: 1,
+    lastRun: Number.isFinite(lastRun) ? lastRun : null,
+    elapsedMs,
+    result,
+  };
 };
 
 export const clearNaverCafeServiceCachesForTests = () => {

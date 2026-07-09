@@ -15,8 +15,8 @@ import {
   parseNumericId,
 } from "../utils/helpers";
 import {
-  fetchNaverCafePostsForSources,
-  NaverCafeApiError,
+  collectNaverCafePostsForSources,
+  readStoredNaverCafePostsForSources,
 } from "../services/naver-cafe";
 import type { Env } from "../types";
 
@@ -329,31 +329,30 @@ export const handleNaverCafe = async (request: Request, env: Env) => {
       return cachedResponse;
     }
 
-    try {
-      const content = await fetchNaverCafePostsForSources(sources, { size });
-      const response = json(
-        {
-          updatedAt: new Date().toISOString(),
-          ...content,
-        },
-        200,
-        { headers: responseHeaders },
-      );
-      if (responseCacheKey) {
-        await writePostsResponseCache(responseCacheKey, response);
-      }
-      return response;
-    } catch (error) {
-      if (error instanceof NaverCafeApiError) {
-        console.error("Failed to handle /api/naver-cafe/posts", {
-          status: error.status,
-          diagnostics: error.diagnostics,
-        });
-        return new Response(error.message, { status: error.status });
-      }
-      console.error("Failed to handle /api/naver-cafe/posts", error);
-      return new Response("Failed to fetch Naver Cafe posts", { status: 502 });
+    const content =
+      adminView && shouldBypassPostsResponseCache(request, url)
+        ? await collectNaverCafePostsForSources(sources, {
+            cacheDb: env.otw_db,
+            size,
+            trigger: "manual",
+          })
+        : await readStoredNaverCafePostsForSources(sources, {
+            cacheDb: env.otw_db,
+            size,
+          });
+    const response = json(
+      {
+        updatedAt: new Date().toISOString(),
+        posts: content.posts,
+        sources: content.sources,
+      },
+      200,
+      { headers: responseHeaders },
+    );
+    if (responseCacheKey) {
+      await writePostsResponseCache(responseCacheKey, response);
     }
+    return response;
   }
 
   return new Response(null, { status: 404 });
