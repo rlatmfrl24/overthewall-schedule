@@ -3,6 +3,10 @@ import {
   fetchYouTubeVideosForChannel,
   getYouTubeCacheStatus,
 } from "../services/youtube";
+import {
+  getYouTubeWarmupStatus,
+  runYouTubeWarmup,
+} from "../services/youtube-warmup";
 import { badRequest, json, methodNotAllowed, pMap } from "../utils/helpers";
 import type { Env, YouTubeVideoItem } from "../types";
 
@@ -37,7 +41,35 @@ export const handleYouTube = async (request: Request, env: Env) => {
       return badRequest("windowHours must be an integer between 1 and 168");
     }
 
-    return json(await getYouTubeCacheStatus(env.otw_db, windowHours), 200, {
+    const [cacheStatus, warmupStatus] = await Promise.all([
+      getYouTubeCacheStatus(env.otw_db, windowHours),
+      getYouTubeWarmupStatus(env.otw_db, windowHours),
+    ]);
+
+    return json(
+      {
+        ...cacheStatus,
+        warmup: warmupStatus,
+      },
+      200,
+      {
+        headers: {
+          "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+          Vary: "Authorization",
+        },
+      },
+    );
+  }
+
+  if (url.pathname === "/api/youtube/cache/warmup/run") {
+    if (request.method !== "POST") {
+      return methodNotAllowed();
+    }
+
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+
+    return json(await runYouTubeWarmup(env, "manual"), 200, {
       headers: {
         "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
         Vary: "Authorization",

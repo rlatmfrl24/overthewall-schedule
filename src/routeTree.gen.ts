@@ -21,6 +21,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
@@ -90,6 +91,11 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
+  id: '/youtube-cache',
+  path: '/youtube-cache',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSnapshotRoute = AdminSnapshotRouteImport.update({
   id: '/snapshot',
   path: '/snapshot',
@@ -149,6 +155,7 @@ export interface FileRoutesByFullPath {
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
+  '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
@@ -169,6 +176,7 @@ export interface FileRoutesByTo {
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
+  '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
   '/vods': typeof VodsIndexRoute
@@ -192,6 +200,7 @@ export interface FileRoutesById {
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
+  '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
@@ -216,6 +225,7 @@ export interface FileRouteTypes {
     | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
+    | '/admin/youtube-cache'
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
+    | '/admin/youtube-cache'
     | '/profile/$code'
     | '/admin'
     | '/vods'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
+    | '/admin/youtube-cache'
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
@@ -362,6 +374,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/youtube-cache': {
+      id: '/admin/youtube-cache'
+      path: '/youtube-cache'
+      fullPath: '/admin/youtube-cache'
+      preLoaderRoute: typeof AdminYoutubeCacheRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/snapshot': {
       id: '/admin/snapshot'
       path: '/snapshot'
@@ -430,6 +449,7 @@ interface AdminRouteChildren {
   AdminOperationsRoute: typeof AdminOperationsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminSnapshotRoute: typeof AdminSnapshotRoute
+  AdminYoutubeCacheRoute: typeof AdminYoutubeCacheRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -442,6 +462,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminOperationsRoute: AdminOperationsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminSnapshotRoute: AdminSnapshotRoute,
+  AdminYoutubeCacheRoute: AdminYoutubeCacheRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

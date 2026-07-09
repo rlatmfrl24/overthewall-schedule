@@ -15,6 +15,12 @@ export interface AutoUpdateSettings {
   x_collection_daily_budget_cents: string | null;
   x_collection_interval_hours: string | null;
   x_collection_last_run: string | null;
+  youtube_warmup_enabled: string | null;
+  youtube_warmup_interval_hours: string | null;
+  youtube_warmup_daily_quota_units: string | null;
+  youtube_warmup_official_enabled: string | null;
+  youtube_warmup_kirinuki_enabled: string | null;
+  youtube_warmup_last_run: string | null;
 }
 
 export interface AutoUpdateRunDetail {
@@ -150,6 +156,11 @@ export async function updateSettings(
       | "x_collection_enabled"
       | "x_collection_daily_budget_cents"
       | "x_collection_interval_hours"
+      | "youtube_warmup_enabled"
+      | "youtube_warmup_interval_hours"
+      | "youtube_warmup_daily_quota_units"
+      | "youtube_warmup_official_enabled"
+      | "youtube_warmup_kirinuki_enabled"
     >
   >
 ): Promise<void> {

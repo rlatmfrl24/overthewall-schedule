@@ -22,6 +22,10 @@ import { fetchScheduleBoard } from "./schedule-board";
 import { fetchMemberPostsAggregate } from "./member-posts";
 import { fetchKirinukiVideos } from "./kirinuki";
 import {
+  fetchYouTubeCacheStatus,
+  runYouTubeWarmupNow,
+} from "./youtube-cache";
+import {
   approveAllPendingSchedules,
   approveSelectedPendingSchedules,
   approvePendingSchedule,
@@ -297,6 +301,53 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/member-posts?sources=naver-cafe&maxResults=3&size=7&admin=1",
       { cache: "default" },
+    );
+  });
+
+  it("YouTube 캐시 관리 API는 모니터링과 수동 예열 endpoint를 호출한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        window: { hours: 72, since: 1 },
+        cache: { total: 0, fresh: 0, stale: 0, expired: 0, byType: [] },
+        usage: {
+          apiCalls: 0,
+          quotaUnits: 0,
+          successCount: 0,
+          failureCount: 0,
+          rateLimitCount: 0,
+          quotaErrorCount: 0,
+          byOperation: [],
+        },
+        channels: [],
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        source: "manual",
+        status: "success",
+        targetCount: 0,
+        skippedFreshCount: 0,
+        refreshedCount: 0,
+        failedCount: 0,
+        staleFallbackCount: 0,
+        apiCalls: 0,
+        quotaUnits: 0,
+        durationMs: 1,
+        startedAt: 1,
+        finishedAt: 2,
+        error: null,
+      });
+
+    await fetchYouTubeCacheStatus(72);
+    await runYouTubeWarmupNow();
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/status?windowHours=72",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/warmup/run",
+      { method: "POST" },
     );
   });
 

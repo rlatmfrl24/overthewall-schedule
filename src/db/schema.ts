@@ -329,6 +329,43 @@ export type YouTubeApiUsageEvent = typeof youtubeApiUsageEvents.$inferSelect;
 export type NewYouTubeApiUsageEvent =
   typeof youtubeApiUsageEvents.$inferInsert;
 
+// YouTube 캐시 백그라운드 예열 실행 이력
+export const youtubeWarmupRuns = sqliteTable(
+  "youtube_warmup_runs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source: text().notNull(),
+    status: text().notNull(),
+    target_count: integer("target_count").notNull(),
+    skipped_fresh_count: integer("skipped_fresh_count").notNull(),
+    refreshed_count: integer("refreshed_count").notNull(),
+    failed_count: integer("failed_count").notNull(),
+    stale_fallback_count: integer("stale_fallback_count").notNull(),
+    api_calls: integer("api_calls").notNull(),
+    quota_units: integer("quota_units").notNull(),
+    duration_ms: integer("duration_ms").notNull(),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at").notNull(),
+    error: text(),
+  },
+  (table) => [
+    index("idx_youtube_warmup_runs_started_at").on(table.started_at),
+    index("idx_youtube_warmup_runs_status").on(table.status),
+    index("idx_youtube_warmup_runs_source").on(table.source),
+    check(
+      "youtube_warmup_runs_source_check",
+      sql`source IN ('scheduled', 'manual')`,
+    ),
+    check(
+      "youtube_warmup_runs_status_check",
+      sql`status IN ('success', 'skipped', 'partial', 'failed')`,
+    ),
+  ],
+);
+
+export type YouTubeWarmupRun = typeof youtubeWarmupRuns.$inferSelect;
+export type NewYouTubeWarmupRun = typeof youtubeWarmupRuns.$inferInsert;
+
 // 네이버 카페 게시판 소스 테이블
 export const naverCafeSources = sqliteTable(
   "naver_cafe_sources",

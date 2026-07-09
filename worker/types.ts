@@ -129,6 +129,51 @@ export type YouTubeApiOperation =
   | "channels.list"
   | "playlistItems.list"
   | "videos.list";
+export type YouTubeWarmupSource = "scheduled" | "manual";
+export type YouTubeWarmupStatus = "success" | "skipped" | "partial" | "failed";
+export type YouTubeWarmupTargetSource = "official" | "kirinuki";
+
+export type YouTubeWarmupRunSummary = {
+  id: number | null;
+  source: YouTubeWarmupSource;
+  status: YouTubeWarmupStatus;
+  targetCount: number;
+  skippedFreshCount: number;
+  refreshedCount: number;
+  failedCount: number;
+  staleFallbackCount: number;
+  apiCalls: number;
+  quotaUnits: number;
+  durationMs: number;
+  startedAt: number;
+  finishedAt: number;
+  error: string | null;
+};
+
+export type YouTubeWarmupStatusSummary = {
+  settings: {
+    enabled: boolean;
+    intervalHours: number;
+    dailyQuotaUnits: number;
+    officialEnabled: boolean;
+    kirinukiEnabled: boolean;
+    lastRun: number | null;
+  };
+  quota: {
+    limit: number;
+    used: number;
+    remaining: number;
+    windowHours: number;
+    since: number;
+  };
+  targets: {
+    total: number;
+    official: number;
+    kirinuki: number;
+  };
+  latestRun: YouTubeWarmupRunSummary | null;
+  recentRuns: YouTubeWarmupRunSummary[];
+};
 
 export type YouTubeCacheStatusResponse = {
   updatedAt: string;
@@ -160,6 +205,7 @@ export type YouTubeCacheStatusResponse = {
       failureCount: number;
     }>;
   };
+  warmup?: YouTubeWarmupStatusSummary;
   channels: Array<{
     channelId: string;
     cacheKey: string;

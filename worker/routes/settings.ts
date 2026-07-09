@@ -24,7 +24,14 @@ import {
   normalizeAutoUpdateIntervalHours,
   isXCollectionIntervalHours,
   normalizeXCollectionIntervalHours,
+  isYouTubeWarmupIntervalHours,
 } from "../../src/lib/auto-update-interval";
+import {
+  isBooleanSettingValue,
+  isYouTubeWarmupDailyQuotaUnitsValue,
+  normalizeYouTubeWarmupSettings,
+  YOUTUBE_WARMUP_SETTINGS_KEYS,
+} from "../../src/lib/youtube-warmup-settings";
 import { roundTimeToNearestScheduleHour } from "../../src/lib/pending-time";
 import {
   badRequest,
@@ -758,6 +765,7 @@ export const handleSettings = async (
     "x_collection_daily_budget_cents",
     "x_collection_interval_hours",
     "x_collection_last_run",
+    ...YOUTUBE_WARMUP_SETTINGS_KEYS,
     LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
   ] as const;
 
@@ -1003,6 +1011,23 @@ export const handleSettings = async (
     settingsObj.x_collection_daily_budget_cents ??= "100";
     settingsObj.x_collection_last_run ??= null;
     settingsObj[LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY] ??= "true";
+
+    const normalizedYouTubeWarmupSettings = normalizeYouTubeWarmupSettings(
+      settingsObj,
+    );
+    for (const key of YOUTUBE_WARMUP_SETTINGS_KEYS) {
+      const normalizedValue = normalizedYouTubeWarmupSettings[key];
+      if (key === "youtube_warmup_last_run") {
+        settingsObj[key] = normalizedValue;
+        continue;
+      }
+      const writableValue = normalizedValue ?? "";
+      if (settingsObj[key] !== writableValue) {
+        await updateSetting(db, key, writableValue);
+        settingsObj[key] = writableValue;
+      }
+    }
+
     const normalizedXCollectionIntervalHours =
       normalizeXCollectionIntervalHours(settingsObj.x_collection_interval_hours);
     if (
@@ -1102,8 +1127,33 @@ export const handleSettings = async (
         ) {
           return badRequest("Invalid x_collection_interval_hours");
         }
+        if (
+          [
+            "youtube_warmup_enabled",
+            "youtube_warmup_official_enabled",
+            "youtube_warmup_kirinuki_enabled",
+          ].includes(key) &&
+          !isBooleanSettingValue(body[key])
+        ) {
+          return badRequest(`Invalid ${key}`);
+        }
+        if (
+          key === "youtube_warmup_interval_hours" &&
+          !isYouTubeWarmupIntervalHours(body[key])
+        ) {
+          return badRequest("Invalid youtube_warmup_interval_hours");
+        }
+        if (
+          key === "youtube_warmup_daily_quota_units" &&
+          !isYouTubeWarmupDailyQuotaUnitsValue(body[key])
+        ) {
+          return badRequest("Invalid youtube_warmup_daily_quota_units");
+        }
         // last_run은 시스템에서만 업데이트
-        if (key !== "x_collection_last_run") {
+        if (
+          key !== "x_collection_last_run" &&
+          key !== "youtube_warmup_last_run"
+        ) {
           updates.push(updateSetting(db, key, body[key]));
         }
       }
