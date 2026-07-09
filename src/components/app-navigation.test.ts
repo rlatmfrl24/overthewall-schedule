@@ -84,7 +84,7 @@ describe("app navigation", () => {
       "feed",
       "multiview",
     ]);
-    expect(adminItem?.to).toBe("/admin/notices");
+    expect(adminItem?.to).toBe("/admin/operations");
   });
 
   it("keeps multiview public even when member posts require auth", () => {

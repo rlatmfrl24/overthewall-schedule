@@ -85,4 +85,9 @@ export const queryKeys = {
     logs: (options: UpdateLogQuery) =>
       [...queryKeys.settings.all, "logs", options] as const,
   },
+  operations: {
+    all: ["operations"] as const,
+    status: (windowHours: number) =>
+      [...queryKeys.operations.all, "status", windowHours] as const,
+  },
 };

@@ -358,6 +358,45 @@ export const naverCafeSources = sqliteTable(
 export type NaverCafeSource = typeof naverCafeSources.$inferSelect;
 export type NewNaverCafeSource = typeof naverCafeSources.$inferInsert;
 
+// 네이버 카페 소스별 상태 점검 이력
+export const naverCafeSourceChecks = sqliteTable(
+  "naver_cafe_source_checks",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source_id: integer("source_id").notNull(),
+    source_name: text("source_name").notNull(),
+    cafe_id: text("cafe_id").notNull(),
+    menu_id: text("menu_id").notNull(),
+    trigger: text().notNull(),
+    status: text().notNull(),
+    checked_at: integer("checked_at").notNull(),
+    duration_ms: integer("duration_ms").notNull().default(0),
+    post_count: integer("post_count").notNull().default(0),
+    error: text(),
+  },
+  (table) => [
+    index("idx_naver_cafe_source_checks_source_checked").on(
+      table.source_id,
+      table.checked_at,
+    ),
+    index("idx_naver_cafe_source_checks_checked_at").on(table.checked_at),
+    index("idx_naver_cafe_source_checks_status").on(table.status),
+    check(
+      "naver_cafe_source_checks_trigger_check",
+      sql`${table.trigger} IN ('manual')`,
+    ),
+    check(
+      "naver_cafe_source_checks_status_check",
+      sql`${table.status} IN ('ok', 'stale', 'error', 'private', 'invalid_response', 'disabled')`,
+    ),
+  ],
+);
+
+export type NaverCafeSourceCheck =
+  typeof naverCafeSourceChecks.$inferSelect;
+export type NewNaverCafeSourceCheck =
+  typeof naverCafeSourceChecks.$inferInsert;
+
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(
   "update_logs",
@@ -394,6 +433,48 @@ export const updateLogs = sqliteTable(
 
 export type UpdateLog = typeof updateLogs.$inferSelect;
 export type NewUpdateLog = typeof updateLogs.$inferInsert;
+
+// 자동 업데이트 실행 단위 이력
+export const autoUpdateRuns = sqliteTable(
+  "auto_update_runs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source: text().notNull(),
+    status: text().notNull(),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at").notNull(),
+    range_days: integer("range_days").notNull(),
+    checked_count: integer("checked_count").notNull().default(0),
+    updated_count: integer("updated_count").notNull().default(0),
+    created_count: integer("created_count").notNull().default(0),
+    existing_count: integer("existing_count").notNull().default(0),
+    pending_created_count: integer("pending_created_count").notNull().default(0),
+    actor_id: text("actor_id"),
+    actor_name: text("actor_name"),
+    actor_ip: text("actor_ip"),
+    error: text(),
+    detail: text(),
+  },
+  (table) => [
+    index("idx_auto_update_runs_started_at").on(table.started_at),
+    index("idx_auto_update_runs_status").on(table.status),
+    index("idx_auto_update_runs_source_started").on(
+      table.source,
+      table.started_at,
+    ),
+    check(
+      "auto_update_runs_source_check",
+      sql`${table.source} IN ('scheduled', 'manual')`,
+    ),
+    check(
+      "auto_update_runs_status_check",
+      sql`${table.status} IN ('success', 'failed')`,
+    ),
+  ],
+);
+
+export type AutoUpdateRun = typeof autoUpdateRuns.$inferSelect;
+export type NewAutoUpdateRun = typeof autoUpdateRuns.$inferInsert;
 
 // 승인 대기 스케줄 테이블
 export const pendingSchedules = sqliteTable(

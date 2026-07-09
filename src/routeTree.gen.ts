@@ -23,6 +23,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
 import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
@@ -99,6 +100,11 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminOperationsRoute = AdminOperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminNoticesRoute = AdminNoticesRouteImport.update({
   id: '/notices',
   path: '/notices',
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
@@ -181,6 +189,7 @@ export interface FileRoutesById {
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/profile/$code': typeof ProfileCodeRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
+    | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/profile/$code'
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
+    | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/profile/$code'
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
+    | '/admin/operations'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/profile/$code'
@@ -364,6 +376,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/operations': {
+      id: '/admin/operations'
+      path: '/operations'
+      fullPath: '/admin/operations'
+      preLoaderRoute: typeof AdminOperationsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/notices': {
       id: '/admin/notices'
       path: '/notices'
@@ -408,6 +427,7 @@ interface AdminRouteChildren {
   AdminLogsRoute: typeof AdminLogsRoute
   AdminMemberPostsRoute: typeof AdminMemberPostsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
+  AdminOperationsRoute: typeof AdminOperationsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminSnapshotRoute: typeof AdminSnapshotRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -419,6 +439,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminLogsRoute: AdminLogsRoute,
   AdminMemberPostsRoute: AdminMemberPostsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
+  AdminOperationsRoute: AdminOperationsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminSnapshotRoute: AdminSnapshotRoute,
   AdminIndexRoute: AdminIndexRoute,

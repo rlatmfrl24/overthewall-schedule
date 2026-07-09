@@ -1,6 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 import {
+  Activity,
   Megaphone,
   Calendar,
   Settings,
@@ -34,6 +35,11 @@ interface SidebarItem {
 }
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
+  {
+    label: "운영 대시보드",
+    icon: Activity,
+    href: "/admin/operations",
+  },
   {
     label: "공지사항 관리",
     icon: Megaphone,
@@ -76,10 +82,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const location = useLocation();
 
   const isActive = (href: string) => {
-    // /admin 또는 /admin/notices는 notices 페이지로 처리
-    if (href === "/admin/notices") {
+    if (href === "/admin/operations") {
       return (
-        location.pathname === "/admin" || location.pathname === "/admin/notices"
+        location.pathname === "/admin" || location.pathname === "/admin/operations"
       );
     }
     return location.pathname === href;

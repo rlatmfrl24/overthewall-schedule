@@ -5,7 +5,7 @@ import {
   normalizeAutoUpdateIntervalHours,
   parseAutoUpdateIntervalHours,
 } from "../src/lib/auto-update-interval";
-import { autoUpdateSchedules } from "./services/schedule";
+import { runAutoUpdateWithHistory } from "./services/auto-update-runs";
 import { handleLiveStatus } from "./routes/live";
 import { handleVods } from "./routes/vods";
 import { handleMembers } from "./routes/members";
@@ -19,6 +19,7 @@ import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
 import { handleYouTube } from "./routes/youtube";
 import { handleNaverCafe } from "./routes/naver-cafe";
+import { handleOperations } from "./routes/operations";
 import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
@@ -159,6 +160,10 @@ export default {
         return handleNaverCafe(request, env);
       }
 
+      if (url.pathname.startsWith("/api/operations")) {
+        return handleOperations(request, env);
+      }
+
       if (url.pathname.startsWith("/api/settings")) {
         return handleSettings(request, env);
       }
@@ -244,23 +249,10 @@ export default {
 
     console.log("[scheduled] Running auto update...");
 
-    const result = await autoUpdateSchedules(db, rangeDays);
-
-    // 마지막 실행 시간 업데이트
-    await db
-      .insert(settings)
-      .values({
-        key: "auto_update_last_run",
-        value: Date.now().toString(),
-        updated_at: Date.now().toString(),
-      })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: {
-          value: Date.now().toString(),
-          updated_at: Date.now().toString(),
-        },
-      });
+    const result = await runAutoUpdateWithHistory(db, {
+      source: "scheduled",
+      rangeDays,
+    });
 
     console.log("[scheduled] Auto update completed", result);
   },

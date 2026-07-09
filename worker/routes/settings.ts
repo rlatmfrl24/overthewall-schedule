@@ -36,7 +36,7 @@ import {
   pMap,
   updateSetting,
 } from "../utils/helpers";
-import { autoUpdateSchedules } from "../services/schedule";
+import { runAutoUpdateWithHistory } from "../services/auto-update-runs";
 import { runXCollection } from "../services/x-collection";
 import { LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY } from "../services/live-schedule";
 import type { DbInstance } from "../db";
@@ -1150,8 +1150,11 @@ export const handleSettings = async (
       const rangeDaysStr = await getSetting(db, "auto_update_range_days");
       const rangeDays = parseInt(rangeDaysStr || "3", 10);
 
-      const result = await autoUpdateSchedules(db, rangeDays);
-      await updateSetting(db, "auto_update_last_run", Date.now().toString());
+      const result = await runAutoUpdateWithHistory(db, {
+        source: "manual",
+        rangeDays,
+        actor,
+      });
       return Response.json({
         success: true,
         updated: result.updated,
