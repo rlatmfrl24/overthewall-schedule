@@ -299,6 +299,22 @@ export type UpdateLogPayload = {
   previousStatus?: string | null;
 };
 
+export type AdminAuditLogPayload = {
+  eventType: string;
+  resourceType: string;
+  resourceId?: string | null;
+  action: string;
+  status: "success" | "partial" | "failed" | "skipped";
+  actorId?: string | null;
+  actorName?: string | null;
+  actorIp?: string | null;
+  targetCount?: number | null;
+  successCount?: number | null;
+  failureCount?: number | null;
+  detail?: Record<string, unknown> | null;
+  error?: string | null;
+};
+
 export type NoticePayload = {
   id?: number | string;
   content?: string;

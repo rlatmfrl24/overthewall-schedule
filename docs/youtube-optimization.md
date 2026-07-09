@@ -2,6 +2,7 @@
 
 ## 개요
 YouTube Data API v3의 쿼터 제한(기본 10,000 units/일)을 고려한 최적화 및 캐싱 전략을 적용했습니다.
+현재 TTL의 단일 기준은 `src/lib/cache-policy.ts`이며, 계층별 역할은 `docs/cache-policy.md`를 따릅니다.
 
 ## Worker API 최적화 (worker/index.ts)
 
@@ -10,20 +11,14 @@ YouTube Data API v3의 쿼터 제한(기본 10,000 units/일)을 고려한 최�
 - **이유**: 채널의 uploads 플레이리스트 ID는 거의 변하지 않음
 - **효과**: API 호출 1회 절약 (채널당 1 unit)
 
-```typescript
-const YOUTUBE_PLAYLIST_ID_CACHE = new Map();
-const YOUTUBE_PLAYLIST_ID_TTL_MS = 24 * 60 * 60_000;
-```
+상수 기준: `CACHE_POLICY.worker.youtube.uploadsPlaylist`
 
 ### 2. 채널 동영상 캐싱
 - **TTL**: 5분
 - **이유**: 동영상 업로드는 자주 발생하지 않음
 - **효과**: 중복 요청 방지
 
-```typescript
-const YOUTUBE_VIDEOS_CACHE = new Map();
-const YOUTUBE_VIDEOS_TTL_MS = 5 * 60_000;
-```
+상수 기준: `CACHE_POLICY.worker.youtube.channelVideos`
 
 ### 3. 병렬 처리
 - 여러 채널 조회 시 `Promise.all`로 병렬 처리
@@ -55,6 +50,7 @@ if (cached && !isCacheFresh(cached.fetchedAt)) {
   return cached.content; // stale 데이터 먼저 반환
 }
 ```
+상수 기준: `CACHE_POLICY.client.youtubeVideos`
 
 ### 2. 에러 시 Fallback
 - API 에러 발생 시 이전 캐시 재사용
@@ -113,9 +109,10 @@ useEffect(() => {
 - `playlistItems.list`에서 `publishedAfter` 파라미터 사용
 - 마지막 조회 시간 이후 새 동영상만 조회
 
-### 2. 서버 측 영구 캐싱 (선택적)
-- KV Storage나 D1에 캐시 저장
-- Worker 재시작 시에도 캐시 유지
+### 2. 서버 측 영구 캐싱
+- D1의 `youtube_api_cache`에 uploads playlist ID와 channel videos를 저장
+- Worker 재시작, 쿼터 초과, 외부 API 실패 시 stale fallback으로 사용
+- 관리자 화면의 YouTube 캐시 관리에서 fresh/stale/expired 상태 확인
 
 ### 3. 백그라운드 예열 (선택적)
 - Cron Trigger로 주기적으로 캐시 갱신

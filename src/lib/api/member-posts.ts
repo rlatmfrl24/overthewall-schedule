@@ -1,5 +1,12 @@
 import { apiFetch } from "./client";
-import type { NaverCafePost, NaverCafePostsResponse, XPost, XPostsResponse } from "@/lib/types";
+import type {
+  NaverCafePost,
+  NaverCafePostsResponse,
+  NaverCafePostsVisibility,
+  XPost,
+  XPostsResponse,
+  XPostsVisibility,
+} from "@/lib/types";
 
 export type UnifiedMemberPost =
   | {
@@ -17,6 +24,27 @@ export type UnifiedMemberPost =
       post: NaverCafePost;
     };
 
+export type MemberPostSourcePolicyStatus =
+  | "visible"
+  | "members_only"
+  | "private"
+  | "disabled"
+  | "not_requested";
+
+export type MemberPostSourcePolicy = {
+  source: "x" | "naver-cafe";
+  requested: boolean;
+  admin: boolean;
+  enabled: boolean;
+  visibility: XPostsVisibility | NaverCafePostsVisibility;
+  accessible: boolean;
+  status: MemberPostSourcePolicyStatus;
+  reason: string | null;
+  publicPath: string;
+  monitorPath: string;
+  apiPath: string;
+};
+
 export interface MemberPostsAggregateResponse {
   updatedAt: string;
   posts: UnifiedMemberPost[];
@@ -25,12 +53,14 @@ export interface MemberPostsAggregateResponse {
     byHandle: XPostsResponse["byHandle"];
     updatedAt: string;
     error: string | null;
+    policy: MemberPostSourcePolicy;
   };
   naverCafe: {
     posts: NaverCafePost[];
     sources: NaverCafePostsResponse["sources"];
     updatedAt: string;
     error: string | null;
+    policy: MemberPostSourcePolicy;
   };
 }
 

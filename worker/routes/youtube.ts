@@ -1,4 +1,5 @@
 import { requireAdminUser } from "../auth";
+import { getDb } from "../db";
 import {
   fetchYouTubeVideosForChannel,
   getYouTubeCacheStatus,
@@ -7,7 +8,14 @@ import {
   getYouTubeWarmupStatus,
   runYouTubeWarmup,
 } from "../services/youtube-warmup";
-import { badRequest, json, methodNotAllowed, pMap } from "../utils/helpers";
+import {
+  badRequest,
+  getActorInfo,
+  insertAdminAuditLog,
+  json,
+  methodNotAllowed,
+  pMap,
+} from "../utils/helpers";
 import type { Env, YouTubeVideoItem } from "../types";
 
 const YOUTUBE_BATCH_CONCURRENCY = 4;
@@ -69,7 +77,30 @@ export const handleYouTube = async (request: Request, env: Env) => {
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
 
-    return json(await runYouTubeWarmup(env, "manual"), 200, {
+    const result = await runYouTubeWarmup(env, "manual");
+    const actor = getActorInfo(request, admin.user);
+    await insertAdminAuditLog(getDb(env), {
+      eventType: "manual_collection.youtube_warmup",
+      resourceType: "youtube_warmup",
+      action: "run_now",
+      status: result.status,
+      actorId: actor.actorId,
+      actorName: actor.actorName,
+      actorIp: actor.actorIp,
+      targetCount: result.targetCount,
+      successCount: result.refreshedCount,
+      failureCount: result.failedCount,
+      detail: {
+        skippedFreshCount: result.skippedFreshCount,
+        staleFallbackCount: result.staleFallbackCount,
+        apiCalls: result.apiCalls,
+        quotaUnits: result.quotaUnits,
+        durationMs: result.durationMs,
+      },
+      error: result.error,
+    });
+
+    return json(result, 200, {
       headers: {
         "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
         Vary: "Authorization",

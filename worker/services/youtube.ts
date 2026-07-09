@@ -7,6 +7,7 @@ import type {
   YouTubeVideoItem,
 } from "../types";
 import { parseISO8601Duration } from "../utils/helpers";
+import { CACHE_POLICY } from "../../src/lib/cache-policy";
 
 type YouTubeChannelDetailsResponse = {
   items?: Array<{
@@ -83,15 +84,15 @@ type YouTubeRequestContext = {
 };
 
 const YOUTUBE_VIDEOS_CACHE = new Map<string, CachedYouTubeVideos>();
-const YOUTUBE_VIDEOS_TTL_MS = 5 * 60_000;
-const YOUTUBE_VIDEOS_STALE_TTL_MS = 6 * 60 * 60_000;
+const YOUTUBE_VIDEOS_CACHE_POLICY =
+  CACHE_POLICY.worker.youtube.channelVideos;
 
 const YOUTUBE_PLAYLIST_ID_CACHE = new Map<
   string,
   { fetchedAt: number; playlistId: string | null }
 >();
-const YOUTUBE_PLAYLIST_ID_TTL_MS = 24 * 60 * 60_000;
-const YOUTUBE_PLAYLIST_ID_STALE_TTL_MS = 7 * 24 * 60 * 60_000;
+const YOUTUBE_PLAYLIST_ID_CACHE_POLICY =
+  CACHE_POLICY.worker.youtube.uploadsPlaylist;
 
 const YOUTUBE_API_QUOTA_UNITS = 1;
 const YOUTUBE_ERROR_DETAIL_MAX_LENGTH = 500;
@@ -359,7 +360,10 @@ const fetchYouTubeUploadsPlaylistId = async (
   const cached = YOUTUBE_PLAYLIST_ID_CACHE.get(channelId);
   const timestamp = now();
 
-  if (cached && timestamp - cached.fetchedAt < YOUTUBE_PLAYLIST_ID_TTL_MS) {
+  if (
+    cached &&
+    timestamp - cached.fetchedAt < YOUTUBE_PLAYLIST_ID_CACHE_POLICY.freshTtlMs
+  ) {
     return cached.playlistId;
   }
 
@@ -418,8 +422,8 @@ const fetchYouTubeUploadsPlaylistId = async (
       type: "uploads_playlist",
       value: { playlistId },
       fetchedAt,
-      expiresAt: fetchedAt + YOUTUBE_PLAYLIST_ID_TTL_MS,
-      staleUntil: fetchedAt + YOUTUBE_PLAYLIST_ID_STALE_TTL_MS,
+      expiresAt: fetchedAt + YOUTUBE_PLAYLIST_ID_CACHE_POLICY.freshTtlMs,
+      staleUntil: fetchedAt + YOUTUBE_PLAYLIST_ID_CACHE_POLICY.staleTtlMs,
       lastStatus: res.status,
       lastError: null,
     });
@@ -609,7 +613,7 @@ export const fetchYouTubeVideosForChannel = async (
   if (
     !options.forceRefresh &&
     cached &&
-    timestamp - cached.fetchedAt < YOUTUBE_VIDEOS_TTL_MS
+    timestamp - cached.fetchedAt < YOUTUBE_VIDEOS_CACHE_POLICY.freshTtlMs
   ) {
     return cached.content;
   }
@@ -665,8 +669,8 @@ export const fetchYouTubeVideosForChannel = async (
       type: "channel_videos",
       value: result,
       fetchedAt,
-      expiresAt: fetchedAt + YOUTUBE_VIDEOS_TTL_MS,
-      staleUntil: fetchedAt + YOUTUBE_VIDEOS_STALE_TTL_MS,
+      expiresAt: fetchedAt + YOUTUBE_VIDEOS_CACHE_POLICY.freshTtlMs,
+      staleUntil: fetchedAt + YOUTUBE_VIDEOS_CACHE_POLICY.staleTtlMs,
       lastStatus: 200,
       lastError: null,
     });

@@ -471,6 +471,54 @@ export const updateLogs = sqliteTable(
 export type UpdateLog = typeof updateLogs.$inferSelect;
 export type NewUpdateLog = typeof updateLogs.$inferInsert;
 
+// 관리자 감사 로그 테이블
+export const adminAuditLogs = sqliteTable(
+  "admin_audit_logs",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    event_type: text("event_type").notNull(),
+    resource_type: text("resource_type").notNull(),
+    resource_id: text("resource_id"),
+    action: text().notNull(),
+    status: text().notNull(),
+    actor_id: text("actor_id"),
+    actor_name: text("actor_name"),
+    actor_ip: text("actor_ip"),
+    target_count: integer("target_count"),
+    success_count: integer("success_count"),
+    failure_count: integer("failure_count"),
+    detail: text(),
+    error: text(),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_admin_audit_logs_created_at").on(table.created_at),
+    index("idx_admin_audit_logs_event_created_at").on(
+      table.event_type,
+      table.created_at,
+    ),
+    index("idx_admin_audit_logs_actor_created_at").on(
+      table.actor_id,
+      table.created_at,
+    ),
+    index("idx_admin_audit_logs_resource_created_at").on(
+      table.resource_type,
+      table.created_at,
+    ),
+    index("idx_admin_audit_logs_status_created_at").on(
+      table.status,
+      table.created_at,
+    ),
+    check(
+      "admin_audit_logs_status_check",
+      sql`${table.status} IN ('success', 'partial', 'failed', 'skipped')`,
+    ),
+  ],
+);
+
+export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
+export type NewAdminAuditLog = typeof adminAuditLogs.$inferInsert;
+
 // 자동 업데이트 실행 단위 이력
 export const autoUpdateRuns = sqliteTable(
   "auto_update_runs",

@@ -9,6 +9,7 @@ const fetchYouTubeVideosForChannelMock = vi.hoisted(() => vi.fn());
 const getYouTubeCacheStatusMock = vi.hoisted(() => vi.fn());
 const getYouTubeWarmupStatusMock = vi.hoisted(() => vi.fn());
 const runYouTubeWarmupMock = vi.hoisted(() => vi.fn());
+const auditValuesMock = vi.hoisted(() => vi.fn(async () => ({ success: true })));
 
 vi.mock("../../../worker/auth", () => ({
   requireAdminUser: requireAdminUserMock,
@@ -22,6 +23,14 @@ vi.mock("../../../worker/services/youtube", () => ({
 vi.mock("../../../worker/services/youtube-warmup", () => ({
   getYouTubeWarmupStatus: getYouTubeWarmupStatusMock,
   runYouTubeWarmup: runYouTubeWarmupMock,
+}));
+
+vi.mock("../../../worker/db", () => ({
+  getDb: () => ({
+    insert: () => ({
+      values: auditValuesMock,
+    }),
+  }),
 }));
 
 const makeEnv = (): Env =>
@@ -39,6 +48,7 @@ describe("youtube worker route", () => {
     getYouTubeCacheStatusMock.mockReset();
     getYouTubeWarmupStatusMock.mockReset();
     runYouTubeWarmupMock.mockReset();
+    auditValuesMock.mockClear();
     getYouTubeWarmupStatusMock.mockResolvedValue({
       settings: {
         enabled: true,
@@ -214,5 +224,17 @@ describe("youtube worker route", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(body.status).toBe("success");
     expect(runYouTubeWarmupMock).toHaveBeenCalledWith(env, "manual");
+    expect(auditValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_type: "manual_collection.youtube_warmup",
+        resource_type: "youtube_warmup",
+        action: "run_now",
+        status: "success",
+        actor_id: "admin",
+        target_count: 2,
+        success_count: 1,
+        failure_count: 0,
+      }),
+    );
   });
 });

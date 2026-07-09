@@ -11,7 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useMemberPosts } from "@/hooks/use-member-posts";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { getMembersWithXHandles } from "@/lib/api/x";
-import type { UnifiedMemberPost } from "@/lib/api/member-posts";
+import type {
+  MemberPostSourcePolicy,
+  UnifiedMemberPost,
+} from "@/lib/api/member-posts";
 import type { Member } from "@/lib/types";
 import { cn, getContrastColor } from "@/lib/utils";
 import { NaverCafePostCard } from "@/features/naver-cafe/naver-cafe-post-card";
@@ -327,10 +330,36 @@ const MemberPostContentLayout = ({
   );
 };
 
-const combineErrors = (...errors: Array<string | null>) => {
-  const messages = errors.filter((error): error is string => Boolean(error));
-  if (messages.length === 0) return null;
-  return messages.join(" ");
+const getPolicyNoticeMessage = (
+  sources: Array<{ policy: MemberPostSourcePolicy; hasSource: boolean }>,
+) => {
+  const blockedPolicies = sources
+    .map((source) => source.policy)
+    .filter(
+      (policy) =>
+      policy.requested &&
+      (policy.status === "private" || policy.status === "disabled"),
+    );
+  const hasAccessibleSource = sources.some(
+    ({ policy, hasSource }) =>
+      hasSource &&
+      policy.requested &&
+      policy.accessible &&
+      policy.status !== "private" &&
+      policy.status !== "disabled",
+  );
+
+  if (blockedPolicies.length === 0 || hasAccessibleSource) return null;
+
+  return blockedPolicies
+    .map((policy) => {
+      if (policy.source === "x") return "X 게시글은 비공개 상태입니다.";
+      if (policy.status === "disabled") {
+        return "네이버 카페 최신글 표시가 비활성화되어 있습니다.";
+      }
+      return "네이버 카페 최신글은 비공개 상태입니다.";
+    })
+    .join(" ");
 };
 
 export const MemberPostsOverview = ({
@@ -411,9 +440,13 @@ export const MemberPostsOverview = ({
     [selectedMemberUidSet, unifiedPosts],
   );
 
-  const error = combineErrors(xState.error, cafeState.error);
+  const error = memberPostsState.error;
   const hasXSource = membersWithX.length > 0;
   const hasCafeSource = cafeSourceCount > 0;
+  const policyNotice = getPolicyNoticeMessage([
+    { policy: xState.policy, hasSource: hasXSource },
+    { policy: cafeState.policy, hasSource: hasCafeSource },
+  ]);
   const hasAnySource = hasXSource || hasCafeSource;
   const xLoading = loadX && !xState.hasLoaded && hasXSource;
   const cafeLoading = loadCafe && !cafeState.hasLoaded;
@@ -473,6 +506,13 @@ export const MemberPostsOverview = ({
       >
         {showInitialLoading ? (
           <MemberPostsSkeleton />
+        ) : policyNotice ? (
+          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
+            <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
+            <p className="max-w-sm text-sm font-medium text-muted-foreground">
+              {policyNotice}
+            </p>
+          </div>
         ) : !hasAnySource ? (
           <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
             <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />

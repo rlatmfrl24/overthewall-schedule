@@ -24,6 +24,7 @@ import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
 import { runScheduledYouTubeWarmup } from "./services/youtube-warmup";
+import { runScheduledDataRetentionPrune } from "./services/data-retention";
 import type { Env } from "./types";
 
 const collectScheduledXPosts = async (env: Env) => {
@@ -46,6 +47,21 @@ const warmScheduledYouTubeCache = async (env: Env) => {
     return;
   }
   console.log("[scheduled] YouTube warmup completed", result);
+};
+
+const pruneScheduledD1Data = async (env: Env) => {
+  const result = await runScheduledDataRetentionPrune(env);
+  if (result.skipped) {
+    console.log("[scheduled] D1 data retention prune skipped", {
+      lastRun: result.lastRun,
+      nextEligibleAt: result.nextEligibleAt,
+    });
+    return;
+  }
+  console.log("[scheduled] D1 data retention prune completed", {
+    totalPrunableRows: result.totalPrunableRows,
+    totalDeletedRows: result.totalDeletedRows,
+  });
 };
 
 type SerializedError = {
@@ -211,6 +227,12 @@ export default {
       await warmScheduledYouTubeCache(env);
     } catch (error) {
       console.error("[scheduled] YouTube warmup failed", error);
+    }
+
+    try {
+      await pruneScheduledD1Data(env);
+    } catch (error) {
+      console.error("[scheduled] D1 data retention prune failed", error);
     }
 
     // 1-3. 설정 일괄 조회

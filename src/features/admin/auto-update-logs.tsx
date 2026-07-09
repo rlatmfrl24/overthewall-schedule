@@ -5,11 +5,8 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  ListFilter,
   Loader2,
   RefreshCw,
-  RotateCcw,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +17,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -44,7 +40,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { fetchUpdateLogs, type UpdateLog } from "@/lib/api/settings";
+import {
+  fetchAdminAuditLogs,
+  fetchUpdateLogs,
+  type AdminAuditLog,
+  type UpdateLog,
+} from "@/lib/api/settings";
 import { useToast } from "@/components/ui/toast";
 import { AdminSectionHeader } from "./components/admin-section-header";
 import { queryKeys } from "@/lib/query-keys";
@@ -76,37 +77,35 @@ const ACTION_BADGE_VARIANTS: Record<
   auto_failed: "destructive",
 };
 
-const ACTION_OPTIONS = [
-  { value: "all", label: "전체" },
-  { value: "create", label: "수동 생성" },
-  { value: "update", label: "수동 수정" },
-  { value: "delete", label: "삭제" },
-  { value: "approve", label: "승인" },
-  { value: "reject", label: "거부" },
-  { value: "reset_processed", label: "처리 표시 리셋" },
-  { value: "auto_collected", label: "자동 수집" },
-  { value: "auto_updated", label: "자동 업데이트" },
-  { value: "auto_failed", label: "자동 업데이트 실패" },
-];
-
-type LogFilters = {
-  action: string;
-  member: string;
-  dateFrom: string;
-  dateTo: string;
-  query: string;
+const AUDIT_EVENT_LABELS: Record<string, string> = {
+  "settings.update": "설정 변경",
+  "manual_collection.auto_update": "수동 자동 업데이트",
+  "manual_collection.x": "수동 X 수집",
+  "manual_collection.youtube_warmup": "수동 YouTube 예열",
+  "manual_collection.naver_cafe_check": "수동 카페 점검",
+  "pending.bulk_approve": "일괄 승인",
+  "pending.bulk_reject": "일괄 거부",
 };
 
-const DEFAULT_FILTERS: LogFilters = {
-  action: "all",
-  member: "",
-  dateFrom: "",
-  dateTo: "",
-  query: "",
+const AUDIT_STATUS_LABELS: Record<AdminAuditLog["status"], string> = {
+  success: "성공",
+  partial: "부분 성공",
+  failed: "실패",
+  skipped: "건너뜀",
 };
 
-const FILTER_DEBOUNCE_MS = 300;
+const AUDIT_STATUS_BADGE_VARIANTS: Record<
+  AdminAuditLog["status"],
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  success: "default",
+  partial: "secondary",
+  failed: "destructive",
+  skipped: "outline",
+};
+
 const LOG_PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+const AUDIT_LOG_PAGE_SIZE = 50;
 
 const LOG_SORT_OPTIONS = [
   { value: "created_desc", label: "생성일 최신순" },
@@ -120,67 +119,67 @@ type LogSortKey = (typeof LOG_SORT_OPTIONS)[number]["value"];
 
 export function AutoUpdateLogsManager() {
   const { toast } = useToast();
-  const [filters, setFilters] = useState<LogFilters>(DEFAULT_FILTERS);
-  const [debouncedFilters, setDebouncedFilters] =
-    useState<LogFilters>(DEFAULT_FILTERS);
   const [pageSize, setPageSize] = useState<number>(50);
   const [sortKey, setSortKey] = useState<LogSortKey>("created_desc");
   const [page, setPage] = useState(1);
-  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<UpdateLog | null>(null);
+  const [auditPage, setAuditPage] = useState(1);
+  const [selectedAuditLog, setSelectedAuditLog] =
+    useState<AdminAuditLog | null>(null);
 
   const logQueryOptions = useMemo(
     () => ({
       page,
       pageSize,
       sort: sortKey,
-      action:
-        debouncedFilters.action === "all" ? undefined : debouncedFilters.action,
-      member: debouncedFilters.member.trim() || undefined,
-      dateFrom: debouncedFilters.dateFrom || undefined,
-      dateTo: debouncedFilters.dateTo || undefined,
-      query: debouncedFilters.query.trim() || undefined,
     }),
-    [debouncedFilters, page, pageSize, sortKey],
+    [page, pageSize, sortKey],
   );
   const logsQuery = useQuery({
     queryKey: queryKeys.settings.logs(logQueryOptions),
     queryFn: () => fetchUpdateLogs(logQueryOptions),
-    enabled: !dateRangeError,
+  });
+  const auditLogQueryOptions = useMemo(
+    () => ({
+      page: auditPage,
+      pageSize: AUDIT_LOG_PAGE_SIZE,
+    }),
+    [auditPage],
+  );
+  const auditLogsQuery = useQuery({
+    queryKey: queryKeys.settings.auditLogs(auditLogQueryOptions),
+    queryFn: () => fetchAdminAuditLogs(auditLogQueryOptions),
   });
   const logs = Array.isArray(logsQuery.data?.items)
     ? logsQuery.data.items
     : [];
+  const auditLogs = Array.isArray(auditLogsQuery.data?.items)
+    ? auditLogsQuery.data.items
+    : [];
   const totalCount = logsQuery.data?.total ?? 0;
   const totalPages = logsQuery.data?.totalPages ?? 1;
+  const auditTotalCount = auditLogsQuery.data?.total ?? 0;
+  const auditTotalPages = auditLogsQuery.data?.totalPages ?? 1;
   const isLoading = logsQuery.isFetching;
+  const isAuditLoading = auditLogsQuery.isFetching;
   const errorMessage = logsQuery.error
     ? "로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."
     : null;
-
-  useEffect(() => {
-    if (
-      filters.dateFrom &&
-      filters.dateTo &&
-      filters.dateFrom > filters.dateTo
-    ) {
-      setDateRangeError("종료 날짜는 시작 날짜와 같거나 이후여야 합니다.");
-      return;
-    }
-    setDateRangeError(null);
-
-    const timer = setTimeout(() => {
-      setDebouncedFilters(filters);
-    }, FILTER_DEBOUNCE_MS);
-
-    return () => clearTimeout(timer);
-  }, [filters]);
+  const auditErrorMessage = auditLogsQuery.error
+    ? "감사 로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."
+    : null;
 
   useEffect(() => {
     if (totalPages < page) {
       setPage(totalPages);
     }
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (auditTotalPages < auditPage) {
+      setAuditPage(auditTotalPages);
+    }
+  }, [auditPage, auditTotalPages]);
 
   useEffect(() => {
     if (!logsQuery.error) return;
@@ -190,6 +189,15 @@ export function AutoUpdateLogsManager() {
       description: "로그를 불러오지 못했습니다.",
     });
   }, [logsQuery.error, toast]);
+
+  useEffect(() => {
+    if (!auditLogsQuery.error) return;
+    console.error("Failed to load admin audit logs:", auditLogsQuery.error);
+    toast({
+      variant: "error",
+      description: "감사 로그를 불러오지 못했습니다.",
+    });
+  }, [auditLogsQuery.error, toast]);
 
   const formatLogDate = (timestamp: string | null): string => {
     if (!timestamp) return "-";
@@ -211,45 +219,46 @@ export function AutoUpdateLogsManager() {
     return "-";
   };
 
-  const handleReset = () => {
-    setFilters(DEFAULT_FILTERS);
-    setDebouncedFilters(DEFAULT_FILTERS);
-    setDateRangeError(null);
+  const getAuditActorLabel = (log: AdminAuditLog) => {
+    if (log.actor_name) return log.actor_name;
+    if (log.actor_id) return log.actor_id;
+    if (log.actor_ip) return `관리자 (${log.actor_ip})`;
+    return "-";
   };
 
-  const hasActiveFilters = useMemo(
-    () =>
-      filters.action !== "all" ||
-      filters.member.trim() !== "" ||
-      filters.dateFrom !== "" ||
-      filters.dateTo !== "" ||
-      filters.query.trim() !== "",
-    [filters],
-  );
+  const getAuditResultSummary = (log: AdminAuditLog) => {
+    const total = log.target_count ?? 0;
+    const success = log.success_count ?? 0;
+    const failure = log.failure_count ?? 0;
+    if (total > 0) return `${success}/${total} 성공 · 실패 ${failure}`;
+    return failure > 0 ? `실패 ${failure}` : "-";
+  };
 
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filters.action !== "all") count += 1;
-    if (filters.member.trim() !== "") count += 1;
-    if (filters.dateFrom !== "" || filters.dateTo !== "") count += 1;
-    if (filters.query.trim() !== "") count += 1;
-    return count;
-  }, [filters]);
+  const formatAuditDate = (timestamp: number): string => {
+    if (!Number.isFinite(timestamp)) return "-";
+    return formatLogDate(new Date(timestamp).toISOString());
+  };
+
+  const formatAuditDetail = (detail: string | null) => {
+    if (!detail) return "-";
+    try {
+      return JSON.stringify(JSON.parse(detail), null, 2);
+    } catch {
+      return detail;
+    }
+  };
 
   const handleManualRefresh = () => {
-    if (dateRangeError) {
-      toast({
-        variant: "error",
-        description: dateRangeError,
-      });
-      return;
-    }
     void logsQuery.refetch();
+  };
+
+  const handleAuditRefresh = () => {
+    void auditLogsQuery.refetch();
   };
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedFilters, pageSize, sortKey]);
+  }, [pageSize, sortKey]);
 
   return (
     <section className="space-y-4">
@@ -261,152 +270,55 @@ export function AutoUpdateLogsManager() {
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ListFilter className="h-4 w-4" />
-                로그 필터
-              </CardTitle>
+              <CardTitle className="text-base">로그 목록</CardTitle>
               <CardDescription className="mt-1">
-                조건을 변경하면 목록이 자동으로 갱신됩니다.
+                로그를 클릭하면 상세 내용을 확인할 수 있습니다.
               </CardDescription>
             </div>
-            <Badge variant={hasActiveFilters ? "default" : "outline"}>
-              {hasActiveFilters ? `필터 ${activeFilterCount}개` : "전체 로그"}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-12">
-            <div className="space-y-1 xl:col-span-4">
-              <Label htmlFor="log-query">검색어</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="log-query"
-                  className="pl-9"
-                  placeholder="제목 또는 멤버명"
-                  value={filters.query}
-                  onChange={(event) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      query: event.target.value,
-                    }))
-                  }
-                />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_160px_auto]">
+              <div className="space-y-1">
+                <Label htmlFor="log-sort">정렬</Label>
+                <Select
+                  value={sortKey}
+                  onValueChange={(value) => setSortKey(value as LogSortKey)}
+                >
+                  <SelectTrigger id="log-sort">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOG_SORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-
-            <div className="space-y-1 xl:col-span-2">
-              <Label htmlFor="log-action">작업</Label>
-              <Select
-                value={filters.action}
-                onValueChange={(value) =>
-                  setFilters((prev) => ({ ...prev, action: value }))
-                }
-              >
-                <SelectTrigger id="log-action">
-                  <SelectValue placeholder="전체" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ACTION_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1 xl:col-span-2">
-              <Label htmlFor="log-member">멤버</Label>
-              <Input
-                id="log-member"
-                placeholder="멤버명"
-                value={filters.member}
-                onChange={(event) =>
-                  setFilters((prev) => ({ ...prev, member: event.target.value }))
-                }
-              />
-            </div>
-
-            <div className="space-y-1 xl:col-span-2">
-              <Label htmlFor="log-date-from">시작일</Label>
-              <Input
-                id="log-date-from"
-                type="date"
-                value={filters.dateFrom}
-                onChange={(event) =>
-                  setFilters((prev) => ({ ...prev, dateFrom: event.target.value }))
-                }
-              />
-            </div>
-
-            <div className="space-y-1 xl:col-span-2">
-              <Label htmlFor="log-date-to">종료일</Label>
-              <Input
-                id="log-date-to"
-                type="date"
-                value={filters.dateTo}
-                onChange={(event) =>
-                  setFilters((prev) => ({ ...prev, dateTo: event.target.value }))
-                }
-              />
-            </div>
-
-            <div className="space-y-1 md:col-span-1 xl:col-span-3">
-              <Label htmlFor="log-sort">정렬</Label>
-              <Select
-                value={sortKey}
-                onValueChange={(value) => setSortKey(value as LogSortKey)}
-              >
-                <SelectTrigger id="log-sort">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOG_SORT_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1 xl:col-span-2">
-              <Label htmlFor="log-limit">표시 개수</Label>
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => setPageSize(Number(value))}
-              >
-                <SelectTrigger id="log-limit">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LOG_PAGE_SIZE_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {option}건/페이지
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-end gap-2 md:col-span-1 xl:col-span-3">
+              <div className="space-y-1">
+                <Label htmlFor="log-limit">표시 개수</Label>
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(value) => setPageSize(Number(value))}
+                >
+                  <SelectTrigger id="log-limit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOG_PAGE_SIZE_OPTIONS.map((option) => (
+                      <SelectItem key={option} value={String(option)}>
+                        {option}건/페이지
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button
                 type="button"
                 variant="outline"
-                className="flex-1"
-                onClick={handleReset}
-                disabled={!hasActiveFilters}
-              >
-                <RotateCcw className="h-4 w-4" />
-                초기화
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
+                className="self-end"
+                aria-label="업데이트 로그 새로고침"
                 onClick={handleManualRefresh}
                 disabled={isLoading}
               >
@@ -419,27 +331,6 @@ export function AutoUpdateLogsManager() {
               </Button>
             </div>
           </div>
-
-          <div className="min-h-5 border-t pt-3">
-            {dateRangeError ? (
-              <p className="text-sm text-destructive">{dateRangeError}</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {hasActiveFilters
-                  ? "선택한 조건으로 로그 목록을 좁혀 보고 있습니다."
-                  : "현재 모든 로그를 표시하고 있습니다."}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">로그 목록</CardTitle>
-          <CardDescription>
-            로그를 클릭하면 상세 내용을 확인할 수 있습니다.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -553,6 +444,160 @@ export function AutoUpdateLogsManager() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="text-base">관리자 감사 로그</CardTitle>
+              <CardDescription className="mt-1">
+                설정 변경, 수동 수집, 일괄 승인/거부 실행 주체를 확인합니다.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              aria-label="감사 로그 새로고침"
+              onClick={handleAuditRefresh}
+              disabled={isAuditLoading}
+            >
+              {isAuditLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              새로고침
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isAuditLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              감사 로그 불러오는 중...
+            </div>
+          ) : auditErrorMessage ? (
+            <div className="py-8 text-center text-destructive">
+              {auditErrorMessage}
+            </div>
+          ) : auditTotalCount === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              기록이 없습니다.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="overflow-hidden rounded-md border">
+                <Table className="min-w-[980px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[160px]">발생 시각</TableHead>
+                      <TableHead className="w-[190px]">이벤트</TableHead>
+                      <TableHead className="w-[110px]">상태</TableHead>
+                      <TableHead className="w-[150px]">대상</TableHead>
+                      <TableHead className="w-[180px]">실행 주체</TableHead>
+                      <TableHead>결과</TableHead>
+                      <TableHead>오류</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditLogs.map((log) => (
+                      <TableRow
+                        key={log.id}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => setSelectedAuditLog(log)}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatAuditDate(log.created_at)}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {AUDIT_EVENT_LABELS[log.event_type] ?? log.event_type}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={AUDIT_STATUS_BADGE_VARIANTS[log.status]}
+                            className="text-xs"
+                          >
+                            {AUDIT_STATUS_LABELS[log.status]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {log.resource_type}
+                          {log.resource_id ? `:${log.resource_id}` : ""}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {getAuditActorLabel(log)}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {getAuditResultSummary(log)}
+                        </TableCell>
+                        <TableCell
+                          className="max-w-[220px] truncate text-sm text-destructive"
+                          title={log.error ?? ""}
+                        >
+                          {log.error ?? "-"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  총 {auditTotalCount}건, {auditPage}/{auditTotalPages} 페이지
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setAuditPage(1)}
+                    disabled={auditPage <= 1}
+                    aria-label="감사 로그 첫 페이지"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() =>
+                      setAuditPage((prev) => Math.max(1, prev - 1))
+                    }
+                    disabled={auditPage <= 1}
+                    aria-label="감사 로그 이전 페이지"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() =>
+                      setAuditPage((prev) =>
+                        Math.min(auditTotalPages, prev + 1),
+                      )
+                    }
+                    disabled={auditPage >= auditTotalPages}
+                    aria-label="감사 로그 다음 페이지"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    onClick={() => setAuditPage(auditTotalPages)}
+                    disabled={auditPage >= auditTotalPages}
+                    aria-label="감사 로그 마지막 페이지"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Dialog
         open={Boolean(selectedLog)}
         onOpenChange={(open) => !open && setSelectedLog(null)}
@@ -600,6 +645,76 @@ export function AutoUpdateLogsManager() {
               <div className="flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">이전 상태</span>
                 <span>{selectedLog.previous_status || "-"}</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedAuditLog)}
+        onOpenChange={(open) => !open && setSelectedAuditLog(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>감사 로그 상세</DialogTitle>
+            <DialogDescription>
+              선택한 관리자 행위 감사 로그의 상세 정보입니다.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedAuditLog && (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">이벤트</span>
+                <span className="font-medium">
+                  {AUDIT_EVENT_LABELS[selectedAuditLog.event_type] ??
+                    selectedAuditLog.event_type}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">상태</span>
+                <Badge
+                  variant={
+                    AUDIT_STATUS_BADGE_VARIANTS[selectedAuditLog.status]
+                  }
+                  className="text-xs"
+                >
+                  {AUDIT_STATUS_LABELS[selectedAuditLog.status]}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">실행 주체</span>
+                <span className="font-medium">
+                  {getAuditActorLabel(selectedAuditLog)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">대상</span>
+                <span>
+                  {selectedAuditLog.resource_type}
+                  {selectedAuditLog.resource_id
+                    ? `:${selectedAuditLog.resource_id}`
+                    : ""}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">발생 시각</span>
+                <span>{formatAuditDate(selectedAuditLog.created_at)}</span>
+              </div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-muted-foreground">결과</span>
+                <span>{getAuditResultSummary(selectedAuditLog)}</span>
+              </div>
+              {selectedAuditLog.error ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                  {selectedAuditLog.error}
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                <span className="text-muted-foreground">상세</span>
+                <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
+                  {formatAuditDetail(selectedAuditLog.detail)}
+                </pre>
               </div>
             </div>
           )}

@@ -153,8 +153,11 @@ describe("member-posts aggregate worker route", () => {
     );
     const body = (await response.json()) as {
       posts: Array<{ kind: string; memberUid: number | null }>;
-      x: { posts: unknown[] };
-      naverCafe: { posts: unknown[] };
+      x: { posts: unknown[]; policy: { status: string; monitorPath: string } };
+      naverCafe: {
+        posts: unknown[];
+        policy: { status: string; monitorPath: string };
+      };
     };
 
     expect(response.status).toBe(200);
@@ -163,8 +166,10 @@ describe("member-posts aggregate worker route", () => {
       bearerToken: "token",
       cacheDb: {},
       forceRefresh: false,
+      forceRefreshPath: null,
       maxResults: 5,
       richXLinkPreviewEnabled: true,
+      usageSource: "member-posts",
     });
     expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledWith(
       fakeState.cafeSources,
@@ -174,6 +179,14 @@ describe("member-posts aggregate worker route", () => {
     expect(body.posts.map((post) => post.memberUid)).toEqual([2, 1]);
     expect(body.x.posts).toHaveLength(1);
     expect(body.naverCafe.posts).toHaveLength(1);
+    expect(body.x.policy).toMatchObject({
+      status: "visible",
+      monitorPath: "/admin/member-posts",
+    });
+    expect(body.naverCafe.policy).toMatchObject({
+      status: "visible",
+      monitorPath: "/admin/member-posts",
+    });
   });
 
   it("잘못된 page size는 서비스 호출 전에 거부한다", async () => {
@@ -212,8 +225,10 @@ describe("member-posts aggregate worker route", () => {
       bearerToken: "token",
       cacheDb: {},
       forceRefresh: false,
+      forceRefreshPath: null,
       maxResults: 5,
       richXLinkPreviewEnabled: true,
+      usageSource: "member-posts",
     });
     expect(response.headers.get("Cache-Control")).toContain("max-age=300");
   });
@@ -262,11 +277,54 @@ describe("member-posts aggregate worker route", () => {
       ),
       makeEnv(),
     );
-    const body = (await response.json()) as { x: { error: string | null } };
+    const body = (await response.json()) as {
+      x: { error: string | null; policy: { status: string; accessible: boolean } };
+    };
 
     expect(response.status).toBe(200);
     expect(fetchXPostsForHandlesMock).not.toHaveBeenCalled();
     expect(body.x.error).toBe("X posts are private");
+    expect(body.x.policy).toMatchObject({
+      status: "private",
+      accessible: false,
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("비관리자 네이버 카페 표시 비활성은 정책 상태로 반환하고 소스를 조회하지 않는다", async () => {
+    getSettingMock.mockImplementation(async (_db: unknown, key: string) => {
+      const values: Record<string, string> = {
+        x_posts_visibility: "public",
+        x_rich_link_preview_enabled: "false",
+        naver_cafe_posts_enabled: "false",
+        naver_cafe_posts_visibility: "public",
+      };
+      return values[key] ?? null;
+    });
+
+    const response = await handleMemberPosts(
+      new Request(
+        "https://example.com/api/member-posts?sources=naver-cafe&maxResults=5&size=5",
+      ),
+      makeEnv(),
+    );
+    const body = (await response.json()) as {
+      naverCafe: {
+        error: string | null;
+        sources: unknown[];
+        policy: { status: string; enabled: boolean; accessible: boolean };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(fetchNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+    expect(body.naverCafe.error).toBe("Naver Cafe posts are disabled");
+    expect(body.naverCafe.sources).toEqual([]);
+    expect(body.naverCafe.policy).toMatchObject({
+      status: "disabled",
+      enabled: false,
+      accessible: false,
+    });
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 

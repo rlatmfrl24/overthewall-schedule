@@ -89,10 +89,14 @@ export const queryKeys = {
     pending: () => [...queryKeys.settings.all, "pending"] as const,
     logs: (options: UpdateLogQuery) =>
       [...queryKeys.settings.all, "logs", options] as const,
+    auditLogs: (options: { page: number; pageSize: number }) =>
+      [...queryKeys.settings.all, "audit-logs", options] as const,
   },
   operations: {
     all: ["operations"] as const,
     status: (windowHours: number) =>
       [...queryKeys.operations.all, "status", windowHours] as const,
+    dataRetention: () =>
+      [...queryKeys.operations.all, "data-retention"] as const,
   },
 };

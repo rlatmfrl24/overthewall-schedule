@@ -52,6 +52,7 @@ import {
   type YouTubeWarmupRunSummary,
 } from "@/lib/api/youtube-cache";
 import {
+  isYouTubeWarmupIntervalHours,
   normalizeYouTubeWarmupIntervalHours,
   YOUTUBE_WARMUP_INTERVAL_HOURS,
 } from "@/lib/auto-update-interval";
@@ -412,12 +413,13 @@ export function YouTubeCacheManager() {
                 <Select
                   value={warmupInterval}
                   disabled={isSaving}
-                  onValueChange={(value) =>
+                  onValueChange={(value) => {
+                    if (!isYouTubeWarmupIntervalHours(value)) return;
                     void saveSettings(
                       { youtube_warmup_interval_hours: value },
                       "YouTube 예열 간격을 변경했습니다.",
-                    )
-                  }
+                    );
+                  }}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />

@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import { CACHE_POLICY } from "@/lib/cache-policy";
 import type { YouTubeVideo, YouTubeVideosResponse, Member } from "@/lib/types";
 
 interface YouTubeVideosApiResponse {
@@ -15,8 +16,7 @@ interface FetchYouTubeVideosOptions {
   maxResults?: number;
 }
 
-const YOUTUBE_VIDEOS_CACHE_TTL_MS = 5 * 60_000; // 5분 캐시
-const YOUTUBE_VIDEOS_STALE_TTL_MS = 30 * 60_000; // 30분 stale 데이터 유지
+const YOUTUBE_VIDEOS_CLIENT_CACHE_POLICY = CACHE_POLICY.client.youtubeVideos;
 
 const youtubeVideosCache = new Map<
   string,
@@ -24,10 +24,10 @@ const youtubeVideosCache = new Map<
 >();
 
 const isCacheFresh = (fetchedAt: number) =>
-  Date.now() - fetchedAt < YOUTUBE_VIDEOS_CACHE_TTL_MS;
+  Date.now() - fetchedAt < YOUTUBE_VIDEOS_CLIENT_CACHE_POLICY.freshTtlMs;
 
 const isCacheStale = (fetchedAt: number) =>
-  Date.now() - fetchedAt > YOUTUBE_VIDEOS_STALE_TTL_MS;
+  Date.now() - fetchedAt > YOUTUBE_VIDEOS_CLIENT_CACHE_POLICY.staleTtlMs;
 
 const makeCacheKey = (channelIds: string[], maxResults: number) =>
   `${channelIds.sort().join(",")}:${maxResults}`;

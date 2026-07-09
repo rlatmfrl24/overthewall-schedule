@@ -188,7 +188,7 @@ describe("MemberPostSettingsManager", () => {
       expect.objectContaining({ admin: true, maxResults: 10 }),
     );
     expect(useNaverCafePostsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ admin: true, size: 10 }),
+      expect.objectContaining({ admin: true, enabled: true, size: 10 }),
     );
 
     const runButton = screen.getByRole("button", { name: /지금 수집/ });

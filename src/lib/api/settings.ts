@@ -1,27 +1,10 @@
 import { apiFetch } from "./client";
-import type { NaverCafePostsVisibility, XPostsVisibility } from "@/lib/types";
+import type {
+  AdminSettings,
+  SettingsUpdatePayload,
+} from "@/lib/settings-config";
 
-export interface AutoUpdateSettings {
-  auto_update_enabled: string | null;
-  auto_update_interval_hours: string | null;
-  auto_update_last_run: string | null;
-  auto_update_range_days: string | null;
-  live_schedule_auto_fill_enabled: string | null;
-  x_rich_link_preview_enabled: string | null;
-  x_posts_visibility: XPostsVisibility | null;
-  naver_cafe_posts_enabled: string | null;
-  naver_cafe_posts_visibility: NaverCafePostsVisibility | null;
-  x_collection_enabled: string | null;
-  x_collection_daily_budget_cents: string | null;
-  x_collection_interval_hours: string | null;
-  x_collection_last_run: string | null;
-  youtube_warmup_enabled: string | null;
-  youtube_warmup_interval_hours: string | null;
-  youtube_warmup_daily_quota_units: string | null;
-  youtube_warmup_official_enabled: string | null;
-  youtube_warmup_kirinuki_enabled: string | null;
-  youtube_warmup_last_run: string | null;
-}
+export type AutoUpdateSettings = AdminSettings;
 
 export interface AutoUpdateRunDetail {
   memberUid: number;
@@ -72,15 +55,38 @@ export interface UpdateLogQuery {
   page?: number;
   pageSize?: number;
   sort?: "created_desc" | "created_asc" | "schedule_desc" | "schedule_asc" | "action_asc";
-  action?: string;
-  member?: string;
-  dateFrom?: string;
-  dateTo?: string;
-  query?: string;
 }
 
 export interface UpdateLogPageResponse {
   items: UpdateLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasPrevPage: boolean;
+  hasNextPage: boolean;
+}
+
+export interface AdminAuditLog {
+  id: number;
+  event_type: string;
+  resource_type: string;
+  resource_id: string | null;
+  action: string;
+  status: "success" | "partial" | "failed" | "skipped";
+  actor_id: string | null;
+  actor_name: string | null;
+  actor_ip: string | null;
+  target_count: number | null;
+  success_count: number | null;
+  failure_count: number | null;
+  detail: string | null;
+  error: string | null;
+  created_at: number;
+}
+
+export interface AdminAuditLogPageResponse {
+  items: AdminAuditLog[];
   total: number;
   page: number;
   pageSize: number;
@@ -142,27 +148,7 @@ export async function fetchSettings(): Promise<AutoUpdateSettings> {
 }
 
 export async function updateSettings(
-  settings: Partial<
-    Pick<
-      AutoUpdateSettings,
-      | "auto_update_enabled"
-      | "auto_update_interval_hours"
-      | "auto_update_range_days"
-      | "live_schedule_auto_fill_enabled"
-      | "x_rich_link_preview_enabled"
-      | "x_posts_visibility"
-      | "naver_cafe_posts_enabled"
-      | "naver_cafe_posts_visibility"
-      | "x_collection_enabled"
-      | "x_collection_daily_budget_cents"
-      | "x_collection_interval_hours"
-      | "youtube_warmup_enabled"
-      | "youtube_warmup_interval_hours"
-      | "youtube_warmup_daily_quota_units"
-      | "youtube_warmup_official_enabled"
-      | "youtube_warmup_kirinuki_enabled"
-    >
-  >
+  settings: SettingsUpdatePayload
 ): Promise<void> {
   await apiFetch("/api/settings", {
     method: "PUT",
@@ -199,15 +185,25 @@ export async function fetchUpdateLogs(
     page: options.page ?? 1,
     pageSize: options.pageSize ?? 50,
     sort: options.sort ?? "created_desc",
-    action: options.action,
-    member: options.member,
-    dateFrom: options.dateFrom,
-    dateTo: options.dateTo,
-    query: options.query,
   });
   return apiFetch<UpdateLogPageResponse>(`/api/settings/logs?${queryString}`, {
     cache: "no-store",
   });
+}
+
+export async function fetchAdminAuditLogs(
+  options: { page?: number; pageSize?: number } = {},
+): Promise<AdminAuditLogPageResponse> {
+  const queryString = buildQueryString({
+    page: options.page ?? 1,
+    pageSize: options.pageSize ?? 50,
+  });
+  return apiFetch<AdminAuditLogPageResponse>(
+    `/api/settings/audit-logs?${queryString}`,
+    {
+      cache: "no-store",
+    },
+  );
 }
 
 // 대기 스케줄 API

@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { type DbInstance } from "../db";
 import { members, schedules, settings } from "../../src/db/schema";
+import { LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY } from "../../src/lib/settings-config";
 import type { CachedLiveStatus } from "../types";
 import {
   extractChzzkChannelId,
@@ -15,9 +16,6 @@ export type LiveStatusItem = {
   channelId: string;
   content: CachedLiveStatus["content"] | null;
 };
-
-export const LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY =
-  "live_schedule_auto_fill_enabled";
 
 type LiveScheduleMember = {
   uid: number;

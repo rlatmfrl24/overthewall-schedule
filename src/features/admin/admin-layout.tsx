@@ -35,51 +35,66 @@ interface SidebarItem {
   href: string;
 }
 
-const SIDEBAR_ITEMS: SidebarItem[] = [
+interface SidebarSection {
+  title: string;
+  items: SidebarItem[];
+}
+
+const SIDEBAR_SECTIONS: SidebarSection[] = [
   {
-    label: "운영 대시보드",
-    icon: Activity,
-    href: "/admin/operations",
+    title: "운영 대시보드",
+    items: [
+      {
+        label: "운영 상태",
+        icon: Activity,
+        href: "/admin/operations",
+      },
+      {
+        label: "YouTube 캐시",
+        icon: Youtube,
+        href: "/admin/youtube-cache",
+      },
+      {
+        label: "자동 업데이트",
+        icon: Settings,
+        href: "/admin/settings",
+      },
+      {
+        label: "멤버 게시글",
+        icon: MessageSquareText,
+        href: "/admin/member-posts",
+      },
+      {
+        label: "업데이트 로그",
+        icon: History,
+        href: "/admin/logs",
+      },
+    ],
   },
   {
-    label: "공지사항 관리",
-    icon: Megaphone,
-    href: "/admin/notices",
-  },
-  {
-    label: "D-Day 관리",
-    icon: Calendar,
-    href: "/admin/ddays",
-  },
-  {
-    label: "키리누키 채널",
-    icon: Scissors,
-    href: "/admin/kirinuki",
-  },
-  {
-    label: "멤버 게시글 관리",
-    icon: MessageSquareText,
-    href: "/admin/member-posts",
-  },
-  {
-    label: "자동 업데이트 설정",
-    icon: Settings,
-    href: "/admin/settings",
-  },
-  {
-    label: "YouTube 캐시",
-    icon: Youtube,
-    href: "/admin/youtube-cache",
-  },
-  {
-    label: "스냅샷 프리뷰",
-    icon: Image,
-    href: "/admin/snapshot",
-  },
-  {
-    label: "업데이트 로그",
-    icon: History,
-    href: "/admin/logs",
+    title: "콘텐츠 관리",
+    items: [
+      {
+        label: "공지사항",
+        icon: Megaphone,
+        href: "/admin/notices",
+      },
+      {
+        label: "D-Day",
+        icon: Calendar,
+        href: "/admin/ddays",
+      },
+      {
+        label: "키리누키 채널",
+        icon: Scissors,
+        href: "/admin/kirinuki",
+      },
+      {
+        label: "스냅샷 프리뷰",
+        icon: Image,
+        href: "/admin/snapshot",
+      },
+    ],
   },
 ];
 
@@ -103,28 +118,35 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <span className="font-bold text-base">Admin Center</span>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
-        {SIDEBAR_ITEMS.map((item) => {
-          const active = isActive(item.href);
-          return (
-            <Button
-              key={item.label}
-              variant={active ? "secondary" : "ghost"}
-              className={cn(
-                "w-full justify-start gap-3 px-2.5 h-9",
-                active &&
-                  "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
-                !active && "text-muted-foreground",
-              )}
-              asChild
-            >
-              <Link to={item.href} onClick={() => setIsMobileOpen(false)}>
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </Link>
-            </Button>
-          );
-        })}
+      <nav className="flex-1 p-3 space-y-4">
+        {SIDEBAR_SECTIONS.map((section) => (
+          <div key={section.title} className="space-y-1">
+            <div className="px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+              {section.title}
+            </div>
+            {section.items.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <Button
+                  key={item.label}
+                  variant={active ? "secondary" : "ghost"}
+                  className={cn(
+                    "w-full justify-start gap-2.5 px-2.5 h-8 text-sm",
+                    active &&
+                      "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
+                    !active && "text-muted-foreground",
+                  )}
+                  asChild
+                >
+                  <Link to={item.href} onClick={() => setIsMobileOpen(false)}>
+                    <item.icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                </Button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="p-4 border-t">

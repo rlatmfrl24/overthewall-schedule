@@ -42,6 +42,7 @@ pnpm dev
 pnpm lint
 pnpm test
 pnpm build
+pnpm preflight
 ```
 
 Local development defaults to local D1. Remote D1 is used only by explicit
@@ -52,6 +53,12 @@ pnpm drizzle:migrate:local
 pnpm d1:reset:local
 pnpm d1:seed:local
 pnpm d1:doctor
+```
+
+Run release or migration preflight checks in one command:
+
+```bash
+pnpm preflight
 ```
 
 Apply remote migrations only after local validation:

@@ -17,7 +17,10 @@ import {
   vi,
 } from "vitest";
 import { NoticeFormDialog } from "./notice-form-dialog";
-import { NOTICE_THUMBNAIL_ACCEPT } from "@/lib/notice-thumbnails";
+import {
+  NOTICE_THUMBNAIL_ACCEPT,
+  NOTICE_THUMBNAIL_MAX_BYTES,
+} from "@/lib/notice-thumbnails";
 import type { Notice } from "@/db/schema";
 
 const uploadNoticeThumbnailMock = vi.hoisted(() => vi.fn());
@@ -131,6 +134,69 @@ describe("NoticeFormDialog", () => {
         "/r2-assets/notices/thumbnails/uploaded.webp",
       ),
     );
+  });
+
+  it("shows the thumbnail size limit before uploading oversized files", async () => {
+    render(
+      createElement(NoticeFormDialog, {
+        open: true,
+        onOpenChange: vi.fn(),
+        onSubmit: vi.fn(),
+        members: [],
+      }),
+    );
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    const file = new File(
+      [new Uint8Array(NOTICE_THUMBNAIL_MAX_BYTES + 1)],
+      "large.png",
+      { type: "image/png" },
+    );
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(uploadNoticeThumbnailMock).not.toHaveBeenCalled();
+    expect(
+      (await screen.findAllByText(/2MB 이하 이미지만 업로드할 수 있습니다/))
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("shows an R2 configuration error when thumbnail upload fails", async () => {
+    const error = Object.assign(new Error("R2 asset bucket is not configured"), {
+      status: 503,
+    });
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    uploadNoticeThumbnailMock.mockRejectedValueOnce(error);
+    render(
+      createElement(NoticeFormDialog, {
+        open: true,
+        onOpenChange: vi.fn(),
+        onSubmit: vi.fn(),
+        members: [],
+      }),
+    );
+    const file = new File(["image"], "pasted.png", { type: "image/png" });
+    const form = document.querySelector("form");
+
+    fireEvent.paste(form!, {
+      clipboardData: {
+        files: [file],
+        items: [],
+      },
+    });
+
+    expect(
+      (
+        await screen.findAllByText(
+          "R2 버킷 설정이 없어 이미지를 업로드할 수 없습니다.",
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    consoleErrorSpy.mockRestore();
   });
 
   it("cleans up an uploaded thumbnail when the dialog is cancelled", async () => {

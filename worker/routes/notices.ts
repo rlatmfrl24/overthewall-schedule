@@ -14,17 +14,33 @@ import {
   buildNoticeThumbnailAssetUrl,
   getNoticeThumbnailExtension,
   getOwnedNoticeThumbnailKey,
+  NOTICE_THUMBNAIL_KEY_PREFIX,
   NOTICE_THUMBNAIL_MAX_BYTES,
 } from "../../src/lib/notice-thumbnails";
 
 const NOTICES_CACHE_CONTROL = "no-store";
 const NOTICE_THUMBNAIL_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
+const NOTICE_THUMBNAIL_CLEANUP_GRACE_MS = 15 * 60_000;
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const NOTICE_PUBLISHER_TYPES = ["otw", "member"] as const;
 
 type NoticePublisherType = (typeof NOTICE_PUBLISHER_TYPES)[number];
+type NoticeThumbnailReference = {
+  key: string;
+  url: string;
+  referenceCount: number;
+};
+type NoticeThumbnailAsset = {
+  key: string;
+  url: string;
+  size: number;
+  uploadedAt: number | null;
+  referenced: boolean;
+  referenceCount: number;
+  cleanupEligible: boolean;
+};
 
 const getTodayKstDateString = () =>
   new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
@@ -84,17 +100,182 @@ const normalizeNoticeImageUrl = (value?: string | null) => {
   return { ok: true as const, value: trimmed };
 };
 
-const hasNoticeThumbnailReference = async (
-  db: ReturnType<typeof getDb>,
-  key: string,
-) => {
+const getNoticeThumbnailReferenceCounts = async (db: ReturnType<typeof getDb>) => {
   const rows = await db
     .select({ thumbnail_url: notices.thumbnail_url })
     .from(notices)
     .where(sql`${notices.thumbnail_url} IS NOT NULL`);
+  const references = new Map<string, NoticeThumbnailReference>();
 
-  return rows.some(
-    (row) => getOwnedNoticeThumbnailKey(row.thumbnail_url) === key,
+  for (const row of rows) {
+    const key = getOwnedNoticeThumbnailKey(row.thumbnail_url);
+    if (!key) continue;
+    const existing = references.get(key);
+    references.set(key, {
+      key,
+      url: buildNoticeThumbnailAssetUrl(key),
+      referenceCount: (existing?.referenceCount ?? 0) + 1,
+    });
+  }
+
+  return references;
+};
+
+const hasNoticeThumbnailReference = async (
+  db: ReturnType<typeof getDb>,
+  key: string,
+) => {
+  const references = await getNoticeThumbnailReferenceCounts(db);
+  return references.has(key);
+};
+
+const listNoticeThumbnailObjects = async (bucket: R2Bucket) => {
+  const objects: R2Object[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await bucket.list({
+      prefix: NOTICE_THUMBNAIL_KEY_PREFIX,
+      cursor,
+      limit: 1000,
+    });
+    objects.push(...page.objects);
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+
+  return objects;
+};
+
+const getR2ObjectUploadedAt = (object: R2Object) => {
+  const uploaded = object.uploaded;
+  if (uploaded instanceof Date) return uploaded.getTime();
+  return null;
+};
+
+const buildNoticeThumbnailStatus = async (
+  env: Env,
+  db: ReturnType<typeof getDb>,
+) => {
+  const references = await getNoticeThumbnailReferenceCounts(db);
+
+  if (!env.ASSET_BUCKET) {
+    return {
+      updatedAt: new Date().toISOString(),
+      bucketConfigured: false,
+      prefix: NOTICE_THUMBNAIL_KEY_PREFIX,
+      maxBytes: NOTICE_THUMBNAIL_MAX_BYTES,
+      stats: {
+        totalObjects: 0,
+        referencedObjects: 0,
+        unusedObjects: 0,
+        missingReferencedObjects: references.size,
+        cleanupEligibleObjects: 0,
+        totalBytes: 0,
+        unusedBytes: 0,
+        cleanupEligibleBytes: 0,
+      },
+      objects: [] as NoticeThumbnailAsset[],
+      missingReferences: Array.from(references.values()),
+    };
+  }
+
+  const objects = await listNoticeThumbnailObjects(env.ASSET_BUCKET);
+  const now = Date.now();
+  const objectKeys = new Set(objects.map((object) => object.key));
+  const assets = objects
+    .map((object): NoticeThumbnailAsset => {
+      const reference = references.get(object.key);
+      const referenceCount = reference?.referenceCount ?? 0;
+      const uploadedAt = getR2ObjectUploadedAt(object);
+      return {
+        key: object.key,
+        url: buildNoticeThumbnailAssetUrl(object.key),
+        size: object.size,
+        uploadedAt,
+        referenced: referenceCount > 0,
+        referenceCount,
+        cleanupEligible:
+          referenceCount === 0 &&
+          uploadedAt !== null &&
+          now - uploadedAt >= NOTICE_THUMBNAIL_CLEANUP_GRACE_MS,
+      };
+    })
+    .sort((a, b) => (b.uploadedAt ?? 0) - (a.uploadedAt ?? 0));
+  const unusedObjects = assets.filter((asset) => !asset.referenced);
+  const cleanupEligibleObjects = unusedObjects.filter(
+    (asset) => asset.cleanupEligible,
+  );
+  const missingReferences = Array.from(references.values()).filter(
+    (reference) => !objectKeys.has(reference.key),
+  );
+
+  return {
+    updatedAt: new Date().toISOString(),
+    bucketConfigured: true,
+    prefix: NOTICE_THUMBNAIL_KEY_PREFIX,
+    maxBytes: NOTICE_THUMBNAIL_MAX_BYTES,
+    stats: {
+      totalObjects: assets.length,
+      referencedObjects: assets.filter((asset) => asset.referenced).length,
+      unusedObjects: unusedObjects.length,
+      missingReferencedObjects: missingReferences.length,
+      cleanupEligibleObjects: cleanupEligibleObjects.length,
+      totalBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
+      unusedBytes: unusedObjects.reduce((sum, asset) => sum + asset.size, 0),
+      cleanupEligibleBytes: cleanupEligibleObjects.reduce(
+        (sum, asset) => sum + asset.size,
+        0,
+      ),
+    },
+    objects: assets,
+    missingReferences,
+  };
+};
+
+const getNoticeThumbnailStatus = async (
+  env: Env,
+  db: ReturnType<typeof getDb>,
+) =>
+  json(await buildNoticeThumbnailStatus(env, db), 200, {
+    headers: { "Cache-Control": "no-store" },
+  });
+
+const cleanupUnusedNoticeThumbnails = async (
+  env: Env,
+  db: ReturnType<typeof getDb>,
+) => {
+  if (!env.ASSET_BUCKET) {
+    return new Response("R2 asset bucket is not configured", { status: 503 });
+  }
+
+  const status = await buildNoticeThumbnailStatus(env, db);
+  const unusedObjects = status.objects.filter((asset) => asset.cleanupEligible);
+  const deleted: string[] = [];
+  const failed: Array<{ key: string; error: string }> = [];
+
+  for (const asset of unusedObjects) {
+    try {
+      await env.ASSET_BUCKET.delete(asset.key);
+      deleted.push(asset.key);
+    } catch (error) {
+      failed.push({
+        key: asset.key,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return json(
+    {
+      success: failed.length === 0,
+      deletedCount: deleted.length,
+      failedCount: failed.length,
+      deleted,
+      failed,
+      before: status.stats,
+    },
+    failed.length > 0 ? 207 : 200,
+    { headers: { "Cache-Control": "no-store" } },
   );
 };
 
@@ -300,7 +481,11 @@ const normalizeNoticePublisher = async (
 export const handleNotices = async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const includeInactive = url.searchParams.get("includeInactive") === "1";
+  const isThumbnailAdminPath =
+    url.pathname === "/api/notices/thumbnail" ||
+    url.pathname.startsWith("/api/notices/thumbnails/");
   const requiresAdmin =
+    isThumbnailAdminPath ||
     request.method === "POST" ||
     request.method === "PUT" ||
     request.method === "DELETE" ||
@@ -325,6 +510,26 @@ export const handleNotices = async (request: Request, env: Env) => {
   }
 
   const db = getDb(env);
+
+  if (url.pathname === "/api/notices/thumbnails/status") {
+    if (request.method === "GET") {
+      return getNoticeThumbnailStatus(env, db);
+    }
+    return new Response(null, {
+      status: 405,
+      headers: { Allow: "GET" },
+    });
+  }
+
+  if (url.pathname === "/api/notices/thumbnails/cleanup") {
+    if (request.method === "POST") {
+      return cleanupUnusedNoticeThumbnails(env, db);
+    }
+    return new Response(null, {
+      status: 405,
+      headers: { Allow: "POST" },
+    });
+  }
 
   const NOTICE_TYPES = ["notice", "event"] as const;
   type NoticeType = (typeof NOTICE_TYPES)[number];

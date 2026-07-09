@@ -3,6 +3,7 @@ import {
   buildNaverCafeArticleUrl,
   buildNaverCafeBoardUrl,
 } from "../../src/lib/naver-cafe";
+import { CACHE_POLICY } from "../../src/lib/cache-policy";
 import { pMap } from "../utils/helpers";
 
 type NaverCafeSourceInput = Pick<
@@ -139,11 +140,9 @@ class NaverCafeSourceError extends Error {
 
 const NAVER_CAFE_BOARD_API_BASE =
   "https://apis.naver.com/cafe-web/cafe-boardlist-api";
-const NAVER_CAFE_POSTS_TTL_MS = 10 * 60_000;
-const NAVER_CAFE_POSTS_STALE_TTL_MS = 6 * 60 * 60_000;
+const NAVER_CAFE_POSTS_CACHE_POLICY = CACHE_POLICY.worker.naverCafe.posts;
 const NAVER_CAFE_FETCH_CONCURRENCY = 3;
 const NAVER_CAFE_FETCH_TIMEOUT_MS = 5_000;
-const NAVER_CAFE_CACHE_VERSION = "v1";
 
 const SOURCE_POSTS_CACHE = new Map<string, CachedSourcePosts>();
 
@@ -155,12 +154,12 @@ const clampMaxResults = (value: number | undefined) => {
 };
 
 const getCacheKey = (source: NaverCafeSourceInput, size: number) =>
-  `naver-cafe:${NAVER_CAFE_CACHE_VERSION}:${source.id}:${source.cafe_id}:${source.menu_id}:${size}`;
+  `naver-cafe:${NAVER_CAFE_POSTS_CACHE_POLICY.version}:${source.id}:${source.cafe_id}:${source.menu_id}:${size}`;
 
 const isFresh = (entry: CachedSourcePosts) => now() < entry.expiresAt;
 
 const isStaleUsable = (entry: CachedSourcePosts) =>
-  now() - entry.fetchedAt < NAVER_CAFE_POSTS_STALE_TTL_MS;
+  now() - entry.fetchedAt < NAVER_CAFE_POSTS_CACHE_POLICY.staleTtlMs;
 
 const normalizeBoolean = (value: NaverCafeSourceInput["enabled"]) =>
   value !== false;
@@ -369,7 +368,7 @@ const fetchPostsForSource = async (
     const posts = normalizeNaverCafeBoardListResponse(response, source);
     SOURCE_POSTS_CACHE.set(cacheKey, {
       fetchedAt: now(),
-      expiresAt: now() + NAVER_CAFE_POSTS_TTL_MS,
+      expiresAt: now() + NAVER_CAFE_POSTS_CACHE_POLICY.freshTtlMs,
       posts,
     });
     return {

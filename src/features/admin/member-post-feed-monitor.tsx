@@ -22,7 +22,11 @@ import { useNaverCafePosts } from "@/hooks/use-naver-cafe-posts";
 import { useScheduleData } from "@/hooks/use-schedule-data";
 import { useXPosts } from "@/hooks/use-x-posts";
 import { getMembersWithXHandles } from "@/lib/api/x";
-import type { NaverCafeSourceStatus } from "@/lib/types";
+import type {
+  NaverCafePostsVisibility,
+  NaverCafeSourceStatus,
+  XPostsVisibility,
+} from "@/lib/types";
 
 const formatMonitorUpdatedAt = (value: string | null) => {
   if (!value) return "아직 없음";
@@ -69,6 +73,14 @@ const getNaverCafeSourceStatusVariant = (
   return "destructive" as const;
 };
 
+const getVisibilityLabel = (
+  visibility: XPostsVisibility | NaverCafePostsVisibility,
+) => {
+  if (visibility === "public") return "모두 공개";
+  if (visibility === "private") return "비공개";
+  return "회원 전용";
+};
+
 const MetricTile = ({
   label,
   value,
@@ -87,10 +99,14 @@ const MetricTile = ({
 
 export function MemberPostFeedMonitor({
   xCollectionEnabled,
+  xPostsVisibility,
   naverCafeEnabled,
+  naverCafeVisibility,
 }: {
   xCollectionEnabled: boolean;
+  xPostsVisibility: XPostsVisibility;
   naverCafeEnabled: boolean;
+  naverCafeVisibility: NaverCafePostsVisibility;
 }) {
   const {
     members,
@@ -112,7 +128,7 @@ export function MemberPostFeedMonitor({
     admin: true,
   });
   const cafeState = useNaverCafePosts({
-    enabled: naverCafeEnabled,
+    enabled: true,
     size: 10,
     admin: true,
   });
@@ -169,7 +185,7 @@ export function MemberPostFeedMonitor({
     await Promise.all([
       reloadMembers(),
       membersWithX.length > 0 ? xState.reload() : Promise.resolve(),
-      naverCafeEnabled ? cafeState.reload() : Promise.resolve(),
+      cafeState.reload(),
     ]);
   };
 
@@ -205,7 +221,7 @@ export function MemberPostFeedMonitor({
               피드 모니터링
             </CardTitle>
             <CardDescription>
-              사용자 피드에 표시하지 않는 수집 상태와 응답 데이터를 관리자용으로 확인합니다.
+              사용자 공개 정책과 별도로 admin=1 경로의 응답 상태를 확인합니다.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -241,7 +257,7 @@ export function MemberPostFeedMonitor({
             value={`${membersWithXHandles.length}개`}
             detail={`오류 ${xErrorCount}개 · 캐시 ${xStaleCount}개 · 수집 ${
               xCollectionEnabled ? "활성" : "비활성"
-            }`}
+            } · 공개 ${getVisibilityLabel(xPostsVisibility)}`}
           />
           <MetricTile
             label="카페 게시판 상태"
@@ -250,7 +266,9 @@ export function MemberPostFeedMonitor({
               (cafeStatusCounts.error ?? 0) +
               (cafeStatusCounts.private ?? 0) +
               (cafeStatusCounts.invalid_response ?? 0)
-            }개 · 표시 ${naverCafeEnabled ? "활성" : "비활성"}`}
+            }개 · 표시 ${naverCafeEnabled ? "활성" : "비활성"} · 공개 ${getVisibilityLabel(
+              naverCafeVisibility,
+            )}`}
           />
         </div>
 
@@ -263,14 +281,20 @@ export function MemberPostFeedMonitor({
 
         <div className="grid gap-4 xl:grid-cols-2">
           <section className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <img src={IconX} alt="" className="h-3.5 w-3.5" />
                 X 계정별 응답
               </h3>
-              <Badge variant={xCollectionEnabled ? "default" : "secondary"}>
-                {xCollectionEnabled ? "수집 활성" : "수집 비활성"}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={xCollectionEnabled ? "default" : "secondary"}>
+                  {xCollectionEnabled ? "수집 활성" : "수집 비활성"}
+                </Badge>
+                <Badge variant="outline">
+                  공개 {getVisibilityLabel(xPostsVisibility)}
+                </Badge>
+                <Badge variant="outline">/api/x/posts?admin=1</Badge>
+              </div>
             </div>
             <div className="space-y-2">
               {xHandleRows.length === 0 ? (
@@ -316,21 +340,23 @@ export function MemberPostFeedMonitor({
           </section>
 
           <section className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-4">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Coffee className="h-3.5 w-3.5 text-emerald-600" />
                 카페 게시판별 응답
               </h3>
-              <Badge variant={naverCafeEnabled ? "default" : "secondary"}>
-                {naverCafeEnabled ? "표시 활성" : "표시 비활성"}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={naverCafeEnabled ? "default" : "secondary"}>
+                  {naverCafeEnabled ? "표시 활성" : "표시 비활성"}
+                </Badge>
+                <Badge variant="outline">
+                  공개 {getVisibilityLabel(naverCafeVisibility)}
+                </Badge>
+                <Badge variant="outline">/api/naver-cafe/posts?admin=1</Badge>
+              </div>
             </div>
             <div className="space-y-2">
-              {!naverCafeEnabled ? (
-                <p className="text-sm text-muted-foreground">
-                  카페 최신글 표시가 비활성화되어 응답 상태를 조회하지 않습니다.
-                </p>
-              ) : cafeState.sources.length === 0 ? (
+              {cafeState.sources.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   등록된 카페 게시판이 없습니다.
                 </p>
