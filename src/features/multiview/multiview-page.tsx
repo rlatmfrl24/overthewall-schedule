@@ -220,7 +220,7 @@ const SourceSection = ({
 
 export function MultiviewPage() {
   const [urlState, setUrlState] = useState(getInitialUrlState);
-  const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
+  const [sourcePanelOpen, setSourcePanelOpen] = useState(true);
   const { loading: membersLoading, members } = useScheduleData();
   const { sources, loading: sourcesLoading } = useMultiviewSources(members);
   const liveSources = useMemo(

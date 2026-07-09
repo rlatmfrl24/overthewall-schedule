@@ -100,20 +100,16 @@ describe("MultiviewPage", () => {
       "overflow-hidden",
     );
     expect(
-      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
+      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "라이브 멤버 선택" }),
-    ).toBeNull();
+      screen.getAllByRole("button", { name: "라이브 멤버 선택" })[0],
+    ).toBeTruthy();
     expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
   });
 
-  it("opens the member overlay and updates the Mul.Live iframe and URL", async () => {
+  it("opens the member overlay on entry and updates the Mul.Live iframe and URL", async () => {
     render(React.createElement(MultiviewPage));
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
-    );
 
     expect(screen.getByLabelText("멀티뷰 멤버 목록")).toBeTruthy();
     expect(screen.getByText("라이브 리스트")).toBeTruthy();
@@ -139,6 +135,15 @@ describe("MultiviewPage", () => {
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
     );
 
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
+    );
+    expect(screen.queryByLabelText("멀티뷰 멤버 목록")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "초기화" }));
     expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
     await waitFor(() => {
@@ -159,9 +164,6 @@ describe("MultiviewPage", () => {
 
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
     );
     expect(
       screen.getAllByRole("button", { name: "라이브 멤버 선택 해제" })[0],
