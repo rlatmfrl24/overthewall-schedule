@@ -25,6 +25,50 @@ type NoticeThumbnailDeleteResponse = {
   reason?: "referenced";
 };
 
+export type NoticeThumbnailAssetStatus = {
+  key: string;
+  url: string;
+  size: number;
+  uploadedAt: number | null;
+  referenced: boolean;
+  referenceCount: number;
+  cleanupEligible: boolean;
+};
+
+export type NoticeThumbnailReferenceStatus = {
+  key: string;
+  url: string;
+  referenceCount: number;
+};
+
+export type NoticeThumbnailStatusResponse = {
+  updatedAt: string;
+  bucketConfigured: boolean;
+  prefix: string;
+  maxBytes: number;
+  stats: {
+    totalObjects: number;
+    referencedObjects: number;
+    unusedObjects: number;
+    missingReferencedObjects: number;
+    cleanupEligibleObjects: number;
+    totalBytes: number;
+    unusedBytes: number;
+    cleanupEligibleBytes: number;
+  };
+  objects: NoticeThumbnailAssetStatus[];
+  missingReferences: NoticeThumbnailReferenceStatus[];
+};
+
+export type NoticeThumbnailCleanupResponse = {
+  success: boolean;
+  deletedCount: number;
+  failedCount: number;
+  deleted: string[];
+  failed: Array<{ key: string; error: string }>;
+  before: NoticeThumbnailStatusResponse["stats"];
+};
+
 const normalizeActive = (value: NoticePayload["is_active"]) =>
   value === "0" || value === 0 ? "0" : "1";
 
@@ -71,4 +115,18 @@ export async function deleteNoticeThumbnail(thumbnailUrl: string) {
     method: "DELETE",
     json: { thumbnail_url: thumbnailUrl },
   });
+}
+
+export async function fetchNoticeThumbnailStatus() {
+  return apiFetch<NoticeThumbnailStatusResponse>(
+    "/api/notices/thumbnails/status",
+    { cache: "no-store" },
+  );
+}
+
+export async function cleanupUnusedNoticeThumbnails() {
+  return apiFetch<NoticeThumbnailCleanupResponse>(
+    "/api/notices/thumbnails/cleanup",
+    { method: "POST" },
+  );
 }

@@ -32,10 +32,16 @@ alwaysApply: true
 ## Routing and App Shell
 - Keep file-based route definitions in `src/routes`.
 - Route files must expose `export const Route = createFileRoute(...)`.
-- Keep route component logic in a `RouteComponent` function where practical.
+- Keep route component logic in a local `RouteComponent` function where practical, but do not export extra named route components unless another module truly imports them.
 - Do not hand-edit `src/routeTree.gen.ts`; regenerate via normal build or dev workflow.
 - Use `PublicAppShell` for public app chrome, `ContentPageShell` for notice/VOD/member post style content pages, and chrome-free layouts for profile/snapshot routes.
 - Keep public navigation changes centralized in `src/components/app-navigation.ts`.
+
+## Multiview
+- Keep `/multiview` usable without authentication and without browser-extension support unless the product requirement changes.
+- Use the current Mul.Live iframe fallback model for CHZZK multiview behavior.
+- Preserve selected channel URL state through repeated `c=` params when touching multiview routing.
+- Do not add CHZZK DOM automation, iframe cookie/login bridging, or Chrome extension coupling without an explicit new request.
 
 ## Frontend Design
 - Follow `Design.md` for current shell, spacing, card, color, and accessibility patterns.
@@ -60,6 +66,10 @@ alwaysApply: true
 - Keep `Design.md` as the current UI guidance source.
 - Keep active runbooks in `docs/`; move superseded research and drafts to `docs/archive/`.
 - Update `.agent` first and mirror with `pnpm sync:agent-cursor`; do not manually edit mirrored `.cursor` files.
+
+## Temporary Artifact Hygiene
+- Keep generated build, coverage, Wrangler, temp log, and scratch directories out of source review and commits.
+- Treat empty experimental directories as removable unless a tracked file or current document references them.
 
 ## Verification Gates
 - Run `pnpm lint` after meaningful code changes.

@@ -45,3 +45,28 @@ export const normalizeXCollectionIntervalHours = (
 export const parseXCollectionIntervalHours = (
   value: string | null | undefined,
 ) => Number(normalizeXCollectionIntervalHours(value));
+
+export const YOUTUBE_WARMUP_INTERVAL_HOURS = ["1", "2", "6", "12", "24"] as const;
+
+export type YouTubeWarmupIntervalHours =
+  (typeof YOUTUBE_WARMUP_INTERVAL_HOURS)[number];
+
+export const DEFAULT_YOUTUBE_WARMUP_INTERVAL_HOURS: YouTubeWarmupIntervalHours =
+  "1";
+
+export const isYouTubeWarmupIntervalHours = (
+  value: unknown,
+): value is YouTubeWarmupIntervalHours =>
+  typeof value === "string" &&
+  (YOUTUBE_WARMUP_INTERVAL_HOURS as readonly string[]).includes(value);
+
+export const normalizeYouTubeWarmupIntervalHours = (
+  value: string | null | undefined,
+): YouTubeWarmupIntervalHours =>
+  isYouTubeWarmupIntervalHours(value)
+    ? value
+    : DEFAULT_YOUTUBE_WARMUP_INTERVAL_HOURS;
+
+export const parseYouTubeWarmupIntervalHours = (
+  value: string | null | undefined,
+) => Number(normalizeYouTubeWarmupIntervalHours(value));

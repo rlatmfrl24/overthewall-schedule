@@ -153,6 +153,7 @@ export const handleKirinuki = async (request: Request, env: Env) => {
           channel.youtube_channel_id,
           apiKey,
           maxResults,
+          env.otw_db,
         );
         return {
           channelId: channel.youtube_channel_id,

@@ -8,7 +8,10 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { UnifiedMemberPost } from "@/lib/api/member-posts";
+import type {
+  MemberPostSourcePolicy,
+  UnifiedMemberPost,
+} from "@/lib/api/member-posts";
 import type { Member, NaverCafePost, XPost } from "@/lib/types";
 import { MemberPostsOverview } from "./member-posts-overview";
 
@@ -125,10 +128,33 @@ const makeUnifiedPosts = (
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
 
-const makeXState = (posts: XPost[] = [xPost], reload = vi.fn()) => ({
+const makePolicy = (
+  source: MemberPostSourcePolicy["source"],
+  overrides: Partial<MemberPostSourcePolicy> = {},
+): MemberPostSourcePolicy => ({
+  source,
+  requested: true,
+  admin: false,
+  enabled: true,
+  visibility: "public",
+  accessible: true,
+  status: "visible",
+  reason: null,
+  publicPath: "/feed",
+  monitorPath: "/admin/member-posts",
+  apiPath: `/api/member-posts?sources=${source}&admin=1`,
+  ...overrides,
+});
+
+const makeXState = (
+  posts: XPost[] = [xPost],
+  reload = vi.fn(),
+  policy = makePolicy("x"),
+) => ({
   posts,
   updatedAt: "2026-05-27T12:10:00Z",
   byHandle: [],
+  policy,
   loading: false,
   error: null,
   stale: false,
@@ -136,7 +162,11 @@ const makeXState = (posts: XPost[] = [xPost], reload = vi.fn()) => ({
   reload,
 });
 
-const makeCafeState = (posts: NaverCafePost[] = [cafePost], reload = vi.fn()) => ({
+const makeCafeState = (
+  posts: NaverCafePost[] = [cafePost],
+  reload = vi.fn(),
+  policy = makePolicy("naver-cafe"),
+) => ({
   posts,
   sources: [
     {
@@ -154,6 +184,7 @@ const makeCafeState = (posts: NaverCafePost[] = [cafePost], reload = vi.fn()) =>
       stale: false,
     },
   ],
+  policy,
   updatedAt: "2026-05-28T01:05:00Z",
   loading: false,
   error: null,
@@ -165,9 +196,13 @@ const makeCafeState = (posts: NaverCafePost[] = [cafePost], reload = vi.fn()) =>
 const makeMemberPostsState = ({
   xPosts = [xPost],
   cafePosts = [cafePost],
+  xPolicy = makePolicy("x"),
+  cafePolicy = makePolicy("naver-cafe"),
 }: {
   xPosts?: XPost[];
   cafePosts?: NaverCafePost[];
+  xPolicy?: MemberPostSourcePolicy;
+  cafePolicy?: MemberPostSourcePolicy;
 } = {}) => {
   const reload = vi.fn();
   return {
@@ -177,8 +212,8 @@ const makeMemberPostsState = ({
     error: null,
     hasLoaded: true,
     reload,
-    x: makeXState(xPosts, reload),
-    naverCafe: makeCafeState(cafePosts, reload),
+    x: makeXState(xPosts, reload, xPolicy),
+    naverCafe: makeCafeState(cafePosts, reload, cafePolicy),
   };
 };
 
@@ -365,5 +400,35 @@ describe("MemberPostsOverview", () => {
     expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
     expect(screen.queryByText("X 최신 게시글입니다.")).toBeNull();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
+  });
+
+  it("정책상 표시할 수 없는 소스는 빈 소스가 아니라 정책 안내로 표시한다", () => {
+    useMemberPostsMock.mockReturnValue(
+      makeMemberPostsState({
+        xPosts: [],
+        cafePosts: [],
+        xPolicy: makePolicy("x", {
+          requested: false,
+          accessible: false,
+          status: "not_requested",
+        }),
+        cafePolicy: makePolicy("naver-cafe", {
+          enabled: false,
+          accessible: false,
+          status: "disabled",
+        }),
+      }),
+    );
+
+    render(
+      createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
+    );
+
+    expect(
+      screen.getByText("네이버 카페 최신글 표시가 비활성화되어 있습니다."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("등록된 X 계정 또는 네이버 카페 게시판이 없습니다."),
+    ).toBeNull();
   });
 });

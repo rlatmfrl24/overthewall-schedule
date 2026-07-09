@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FieldError, FieldLabel } from "@/components/ui/field";
-import { ImageIcon, Loader2, Upload, X } from "lucide-react";
+import { AlertCircle, ImageIcon, Loader2, Upload, X } from "lucide-react";
 import {
   deleteNoticeThumbnail,
   uploadNoticeThumbnail,
@@ -40,6 +40,7 @@ import {
   NOTICE_THUMBNAIL_MAX_BYTES,
   NOTICE_THUMBNAIL_MAX_LABEL,
 } from "@/lib/notice-thumbnails";
+import { cn } from "@/lib/utils";
 
 const noticeTypeConfigs = {
   notice: { label: "공지사항" },
@@ -80,6 +81,32 @@ const isValidImageResourceUrl = (value: string) => {
   return isValidHttpUrl(url);
 };
 
+const formatUploadSize = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return "0B";
+  if (value < 1024) return `${value}B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const getUploadFailureMessage = (error: unknown) => {
+  const status =
+    typeof error === "object" && error !== null && "status" in error
+      ? Number((error as { status?: unknown }).status)
+      : null;
+  const message = error instanceof Error ? error.message : "";
+
+  if (status === 503) {
+    return "R2 버킷 설정이 없어 이미지를 업로드할 수 없습니다.";
+  }
+  if (status === 400 && message.includes("too large")) {
+    return `${NOTICE_THUMBNAIL_MAX_LABEL} 이하 이미지만 업로드할 수 있습니다.`;
+  }
+  if (status === 400 && message.includes("Unsupported")) {
+    return "webp, png, jpg 이미지만 업로드할 수 있습니다.";
+  }
+  return "이미지 업로드에 실패했습니다.";
+};
+
 export interface NoticeFormValues {
   id?: number;
   content: string;
@@ -113,6 +140,9 @@ export function NoticeFormDialog({
   const thumbnailInputRef = useRef<HTMLInputElement | null>(null);
   const pendingThumbnailUrlsRef = useRef<Set<string>>(new Set());
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
+  const [thumbnailUploadMessage, setThumbnailUploadMessage] = useState<
+    string | null
+  >(null);
   const {
     register,
     handleSubmit,
@@ -210,6 +240,7 @@ export function NoticeFormDialog({
     cleanupPendingThumbnail(getValues("thumbnail_url"));
     setValue("thumbnail_url", "", { shouldDirty: true, shouldValidate: true });
     clearErrors("thumbnail_url");
+    setThumbnailUploadMessage(null);
     if (thumbnailInputRef.current) {
       thumbnailInputRef.current.value = "";
     }
@@ -217,22 +248,27 @@ export function NoticeFormDialog({
 
   const uploadThumbnailFile = async (file: File) => {
     if (!isAcceptedNoticeThumbnailType(file.type)) {
+      const message = "webp, png, jpg 이미지만 업로드할 수 있습니다.";
       setError("thumbnail_url", {
         type: "validate",
-        message: "webp, png, jpg 이미지만 업로드할 수 있습니다.",
+        message,
       });
+      setThumbnailUploadMessage(message);
       return;
     }
 
     if (file.size > NOTICE_THUMBNAIL_MAX_BYTES) {
+      const message = `${NOTICE_THUMBNAIL_MAX_LABEL} 이하 이미지만 업로드할 수 있습니다. 현재 파일은 ${formatUploadSize(file.size)}입니다.`;
       setError("thumbnail_url", {
         type: "validate",
-        message: `${NOTICE_THUMBNAIL_MAX_LABEL} 이하 이미지만 업로드할 수 있습니다.`,
+        message,
       });
+      setThumbnailUploadMessage(message);
       return;
     }
 
     setIsUploadingThumbnail(true);
+    setThumbnailUploadMessage(null);
     clearErrors("thumbnail_url");
     try {
       const previousThumbnailUrl = getValues("thumbnail_url").trim();
@@ -246,12 +282,15 @@ export function NoticeFormDialog({
       if (previousThumbnailUrl !== uploadedThumbnailUrl) {
         cleanupPendingThumbnail(previousThumbnailUrl);
       }
+      setThumbnailUploadMessage("이미지를 업로드했습니다.");
     } catch (error) {
       console.error("Failed to upload notice thumbnail:", error);
+      const message = getUploadFailureMessage(error);
       setError("thumbnail_url", {
         type: "validate",
-        message: "이미지 업로드에 실패했습니다.",
+        message,
       });
+      setThumbnailUploadMessage(message);
     } finally {
       setIsUploadingThumbnail(false);
     }
@@ -349,6 +388,7 @@ export function NoticeFormDialog({
     if (previousThumbnailUrl !== nextThumbnailUrl) {
       cleanupPendingThumbnail(previousThumbnailUrl);
     }
+    setThumbnailUploadMessage(null);
   };
 
   return (
@@ -459,6 +499,24 @@ export function NoticeFormDialog({
                   {...thumbnailUrlField}
                   onChange={handleThumbnailUrlChange}
                 />
+                <div className="space-y-1 text-xs">
+                  <p className="text-muted-foreground">
+                    webp, png, jpg · 최대 {NOTICE_THUMBNAIL_MAX_LABEL}
+                  </p>
+                  {thumbnailUploadMessage ? (
+                    <p
+                      className={cn(
+                        "flex items-center gap-1.5",
+                        errors.thumbnail_url
+                          ? "text-destructive"
+                          : "text-emerald-700",
+                      )}
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      {thumbnailUploadMessage}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
             <FieldError errors={[errors.thumbnail_url]} />

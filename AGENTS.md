@@ -14,7 +14,7 @@
 - `code-review-otw`: Review OTW code changes for correctness, security, performance, accessibility, and regression risks. Path: `.agent/skills/code-review/SKILL.md`
 - `db-migration`: Execute safe Drizzle and D1 migration workflows. Path: `.agent/skills/db-migration/SKILL.md`
 - `worker-api-change`: Implement `/api` contract changes across worker routes and frontend API clients. Path: `.agent/skills/worker-api-change/SKILL.md`
-- `release-ops`: Run release and deployment preflight checks for the web app and Worker. Path: `.agent/skills/release-ops/SKILL.md`
+- `release-ops`: Run release and deployment preflight checks for the web app, Worker, and D1-backed changes. Path: `.agent/skills/release-ops/SKILL.md`
 
 ### Trigger rules
 - Use `code-review-otw` for review, PR review, risk review, or regression review requests.
@@ -49,3 +49,8 @@
 - `.agent/workflows/worker-deploy.md`
 
 These wrappers must remain lightweight pointers to canonical skills and references.
+
+## Current Repository Scope
+- This repository currently ships the OTW Schedule web app and Cloudflare Worker only.
+- No Chrome extension package is part of the active source tree. Do not recreate `extensions/*`, extension store metadata, or browser-extension release steps unless the user explicitly requests that work again.
+- `/multiview` is currently a public Mul.Live iframe surface driven by selected CHZZK member channels, not an extension-assisted CHZZK DOM automation flow.

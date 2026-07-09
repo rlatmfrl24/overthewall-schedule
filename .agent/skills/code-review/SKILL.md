@@ -11,7 +11,7 @@ description: Review OTW code changes for correctness, regressions, security, per
 - Evaluate security concerns at trust boundaries (input validation, auth or audit, sensitive data).
 - Evaluate performance risks (wasteful rerenders, unnecessary API calls, expensive loops or queries).
 - For UI changes, evaluate accessibility, dark mode, responsive layout, and consistency with `Design.md`.
-- For extension changes, evaluate manifest permissions, optional permission UX, privacy disclosures, and Store-readiness risks.
+- For multiview changes, verify the web-safe Mul.Live iframe fallback, repeated `c=` URL state, public access, responsive height behavior, and absence of extension or cookie-bridge assumptions.
 - For documentation changes, evaluate whether docs point to current source-of-truth files and avoid duplicate active drafts.
 - Validate test impact and identify missing coverage for changed behavior.
 

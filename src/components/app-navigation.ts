@@ -28,7 +28,7 @@ export type InternalNavTo =
   | "/multiview"
   | "/feed"
   | "/notice"
-  | "/admin/notices";
+  | "/admin/operations";
 
 export type NavGroup =
   | "schedule"
@@ -187,7 +187,7 @@ export function getPublicNavigationSections({
           label: "관리자",
           icon: Shield,
           group: "admin",
-          to: "/admin/notices",
+          to: "/admin/operations",
         },
       ],
     });

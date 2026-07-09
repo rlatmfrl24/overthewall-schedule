@@ -52,6 +52,11 @@ export const queryKeys = {
     kirinuki: (maxResults: number) =>
       [...queryKeys.media.all, "kirinuki", maxResults] as const,
   },
+  youtubeCache: {
+    all: ["youtube-cache"] as const,
+    status: (windowHours: number) =>
+      [...queryKeys.youtubeCache.all, "status", windowHours] as const,
+  },
   memberPosts: {
     all: ["member-posts"] as const,
     xConfig: () => [...queryKeys.memberPosts.all, "x-config"] as const,
@@ -84,5 +89,14 @@ export const queryKeys = {
     pending: () => [...queryKeys.settings.all, "pending"] as const,
     logs: (options: UpdateLogQuery) =>
       [...queryKeys.settings.all, "logs", options] as const,
+    auditLogs: (options: { page: number; pageSize: number }) =>
+      [...queryKeys.settings.all, "audit-logs", options] as const,
+  },
+  operations: {
+    all: ["operations"] as const,
+    status: (windowHours: number) =>
+      [...queryKeys.operations.all, "status", windowHours] as const,
+    dataRetention: () =>
+      [...queryKeys.operations.all, "data-retention"] as const,
   },
 };

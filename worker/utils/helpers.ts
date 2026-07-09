@@ -1,8 +1,13 @@
 import { eq } from "drizzle-orm";
 import { type DbInstance } from "../db";
-import { members, settings, updateLogs } from "../../src/db/schema";
+import {
+  adminAuditLogs,
+  members,
+  settings,
+  updateLogs,
+} from "../../src/db/schema";
 import type { AuthenticatedUser } from "../auth";
-import type { UpdateLogPayload } from "../types";
+import type { AdminAuditLogPayload, UpdateLogPayload } from "../types";
 
 export const json = (
   data: unknown,
@@ -85,6 +90,39 @@ export const insertUpdateLog = async (
     action: payload.action,
     title: payload.title ?? null,
     previous_status: payload.previousStatus ?? null,
+  });
+};
+
+const stringifyAuditDetail = (
+  detail: AdminAuditLogPayload["detail"],
+): string | null => {
+  if (!detail) return null;
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return JSON.stringify({ serializationError: true });
+  }
+};
+
+export const insertAdminAuditLog = async (
+  db: DbInstance,
+  payload: AdminAuditLogPayload,
+) => {
+  await db.insert(adminAuditLogs).values({
+    event_type: payload.eventType,
+    resource_type: payload.resourceType,
+    resource_id: payload.resourceId ?? null,
+    action: payload.action,
+    status: payload.status,
+    actor_id: payload.actorId ?? null,
+    actor_name: payload.actorName ?? null,
+    actor_ip: payload.actorIp ?? null,
+    target_count: payload.targetCount ?? null,
+    success_count: payload.successCount ?? null,
+    failure_count: payload.failureCount ?? null,
+    detail: stringifyAuditDetail(payload.detail),
+    error: payload.error ?? null,
+    created_at: Date.now(),
   });
 };
 

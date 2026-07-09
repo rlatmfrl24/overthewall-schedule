@@ -10,6 +10,9 @@ import {
   ExternalLink,
   Calendar,
   RefreshCw,
+  HardDrive,
+  ImageOff,
+  Trash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,16 +34,20 @@ import {
 import { NoticeFormDialog, type NoticeFormValues } from "./notice-form-dialog";
 import { cn } from "@/lib/utils";
 import {
+  cleanupUnusedNoticeThumbnails,
   createNotice,
   deleteNotice,
   fetchNotices,
+  fetchNoticeThumbnailStatus,
   updateNotice,
+  type NoticeThumbnailStatusResponse,
 } from "@/lib/api/notices";
 import { fetchActiveMembers } from "@/lib/api/members";
 import { queryKeys } from "@/lib/query-keys";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmActionDialog } from "./components/confirm-action-dialog";
 import { AdminSectionHeader } from "./components/admin-section-header";
+import { getOwnedNoticeThumbnailKey } from "@/lib/notice-thumbnails";
 
 const noticeTypeConfigs = {
   notice: {
@@ -73,6 +80,13 @@ const formatPeriod = (notice: Notice) => {
   }`;
 };
 
+const formatBytes = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return "0B";
+  if (value < 1024) return `${value}B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)}MB`;
+};
+
 const getPublisherLabel = (
   notice: Notice,
   memberMap: Map<number, Member>,
@@ -92,6 +106,12 @@ export function NoticeManager() {
   const [members, setMembers] = useState<Member[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isThumbnailStatusLoading, setIsThumbnailStatusLoading] =
+    useState(false);
+  const [isCleaningThumbnails, setIsCleaningThumbnails] = useState(false);
+  const [isCleanupConfirmOpen, setIsCleanupConfirmOpen] = useState(false);
+  const [thumbnailStatus, setThumbnailStatus] =
+    useState<NoticeThumbnailStatusResponse | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
   const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
@@ -123,6 +143,26 @@ export function NoticeManager() {
   useEffect(() => {
     void loadNotices();
   }, [loadNotices]);
+
+  const loadThumbnailStatus = useCallback(async () => {
+    setIsThumbnailStatusLoading(true);
+    try {
+      const status = await fetchNoticeThumbnailStatus();
+      setThumbnailStatus(status);
+    } catch (error) {
+      console.error("Failed to load notice thumbnail status:", error);
+      toast({
+        variant: "error",
+        description: "썸네일 상태를 점검하지 못했습니다.",
+      });
+    } finally {
+      setIsThumbnailStatusLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void loadThumbnailStatus();
+  }, [loadThumbnailStatus]);
 
   const memberMap = useMemo(
     () => new Map(members.map((member) => [member.uid, member])),
@@ -159,6 +199,27 @@ export function NoticeManager() {
     });
   }, [notices, noticeSort]);
 
+  const thumbnailStatusByKey = useMemo(
+    () =>
+      new Map(
+        thumbnailStatus?.objects.map((object) => [object.key, object]) ?? [],
+      ),
+    [thumbnailStatus],
+  );
+  const missingThumbnailKeys = useMemo(
+    () =>
+      new Set(
+        thumbnailStatus?.missingReferences.map((reference) => reference.key) ??
+          [],
+      ),
+    [thumbnailStatus],
+  );
+  const cleanupEligibleThumbnailPreview = useMemo(
+    () =>
+      thumbnailStatus?.objects.filter((object) => object.cleanupEligible) ?? [],
+    [thumbnailStatus],
+  );
+
   const handleOpenCreate = () => {
     setEditingNotice(null);
     setIsDialogOpen(true);
@@ -174,6 +235,7 @@ export function NoticeManager() {
     try {
       await deleteNotice(deletingNotice.id);
       await loadNotices();
+      await loadThumbnailStatus();
       await queryClient.invalidateQueries({ queryKey: queryKeys.notices.all });
       toast({
         variant: "success",
@@ -214,6 +276,7 @@ export function NoticeManager() {
       }
 
       await loadNotices();
+      await loadThumbnailStatus();
       await queryClient.invalidateQueries({ queryKey: queryKeys.notices.all });
       setIsDialogOpen(false);
       toast({
@@ -232,6 +295,67 @@ export function NoticeManager() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCleanupThumbnails = async () => {
+    setIsCleaningThumbnails(true);
+    try {
+      const result = await cleanupUnusedNoticeThumbnails();
+      await loadThumbnailStatus();
+      toast({
+        variant: result.failedCount > 0 ? "info" : "success",
+        description:
+          result.failedCount > 0
+            ? `미사용 썸네일 ${result.deletedCount}개를 정리했고 ${result.failedCount}개는 실패했습니다.`
+            : `미사용 썸네일 ${result.deletedCount}개를 정리했습니다.`,
+      });
+    } catch (error) {
+      console.error("Failed to clean up notice thumbnails:", error);
+      toast({
+        variant: "error",
+        description: "미사용 썸네일 정리에 실패했습니다.",
+      });
+    } finally {
+      setIsCleaningThumbnails(false);
+    }
+  };
+
+  const renderThumbnailBadge = (notice: Notice) => {
+    const thumbnailUrl = notice.thumbnail_url?.trim();
+    if (!thumbnailUrl) {
+      return <Badge variant="outline">없음</Badge>;
+    }
+
+    const key = getOwnedNoticeThumbnailKey(thumbnailUrl);
+    if (!key) {
+      return <Badge variant="secondary">외부</Badge>;
+    }
+
+    if (!thumbnailStatus) {
+      return <Badge variant="outline">R2</Badge>;
+    }
+
+    if (missingThumbnailKeys.has(key)) {
+      return (
+        <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-800">
+          누락
+        </Badge>
+      );
+    }
+
+    const object = thumbnailStatusByKey.get(key);
+    if (object?.referenced) {
+      return (
+        <Badge
+          variant="outline"
+          className="border-emerald-300 bg-emerald-50 text-emerald-800"
+        >
+          R2 정상
+        </Badge>
+      );
+    }
+
+    return <Badge variant="outline">R2 확인 전</Badge>;
   };
 
   return (
@@ -277,6 +401,142 @@ export function NoticeManager() {
         }
       />
 
+      <div className="rounded-xl border bg-card p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <HardDrive className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold">R2 썸네일 상태</h3>
+              {thumbnailStatus ? (
+                <Badge
+                  variant="outline"
+                  className={
+                    thumbnailStatus.bucketConfigured
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                      : "border-rose-300 bg-rose-50 text-rose-800"
+                  }
+                >
+                  {thumbnailStatus.bucketConfigured ? "연결됨" : "미설정"}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              업로드 제한 {formatBytes(thumbnailStatus?.maxBytes ?? 0)} ·{" "}
+              {thumbnailStatus?.prefix ?? "notices/thumbnails/"}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void loadThumbnailStatus()}
+              disabled={isThumbnailStatusLoading || isCleaningThumbnails}
+            >
+              {isThumbnailStatusLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              상태 점검
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsCleanupConfirmOpen(true)}
+              disabled={
+                isThumbnailStatusLoading ||
+                isCleaningThumbnails ||
+                !thumbnailStatus?.bucketConfigured ||
+                (thumbnailStatus?.stats.cleanupEligibleObjects ?? 0) === 0
+              }
+            >
+              {isCleaningThumbnails ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash className="h-4 w-4" />
+              )}
+              미사용 정리
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-xs text-muted-foreground">전체</div>
+            <div className="text-lg font-semibold">
+              {thumbnailStatus?.stats.totalObjects ?? 0}개
+            </div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-xs text-muted-foreground">사용중</div>
+            <div className="text-lg font-semibold">
+              {thumbnailStatus?.stats.referencedObjects ?? 0}개
+            </div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-xs text-muted-foreground">미사용</div>
+            <div className="text-lg font-semibold">
+              {thumbnailStatus?.stats.unusedObjects ?? 0}개
+            </div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-xs text-muted-foreground">누락</div>
+            <div className="text-lg font-semibold">
+              {thumbnailStatus?.stats.missingReferencedObjects ?? 0}개
+            </div>
+          </div>
+          <div className="rounded-md border bg-background px-3 py-2">
+            <div className="text-xs text-muted-foreground">정리 가능</div>
+            <div className="text-lg font-semibold">
+              {thumbnailStatus?.stats.cleanupEligibleObjects ?? 0}개
+            </div>
+          </div>
+        </div>
+
+        {thumbnailStatus && !thumbnailStatus.bucketConfigured ? (
+          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            R2 버킷이 설정되지 않아 업로드와 정리를 사용할 수 없습니다.
+          </div>
+        ) : null}
+
+        {thumbnailStatus?.missingReferences.length ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <div className="flex items-center gap-2 font-medium">
+              <ImageOff className="h-4 w-4" />
+              R2 객체가 없는 공지 썸네일 {thumbnailStatus.missingReferences.length}개
+            </div>
+            <div className="mt-1 space-y-1 text-xs">
+              {thumbnailStatus.missingReferences.slice(0, 3).map((reference) => (
+                <div key={reference.key} className="truncate">
+                  {reference.key} · 참조 {reference.referenceCount}건
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {cleanupEligibleThumbnailPreview.length ? (
+          <div className="mt-3 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+            <div className="font-medium">
+              정리 대상 {cleanupEligibleThumbnailPreview.length}개 ·{" "}
+              {formatBytes(thumbnailStatus?.stats.cleanupEligibleBytes ?? 0)}
+            </div>
+            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+              {cleanupEligibleThumbnailPreview
+                .slice(0, 3)
+                .map((asset) => (
+                  <div key={asset.key} className="truncate">
+                    {asset.key} · {formatBytes(asset.size)}
+                  </div>
+                ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {isFetching && sortedNotices.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
@@ -287,12 +547,13 @@ export function NoticeManager() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[1080px]">
+          <Table className="min-w-[1180px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[96px]">상태</TableHead>
                 <TableHead className="w-[110px]">유형</TableHead>
                 <TableHead className="w-[150px]">게시자</TableHead>
+                <TableHead className="w-[110px]">썸네일</TableHead>
                 <TableHead>내용</TableHead>
                 <TableHead className="w-[190px]">기간</TableHead>
                 <TableHead className="w-[220px]">링크</TableHead>
@@ -328,6 +589,7 @@ export function NoticeManager() {
                       </span>
                     </span>
                   </TableCell>
+                  <TableCell>{renderThumbnailBadge(notice)}</TableCell>
                   <TableCell
                     className="max-w-[420px] truncate text-sm"
                     title={notice.content}
@@ -404,6 +666,31 @@ export function NoticeManager() {
         destructive
         onConfirm={() => {
           void handleDelete();
+        }}
+      />
+
+      <ConfirmActionDialog
+        open={isCleanupConfirmOpen}
+        onOpenChange={setIsCleanupConfirmOpen}
+        title="미사용 썸네일 정리 확인"
+        description={
+          <div className="space-y-2">
+            <p>
+              R2에서 사용 중이지 않은 썸네일{" "}
+              {thumbnailStatus?.stats.cleanupEligibleObjects ?? 0}개 (
+              {formatBytes(thumbnailStatus?.stats.cleanupEligibleBytes ?? 0)})
+              를 삭제합니다.
+            </p>
+            <p className="font-medium text-destructive">
+              삭제 후에는 복구할 수 없습니다.
+            </p>
+          </div>
+        }
+        confirmLabel="정리"
+        destructive
+        isProcessing={isCleaningThumbnails}
+        onConfirm={() => {
+          void handleCleanupThumbnails();
         }}
       />
     </div>

@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import { CACHE_POLICY } from "@/lib/cache-policy";
 import type {
   Member,
   XPost,
@@ -28,9 +29,7 @@ type MemberXHandle = {
 };
 
 const X_HANDLE_PATTERN = /^[A-Za-z0-9_]{1,15}$/;
-const X_POSTS_CACHE_TTL_MS = 30 * 60_000;
-const X_POSTS_STALE_TTL_MS = 2 * 60 * 60_000;
-const X_POSTS_CLIENT_CACHE_VERSION = "v3";
+const X_POSTS_CLIENT_CACHE_POLICY = CACHE_POLICY.client.xPosts;
 
 const xPostsCache = new Map<
   string,
@@ -41,10 +40,10 @@ let xPostsConfigCache:
   | null = null;
 
 const isCacheFresh = (fetchedAt: number) =>
-  Date.now() - fetchedAt < X_POSTS_CACHE_TTL_MS;
+  Date.now() - fetchedAt < X_POSTS_CLIENT_CACHE_POLICY.freshTtlMs;
 
 const isCacheStale = (fetchedAt: number) =>
-  Date.now() - fetchedAt > X_POSTS_STALE_TTL_MS;
+  Date.now() - fetchedAt > X_POSTS_CLIENT_CACHE_POLICY.staleTtlMs;
 
 const normalizeHandle = (handle: string) => handle.trim().toLowerCase();
 
@@ -54,7 +53,7 @@ const normalizeMaxResults = (value: number | undefined) => {
 };
 
 const makeCacheKey = (handles: string[], maxResults: number, admin: boolean) =>
-  `${X_POSTS_CLIENT_CACHE_VERSION}:${admin ? "admin" : "feed"}:${[...handles]
+  `${X_POSTS_CLIENT_CACHE_POLICY.version}:${admin ? "admin" : "feed"}:${[...handles]
     .map(normalizeHandle)
     .sort()
     .join(",")}:${maxResults}`;
@@ -185,7 +184,7 @@ async function fetchAndCacheXPosts(
   const params = new URLSearchParams({
     handles: handles.join(","),
     maxResults: String(maxResults),
-    clientVersion: X_POSTS_CLIENT_CACHE_VERSION,
+    clientVersion: X_POSTS_CLIENT_CACHE_POLICY.version,
   });
   if (force) {
     params.set("_", String(Date.now()));

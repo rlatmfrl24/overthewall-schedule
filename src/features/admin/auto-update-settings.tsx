@@ -42,6 +42,8 @@ import {
   approvePendingSchedule,
   rejectPendingSchedule,
   resetPendingScheduleProcessed,
+  approveSelectedPendingSchedules,
+  rejectSelectedPendingSchedules,
   type AutoUpdateSettings,
   type AutoUpdateRunResult,
   type PendingApplyMode,
@@ -53,11 +55,13 @@ import {
 import { useToast } from "@/components/ui/toast";
 import {
   AUTO_UPDATE_INTERVAL_HOURS,
+  isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
 } from "@/lib/auto-update-interval";
 import { roundTimeToNearestScheduleHour } from "@/lib/pending-time";
 import { cn } from "@/lib/utils";
 import { AdminSectionHeader } from "./components/admin-section-header";
+import { ConfirmActionDialog } from "./components/confirm-action-dialog";
 import { queryKeys } from "@/lib/query-keys";
 
 const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
@@ -128,6 +132,7 @@ type PendingActionFilter =
   (typeof PENDING_ACTION_FILTER_OPTIONS)[number]["value"];
 type PendingProcessFilter =
   (typeof PENDING_PROCESS_FILTER_OPTIONS)[number]["value"];
+type PendingBatchAction = "approve" | "reject";
 
 const getPendingBroadcastSortValue = (pending: PendingSchedule) => {
   if (pending.vod_started_at) {
@@ -158,6 +163,21 @@ const getPendingApprovalDefaults = (
     targetMode: targetScheduleId ? "update" : "create",
     timeMode: "nearest_hour",
     targetScheduleId,
+  };
+};
+
+const resolvePendingApprovalOptions = (
+  pending: PendingSchedule,
+  options: Partial<PendingApprovalOptionState> | undefined,
+): PendingApprovalOptionState => {
+  const defaults = getPendingApprovalDefaults(pending);
+  return {
+    ...defaults,
+    ...options,
+    targetScheduleId:
+      options?.targetScheduleId !== undefined
+        ? options.targetScheduleId
+        : defaults.targetScheduleId,
   };
 };
 
@@ -202,6 +222,82 @@ const getProcessedLabel = (pending: PendingSchedule) => {
   if (pending.processed_decision === "approved") return "이미 승인됨";
   if (pending.processed_decision === "rejected") return "이미 거부됨";
   return "처리 전";
+};
+
+const getPendingReviewRisk = (
+  pending: PendingSchedule,
+  options: PendingApprovalOptionState,
+) => {
+  const selectedExistingSchedule =
+    options.targetMode === "update" && options.targetScheduleId
+      ? getPendingScheduleSummaryById(pending, options.targetScheduleId)
+      : null;
+  const appliesTime =
+    options.applyMode === "all" || options.applyMode === "time";
+  const appliesTitle =
+    options.applyMode === "all" || options.applyMode === "title";
+  const effectiveStartTime = getEffectivePendingStartTime(pending, options);
+  const currentTitle = selectedExistingSchedule?.title ?? null;
+  const currentStartTime = selectedExistingSchedule?.start_time ?? null;
+  const currentStatus = selectedExistingSchedule?.status ?? null;
+  const nextTitle = appliesTitle ? pending.title : currentTitle;
+  const nextStartTime = appliesTime ? effectiveStartTime : currentStartTime;
+  const appliesStatus = options.targetMode === "create" || options.applyMode === "all";
+  const nextStatus = appliesStatus ? pending.status : currentStatus;
+  const existingDateTime = selectedExistingSchedule
+    ? formatScheduleDateTime(pending.date, currentStartTime)
+    : null;
+  const nextDateTime = appliesTime
+    ? nextStartTime
+      ? formatScheduleDateTime(pending.date, nextStartTime)
+      : null
+    : existingDateTime;
+  const changedFields = [
+    appliesTitle && isDiffChanged(currentTitle, nextTitle) ? "제목" : null,
+    appliesTime && isDiffChanged(existingDateTime, nextDateTime)
+      ? "방송 시간"
+      : null,
+    appliesStatus && isDiffChanged(currentStatus, nextStatus) ? "상태" : null,
+  ].filter((field): field is string => field !== null);
+  const hasMissingTarget =
+    options.targetMode === "update" && selectedExistingSchedule === null;
+  const hasMultipleSameDayTargets =
+    options.targetMode === "update" && pending.same_day_schedule_count > 1;
+  const hasOriginalTargetMissing =
+    pending.action_type === "update" && pending.existing_schedule === null;
+  const hasConflict =
+    hasMissingTarget || hasMultipleSameDayTargets || hasOriginalTargetMissing;
+  const hasCreateDuplicateCandidate =
+    pending.action_type === "create" && pending.same_day_schedule_count > 0;
+  const hasDuplicate =
+    hasCreateDuplicateCandidate ||
+    (options.targetMode === "create" && pending.same_day_schedule_count > 0);
+  const warnings = [
+    hasMissingTarget ? "수정 대상이 선택되지 않아 승인할 수 없습니다." : null,
+    hasMultipleSameDayTargets
+      ? `동일 날짜 기존 스케줄이 ${pending.same_day_schedule_count}건입니다. 수정 대상을 확인하세요.`
+      : null,
+    hasOriginalTargetMissing
+      ? "수집 시점의 수정 대상이 현재 스케줄에서 확인되지 않습니다."
+      : null,
+    options.targetMode === "create" && pending.same_day_schedule_count > 0
+      ? `새로 추가하면 동일 날짜에 ${pending.same_day_schedule_count}건의 기존 스케줄과 중복될 수 있습니다.`
+      : null,
+    hasCreateDuplicateCandidate && options.targetMode !== "create"
+      ? "신규 수집 후보지만 동일 날짜 기존 스케줄이 있어 수정 대상으로 검토 중입니다."
+      : null,
+    changedFields.length > 0
+      ? `적용 시 ${changedFields.join(", ")} 값이 변경됩니다.`
+      : null,
+  ].filter((message): message is string => message !== null);
+
+  return {
+    selectedExistingSchedule,
+    changedFields,
+    hasConflict,
+    hasDuplicate,
+    warnings,
+  };
 };
 
 const DiffCell = ({
@@ -318,6 +414,9 @@ export function AutoUpdateSettingsManager() {
   const [pendingApprovalOptions, setPendingApprovalOptions] = useState<
     Record<number, Partial<PendingApprovalOptionState>>
   >({});
+  const [pendingBatchAction, setPendingBatchAction] =
+    useState<PendingBatchAction | null>(null);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
 
@@ -474,6 +573,13 @@ export function AutoUpdateSettingsManager() {
 
   const handleIntervalChange = async (interval: string) => {
     if (!settings) return;
+    if (!isAutoUpdateIntervalHours(interval)) {
+      toast({
+        variant: "error",
+        description: "지원하지 않는 업데이트 주기입니다.",
+      });
+      return;
+    }
     setIsSaving(true);
     try {
       await updateSettings({ auto_update_interval_hours: interval });
@@ -585,16 +691,10 @@ export function AutoUpdateSettingsManager() {
   const getPendingApprovalOptions = (
     pending: PendingSchedule,
   ): PendingApprovalOptionState => {
-    const defaults = getPendingApprovalDefaults(pending);
-    const options = pendingApprovalOptions[pending.id];
-    return {
-      ...defaults,
-      ...options,
-      targetScheduleId:
-        options?.targetScheduleId !== undefined
-          ? options.targetScheduleId
-          : defaults.targetScheduleId,
-    };
+    return resolvePendingApprovalOptions(
+      pending,
+      pendingApprovalOptions[pending.id],
+    );
   };
 
   const updatePendingApprovalOptions = (
@@ -627,6 +727,89 @@ export function AutoUpdateSettingsManager() {
       targetScheduleId:
         options.targetMode === "update" ? options.targetScheduleId : null,
     };
+  };
+
+  const batchPendingList = useMemo(
+    () => sortedPendingList.filter((item) => !item.is_processed),
+    [sortedPendingList],
+  );
+
+  const pendingBatchSummary = useMemo(() => {
+    return batchPendingList.reduce(
+      (summary, pending) => {
+        const risk = getPendingReviewRisk(
+          pending,
+          resolvePendingApprovalOptions(
+            pending,
+            pendingApprovalOptions[pending.id],
+          ),
+        );
+        return {
+          total: summary.total + 1,
+          createCount:
+            summary.createCount + (pending.action_type === "create" ? 1 : 0),
+          updateCount:
+            summary.updateCount + (pending.action_type === "update" ? 1 : 0),
+          conflictCount: summary.conflictCount + (risk.hasConflict ? 1 : 0),
+          duplicateCount: summary.duplicateCount + (risk.hasDuplicate ? 1 : 0),
+          changedCount:
+            summary.changedCount + (risk.changedFields.length > 0 ? 1 : 0),
+        };
+      },
+      {
+        total: 0,
+        createCount: 0,
+        updateCount: 0,
+        conflictCount: 0,
+        duplicateCount: 0,
+        changedCount: 0,
+      },
+    );
+  }, [batchPendingList, pendingApprovalOptions]);
+
+  const handlePendingBatchAction = async () => {
+    if (!pendingBatchAction || batchPendingList.length === 0) return;
+    const action = pendingBatchAction;
+    const targetIds = batchPendingList.map((item) => item.id);
+    setIsBatchProcessing(true);
+    try {
+      const result =
+        action === "approve"
+          ? await approveSelectedPendingSchedules(targetIds)
+          : await rejectSelectedPendingSchedules(targetIds);
+      if (action === "approve") {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.schedules.all,
+        });
+      }
+      await loadPending();
+      setPendingApprovalOptions((prev) => {
+        const next = { ...prev };
+        for (const id of targetIds) {
+          delete next[id];
+        }
+        return next;
+      });
+      setPendingBatchAction(null);
+      toast({
+        variant: result.failedCount > 0 ? "info" : "success",
+        description:
+          action === "approve"
+            ? `일괄 승인 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`
+            : `일괄 거부 완료: 성공 ${result.successCount}건, 실패 ${result.failedCount}건`,
+      });
+    } catch (error) {
+      console.error("Failed to process pending schedules in batch:", error);
+      toast({
+        variant: "error",
+        description:
+          action === "approve"
+            ? "승인 대기 일괄 승인에 실패했습니다."
+            : "승인 대기 일괄 거부에 실패했습니다.",
+      });
+    } finally {
+      setIsBatchProcessing(false);
+    }
   };
 
   const handleApprovePending = async (pending: PendingSchedule) => {
@@ -963,8 +1146,70 @@ export function AutoUpdateSettingsManager() {
                   <p className="text-sm text-muted-foreground">
                     기존 스케줄과 수집된 스케줄을 비교하고 반영 범위를 선택합니다.
                   </p>
+                  {pendingBatchSummary.total > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="outline">
+                        처리 전 {pendingBatchSummary.total}건
+                      </Badge>
+                      <Badge variant="outline">
+                        신규 {pendingBatchSummary.createCount}건
+                      </Badge>
+                      <Badge variant="outline">
+                        수정 {pendingBatchSummary.updateCount}건
+                      </Badge>
+                      {pendingBatchSummary.conflictCount > 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-400 bg-amber-50 text-amber-800"
+                        >
+                          충돌 후보 {pendingBatchSummary.conflictCount}건
+                        </Badge>
+                      ) : null}
+                      {pendingBatchSummary.duplicateCount > 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-rose-300 bg-rose-50 text-rose-800"
+                        >
+                          중복 가능 {pendingBatchSummary.duplicateCount}건
+                        </Badge>
+                      ) : null}
+                      {pendingBatchSummary.changedCount > 0 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-sky-300 bg-sky-50 text-sky-800"
+                        >
+                          변경 포함 {pendingBatchSummary.changedCount}건
+                        </Badge>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setPendingBatchAction("approve")}
+                      disabled={
+                        pendingBatchSummary.total === 0 || isBatchProcessing
+                      }
+                    >
+                      <Check className="h-4 w-4" />
+                      전체 승인
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setPendingBatchAction("reject")}
+                      disabled={
+                        pendingBatchSummary.total === 0 || isBatchProcessing
+                      }
+                    >
+                      <X className="h-4 w-4" />
+                      전체 거부
+                    </Button>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-xs text-muted-foreground">상태</Label>
                     <ButtonGroup>
@@ -1093,6 +1338,7 @@ export function AutoUpdateSettingsManager() {
                       !isProcessed &&
                       (options.targetMode === "create" ||
                         Boolean(selectedExistingSchedule));
+                    const reviewRisk = getPendingReviewRisk(pending, options);
 
                     return (
                       <div
@@ -1126,6 +1372,31 @@ export function AutoUpdateSettingsManager() {
                                 {getProcessedLabel(pending)}
                               </Badge>
                             ) : null}
+                            {!isProcessed && reviewRisk.hasConflict ? (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-400 bg-amber-50 text-amber-800"
+                              >
+                                충돌 후보
+                              </Badge>
+                            ) : null}
+                            {!isProcessed && reviewRisk.hasDuplicate ? (
+                              <Badge
+                                variant="outline"
+                                className="border-rose-300 bg-rose-50 text-rose-800"
+                              >
+                                중복 가능
+                              </Badge>
+                            ) : null}
+                            {!isProcessed &&
+                            reviewRisk.changedFields.length > 0 ? (
+                              <Badge
+                                variant="outline"
+                                className="border-sky-300 bg-sky-50 text-sky-800"
+                              >
+                                변경 {reviewRisk.changedFields.length}개
+                              </Badge>
+                            ) : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant="outline" className="tabular-nums">
@@ -1141,6 +1412,26 @@ export function AutoUpdateSettingsManager() {
 
                         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
                           <div className="space-y-3">
+                            {!isProcessed && reviewRisk.warnings.length > 0 ? (
+                              <div
+                                className={cn(
+                                  "rounded-md border px-3 py-2 text-sm",
+                                  reviewRisk.hasDuplicate
+                                    ? "border-rose-200 bg-rose-50 text-rose-900"
+                                    : "border-amber-200 bg-amber-50 text-amber-900",
+                                )}
+                              >
+                                <div className="flex items-center gap-2 font-medium">
+                                  <AlertCircle className="h-4 w-4" />
+                                  검토 필요
+                                </div>
+                                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs leading-relaxed">
+                                  {reviewRisk.warnings.map((warning) => (
+                                    <li key={warning}>{warning}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
                             <div className="rounded-lg border bg-card p-4">
                               <div className="mb-3 grid gap-2 text-xs font-semibold text-muted-foreground md:grid-cols-[112px_minmax(0,1fr)_minmax(0,1fr)]">
                                 <div />
@@ -1192,24 +1483,47 @@ export function AutoUpdateSettingsManager() {
                                 )}
                               </div>
                               <div className="min-w-0 space-y-1">
-                                {selectedExistingSchedule ? (
-                                  <div>
-                                    기존 ID #{selectedExistingSchedule.id} · 동일 날짜{" "}
-                                    {pending.same_day_schedule_count}건
-                                  </div>
-                                ) : pending.same_day_schedules.length > 0 ? (
+                                {pending.same_day_schedules.length > 0 ? (
                                   <div className="space-y-1">
                                     <div>
                                       동일 날짜 기존 스케줄{" "}
                                       {pending.same_day_schedule_count}건
                                     </div>
-                                    {pending.same_day_schedules.map((schedule) => (
-                                      <div key={schedule.id} className="truncate">
-                                        #{schedule.id} {schedule.start_time || "--:--"}{" "}
-                                        {schedule.title || "제목 없음"} ·{" "}
-                                        {schedule.status}
-                                      </div>
-                                    ))}
+                                    {pending.same_day_schedules.map((schedule) => {
+                                      const isSelectedTarget =
+                                        selectedExistingSchedule?.id === schedule.id;
+                                      return (
+                                        <div
+                                          key={schedule.id}
+                                          className={cn(
+                                            "flex min-w-0 items-center gap-1.5 rounded px-1.5 py-0.5",
+                                            isSelectedTarget
+                                              ? "bg-primary/10 text-foreground"
+                                              : "bg-background/50",
+                                          )}
+                                        >
+                                          <span className="truncate">
+                                            #{schedule.id}{" "}
+                                            {schedule.start_time || "--:--"}{" "}
+                                            {schedule.title || "제목 없음"} ·{" "}
+                                            {schedule.status}
+                                          </span>
+                                          <Badge
+                                            variant="outline"
+                                            className={cn(
+                                              "shrink-0 text-[10px]",
+                                              isSelectedTarget
+                                                ? "border-primary/40 text-primary"
+                                                : "border-amber-300 text-amber-700",
+                                            )}
+                                          >
+                                            {isSelectedTarget
+                                              ? "수정 대상"
+                                              : "중복 후보"}
+                                          </Badge>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 ) : (
                                   <div>동일 날짜 기존 스케줄 0건</div>
@@ -1493,6 +1807,66 @@ export function AutoUpdateSettingsManager() {
           )}
         </>
       )}
+
+      <ConfirmActionDialog
+        open={pendingBatchAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !isBatchProcessing) {
+            setPendingBatchAction(null);
+          }
+        }}
+        title={
+          pendingBatchAction === "approve"
+            ? "승인 대기 전체 승인"
+            : "승인 대기 전체 거부"
+        }
+        description={
+          <div className="space-y-3">
+            <p>
+              현재 목록의 처리 전 항목 {pendingBatchSummary.total}건을 모두{" "}
+              {pendingBatchAction === "approve" ? "승인" : "거부"}합니다.
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+              <div className="rounded-md border bg-background px-2 py-1.5">
+                신규 {pendingBatchSummary.createCount}건
+              </div>
+              <div className="rounded-md border bg-background px-2 py-1.5">
+                수정 {pendingBatchSummary.updateCount}건
+              </div>
+              <div className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-sky-900">
+                변경 포함 {pendingBatchSummary.changedCount}건
+              </div>
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-900">
+                충돌 후보 {pendingBatchSummary.conflictCount}건
+              </div>
+              <div className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-rose-900">
+                중복 가능 {pendingBatchSummary.duplicateCount}건
+              </div>
+            </div>
+            {pendingBatchAction === "approve" &&
+            (pendingBatchSummary.conflictCount > 0 ||
+              pendingBatchSummary.duplicateCount > 0) ? (
+              <p className="text-xs font-medium text-amber-700">
+                충돌/중복 후보가 포함되어 있습니다. 승인 전 각 항목의 수정 대상과
+                적용 후 값을 확인하세요.
+              </p>
+            ) : null}
+            {pendingBatchAction === "reject" ? (
+              <p className="text-xs font-medium text-destructive">
+                거부하면 선택 대상의 pending 항목이 승인 대기 목록에서 제거됩니다.
+              </p>
+            ) : null}
+          </div>
+        }
+        confirmLabel={
+          pendingBatchAction === "approve" ? "전체 승인" : "전체 거부"
+        }
+        onConfirm={() => {
+          void handlePendingBatchAction();
+        }}
+        isProcessing={isBatchProcessing}
+        destructive={pendingBatchAction === "reject"}
+      />
 
     </section>
   );

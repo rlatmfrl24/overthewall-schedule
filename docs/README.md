@@ -12,6 +12,7 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `../Design.md` | Current UI design system and screen-level implementation guidance. |
 | `../AGENTS.md` | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy. |
 | `auto-update.md` | Admin-approved CHZZK VOD based schedule auto-update flow. |
+| `cache-policy.md` | Frontend, Worker memory, D1, and HTTP cache TTL roles. |
 | `youtube-optimization.md` | YouTube API quota, caching, and fallback strategy. |
 
 ## Archived Context

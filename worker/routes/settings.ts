@@ -1,18 +1,15 @@
 import {
   asc,
   and,
-  between,
   desc,
   eq,
-  gte,
   inArray,
   isNull,
-  lte,
   sql,
-  SQL,
 } from "drizzle-orm";
 import { getDb } from "../db";
 import {
+  adminAuditLogs,
   pendingSchedules,
   schedules,
   settings,
@@ -20,25 +17,24 @@ import {
 } from "../../src/db/schema";
 import { requireAdminUser } from "../auth";
 import {
-  isAutoUpdateIntervalHours,
-  normalizeAutoUpdateIntervalHours,
-  isXCollectionIntervalHours,
-  normalizeXCollectionIntervalHours,
-} from "../../src/lib/auto-update-interval";
+  SETTINGS_KEYS,
+  normalizeAdminSettings,
+  parseSettingsUpdatePayload,
+} from "../../src/lib/settings-config";
 import { roundTimeToNearestScheduleHour } from "../../src/lib/pending-time";
 import {
   badRequest,
   getActorInfo,
   getSetting,
+  insertAdminAuditLog,
   insertUpdateLog,
   json,
   parseNumericId,
   pMap,
   updateSetting,
 } from "../utils/helpers";
-import { autoUpdateSchedules } from "../services/schedule";
+import { runAutoUpdateWithHistory } from "../services/auto-update-runs";
 import { runXCollection } from "../services/x-collection";
-import { LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY } from "../services/live-schedule";
 import type { DbInstance } from "../db";
 import type { Env } from "../types";
 
@@ -77,6 +73,9 @@ type PendingApprovalResult = {
   scheduleId: number | null;
   previousStatus: string | null;
 };
+type AuditLogStatus = "success" | "partial" | "failed" | "skipped";
+
+const SKIP_PENDING_AUDIT_HEADER = "X-OTW-Skip-Pending-Audit";
 
 const PENDING_VOD_METADATA_COLUMNS = [
   "vod_started_at",
@@ -167,6 +166,22 @@ const getLaterTimestamp = (
   return compareTimestamps(left, right) >= 0 ? left : right;
 };
 
+const isMatchingProcessedLogTitleFallback = (
+  item: PendingScheduleRow,
+  log: ProcessedPendingLog,
+) => {
+  if (
+    normalizeComparableText(log.title) === "" ||
+    normalizeComparableText(log.title) !== normalizeComparableText(item.title)
+  ) {
+    return false;
+  }
+
+  const logTime = parseTimestampMs(log.created_at);
+  const pendingTime = parseTimestampMs(item.created_at);
+  return logTime !== null && pendingTime !== null && logTime >= pendingTime;
+};
+
 const isMatchingProcessedLog = (
   item: PendingScheduleRow,
   log: ProcessedPendingLog,
@@ -177,10 +192,7 @@ const isMatchingProcessedLog = (
   if (item.existing_schedule_id && log.schedule_id === item.existing_schedule_id) {
     return true;
   }
-  return (
-    normalizeComparableText(log.title) !== "" &&
-    normalizeComparableText(log.title) === normalizeComparableText(item.title)
-  );
+  return isMatchingProcessedLogTitleFallback(item, log);
 };
 
 const getErrorText = (error: unknown): string => {
@@ -192,6 +204,94 @@ const getErrorText = (error: unknown): string => {
     return `${error.message}${cause}`;
   }
   return String(error);
+};
+
+const getBatchAuditStatus = (
+  successCount: number,
+  failureCount: number,
+): AuditLogStatus => {
+  if (failureCount <= 0) return "success";
+  if (successCount <= 0) return "failed";
+  return "partial";
+};
+
+const shouldSkipPendingAudit = (request: Request) =>
+  request.headers.get(SKIP_PENDING_AUDIT_HEADER) === "1";
+
+const readSettingValues = async (db: DbInstance, keys: string[]) => {
+  if (keys.length === 0) return new Map<string, string | null>();
+  const rows = await db
+    .select({ key: settings.key, value: settings.value })
+    .from(settings)
+    .where(inArray(settings.key, keys));
+  return new Map(rows.map((row) => [row.key, row.value]));
+};
+
+const toFiniteCount = (value: unknown, fallback = 0) => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const toRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+const summarizeIdsForAudit = (ids: number[]) => ({
+  ids: ids.slice(0, 50),
+  omittedCount: Math.max(0, ids.length - 50),
+});
+
+const insertPendingBulkAuditLog = async ({
+  db,
+  actor,
+  action,
+  mode,
+  ids,
+  responseData,
+  endpoint,
+}: {
+  db: DbInstance;
+  actor: ReturnType<typeof getActorInfo>;
+  action: "approve" | "reject";
+  mode: "selected" | "all";
+  ids: number[];
+  responseData: unknown;
+  endpoint: string;
+}) => {
+  const data = toRecord(responseData);
+  const totalRequested = toFiniteCount(
+    data.totalRequested,
+    mode === "selected"
+      ? ids.length
+      : toFiniteCount(data.approvedCount) +
+          toFiniteCount(data.rejectedCount) +
+          toFiniteCount(data.skippedCount),
+  );
+  const successCount = toFiniteCount(
+    data.successCount,
+    toFiniteCount(data.approvedCount) + toFiniteCount(data.rejectedCount),
+  );
+  const failureCount = toFiniteCount(
+    data.failedCount,
+    toFiniteCount(data.skippedCount, Math.max(0, totalRequested - successCount)),
+  );
+
+  await insertAdminAuditLog(db, {
+    eventType: action === "approve" ? "pending.bulk_approve" : "pending.bulk_reject",
+    resourceType: "pending_schedules",
+    action,
+    status: getBatchAuditStatus(successCount, failureCount),
+    actorId: actor.actorId,
+    actorName: actor.actorName,
+    actorIp: actor.actorIp,
+    targetCount: totalRequested,
+    successCount,
+    failureCount,
+    detail: {
+      mode,
+      endpoint,
+      ...(mode === "selected" ? summarizeIdsForAudit(ids) : {}),
+    },
+  });
 };
 
 const isMissingPendingVodMetadataColumnError = (error: unknown) => {
@@ -744,23 +844,6 @@ export const handleSettings = async (
 
   const actor = getActorInfo(request, admin.user);
 
-  // 관리자 설정 화면에서 노출하는 설정 키만 허용
-  const ALLOWED_SETTINGS = [
-    "auto_update_enabled",
-    "auto_update_interval_hours",
-    "auto_update_last_run",
-    "auto_update_range_days",
-    "x_rich_link_preview_enabled",
-    "x_posts_visibility",
-    "naver_cafe_posts_enabled",
-    "naver_cafe_posts_visibility",
-    "x_collection_enabled",
-    "x_collection_daily_budget_cents",
-    "x_collection_interval_hours",
-    "x_collection_last_run",
-    LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
-  ] as const;
-
   if (
     request.method === "POST" &&
     url.pathname === "/api/settings/pending/actions"
@@ -799,10 +882,12 @@ export const handleSettings = async (
       const internalUrl = new URL(request.url);
       internalUrl.pathname = pathname;
       internalUrl.search = "";
+      const headers = new Headers(request.headers);
+      headers.set(SKIP_PENDING_AUDIT_HEADER, "1");
       const response = await handleSettings(
         new Request(internalUrl.toString(), {
           method: "POST",
-          headers: request.headers,
+          headers,
           ...(payload ? { body: JSON.stringify(payload) } : {}),
         }),
         env,
@@ -825,6 +910,17 @@ export const handleSettings = async (
           ? "/api/settings/pending/approve-all"
           : "/api/settings/pending/reject-all";
       const { response, data } = await runInternalAction(pathname);
+      if (action === "approve" || action === "reject") {
+        await insertPendingBulkAuditLog({
+          db,
+          actor,
+          action,
+          mode,
+          ids: [],
+          responseData: data,
+          endpoint: pathname,
+        });
+      }
       return json(data, response.status);
     }
 
@@ -852,13 +948,61 @@ export const handleSettings = async (
     }
 
     const successCount = results.filter((result) => result.success).length;
-    return json({
+    const responseData = {
       success: successCount === results.length,
       totalRequested: ids.length,
       successCount,
       failedCount: ids.length - successCount,
       results,
-    });
+    };
+    if ((action === "approve" || action === "reject") && ids.length > 1) {
+      await insertPendingBulkAuditLog({
+        db,
+        actor,
+        action,
+        mode,
+        ids,
+        responseData,
+        endpoint: "/api/settings/pending/actions",
+      });
+    }
+    return json(responseData);
+  }
+
+  // GET /api/settings/audit-logs - 관리자 감사 로그 조회
+  if (request.method === "GET" && url.pathname === "/api/settings/audit-logs") {
+    const pageRaw = parseInt(url.searchParams.get("page") || "1", 10);
+    const pageSizeRaw = parseInt(url.searchParams.get("pageSize") || "50", 10);
+    const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+    const pageSize = Number.isFinite(pageSizeRaw)
+      ? Math.min(Math.max(pageSizeRaw, 1), 200)
+      : 50;
+    const offset = (page - 1) * pageSize;
+
+    const countResult = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(adminAuditLogs);
+    const total = Number(countResult[0]?.count ?? 0);
+    const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
+    const items = await db
+      .select()
+      .from(adminAuditLogs)
+      .orderBy(desc(adminAuditLogs.created_at), desc(adminAuditLogs.id))
+      .limit(pageSize)
+      .offset(offset);
+
+    return Response.json(
+      {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages,
+        hasPrevPage: page > 1,
+        hasNextPage: page < totalPages,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   // GET /api/settings/logs - 로그 조회 (더 구체적인 경로를 먼저 처리)
@@ -868,43 +1012,8 @@ export const handleSettings = async (
     const pageSizeParam = url.searchParams.get("pageSize");
     const sort = url.searchParams.get("sort") || "created_desc";
     const isPagedMode = pageParam !== null || pageSizeParam !== null;
-    const action = url.searchParams.get("action");
-    const member = url.searchParams.get("member");
-    const dateFrom = url.searchParams.get("dateFrom");
-    const dateTo = url.searchParams.get("dateTo");
-    const query = url.searchParams.get("query");
 
-    const filters: SQL[] = [];
-    if (action && action !== "all") {
-      filters.push(eq(updateLogs.action, action));
-    }
-    if (member) {
-      const memberQuery = `%${member.toLowerCase()}%`;
-      filters.push(
-        sql`lower(coalesce(${updateLogs.member_name}, '')) like ${memberQuery}`,
-      );
-    }
-    if (dateFrom && dateTo) {
-      filters.push(between(updateLogs.schedule_date, dateFrom, dateTo));
-    } else if (dateFrom) {
-      filters.push(gte(updateLogs.schedule_date, dateFrom));
-    } else if (dateTo) {
-      filters.push(lte(updateLogs.schedule_date, dateTo));
-    }
-    if (query) {
-      const searchQuery = `%${query.toLowerCase()}%`;
-      filters.push(
-        sql`(
-          lower(coalesce(${updateLogs.title}, '')) like ${searchQuery}
-          or lower(coalesce(${updateLogs.member_name}, '')) like ${searchQuery}
-        )`,
-      );
-    }
-
-    let logQuery = db.select().from(updateLogs).$dynamic();
-    if (filters.length > 0) {
-      logQuery = logQuery.where(and(...filters));
-    }
+    const logQuery = db.select().from(updateLogs).$dynamic();
 
     if (!isPagedMode) {
       const limit = Number.isFinite(rawLimit)
@@ -926,13 +1035,10 @@ export const handleSettings = async (
       : 50;
     const offset = (page - 1) * pageSize;
 
-    let countQuery = db
+    const countQuery = db
       .select({ count: sql<number>`count(*)` })
       .from(updateLogs)
       .$dynamic();
-    if (filters.length > 0) {
-      countQuery = countQuery.where(and(...filters));
-    }
     const countResult = await countQuery;
     const total = Number(countResult[0]?.count ?? 0);
     const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
@@ -988,132 +1094,59 @@ export const handleSettings = async (
     const data = await db
       .select()
       .from(settings)
-      .where(inArray(settings.key, [...ALLOWED_SETTINGS]));
+      .where(inArray(settings.key, [...SETTINGS_KEYS]));
 
-    // 키-값 객체로 변환
-    const settingsObj: Record<string, string | null> = {};
+    const storedSettings: Record<string, string | null> = {};
     for (const row of data) {
-      settingsObj[row.key] = row.value;
+      storedSettings[row.key] = row.value;
     }
-    settingsObj.x_rich_link_preview_enabled ??= "false";
-    settingsObj.x_posts_visibility ??= "members";
-    settingsObj.naver_cafe_posts_enabled ??= "true";
-    settingsObj.naver_cafe_posts_visibility ??= "members";
-    settingsObj.x_collection_enabled ??= "true";
-    settingsObj.x_collection_daily_budget_cents ??= "100";
-    settingsObj.x_collection_last_run ??= null;
-    settingsObj[LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY] ??= "true";
-    const normalizedXCollectionIntervalHours =
-      normalizeXCollectionIntervalHours(settingsObj.x_collection_interval_hours);
-    if (
-      settingsObj.x_collection_interval_hours !==
-      normalizedXCollectionIntervalHours
-    ) {
-      await updateSetting(
-        db,
-        "x_collection_interval_hours",
-        normalizedXCollectionIntervalHours,
-      );
-      settingsObj.x_collection_interval_hours =
-        normalizedXCollectionIntervalHours;
+
+    const { settings: settingsObj, writes } =
+      normalizeAdminSettings(storedSettings);
+    for (const write of writes) {
+      await updateSetting(db, write.key, write.value);
     }
-    const normalizedIntervalHours = normalizeAutoUpdateIntervalHours(
-      settingsObj.auto_update_interval_hours,
-    );
-    if (settingsObj.auto_update_interval_hours !== normalizedIntervalHours) {
-      await updateSetting(
-        db,
-        "auto_update_interval_hours",
-        normalizedIntervalHours,
-      );
-      settingsObj.auto_update_interval_hours = normalizedIntervalHours;
-    }
+
     return Response.json(settingsObj, {
       headers: { "Cache-Control": "no-store" },
     });
   }
 
   if (request.method === "PUT") {
-    const body = (await request.json()) as Record<string, string>;
-
-    // 허용된 키만 업데이트
-    const updates: Promise<void>[] = [];
-    for (const key of ALLOWED_SETTINGS) {
-      if (key in body && key !== "auto_update_last_run") {
-        if (
-          key === "auto_update_interval_hours" &&
-          !isAutoUpdateIntervalHours(body[key])
-        ) {
-          return badRequest("Invalid auto_update_interval_hours");
-        }
-        if (
-          key === "x_rich_link_preview_enabled" &&
-          body[key] !== "true" &&
-          body[key] !== "false"
-        ) {
-          return badRequest("Invalid x_rich_link_preview_enabled");
-        }
-        if (
-          key === "x_posts_visibility" &&
-          body[key] !== "public" &&
-          body[key] !== "members" &&
-          body[key] !== "private"
-        ) {
-          return badRequest("Invalid x_posts_visibility");
-        }
-        if (
-          key === "naver_cafe_posts_enabled" &&
-          body[key] !== "true" &&
-          body[key] !== "false"
-        ) {
-          return badRequest("Invalid naver_cafe_posts_enabled");
-        }
-        if (
-          key === "naver_cafe_posts_visibility" &&
-          body[key] !== "public" &&
-          body[key] !== "members" &&
-          body[key] !== "private"
-        ) {
-          return badRequest("Invalid naver_cafe_posts_visibility");
-        }
-        if (
-          key === "x_collection_enabled" &&
-          body[key] !== "true" &&
-          body[key] !== "false"
-        ) {
-          return badRequest("Invalid x_collection_enabled");
-        }
-        if (
-          key === LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY &&
-          body[key] !== "true" &&
-          body[key] !== "false"
-        ) {
-          return badRequest(`Invalid ${LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY}`);
-        }
-        if (key === "x_collection_daily_budget_cents") {
-          const parsed = Number.parseInt(body[key], 10);
-          if (!Number.isFinite(parsed) || parsed < 1 || parsed > 100_000) {
-            return badRequest("Invalid x_collection_daily_budget_cents");
-          }
-        }
-        if (
-          key === "x_collection_interval_hours" &&
-          !isXCollectionIntervalHours(body[key])
-        ) {
-          return badRequest("Invalid x_collection_interval_hours");
-        }
-        // last_run은 시스템에서만 업데이트
-        if (key !== "x_collection_last_run") {
-          updates.push(updateSetting(db, key, body[key]));
-        }
-      }
+    const body = (await request.json()) as Record<string, unknown>;
+    const parsed = parseSettingsUpdatePayload(body);
+    if (!parsed.ok) {
+      return badRequest(parsed.error);
     }
 
-    if (updates.length === 0) {
-      return badRequest("No valid settings to update");
-    }
-
-    await Promise.all(updates);
+    const previousValues = await readSettingValues(
+      db,
+      parsed.updates.map((update) => update.key),
+    );
+    await Promise.all(
+      parsed.updates.map((update) =>
+        updateSetting(db, update.key, update.value),
+      ),
+    );
+    await insertAdminAuditLog(db, {
+      eventType: "settings.update",
+      resourceType: "settings",
+      action: "update",
+      status: "success",
+      actorId: actor.actorId,
+      actorName: actor.actorName,
+      actorIp: actor.actorIp,
+      targetCount: parsed.updates.length,
+      successCount: parsed.updates.length,
+      failureCount: 0,
+      detail: {
+        changes: parsed.updates.map((update) => ({
+          key: update.key,
+          previousValue: previousValues.get(update.key) ?? null,
+          nextValue: update.value,
+        })),
+      },
+    });
     return new Response("Settings updated", { status: 200 });
   }
 
@@ -1122,9 +1155,53 @@ export const handleSettings = async (
     url.pathname === "/api/settings/x-collection/run-now"
   ) {
     try {
-      return Response.json(await runXCollection(env, "manual"));
+      const result = await runXCollection(env, "manual");
+      await insertAdminAuditLog(db, {
+        eventType: "manual_collection.x",
+        resourceType: "x_collection",
+        action: "run_now",
+        status:
+          result.status === "success"
+            ? "success"
+            : result.status === "skipped"
+              ? "skipped"
+              : "failed",
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorIp: actor.actorIp,
+        targetCount: result.checkedHandles,
+        successCount: result.refreshedHandles,
+        failureCount:
+          result.status === "failed"
+            ? Math.max(1, result.checkedHandles - result.refreshedHandles)
+            : 0,
+        detail: {
+          checkedHandles: result.checkedHandles,
+          refreshedHandles: result.refreshedHandles,
+          postsReturned: result.postsReturned,
+          postsStored: result.postsStored,
+          apiCalls: result.apiCalls,
+          estimatedCostMicros: result.estimatedCostMicros,
+        },
+        error: result.error,
+      });
+      return Response.json(result);
     } catch (error) {
       console.error("Manual X collection failed:", error);
+      await insertAdminAuditLog(db, {
+        eventType: "manual_collection.x",
+        resourceType: "x_collection",
+        action: "run_now",
+        status: "failed",
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorIp: actor.actorIp,
+        targetCount: 0,
+        successCount: 0,
+        failureCount: 1,
+        detail: null,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
       return Response.json(
         {
           success: false,
@@ -1150,8 +1227,29 @@ export const handleSettings = async (
       const rangeDaysStr = await getSetting(db, "auto_update_range_days");
       const rangeDays = parseInt(rangeDaysStr || "3", 10);
 
-      const result = await autoUpdateSchedules(db, rangeDays);
-      await updateSetting(db, "auto_update_last_run", Date.now().toString());
+      const result = await runAutoUpdateWithHistory(db, {
+        source: "manual",
+        rangeDays,
+        actor,
+      });
+      await insertAdminAuditLog(db, {
+        eventType: "manual_collection.auto_update",
+        resourceType: "auto_update",
+        action: "run_now",
+        status: "success",
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorIp: actor.actorIp,
+        targetCount: result.checked,
+        successCount: result.updated,
+        failureCount: 0,
+        detail: {
+          rangeDays,
+          checked: result.checked,
+          updated: result.updated,
+          detailsCount: result.details.length,
+        },
+      });
       return Response.json({
         success: true,
         updated: result.updated,
@@ -1172,6 +1270,20 @@ export const handleSettings = async (
         actorId: actor.actorId,
         actorName: actor.actorName,
         actorIp: actor.actorIp,
+      });
+      await insertAdminAuditLog(db, {
+        eventType: "manual_collection.auto_update",
+        resourceType: "auto_update",
+        action: "run_now",
+        status: "failed",
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorIp: actor.actorIp,
+        targetCount: 0,
+        successCount: 0,
+        failureCount: 1,
+        detail: null,
+        error: error instanceof Error ? error.message : "unknown_error",
       });
       return new Response("Auto update failed", { status: 500 });
     }
@@ -1712,13 +1824,25 @@ export const handleSettings = async (
     );
 
     const successCount = results.filter((result) => result.success).length;
-    return Response.json({
+    const responseData = {
       success: true,
       totalRequested: targetIds.length,
       successCount,
       failedCount: targetIds.length - successCount,
       results,
-    });
+    };
+    if (!shouldSkipPendingAudit(request) && targetIds.length > 1) {
+      await insertPendingBulkAuditLog({
+        db,
+        actor,
+        action: "approve",
+        mode: "selected",
+        ids: targetIds,
+        responseData,
+        endpoint: "/api/settings/pending/approve-selected",
+      });
+    }
+    return Response.json(responseData);
   }
 
   // POST /api/settings/pending/reject-selected - 선택 거부
@@ -1794,13 +1918,25 @@ export const handleSettings = async (
     );
 
     const successCount = results.filter((result) => result.success).length;
-    return Response.json({
+    const responseData = {
       success: true,
       totalRequested: targetIds.length,
       successCount,
       failedCount: targetIds.length - successCount,
       results,
-    });
+    };
+    if (!shouldSkipPendingAudit(request) && targetIds.length > 1) {
+      await insertPendingBulkAuditLog({
+        db,
+        actor,
+        action: "reject",
+        mode: "selected",
+        ids: targetIds,
+        responseData,
+        endpoint: "/api/settings/pending/reject-selected",
+      });
+    }
+    return Response.json(responseData);
   }
 
   // POST /api/settings/pending/approve-all - 전체 승인
@@ -1936,12 +2072,24 @@ export const handleSettings = async (
       }
     }
 
-    return Response.json({
+    const responseData = {
       success: true,
       approvedCount,
       skippedCount,
       skippedItems: skippedItems.length > 0 ? skippedItems : undefined,
-    });
+    };
+    if (!shouldSkipPendingAudit(request)) {
+      await insertPendingBulkAuditLog({
+        db,
+        actor,
+        action: "approve",
+        mode: "all",
+        ids: [],
+        responseData,
+        endpoint: "/api/settings/pending/approve-all",
+      });
+    }
+    return Response.json(responseData);
   }
 
   // POST /api/settings/pending/reject-all - 전체 거부
@@ -1973,10 +2121,22 @@ export const handleSettings = async (
     // 모든 대기 스케줄 삭제
     await db.delete(pendingSchedules);
 
-    return Response.json({
+    const responseData = {
       success: true,
       rejectedCount: allPending.length,
-    });
+    };
+    if (!shouldSkipPendingAudit(request)) {
+      await insertPendingBulkAuditLog({
+        db,
+        actor,
+        action: "reject",
+        mode: "all",
+        ids: [],
+        responseData,
+        endpoint: "/api/settings/pending/reject-all",
+      });
+    }
+    return Response.json(responseData);
   }
 
   return new Response(null, { status: 404 });

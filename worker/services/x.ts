@@ -9,6 +9,7 @@ import {
   clearLinkPreviewCacheForTests,
   enrichLinksWithPreviews,
 } from "./link-preview";
+import { CACHE_POLICY } from "../../src/lib/cache-policy";
 
 type XApiUser = {
   id: string;
@@ -181,6 +182,8 @@ type FetchXPostsForHandlesOptions = {
   forceRefresh?: boolean;
   refresh?: boolean;
   usageTracker?: XApiUsageTracker;
+  usageSource?: string;
+  forceRefreshPath?: string | null;
 };
 
 type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
@@ -189,6 +192,8 @@ type XApiUsageTracker = {
   apiCalls: number;
   estimatedCostMicros: number;
   reservedCostMicros: number;
+  source?: string | null;
+  forceRefreshPath?: string | null;
 };
 
 type CollectXPostsOptions = {
@@ -246,13 +251,10 @@ export class XApiError extends Error {
 
 const X_API_BASE_URL = "https://api.x.com/2";
 const X_API_BACKOFF_UNTIL_SETTING_KEY = "x_api_backoff_until";
-const X_USER_LOOKUP_TTL_MS = 30 * 24 * 60 * 60_000;
-const X_USER_NOT_FOUND_TTL_MS = 24 * 60 * 60_000;
-const X_USER_LOOKUP_STALE_TTL_MS = 90 * 24 * 60 * 60_000;
-const X_POSTS_TTL_MS = 60 * 60_000;
-const X_POSTS_STALE_TTL_MS = 24 * 60 * 60_000;
-const X_LINKED_POST_LOOKUP_TTL_MS = 7 * 24 * 60 * 60_000;
-const X_POSTS_CACHE_VERSION = "v3";
+const X_USER_LOOKUP_CACHE_POLICY = CACHE_POLICY.worker.x.userLookup;
+const X_POSTS_CACHE_POLICY = CACHE_POLICY.worker.x.posts;
+const X_LINKED_POST_LOOKUP_CACHE_POLICY =
+  CACHE_POLICY.worker.x.linkedPostLookup;
 const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
@@ -294,7 +296,7 @@ const getPostsCacheKey = (
   maxResults: number,
   richXLinkPreviewEnabled: boolean,
 ) =>
-  `x:posts:${X_POSTS_CACHE_VERSION}:${normalizeHandle(
+  `x:posts:${X_POSTS_CACHE_POLICY.version}:${normalizeHandle(
     handle,
   )}:${maxResults}:${richXLinkPreviewEnabled ? "rich" : "plain"}`;
 
@@ -617,6 +619,8 @@ const writeXApiUsageEvent = async (
           posts: estimate.postCount,
           users: estimate.userCount,
           media: estimate.mediaCount,
+          source: usageTracker?.source ?? null,
+          forceRefreshPath: usageTracker?.forceRefreshPath ?? null,
         }),
       )
       .run();
@@ -869,7 +873,8 @@ const mergeXPosts = (...postGroups: XPostItem[][]) => {
 };
 
 const shouldUseFreshStoredPosts = (entry: StoredXPostsEntry) =>
-  entry.lastCheckedAt !== null && now() - entry.lastCheckedAt < X_POSTS_TTL_MS;
+  entry.lastCheckedAt !== null &&
+  now() - entry.lastCheckedAt < X_POSTS_CACHE_POLICY.freshTtlMs;
 
 const readStoredPosts = async (
   handle: string,
@@ -916,7 +921,7 @@ const readStoredPosts = async (
 
     return {
       fetchedAt,
-      expiresAt: fetchedAt + X_POSTS_TTL_MS,
+      expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
       userId: source?.user_id ?? rows[0]?.user_id ?? null,
       posts: responsePosts,
       lastCheckedAt: safeLastCheckedAt,
@@ -1090,17 +1095,17 @@ const getCachedUser = async (
   const persisted = await readD1Cache<XUserCacheValue>(
     cacheDb,
     getUserCacheKey(normalizedHandle),
-    X_USER_LOOKUP_STALE_TTL_MS,
+    X_USER_LOOKUP_CACHE_POLICY.staleTtlMs,
   );
   if (!persisted) {
-    return cached && isCacheUsable(cached, X_USER_LOOKUP_STALE_TTL_MS)
+    return cached && isCacheUsable(cached, X_USER_LOOKUP_CACHE_POLICY.staleTtlMs)
       ? cached
       : null;
   }
   if (
     cached &&
     cached.fetchedAt > persisted.fetchedAt &&
-    isCacheUsable(cached, X_USER_LOOKUP_STALE_TTL_MS)
+    isCacheUsable(cached, X_USER_LOOKUP_CACHE_POLICY.staleTtlMs)
   ) {
     return cached;
   }
@@ -1121,7 +1126,9 @@ const setCachedUser = async (
 ) => {
   const normalizedHandle = normalizeHandle(handle);
   const fetchedAt = now();
-  const ttlMs = user ? X_USER_LOOKUP_TTL_MS : X_USER_NOT_FOUND_TTL_MS;
+  const ttlMs = user
+    ? X_USER_LOOKUP_CACHE_POLICY.freshTtlMs
+    : X_USER_LOOKUP_CACHE_POLICY.notFoundTtlMs;
   const entry = {
     fetchedAt,
     expiresAt: fetchedAt + ttlMs,
@@ -1158,17 +1165,17 @@ const getCachedPosts = async (
   const persisted = await readD1Cache<XPostsCacheValue>(
     cacheDb,
     cacheKey,
-    X_POSTS_STALE_TTL_MS,
+    X_POSTS_CACHE_POLICY.staleTtlMs,
   );
   if (!persisted) {
-    return cached && isCacheUsable(cached, X_POSTS_STALE_TTL_MS)
+    return cached && isCacheUsable(cached, X_POSTS_CACHE_POLICY.staleTtlMs)
       ? cached
       : null;
   }
   if (
     cached &&
     cached.fetchedAt > persisted.fetchedAt &&
-    isCacheUsable(cached, X_POSTS_STALE_TTL_MS)
+    isCacheUsable(cached, X_POSTS_CACHE_POLICY.staleTtlMs)
   ) {
     return cached;
   }
@@ -1195,7 +1202,7 @@ const setCachedPosts = async (
   const fetchedAt = now();
   const entry = {
     fetchedAt,
-    expiresAt: fetchedAt + X_POSTS_TTL_MS,
+    expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
     userId: user.id,
     posts,
   };
@@ -1212,7 +1219,7 @@ const setCachedPosts = async (
     "posts",
     { userId: user.id, posts },
     fetchedAt,
-    X_POSTS_TTL_MS,
+    X_POSTS_CACHE_POLICY.freshTtlMs,
   );
   const storedPostsWrite = await writeStoredPosts(
     cacheDb,
@@ -1533,7 +1540,7 @@ const fetchLinkedXPostsByIds = async (
     const cached = await readD1Cache<XLinkedPostCacheValue>(
       cacheDb,
       getLinkedPostCacheKey(id),
-      X_LINKED_POST_LOOKUP_TTL_MS,
+      X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
     );
     if (cached) {
       if (cached.value.post) {
@@ -1582,7 +1589,7 @@ const fetchLinkedXPostsByIds = async (
         "linked_post",
         { post: normalized },
         now(),
-        X_LINKED_POST_LOOKUP_TTL_MS,
+        X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
       );
     } else {
       await writeD1Cache<XLinkedPostCacheValue>(
@@ -1591,7 +1598,7 @@ const fetchLinkedXPostsByIds = async (
         "linked_post",
         { post: null },
         now(),
-        X_LINKED_POST_LOOKUP_TTL_MS,
+        X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
       );
     }
   }
@@ -1604,7 +1611,7 @@ const fetchLinkedXPostsByIds = async (
       "linked_post",
       { post: null },
       now(),
-      X_LINKED_POST_LOOKUP_TTL_MS,
+      X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
     );
   }
 
@@ -1952,6 +1959,8 @@ export const fetchXPostsForHandles = async (
     forceRefresh = false,
     refresh = true,
     usageTracker,
+    usageSource,
+    forceRefreshPath,
   } = options;
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
@@ -1964,7 +1973,15 @@ export const fetchXPostsForHandles = async (
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
+    source: usageSource ?? null,
+    forceRefreshPath: forceRefresh ? forceRefreshPath ?? "unknown" : null,
   };
+  if (usageTracker) {
+    usageTracker.source ??= usageSource ?? null;
+    usageTracker.forceRefreshPath ??= forceRefresh
+      ? forceRefreshPath ?? "unknown"
+      : null;
+  }
 
   for (const handle of normalizedHandles) {
     const cached = await getCachedPosts(
@@ -1978,7 +1995,7 @@ export const fetchXPostsForHandles = async (
       continue;
     }
 
-    if (cached && isCacheUsable(cached, X_POSTS_STALE_TTL_MS)) {
+    if (cached && isCacheUsable(cached, X_POSTS_CACHE_POLICY.staleTtlMs)) {
       stalePostsByHandle.set(handle, cached);
     }
 
@@ -2282,6 +2299,8 @@ export const collectXPostsForHandles = async (
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
+    source,
+    forceRefreshPath: `collection:${source}`,
   };
 
   const enabled = (await readD1Setting(cacheDb, "x_collection_enabled")) !== "false";

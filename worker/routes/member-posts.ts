@@ -19,6 +19,28 @@ const MEMBER_POSTS_CACHE_CONTROL =
 const PRIVATE_MEMBER_POSTS_CACHE_CONTROL = "no-store";
 
 type Visibility = "public" | "members" | "private";
+type MemberPostSourcePolicyStatus =
+  | "visible"
+  | "members_only"
+  | "private"
+  | "disabled"
+  | "not_requested";
+type MemberPostSourcePolicy = {
+  source: "x" | "naver-cafe";
+  requested: boolean;
+  admin: boolean;
+  enabled: boolean;
+  visibility: Visibility;
+  accessible: boolean;
+  status: MemberPostSourcePolicyStatus;
+  reason: string | null;
+  publicPath: string;
+  monitorPath: string;
+  apiPath: string;
+};
+
+const MEMBER_POSTS_PUBLIC_PATH = "/feed";
+const MEMBER_POSTS_MONITOR_PATH = "/admin/member-posts";
 
 const normalizeVisibility = (value: string | null | undefined): Visibility =>
   value === "public" || value === "private" ? value : "members";
@@ -116,18 +138,117 @@ const mapXPostMemberUid = (
   memberUid: handleToMemberUid.get(post.username.toLowerCase()),
 });
 
-const emptyX = (error: string | null = null) => ({
+const createXPolicy = ({
+  requested,
+  adminView,
+  visibility,
+}: {
+  requested: boolean;
+  adminView: boolean;
+  visibility: Visibility;
+}): MemberPostSourcePolicy => {
+  const accessible = requested && (adminView || visibility !== "private");
+  const status: MemberPostSourcePolicyStatus = !requested
+    ? "not_requested"
+    : visibility === "private"
+      ? "private"
+      : visibility === "members"
+        ? "members_only"
+        : "visible";
+
+  return {
+    source: "x",
+    requested,
+    admin: adminView,
+    enabled: true,
+    visibility,
+    accessible,
+    status,
+    reason: !requested
+      ? "X posts were not requested."
+      : visibility === "private"
+        ? adminView
+          ? "X posts are hidden from the public feed but visible in admin monitoring."
+          : "X posts are private."
+        : visibility === "members"
+          ? "X posts require member authentication."
+          : null,
+    publicPath: MEMBER_POSTS_PUBLIC_PATH,
+    monitorPath: MEMBER_POSTS_MONITOR_PATH,
+    apiPath: "/api/member-posts?sources=x&admin=1",
+  };
+};
+
+const createNaverCafePolicy = ({
+  requested,
+  adminView,
+  enabled,
+  visibility,
+}: {
+  requested: boolean;
+  adminView: boolean;
+  enabled: boolean;
+  visibility: Visibility;
+}): MemberPostSourcePolicy => {
+  const accessible =
+    requested && (adminView || (enabled && visibility !== "private"));
+  const status: MemberPostSourcePolicyStatus = !requested
+    ? "not_requested"
+    : !enabled
+      ? "disabled"
+      : visibility === "private"
+        ? "private"
+        : visibility === "members"
+          ? "members_only"
+          : "visible";
+
+  return {
+    source: "naver-cafe",
+    requested,
+    admin: adminView,
+    enabled,
+    visibility,
+    accessible,
+    status,
+    reason: !requested
+      ? "Naver Cafe posts were not requested."
+      : !enabled
+        ? adminView
+          ? "Naver Cafe feed display is disabled, but admin monitoring can inspect it."
+          : "Naver Cafe posts are disabled."
+        : visibility === "private"
+          ? adminView
+            ? "Naver Cafe posts are hidden from the public feed but visible in admin monitoring."
+            : "Naver Cafe posts are private."
+          : visibility === "members"
+            ? "Naver Cafe posts require member authentication."
+            : null,
+    publicPath: MEMBER_POSTS_PUBLIC_PATH,
+    monitorPath: MEMBER_POSTS_MONITOR_PATH,
+    apiPath: "/api/member-posts?sources=naver-cafe&admin=1",
+  };
+};
+
+const emptyX = (
+  policy: MemberPostSourcePolicy,
+  error: string | null = null,
+) => ({
   updatedAt: new Date().toISOString(),
   posts: [],
   byHandle: [],
   error,
+  policy,
 });
 
-const emptyNaverCafe = (error: string | null = null) => ({
+const emptyNaverCafe = (
+  policy: MemberPostSourcePolicy,
+  error: string | null = null,
+) => ({
   updatedAt: new Date().toISOString(),
   posts: [],
   sources: [],
   error,
+  policy,
 });
 
 export const handleMemberPosts = async (request: Request, env: Env) => {
@@ -157,6 +278,17 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
   const requestedForce = url.searchParams.has("_") || request.cache === "no-store";
   const force = adminView && requestedForce;
   const configs = await readPostConfigs(db);
+  const xPolicy = createXPolicy({
+    requested: includeX,
+    adminView,
+    visibility: configs.x.visibility,
+  });
+  const naverCafePolicy = createNaverCafePolicy({
+    requested: includeNaverCafe,
+    adminView,
+    enabled: configs.naverCafe.enabled,
+    visibility: configs.naverCafe.visibility,
+  });
 
   if (adminView) {
     const admin = await requireAdminUser(request, env);
@@ -174,12 +306,8 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
     }
   }
 
-  const shouldLoadXRows =
-    includeX && (adminView || configs.x.visibility !== "private");
-  const shouldLoadCafeSources =
-    includeNaverCafe &&
-    (adminView ||
-      (configs.naverCafe.enabled && configs.naverCafe.visibility !== "private"));
+  const shouldLoadXRows = includeX && xPolicy.accessible;
+  const shouldLoadCafeSources = includeNaverCafe && naverCafePolicy.accessible;
 
   const [memberRows, cafeSources] = await Promise.all([
     shouldLoadXRows ? getActiveMemberRows(db) : Promise.resolve([]),
@@ -206,11 +334,11 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
 
   const [x, naverCafe] = await Promise.all([
     (async () => {
-      if (!includeX) return emptyX();
+      if (!includeX) return emptyX(xPolicy);
       if (configs.x.visibility === "private" && !adminView) {
-        return emptyX("X posts are private");
+        return emptyX(xPolicy, "X posts are private");
       }
-      if (handles.length === 0) return emptyX();
+      if (handles.length === 0) return emptyX(xPolicy);
 
       try {
         const content = await fetchXPostsForHandles(handles, {
@@ -219,6 +347,8 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
           maxResults,
           richXLinkPreviewEnabled: configs.x.richLinkPreviewEnabled,
           forceRefresh: force,
+          usageSource: adminView ? "member-posts:admin" : "member-posts",
+          forceRefreshPath: force ? "member-posts:admin" : null,
         });
         return {
           updatedAt: new Date().toISOString(),
@@ -232,24 +362,28 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
             ),
           })),
           error: null,
+          policy: xPolicy,
         };
       } catch (error) {
         if (error instanceof XApiError) {
-          return emptyX(error.message);
+          return emptyX(xPolicy, error.message);
         }
         console.error("Failed to aggregate X posts", error);
-        return emptyX("Failed to fetch X posts");
+        return emptyX(xPolicy, "Failed to fetch X posts");
       }
     })(),
     (async () => {
-      if (!includeNaverCafe) return emptyNaverCafe();
+      if (!includeNaverCafe) return emptyNaverCafe(naverCafePolicy);
       if (!configs.naverCafe.enabled && !adminView) {
-        return emptyNaverCafe("Naver Cafe posts are disabled");
+        return emptyNaverCafe(
+          naverCafePolicy,
+          "Naver Cafe posts are disabled",
+        );
       }
       if (configs.naverCafe.visibility === "private" && !adminView) {
-        return emptyNaverCafe("Naver Cafe posts are private");
+        return emptyNaverCafe(naverCafePolicy, "Naver Cafe posts are private");
       }
-      if (cafeSources.length === 0) return emptyNaverCafe();
+      if (cafeSources.length === 0) return emptyNaverCafe(naverCafePolicy);
 
       try {
         const content = await fetchNaverCafePostsForSources(cafeSources, {
@@ -259,13 +393,14 @@ export const handleMemberPosts = async (request: Request, env: Env) => {
           updatedAt: new Date().toISOString(),
           ...content,
           error: null,
+          policy: naverCafePolicy,
         };
       } catch (error) {
         if (error instanceof NaverCafeApiError) {
-          return emptyNaverCafe(error.message);
+          return emptyNaverCafe(naverCafePolicy, error.message);
         }
         console.error("Failed to aggregate Naver Cafe posts", error);
-        return emptyNaverCafe("Failed to fetch Naver Cafe posts");
+        return emptyNaverCafe(naverCafePolicy, "Failed to fetch Naver Cafe posts");
       }
     })(),
   ]);

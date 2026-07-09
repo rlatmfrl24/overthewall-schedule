@@ -239,6 +239,34 @@
       "when": 1782781878148,
       "tag": "0034_parched_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1783549274793,
+      "tag": "0035_amusing_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1783554170275,
+      "tag": "0036_legal_queen_noir",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1783556317732,
+      "tag": "0037_fast_power_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1783564878508,
+      "tag": "0038_misty_speed_demon",
+      "breakpoints": true
     }
   ]
 }

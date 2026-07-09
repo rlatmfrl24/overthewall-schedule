@@ -74,7 +74,7 @@ const VISIBILITY_OPTIONS: Array<{
   {
     value: "private",
     label: "비공개",
-    description: "메뉴를 숨기고 피드/API 접근을 차단합니다.",
+    description: "사용자 메뉴와 피드에서 숨기고 관리자 모니터링은 유지합니다.",
     icon: EyeOff,
   },
 ];
@@ -461,7 +461,7 @@ export function MemberPostSettingsManager() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">X 게시글 공개 범위</CardTitle>
               <CardDescription>
-                사이트 헤더의 멤버 게시글 메뉴와 /feed 접근 권한을 설정합니다.
+                X 게시글의 사용자 피드 공개 범위입니다. 수집 활성 여부는 아래에서 별도로 관리합니다.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -660,7 +660,9 @@ export function MemberPostSettingsManager() {
 
           <MemberPostFeedMonitor
             xCollectionEnabled={isXCollectionEnabled}
+            xPostsVisibility={xPostsVisibility}
             naverCafeEnabled={isNaverCafePostsEnabled}
+            naverCafeVisibility={naverCafePostsVisibility}
           />
 
           <Card>
@@ -672,7 +674,7 @@ export function MemberPostSettingsManager() {
                     네이버 카페 최신글
                   </CardTitle>
                   <CardDescription>
-                    멤버별 네이버 카페 게시판 최신글 피드의 표시 여부와 공개 범위를 설정합니다.
+                    네이버 카페 최신글의 사용자 피드 표시 여부와 공개 범위를 설정합니다.
                   </CardDescription>
                 </div>
                 <Badge variant="outline" className="w-fit">
@@ -691,7 +693,7 @@ export function MemberPostSettingsManager() {
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
                     공개 접근 가능한 네이버 카페 게시판 목록에서 제목, 요약, 작성일,
-                    대표 이미지만 가져옵니다.
+                    대표 이미지만 가져옵니다. 꺼도 관리자 모니터링은 유지됩니다.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">

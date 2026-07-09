@@ -123,6 +123,103 @@ export type CachedYouTubeVideos = {
   } | null;
 };
 
+export type YouTubeCacheType = "uploads_playlist" | "channel_videos";
+export type YouTubeCacheStatus = "fresh" | "stale" | "expired";
+export type YouTubeApiOperation =
+  | "channels.list"
+  | "playlistItems.list"
+  | "videos.list";
+export type YouTubeWarmupSource = "scheduled" | "manual";
+export type YouTubeWarmupStatus = "success" | "skipped" | "partial" | "failed";
+export type YouTubeWarmupTargetSource = "official" | "kirinuki";
+
+export type YouTubeWarmupRunSummary = {
+  id: number | null;
+  source: YouTubeWarmupSource;
+  status: YouTubeWarmupStatus;
+  targetCount: number;
+  skippedFreshCount: number;
+  refreshedCount: number;
+  failedCount: number;
+  staleFallbackCount: number;
+  apiCalls: number;
+  quotaUnits: number;
+  durationMs: number;
+  startedAt: number;
+  finishedAt: number;
+  error: string | null;
+};
+
+export type YouTubeWarmupStatusSummary = {
+  settings: {
+    enabled: boolean;
+    intervalHours: number;
+    dailyQuotaUnits: number;
+    officialEnabled: boolean;
+    kirinukiEnabled: boolean;
+    lastRun: number | null;
+  };
+  quota: {
+    limit: number;
+    used: number;
+    remaining: number;
+    windowHours: number;
+    since: number;
+  };
+  targets: {
+    total: number;
+    official: number;
+    kirinuki: number;
+  };
+  latestRun: YouTubeWarmupRunSummary | null;
+  recentRuns: YouTubeWarmupRunSummary[];
+};
+
+export type YouTubeCacheStatusResponse = {
+  updatedAt: string;
+  window: { hours: number; since: number };
+  cache: {
+    total: number;
+    fresh: number;
+    stale: number;
+    expired: number;
+    byType: Array<{
+      type: YouTubeCacheType;
+      total: number;
+      fresh: number;
+      stale: number;
+      expired: number;
+    }>;
+  };
+  usage: {
+    apiCalls: number;
+    quotaUnits: number;
+    successCount: number;
+    failureCount: number;
+    rateLimitCount: number;
+    quotaErrorCount: number;
+    byOperation: Array<{
+      operation: YouTubeApiOperation;
+      apiCalls: number;
+      quotaUnits: number;
+      failureCount: number;
+    }>;
+  };
+  warmup?: YouTubeWarmupStatusSummary;
+  channels: Array<{
+    channelId: string;
+    cacheKey: string;
+    maxResults: number | null;
+    type: YouTubeCacheType;
+    status: YouTubeCacheStatus;
+    fetchedAt: number;
+    expiresAt: number;
+    staleUntil: number;
+    lastStatus: number | null;
+    lastError: string | null;
+  }>;
+};
+
 export type XPostMediaItem = {
   mediaKey: string;
   type: string;
@@ -200,6 +297,22 @@ export type UpdateLogPayload = {
     | "auto_failed";
   title?: string | null;
   previousStatus?: string | null;
+};
+
+export type AdminAuditLogPayload = {
+  eventType: string;
+  resourceType: string;
+  resourceId?: string | null;
+  action: string;
+  status: "success" | "partial" | "failed" | "skipped";
+  actorId?: string | null;
+  actorName?: string | null;
+  actorIp?: string | null;
+  targetCount?: number | null;
+  successCount?: number | null;
+  failureCount?: number | null;
+  detail?: Record<string, unknown> | null;
+  error?: string | null;
 };
 
 export type NoticePayload = {

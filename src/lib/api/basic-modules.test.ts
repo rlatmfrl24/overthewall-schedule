@@ -22,12 +22,17 @@ import { fetchScheduleBoard } from "./schedule-board";
 import { fetchMemberPostsAggregate } from "./member-posts";
 import { fetchKirinukiVideos } from "./kirinuki";
 import {
+  fetchYouTubeCacheStatus,
+  runYouTubeWarmupNow,
+} from "./youtube-cache";
+import {
   approveAllPendingSchedules,
   approveSelectedPendingSchedules,
   approvePendingSchedule,
   applyPendingScheduleToEmptyTarget,
   fetchPendingSchedules,
   fetchSettings,
+  fetchAdminAuditLogs,
   fetchUpdateLogs,
   rejectAllPendingSchedules,
   rejectSelectedPendingSchedules,
@@ -41,6 +46,10 @@ import {
   fetchLiveStatusDiagnostics,
   fetchLiveStatusesForMembers,
 } from "./live-status";
+import {
+  fetchDataRetentionStatus,
+  runDataRetentionPrune,
+} from "./operations";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
 
@@ -300,6 +309,87 @@ describe("api wrapper modules", () => {
     );
   });
 
+  it("YouTube 캐시 관리 API는 모니터링과 수동 예열 endpoint를 호출한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        window: { hours: 72, since: 1 },
+        cache: { total: 0, fresh: 0, stale: 0, expired: 0, byType: [] },
+        usage: {
+          apiCalls: 0,
+          quotaUnits: 0,
+          successCount: 0,
+          failureCount: 0,
+          rateLimitCount: 0,
+          quotaErrorCount: 0,
+          byOperation: [],
+        },
+        channels: [],
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        source: "manual",
+        status: "success",
+        targetCount: 0,
+        skippedFreshCount: 0,
+        refreshedCount: 0,
+        failedCount: 0,
+        staleFallbackCount: 0,
+        apiCalls: 0,
+        quotaUnits: 0,
+        durationMs: 1,
+        startedAt: 1,
+        finishedAt: 2,
+        error: null,
+      });
+
+    await fetchYouTubeCacheStatus(72);
+    await runYouTubeWarmupNow();
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/status?windowHours=72",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/warmup/run",
+      { method: "POST" },
+    );
+  });
+
+  it("D1 데이터 보존 API는 status와 prune endpoint를 호출한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        source: "manual",
+        dryRun: true,
+        startedAt: 1,
+        finishedAt: 1,
+        totalPrunableRows: 0,
+        totalDeletedRows: 0,
+        policies: [],
+      })
+      .mockResolvedValueOnce({
+        source: "manual",
+        dryRun: true,
+        startedAt: 1,
+        finishedAt: 1,
+        totalPrunableRows: 0,
+        totalDeletedRows: 0,
+        policies: [],
+      });
+
+    await fetchDataRetentionStatus();
+    await runDataRetentionPrune({ dryRun: true });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/operations/data-retention/status",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/operations/data-retention/prune?dryRun=true",
+      { method: "POST" },
+    );
+  });
+
   it("pending 단건 action helper는 batch 내부 실패를 예외로 전파한다", async () => {
     apiFetchMock.mockResolvedValueOnce({
       success: false,
@@ -342,6 +432,15 @@ describe("api wrapper modules", () => {
         estimatedCostMicros: 20_000,
         error: null,
         updatedAt: "2026-05-28T00:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
       })
       .mockResolvedValueOnce({
         items: [],
@@ -422,23 +521,19 @@ describe("api wrapper modules", () => {
     await fetchKirinukiVideos({ maxResults: 7 });
     await fetchSettings();
     await updateSettings({
-      auto_update_enabled: "1",
+      auto_update_enabled: "true",
       x_rich_link_preview_enabled: "false",
       x_posts_visibility: "public",
       x_collection_interval_hours: "6",
     });
     await runAutoUpdateNow();
     await runXCollectionNow();
+    await fetchAdminAuditLogs();
     await fetchUpdateLogs();
     await fetchUpdateLogs({
       page: 2,
       pageSize: 20,
       sort: "created_desc",
-      action: "auto_update",
-      member: "멤버",
-      dateFrom: "2026-02-01",
-      dateTo: "2026-02-13",
-      query: "검색",
     });
     await fetchPendingSchedules();
     await approvePendingSchedule(11);
@@ -465,7 +560,7 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
       method: "PUT",
       json: {
-        auto_update_enabled: "1",
+        auto_update_enabled: "true",
         x_rich_link_preview_enabled: "false",
         x_posts_visibility: "public",
         x_collection_interval_hours: "6",
@@ -481,11 +576,15 @@ describe("api wrapper modules", () => {
       },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/audit-logs?page=1&pageSize=50",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/logs?page=1&pageSize=50&sort=created_desc",
       { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/settings/logs?page=2&pageSize=20&sort=created_desc&action=auto_update&member=%EB%A9%A4%EB%B2%84&dateFrom=2026-02-01&dateTo=2026-02-13&query=%EA%B2%80%EC%83%89",
+      "/api/settings/logs?page=2&pageSize=20&sort=created_desc",
       { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending", {

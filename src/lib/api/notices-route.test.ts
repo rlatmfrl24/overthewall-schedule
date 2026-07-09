@@ -102,6 +102,21 @@ const makeThumbnailDeleteRequest = (thumbnailUrl: string) =>
     body: JSON.stringify({ thumbnail_url: thumbnailUrl }),
   });
 
+const makeThumbnailStatusRequest = () =>
+  new Request("https://example.com/api/notices/thumbnails/status");
+
+const makeThumbnailCleanupRequest = () =>
+  new Request("https://example.com/api/notices/thumbnails/cleanup", {
+    method: "POST",
+  });
+
+const makeR2Object = (key: string, size: number, uploadedAt: number) =>
+  ({
+    key,
+    size,
+    uploaded: new Date(uploadedAt),
+  }) as R2Object;
+
 describe("notices route thumbnail handling", () => {
   beforeEach(() => {
     getDbMock.mockReset();
@@ -331,5 +346,139 @@ describe("notices route thumbnail handling", () => {
       reason: "referenced",
     });
     expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("reports R2 thumbnail status with unused and missing objects", async () => {
+    const now = Date.now();
+    const list = vi.fn(async () => ({
+      objects: [
+        makeR2Object("notices/thumbnails/used.webp", 1200, now - 1000),
+        makeR2Object("notices/thumbnails/unused.png", 2400, now - 20 * 60_000),
+      ],
+      truncated: false,
+      cursor: undefined,
+      delimitedPrefixes: [],
+    }));
+    getDbMock.mockReturnValue({
+      select: vi.fn(() =>
+        selectThumbnailReferencesQuery([
+          "/r2-assets/notices/thumbnails/used.webp",
+          "/r2-assets/notices/thumbnails/missing.jpg",
+          "https://img.example.com/external.png",
+        ]),
+      ),
+    });
+
+    const response = await handleNotices(
+      makeThumbnailStatusRequest(),
+      makeEnv({
+        ASSET_BUCKET: {
+          list,
+        } as unknown as R2Bucket,
+      }),
+    );
+    const body = (await response.json()) as {
+      bucketConfigured: boolean;
+      stats: {
+        totalObjects: number;
+        referencedObjects: number;
+        unusedObjects: number;
+        missingReferencedObjects: number;
+        cleanupEligibleObjects: number;
+        unusedBytes: number;
+        cleanupEligibleBytes: number;
+      };
+      objects: Array<{ key: string; referenced: boolean }>;
+      missingReferences: Array<{
+        key: string;
+        referenceCount: number;
+        url: string;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(requireAdminUserMock).toHaveBeenCalled();
+    expect(body.bucketConfigured).toBe(true);
+    expect(body.stats).toMatchObject({
+      totalObjects: 2,
+      referencedObjects: 1,
+      unusedObjects: 1,
+      missingReferencedObjects: 1,
+      cleanupEligibleObjects: 1,
+      unusedBytes: 2400,
+      cleanupEligibleBytes: 2400,
+    });
+    expect(body.objects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "notices/thumbnails/used.webp",
+          referenced: true,
+        }),
+        expect.objectContaining({
+          key: "notices/thumbnails/unused.png",
+          referenced: false,
+        }),
+      ]),
+    );
+    expect(body.missingReferences).toEqual([
+      {
+        key: "notices/thumbnails/missing.jpg",
+        referenceCount: 1,
+        url: "/r2-assets/notices/thumbnails/missing.jpg",
+      },
+    ]);
+  });
+
+  it("deletes only unused R2 thumbnails during cleanup", async () => {
+    const now = Date.now();
+    const deleteObject = vi.fn(async () => undefined);
+    const list = vi.fn(async () => ({
+      objects: [
+        makeR2Object("notices/thumbnails/used.webp", 1200, now - 1000),
+        makeR2Object(
+          "notices/thumbnails/unused.png",
+          2400,
+          now - 20 * 60_000,
+        ),
+        makeR2Object("notices/thumbnails/recent.png", 3600, now),
+      ],
+      truncated: false,
+      cursor: undefined,
+      delimitedPrefixes: [],
+    }));
+    getDbMock.mockReturnValue({
+      select: vi.fn(() =>
+        selectThumbnailReferencesQuery([
+          "/r2-assets/notices/thumbnails/used.webp",
+        ]),
+      ),
+    });
+
+    const response = await handleNotices(
+      makeThumbnailCleanupRequest(),
+      makeEnv({
+        ASSET_BUCKET: {
+          list,
+          delete: deleteObject,
+        } as unknown as R2Bucket,
+      }),
+    );
+    const body = (await response.json()) as {
+      success: boolean;
+      deletedCount: number;
+      failedCount: number;
+      deleted: string[];
+    };
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      deletedCount: 1,
+      failedCount: 0,
+      deleted: ["notices/thumbnails/unused.png"],
+    });
+    expect(deleteObject).toHaveBeenCalledTimes(1);
+    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/unused.png");
   });
 });

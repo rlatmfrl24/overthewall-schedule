@@ -5,7 +5,7 @@ import {
   normalizeAutoUpdateIntervalHours,
   parseAutoUpdateIntervalHours,
 } from "../src/lib/auto-update-interval";
-import { autoUpdateSchedules } from "./services/schedule";
+import { runAutoUpdateWithHistory } from "./services/auto-update-runs";
 import { handleLiveStatus } from "./routes/live";
 import { handleVods } from "./routes/vods";
 import { handleMembers } from "./routes/members";
@@ -17,10 +17,14 @@ import { handleKirinuki } from "./routes/kirinuki";
 import { handleMemberPosts } from "./routes/member-posts";
 import { handleSettings } from "./routes/settings";
 import { handleXPosts } from "./routes/x";
+import { handleYouTube } from "./routes/youtube";
 import { handleNaverCafe } from "./routes/naver-cafe";
+import { handleOperations } from "./routes/operations";
 import { handleR2Asset } from "./routes/r2-assets";
 import { updateSetting } from "./utils/helpers";
 import { runScheduledXCollection } from "./services/x-collection";
+import { runScheduledYouTubeWarmup } from "./services/youtube-warmup";
+import { runScheduledDataRetentionPrune } from "./services/data-retention";
 import type { Env } from "./types";
 
 const collectScheduledXPosts = async (env: Env) => {
@@ -34,6 +38,30 @@ const collectScheduledXPosts = async (env: Env) => {
     return;
   }
   console.log("[scheduled] X collection completed", outcome.result);
+};
+
+const warmScheduledYouTubeCache = async (env: Env) => {
+  const result = await runScheduledYouTubeWarmup(env);
+  if (result.status === "skipped") {
+    console.log("[scheduled] YouTube warmup skipped", result.error);
+    return;
+  }
+  console.log("[scheduled] YouTube warmup completed", result);
+};
+
+const pruneScheduledD1Data = async (env: Env) => {
+  const result = await runScheduledDataRetentionPrune(env);
+  if (result.skipped) {
+    console.log("[scheduled] D1 data retention prune skipped", {
+      lastRun: result.lastRun,
+      nextEligibleAt: result.nextEligibleAt,
+    });
+    return;
+  }
+  console.log("[scheduled] D1 data retention prune completed", {
+    totalPrunableRows: result.totalPrunableRows,
+    totalDeletedRows: result.totalDeletedRows,
+  });
 };
 
 type SerializedError = {
@@ -113,10 +141,13 @@ export default {
 
       if (
         url.pathname.startsWith("/api/vods/chzzk") ||
-        url.pathname.startsWith("/api/clips/chzzk") ||
-        url.pathname.startsWith("/api/youtube/videos")
+        url.pathname.startsWith("/api/clips/chzzk")
       ) {
         return handleVods(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/youtube/")) {
+        return handleYouTube(request, env);
       }
 
       if (url.pathname.startsWith("/api/members")) {
@@ -155,6 +186,10 @@ export default {
         return handleNaverCafe(request, env);
       }
 
+      if (url.pathname.startsWith("/api/operations")) {
+        return handleOperations(request, env);
+      }
+
       if (url.pathname.startsWith("/api/settings")) {
         return handleSettings(request, env);
       }
@@ -186,6 +221,18 @@ export default {
       await collectScheduledXPosts(env);
     } catch (error) {
       console.error("[scheduled] X collection failed", error);
+    }
+
+    try {
+      await warmScheduledYouTubeCache(env);
+    } catch (error) {
+      console.error("[scheduled] YouTube warmup failed", error);
+    }
+
+    try {
+      await pruneScheduledD1Data(env);
+    } catch (error) {
+      console.error("[scheduled] D1 data retention prune failed", error);
     }
 
     // 1-3. 설정 일괄 조회
@@ -240,23 +287,10 @@ export default {
 
     console.log("[scheduled] Running auto update...");
 
-    const result = await autoUpdateSchedules(db, rangeDays);
-
-    // 마지막 실행 시간 업데이트
-    await db
-      .insert(settings)
-      .values({
-        key: "auto_update_last_run",
-        value: Date.now().toString(),
-        updated_at: Date.now().toString(),
-      })
-      .onConflictDoUpdate({
-        target: settings.key,
-        set: {
-          value: Date.now().toString(),
-          updated_at: Date.now().toString(),
-        },
-      });
+    const result = await runAutoUpdateWithHistory(db, {
+      source: "scheduled",
+      rangeDays,
+    });
 
     console.log("[scheduled] Auto update completed", result);
   },
