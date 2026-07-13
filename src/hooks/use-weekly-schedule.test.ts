@@ -34,6 +34,9 @@ const makeSchedule = (partial: Partial<ScheduleItem> = {}) =>
   }) as ScheduleItem;
 
 const makeBoardState = (schedules: ScheduleItem[] = [makeSchedule()]) => ({
+  board: {
+    updatedAt: "2026-02-13T12:34:00.000Z",
+  },
   members: [
     {
       uid: 1,
@@ -66,6 +69,7 @@ describe("useWeeklySchedule", () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.schedules).toHaveLength(1);
+    expect(result.current.updatedAt).toBe("2026-02-13T12:34:00.000Z");
     expect(useScheduleBoardMock).toHaveBeenCalledTimes(1);
 
     act(() => {

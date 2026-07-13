@@ -627,11 +627,6 @@ export const DailySchedule = () => {
             </div>
           </div>
 
-          <ScheduleUpdatedAt
-            updatedAt={board?.updatedAt}
-            className="-mb-2 -mt-2 ml-auto px-1"
-          />
-
           {isLiveDebug && showLiveDebug && (
             <div className="rounded-2xl border border-amber-200/60 bg-amber-50/70 p-4 text-xs text-amber-950">
               <div className="flex flex-wrap items-center gap-3 font-semibold">
@@ -765,6 +760,12 @@ export const DailySchedule = () => {
               )}
             </div>
           )}
+
+          <ScheduleUpdatedAt
+            updatedAt={board?.updatedAt}
+            label="최종 편집"
+            className="-mb-2 -mt-2 ml-auto px-1"
+          />
 
           {/* Grid Section */}
           {viewMode === "grid" ? (
