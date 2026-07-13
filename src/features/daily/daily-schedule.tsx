@@ -63,6 +63,7 @@ import { deleteSchedule } from "@/lib/api/schedules";
 import { saveScheduleWithConflicts } from "@/lib/schedule-service";
 import { queryKeys } from "@/lib/query-keys";
 import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
+import { ScheduleUpdatedAt } from "@/shared/schedule/schedule-updated-at";
 
 type LiveDebugRow = {
   memberUid: number;
@@ -95,6 +96,7 @@ export const DailySchedule = () => {
   }, []);
   const currentDateString = format(currentDate, "yyyy-MM-dd");
   const {
+    board,
     members,
     ddays,
     schedules,
@@ -624,6 +626,11 @@ export const DailySchedule = () => {
               </div>
             </div>
           </div>
+
+          <ScheduleUpdatedAt
+            updatedAt={board?.updatedAt}
+            className="-mb-2 -mt-2 ml-auto px-1"
+          />
 
           {isLiveDebug && showLiveDebug && (
             <div className="rounded-2xl border border-amber-200/60 bg-amber-50/70 p-4 text-xs text-amber-950">

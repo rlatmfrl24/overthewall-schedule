@@ -73,7 +73,7 @@ export const SnapshotTimeline = ({
     <div className="flex flex-col gap-4 w-full max-w-none mx-0 px-0">
       {boardModel.mainItems.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-[0_6px_16px_rgba(15,23,42,0.08)] dark:border-zinc-700 dark:bg-zinc-900">
-          <div className="grid min-h-10 grid-cols-[86px_1fr] items-center border-b border-zinc-200 bg-zinc-50 text-xs font-extrabold text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          <div className="grid min-h-11 grid-cols-[92px_1fr] items-center border-b border-zinc-200 bg-zinc-50 text-[13px] font-extrabold text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
             <span className="flex h-full items-center justify-center text-center">
               시간
             </span>
@@ -134,7 +134,7 @@ const SnapshotScheduleRow = ({
   });
 
   return (
-    <div className="grid min-h-[68px] grid-cols-[86px_1fr] items-center">
+    <div className="grid min-h-[72px] grid-cols-[92px_1fr] items-center">
       <div className="flex h-full items-center justify-center border-r border-zinc-200 bg-zinc-50/70 px-3 dark:border-zinc-700 dark:bg-zinc-800/60">
         <span className="font-mono text-lg font-black tabular-nums text-zinc-800 dark:text-zinc-100">
           {formatScheduleTime(entry.schedule.start_time)}
@@ -153,11 +153,11 @@ const SnapshotScheduleRow = ({
         />
         <div className="min-w-0">
           <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
-            <p className="min-w-0 truncate text-sm font-black text-zinc-950 dark:text-zinc-50">
+            <p className="min-w-0 max-w-full whitespace-normal break-words text-sm font-black leading-snug text-zinc-950 dark:text-zinc-50">
               {member.name}
             </p>
             {member.unit_name && (
-              <span className="inline-flex max-w-full shrink-0 items-center rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-black leading-none text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+              <span className="inline-flex min-h-6 max-w-full shrink-0 items-center rounded-full border border-zinc-200 bg-zinc-100 px-2 py-1 text-[10px] font-black leading-snug text-zinc-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {member.unit_name}
               </span>
             )}
@@ -201,7 +201,7 @@ const SnapshotSideGroup = ({
         <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-50">
           {meta.title}
         </h3>
-        <span className="rounded-md bg-zinc-200 px-1.5 py-0.5 text-xs font-black text-zinc-600">
+        <span className="inline-flex min-h-6 items-center rounded-md bg-zinc-200 px-2 py-1 text-xs font-black leading-none text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
           {items.length}
         </span>
       </div>
@@ -221,15 +221,15 @@ const SnapshotSideGroup = ({
                 className="h-9 w-9 rounded-full object-cover ring-1 ring-zinc-200"
               />
               <div className="min-w-0">
-                <p className="truncate text-sm font-black text-zinc-950 dark:text-zinc-50">
+                <p className="whitespace-normal break-words text-sm font-black leading-snug text-zinc-950 dark:text-zinc-50">
                   {member.name}
                 </p>
-                <p className="whitespace-normal break-words text-xs font-semibold text-zinc-500 dark:text-zinc-300">
+                <p className="whitespace-normal break-words text-[13px] font-semibold leading-snug text-zinc-600 dark:text-zinc-300">
                   {getScheduleDisplayTitle(entry.schedule)}
                 </p>
               </div>
               {time && (
-                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-300">
+                <span className="text-[13px] font-bold tabular-nums text-zinc-600 dark:text-zinc-300">
                   {time}
                 </span>
               )}
@@ -255,7 +255,7 @@ const SnapshotNoScheduleGroup = ({
         <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-50">
           일정 없음
         </h3>
-        <span className="rounded-md bg-zinc-200 px-1.5 py-0.5 text-xs font-black text-zinc-600 dark:bg-zinc-700 dark:text-zinc-200">
+        <span className="inline-flex min-h-6 items-center rounded-md bg-zinc-200 px-2 py-1 text-xs font-black leading-none text-zinc-700 dark:bg-zinc-700 dark:text-zinc-100">
           {entries.length}
         </span>
       </div>
@@ -284,11 +284,11 @@ const SnapshotNoScheduleItem = ({
     />
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-2">
-        <p className="truncate text-sm font-black leading-tight text-zinc-950 dark:text-zinc-50">
+        <p className="whitespace-normal break-words text-sm font-black leading-snug text-zinc-950 dark:text-zinc-50">
           {entry.member.name}
         </p>
       </div>
-      <p className="mt-0.5 whitespace-normal break-words text-xs font-semibold leading-tight text-zinc-500 dark:text-zinc-300">
+      <p className="mt-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-zinc-600 dark:text-zinc-300">
         오늘 등록된 일정이 없습니다
       </p>
     </div>

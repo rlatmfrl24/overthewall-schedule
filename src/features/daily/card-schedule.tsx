@@ -6,12 +6,14 @@ interface CardScheduleProps {
   schedule: ScheduleItem;
   onClick?: (schedule: ScheduleItem) => void;
   accentColor?: string;
+  compact?: boolean;
 }
 
 export const CardSchedule = ({
   schedule,
   onClick,
   accentColor = "#000000",
+  compact = false,
 }: CardScheduleProps) => {
   const isBroadcast = schedule.status === "방송";
   const isOff = schedule.status === "휴방";
@@ -69,8 +71,8 @@ export const CardSchedule = ({
                 "border-transparent bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-950",
             };
   const StatusIcon = statusMeta.icon;
-  const shouldShowTimeFallback = !schedule.start_time && !isOff;
-  const displayTime = schedule.start_time ?? (shouldShowTimeFallback ? "미정" : null);
+  const displayTime =
+    isOff || isGuerrilla ? null : schedule.start_time ?? "미정";
 
   return (
     <div
@@ -92,6 +94,7 @@ export const CardSchedule = ({
       className={cn(
         "group/schedule relative flex min-h-[84px] flex-col overflow-hidden rounded-xl border p-3 text-left shadow-sm transition-all duration-200",
         "gap-2.5 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]",
+        compact && "min-h-[68px] gap-2 rounded-lg p-2.5",
         onClick &&
           "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2",
         statusMeta.cardClassName
@@ -137,6 +140,7 @@ export const CardSchedule = ({
       <p
         className={cn(
           "line-clamp-2 text-[15px] font-black leading-5 text-foreground transition-colors group-hover/schedule:text-foreground",
+          compact && "leading-snug",
           isOff && "text-foreground",
           isGuerrilla && "text-foreground"
         )}

@@ -7,7 +7,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useScheduleData } from "@/hooks/use-schedule-data";
@@ -22,6 +22,20 @@ import type { MultiviewSource, MultiviewUrlState } from "./types";
 import { useMultiviewSources } from "./use-multiview-sources";
 
 const SOURCE_PANEL_ID = "multiview-source-panel";
+
+const MulLiveFrame = memo(function MulLiveFrame({ src }: { src: string }) {
+  return (
+    <iframe
+      data-testid="multiview-mullive-frame"
+      title="Mul.Live 멀티뷰"
+      src={src}
+      className="block h-full w-full border-0"
+      allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+      allowFullScreen
+      referrerPolicy="strict-origin-when-cross-origin"
+    />
+  );
+});
 
 const getInitialUrlState = (): MultiviewUrlState => {
   if (typeof window === "undefined") {
@@ -438,16 +452,7 @@ export function MultiviewPage() {
       ) : null}
 
       <section className="min-h-0 flex-1 bg-black">
-        <iframe
-          key={mulLiveUrl}
-          data-testid="multiview-mullive-frame"
-          title="Mul.Live 멀티뷰"
-          src={mulLiveUrl}
-          className="block h-full w-full border-0"
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
-          referrerPolicy="strict-origin-when-cross-origin"
-        />
+        <MulLiveFrame src={mulLiveUrl} />
       </section>
     </main>
   );

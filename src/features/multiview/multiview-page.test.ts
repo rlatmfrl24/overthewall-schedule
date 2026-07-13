@@ -110,6 +110,7 @@ describe("MultiviewPage", () => {
 
   it("opens the member overlay on entry and updates the Mul.Live iframe and URL", async () => {
     render(React.createElement(MultiviewPage));
+    const initialFrame = getMulLiveFrame();
 
     expect(screen.getByLabelText("멀티뷰 멤버 목록")).toBeTruthy();
     expect(screen.getByText("라이브 리스트")).toBeTruthy();
@@ -124,6 +125,7 @@ describe("MultiviewPage", () => {
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}`,
     );
+    expect(getMulLiveFrame()).toBe(initialFrame);
     await waitFor(() => {
       expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([
         CHANNEL_A,
@@ -134,6 +136,7 @@ describe("MultiviewPage", () => {
     expect(getMulLiveFrame().getAttribute("src")).toBe(
       `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
     );
+    expect(getMulLiveFrame()).toBe(initialFrame);
 
     fireEvent.click(
       screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
@@ -146,11 +149,42 @@ describe("MultiviewPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "초기화" }));
     expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
+    expect(getMulLiveFrame()).toBe(initialFrame);
     await waitFor(() => {
       expect(new URLSearchParams(window.location.search).getAll("c")).toEqual(
         [],
       );
     });
+  });
+
+  it("라이브 상태 갱신과 멤버 패널 조작으로 Mul.Live iframe을 재마운트하지 않는다", () => {
+    const view = render(React.createElement(MultiviewPage));
+    const initialFrame = getMulLiveFrame();
+
+    useMultiviewSourcesMock.mockReturnValue({
+      sources: [
+        {
+          ...liveSource,
+          liveStatus: {
+            ...liveSource.liveStatus,
+            concurrentUserCount: 5678,
+          },
+        },
+        offlineSource,
+      ],
+      loading: false,
+      hasLoaded: true,
+      reload: vi.fn(),
+    });
+    view.rerender(React.createElement(MultiviewPage));
+
+    expect(screen.getByText("5,678명 시청 중")).toBeTruthy();
+    expect(getMulLiveFrame()).toBe(initialFrame);
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
+    );
+    expect(getMulLiveFrame()).toBe(initialFrame);
   });
 
   it("restores selected channels from URL state", () => {
