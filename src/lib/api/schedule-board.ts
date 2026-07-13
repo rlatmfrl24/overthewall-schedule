@@ -5,7 +5,7 @@ import type { DDayItem, Member, ScheduleItem } from "../types";
 export interface ScheduleBoardResponse {
   startDate: string;
   endDate: string;
-  updatedAt: string;
+  updatedAt: string | null;
   members: Member[];
   ddays: DDayItem[];
   notices: Notice[];

@@ -1875,6 +1875,50 @@ describe("x worker service", () => {
     expect(result.byHandle[0]?.stale).toBe(true);
   });
 
+  it("refresh:false이면 stale 저장 게시글을 반환하고 X API 사용 이벤트를 쓰지 않는다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T03:00:00Z"));
+
+    const storedPost = makePost("stored-stale", "otw_member");
+    const fetchedAt = Date.parse("2026-02-13T01:30:00Z");
+    const { db, posts, sources, usageEvents } = makeCacheDb();
+    posts.set(storedPost.id, {
+      id: storedPost.id,
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(storedPost),
+      created_at: storedPost.createdAt,
+      fetched_at: fetchedAt,
+      hidden_at: null,
+    });
+    sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: storedPost.id,
+      last_checked_at: fetchedAt,
+      updated_at: fetchedAt,
+      last_error: null,
+    });
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+      refresh: false,
+      usageSource: "member-posts",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(usageEvents).toHaveLength(0);
+    expect(result.posts[0]?.id).toBe("stored-stale");
+    expect(result.byHandle[0]).toMatchObject({
+      userId: "u1",
+      stale: true,
+    });
+  });
+
   it("게시글 fetch 실패 시 기존 캐시를 stale 데이터로 반환한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));

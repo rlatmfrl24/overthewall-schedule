@@ -87,7 +87,7 @@ export type NaverCafeOperationSource = {
   enabled: boolean;
   latestCheck: {
     id: number;
-    trigger: "manual";
+    trigger: "manual" | "scheduled";
     status: NaverCafeSourceCheckStatus;
     checkedAt: number;
     durationMs: number;
@@ -157,6 +157,11 @@ export type OperationsStatusResponse = {
   naverCafe: {
     enabled: boolean;
     visibility: NaverCafePostsVisibility;
+    collection: {
+      intervalHours: number;
+      lastRun: number | null;
+      nextEligibleAt: number | null;
+    };
     publicPath: string;
     monitorPath: string;
     apiPath: string;
@@ -178,7 +183,7 @@ export type NaverCafeCheckNowResponse = {
     sourceName: string;
     cafeId: string;
     menuId: string;
-    trigger: "manual";
+    trigger: "manual" | "scheduled";
     status: NaverCafeSourceCheckStatus;
     checkedAt: number;
     durationMs: number;

@@ -768,7 +768,9 @@ export function OperationsDashboard() {
         <MetricCard
           title="네이버 카페"
           value={`${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount}`}
-          description={`표시 ${
+          description={`최근 수집 ${formatDateTime(
+            data.naverCafe.collection.lastRun,
+          )} · 표시 ${
             data.naverCafe.enabled ? "활성" : "비활성"
           } · 공개 ${formatVisibilityLabel(data.naverCafe.visibility)} · 실패 ${
             data.naverCafe.failingSourceCount
@@ -888,6 +890,9 @@ export function OperationsDashboard() {
                 네이버 카페 소스
               </CardTitle>
               <CardDescription>
+                다음 수집 가능 시각{" "}
+                {formatDateTime(data.naverCafe.collection.nextEligibleAt)}
+                {" · "}
                 표시 {data.naverCafe.enabled ? "활성" : "비활성"}
                 {" · "}
                 공개 {formatVisibilityLabel(data.naverCafe.visibility)}

@@ -5,6 +5,7 @@ import { useScheduleBoard } from "@/hooks/use-schedule-board";
 import type { ScheduleItem } from "@/lib/types";
 import { SnapshotCardMember } from "./snapshot-card-member";
 import { SnapshotTimeline } from "./snapshot-timeline";
+import { ScheduleUpdatedAt } from "@/shared/schedule/schedule-updated-at";
 
 interface SnapshotScheduleProps {
   date: string;
@@ -17,7 +18,7 @@ export const SnapshotSchedule = ({
   mode,
   theme,
 }: SnapshotScheduleProps) => {
-  const { members, schedules, hasLoaded } = useScheduleBoard(date, date);
+  const { board, members, schedules, hasLoaded } = useScheduleBoard(date, date);
   const [isSnapshotReady, setIsSnapshotReady] = useState(false);
   const snapshotWidth = mode === "timeline" ? 520 : 1280;
 
@@ -43,14 +44,28 @@ export const SnapshotSchedule = ({
   useEffect(() => {
     setIsSnapshotReady(false);
     if (!hasLoaded) return;
+    let cancelled = false;
+    let frame1: number | null = null;
     let frame2: number | null = null;
-    const frame1 = requestAnimationFrame(() => {
-      frame2 = requestAnimationFrame(() => {
-        setIsSnapshotReady(true);
+
+    const markSnapshotReady = async () => {
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+      if (cancelled) return;
+
+      frame1 = requestAnimationFrame(() => {
+        frame2 = requestAnimationFrame(() => {
+          if (!cancelled) setIsSnapshotReady(true);
+        });
       });
-    });
+    };
+
+    void markSnapshotReady();
+
     return () => {
-      cancelAnimationFrame(frame1);
+      cancelled = true;
+      if (frame1 !== null) cancelAnimationFrame(frame1);
       if (frame2 !== null) cancelAnimationFrame(frame2);
     };
   }, [date, hasLoaded, members.length, schedules.length]);
@@ -87,12 +102,13 @@ export const SnapshotSchedule = ({
           dateLabel={format(currentDate, "yyyy년 M월 d일")}
           dateValue={date}
           mode={mode}
+          updatedAt={board?.updatedAt}
         />
 
         {mode === "timeline" ? (
           <SnapshotTimeline members={members} schedules={schedules} />
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 items-start gap-4">
             {members.map((member) => {
               const memberSchedules =
                 schedulesByMemberUid.get(member.uid) ?? [];
@@ -101,7 +117,6 @@ export const SnapshotSchedule = ({
                   key={`snapshot-${member.uid}`}
                   member={member}
                   schedules={memberSchedules}
-                  theme={theme}
                 />
               );
             })}
@@ -116,28 +131,30 @@ function SnapshotHeader({
   dateLabel,
   dateValue,
   mode,
+  updatedAt,
 }: {
   dateLabel: string;
   dateValue: string;
   mode: "grid" | "timeline";
+  updatedAt: string | null | undefined;
 }) {
   return (
     <header
       className={cn(
         "overflow-hidden border border-zinc-200/80 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-zinc-950 dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]",
-        mode === "timeline" ? "rounded-[24px] p-3" : "rounded-[28px] p-5",
+        mode === "timeline" ? "rounded-[20px] p-3" : "rounded-[22px] p-3.5",
       )}
     >
       <div
         className={cn(
-          "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center",
+          "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center",
           mode === "timeline" ? "gap-3" : "gap-4",
         )}
       >
         <div
           className={cn(
             "flex shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-white/15",
-            mode === "timeline" ? "h-11 w-[76px]" : "h-14 w-24",
+            mode === "timeline" ? "h-11 w-[76px]" : "h-12 w-[84px]",
           )}
         >
           <img
@@ -147,43 +164,36 @@ function SnapshotHeader({
             alt="오버더월"
             className={cn(
               "h-auto shrink-0",
-              mode === "timeline" ? "w-16" : "w-20",
+              mode === "timeline" ? "w-16" : "w-[72px]",
             )}
           />
         </div>
         <div className="min-w-0">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <p
-              className={cn(
-                "font-black uppercase leading-none text-zinc-500 dark:text-zinc-400",
-                mode === "timeline"
-                  ? "text-[10px] tracking-[0.14em]"
-                  : "text-[11px] tracking-[0.18em]",
-              )}
-            >
-              OTW Schedule
-            </p>
-            <span
-              aria-hidden="true"
-              className="text-[10px] font-black leading-none text-zinc-300 dark:text-zinc-600"
-            >
-              /
-            </span>
+          <h1
+            className={cn(
+              "max-w-full break-keep font-black leading-tight text-zinc-950 [overflow-wrap:anywhere] dark:text-zinc-50",
+              mode === "timeline" ? "text-[1.5rem]" : "text-[1.9rem]",
+            )}
+          >
+            오늘의 편성표
+          </h1>
+          <div className={cn(mode === "timeline" ? "mt-1" : "mt-1.5")}>
             <SnapshotDateText
               value={dateLabel}
               dateTime={dateValue}
               compact={mode === "timeline"}
             />
           </div>
-          <h1
-            className={cn(
-              "mt-1 truncate font-black leading-none text-zinc-950 dark:text-zinc-50",
-              mode === "timeline" ? "text-[1.75rem]" : "text-[2.45rem]",
-            )}
-          >
-            오늘의 편성표
-          </h1>
         </div>
+        <ScheduleUpdatedAt
+          updatedAt={updatedAt}
+          label="최종 편집"
+          stacked
+          className={cn(
+            "shrink-0 justify-self-end gap-1 text-zinc-600 dark:text-zinc-300",
+            mode === "timeline" ? "text-[11px]" : "text-[12px]",
+          )}
+        />
       </div>
     </header>
   );
@@ -203,7 +213,7 @@ function SnapshotDateText({
       aria-label={`편성표 날짜 ${value}`}
       className={cn(
         "shrink-0 whitespace-nowrap font-black leading-none tabular-nums text-zinc-500 dark:text-zinc-300",
-        compact ? "text-[0.74rem]" : "text-sm",
+        compact ? "text-[13px]" : "text-[15px]",
       )}
     >
       <time dateTime={dateTime}>{value}</time>

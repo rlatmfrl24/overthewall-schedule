@@ -5,7 +5,7 @@ import type { Env } from "../../../worker/types";
 const requireAdminUserMock = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true, user: { id: "admin" } })),
 );
-const fetchNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const collectNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const getDataRetentionStatusMock = vi.hoisted(() => vi.fn());
 const runDataRetentionPruneMock = vi.hoisted(() => vi.fn());
@@ -37,7 +37,7 @@ vi.mock("../../../worker/services/naver-cafe", () => {
   }
 
   return {
-    fetchNaverCafePostsForSources: fetchNaverCafePostsForSourcesMock,
+    collectNaverCafePostsForSources: collectNaverCafePostsForSourcesMock,
     NaverCafeApiError: MockNaverCafeApiError,
   };
 });
@@ -66,6 +66,7 @@ const makeStatusD1 = () => {
         { key: "x_posts_visibility", value: "members" },
         { key: "naver_cafe_posts_enabled", value: "true" },
         { key: "naver_cafe_posts_visibility", value: "members" },
+        { key: "naver_cafe_collection_last_run", value: String(now - 45 * 60_000) },
       ]);
     }
     if (sql.includes("FROM pending_schedules")) {
@@ -218,7 +219,7 @@ describe("operations worker route", () => {
     vi.setSystemTime(new Date("2026-07-09T00:00:00.000Z"));
     requireAdminUserMock.mockReset();
     requireAdminUserMock.mockResolvedValue({ ok: true, user: { id: "admin" } });
-    fetchNaverCafePostsForSourcesMock.mockReset();
+    collectNaverCafePostsForSourcesMock.mockReset();
     getDbMock.mockReset();
     getDataRetentionStatusMock.mockReset();
     runDataRetentionPruneMock.mockReset();
@@ -280,6 +281,11 @@ describe("operations worker route", () => {
         visibility: string;
         monitorPath: string;
         apiPath: string;
+        collection: {
+          intervalHours: number;
+          lastRun: number | null;
+          nextEligibleAt: number | null;
+        };
         sourceCount: number;
         disabledSourceCount: number;
         sources: Array<{
@@ -320,6 +326,11 @@ describe("operations worker route", () => {
       monitorPath: "/admin/member-posts",
       apiPath: "/api/member-posts?sources=naver-cafe&admin=1",
     });
+    expect(body.naverCafe.collection).toMatchObject({
+      intervalHours: 1,
+      lastRun: Date.now() - 45 * 60_000,
+      nextEligibleAt: Date.now() + 15 * 60_000,
+    });
     expect(body.naverCafe.disabledSourceCount).toBe(0);
     expect(body.naverCafe.sources[0]).toMatchObject({
       lastSuccessAt: Date.now() - 10 * 60_000,
@@ -327,7 +338,7 @@ describe("operations worker route", () => {
       disabledReason: null,
       stale: false,
     });
-    expect(fetchNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+    expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 
   it("관리자 승인 화면에서 처리 완료로 숨겨지는 pending은 경고 대상에서 제외한다", async () => {
@@ -359,6 +370,7 @@ describe("operations worker route", () => {
           { key: "x_posts_visibility", value: "members" },
           { key: "naver_cafe_posts_enabled", value: "true" },
           { key: "naver_cafe_posts_visibility", value: "members" },
+          { key: "naver_cafe_collection_last_run", value: String(now - 45 * 60_000) },
         ]);
       }
       if (sql.includes("FROM pending_schedules")) {
@@ -673,7 +685,12 @@ describe("operations worker route", () => {
         values: valuesMock,
       }),
     });
-    fetchNaverCafePostsForSourcesMock.mockResolvedValueOnce({
+    const checkedAt = Date.now();
+    collectNaverCafePostsForSourcesMock.mockResolvedValueOnce({
+      success: true,
+      updatedAt: new Date(checkedAt).toISOString(),
+      checkedAt,
+      durationMs: 123,
       posts: [],
       sources: [
         {
@@ -693,27 +710,23 @@ describe("operations worker route", () => {
       ],
     });
 
+    const env = makeEnv();
     const response = await handleOperations(
       new Request("https://example.com/api/operations/naver-cafe/check-now", {
         method: "POST",
       }),
-      makeEnv(),
+      env,
     );
     const body = (await response.json()) as { success: boolean };
 
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledWith(sources, {
+    expect(collectNaverCafePostsForSourcesMock).toHaveBeenCalledWith(sources, {
+      cacheDb: env.otw_db,
       size: 5,
+      trigger: "manual",
     });
-    expect(valuesMock).toHaveBeenCalledWith([
-      expect.objectContaining({
-        source_id: 10,
-        source_name: "팬카페",
-        status: "ok",
-        post_count: 5,
-      }),
-    ]);
+    expect(valuesMock).toHaveBeenCalledTimes(1);
     expect(valuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         event_type: "manual_collection.naver_cafe_check",

@@ -3,7 +3,8 @@ import type { Env } from "../../../worker/types";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const getSettingMock = vi.hoisted(() => vi.fn());
-const fetchNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const readStoredNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const collectNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
 const authenticateRequestMock = vi.hoisted(() => vi.fn());
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
 
@@ -39,7 +40,8 @@ vi.mock("../../../worker/services/naver-cafe", () => {
   }
 
   return {
-    fetchNaverCafePostsForSources: fetchNaverCafePostsForSourcesMock,
+    readStoredNaverCafePostsForSources: readStoredNaverCafePostsForSourcesMock,
+    collectNaverCafePostsForSources: collectNaverCafePostsForSourcesMock,
     NaverCafeApiError,
   };
 });
@@ -104,15 +106,20 @@ describe("naver cafe posts route cache", () => {
       if (key === "naver_cafe_posts_visibility") return "public";
       return null;
     });
-    fetchNaverCafePostsForSourcesMock.mockReset();
-    fetchNaverCafePostsForSourcesMock.mockResolvedValue({
+    readStoredNaverCafePostsForSourcesMock.mockReset();
+    readStoredNaverCafePostsForSourcesMock.mockResolvedValue({
       posts: [{ id: "post1" }],
+      sources: [{ id: 1, status: "ok", stale: false }],
+    });
+    collectNaverCafePostsForSourcesMock.mockReset();
+    collectNaverCafePostsForSourcesMock.mockResolvedValue({
+      posts: [{ id: "fresh-post" }],
       sources: [{ id: 1, status: "ok", stale: false }],
     });
     responseCache = stubCache();
   });
 
-  it("fresh response cache가 있으면 네이버 수집 서비스를 다시 호출하지 않는다", async () => {
+  it("fresh response cache가 있으면 저장 조회 서비스를 다시 호출하지 않는다", async () => {
     const first = await handleNaverCafe(
       new Request("https://example.com/api/naver-cafe/posts?size=10"),
       makeEnv(),
@@ -124,7 +131,8 @@ describe("naver cafe posts route cache", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(1);
+    expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(1);
+    expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
     expect(await second.json()).toMatchObject({
       posts: [{ id: "post1" }],
       sources: [{ id: 1, status: "ok", stale: false }],
@@ -141,7 +149,8 @@ describe("naver cafe posts route cache", () => {
       makeEnv(),
     );
 
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 
   it("회원 전용 카페 게시글 응답은 response cache를 쓰지 않고 no-store로 반환한다", async () => {
@@ -164,7 +173,8 @@ describe("naver cafe posts route cache", () => {
     expect(first.headers.get("Cache-Control")).toBe("no-store");
     expect(first.headers.get("Vary")).toBe("Authorization");
     expect(second.status).toBe(200);
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
     expect(responseCache.match).not.toHaveBeenCalled();
     expect(responseCache.put).not.toHaveBeenCalled();
   });
@@ -183,8 +193,25 @@ describe("naver cafe posts route cache", () => {
     expect(first.headers.get("Cache-Control")).toBe("no-store");
     expect(first.headers.get("Vary")).toBe("Authorization");
     expect(second.status).toBe(200);
-    expect(fetchNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(readStoredNaverCafePostsForSourcesMock).toHaveBeenCalledTimes(2);
+    expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
     expect(responseCache.match).not.toHaveBeenCalled();
     expect(responseCache.put).not.toHaveBeenCalled();
+  });
+
+  it("관리자 force 요청만 수동 수집 서비스를 호출한다", async () => {
+    const env = makeEnv();
+    const response = await handleNaverCafe(
+      new Request("https://example.com/api/naver-cafe/posts?size=10&admin=1&_=1"),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(collectNaverCafePostsForSourcesMock).toHaveBeenCalledWith([source], {
+      cacheDb: env.otw_db,
+      size: 10,
+      trigger: "manual",
+    });
+    expect(readStoredNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 });

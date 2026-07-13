@@ -59,6 +59,8 @@ const ACTION_LABELS: Record<string, string> = {
   reset_processed: "처리 표시 리셋",
   auto_collected: "자동 수집",
   auto_updated: "자동 업데이트",
+  schedule_auto_created: "자동 일정 생성",
+  schedule_auto_updated: "자동 일정 수정",
   auto_failed: "자동 업데이트 실패",
 };
 
@@ -74,6 +76,8 @@ const ACTION_BADGE_VARIANTS: Record<
   reset_processed: "outline",
   auto_collected: "outline",
   auto_updated: "secondary",
+  schedule_auto_created: "default",
+  schedule_auto_updated: "secondary",
   auto_failed: "destructive",
 };
 

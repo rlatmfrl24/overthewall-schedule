@@ -1,8 +1,5 @@
 import { asc, eq } from "drizzle-orm";
-import {
-  naverCafeSourceChecks,
-  naverCafeSources,
-} from "../../src/db/schema";
+import { naverCafeSources } from "../../src/db/schema";
 import {
   normalizeAutoUpdateIntervalHours,
   normalizeXCollectionIntervalHours,
@@ -19,8 +16,7 @@ import {
   methodNotAllowed,
 } from "../utils/helpers";
 import {
-  fetchNaverCafePostsForSources,
-  NaverCafeApiError,
+  collectNaverCafePostsForSources,
 } from "../services/naver-cafe";
 import {
   getDataRetentionStatus,
@@ -36,6 +32,7 @@ const MEMBER_POSTS_PUBLIC_PATH = "/feed";
 const MEMBER_POSTS_MONITOR_PATH = "/admin/member-posts";
 const NaverCafeCheckSize = 5;
 const NaverCafeStaleThresholdMs = 24 * 60 * 60_000;
+const NaverCafeCollectionIntervalHours = 1;
 
 type StatusLevel = "ok" | "warning" | "critical";
 type FeedVisibility = "public" | "members" | "private";
@@ -166,7 +163,7 @@ type NaverCafeSourceCheckRow = {
   source_name: string;
   cafe_id: string;
   menu_id: string;
-  trigger: "manual";
+  trigger: "manual" | "scheduled";
   status: "ok" | "stale" | "error" | "private" | "invalid_response" | "disabled";
   checked_at: number;
   duration_ms: number;
@@ -631,9 +628,6 @@ const buildXUsageStatus = (
 const isEnabledSource = (source: NaverCafeSourceRow) =>
   source.enabled !== false && source.enabled !== 0;
 
-const getErrorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 const buildNaverCafeStatus = (
   sources: NaverCafeSourceRow[],
   checks: NaverCafeSourceCheckRow[],
@@ -736,7 +730,8 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
            'x_collection_last_run',
            'x_posts_visibility',
            'naver_cafe_posts_enabled',
-           'naver_cafe_posts_visibility'
+           'naver_cafe_posts_visibility',
+           'naver_cafe_collection_last_run'
          )`,
       )
       .all<SettingRow>(),
@@ -813,6 +808,10 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   const xUsageRows = getResults(xUsageEventsResult);
   const naverSources = getResults(naverSourcesResult);
   const naverEnabled = settings.get("naver_cafe_posts_enabled") !== "false";
+  const naverCafeLastRun = Number.parseInt(
+    settings.get("naver_cafe_collection_last_run") ?? "",
+    10,
+  );
   const xPostsVisibility = normalizeFeedVisibility(
     settings.get("x_posts_visibility"),
   );
@@ -998,6 +997,16 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     naverCafe: {
       enabled: naverEnabled,
       visibility: naverCafeVisibility,
+      collection: {
+        intervalHours: NaverCafeCollectionIntervalHours,
+        lastRun: Number.isFinite(naverCafeLastRun) ? naverCafeLastRun : null,
+        nextEligibleAt: getNextEligibleAt(
+          naverEnabled,
+          Number.isFinite(naverCafeLastRun) ? naverCafeLastRun : null,
+          NaverCafeCollectionIntervalHours,
+          now,
+        ),
+      },
       publicPath: MEMBER_POSTS_PUBLIC_PATH,
       monitorPath: MEMBER_POSTS_MONITOR_PATH,
       apiPath: "/api/member-posts?sources=naver-cafe&admin=1",
@@ -1029,82 +1038,24 @@ const runNaverCafeCheck = async (env: Env) => {
   }
 
   const startedAt = Date.now();
-  const sourceResultById = new Map<
-    number,
-    {
-      status: NaverCafeSourceCheckRow["status"];
-      error: string | null;
-      postCount: number;
-    }
-  >();
-
-  try {
-    const result = await fetchNaverCafePostsForSources(sources, {
-      size: NaverCafeCheckSize,
-    });
-    for (const source of result.sources) {
-      sourceResultById.set(source.id, {
-        status: source.status,
-        error: source.error,
-        postCount: source.postCount,
-      });
-    }
-  } catch (error) {
-    if (error instanceof NaverCafeApiError) {
-      for (const diagnostic of error.diagnostics) {
-        sourceResultById.set(diagnostic.sourceId, {
-          status: diagnostic.status,
-          error: diagnostic.error ?? error.message,
-          postCount: 0,
-        });
-      }
-    } else {
-      const message = getErrorText(error);
-      for (const source of sources) {
-        sourceResultById.set(source.id, {
-          status: "error",
-          error: message,
-          postCount: 0,
-        });
-      }
-    }
-  }
-
-  const checkedAt = Date.now();
-  const durationMs = checkedAt - startedAt;
-  const rows = sources.map((source) => {
-    const result = sourceResultById.get(source.id) ?? {
-      status: "error" as const,
-      error: "No check result",
-      postCount: 0,
-    };
-    return {
-      source_id: source.id,
-      source_name: source.name,
-      cafe_id: source.cafe_id,
-      menu_id: source.menu_id,
-      trigger: "manual" as const,
-      status: result.status,
-      checked_at: checkedAt,
-      duration_ms: durationMs,
-      post_count: result.postCount,
-      error: result.error,
-    };
+  const result = await collectNaverCafePostsForSources(sources, {
+    cacheDb: env.otw_db,
+    size: NaverCafeCheckSize,
+    trigger: "manual",
   });
-
-  await db.insert(naverCafeSourceChecks).values(rows);
-
-  const responseSources = rows.map((row) => ({
-    sourceId: row.source_id,
-    sourceName: row.source_name,
-    cafeId: row.cafe_id,
-    menuId: row.menu_id,
-    trigger: row.trigger,
-    status: row.status,
-    checkedAt: row.checked_at,
-    durationMs: row.duration_ms,
-    postCount: row.post_count,
-    error: row.error,
+  const checkedAt = result.checkedAt;
+  const durationMs = checkedAt - startedAt;
+  const responseSources = result.sources.map((source) => ({
+    sourceId: source.id,
+    sourceName: source.name,
+    cafeId: source.cafeId,
+    menuId: source.menuId,
+    trigger: "manual" as const,
+    status: source.status,
+    checkedAt,
+    durationMs,
+    postCount: source.postCount,
+    error: source.error,
   }));
 
   return {

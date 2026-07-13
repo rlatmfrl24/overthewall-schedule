@@ -282,7 +282,7 @@ export const autoFillUndecidedLiveSchedules = async (
         memberUid: plan.memberUid,
         memberName: plan.memberName,
         scheduleDate: plan.scheduleDate,
-        action: "auto_collected",
+        action: "schedule_auto_created",
         title: plan.title,
         previousStatus: null,
       });
@@ -321,7 +321,7 @@ export const autoFillUndecidedLiveSchedules = async (
       memberUid: plan.memberUid,
       memberName: plan.memberName,
       scheduleDate: plan.scheduleDate,
-      action: "auto_updated",
+      action: "schedule_auto_updated",
       title: plan.title,
       previousStatus: plan.previousStatus,
     });

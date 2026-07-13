@@ -45,7 +45,7 @@ describe("snapshot output", () => {
     cleanup();
   });
 
-  it("그리드 카드에서 상태 라벨을 별도로 출력하지 않는다", () => {
+  it("그리드 카드에서 실제 스케쥴 카드와 동일한 휴방 상태를 표시한다", () => {
     render(
       createElement(SnapshotCardSchedule, {
         schedule: makeSchedule({
@@ -56,7 +56,8 @@ describe("snapshot output", () => {
     );
 
     expect(screen.getByText("정비일")).toBeTruthy();
-    expect(screen.queryByText("휴방")).toBeNull();
+    expect(screen.getByText("휴방")).toBeTruthy();
+    expect(screen.queryByText("미정")).toBeNull();
   });
 
   it("상태명만 저장된 스냅샷 제목은 실제 편성표 기본 문구로 치환한다", () => {
@@ -70,7 +71,25 @@ describe("snapshot output", () => {
     );
 
     expect(screen.getByText("오늘은 휴방입니다")).toBeTruthy();
-    expect(screen.queryByText("휴방")).toBeNull();
+    expect(screen.getByText("휴방")).toBeTruthy();
+    expect(screen.queryByText("미정")).toBeNull();
+  });
+
+  it("게릴라 카드에서는 시간을 표시하지 않는다", () => {
+    render(
+      createElement(SnapshotCardSchedule, {
+        schedule: makeSchedule({
+          status: "게릴라",
+          start_time: "20:00",
+          title: "즉흥 방송",
+        }),
+      }),
+    );
+
+    expect(screen.getByText("게릴라 방송")).toBeTruthy();
+    expect(screen.getByText("즉흥 방송")).toBeTruthy();
+    expect(screen.queryByText("20:00")).toBeNull();
+    expect(screen.queryByText("미정")).toBeNull();
   });
 
   it("타임라인에서 상태 컬럼과 상태 pill을 출력하지 않는다", () => {

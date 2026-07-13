@@ -294,6 +294,8 @@ export type UpdateLogPayload = {
     | "reset_processed"
     | "auto_collected"
     | "auto_updated"
+    | "schedule_auto_created"
+    | "schedule_auto_updated"
     | "auto_failed";
   title?: string | null;
   previousStatus?: string | null;

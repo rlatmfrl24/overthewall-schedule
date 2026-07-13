@@ -304,7 +304,7 @@ describe("api wrapper modules", () => {
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/member-posts?sources=naver-cafe&maxResults=3&size=7&admin=1",
+      "/api/member-posts?sources=naver-cafe&maxResults=3&size=7&compact=1&admin=1",
       { cache: "default" },
     );
   });

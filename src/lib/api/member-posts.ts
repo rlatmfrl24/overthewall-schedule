@@ -72,6 +72,7 @@ export async function fetchMemberPostsAggregate(
     size?: number;
     force?: boolean;
     admin?: boolean;
+    compact?: boolean;
   } = {},
 ) {
   const sources = [
@@ -84,6 +85,9 @@ export async function fetchMemberPostsAggregate(
     maxResults: String(options.maxResults ?? 10),
     size: String(options.size ?? 10),
   });
+  if (options.compact !== false) {
+    params.set("compact", "1");
+  }
   if (options.force) {
     params.set("_", String(Date.now()));
   }
