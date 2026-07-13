@@ -13,10 +13,12 @@ import { useWeeklySchedule } from "@/hooks/use-weekly-schedule";
 import { WeeklyHeader } from "./components/weekly-header";
 import { WeeklyGrid } from "./components/weekly-grid";
 import { NoticeBanner } from "@/shared/notice/notice-banner";
+import { ScheduleUpdatedAt } from "@/shared/schedule/schedule-updated-at";
 
 export const WeeklySchedule = () => {
   const {
     currentDate,
+    updatedAt,
     members,
     schedules,
     ddays,
@@ -57,6 +59,10 @@ export const WeeklySchedule = () => {
         {/* Notice Banner */}
         <div className="container mx-auto mb-4 px-8">
           <NoticeBanner notices={notices} />
+        </div>
+
+        <div className="container mx-auto flex justify-end px-4 pb-3 sm:px-6 lg:px-8">
+          <ScheduleUpdatedAt updatedAt={updatedAt} label="최종 편집" />
         </div>
 
         {/* Integrated Table Section */}

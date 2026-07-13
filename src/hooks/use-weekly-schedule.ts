@@ -94,6 +94,7 @@ export function useWeeklySchedule() {
 
   return {
     currentDate,
+    updatedAt: scheduleBoard.board?.updatedAt,
     members: scheduleBoard.members,
     schedules: scheduleBoard.schedules,
     ddays: scheduleBoard.ddays,
