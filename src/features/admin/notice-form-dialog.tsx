@@ -577,7 +577,7 @@ export function NoticeFormDialog({
                   htmlFor="is_active"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex-1 py-1"
                 >
-                  메인 배너에 노출
+                  게시중
                 </label>
               </div>
             </div>

@@ -7,6 +7,7 @@ import {
   deleteNotice,
   deleteNoticeThumbnail,
   fetchNotices,
+  setFeaturedNotice,
   updateNotice,
   uploadNoticeThumbnail,
 } from "./notices";
@@ -155,7 +156,7 @@ describe("api wrapper modules", () => {
     });
   });
 
-  it("notice CRUD는 is_active를 정규화한다", async () => {
+  it("notice CRUD와 대표 공지 지정 요청을 전송한다", async () => {
     await fetchNotices();
     await fetchNotices({ includeInactive: true });
     await createNotice({
@@ -176,6 +177,7 @@ describe("api wrapper modules", () => {
       is_active: true,
     });
     await deleteNotice(9);
+    await setFeaturedNotice(8);
     const thumbnailFile = new File(["thumb"], "thumb.png", {
       type: "image/png",
     });
@@ -211,8 +213,12 @@ describe("api wrapper modules", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/notices?id=9", {
       method: "DELETE",
     });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(6, "/api/notices/featured", {
+      method: "PUT",
+      json: { id: 8 },
+    });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      6,
+      7,
       "/api/notices/thumbnail",
       {
         method: "POST",
@@ -220,7 +226,7 @@ describe("api wrapper modules", () => {
       },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      7,
+      8,
       "/api/notices/thumbnail",
       {
         method: "DELETE",

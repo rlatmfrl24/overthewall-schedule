@@ -80,11 +80,35 @@ const makeReadDb = (rows: unknown[] = []) => ({
   })),
 });
 
-const makeCreateDb = () => ({
-  insert: vi.fn(() => ({
-    values: async () => ({ success: true }),
-  })),
-});
+const makeCreateDb = () => {
+  const values = vi.fn(async () => ({ success: true }));
+  return {
+    insert: vi.fn(() => ({ values })),
+    values,
+  };
+};
+
+const makeFeaturedDb = (exists = true) => {
+  const updates: Array<{ is_featured: boolean }> = [];
+  const batch = vi.fn(async () => []);
+  return {
+    select: vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => (exists ? [{ id: 8 }] : []),
+        }),
+      }),
+    })),
+    update: vi.fn(() => ({
+      set: (values: { is_featured: boolean }) => {
+        updates.push(values);
+        return { where: () => ({}) };
+      },
+    })),
+    batch,
+    updates,
+  };
+};
 
 const makeThumbnailUploadRequest = (blob: Blob, filename = "thumb.png") => {
   const formData = new FormData();
@@ -168,7 +192,8 @@ describe("notices route thumbnail handling", () => {
   });
 
   it("returns no-store headers for notice mutations", async () => {
-    getDbMock.mockReturnValue(makeCreateDb());
+    const db = makeCreateDb();
+    getDbMock.mockReturnValue(db);
 
     const response = await handleNotices(
       new Request("https://example.com/api/notices", {
@@ -179,6 +204,7 @@ describe("notices route thumbnail handling", () => {
           type: "notice",
           publisher_type: "otw",
           is_active: true,
+          is_featured: true,
         }),
       }),
       makeEnv(),
@@ -186,6 +212,30 @@ describe("notices route thumbnail handling", () => {
 
     expect(response.status).toBe(201);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(db.values).toHaveBeenCalledWith(
+      expect.objectContaining({ is_active: true, is_featured: false }),
+    );
+  });
+
+  it("selects exactly one featured notice in a batch", async () => {
+    const db = makeFeaturedDb();
+    getDbMock.mockReturnValue(db);
+
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices/featured", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: 8 }),
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(db.updates).toEqual([
+      { is_featured: false },
+      { is_featured: true },
+    ]);
+    expect(db.batch).toHaveBeenCalledTimes(1);
   });
 
   it("rejects oversized thumbnail uploads before storing them", async () => {
