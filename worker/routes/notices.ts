@@ -531,6 +531,46 @@ export const handleNotices = async (request: Request, env: Env) => {
     });
   }
 
+  if (url.pathname === "/api/notices/featured") {
+    if (request.method !== "PUT") {
+      return new Response(null, {
+        status: 405,
+        headers: { Allow: "PUT" },
+      });
+    }
+
+    let body: { id?: string | number | null };
+    try {
+      body = (await request.json()) as { id?: string | number | null };
+    } catch {
+      return badRequest("Invalid featured notice payload");
+    }
+
+    const id = parseNumericId(body.id);
+    if (id === null) return badRequest("Invalid id");
+
+    const existingRows = await db
+      .select({ id: notices.id })
+      .from(notices)
+      .where(eq(notices.id, id))
+      .limit(1);
+    if (!existingRows[0]) {
+      return new Response("Notice not found", { status: 404 });
+    }
+
+    await db.batch([
+      db.update(notices).set({ is_featured: false }),
+      db
+        .update(notices)
+        .set({ is_featured: true })
+        .where(eq(notices.id, id)),
+    ]);
+
+    return json({ success: true, id }, 200, {
+      headers: NO_STORE_HEADERS,
+    });
+  }
+
   const NOTICE_TYPES = ["notice", "event"] as const;
   type NoticeType = (typeof NOTICE_TYPES)[number];
 
@@ -592,6 +632,7 @@ export const handleNotices = async (request: Request, env: Env) => {
       publisher_type: publisher.value.publisher_type,
       publisher_member_uid: publisher.value.publisher_member_uid,
       is_active: normalizeIsActive(is_active),
+      is_featured: false,
       started_at: started_at?.trim() || null,
       ended_at: ended_at?.trim() || null,
     });

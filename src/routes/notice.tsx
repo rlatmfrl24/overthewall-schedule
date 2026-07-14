@@ -18,7 +18,10 @@ import {
 import { cn } from "@/lib/utils";
 import { fetchActiveMembers, fetchMemberProfile } from "@/lib/api/members";
 import { fetchNotices } from "@/lib/api/notices";
-import { isNoticeVisibleOnDate } from "@/lib/notice-visibility";
+import {
+  isNoticeVisibleOnDate,
+  selectFeaturedNotice,
+} from "@/lib/notice-visibility";
 import { QUERY_STALE_TIME_MS } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -209,8 +212,10 @@ function NoticePage() {
       ),
     [notices],
   );
-  const featuredNotice = activeNotices[0] ?? null;
-  const noticeList = activeNotices.slice(1);
+  const featuredNotice = selectFeaturedNotice(activeNotices);
+  const noticeList = featuredNotice
+    ? activeNotices.filter((notice) => notice.id !== featuredNotice.id)
+    : [];
 
   return (
     <ContentPageShell

@@ -70,6 +70,7 @@ describe("NoticeFormDialog", () => {
     expect(
       document.querySelector('input[type="file"]')?.getAttribute("accept"),
     ).toBe(NOTICE_THUMBNAIL_ACCEPT);
+    expect(screen.getByLabelText("게시중")).toBeTruthy();
   });
 
   it("renders the existing thumbnail as a preview when editing", () => {

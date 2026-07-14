@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isNoticeVisibleOnDate } from "./notice-visibility";
+import {
+  isNoticeVisibleOnDate,
+  selectFeaturedNotice,
+} from "./notice-visibility";
+import type { Notice } from "@/db/schema";
 
 const makeNotice = (
   overrides: Partial<Parameters<typeof isNoticeVisibleOnDate>[0]> = {},
@@ -53,5 +57,26 @@ describe("notice visibility", () => {
         "2026-12-31",
       ),
     ).toBe(false);
+  });
+});
+
+describe("featured notice selection", () => {
+  const notice = (id: number, isFeatured: boolean) =>
+    ({ id, is_featured: isFeatured }) as Notice;
+
+  it("관리자가 지정한 공지를 최상단 대표 공지로 선택한다", () => {
+    expect(
+      selectFeaturedNotice([
+        notice(3, false),
+        notice(2, true),
+        notice(1, false),
+      ])?.id,
+    ).toBe(2);
+  });
+
+  it("지정된 공지가 없으면 최신 목록의 첫 공지를 사용한다", () => {
+    expect(selectFeaturedNotice([notice(3, false), notice(2, false)])?.id).toBe(
+      3,
+    );
   });
 });

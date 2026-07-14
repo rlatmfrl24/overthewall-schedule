@@ -17,6 +17,7 @@ const cleanupUnusedNoticeThumbnailsMock = vi.hoisted(() => vi.fn());
 const createNoticeMock = vi.hoisted(() => vi.fn());
 const updateNoticeMock = vi.hoisted(() => vi.fn());
 const deleteNoticeMock = vi.hoisted(() => vi.fn());
+const setFeaturedNoticeMock = vi.hoisted(() => vi.fn());
 const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
@@ -26,6 +27,7 @@ vi.mock("@/lib/api/notices", () => ({
   deleteNotice: deleteNoticeMock,
   fetchNotices: fetchNoticesMock,
   fetchNoticeThumbnailStatus: fetchNoticeThumbnailStatusMock,
+  setFeaturedNotice: setFeaturedNoticeMock,
   updateNotice: updateNoticeMock,
 }));
 
@@ -79,6 +81,7 @@ describe("NoticeManager", () => {
       failed: [],
       before: makeThumbnailStatus().stats,
     });
+    setFeaturedNoticeMock.mockResolvedValue({ success: true, id: 2 });
   });
 
   afterEach(() => {
@@ -106,5 +109,49 @@ describe("NoticeManager", () => {
     await waitFor(() =>
       expect(cleanupUnusedNoticeThumbnailsMock).toHaveBeenCalledTimes(1),
     );
+  });
+
+  it("공지 테이블에서 대표 공지를 하나만 선택한다", async () => {
+    fetchNoticesMock.mockResolvedValue([
+      {
+        id: 2,
+        content: "새 대표 후보",
+        url: null,
+        thumbnail_url: null,
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: false,
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-07-14T00:00:00.000Z",
+      },
+      {
+        id: 1,
+        content: "기존 대표 공지",
+        url: null,
+        thumbnail_url: null,
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: true,
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-07-13T00:00:00.000Z",
+      },
+    ]);
+
+    render(createElement(NoticeManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const selectButton = await screen.findByRole("button", { name: "선택" });
+    expect(screen.getByRole("button", { name: "선택됨" })).toBeTruthy();
+
+    fireEvent.click(selectButton);
+
+    await waitFor(() => expect(setFeaturedNoticeMock).toHaveBeenCalledWith(2));
   });
 });

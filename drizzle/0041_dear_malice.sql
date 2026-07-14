@@ -1,0 +1,1 @@
+ALTER TABLE `notices` ADD `is_home_visible` integer DEFAULT true;

@@ -29,3 +29,8 @@ export const isNoticeVisibleOnDate = (
   if (endedAt && endedAt < today) return false;
   return true;
 };
+
+export const selectFeaturedNotice = (visibleNotices: Notice[]) =>
+  visibleNotices.find((notice) => notice.is_featured !== false) ??
+  visibleNotices[0] ??
+  null;

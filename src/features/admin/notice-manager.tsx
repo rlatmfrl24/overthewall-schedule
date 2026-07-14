@@ -13,6 +13,7 @@ import {
   HardDrive,
   ImageOff,
   Trash,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ import {
   deleteNotice,
   fetchNotices,
   fetchNoticeThumbnailStatus,
+  setFeaturedNotice,
   updateNotice,
   type NoticeThumbnailStatusResponse,
 } from "@/lib/api/notices";
@@ -106,6 +108,7 @@ export function NoticeManager() {
   const [members, setMembers] = useState<Member[]>([]);
   const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [featuringNoticeId, setFeaturingNoticeId] = useState<number | null>(null);
   const [isThumbnailStatusLoading, setIsThumbnailStatusLoading] =
     useState(false);
   const [isCleaningThumbnails, setIsCleaningThumbnails] = useState(false);
@@ -198,6 +201,17 @@ export function NoticeManager() {
       return noticeSort === "created_desc" ? bTime - aTime : aTime - bTime;
     });
   }, [notices, noticeSort]);
+
+  const featuredNoticeId = useMemo(
+    () =>
+      notices.reduce<number | null>((selectedId, notice) => {
+        if (notice.is_featured === false || !notice.id) return selectedId;
+        return selectedId === null || notice.id > selectedId
+          ? notice.id
+          : selectedId;
+      }, null),
+    [notices],
+  );
 
   const thumbnailStatusByKey = useMemo(
     () =>
@@ -294,6 +308,28 @@ export function NoticeManager() {
       throw error;
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSetFeaturedNotice = async (notice: Notice) => {
+    if (!notice.id || notice.id === featuredNoticeId) return;
+    setFeaturingNoticeId(notice.id);
+    try {
+      await setFeaturedNotice(notice.id);
+      await loadNotices();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.notices.all });
+      toast({
+        variant: "success",
+        description: "최상단 대표 공지를 변경했습니다.",
+      });
+    } catch (error) {
+      console.error("Failed to set featured notice:", error);
+      toast({
+        variant: "error",
+        description: "대표 공지 지정에 실패했습니다.",
+      });
+    } finally {
+      setFeaturingNoticeId(null);
     }
   };
 
@@ -547,10 +583,11 @@ export function NoticeManager() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[1180px]">
+          <Table className="min-w-[1260px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[96px]">상태</TableHead>
+                <TableHead className="w-[130px]">대표 공지</TableHead>
                 <TableHead className="w-[110px]">유형</TableHead>
                 <TableHead className="w-[150px]">게시자</TableHead>
                 <TableHead className="w-[110px]">썸네일</TableHead>
@@ -569,6 +606,31 @@ export function NoticeManager() {
                     ) : (
                       <Badge variant="secondary">비활성</Badge>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      variant={notice.id === featuredNoticeId ? "default" : "outline"}
+                      size="sm"
+                      className="w-[104px]"
+                      disabled={
+                        featuringNoticeId !== null || notice.is_active === false
+                      }
+                      onClick={() => void handleSetFeaturedNotice(notice)}
+                      aria-pressed={notice.id === featuredNoticeId}
+                    >
+                      {featuringNoticeId === notice.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Star
+                          className={cn(
+                            "h-3.5 w-3.5",
+                            notice.id === featuredNoticeId && "fill-current",
+                          )}
+                        />
+                      )}
+                      {notice.id === featuredNoticeId ? "선택됨" : "선택"}
+                    </Button>
                   </TableCell>
                   <TableCell>
                     <Badge

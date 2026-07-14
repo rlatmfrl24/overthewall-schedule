@@ -69,8 +69,10 @@ export type NoticeThumbnailCleanupResponse = {
   before: NoticeThumbnailStatusResponse["stats"];
 };
 
-const normalizeActive = (value: NoticePayload["is_active"]) =>
-  value === "0" || value === 0 ? "0" : "1";
+const normalizeActive = (value: boolean | string | number | undefined) =>
+  value === "0" || value === 0 || value === false || value === "false"
+    ? "0"
+    : "1";
 
 export async function fetchNotices(options?: { includeInactive?: boolean }) {
   const qs = options?.includeInactive ? "?includeInactive=1" : "";
@@ -99,6 +101,13 @@ export async function updateNotice(payload: NoticePayload & { id: number }) {
 
 export async function deleteNotice(id: number) {
   return apiFetch(`/api/notices?id=${id}`, { method: "DELETE" });
+}
+
+export async function setFeaturedNotice(id: number) {
+  return apiFetch("/api/notices/featured", {
+    method: "PUT",
+    json: { id },
+  });
 }
 
 export async function uploadNoticeThumbnail(file: File) {

@@ -281,6 +281,20 @@
       "when": 1783988427898,
       "tag": "0040_fixed_black_crow",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1784010965857,
+      "tag": "0041_dear_malice",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1784012275499,
+      "tag": "0042_normalize-featured-notice",
+      "breakpoints": true
     }
   ]
 }

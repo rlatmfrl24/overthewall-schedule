@@ -116,6 +116,9 @@ export const notices = sqliteTable(
     publisher_type: text("publisher_type").notNull().default("otw"),
     publisher_member_uid: integer("publisher_member_uid"),
     is_active: integer("is_active", { mode: "boolean" }).default(true),
+    is_featured: integer("is_home_visible", { mode: "boolean" }).default(
+      true,
+    ),
     started_at: text("started_at"),
     ended_at: text("ended_at"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
