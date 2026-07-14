@@ -16,6 +16,7 @@ type AutoUpdateRunOptions = {
   source: AutoUpdateRunSource;
   rangeDays: number;
   actor?: AutoUpdateRunActor;
+  cacheDb?: Pick<D1Database, "prepare">;
 };
 
 type AutoUpdateResult = Awaited<ReturnType<typeof autoUpdateSchedules>>;
@@ -43,7 +44,9 @@ export const runAutoUpdateWithHistory = async (
   const startedAt = Date.now();
 
   try {
-    const result = await autoUpdateSchedules(db, options.rangeDays);
+    const result = await autoUpdateSchedules(db, options.rangeDays, {
+      cacheDb: options.cacheDb,
+    });
     const finishedAt = Date.now();
     const summary = summarizeDetails(result.details);
 

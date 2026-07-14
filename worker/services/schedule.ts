@@ -18,7 +18,7 @@ import {
   getKSTDateString,
   pMap,
 } from "../utils/helpers";
-import { fetchChzzkVideos } from "./chzzk";
+import { fetchChzzkVideos, fetchChzzkVideosBatch } from "./chzzk";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
@@ -183,6 +183,65 @@ export const scanRecentChzzkVideos = async (
   return collected;
 };
 
+export const scanRecentChzzkVideosForChannels = async (
+  channelIds: string[],
+  startDate: string,
+  today: string,
+  cacheDb?: Pick<D1Database, "prepare">,
+  fetchVideosBatch: typeof fetchChzzkVideosBatch = fetchChzzkVideosBatch,
+) => {
+  const collectedByChannel = new Map<string, ChzzkVideo[]>();
+  let activeChannelIds = Array.from(new Set(channelIds));
+  for (const channelId of activeChannelIds) {
+    collectedByChannel.set(channelId, []);
+  }
+
+  for (
+    let page = 0;
+    page < CHZZK_SCAN_MAX_PAGES && activeChannelIds.length > 0;
+    page += 1
+  ) {
+    const items = await fetchVideosBatch(
+      activeChannelIds.map((channelId) => ({
+        channelId,
+        page,
+        size: CHZZK_SCAN_PAGE_SIZE,
+        cacheable: true,
+      })),
+      cacheDb,
+      { forceRefresh: true },
+    );
+    const nextChannelIds: string[] = [];
+
+    for (const item of items) {
+      const pageItems = item.content?.data ?? [];
+      if (pageItems.length === 0) continue;
+
+      const collected = collectedByChannel.get(item.channelId) ?? [];
+      let reachedOutOfRange = false;
+      for (const video of pageItems) {
+        const { videoDate } = resolveVideoTiming(video);
+        if (videoDate < startDate) {
+          reachedOutOfRange = true;
+          break;
+        }
+        if (videoDate <= today) {
+          collected.push(video);
+        }
+      }
+      collectedByChannel.set(item.channelId, collected);
+
+      if (!reachedOutOfRange && pageItems.length === CHZZK_SCAN_PAGE_SIZE) {
+        nextChannelIds.push(item.channelId);
+      }
+    }
+
+    activeChannelIds = nextChannelIds;
+  }
+
+  return collectedByChannel;
+};
+
 // 자동 업데이트 핵심 로직 (승인 프로세스 적용)
 // - VOD 수집 후 pending_schedules 테이블에 저장 (관리자 승인 대기)
 // - 스케줄 없음 + VOD 있음 → pending에 action_type: "create"로 저장
@@ -191,6 +250,7 @@ export const scanRecentChzzkVideos = async (
 export const autoUpdateSchedules = async (
   db: DbInstance,
   rangeDays: number = 3,
+  options: { cacheDb?: Pick<D1Database, "prepare"> } = {},
 ): Promise<{
   updated: number;
   checked: number;
@@ -251,20 +311,36 @@ export const autoUpdateSchedules = async (
     ),
   );
 
-  // 4. 각 멤버별로 VOD 확인 (병렬 처리)
+  // 4. 채널별 VOD를 페이지 단위 batch로 확인
   // 결과를 모아서 한 번에 처리
   type ProcessResult = {
     entries: ProcessEntry[];
     checkedCount: number;
   };
 
+  const channelIds = Array.from(
+    new Set(
+      allMembers
+        .map((member) =>
+          extractChzzkChannelId(member.url_chzzk)?.toLowerCase(),
+        )
+        .filter((channelId): channelId is string => Boolean(channelId)),
+    ),
+  );
+  const videosByChannel = await scanRecentChzzkVideosForChannels(
+    channelIds,
+    startDate,
+    today,
+    options.cacheDb,
+  );
+
   const results = await pMap(
     allMembers,
     async (member): Promise<ProcessResult | null> => {
-      const channelId = extractChzzkChannelId(member.url_chzzk);
+      const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
       if (!channelId) return null;
 
-      const videos = await scanRecentChzzkVideos(channelId, startDate, today);
+      const videos = videosByChannel.get(channelId) ?? [];
       if (videos.length === 0) return null;
 
       const result: ProcessResult = {

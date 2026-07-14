@@ -304,6 +304,30 @@ export const youtubeApiCache = sqliteTable(
 export type YouTubeApiCache = typeof youtubeApiCache.$inferSelect;
 export type NewYouTubeApiCache = typeof youtubeApiCache.$inferInsert;
 
+// CHZZK VOD/클립 API 응답 캐시 테이블
+export const chzzkApiCache = sqliteTable(
+  "chzzk_api_cache",
+  {
+    key: text().primaryKey(),
+    type: text().notNull(),
+    value: text().notNull(),
+    fetched_at: integer("fetched_at").notNull(),
+    expires_at: integer("expires_at").notNull(),
+    stale_until: integer("stale_until").notNull(),
+    last_status: integer("last_status"),
+    last_error: text("last_error"),
+  },
+  () => [
+    check(
+      "chzzk_api_cache_type_check",
+      sql`type IN ('vods', 'clips')`,
+    ),
+  ],
+);
+
+export type ChzzkApiCache = typeof chzzkApiCache.$inferSelect;
+export type NewChzzkApiCache = typeof chzzkApiCache.$inferInsert;
+
 // YouTube API 호출 사용량 이벤트 로그
 export const youtubeApiUsageEvents = sqliteTable(
   "youtube_api_usage_events",

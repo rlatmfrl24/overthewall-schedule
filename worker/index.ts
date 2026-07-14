@@ -310,6 +310,7 @@ export default {
     const result = await runAutoUpdateWithHistory(db, {
       source: "scheduled",
       rangeDays,
+      cacheDb: env.otw_db,
     });
 
     console.log("[scheduled] Auto update completed", result);

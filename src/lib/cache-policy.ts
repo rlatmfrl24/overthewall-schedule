@@ -15,6 +15,18 @@ export const CACHE_POLICY = {
     },
   },
   worker: {
+    chzzk: {
+      vods: {
+        freshTtlMs: 5 * MINUTE_MS,
+        staleTtlMs: 6 * HOUR_MS,
+        version: "v1",
+      },
+      clips: {
+        freshTtlMs: 5 * MINUTE_MS,
+        staleTtlMs: 6 * HOUR_MS,
+        version: "v1",
+      },
+    },
     youtube: {
       uploadsPlaylist: {
         freshTtlMs: 24 * HOUR_MS,

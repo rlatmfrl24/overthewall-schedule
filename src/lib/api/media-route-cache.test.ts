@@ -4,13 +4,15 @@ import { handleVods } from "../../../worker/routes/vods";
 import { handleYouTube } from "../../../worker/routes/youtube";
 import type { Env } from "../../../worker/types";
 
-const fetchChzzkVideosMock = vi.hoisted(() => vi.fn());
-const fetchChzzkClipsMock = vi.hoisted(() => vi.fn());
+const fetchChzzkVideosBatchMock = vi.hoisted(() => vi.fn());
+const fetchChzzkClipsBatchMock = vi.hoisted(() => vi.fn());
 const fetchYouTubeVideosForChannelMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../worker/services/chzzk", () => ({
-  fetchChzzkVideos: fetchChzzkVideosMock,
-  fetchChzzkClips: fetchChzzkClipsMock,
+  fetchChzzkVideosBatch: fetchChzzkVideosBatchMock,
+  fetchChzzkClipsBatch: fetchChzzkClipsBatchMock,
+  isChzzkVideoD1CacheProfile: () => false,
+  isChzzkClipD1CacheProfile: () => false,
 }));
 
 vi.mock("../../../worker/services/youtube", () => ({
@@ -35,26 +37,41 @@ const makeEnv = (): Env =>
 
 describe("media route cache headers", () => {
   beforeEach(() => {
-    fetchChzzkVideosMock.mockReset();
-    fetchChzzkClipsMock.mockReset();
+    fetchChzzkVideosBatchMock.mockReset();
+    fetchChzzkClipsBatchMock.mockReset();
     fetchYouTubeVideosForChannelMock.mockReset();
   });
 
   it("sets public cache headers for chzzk vods and clips", async () => {
-    fetchChzzkVideosMock.mockResolvedValue({ data: [] });
-    fetchChzzkClipsMock.mockResolvedValue({ data: [] });
+    const channelId = "a".repeat(32);
+    fetchChzzkVideosBatchMock.mockResolvedValue([
+      { channelId, content: { data: [] } },
+    ]);
+    fetchChzzkClipsBatchMock.mockResolvedValue([
+      { channelId, content: { data: [] } },
+    ]);
 
     const vodResponse = await handleVods(
-      new Request("https://example.com/api/vods/chzzk?channelIds=aaa"),
+      new Request(`https://example.com/api/vods/chzzk?channelIds=${channelId}`),
       makeEnv(),
     );
     const clipResponse = await handleVods(
-      new Request("https://example.com/api/clips/chzzk?channelIds=aaa"),
+      new Request(`https://example.com/api/clips/chzzk?channelIds=${channelId}`),
       makeEnv(),
     );
 
-    expect(vodResponse.headers.get("Cache-Control")).toContain("public");
-    expect(clipResponse.headers.get("Cache-Control")).toContain("public");
+    const expectedCacheControl =
+      "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
+    expect(vodResponse.headers.get("Cache-Control")).toBe(expectedCacheControl);
+    expect(clipResponse.headers.get("Cache-Control")).toBe(expectedCacheControl);
+    expect(await vodResponse.json()).toMatchObject({
+      updatedAt: expect.any(String),
+      items: [{ channelId, content: { data: [] } }],
+    });
+    expect(await clipResponse.json()).toMatchObject({
+      updatedAt: expect.any(String),
+      items: [{ channelId, content: { data: [] } }],
+    });
   });
 
   it("sets public cache headers for youtube and kirinuki videos", async () => {

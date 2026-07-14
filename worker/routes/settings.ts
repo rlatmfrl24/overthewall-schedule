@@ -1231,6 +1231,7 @@ export const handleSettings = async (
         source: "manual",
         rangeDays,
         actor,
+        cacheDb: env.otw_db,
       });
       await insertAdminAuditLog(db, {
         eventType: "manual_collection.auto_update",
