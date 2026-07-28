@@ -1,0 +1,145 @@
+export type ExactRoutePattern = `/${string}`;
+export type ExactRoutePath = `/${string}`;
+
+const staticRoute = <const TPattern extends ExactRoutePattern>(
+  pattern: TPattern,
+) =>
+  ({
+    pattern,
+    build: () => pattern,
+  }) as const;
+
+const dynamicRoute = <
+  const TPattern extends ExactRoutePattern,
+  TArgs extends readonly unknown[],
+  const TPath extends ExactRoutePath,
+>(
+  pattern: TPattern,
+  build: (...args: TArgs) => TPath,
+) =>
+  ({
+    pattern,
+    build,
+  }) as const;
+
+const encodeAssetKey = (key: string) =>
+  key
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+export const apiRoutes = {
+  assets: {
+    object: dynamicRoute(
+      "/r2-assets/*key",
+      (key: string) => `/r2-assets/${encodeAssetKey(key)}` as const,
+    ),
+  },
+  audit: {
+    adminLogs: staticRoute("/api/settings/audit-logs"),
+  },
+  chzzk: {
+    liveStatus: staticRoute("/api/live-status"),
+    vods: staticRoute("/api/vods/chzzk"),
+    clips: staticRoute("/api/clips/chzzk"),
+  },
+  configuration: {
+    settings: staticRoute("/api/settings"),
+  },
+  ddays: {
+    collection: staticRoute("/api/ddays"),
+  },
+  memberPosts: {
+    read: staticRoute("/api/member-posts"),
+  },
+  members: {
+    collection: staticRoute("/api/members"),
+    profile: dynamicRoute(
+      "/api/members/:code",
+      (code: string) => `/api/members/${encodeURIComponent(code)}` as const,
+    ),
+  },
+  naverCafe: {
+    config: staticRoute("/api/naver-cafe/config"),
+    sources: staticRoute("/api/naver-cafe/sources"),
+    posts: staticRoute("/api/naver-cafe/posts"),
+    checkNow: staticRoute("/api/operations/naver-cafe/check-now"),
+  },
+  notices: {
+    collection: staticRoute("/api/notices"),
+    featured: staticRoute("/api/notices/featured"),
+    thumbnail: staticRoute("/api/notices/thumbnail"),
+    thumbnailStatus: staticRoute("/api/notices/thumbnails/status"),
+    thumbnailCleanup: staticRoute("/api/notices/thumbnails/cleanup"),
+  },
+  operations: {
+    status: staticRoute("/api/operations/status"),
+    retentionStatus: staticRoute("/api/operations/data-retention/status"),
+    retentionPrune: staticRoute("/api/operations/data-retention/prune"),
+    liveScheduleAutoFill: staticRoute(
+      "/api/operations/live-schedule/auto-fill",
+    ),
+  },
+  scheduleBoard: {
+    read: staticRoute("/api/schedule-board"),
+  },
+  schedules: {
+    collection: staticRoute("/api/schedules"),
+    save: staticRoute("/api/schedules/save"),
+    updateLogs: staticRoute("/api/settings/logs"),
+    updateLog: dynamicRoute(
+      "/api/settings/logs/:id",
+      (id: number) => `/api/settings/logs/${id}` as const,
+    ),
+    runNow: staticRoute("/api/settings/run-now"),
+    pending: {
+      list: staticRoute("/api/settings/pending"),
+      resetProcessed: dynamicRoute(
+        "/api/settings/pending/:id/reset-processed",
+        (id: number) =>
+          `/api/settings/pending/${id}/reset-processed` as const,
+      ),
+      applyEmptyTarget: dynamicRoute(
+        "/api/settings/pending/:id/apply-empty-target",
+        (id: number) =>
+          `/api/settings/pending/${id}/apply-empty-target` as const,
+      ),
+      approve: dynamicRoute(
+        "/api/settings/pending/:id/approve",
+        (id: number) => `/api/settings/pending/${id}/approve` as const,
+      ),
+      reject: dynamicRoute(
+        "/api/settings/pending/:id/reject",
+        (id: number) => `/api/settings/pending/${id}/reject` as const,
+      ),
+      actions: staticRoute("/api/settings/pending/actions"),
+      approveSelected: staticRoute(
+        "/api/settings/pending/approve-selected",
+      ),
+      rejectSelected: staticRoute("/api/settings/pending/reject-selected"),
+      approveAll: staticRoute("/api/settings/pending/approve-all"),
+      rejectAll: staticRoute("/api/settings/pending/reject-all"),
+    },
+  },
+  xPosts: {
+    config: staticRoute("/api/x/config"),
+    read: staticRoute("/api/x/posts"),
+    runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
+  },
+  youtube: {
+    videos: staticRoute("/api/youtube/videos"),
+    cacheStatus: staticRoute("/api/youtube/cache/status"),
+    cacheWarmup: staticRoute("/api/youtube/cache/warmup/run"),
+    kirinukiChannels: staticRoute("/api/kirinuki/channels"),
+    kirinukiVideos: staticRoute("/api/kirinuki/videos"),
+  },
+} as const;
+
+export const withRouteSearch = (
+  path: ExactRoutePath,
+  search: string | URLSearchParams,
+) => {
+  const query = search.toString();
+  return query ? `${path}?${query}` : path;
+};

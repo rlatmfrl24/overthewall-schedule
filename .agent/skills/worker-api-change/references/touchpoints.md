@@ -1,42 +1,37 @@
 # Worker API Change Touchpoints
 
 ## Worker Routing Entry
-- `worker/index.ts`: dispatch table for `/api/*` route namespaces.
+- `worker/app/routes.ts`: exact method/path registry and route manifest.
+- `worker/app/route-registry.ts`: matching, `404`/`405`, numeric parameter, and cache policy enforcement.
+- `worker/index.ts`: thin Cloudflare runtime entry only.
 
 ## Route Handlers
-- `worker/routes/live.ts`
-- `worker/routes/vods.ts`
-- `worker/routes/members.ts`
-- `worker/routes/schedules.ts`
-- `worker/routes/schedule-board.ts`
-- `worker/routes/notices.ts`
-- `worker/routes/ddays.ts`
-- `worker/routes/kirinuki.ts`
-- `worker/routes/member-posts.ts`
-- `worker/routes/settings.ts`
-- `worker/routes/youtube.ts` when YouTube source behavior is split into a route module.
+- `worker/features/<capability>/http/*`: request/response adapters.
+- `worker/features/<capability>/application/*`: use cases and ports.
+- `worker/features/<capability>/infrastructure/*`: D1 and external API adapters.
+- `worker/features/<capability>/index.ts`: capability public surface.
 
 ## Worker Shared Logic
-- `worker/services/*`: integration and domain operations.
-- `worker/repositories/*`: D1 read models and aggregate query repositories.
-- `worker/use-cases/*`: command handlers and domain write orchestration.
-- `worker/utils/helpers.ts`: request parsing, validation helpers, response helpers, audit log helpers.
-- `worker/types.ts`: worker-side payload and contract types.
+- `worker/platform/auth.ts`: authentication boundary.
+- `worker/platform/db.ts`: Drizzle/D1 adapter creation.
+- `worker/platform/http-helpers.ts`: parsing, actor, response, and audit helpers.
+- `worker/platform/types.ts`: Cloudflare binding types.
 
 ## Frontend API Modules
-- `src/lib/api/client.ts`: common fetch behavior and shared headers.
-- `src/lib/api/*.ts`: endpoint-specific request wrappers.
-- `src/lib/types.ts`: frontend-facing type contracts.
+- `src/shared/api/client.ts`: common fetch behavior and shared headers.
+- `src/features/<capability>/api/*`: endpoint-specific request wrappers.
+- `contracts/*`: frontend/Worker wire DTOs.
 
 ## Consumer Surfaces
-- `src/hooks/*`: data loading and transformation hooks.
-- `src/features/*`: UI state and behavior bound to API payload shapes.
+- `src/features/<capability>/queries/*`: TanStack Query ownership.
+- `src/features/<capability>/ui/*`: UI bound to API payloads.
 - `src/routes/*`: route-level integration points.
-- `src/components/app-navigation.ts`: public navigation visibility when API-backed source visibility changes.
+- `src/app/layout/app-navigation.ts`: public navigation visibility when API-backed source visibility changes.
 
 ## Contract Change Checklist
 1. Update worker handler and route wiring.
 2. Update client module and related types.
 3. Update UI or hook consumers.
 4. Add or update tests.
-5. Run `pnpm lint`, `pnpm test`, and `pnpm build` when needed.
+5. Run `pnpm architecture:check`, `pnpm typecheck:test`, `pnpm lint`,
+   `pnpm test`, and `pnpm build` when needed.

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { YouTubeCacheManager } from "@/features/admin/youtube-cache-manager";
+import { YouTubeCacheManager } from "@/features/youtube";
 
 export const Route = createFileRoute("/admin/youtube-cache")({
   component: RouteComponent,

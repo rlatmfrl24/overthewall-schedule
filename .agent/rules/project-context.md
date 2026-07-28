@@ -11,35 +11,39 @@ trigger: always_on
 ### Frontend
 - React 19 with Vite 7.
 - TanStack Router file-based routes under `src/routes`.
-- Tailwind CSS v4 with shadcn/ui primitives in `src/components/ui`.
+- Tailwind CSS v4 with shadcn/ui primitives in `src/shared/ui`.
 - Clerk for auth-gated user/admin surfaces.
-- TanStack Query and custom hooks under `src/hooks`.
-- Client API modules in `src/lib/api`, backed by `apiFetch`.
+- TanStack Query adapters under each capability's `queries` directory.
+- Capability API modules use the shared `src/shared/api` client.
 
 ### Edge and Backend
 - Cloudflare Workers runtime (`worker/index.ts`).
 - Cloudflare D1 (SQLite) database.
-- Drizzle ORM with schema in `src/db/schema.ts`.
-- Worker route handlers in `worker/routes/*`.
+- Drizzle ORM with schema in `db/schema/index.ts`.
+- Exact route registry and runtime composition under `worker/app`.
+- Capability handlers and adapters under `worker/features/<capability>`.
+- Runtime-specific adapters under `worker/platform`.
 
 ## Core Application Flows
-- Browser UI -> `src/lib/api/*` -> `apiFetch` -> `/api/*` worker routes -> services/repositories/use-cases -> D1.
+- Browser UI -> capability `api`/`queries` -> shared `apiFetch` -> exact
+  `/api/*` registry -> capability HTTP/application/infrastructure -> D1.
 - Public chrome is selected by `getAppChromeMode` and rendered by `PublicAppShell`.
 - Content pages such as notice, VOD, and member posts share `ContentPageShell`.
-- Daily and weekly schedule views consume worker APIs through typed client modules.
+- Daily and weekly schedule views consume the `schedule-board` read model.
 - `/multiview` is a public Mul.Live iframe surface. Member chips with CHZZK channel URLs build `c=` URL state and the embedded Mul.Live URL.
 - Admin screens control notices, schedules, source settings, auto-update settings, pending schedules, and logs.
 - Scheduled worker trigger reads settings, collects VOD candidates, and writes `pending_schedules` and `update_logs`.
 
 ## Key Directories
-- `src/components`: app shell, navigation, footer, shared primitives, and UI components.
-- `src/features`: feature-level UI modules.
-- `src/shared`: cross-feature shared components.
-- `src/hooks`: custom hooks and hook tests.
-- `src/lib/api`: frontend API client functions.
-- `src/db/schema.ts`: canonical Drizzle schema.
-- `worker/routes`: HTTP route handlers.
-- `worker/services`, `worker/repositories`, `worker/use-cases`: backend domain logic.
+- `contracts`: frontend/Worker wire DTOs and shared contract policy.
+- `db/schema/index.ts`: canonical Drizzle schema.
+- `src/app`: providers, application shell, and admin composition.
+- `src/routes`: thin TanStack Router adapters.
+- `src/features/<capability>`: colocated API, model, query, use-case, and UI code.
+- `src/shared`: cross-capability API, query, UI, and library primitives.
+- `worker/app`: route registry, scheduled composition, and runtime error boundary.
+- `worker/platform`: Cloudflare auth, D1, HTTP, cache, and runtime types.
+- `worker/features/<capability>`: domain, application, ports, infrastructure, and HTTP adapters.
 - `docs`: active project docs plus archived research.
 - `.agent`: canonical agent rules and skills.
 
@@ -51,7 +55,11 @@ trigger: always_on
 ## Commands (pnpm-first)
 - `pnpm dev`: start local development server.
 - `pnpm lint`: run repository ESLint rules.
+- `pnpm architecture:check`: enforce dependency direction, legacy path removal, and import-cycle guards.
+- `pnpm typecheck:test`: type-check frontend and Worker test sources.
 - `pnpm test`: run Vitest suites.
+- `pnpm test:worker-integration`: run isolated D1 Worker integration tests.
+- `pnpm test:coverage`: enforce coverage thresholds.
 - `pnpm build`: type-check and build.
 - `pnpm cf-typegen`: regenerate worker type bindings.
 - `pnpm drizzle:generate`: generate schema migration SQL.

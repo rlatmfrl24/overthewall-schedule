@@ -1,0 +1,706 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ScheduleDto } from "@contracts/schedules";
+import {
+  fetchActiveMembers,
+  fetchMemberProfile,
+  type Member,
+} from "@/features/members";
+import {
+  createDDay,
+  deleteDDay,
+  fetchDDays,
+  updateDDay,
+} from "@/features/ddays";
+import {
+  createNotice,
+  deleteNotice,
+  deleteNoticeThumbnail,
+  fetchNotices,
+  setFeaturedNotice,
+  updateNotice,
+  uploadNoticeThumbnail,
+} from "@/features/notices";
+import {
+  approveAllPendingSchedules,
+  approvePendingSchedule,
+  approveSelectedPendingSchedules,
+  applyPendingScheduleToEmptyTarget,
+  createSchedule,
+  deleteSchedule,
+  fetchSchedulesByDate,
+  fetchSchedulesInRange,
+  fetchPendingSchedules,
+  rejectAllPendingSchedules,
+  rejectPendingSchedule,
+  rejectSelectedPendingSchedules,
+  resetPendingScheduleProcessed,
+  saveSchedule,
+  updateSchedule,
+} from "@/features/schedules";
+import { fetchScheduleBoard } from "@/features/schedule-board";
+import { fetchMemberPostsAggregate } from "@/features/member-posts";
+import {
+  fetchKirinukiVideos,
+  fetchYouTubeCacheStatus,
+  runYouTubeWarmupNow,
+} from "@/features/youtube";
+import {
+  fetchSettings,
+  updateSettings,
+} from "@/features/configuration";
+import {
+  fetchAdminAuditLogs,
+  fetchUpdateLogs,
+} from "@/features/audit";
+import {
+  runAutoUpdateNow,
+  runXCollectionNow,
+  fetchDataRetentionStatus,
+  runDataRetentionPrune,
+} from "@/features/operations";
+import {
+  fetchLiveStatusDiagnostics,
+  fetchLiveStatusesForMembers,
+} from "@/features/chzzk";
+
+const apiFetchMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./client", () => ({
+  apiFetch: apiFetchMock,
+}));
+
+const makeMember = (overrides: Partial<Member> = {}) =>
+  ({
+    uid: 1,
+    code: "member",
+    name: "멤버",
+    main_color: null,
+    sub_color: null,
+    oshi_mark: null,
+    url_twitter: null,
+    url_youtube: null,
+    url_chzzk: null,
+    youtube_channel_id: null,
+    birth_date: null,
+    debut_date: null,
+    unit_name: null,
+    fan_name: null,
+    introduction: null,
+    is_deprecated: 0,
+    ...overrides,
+  }) as Member;
+
+const makeSchedule = (
+  overrides: Partial<ScheduleDto> = {},
+): ScheduleDto => ({
+    id: 10,
+    member_uid: 1,
+    date: "2026-02-13",
+    start_time: "20:00",
+    title: "일정",
+    status: "방송",
+    created_at: null,
+    ...overrides,
+  });
+
+describe("api wrapper modules", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  it("활성 멤버만 필터링한다", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeMember({ uid: 1, is_deprecated: 0 }),
+      makeMember({ uid: 2, is_deprecated: "1" }),
+      makeMember({ uid: 3, is_deprecated: true }),
+      makeMember({ uid: 4, is_deprecated: false }),
+    ]);
+
+    const result = await fetchActiveMembers();
+
+    expect(result.map((member) => member.uid)).toEqual([1, 4]);
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/members");
+  });
+
+  it("멤버 프로필 상세 API는 code를 인코딩해 요청한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      ...makeMember({ code: "member code" }),
+      profileImages: [],
+      backgroundImages: [],
+      links: [],
+    });
+
+    await fetchMemberProfile("member code");
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/members/member%20code");
+  });
+
+  it("dday CRUD는 올바른 경로/메서드로 요청한다", async () => {
+    await fetchDDays({ noCache: true });
+    await createDDay({
+      title: "기념일",
+      date: "2026-02-13",
+      type: "event",
+    });
+    await updateDDay({
+      id: 3,
+      title: "수정",
+      date: "2026-02-14",
+      type: "birthday",
+    });
+    await deleteDDay(7);
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/ddays?noCache=1",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(2, "/api/ddays", {
+      method: "POST",
+      json: expect.objectContaining({ title: "기념일" }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/ddays", {
+      method: "PUT",
+      json: expect.objectContaining({ id: 3 }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/ddays?id=7", {
+      method: "DELETE",
+    });
+  });
+
+  it("notice CRUD와 대표 공지 지정 요청을 전송한다", async () => {
+    await fetchNotices();
+    await fetchNotices({ includeInactive: true });
+    await createNotice({
+      content: "공지",
+      type: "notice",
+      thumbnail_url: "/profile/member.webp",
+      publisher_type: "member",
+      publisher_member_uid: 1,
+      is_active: 0,
+    });
+    await updateNotice({
+      id: 9,
+      content: "이벤트",
+      type: "event",
+      thumbnail_url: "https://example.com/event.jpg",
+      publisher_type: "otw",
+      publisher_member_uid: null,
+      is_active: true,
+    });
+    await deleteNotice(9);
+    await setFeaturedNotice(8);
+    const thumbnailFile = new File(["thumb"], "thumb.png", {
+      type: "image/png",
+    });
+    await uploadNoticeThumbnail(thumbnailFile);
+    await deleteNoticeThumbnail("/r2-assets/notices/thumbnails/thumb.png");
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(1, "/api/notices", {
+      cache: "no-store",
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/notices?includeInactive=1",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(3, "/api/notices", {
+      method: "POST",
+      json: expect.objectContaining({
+        is_active: "0",
+        thumbnail_url: "/profile/member.webp",
+        publisher_type: "member",
+        publisher_member_uid: 1,
+      }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/notices", {
+      method: "PUT",
+      json: expect.objectContaining({
+        is_active: "1",
+        thumbnail_url: "https://example.com/event.jpg",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+      }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/notices?id=9", {
+      method: "DELETE",
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(6, "/api/notices/featured", {
+      method: "PUT",
+      json: { id: 8 },
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/api/notices/thumbnail",
+      {
+        method: "POST",
+        body: expect.any(FormData),
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      8,
+      "/api/notices/thumbnail",
+      {
+        method: "DELETE",
+        json: {
+          thumbnail_url: "/r2-assets/notices/thumbnails/thumb.png",
+        },
+      },
+    );
+  });
+
+  it("schedule API는 경로를 조합하고 update id 유효성을 검사한다", async () => {
+    await fetchSchedulesByDate("2026-02-13");
+    await fetchSchedulesInRange("2026-02-10", "2026-02-16");
+    await fetchScheduleBoard("2026-02-10", "2026-02-16");
+    await createSchedule({
+      member_uid: 1,
+      date: "2026-02-13",
+      status: "방송",
+    });
+    await saveSchedule({
+      member_uid: 1,
+      date: "2026-02-13",
+      status: "휴방",
+    });
+
+    await expect(
+      updateSchedule({
+        member_uid: 1,
+        date: "2026-02-13",
+        status: "방송",
+      }),
+    ).rejects.toThrow("id is required to update schedule");
+
+    await updateSchedule({
+      id: 3,
+      member_uid: 1,
+      date: "2026-02-13",
+      status: "방송",
+    });
+    await deleteSchedule(3);
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/schedules?date=2026-02-13",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/schedules?startDate=2026-02-10&endDate=2026-02-16",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/schedule-board?startDate=2026-02-10&endDate=2026-02-16",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(4, "/api/schedules", {
+      method: "POST",
+      json: expect.any(Object),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(5, "/api/schedules/save", {
+      method: "POST",
+      json: expect.objectContaining({ status: "휴방" }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(6, "/api/schedules", {
+      method: "PUT",
+      json: expect.objectContaining({ id: 3 }),
+    });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(7, "/api/schedules?id=3", {
+      method: "DELETE",
+    });
+  });
+
+  it("member-post aggregate API는 요청 소스와 페이지 크기를 조합한다", async () => {
+    await fetchMemberPostsAggregate({
+      includeX: false,
+      includeNaverCafe: true,
+      maxResults: 3,
+      size: 7,
+      admin: true,
+    });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/member-posts?sources=naver-cafe&maxResults=3&size=7&compact=1&admin=1",
+      { cache: "default" },
+    );
+  });
+
+  it("YouTube 캐시 관리 API는 모니터링과 수동 예열 endpoint를 호출한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        updatedAt: "2026-07-09T00:00:00.000Z",
+        window: { hours: 72, since: 1 },
+        cache: { total: 0, fresh: 0, stale: 0, expired: 0, byType: [] },
+        usage: {
+          apiCalls: 0,
+          quotaUnits: 0,
+          successCount: 0,
+          failureCount: 0,
+          rateLimitCount: 0,
+          quotaErrorCount: 0,
+          byOperation: [],
+        },
+        channels: [],
+      })
+      .mockResolvedValueOnce({
+        id: 1,
+        source: "manual",
+        status: "success",
+        targetCount: 0,
+        skippedFreshCount: 0,
+        refreshedCount: 0,
+        failedCount: 0,
+        staleFallbackCount: 0,
+        apiCalls: 0,
+        quotaUnits: 0,
+        durationMs: 1,
+        startedAt: 1,
+        finishedAt: 2,
+        error: null,
+      });
+
+    await fetchYouTubeCacheStatus(72);
+    await runYouTubeWarmupNow();
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/status?windowHours=72",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/cache/warmup/run",
+      { method: "POST" },
+    );
+  });
+
+  it("D1 데이터 보존 API는 status와 prune endpoint를 호출한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        source: "manual",
+        dryRun: true,
+        startedAt: 1,
+        finishedAt: 1,
+        totalPrunableRows: 0,
+        totalDeletedRows: 0,
+        policies: [],
+      })
+      .mockResolvedValueOnce({
+        source: "manual",
+        dryRun: true,
+        startedAt: 1,
+        finishedAt: 1,
+        totalPrunableRows: 0,
+        totalDeletedRows: 0,
+        policies: [],
+      });
+
+    await fetchDataRetentionStatus();
+    await runDataRetentionPrune({ dryRun: true });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/operations/data-retention/status",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/operations/data-retention/prune?dryRun=true",
+      { method: "POST" },
+    );
+  });
+
+  it("pending 단건 action helper는 batch 내부 실패를 예외로 전파한다", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      success: false,
+      totalRequested: 1,
+      successCount: 0,
+      failedCount: 1,
+      results: [
+        {
+          id: 11,
+          success: false,
+          error: "conflict",
+          message: "이미 비슷한 시간에 스케줄이 존재합니다.",
+        },
+      ],
+    });
+
+    await expect(approvePendingSchedule(11)).rejects.toThrow(
+      "이미 비슷한 시간에 스케줄이 존재합니다.",
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending/actions", {
+      method: "POST",
+      json: { action: "approve", ids: [11] },
+    });
+  });
+
+  it("kirinuki/settings API는 쿼리와 endpoint를 조합한다", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ updatedAt: "", videos: [], shorts: [], byChannel: [] })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ success: true, updated: 0, checked: 0, details: [] })
+      .mockResolvedValueOnce({
+        success: true,
+        status: "success",
+        checkedHandles: 1,
+        refreshedHandles: 1,
+        postsReturned: 1,
+        postsStored: 1,
+        apiCalls: 2,
+        estimatedCostMicros: 20_000,
+        error: null,
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 50,
+        totalPages: 1,
+        hasPrevPage: false,
+        hasNextPage: false,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 2,
+        pageSize: 20,
+        totalPages: 1,
+        hasPrevPage: true,
+        hasNextPage: false,
+      })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 11, success: true, action: "create", scheduleId: 11 }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 16, success: true, action: "update", scheduleId: 16 }],
+      })
+      .mockResolvedValueOnce({ success: true, scheduleId: 15 })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [
+          {
+            id: 17,
+            success: true,
+            resetAt: "2026-05-27T00:00:00.000Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 1,
+        successCount: 1,
+        failedCount: 0,
+        results: [{ id: 12, success: true, action: "reject" }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 2,
+        successCount: 2,
+        failedCount: 0,
+        results: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        totalRequested: 2,
+        successCount: 2,
+        failedCount: 0,
+        results: [],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        approvedCount: 3,
+        skippedCount: 1,
+        skippedItems: [{ id: 99, reason: "conflict" }],
+      })
+      .mockResolvedValueOnce({ success: true, rejectedCount: 2 });
+
+    await fetchKirinukiVideos({ maxResults: 7 });
+    await fetchSettings();
+    await updateSettings({
+      auto_update_enabled: "true",
+      x_rich_link_preview_enabled: "false",
+      x_posts_visibility: "public",
+      x_collection_interval_hours: "6",
+    });
+    await runAutoUpdateNow();
+    await runXCollectionNow();
+    await fetchAdminAuditLogs();
+    await fetchUpdateLogs();
+    await fetchUpdateLogs({
+      page: 2,
+      pageSize: 20,
+      sort: "created_desc",
+    });
+    await fetchPendingSchedules();
+    await approvePendingSchedule(11);
+    await approvePendingSchedule(16, {
+      applyMode: "time",
+      targetMode: "update",
+      timeMode: "nearest_hour",
+      targetScheduleId: 160,
+    });
+    await applyPendingScheduleToEmptyTarget(15);
+    await resetPendingScheduleProcessed(17);
+    await rejectPendingSchedule(12);
+    await approveSelectedPendingSchedules([11, 13]);
+    await rejectSelectedPendingSchedules([12, 14]);
+    const approveAllResult = await approveAllPendingSchedules();
+    await rejectAllPendingSchedules();
+
+    expect(approveAllResult.skippedCount).toBe(1);
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/kirinuki/videos?maxResults=7");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
+      cache: "no-store",
+    });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings", {
+      method: "PUT",
+      json: {
+        auto_update_enabled: "true",
+        x_rich_link_preview_enabled: "false",
+        x_posts_visibility: "public",
+        x_collection_interval_hours: "6",
+      },
+    });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {
+      method: "POST",
+    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/x-collection/run-now",
+      {
+        method: "POST",
+      },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/audit-logs?page=1&pageSize=50",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/logs?page=1&pageSize=50&sort=created_desc",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/logs?page=2&pageSize=20&sort=created_desc",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/pending", {
+      cache: "no-store",
+    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", ids: [11] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      {
+        method: "POST",
+        json: {
+          action: "approve",
+          ids: [16],
+          options: {
+            applyMode: "time",
+            targetMode: "update",
+            timeMode: "nearest_hour",
+            targetScheduleId: 160,
+          },
+        },
+      },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/15/apply-empty-target",
+      { method: "POST" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reset_processed", ids: [17] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", ids: [12] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", ids: [11, 13] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", ids: [12, 14] } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "approve", mode: "all" } },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/actions",
+      { method: "POST", json: { action: "reject", mode: "all" } },
+    );
+  });
+
+  it("라이브 상태 API는 채널-멤버 매핑 및 진단 응답을 변환한다", async () => {
+    const channelA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const channelB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const members = [
+      makeMember({
+        uid: 1,
+        url_chzzk: `https://chzzk.naver.com/${channelA}`,
+      }),
+      makeMember({
+        uid: 2,
+        url_chzzk: `https://chzzk.naver.com/${channelB}`,
+      }),
+    ];
+    const schedules = [
+      makeSchedule({
+        member_uid: 2,
+        status: "방송",
+        title: `외부 같이보기 https://chzzk.naver.com/live/${channelA}`,
+      }),
+    ];
+
+    apiFetchMock.mockResolvedValueOnce({
+      items: [{ channelId: channelA, content: { status: "OPEN" } }],
+    });
+    apiFetchMock.mockResolvedValueOnce({
+      updatedAt: "2026-02-13T00:00:00Z",
+      items: [{ channelId: channelA, content: { status: "OPEN" } }],
+    });
+
+    const statusMap = await fetchLiveStatusesForMembers(members, { schedules });
+    const diagnostics = await fetchLiveStatusDiagnostics(members, { schedules });
+
+    expect(statusMap[1]).toEqual({ status: "OPEN" });
+    expect(statusMap[2]).toEqual({ status: "OPEN" });
+    expect(diagnostics.channelToMembers[channelA]).toEqual([1, 2]);
+    expect(diagnostics.items).toHaveLength(1);
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/live-status?channelIds=${channelA},${channelB}`,
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      `/api/live-status?channelIds=${channelA},${channelB}&debug=1`,
+    );
+  });
+});

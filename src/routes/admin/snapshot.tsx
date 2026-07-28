@@ -1,6 +1,6 @@
 import { format, isValid, parseISO } from "date-fns";
 import { createFileRoute } from "@tanstack/react-router";
-import { SnapshotPreviewManager } from "@/features/admin/snapshot-preview-manager";
+import { SnapshotPreviewManager } from "@/features/schedule-board";
 
 type SnapshotMode = "grid" | "timeline";
 type SnapshotTheme = "light" | "dark";

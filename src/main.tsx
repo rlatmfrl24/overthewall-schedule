@@ -7,9 +7,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 // Import the generated route tree
 import { routeTree } from "./routeTree.gen";
-import { ThemeProvider } from "./components/theme-provider";
-import { ToastProvider } from "./components/ui/toast";
-import { queryClient } from "./lib/query-client";
+import { ThemeProvider } from "./app/providers/theme-provider";
+import { ToastProvider } from "./shared/ui/toast";
+import { queryClient } from "./shared/query/query-client";
 
 const router = createRouter({ routeTree });
 

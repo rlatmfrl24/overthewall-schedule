@@ -11,6 +11,8 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `../README.md` | Product overview, active features, and local development entry points. |
 | `../Design.md` | Current UI design system and screen-level implementation guidance. |
 | `../AGENTS.md` | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy. |
+| `architecture.md` | Current system diagrams, capability flows, dependency direction, and architecture gates. |
+| `architecture-refactoring-verification.md` | Completion evidence and original-purpose audit for the architecture refactor. |
 | `auto-update.md` | Admin-approved CHZZK VOD based schedule auto-update flow. |
 | `cache-policy.md` | Frontend, Worker memory, D1, and HTTP cache TTL roles. |
 | `youtube-optimization.md` | YouTube API quota, caching, and fallback strategy. |
@@ -19,6 +21,8 @@ decision records that are no longer the source of truth into `docs/archive/`.
 
 `docs/archive/` contains exploratory analysis and drafts that remain useful as
 background but should not be treated as current implementation guidance.
+The completed clean architecture execution plan is preserved as
+`archive/architecture-refactoring-plan.md` for historical context.
 
 ## Maintenance Rules
 

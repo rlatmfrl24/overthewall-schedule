@@ -1,7 +1,6 @@
 import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
-import { PublicAppShell } from "@/components/app-shell";
-import { getAppChromeMode } from "@/components/app-navigation";
-import { Footer } from "@/components/footer";
+import { getAppChromeMode, PublicAppShell } from "@/app/layout";
+import { Footer } from "@/app/layout/footer";
 
 const RootComponent = () => {
   const location = useLocation();

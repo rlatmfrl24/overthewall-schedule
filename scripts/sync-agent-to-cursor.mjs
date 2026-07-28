@@ -12,6 +12,10 @@ const mappings = [
     target: ".cursor/rules/project-standards.mdc",
   },
   {
+    source: ".agent/rules/architecture.md",
+    target: ".cursor/rules/architecture.mdc",
+  },
+  {
     source: ".agent/rules/drizzle-workflow.md",
     target: ".cursor/rules/drizzle-workflow.mdc",
   },

@@ -9,14 +9,14 @@
 | 영역 | 파일 |
 | --- | --- |
 | 전역 토큰 | `src/index.css` |
-| 공개 앱 프레임 | `src/components/app-shell.tsx` |
-| 공개 내비게이션 | `src/components/app-navigation.ts` |
-| 콘텐츠 페이지 헤더 | `src/components/content-page-shell.tsx` |
-| 사이트 푸터 | `src/components/footer.tsx` |
-| UI primitive | `src/components/ui/*` |
-| 일정 입력 | `src/shared/schedule/schedule-dialog.tsx` |
-| 공지 배너 | `src/shared/notice/notice-banner.tsx` |
-| 관리자 레이아웃 | `src/features/admin/admin-layout.tsx` |
+| 공개 앱 프레임 | `src/app/layout/app-shell.tsx` |
+| 공개 내비게이션 | `src/app/layout/app-navigation.ts` |
+| 콘텐츠 페이지 헤더 | `src/shared/ui/content-page-shell.tsx` |
+| 사이트 푸터 | `src/app/layout/footer.tsx` |
+| UI primitive | `src/shared/ui/*` |
+| 일정 입력 | `src/features/schedules/ui/schedule-dialog.tsx` |
+| 공지 배너 | `src/features/notices/ui/notice-banner.tsx` |
+| 관리자 레이아웃 | `src/app/admin/admin-layout.tsx` |
 
 ## 제품 톤
 
@@ -31,6 +31,8 @@
 
 - 일반 공개 화면은 `PublicAppShell`을 사용한다.
 - `lg`에서는 접힌 64px 사이드바, `xl`에서는 256px 사이드바를 사용한다.
+- `/multiview`는 iframe 폭이 breakpoint에서 역으로 줄어들지 않도록 `lg` 이상에서도
+  64px 접힌 사이드바를 유지한다.
 - 모바일은 56px 상단 헤더와 `Sheet` 메뉴를 사용한다.
 - 사이드바 상단 brand 영역과 콘텐츠 헤더는 데스크톱에서 64px 높이로 라인을
   맞춘다.
@@ -88,13 +90,16 @@
 - 상단에는 멀티뷰 제목과 초기화, 멤버 목록, 외부 `Mul.Live` 링크를 간결하게
   배치하고, 멤버 선택은 영상 위에 뜨는 overlay 패널에서 처리한다.
 - 선택한 CHZZK 채널 조합은 반복 `c=` URL 상태로 보존하고, 같은 순서의 채널 ID를
-  `Mul.Live` 경로로 만들어 하단 iframe에 표시한다.
+  `Mul.Live` 경로로 만들어 하단 iframe에 표시한다. 채널은 최대 8개로 제한하고,
+  URL 입력과 UI 선택 양쪽에서 같은 제한을 적용한다.
 - 라이브 상태 자동 갱신, 멤버 목록 열기와 닫기 같은 호스트 UI 변경은 재생 중인
   `Mul.Live` iframe DOM을 재마운트하지 않는다. 채널 조합이 실제로 바뀐 경우에만
   iframe `src`를 갱신한다.
 - `Mul.Live`와 그 안의 CHZZK 플레이어는 교차 출처이므로 호스트에서 내부 DOM이나
   넓은 화면 상태를 직접 조작하지 않는다. 불필요한 iframe 교체를 막아 내부 상태가
   초기화되는 경우를 최소화한다.
+- iframe의 `fullscreen` 권한은 사용자의 직접 조작을 위한 것이며, 확장 프로그램,
+  쿠키 브리지, 키보드 이벤트 주입으로 화면 모드를 자동 변경하지 않는다.
 
 ### 프로필과 스냅샷
 
@@ -162,7 +167,7 @@
 
 ## 컴포넌트 규칙
 
-- 버튼은 `src/components/ui/button.tsx` variant를 우선한다.
+- 버튼은 `src/shared/ui/button.tsx` variant를 우선한다.
 - 아이콘 버튼에는 `aria-label`을 반드시 둔다.
 - 일반 카드는 `rounded-lg`/`rounded-xl`, `border`, `shadow-sm`를 기본으로 한다.
 - 카드 안에 카드 중첩은 피하고, repeated item 또는 modal처럼 실제로 필요한

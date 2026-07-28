@@ -35,7 +35,7 @@ const remoteD1Config =
 
 export default defineConfig({
   out: "./drizzle",
-  schema: "./src/db/schema.ts",
+  schema: "./db/schema/index.ts",
   dialect: "sqlite",
   ...remoteD1Config,
 });

@@ -1,4 +1,4 @@
-import { OperationsDashboard } from "@/features/admin/operations-dashboard";
+import { OperationsDashboard } from "@/features/operations";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin/operations")({

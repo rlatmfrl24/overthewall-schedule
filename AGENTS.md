@@ -33,10 +33,12 @@
 - `.agent/rules/antigravity.md`
 - `.agent/rules/project-context.md`
 - `.agent/rules/project-standards.md`
+- `.agent/rules/architecture.md`
 - `.agent/rules/drizzle-workflow.md`
 
 ## Mirrored Cursor Targets
 - `.cursor/rules/project-standards.mdc`
+- `.cursor/rules/architecture.mdc`
 - `.cursor/rules/drizzle-workflow.mdc`
 - `.cursor/skills/code-review-otw/SKILL.md`
 - `.cursor/skills/db-migration/SKILL.md`

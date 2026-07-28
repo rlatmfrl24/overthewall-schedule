@@ -28,9 +28,12 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@contracts/*": [
+        "./contracts/*"
       ]
     }
   },
-  "include": ["src"],
+  "include": ["src", "contracts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }
