@@ -3,7 +3,7 @@ import React from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/features/multiview/multiview-page", () => ({
+vi.mock("@/features/multiview", () => ({
   MultiviewPage: () =>
     React.createElement("div", { "data-testid": "multiview-page" }, "multiview"),
 }));

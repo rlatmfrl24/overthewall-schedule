@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { NoticeManager } from "@/features/admin/notice-manager";
+import { NoticeManager } from "@/features/notices";
 
 export const Route = createFileRoute("/admin/notices")({
   component: RouteComponent,

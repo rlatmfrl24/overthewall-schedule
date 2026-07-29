@@ -1,0 +1,224 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Member } from "@/features/members";
+import type { ScheduleItem } from "@/features/schedules";
+import type { ChzzkLiveStatusMap } from "@/features/chzzk";
+import { ChronologicalScheduleList } from "./chronological-schedule-list";
+
+const makeMember = (uid: number, name: string): Member =>
+  ({
+    uid,
+    code: `member-${uid}`,
+    name,
+    main_color: uid === 1 ? "#14b8a6" : "#f97316",
+    sub_color: null,
+    oshi_mark: null,
+    url_twitter: null,
+    url_youtube: null,
+    url_chzzk: "https://chzzk.naver.com/live/test",
+    youtube_channel_id: null,
+    birth_date: null,
+    debut_date: null,
+    unit_name: uid === 1 ? "LUV DIA" : "HiBlueming",
+    fan_name: null,
+    introduction: null,
+    is_deprecated: 0,
+  }) as Member;
+
+const makeSchedule = (
+  partial: Partial<ScheduleItem> & Pick<ScheduleItem, "status">,
+): ScheduleItem =>
+  ({
+    id: 1,
+    member_uid: 1,
+    date: "2026-05-28",
+    start_time: null,
+    title: "테스트",
+    created_at: null,
+    ...partial,
+  }) as ScheduleItem;
+
+const makeLiveContent = (
+  overrides: Partial<NonNullable<ChzzkLiveStatusMap[number]>> = {},
+): NonNullable<ChzzkLiveStatusMap[number]> => ({
+  status: "OPEN",
+  liveTitle: "라이브 중",
+  concurrentUserCount: 321,
+  liveImageUrl: "",
+  defaultThumbnailImageUrl: "",
+  channelId: "channel-1",
+  channelName: "테스트 채널",
+  channelImageUrl: "",
+  ...overrides,
+});
+
+const liveStatuses = {
+  1: makeLiveContent(),
+} satisfies ChzzkLiveStatusMap;
+
+describe("ChronologicalScheduleList", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("필터 없이 편성표와 보조 레일을 함께 표시한다", () => {
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루"), makeMember(2, "하네")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+          makeSchedule({
+            id: 2,
+            member_uid: 2,
+            status: "게릴라",
+            title: "게릴라 방송",
+          }),
+        ],
+        liveStatuses,
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByText("정규 방송")).toBeTruthy();
+    expect(screen.getByText("게릴라 방송")).toBeTruthy();
+    expect(screen.queryByText("시청자")).toBeNull();
+    expect(screen.queryByText("321")).toBeNull();
+    expect(screen.queryByRole("button", { name: /전체/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /LIVE/ })).toBeNull();
+    expect(screen.getByText("정규 방송")).toBeTruthy();
+    expect(screen.getByText("게릴라 방송")).toBeTruthy();
+  });
+
+  it("일정 없는 라이브 멤버는 미등록 경고 대신 방송 중으로 표시한다", () => {
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루"), makeMember(2, "하네")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        liveStatuses: {
+          2: makeLiveContent({
+            liveTitle: "즉흥 방송",
+            channelId: "channel-2",
+          }),
+        } satisfies ChzzkLiveStatusMap,
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.queryByText("편성표 미등록 LIVE")).toBeNull();
+    expect(screen.queryByText("미등록 LIVE")).toBeNull();
+    expect(screen.getAllByText(/방송 중/).length).toBeGreaterThan(0);
+    expect(screen.getByText("현재 방송 중입니다")).toBeTruthy();
+  });
+
+  it("로딩과 빈 상태를 표시한다", () => {
+    const { rerender } = render(
+      createElement(ChronologicalScheduleList, {
+        members: [],
+        schedules: [],
+        loading: true,
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByLabelText("편성표 로딩 중")).toBeTruthy();
+
+    rerender(
+      createElement(ChronologicalScheduleList, {
+        members: [],
+        schedules: [],
+        loading: false,
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByText("표시할 편성표가 없습니다")).toBeTruthy();
+  });
+
+  it("긴 편성표 제목을 말줄임 없이 줄바꿈할 수 있다", () => {
+    const longTitle =
+      "아무 의미도 없는 그냥 테스트용 일정 주구장창 길게 써보기 1234557890 이아아아아아아아아아아아";
+
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: longTitle,
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const title = screen.getByText(longTitle);
+    expect(title.className).toContain("whitespace-normal");
+    expect(title.className).toContain("break-words");
+    expect(title.className).not.toContain("truncate");
+  });
+
+  it("편성표 점선 레일은 모바일 기본값에서 숨긴다", () => {
+    const { container } = render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const rail = container.querySelector("span[aria-hidden='true'].border-dashed");
+    expect(rail?.className).toContain("hidden");
+    expect(rail?.className).toContain("lg:block");
+  });
+
+  it("메인 편성표 멤버명은 말줄임 없이 표시할 수 있다", () => {
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "쿠레나이 나츠키")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        onScheduleClick: vi.fn(),
+      }),
+    );
+
+    const memberName = screen.getByText("쿠레나이 나츠키");
+    expect(memberName.className).toContain("whitespace-normal");
+    expect(memberName.className).toContain("break-words");
+    expect(memberName.className).not.toContain("truncate");
+  });
+});

@@ -1,0 +1,116 @@
+import { ScheduleDialog } from "@/features/schedules";
+import { WeeklyGridSkeleton } from "./components/weekly-grid-skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
+import { useWeeklySchedule } from "../../queries/use-weekly-schedule";
+import { WeeklyHeader } from "./components/weekly-header";
+import { WeeklyGrid } from "./components/weekly-grid";
+import { NoticeBanner } from "@/features/notices";
+import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
+
+export const WeeklySchedule = () => {
+  const {
+    currentDate,
+    updatedAt,
+    members,
+    schedules,
+    ddays,
+    notices,
+    loading,
+    editingSchedule,
+    initialMemberUid,
+    dialogDate,
+    isEditDialogOpen,
+    alertOpen,
+    alertMessage,
+    setAlertOpen,
+    setIsEditDialogOpen,
+    setEditingSchedule,
+    setInitialMemberUid,
+    nextWeek,
+    prevWeek,
+    goToday,
+    handleSaveSchedule,
+    handleDeleteSchedule,
+    openAddDialog,
+    openEditDialog,
+    weekDays,
+  } = useWeeklySchedule();
+
+  return (
+    <div className="flex flex-col flex-1 w-full overflow-hidden bg-background">
+      <div className="flex flex-col h-full container mx-auto">
+        {/* Header Control Section */}
+        <WeeklyHeader
+          currentDate={currentDate}
+          onPrevWeek={prevWeek}
+          onNextWeek={nextWeek}
+          onToday={goToday}
+          onAddSchedule={() => openAddDialog(currentDate)}
+        />
+
+        {/* Notice Banner */}
+        <div className="container mx-auto mb-4 px-8">
+          <NoticeBanner notices={notices} />
+        </div>
+
+        <div className="container mx-auto flex justify-end px-4 pb-3 sm:px-6 lg:px-8">
+          <ScheduleUpdatedAt updatedAt={updatedAt} label="최종 편집" />
+        </div>
+
+        {/* Integrated Table Section */}
+        {loading ? (
+          <WeeklyGridSkeleton />
+        ) : (
+          <WeeklyGrid
+            members={members}
+            weekDays={weekDays}
+            schedules={schedules}
+            ddays={ddays}
+            onAddSchedule={openAddDialog}
+            onEditSchedule={openEditDialog}
+          />
+        )}
+      </div>
+
+      {/* Edit Dialog */}
+      <ScheduleDialog
+        open={isEditDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditDialogOpen(open);
+          if (!open) {
+            setEditingSchedule(null);
+            setInitialMemberUid(undefined);
+          }
+        }}
+        onSubmit={handleSaveSchedule}
+        onDelete={handleDeleteSchedule}
+        members={members}
+        initialDate={dialogDate || currentDate}
+        initialMemberUid={initialMemberUid}
+        schedule={editingSchedule}
+      />
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>알림</AlertDialogTitle>
+            <AlertDialogDescription>{alertMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setAlertOpen(false)}>
+              확인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};

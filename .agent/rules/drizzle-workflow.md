@@ -6,7 +6,7 @@ alwaysApply: true
 # Drizzle + D1 Workflow
 
 ## Source of Truth
-- Make schema changes only in `src/db/schema.ts`.
+- Make schema changes only in `db/schema/index.ts`.
 - Treat generated files in `drizzle/` as outputs of the migration workflow.
 
 ## Migration Creation
@@ -32,7 +32,7 @@ alwaysApply: true
 
 ## Commit Requirements
 - Include related schema and migration artifacts in the same change:
-  - `src/db/schema.ts`
+  - `db/schema/index.ts`
   - `drizzle/*.sql`
   - `drizzle/meta/*`
 - Keep migration numbering monotonic and journal updates intact.

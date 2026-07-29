@@ -29,6 +29,8 @@ content discovery, and lightweight admin workflows.
 
 - `Design.md`: current UI patterns, tone, layout, accessibility, and component
   guidance.
+- `docs/architecture.md`: current capability ownership, dependency rules, and
+  architecture verification gates.
 - `docs/README.md`: documentation index and archive policy.
 - `AGENTS.md`: agent rules, canonical `.agent` source policy, and available
   project skills.
@@ -39,8 +41,11 @@ Use `pnpm` for project commands.
 
 ```bash
 pnpm dev
+pnpm architecture:check
+pnpm typecheck:test
 pnpm lint
 pnpm test
+pnpm test:coverage
 pnpm build
 pnpm preflight
 ```

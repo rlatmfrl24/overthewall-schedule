@@ -7,24 +7,27 @@ description: Implement and validate OTW Worker API contract changes end-to-end. 
 
 ## Scope
 Use this skill when change includes:
-- `worker/routes/*` or `worker/index.ts`
-- `src/lib/api/*`
-- shared request or response types in `src/lib/types.ts` or `worker/types.ts`
-- UI or hooks that consume updated API contracts
+- `worker/features/*/http/*` or `worker/app/routes.ts`
+- `src/features/*/api/*` or `src/shared/api/*`
+- shared request or response DTOs in `contracts/*`
+- UI or queries that consume updated API contracts
 
 ## Procedure
 1. Define contract changes (path, method, input, response, and errors).
-2. Update or add worker route handler and wire route dispatch in `worker/index.ts`.
+2. Update or add the owning capability handler and register the exact contract
+   in `worker/app/routes.ts`.
 3. Validate input at route boundaries and normalize before database writes.
-4. Update frontend API module in `src/lib/api/*` using `apiFetch`.
-5. Update consumer hooks, components, and related types.
+4. Update the owning frontend API module using `src/shared/api/client.ts`.
+5. Update consumer queries, UI, and related contract types.
 6. Add or adjust tests for API client behavior and affected logic.
 7. Run verification (`pnpm lint`, `pnpm test`, and `pnpm build` when contract or type changes are broad).
 
 ## Safety Rules
-- Keep actor and audit behavior aligned between `src/lib/api/client.ts` and `worker/utils/helpers.ts`.
+- Keep actor and audit behavior aligned between `src/shared/api/client.ts` and
+  `worker/platform/http-helpers.ts`.
 - Prefer explicit 4xx responses for invalid input.
 - Keep response shapes stable unless a breaking change is intentional and documented.
+- Run `pnpm architecture:check` so a contract change does not bypass capability boundaries.
 
 ## References
 - Touchpoint map: `references/touchpoints.md`

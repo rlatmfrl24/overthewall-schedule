@@ -13,8 +13,8 @@
 
 ### 2. 자동 수집 주기
 
-- 관리자 UI에서 설정 가능 (1시간 / 2시간 / 4시간)
-- 기본값: 2시간
+- 관리자 UI에서 설정 가능 (1시간 / 6시간 / 12시간 / 24시간)
+- 기본값: 6시간
 
 ### 3. 자동 수집 및 승인 프로세스
 
@@ -113,7 +113,7 @@ Cron 트리거 → VOD 수집 → 대기 스케줄 저장 → 관리자 검토 �
 기능:
 
 - 자동 수집 활성화/비활성화 토글
-- 수집 주기 선택 (1시간 / 2시간 / 4시간)
+- 수집 주기 선택 (1시간 / 6시간 / 12시간 / 24시간)
 - 검색 범위 선택 (1일 / 2일 / 3일 / 5일 / 7일)
 - 수동 실행 버튼 및 실행 결과 표시
 - 마지막 실행 시간 표시
@@ -122,12 +122,15 @@ Cron 트리거 → VOD 수집 → 대기 스케줄 저장 → 관리자 검토 �
 
 ## 관련 파일
 
-- `src/db/schema.ts` - settings, pendingSchedules, updateLogs 테이블 정의
+- `db/schema/index.ts` - settings, pendingSchedules, updateLogs 테이블 정의
 - `drizzle/0011_cold_maximus.sql` - settings 테이블 마이그레이션
 - `drizzle/0012_flimsy_millenium_guard.sql` - auto_update_logs(legacy) 테이블 마이그레이션
 - `drizzle/0013_add_pending_schedules.sql` - pendingSchedules 테이블 마이그레이션
 - `drizzle/0014_heavy_slapstick.sql` - update_logs/pending_schedules 반영
-- `worker/index.ts` - scheduled 핸들러, autoUpdateSchedules 함수, 설정/승인 API
-- `src/lib/api/settings.ts` - 설정/대기 스케줄 API 클라이언트
-- `src/features/admin/auto-update-settings.tsx` - 관리자 UI 컴포넌트
+- `worker/app/scheduled.ts` - scheduled 작업 조합
+- `worker/features/schedules` - 자동 수집, pending 승인, 일정 쓰기
+- `worker/features/configuration` - 설정 조회와 저장
+- `src/features/configuration/api/settings.ts` - 설정 API 클라이언트
+- `src/features/schedules/api/pending-schedules.ts` - 대기 스케줄 API 클라이언트
+- `src/features/configuration/ui/admin/auto-update-settings.tsx` - 관리자 UI 컴포넌트
 - `src/routes/admin/settings.tsx` - 설정 페이지 라우트

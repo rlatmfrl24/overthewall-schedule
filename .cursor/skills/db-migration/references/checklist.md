@@ -6,7 +6,7 @@
 - Confirm target tables, columns, nullability, and defaults.
 
 ## Generate
-- Edit `src/db/schema.ts`.
+- Edit `db/schema/index.ts`.
 - Run `pnpm drizzle:generate` or `pnpm drizzle:generate:custom`.
 - Ensure only one new migration number is introduced for this change set.
 - Confirm generation does not require remote Cloudflare/D1 credentials.
@@ -22,8 +22,10 @@
 - Run `pnpm d1:seed:local` when the affected behavior needs reproducible
   members/settings/ddays/sample schedules.
 - Run `pnpm d1:doctor` without `--remote` for the default local-only check.
-- Validate impacted endpoints in `worker/routes/*`.
-- Validate impacted frontend consumers in `src/lib/api/*` and related features.
+- Validate impacted endpoints in `worker/features/*/http/*` and
+  `worker/app/routes.ts`.
+- Validate impacted frontend consumers in `src/features/*/api/*`, related
+  queries, and UI.
 
 ## Promote
 - Run `pnpm drizzle:migrate:remote` only after local validation succeeds.
@@ -31,6 +33,6 @@
 - Document operational caveats in PR notes or release notes.
 
 ## Commit Set
-- `src/db/schema.ts`
+- `db/schema/index.ts`
 - new `drizzle/*.sql`
 - updated `drizzle/meta/*`

@@ -1,4 +1,4 @@
-import { KirinukiChannelManager } from "@/features/admin/kirinuki-channel-manager";
+import { KirinukiChannelManager } from "@/features/youtube";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin/kirinuki")({

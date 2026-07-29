@@ -7,13 +7,13 @@ description: Execute safe Drizzle and D1 migration workflows for OTW Schedule. U
 
 ## Scope
 Use this skill for any change touching:
-- `src/db/schema.ts`
+- `db/schema/index.ts`
 - `drizzle/*.sql`
 - `drizzle/meta/*`
 - migration apply commands (`drizzle:migrate:*`)
 
 ## Procedure
-1. Update schema definitions in `src/db/schema.ts`.
+1. Update schema definitions in `db/schema/index.ts`.
 2. Choose migration mode:
    - schema diff: `pnpm drizzle:generate`
    - custom data migration: `pnpm drizzle:generate:custom`

@@ -5,8 +5,11 @@ const rootDir = fileURLToPath(new URL("..", import.meta.url));
 const isWindows = process.platform === "win32";
 
 const steps = [
+  { label: "architecture", args: ["run", "architecture:check"] },
+  { label: "test typecheck", args: ["run", "typecheck:test"] },
   { label: "lint", args: ["run", "lint"] },
   { label: "test", args: ["run", "test"] },
+  { label: "test coverage", args: ["run", "test:coverage"] },
   { label: "build", args: ["run", "build"] },
   { label: "d1:doctor", args: ["run", "d1:doctor"] },
   { label: "mirror check", args: ["run", "sync:agent-cursor:check"] },

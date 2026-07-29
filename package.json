@@ -10,7 +10,10 @@
     "dev:stop": "node scripts/dev-restart.mjs --kill-only",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "vitest run",
+    "architecture:check": "node scripts/architecture-check.mjs",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
+    "test": "vitest run && vitest run --config vitest.worker.config.ts",
+    "test:worker-integration": "vitest run --config vitest.worker.config.ts",
     "test:coverage": "vitest run --coverage",
     "preflight": "node scripts/preflight.mjs",
     "preflight:release": "pnpm run preflight",
@@ -63,6 +66,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.15.2",
+    "@cloudflare/vitest-pool-workers": "^0.18.8",
     "@eslint/js": "^9.33.0",
     "@tanstack/router-plugin": "^1.168.12",
     "@testing-library/react": "^16.3.2",
@@ -70,7 +74,7 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.10",
     "baseline-browser-mapping": "^2.10.40",
     "drizzle-kit": "^0.31.8",
     "eslint": "^9.33.0",
@@ -83,12 +87,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
     "vite": "^7.3.3",
-    "vitest": "^4.0.18",
+    "vitest": "^4.1.10",
     "wrangler": "^4.95.0"
-  },
-  "overrides": {
-    "picomatch": "4.0.4",
-    "postcss": "8.5.15",
-    "rollup": "4.60.4"
   }
 }

@@ -1,0 +1,194 @@
+import type { MemberDto } from "@contracts/members";
+import type { ChzzkClip } from "../model/types";
+import { cn } from "@/shared/lib/utils";
+import { Clock, Eye, PlayCircle, Scissors } from "lucide-react";
+
+type ClipCardVariant = "row" | "grid";
+
+interface ClipCardProps {
+  clip: ChzzkClip;
+  member?: MemberDto;
+  /** "row": 멤버별 가로 스크롤 (고정 너비), "grid": 그리드 뷰 (반응형) */
+  variant?: ClipCardVariant;
+  /** 그리드 뷰에서 멤버 아바타 표시 여부 */
+  showMemberAvatar?: boolean;
+}
+
+/**
+ * 재생 시간(초)을 분:초 형식으로 변환
+ */
+function formatDuration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes}:${secs.toString().padStart(2, "0")}`;
+}
+
+/**
+ * 조회수를 읽기 쉬운 형식으로 변환
+ */
+function formatViewCount(count: number): string {
+  if (count >= 10000) {
+    return `${(count / 10000).toFixed(1)}만회`;
+  }
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}천회`;
+  }
+  return `${count}회`;
+}
+
+/**
+ * 날짜를 상대적 시간으로 변환
+ * 클립 createdDate 형식: "2026-01-28 06:50:55"
+ */
+function formatRelativeDate(dateString: string): string {
+  // 공백을 T로 변환하여 ISO 형식으로 파싱
+  const date = new Date(dateString.replace(" ", "T"));
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return "오늘";
+  if (diffDays === 1) return "어제";
+  if (diffDays < 7) return `${diffDays}일 전`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}주 전`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)}개월 전`;
+  return `${Math.floor(diffDays / 365)}년 전`;
+}
+
+/**
+ * 날짜를 MM.DD 형식으로 변환
+ * 클립 createdDate 형식: "2026-01-28 06:50:55"
+ */
+function formatAbsoluteDate(dateString: string): string {
+  const date = new Date(dateString.replace(" ", "T"));
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}.${day}`;
+}
+
+/**
+ * 상대 시간 + 절대 날짜 조합
+ * 예: "3일 전 · 01.25"
+ */
+function formatDateCombined(dateString: string): string {
+  const relative = formatRelativeDate(dateString);
+  const absolute = formatAbsoluteDate(dateString);
+  return `${relative} · ${absolute}`;
+}
+
+export const ClipCard = ({
+  clip,
+  member,
+  variant = "row",
+  showMemberAvatar = false,
+}: ClipCardProps) => {
+  const clipUrl = `https://chzzk.naver.com/clips/${clip.clipUID}`;
+  const accentColor = member?.main_color;
+  const isGrid = variant === "grid";
+
+  return (
+    <a
+      href={clipUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${clip.clipTitle} 클립 보기`}
+      title={clip.clipTitle}
+      className={cn(
+        "group relative flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-sm transition-all duration-200",
+        "hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
+        // row variant: 고정 너비
+        variant === "row" && "w-[260px] shrink-0",
+        // grid variant: 반응형 너비
+        variant === "grid" && "w-full",
+      )}
+    >
+      {/* 썸네일 */}
+      <div className="relative aspect-video overflow-hidden bg-muted">
+        {clip.thumbnailImageUrl ? (
+          <img
+            src={clip.thumbnailImageUrl}
+            alt={clip.clipTitle}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-muted">
+            <Scissors className="h-10 w-10 text-muted-foreground/50" />
+          </div>
+        )}
+
+        {/* 재생 오버레이 */}
+        <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors duration-300 group-hover:bg-black/30">
+          <PlayCircle
+            className="h-10 w-10 text-white opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+            style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))" }}
+          />
+        </div>
+
+        {/* 재생 시간 */}
+        <div className="absolute bottom-2 right-2 rounded bg-black/85 px-1.5 py-0.5 text-xs font-semibold text-white shadow-sm">
+          {formatDuration(clip.duration)}
+        </div>
+
+        {/* 멤버 아바타 (그리드 뷰 전용) */}
+        {isGrid && showMemberAvatar && member && (
+          <div
+            className="absolute bottom-2 left-2 flex max-w-[70%] items-center gap-1.5 rounded-full px-1.5 py-1 shadow-sm backdrop-blur-md"
+            style={{
+              backgroundColor: accentColor
+                ? `${accentColor}dd`
+                : "rgba(0,0,0,0.78)",
+            }}
+          >
+            <img
+              src={`/profile/${member.code}.webp`}
+              alt={member.name}
+              className="h-5 w-5 rounded-full border border-white/50 object-cover"
+            />
+            <span className="truncate pr-1 text-xs font-semibold text-white">
+              {member.name}
+            </span>
+          </div>
+        )}
+
+        {/* 멤버 뱃지 (row 뷰에서만, 그리드에서는 아바타로 대체) */}
+        {!isGrid && member && (
+          <div
+            className="absolute left-2 top-2 max-w-[70%] truncate rounded-full px-2 py-0.5 text-xs font-semibold shadow-sm backdrop-blur-sm"
+            style={{
+              backgroundColor: accentColor
+                ? `${accentColor}dd`
+                : "rgba(0,0,0,0.78)",
+              color: "white",
+            }}
+          >
+            {member.name}
+          </div>
+        )}
+
+        {/* 클립 아이콘 */}
+        <div className="absolute right-2 top-2 rounded-full bg-emerald-600 p-1 shadow-sm backdrop-blur-sm">
+          <Scissors className="h-3 w-3 text-white" />
+        </div>
+      </div>
+
+      {/* 정보 */}
+      <div className="flex flex-col gap-2 p-3">
+        <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-foreground transition-colors group-hover:text-primary">
+          {clip.clipTitle}
+        </h3>
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Eye className="h-3 w-3" />
+            {formatViewCount(clip.readCount)}
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {formatDateCombined(clip.createdDate)}
+          </span>
+        </div>
+      </div>
+    </a>
+  );
+};

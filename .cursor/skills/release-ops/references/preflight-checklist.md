@@ -4,8 +4,11 @@
 1. `pnpm preflight`
 
 This runs, in order:
+- `pnpm architecture:check`
+- `pnpm typecheck:test`
 - `pnpm lint`
 - `pnpm test`
+- `pnpm test:coverage`
 - `pnpm build`
 - `pnpm d1:doctor`
 - `pnpm sync:agent-cursor:check`
@@ -19,7 +22,7 @@ All gates must pass before deploy.
 - A mirror drift failure blocks deploy until `.agent` and generated `.cursor` files are aligned.
 
 ## Schema-Aware Release Gate
-- If `src/db/schema.ts` or `drizzle/*` changed:
+- If `db/schema/index.ts` or `drizzle/*` changed:
   - complete local migration and validation first
   - complete remote migration before deployment
   - verify impacted API and admin surfaces
