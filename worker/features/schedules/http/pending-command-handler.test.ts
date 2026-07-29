@@ -12,6 +12,7 @@ const repositoryMock = vi.hoisted(() => ({
   approve: vi.fn(),
   applyToEmptyTarget: vi.fn(),
   reject: vi.fn(),
+  reopenRejection: vi.fn(),
   resetProcessed: vi.fn(),
 }));
 const insertPendingBulkAuditMock = vi.hoisted(() => vi.fn());
@@ -44,6 +45,10 @@ const makeItem = (id: number): PendingScheduleRow => ({
   existing_schedule_id: null,
   previous_status: null,
   previous_title: null,
+  vod_id: `chzzk:${id}`,
+  vod_started_at: null,
+  vod_duration_seconds: null,
+  vod_thumbnail_url: null,
 });
 
 const makeRequest = (path: string, body?: unknown) =>
@@ -105,6 +110,10 @@ describe("pending schedule command boundary", () => {
     repositoryMock.reject.mockResolvedValue({
       success: true,
       action: "reject",
+    });
+    repositoryMock.reopenRejection.mockResolvedValue({
+      success: true,
+      action: "reopen_rejection",
     });
     repositoryMock.resetProcessed.mockResolvedValue({
       success: true,
@@ -242,6 +251,11 @@ describe("pending schedule command boundary", () => {
       success: true,
       action: "reject",
     });
+    expect(repositoryMock.reject).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 13 }),
+      expect.objectContaining({ actorId: "admin" }),
+      null,
+    );
     expect(await reset.json()).toEqual({
       success: true,
       action: "reset_processed",
@@ -252,6 +266,62 @@ describe("pending schedule command boundary", () => {
       action: "update",
       scheduleId: 915,
     });
+  });
+
+  it("거부 사유를 검증해 repository에 전달하고 500자 메모 제한을 적용한다", async () => {
+    const accepted = await handlePendingScheduleCommand(
+      makeRequest("/api/settings/pending/13/reject", {
+        reasonCode: "wrong_match",
+        reasonNote: "멤버 매칭 오류",
+      }),
+      makeEnv(),
+    );
+    const invalidReason = await handlePendingScheduleCommand(
+      makeRequest("/api/settings/pending/14/reject", {
+        reasonCode: "never_show",
+      }),
+      makeEnv(),
+    );
+    const invalidNote = await handlePendingScheduleCommand(
+      makeRequest("/api/settings/pending/15/reject", {
+        reasonCode: "other",
+        reasonNote: "가".repeat(501),
+      }),
+      makeEnv(),
+    );
+
+    expect(accepted.status).toBe(200);
+    expect(repositoryMock.reject).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 13 }),
+      expect.objectContaining({ actorId: "admin" }),
+      {
+        reasonCode: "wrong_match",
+        reasonNote: "멤버 매칭 오류",
+      },
+    );
+    expect(invalidReason.status).toBe(400);
+    expect(await invalidReason.text()).toBe("Invalid reasonCode");
+    expect(invalidNote.status).toBe(400);
+    expect(await invalidNote.text()).toBe(
+      "reasonNote must be 500 characters or fewer",
+    );
+  });
+
+  it("거부 제외 재검토 허용 명령을 처리한다", async () => {
+    const response = await handlePendingScheduleCommand(
+      makeRequest("/api/settings/pending/rejections/31/reopen"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      action: "reopen_rejection",
+    });
+    expect(repositoryMock.reopenRejection).toHaveBeenCalledWith(
+      31,
+      expect.objectContaining({ actorId: "admin" }),
+    );
   });
 
   it("maps single not-found and stale outcomes to 404", async () => {

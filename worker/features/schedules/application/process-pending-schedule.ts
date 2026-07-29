@@ -1,4 +1,7 @@
-import type { PendingApprovalOptions } from "../../../../contracts/pending-schedules";
+import type {
+  PendingApprovalOptions,
+  PendingRejectionOptions,
+} from "../../../../contracts/pending-schedules";
 import type { PendingScheduleRow } from "../domain/pending-schedule";
 import type { ScheduleActor } from "../domain/schedule";
 import type {
@@ -17,7 +20,8 @@ export const rejectPendingSchedule = (
   repository: PendingScheduleRepository,
   item: PendingScheduleRow,
   actor: ScheduleActor,
-): Promise<PendingActionOutcome> => repository.reject(item, actor);
+  options: PendingRejectionOptions | null,
+): Promise<PendingActionOutcome> => repository.reject(item, actor, options);
 
 export const resetPendingProcessed = (
   repository: PendingScheduleRepository,

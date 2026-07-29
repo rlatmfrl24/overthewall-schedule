@@ -30,9 +30,11 @@ import {
   fetchSchedulesByDate,
   fetchSchedulesInRange,
   fetchPendingSchedules,
+  fetchScheduleCandidateRejections,
   rejectAllPendingSchedules,
   rejectPendingSchedule,
   rejectSelectedPendingSchedules,
+  reopenScheduleCandidateRejection,
   resetPendingScheduleProcessed,
   saveSchedule,
   updateSchedule,
@@ -563,11 +565,25 @@ describe("api wrapper modules", () => {
     });
     await applyPendingScheduleToEmptyTarget(15);
     await resetPendingScheduleProcessed(17);
-    await rejectPendingSchedule(12);
+    await rejectPendingSchedule(12, {
+      reasonCode: "duplicate",
+      reasonNote: "중복 수집",
+    });
     await approveSelectedPendingSchedules([11, 13]);
-    await rejectSelectedPendingSchedules([12, 14]);
+    await rejectSelectedPendingSchedules([12, 14], {
+      reasonCode: "already_reflected",
+    });
     const approveAllResult = await approveAllPendingSchedules();
     await rejectAllPendingSchedules();
+    await fetchScheduleCandidateRejections({
+      search: "테스트",
+      reasonCode: "duplicate",
+      rejectedFrom: "2026-07-01",
+      rejectedTo: "2026-07-29",
+      page: 2,
+      pageSize: 20,
+    });
+    await reopenScheduleCandidateRejection(31);
 
     expect(approveAllResult.skippedCount).toBe(1);
 
@@ -638,7 +654,15 @@ describe("api wrapper modules", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/actions",
-      { method: "POST", json: { action: "reject", ids: [12] } },
+      {
+        method: "POST",
+        json: {
+          action: "reject",
+          ids: [12],
+          reasonCode: "duplicate",
+          reasonNote: "중복 수집",
+        },
+      },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/actions",
@@ -646,7 +670,22 @@ describe("api wrapper modules", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/actions",
-      { method: "POST", json: { action: "reject", ids: [12, 14] } },
+      {
+        method: "POST",
+        json: {
+          action: "reject",
+          ids: [12, 14],
+          reasonCode: "already_reflected",
+        },
+      },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/rejections?page=2&pageSize=20&search=%ED%85%8C%EC%8A%A4%ED%8A%B8&reasonCode=duplicate&rejectedFrom=2026-07-01&rejectedTo=2026-07-29",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/pending/rejections/31/reopen",
+      { method: "POST" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/pending/actions",

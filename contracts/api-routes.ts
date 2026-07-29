@@ -113,6 +113,12 @@ export const apiRoutes = {
         "/api/settings/pending/:id/reject",
         (id: number) => `/api/settings/pending/${id}/reject` as const,
       ),
+      rejections: staticRoute("/api/settings/pending/rejections"),
+      reopenRejection: dynamicRoute(
+        "/api/settings/pending/rejections/:id/reopen",
+        (id: number) =>
+          `/api/settings/pending/rejections/${id}/reopen` as const,
+      ),
       actions: staticRoute("/api/settings/pending/actions"),
       approveSelected: staticRoute(
         "/api/settings/pending/approve-selected",

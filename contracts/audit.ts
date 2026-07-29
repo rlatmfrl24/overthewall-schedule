@@ -10,6 +10,9 @@ export interface UpdateLogDto {
   action: string;
   title: string | null;
   previous_status: string | null;
+  vod_id: string | null;
+  reason_code: string | null;
+  reason_note: string | null;
   created_at: string | null;
 }
 

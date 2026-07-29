@@ -354,6 +354,19 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     path: "/api/settings/pending",
     methods: [ADMIN_GET],
   },
+  {
+    id: "settings.pending-rejections",
+    owner: "schedules",
+    path: "/api/settings/pending/rejections",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "settings.pending-rejection-reopen",
+    owner: "schedules",
+    path: "/api/settings/pending/rejections/:id/reopen",
+    methods: [ADMIN_POST],
+    numericParams: ["id"],
+  },
   ...[
     "reset-processed",
     "apply-empty-target",

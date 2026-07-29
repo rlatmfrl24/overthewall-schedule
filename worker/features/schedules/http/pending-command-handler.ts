@@ -1,6 +1,7 @@
 import type {
   PendingAction,
   PendingApprovalOptions,
+  PendingRejectionOptions,
   PendingScheduleActionResult,
 } from "../../../../contracts/pending-schedules";
 import { requireAdminUser } from "../../../platform/auth";
@@ -14,6 +15,7 @@ import type { PendingScheduleService } from "../application/pending-schedule-ser
 import type { PendingActionOutcome } from "../application/ports/pending-schedule-repository";
 import {
   isPendingApplyMode,
+  isPendingRejectionReasonCode,
   isPendingTargetMode,
   isPendingTimeMode,
 } from "../domain/pending-schedule";
@@ -97,6 +99,40 @@ const parseIds = (value: unknown): number[] | null => {
   return [...new Set(parsed as number[])];
 };
 
+const parseRejectionOptions = (
+  value: unknown,
+): PendingRejectionOptions | Response | null => {
+  if (value === undefined || value === EMPTY_BODY) return null;
+  if (!isRecord(value)) return badRequest("Invalid rejection options");
+
+  const reasonCode = value.reasonCode;
+  const reasonNote = value.reasonNote;
+  if (
+    reasonCode !== undefined &&
+    reasonCode !== null &&
+    !isPendingRejectionReasonCode(reasonCode)
+  ) {
+    return badRequest("Invalid reasonCode");
+  }
+  if (
+    reasonNote !== undefined &&
+    reasonNote !== null &&
+    typeof reasonNote !== "string"
+  ) {
+    return badRequest("Invalid reasonNote");
+  }
+  if (typeof reasonNote === "string" && reasonNote.length > 500) {
+    return badRequest("reasonNote must be 500 characters or fewer");
+  }
+  return {
+    reasonCode: isPendingRejectionReasonCode(reasonCode)
+      ? reasonCode
+      : null,
+    reasonNote:
+      typeof reasonNote === "string" ? reasonNote.trim() || null : null,
+  };
+};
+
 const toErrorResponse = (outcome: Extract<PendingActionOutcome, { success: false }>) => {
   const status =
     outcome.error === "conflict" || outcome.error === "no_empty_target"
@@ -168,11 +204,15 @@ export const createPendingScheduleCommandHandler =
     const options =
       action === "approve" ? parseApprovalOptions(body.options) : null;
     if (options instanceof Response) return options;
+    const rejectionOptions =
+      action === "reject" ? parseRejectionOptions(body) : null;
+    if (rejectionOptions instanceof Response) return rejectionOptions;
 
     const result = await service.runBatch({
       ids,
       action,
       options,
+      rejectionOptions,
       actor,
     });
     if (action !== "reset_processed") {
@@ -186,6 +226,15 @@ export const createPendingScheduleCommandHandler =
       });
     }
     return Response.json(result);
+  }
+
+  const reopenMatch = url.pathname.match(
+    /^\/api\/settings\/pending\/rejections\/([^/]+)\/reopen$/,
+  );
+  if (reopenMatch) {
+    const id = parseNumericId(reopenMatch[1]);
+    if (id === null) return badRequest("Invalid rejection ID");
+    return singleResponse(await service.reopenRejection(id, actor));
   }
 
   const singleMatch = url.pathname.match(
@@ -206,11 +255,15 @@ export const createPendingScheduleCommandHandler =
         ? parseApprovalOptions(body)
         : null;
     if (options instanceof Response) return options;
+    const rejectionOptions =
+      action === "reject" ? parseRejectionOptions(body) : null;
+    if (rejectionOptions instanceof Response) return rejectionOptions;
     return singleResponse(
       await service.runOne({
         id,
         action,
         options,
+        rejectionOptions,
         actor,
         applyEmptyTarget: command === "apply-empty-target",
       }),
@@ -228,10 +281,14 @@ export const createPendingScheduleCommandHandler =
     const ids = parseIds(body.ids);
     if (!ids) return badRequest("ids array is required");
     if (ids.length === 0) return badRequest("No valid pending IDs");
+    const rejectionOptions =
+      selectedAction === "reject" ? parseRejectionOptions(body) : null;
+    if (rejectionOptions instanceof Response) return rejectionOptions;
     const result = await service.runBatch({
       ids,
       action: selectedAction,
       options: null,
+      rejectionOptions,
       actor,
     });
     await service.auditBatch({
@@ -252,11 +309,15 @@ export const createPendingScheduleCommandHandler =
         ? "reject"
         : null;
   if (allAction) {
+    const rejectionOptions =
+      allAction === "reject" ? parseRejectionOptions(body) : null;
+    if (rejectionOptions instanceof Response) return rejectionOptions;
     const ids = await service.listIds();
     const result = await service.runBatch({
       ids,
       action: allAction,
       options: null,
+      rejectionOptions,
       actor,
     });
     await service.auditBatch({

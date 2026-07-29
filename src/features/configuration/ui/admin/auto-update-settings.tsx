@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   RefreshCw,
@@ -37,7 +37,6 @@ import { Badge } from "@/shared/ui/badge";
 import {
   fetchSettings,
   updateSettings,
-  type AutoUpdateSettings,
 } from "../../api/settings";
 import {
   approvePendingSchedule,
@@ -45,14 +44,15 @@ import {
   fetchPendingSchedules,
   rejectPendingSchedule,
   rejectSelectedPendingSchedules,
-  resetPendingScheduleProcessed,
   type PendingApplyMode,
   type PendingApprovalOptions,
+  type PendingRejectionReasonCode,
   type PendingSchedule,
   type PendingTargetMode,
   type PendingTimeMode,
 } from "@/features/schedules";
 import {
+  fetchOperationsStatus,
   runAutoUpdateNow,
   type AutoUpdateRunResult,
 } from "@/features/operations";
@@ -69,6 +69,9 @@ import {
   ConfirmActionDialog,
 } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
+import { ScheduleRejectionsPanel } from "./schedule-rejections-panel";
+import { AutoUpdateRunHistory } from "./auto-update-run-history";
+import { REJECTION_REASON_OPTIONS } from "../../model/rejection-reasons";
 
 const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
   value,
@@ -87,6 +90,24 @@ const RUN_DETAIL_LABELS: Record<string, string> = {
   auto_collected: "자동 수집",
   auto_updated: "자동 업데이트",
   existing: "기존 스케줄 있음",
+  fill_missing_fields: "빈 필드 보완",
+  ambiguous: "매칭 불확실",
+  short_suppressed: "단기 방송 억제",
+  holiday_suppressed: "휴방일 억제",
+};
+
+const MATCH_REASON_LABELS: Record<string, string> = {
+  time_window: "예정 시각 근접",
+  title_similarity: "제목 유사",
+  single_gap_fallback: "단일 빈 일정",
+  missing_schedule: "기존 일정 없음",
+  ambiguous: "대상 선택 필요",
+};
+
+const MATCH_CONFIDENCE_LABELS: Record<string, string> = {
+  high: "높음",
+  medium: "보통",
+  low: "낮음",
 };
 
 const PENDING_SORT_OPTIONS = [
@@ -101,12 +122,6 @@ const PENDING_ACTION_FILTER_OPTIONS = [
   { value: "all", label: "전체" },
   { value: "create", label: "신규" },
   { value: "update", label: "수정" },
-] as const;
-
-const PENDING_PROCESS_FILTER_OPTIONS = [
-  { value: "active", label: "처리 전" },
-  { value: "processed", label: "처리 완료" },
-  { value: "all", label: "전체" },
 ] as const;
 
 const PENDING_APPLY_MODE_OPTIONS: Array<{
@@ -136,9 +151,19 @@ type PendingApprovalOptionState = {
 type PendingSortKey = (typeof PENDING_SORT_OPTIONS)[number]["value"];
 type PendingActionFilter =
   (typeof PENDING_ACTION_FILTER_OPTIONS)[number]["value"];
-type PendingProcessFilter =
-  (typeof PENDING_PROCESS_FILTER_OPTIONS)[number]["value"];
 type PendingBatchAction = "approve" | "reject";
+type AutoUpdateTab = "review" | "rejections" | "runs" | "settings";
+
+const AUTO_UPDATE_TABS: Array<{
+  value: AutoUpdateTab;
+  label: string;
+}> = [
+  { value: "review", label: "검토 대기" },
+  { value: "rejections", label: "거부 제외" },
+  { value: "runs", label: "실행 기록" },
+  { value: "settings", label: "설정" },
+];
+const EMPTY_PENDING_SCHEDULES: PendingSchedule[] = [];
 
 const getPendingBroadcastSortValue = (pending: PendingSchedule) => {
   if (pending.vod_started_at) {
@@ -154,20 +179,51 @@ const getPendingBroadcastSortValue = (pending: PendingSchedule) => {
   return Number.isNaN(fallbackTimestamp) ? 0 : fallbackTimestamp;
 };
 
-const getDefaultTargetScheduleId = (pending: PendingSchedule) =>
-  pending.existing_schedule?.id ??
-  pending.empty_target_schedule?.id ??
-  pending.same_day_schedules[0]?.id ??
-  null;
+const isV2Pending = (pending: PendingSchedule) =>
+  pending.candidate_kind != null;
+
+const getCandidateKindLabel = (pending: PendingSchedule) => {
+  if (pending.candidate_kind === "missing_schedule") return "새 일정";
+  if (pending.candidate_kind === "ambiguous") return "매칭 불확실";
+  if ((pending.missing_fields?.length ?? 0) === 1) {
+    return pending.missing_fields?.[0] === "time"
+      ? "빈 시간 보완"
+      : "빈 제목 보완";
+  }
+  if (pending.candidate_kind === "fill_missing_fields") return "빈 필드 보완";
+  return pending.action_type === "create" ? "신규" : "수정";
+};
+
+const getDefaultTargetScheduleId = (pending: PendingSchedule) => {
+  if (pending.candidate_kind === "ambiguous") return null;
+  return (
+    pending.existing_schedule?.id ??
+    pending.empty_target_schedule?.id ??
+    pending.ranked_schedules?.[0]?.id ??
+    (isV2Pending(pending) ? null : pending.same_day_schedules[0]?.id) ??
+    null
+  );
+};
+
+const getV2ApplyMode = (pending: PendingSchedule): PendingApplyMode => {
+  if ((pending.missing_fields?.length ?? 0) !== 1) return "all";
+  return pending.missing_fields?.[0] === "time" ? "time" : "title";
+};
 
 const getPendingApprovalDefaults = (
   pending: PendingSchedule,
 ): PendingApprovalOptionState => {
   const targetScheduleId = getDefaultTargetScheduleId(pending);
+  const isV2 = isV2Pending(pending);
   return {
-    applyMode: "all",
-    targetMode: targetScheduleId ? "update" : "create",
-    timeMode: "nearest_hour",
+    applyMode: isV2 ? getV2ApplyMode(pending) : "all",
+    targetMode:
+      pending.candidate_kind === "missing_schedule"
+        ? "create"
+        : targetScheduleId || isV2
+          ? "update"
+          : "create",
+    timeMode: isV2 ? "exact" : "nearest_hour",
     targetScheduleId,
   };
 };
@@ -234,22 +290,34 @@ const getPendingReviewRisk = (
   pending: PendingSchedule,
   options: PendingApprovalOptionState,
 ) => {
+  const isV2 = isV2Pending(pending);
   const selectedExistingSchedule =
     options.targetMode === "update" && options.targetScheduleId
       ? getPendingScheduleSummaryById(pending, options.targetScheduleId)
       : null;
-  const appliesTime =
-    options.applyMode === "all" || options.applyMode === "time";
-  const appliesTitle =
-    options.applyMode === "all" || options.applyMode === "title";
+  const appliesTime = isV2
+    ? options.targetMode === "create" ||
+      selectedExistingSchedule?.start_time?.trim() === "" ||
+      selectedExistingSchedule?.start_time == null
+    : options.applyMode === "all" || options.applyMode === "time";
+  const appliesTitle = isV2
+    ? options.targetMode === "create" ||
+      selectedExistingSchedule?.title?.trim() === "" ||
+      selectedExistingSchedule?.title == null
+    : options.applyMode === "all" || options.applyMode === "title";
   const effectiveStartTime = getEffectivePendingStartTime(pending, options);
   const currentTitle = selectedExistingSchedule?.title ?? null;
   const currentStartTime = selectedExistingSchedule?.start_time ?? null;
   const currentStatus = selectedExistingSchedule?.status ?? null;
   const nextTitle = appliesTitle ? pending.title : currentTitle;
   const nextStartTime = appliesTime ? effectiveStartTime : currentStartTime;
-  const appliesStatus = options.targetMode === "create" || options.applyMode === "all";
-  const nextStatus = appliesStatus ? pending.status : currentStatus;
+  const appliesStatus =
+    options.targetMode === "create" || (!isV2 && options.applyMode === "all");
+  const nextStatus = appliesStatus
+    ? isV2
+      ? "방송"
+      : pending.status
+    : currentStatus;
   const existingDateTime = selectedExistingSchedule
     ? formatScheduleDateTime(pending.date, currentStartTime)
     : null;
@@ -268,18 +336,29 @@ const getPendingReviewRisk = (
   const hasMissingTarget =
     options.targetMode === "update" && selectedExistingSchedule === null;
   const hasMultipleSameDayTargets =
-    options.targetMode === "update" && pending.same_day_schedule_count > 1;
+    options.targetMode === "update" &&
+    pending.same_day_schedule_count > 1 &&
+    (!isV2 || pending.candidate_kind === "ambiguous");
   const hasOriginalTargetMissing =
-    pending.action_type === "update" && pending.existing_schedule === null;
+    !isV2 &&
+    pending.action_type === "update" &&
+    pending.existing_schedule === null;
   const hasConflict =
     hasMissingTarget || hasMultipleSameDayTargets || hasOriginalTargetMissing;
   const hasCreateDuplicateCandidate =
-    pending.action_type === "create" && pending.same_day_schedule_count > 0;
+    !isV2 &&
+    pending.action_type === "create" &&
+    pending.same_day_schedule_count > 0;
   const hasDuplicate =
     hasCreateDuplicateCandidate ||
-    (options.targetMode === "create" && pending.same_day_schedule_count > 0);
+    (!isV2 &&
+      options.targetMode === "create" &&
+      pending.same_day_schedule_count > 0);
   const warnings = [
     hasMissingTarget ? "수정 대상이 선택되지 않아 승인할 수 없습니다." : null,
+    pending.candidate_kind === "ambiguous" && !options.targetScheduleId
+      ? "매칭 후보가 복수입니다. 승인할 기존 일정을 반드시 선택하세요."
+      : null,
     hasMultipleSameDayTargets
       ? `동일 날짜 기존 스케줄이 ${pending.same_day_schedule_count}건입니다. 수정 대상을 확인하세요.`
       : null,
@@ -294,6 +373,9 @@ const getPendingReviewRisk = (
       : null,
     changedFields.length > 0
       ? `적용 시 ${changedFields.join(", ")} 값이 변경됩니다.`
+      : null,
+    isV2 && options.targetMode === "update"
+      ? "현재 입력된 값과 일정 상태는 유지하고 비어 있는 필드만 채웁니다."
       : null,
   ].filter((message): message is string => message !== null);
 
@@ -403,97 +485,61 @@ const DiffRow = ({
 export function AutoUpdateSettingsManager() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [settings, setSettings] = useState<AutoUpdateSettings | null>(null);
-  const [pendingList, setPendingList] = useState<PendingSchedule[]>([]);
-  const [isFetching, setIsFetching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [isLoadingPending, setIsLoadingPending] = useState(false);
   const [processingPendingId, setProcessingPendingId] = useState<number | null>(
     null,
   );
+  const [activeTab, setActiveTab] = useState<AutoUpdateTab>("review");
   const [pendingSort, setPendingSort] = useState<PendingSortKey>("date_asc");
   const [pendingActionFilter, setPendingActionFilter] =
     useState<PendingActionFilter>("all");
-  const [pendingProcessFilter, setPendingProcessFilter] =
-    useState<PendingProcessFilter>("active");
   const [pendingApprovalOptions, setPendingApprovalOptions] = useState<
     Record<number, Partial<PendingApprovalOptionState>>
   >({});
   const [pendingBatchAction, setPendingBatchAction] =
     useState<PendingBatchAction | null>(null);
+  const [pendingRejectIds, setPendingRejectIds] = useState<number[] | null>(
+    null,
+  );
+  const [rejectionReasonCode, setRejectionReasonCode] = useState<
+    PendingRejectionReasonCode | ""
+  >("");
+  const [rejectionReasonNote, setRejectionReasonNote] = useState("");
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
 
+  const settingsQuery = useQuery({
+    queryKey: queryKeys.settings.detail(),
+    queryFn: fetchSettings,
+  });
+  const pendingQuery = useQuery({
+    queryKey: queryKeys.settings.pending(),
+    queryFn: fetchPendingSchedules,
+  });
+  const operationsQuery = useQuery({
+    queryKey: queryKeys.operations.status(168),
+    queryFn: () => fetchOperationsStatus(168),
+  });
+  const settings = settingsQuery.data ?? null;
+  const pendingList = Array.isArray(pendingQuery.data)
+    ? pendingQuery.data
+    : EMPTY_PENDING_SCHEDULES;
+  const isFetching = settingsQuery.isFetching;
+  const isLoadingPending = pendingQuery.isFetching;
+
   const loadSettings = useCallback(async () => {
-    setIsFetching(true);
-    try {
-      const data = await queryClient.fetchQuery({
-        queryKey: queryKeys.settings.detail(),
-        queryFn: fetchSettings,
-        staleTime: 0,
-      });
-      setSettings(data);
-    } catch (error) {
-      console.error("Failed to load settings:", error);
-      toast({
-        variant: "error",
-        description: "설정을 불러오지 못했습니다.",
-      });
-    } finally {
-      setIsFetching(false);
-    }
-  }, [queryClient, toast]);
+    await settingsQuery.refetch();
+  }, [settingsQuery]);
 
   const loadPending = useCallback(async () => {
-    setIsLoadingPending(true);
-    try {
-      const data = await queryClient.fetchQuery({
-        queryKey: queryKeys.settings.pending(),
-        queryFn: fetchPendingSchedules,
-        staleTime: 0,
-      });
-      setPendingList(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Failed to load pending schedules:", error);
-      toast({
-        variant: "error",
-        description: "승인 대기 스케줄을 불러오지 못했습니다.",
-      });
-    } finally {
-      setIsLoadingPending(false);
-    }
-  }, [queryClient, toast]);
+    await pendingQuery.refetch();
+  }, [pendingQuery]);
 
-  useEffect(() => {
-    void loadSettings();
-    void loadPending();
-  }, [loadSettings, loadPending]);
+  const activePendingCount = pendingList.length;
 
-  const activePendingCount = useMemo(
-    () => pendingList.filter((item) => !item.is_processed).length,
-    [pendingList],
-  );
-
-  const processFilteredPendingList = useMemo(() => {
-    if (pendingProcessFilter === "active") {
-      return pendingList.filter((item) => !item.is_processed);
-    }
-    if (pendingProcessFilter === "processed") {
-      return pendingList.filter((item) => item.is_processed);
-    }
-    return pendingList;
-  }, [pendingList, pendingProcessFilter]);
-
-  const pendingProcessCounts = useMemo(
-    () => ({
-      active: pendingList.filter((item) => !item.is_processed).length,
-      processed: pendingList.filter((item) => item.is_processed).length,
-      all: pendingList.length,
-    }),
-    [pendingList],
-  );
+  const processFilteredPendingList = pendingList;
 
   const pendingActionCounts = useMemo(
     () => ({
@@ -558,10 +604,6 @@ export function AutoUpdateSettingsManager() {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      setSettings({
-        ...settings,
-        auto_update_enabled: enabled ? "true" : "false",
-      });
       toast({
         variant: "success",
         description: enabled ? "자동 업데이트를 활성화했습니다." : "자동 업데이트를 비활성화했습니다.",
@@ -592,7 +634,6 @@ export function AutoUpdateSettingsManager() {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      setSettings({ ...settings, auto_update_interval_hours: interval });
       toast({
         variant: "success",
         description: `업데이트 주기를 ${interval}시간으로 변경했습니다.`,
@@ -616,7 +657,6 @@ export function AutoUpdateSettingsManager() {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      setSettings({ ...settings, auto_update_range_days: range });
       toast({
         variant: "success",
         description: `검색 범위를 ${range}일로 변경했습니다.`,
@@ -642,10 +682,6 @@ export function AutoUpdateSettingsManager() {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      setSettings({
-        ...settings,
-        live_schedule_auto_fill_enabled: enabled ? "true" : "false",
-      });
       toast({
         variant: "success",
         description: enabled
@@ -669,8 +705,13 @@ export function AutoUpdateSettingsManager() {
     try {
       const result = await runAutoUpdateNow();
       setLastRunResult(result);
-      await loadSettings();
-      await loadPending();
+      await Promise.all([
+        loadSettings(),
+        loadPending(),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.operations.all,
+        }),
+      ]);
       toast({
         variant: result.success ? "success" : "error",
         description: result.success
@@ -683,6 +724,15 @@ export function AutoUpdateSettingsManager() {
         success: false,
         updated: 0,
         checked: 0,
+        segmentCount: 0,
+        sessionCount: 0,
+        resumeMergedCount: 0,
+        rejectedSuppressed: 0,
+        duplicatePending: 0,
+        shortSuppressed: 0,
+        holidaySuppressed: 0,
+        ambiguous: 0,
+        obsoletePending: 0,
         details: [],
       });
       toast({
@@ -735,10 +785,7 @@ export function AutoUpdateSettingsManager() {
     };
   };
 
-  const batchPendingList = useMemo(
-    () => sortedPendingList.filter((item) => !item.is_processed),
-    [sortedPendingList],
-  );
+  const batchPendingList = sortedPendingList;
 
   const pendingBatchSummary = useMemo(() => {
     return batchPendingList.reduce(
@@ -826,7 +873,7 @@ export function AutoUpdateSettingsManager() {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.schedules.all,
       });
-      setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      await loadPending();
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
         delete next[pendingId];
@@ -847,19 +894,45 @@ export function AutoUpdateSettingsManager() {
     }
   };
 
-  const handleRejectPending = async (pendingId: number) => {
-    setProcessingPendingId(pendingId);
+  const openPendingRejectDialog = (ids: number[]) => {
+    setRejectionReasonCode("");
+    setRejectionReasonNote("");
+    setPendingRejectIds(ids);
+  };
+
+  const handleRejectPending = async () => {
+    if (!pendingRejectIds || !rejectionReasonCode) return;
+    const targetIds = pendingRejectIds;
+    setIsBatchProcessing(true);
+    if (targetIds.length === 1) setProcessingPendingId(targetIds[0]);
     try {
-      await rejectPendingSchedule(pendingId);
-      setPendingList((prev) => prev.filter((p) => p.id !== pendingId));
+      const options = {
+        reasonCode: rejectionReasonCode,
+        reasonNote: rejectionReasonNote.trim() || null,
+      };
+      if (targetIds.length === 1) {
+        await rejectPendingSchedule(targetIds[0], options);
+      } else {
+        await rejectSelectedPendingSchedules(targetIds, options);
+      }
+      await Promise.all([
+        loadPending(),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.settings.all,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.operations.all,
+        }),
+      ]);
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
-        delete next[pendingId];
+        for (const id of targetIds) delete next[id];
         return next;
       });
+      setPendingRejectIds(null);
       toast({
         variant: "success",
-        description: "대기 스케줄을 거부했습니다.",
+        description: `${targetIds.length}건을 거부 제외로 등록했습니다.`,
       });
     } catch (error) {
       console.error("Failed to reject pending schedule:", error);
@@ -869,40 +942,7 @@ export function AutoUpdateSettingsManager() {
       });
     } finally {
       setProcessingPendingId(null);
-    }
-  };
-
-  const handleResetProcessed = async (pendingId: number) => {
-    setProcessingPendingId(pendingId);
-    try {
-      const result = await resetPendingScheduleProcessed(pendingId);
-      setPendingList((prev) =>
-        prev.map((item) =>
-          item.id === pendingId
-            ? {
-                ...item,
-                is_processed: false,
-                processed_decision: null,
-                processed_at: null,
-                processed_actor_name: null,
-                processed_reset_at: result.resetAt,
-              }
-            : item,
-        ),
-      );
-      await loadPending();
-      toast({
-        variant: "success",
-        description: "처리 완료 표시를 리셋했습니다.",
-      });
-    } catch (error) {
-      console.error("Failed to reset pending processed state:", error);
-      toast({
-        variant: "error",
-        description: "처리 완료 표시 리셋에 실패했습니다.",
-      });
-    } finally {
-      setProcessingPendingId(null);
+      setIsBatchProcessing(false);
     }
   };
 
@@ -986,6 +1026,17 @@ export function AutoUpdateSettingsManager() {
     settings?.auto_update_interval_hours,
   );
   const rangeDays = settings?.auto_update_range_days || "3";
+  const autoUpdateStatus = operationsQuery.data?.autoUpdate;
+  const formatOperationTime = (timestamp: number | null | undefined) =>
+    timestamp
+      ? new Date(timestamp).toLocaleString("ko-KR", {
+          timeZone: "Asia/Seoul",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "-";
 
   return (
     <section className="space-y-6">
@@ -1025,6 +1076,67 @@ export function AutoUpdateSettingsManager() {
         }
       />
 
+      <div
+        role="tablist"
+        aria-label="자동 일정 업데이트 관리"
+        className="flex overflow-x-auto rounded-lg border bg-muted/25 p-1"
+      >
+        {AUTO_UPDATE_TABS.map((tab) => (
+          <Button
+            key={tab.value}
+            id={`auto-update-tab-${tab.value}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.value}
+            aria-controls={`auto-update-panel-${tab.value}`}
+            variant={activeTab === tab.value ? "default" : "ghost"}
+            className="shrink-0"
+            onClick={() => setActiveTab(tab.value)}
+          >
+            {tab.label}
+          </Button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">처리 전 후보</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {activePendingCount}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">활성 제외</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {autoUpdateStatus?.rejectionCount ?? 0}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">정보 지표</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">최근 실행 거부 억제</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">
+              {autoUpdateStatus?.latestRun?.rejectedSuppressedCount ?? 0}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-xs text-muted-foreground">마지막 · 다음 실행</p>
+            <p className="mt-1 text-sm font-medium">
+              {formatOperationTime(autoUpdateStatus?.lastRun)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              다음 {formatOperationTime(autoUpdateStatus?.nextEligibleAt)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       {isFetching && !settings ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -1032,7 +1144,13 @@ export function AutoUpdateSettingsManager() {
         </div>
       ) : (
         <>
-          <div className="grid auto-rows-fr gap-2 rounded-lg border bg-card p-2 md:grid-cols-2 md:items-stretch xl:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,220px)_minmax(160px,220px)]">
+          {activeTab === "settings" ? (
+          <div
+            id="auto-update-panel-settings"
+            role="tabpanel"
+            aria-labelledby="auto-update-tab-settings"
+            className="grid auto-rows-fr gap-2 rounded-lg border bg-card p-2 md:grid-cols-2 md:items-stretch xl:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,220px)_minmax(160px,220px)]"
+          >
             <div className="flex h-full min-h-12 items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
               <div className="flex min-w-0 items-center gap-2">
                 <Power className="h-4 w-4 text-muted-foreground" />
@@ -1129,9 +1247,15 @@ export function AutoUpdateSettingsManager() {
               </Select>
             </div>
           </div>
+          ) : null}
 
-          {pendingList.length > 0 && (
-            <section className="space-y-4">
+          {activeTab === "review" ? (
+            <section
+              id="auto-update-panel-review"
+              role="tabpanel"
+              aria-labelledby="auto-update-tab-review"
+              className="space-y-4"
+            >
               <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1140,14 +1264,6 @@ export function AutoUpdateSettingsManager() {
                     <Badge variant="secondary">
                       {sortedPendingList.length}/{processFilteredPendingList.length}
                     </Badge>
-                    {pendingProcessCounts.processed > 0 ? (
-                      <Badge
-                        variant="outline"
-                        className="border-amber-300 bg-amber-50 text-amber-800"
-                      >
-                        처리 완료 {pendingProcessCounts.processed}
-                      </Badge>
-                    ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     기존 스케줄과 수집된 스케줄을 비교하고 반영 범위를 선택합니다.
@@ -1207,7 +1323,11 @@ export function AutoUpdateSettingsManager() {
                       type="button"
                       size="sm"
                       variant="destructive"
-                      onClick={() => setPendingBatchAction("reject")}
+                      onClick={() =>
+                        openPendingRejectDialog(
+                          batchPendingList.map((item) => item.id),
+                        )
+                      }
                       disabled={
                         pendingBatchSummary.total === 0 || isBatchProcessing
                       }
@@ -1215,30 +1335,6 @@ export function AutoUpdateSettingsManager() {
                       <X className="h-4 w-4" />
                       전체 거부
                     </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground">상태</Label>
-                    <ButtonGroup>
-                      {PENDING_PROCESS_FILTER_OPTIONS.map((option) => (
-                        <Button
-                          key={option.value}
-                          type="button"
-                          size="sm"
-                          variant={
-                            pendingProcessFilter === option.value
-                              ? "default"
-                              : "outline"
-                          }
-                          className="h-8 px-3"
-                          onClick={() => setPendingProcessFilter(option.value)}
-                        >
-                          {option.label}
-                          <span className="ml-1 text-xs opacity-70">
-                            {pendingProcessCounts[option.value]}
-                          </span>
-                        </Button>
-                      ))}
-                    </ButtonGroup>
                   </div>
                   <div className="flex items-center gap-2">
                     <Label className="text-xs text-muted-foreground">유형</Label>
@@ -1295,6 +1391,7 @@ export function AutoUpdateSettingsManager() {
                 <div className="space-y-4">
                   {sortedPendingList.map((pending) => {
                     const options = getPendingApprovalOptions(pending);
+                    const isV2 = isV2Pending(pending);
                     const isRowProcessing = processingPendingId === pending.id;
                     const thumbnailUrl = getThumbnailUrl(pending.vod_thumbnail_url);
                     const selectedExistingSchedule =
@@ -1304,10 +1401,18 @@ export function AutoUpdateSettingsManager() {
                             options.targetScheduleId,
                           )
                         : null;
-                    const appliesTime =
-                      options.applyMode === "all" || options.applyMode === "time";
-                    const appliesTitle =
-                      options.applyMode === "all" || options.applyMode === "title";
+                    const appliesTime = isV2
+                      ? options.targetMode === "create" ||
+                        selectedExistingSchedule?.start_time?.trim() === "" ||
+                        selectedExistingSchedule?.start_time == null
+                      : options.applyMode === "all" ||
+                        options.applyMode === "time";
+                    const appliesTitle = isV2
+                      ? options.targetMode === "create" ||
+                        selectedExistingSchedule?.title?.trim() === "" ||
+                        selectedExistingSchedule?.title == null
+                      : options.applyMode === "all" ||
+                        options.applyMode === "title";
                     const effectiveStartTime = getEffectivePendingStartTime(
                       pending,
                       options,
@@ -1322,8 +1427,12 @@ export function AutoUpdateSettingsManager() {
                       : currentStartTime;
                     const appliesStatus =
                       options.targetMode === "create" ||
-                      options.applyMode === "all";
-                    const nextStatus = appliesStatus ? pending.status : currentStatus;
+                      (!isV2 && options.applyMode === "all");
+                    const nextStatus = appliesStatus
+                      ? isV2
+                        ? "방송"
+                        : pending.status
+                      : currentStatus;
                     const existingDateTime = selectedExistingSchedule
                       ? formatScheduleDateTime(pending.date, currentStartTime)
                       : null;
@@ -1360,8 +1469,21 @@ export function AutoUpdateSettingsManager() {
                                   : "secondary"
                               }
                             >
-                              {pending.action_type === "create" ? "신규" : "수정"}
+                              {getCandidateKindLabel(pending)}
                             </Badge>
+                            {pending.match_reason ? (
+                              <Badge variant="outline">
+                                {MATCH_REASON_LABELS[pending.match_reason] ??
+                                  pending.match_reason}
+                                {pending.match_confidence
+                                  ? ` · ${
+                                      MATCH_CONFIDENCE_LABELS[
+                                        pending.match_confidence
+                                      ] ?? pending.match_confidence
+                                    }`
+                                  : ""}
+                              </Badge>
+                            ) : null}
                             <span className="font-semibold">{pending.member_name}</span>
                             <span className="text-sm text-muted-foreground">
                               수집 {formatPendingDate(pending.created_at)}
@@ -1498,6 +1620,14 @@ export function AutoUpdateSettingsManager() {
                                     {pending.same_day_schedules.map((schedule) => {
                                       const isSelectedTarget =
                                         selectedExistingSchedule?.id === schedule.id;
+                                      const rankIndex =
+                                        (pending.ranked_schedules ?? []).findIndex(
+                                          (ranked) => ranked.id === schedule.id,
+                                        );
+                                      const ranked =
+                                        rankIndex >= 0
+                                          ? pending.ranked_schedules?.[rankIndex]
+                                          : null;
                                       return (
                                         <div
                                           key={schedule.id}
@@ -1525,8 +1655,20 @@ export function AutoUpdateSettingsManager() {
                                           >
                                             {isSelectedTarget
                                               ? "수정 대상"
-                                              : "중복 후보"}
+                                              : ranked
+                                                ? `후보 ${rankIndex + 1}`
+                                                : isV2
+                                                  ? "동일 날짜"
+                                                  : "중복 후보"}
                                           </Badge>
+                                          {ranked ? (
+                                            <span className="shrink-0 text-[10px] text-muted-foreground">
+                                              {MATCH_REASON_LABELS[ranked.reason]}
+                                              {ranked.time_difference_minutes !== null
+                                                ? ` ${ranked.time_difference_minutes}분`
+                                                : ` ${(ranked.title_similarity * 100).toFixed(0)}%`}
+                                            </span>
+                                          ) : null}
                                         </div>
                                       );
                                     })}
@@ -1535,14 +1677,32 @@ export function AutoUpdateSettingsManager() {
                                   <div>동일 날짜 기존 스케줄 0건</div>
                                 )}
                                 <div>
-                                  방송 시작: {vodDateTime}
+                                  세션:{" "}
+                                  {pending.session_started_at
+                                    ? formatPendingDate(
+                                        pending.session_started_at,
+                                      )
+                                    : vodDateTime}
+                                  {pending.session_ended_at
+                                    ? ` ~ ${formatPendingDate(
+                                        pending.session_ended_at,
+                                      )}`
+                                    : ""}
                                 </div>
                                 <div>
-                                  방송 길이:{" "}
-                                  {formatDuration(pending.vod_duration_seconds)}
+                                  VOD 조각: {pending.vod_segment_count ?? 1}개
+                                  {(pending.vod_segment_count ?? 1) > 1
+                                    ? " (중단·재개 병합)"
+                                    : ""}
                                 </div>
-                                <div className="truncate" title={pending.vod_id || ""}>
-                                  VOD ID: {pending.vod_id || "-"}
+                                <div
+                                  className="truncate"
+                                  title={(pending.source_vod_ids ?? []).join(", ")}
+                                >
+                                  원본 VOD:{" "}
+                                  {(pending.source_vod_ids?.length ?? 0) > 0
+                                    ? pending.source_vod_ids?.join(", ")
+                                    : pending.vod_id || "-"}
                                 </div>
                               </div>
                             </div>
@@ -1580,7 +1740,7 @@ export function AutoUpdateSettingsManager() {
                                           : "outline"
                                       }
                                       className="w-full justify-start"
-                                      disabled={isProcessed}
+                                      disabled={isProcessed || isV2}
                                       onClick={() =>
                                         updatePendingApprovalOptions(pending, {
                                           applyMode: option.value,
@@ -1611,6 +1771,7 @@ export function AutoUpdateSettingsManager() {
                                       className="w-full justify-start"
                                       disabled={
                                         isProcessed ||
+                                        isV2 ||
                                         (option.value === "update" &&
                                           pending.same_day_schedules.length === 0)
                                       }
@@ -1646,7 +1807,11 @@ export function AutoUpdateSettingsManager() {
                                       <SelectValue placeholder="수정 대상" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="none">대상 없음</SelectItem>
+                                      <SelectItem value="none">
+                                        {pending.candidate_kind === "ambiguous"
+                                          ? "대상을 선택하세요"
+                                          : "대상 없음"}
+                                      </SelectItem>
                                       {pending.same_day_schedules.map((schedule) => (
                                         <SelectItem
                                           key={schedule.id}
@@ -1666,7 +1831,7 @@ export function AutoUpdateSettingsManager() {
                                   <Checkbox
                                     id={`round-time-${pending.id}`}
                                     checked={options.timeMode === "nearest_hour"}
-                                    disabled={isProcessed}
+                                    disabled={isProcessed || isV2}
                                     onCheckedChange={(checked) =>
                                       updatePendingApprovalOptions(pending, {
                                         timeMode:
@@ -1678,7 +1843,9 @@ export function AutoUpdateSettingsManager() {
                                     htmlFor={`round-time-${pending.id}`}
                                     className="text-xs leading-snug text-muted-foreground"
                                   >
-                                    가장 가까운 정각 적용
+                                    {isV2
+                                      ? "세션 시작 시각 그대로 적용"
+                                      : "가장 가까운 정각 적용"}
                                     <span className="ml-1 font-medium text-foreground tabular-nums">
                                       {effectiveStartTime || "--:--"}
                                     </span>
@@ -1687,21 +1854,6 @@ export function AutoUpdateSettingsManager() {
                               )}
 
                               <div className="grid gap-2">
-                                {isProcessed ? (
-                                  <Button
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => handleResetProcessed(pending.id)}
-                                    disabled={isRowProcessing}
-                                  >
-                                    {isRowProcessing ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <RefreshCw className="h-4 w-4" />
-                                    )}
-                                    <span className="ml-1">처리 표시 리셋</span>
-                                  </Button>
-                                ) : null}
                                 <Button
                                   size="sm"
                                   onClick={() => handleApprovePending(pending)}
@@ -1717,7 +1869,9 @@ export function AutoUpdateSettingsManager() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleRejectPending(pending.id)}
+                                  onClick={() =>
+                                    openPendingRejectDialog([pending.id])
+                                  }
                                   disabled={isProcessed || isRowProcessing}
                                 >
                                   {isRowProcessing ? (
@@ -1737,9 +1891,17 @@ export function AutoUpdateSettingsManager() {
                 </div>
               )}
             </section>
-          )}
+          ) : null}
 
-          {lastRunResult && (
+          {activeTab === "rejections" ? (
+            <ScheduleRejectionsPanel />
+          ) : null}
+
+          {activeTab === "runs" ? (
+            <AutoUpdateRunHistory status={operationsQuery.data} />
+          ) : null}
+
+          {activeTab === "runs" && lastRunResult ? (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
@@ -1762,10 +1924,34 @@ export function AutoUpdateSettingsManager() {
                     {lastRunResult.success ? "수집 완료" : "수집 실패"}
                   </Badge>
                   <span className="text-muted-foreground">
-                    검사된 VOD {lastRunResult.checked}개
+                    확인한 VOD {lastRunResult.segmentCount}개
                   </span>
                   <span className="text-muted-foreground">
-                    수집/갱신 {lastRunResult.updated}개
+                    방송 세션 {lastRunResult.sessionCount}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    재개 병합 {lastRunResult.resumeMergedCount}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    후보 생성 {lastRunResult.updated}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    거부 억제 {lastRunResult.rejectedSuppressed}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    pending 중복 {lastRunResult.duplicatePending}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    단기 억제 {lastRunResult.shortSuppressed}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    휴방 억제 {lastRunResult.holidaySuppressed}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    매칭 불확실 {lastRunResult.ambiguous}개
+                  </span>
+                  <span className="text-muted-foreground">
+                    만료 후보 정리 {lastRunResult.obsoletePending}개
                   </span>
                 </div>
 
@@ -1810,7 +1996,7 @@ export function AutoUpdateSettingsManager() {
                 )}
               </CardContent>
             </Card>
-          )}
+          ) : null}
         </>
       )}
 
@@ -1872,6 +2058,73 @@ export function AutoUpdateSettingsManager() {
         }}
         isProcessing={isBatchProcessing}
         destructive={pendingBatchAction === "reject"}
+      />
+
+      <ConfirmActionDialog
+        open={pendingRejectIds !== null}
+        onOpenChange={(open) => {
+          if (!open && !isBatchProcessing) {
+            setPendingRejectIds(null);
+          }
+        }}
+        title="후보 영구 제외"
+        description={
+          <div className="space-y-4">
+            <p>
+              선택한 후보 {pendingRejectIds?.length ?? 0}건을 거부합니다. 동일
+              VOD ID는 제목이나 시간이 바뀌어도 이후 수집에서 계속 제외되며,
+              다시 노출하려면 거부 제외 탭에서 재검토를 허용해야 합니다.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="pending-rejection-reason">거부 사유</Label>
+              <Select
+                value={rejectionReasonCode}
+                onValueChange={(value) =>
+                  setRejectionReasonCode(
+                    value as PendingRejectionReasonCode,
+                  )
+                }
+              >
+                <SelectTrigger id="pending-rejection-reason">
+                  <SelectValue placeholder="사유를 선택하세요" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REJECTION_REASON_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="pending-rejection-note">메모 (선택)</Label>
+                <span className="text-xs text-muted-foreground">
+                  {rejectionReasonNote.length}/500
+                </span>
+              </div>
+              <textarea
+                id="pending-rejection-note"
+                value={rejectionReasonNote}
+                maxLength={500}
+                rows={3}
+                onChange={(event) =>
+                  setRejectionReasonNote(event.target.value)
+                }
+                className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-[3px]"
+                placeholder="판단 근거를 입력할 수 있습니다."
+              />
+            </div>
+          </div>
+        }
+        confirmLabel="거부하고 제외"
+        onConfirm={() => {
+          void handleRejectPending();
+        }}
+        isProcessing={isBatchProcessing}
+        confirmDisabled={!rejectionReasonCode}
+        destructive
       />
 
     </section>

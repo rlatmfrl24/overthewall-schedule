@@ -4,10 +4,14 @@ import type { PendingApprovalOptions } from "../../../../contracts/pending-sched
 import { pMap } from "../../../platform/http-helpers";
 import { approvePendingSchedule } from "../application/process-pending-schedule";
 import { D1PendingScheduleRepository } from "./d1-pending-schedule-repository";
-import { queryPendingScheduleReview } from "./d1-pending-schedule-query";
+import {
+  queryPendingScheduleReview,
+  queryScheduleCandidateRejections,
+} from "./d1-pending-schedule-query";
 import { D1ScheduleWriteRepository } from "./d1-schedule-write-repository";
 
 const TEST_SCHEMA = [
+  "DROP TABLE IF EXISTS schedule_candidate_rejections",
   "DROP TABLE IF EXISTS update_logs",
   "DROP TABLE IF EXISTS pending_schedules",
   "DROP TABLE IF EXISTS schedules",
@@ -37,6 +41,15 @@ const TEST_SCHEMA = [
      existing_schedule_id INTEGER,
      previous_status TEXT,
      previous_title TEXT,
+     previous_start_time TEXT,
+     candidate_kind TEXT,
+     match_reason TEXT,
+     match_confidence TEXT,
+     ranked_schedule_ids TEXT,
+     source_vod_ids TEXT,
+     session_started_at TEXT,
+     session_ended_at TEXT,
+     vod_segment_count INTEGER NOT NULL DEFAULT 1,
      vod_id TEXT,
      vod_started_at TEXT,
      vod_duration_seconds INTEGER,
@@ -56,7 +69,42 @@ const TEST_SCHEMA = [
      action TEXT NOT NULL,
      title TEXT,
      previous_status TEXT,
+     vod_id TEXT,
+     reason_code TEXT,
+     reason_note TEXT,
      created_at NUMERIC DEFAULT CURRENT_TIMESTAMP
+   )`,
+  `CREATE TABLE schedule_candidate_rejections (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     vod_id TEXT NOT NULL UNIQUE,
+     member_uid INTEGER NOT NULL,
+     member_name TEXT NOT NULL,
+     date TEXT NOT NULL,
+     start_time TEXT,
+     title TEXT,
+     status TEXT NOT NULL,
+     action_type TEXT NOT NULL,
+     existing_schedule_id INTEGER,
+     previous_status TEXT,
+     previous_title TEXT,
+     previous_start_time TEXT,
+     candidate_kind TEXT,
+     match_reason TEXT,
+     match_confidence TEXT,
+     ranked_schedule_ids TEXT,
+     source_vod_ids TEXT,
+     session_started_at TEXT,
+     session_ended_at TEXT,
+     vod_segment_count INTEGER NOT NULL DEFAULT 1,
+     vod_started_at TEXT,
+     vod_duration_seconds INTEGER,
+     vod_thumbnail_url TEXT,
+     reason_code TEXT,
+     reason_note TEXT,
+     actor_id TEXT,
+     actor_name TEXT,
+     actor_ip TEXT,
+     rejected_at NUMERIC DEFAULT CURRENT_TIMESTAMP
    )`,
 ];
 
@@ -81,7 +129,7 @@ const updateOptions = (targetScheduleId: number): PendingApprovalOptions => ({
 });
 
 const installFailingLogTrigger = async (
-  action: "approve" | "reset_processed",
+  action: "approve" | "reject" | "reset_processed",
 ) => {
   await env.otw_db
     .prepare(
@@ -174,9 +222,10 @@ describe("D1 pending schedule transaction", () => {
            start_time,
            title,
            status,
-           action_type
+           action_type,
+           vod_id
          )
-         VALUES (1, 10, '테스트 멤버', '2026-07-28', '20:00', '정규 방송', '방송', 'create')`,
+         VALUES (1, 10, '테스트 멤버', '2026-07-28', '20:00', '정규 방송', '방송', 'create', 'chzzk:vod-1')`,
       )
       .run();
   });
@@ -389,6 +438,319 @@ describe("D1 pending schedule transaction", () => {
     ]);
   });
 
+  it("거부 시 VOD 제외 스냅샷과 사유 로그를 저장하고 pending을 삭제한다", async () => {
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+
+    expect(item).not.toBeNull();
+    await expect(
+      repository.reject(item!, actor, {
+        reasonCode: "wrong_match",
+        reasonNote: "멤버가 다른 VOD",
+      }),
+    ).resolves.toEqual({ success: true, action: "reject" });
+
+    const [pending, rejection, log] = await Promise.all([
+      env.otw_db
+        .prepare("SELECT id FROM pending_schedules WHERE id = 1")
+        .first(),
+      env.otw_db
+        .prepare(
+          `SELECT vod_id, title, reason_code, reason_note, actor_name
+           FROM schedule_candidate_rejections`,
+        )
+        .first<{
+          vod_id: string;
+          title: string;
+          reason_code: string;
+          reason_note: string;
+          actor_name: string;
+        }>(),
+      env.otw_db
+        .prepare(
+          `SELECT action, vod_id, reason_code, reason_note
+           FROM update_logs
+           WHERE action = 'reject'`,
+        )
+        .first<{
+          action: string;
+          vod_id: string;
+          reason_code: string;
+          reason_note: string;
+        }>(),
+    ]);
+
+    expect(pending).toBeNull();
+    expect(rejection).toEqual({
+      vod_id: "chzzk:vod-1",
+      title: "정규 방송",
+      reason_code: "wrong_match",
+      reason_note: "멤버가 다른 VOD",
+      actor_name: "관리자",
+    });
+    expect(log).toEqual({
+      action: "reject",
+      vod_id: "chzzk:vod-1",
+      reason_code: "wrong_match",
+      reason_note: "멤버가 다른 VOD",
+    });
+  });
+
+  it("재검토 허용 시 제외 기록을 제거하고 감사 로그를 남긴다", async () => {
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+    await repository.reject(item!, actor, {
+      reasonCode: "not_needed",
+      reasonNote: null,
+    });
+    const rejection = await env.otw_db
+      .prepare("SELECT id FROM schedule_candidate_rejections")
+      .first<{ id: number }>();
+
+    expect(rejection).not.toBeNull();
+    await expect(
+      repository.reopenRejection(rejection!.id, actor),
+    ).resolves.toEqual({ success: true, action: "reopen_rejection" });
+
+    expect(
+      await env.otw_db
+        .prepare("SELECT id FROM schedule_candidate_rejections")
+        .first(),
+    ).toBeNull();
+    expect(
+      await env.otw_db
+        .prepare(
+          `SELECT action, vod_id, reason_code
+           FROM update_logs
+           WHERE action = 'reopen_rejection'`,
+        )
+        .first(),
+    ).toEqual({
+      action: "reopen_rejection",
+      vod_id: "chzzk:vod-1",
+      reason_code: "not_needed",
+    });
+  });
+
+  it("거부 제외 목록을 검색·사유 필터·페이지네이션한다", async () => {
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+    await repository.reject(item!, actor, {
+      reasonCode: "wrong_match",
+      reasonNote: null,
+    });
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedule_candidate_rejections (
+           vod_id, member_uid, member_name, date, start_time, title,
+           status, action_type, reason_code, rejected_at
+         )
+         VALUES ('chzzk:vod-2', 10, '다른 멤버', '2026-07-29', '22:00',
+                 '다른 방송', '방송', 'create', 'duplicate',
+                 '2026-07-29 01:00:00')`,
+      )
+      .run();
+
+    const result = await queryScheduleCandidateRejections(env.otw_db, {
+      search: "테스트 멤버",
+      reasonCode: "wrong_match",
+      rejectedFrom: "2026-07-01",
+      rejectedTo: "2026-07-29",
+      page: 1,
+      pageSize: 1,
+    });
+
+    expect(result).toMatchObject({
+      page: 1,
+      pageSize: 1,
+      total: 1,
+      totalPages: 1,
+    });
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        vod_id: "chzzk:vod-1",
+        member_name: "테스트 멤버",
+        reason_code: "wrong_match",
+      }),
+    ]);
+  });
+
+  it("V2 승인에서는 현재 비어 있는 필드만 채우고 기존 시간과 상태를 보존한다", async () => {
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedules (
+           id, member_uid, date, start_time, title, status
+         )
+         VALUES (30, 10, '2026-07-28', '18:00', NULL, '미정')`,
+      )
+      .run();
+    await env.otw_db
+      .prepare(
+        `UPDATE pending_schedules
+         SET action_type = 'update',
+             existing_schedule_id = 30,
+             candidate_kind = 'fill_missing_fields',
+             match_reason = 'time_window',
+             match_confidence = 'high',
+             start_time = '20:00',
+             title = '수집된 제목',
+             status = '방송'
+         WHERE id = 1`,
+      )
+      .run();
+
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+    const result = await repository.approve(
+      item!,
+      updateOptions(30),
+      actor,
+    );
+    const schedule = await env.otw_db
+      .prepare(
+        `SELECT start_time, title, status
+         FROM schedules
+         WHERE id = 30`,
+      )
+      .first<{
+        start_time: string | null;
+        title: string | null;
+        status: string;
+      }>();
+
+    expect(result).toEqual({
+      success: true,
+      action: "update",
+      scheduleId: 30,
+    });
+    expect(schedule).toEqual({
+      start_time: "18:00",
+      title: "수집된 제목",
+      status: "미정",
+    });
+  });
+
+  it("매칭 불확실 후보는 대상 일정 선택 전 승인할 수 없다", async () => {
+    await env.otw_db
+      .prepare(
+        `UPDATE pending_schedules
+         SET action_type = 'update',
+             candidate_kind = 'ambiguous',
+             match_reason = 'ambiguous',
+             match_confidence = 'low',
+             ranked_schedule_ids = '[31,32]'
+         WHERE id = 1`,
+      )
+      .run();
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+
+    await expect(
+      repository.approve(
+        item!,
+        {
+          applyMode: "all",
+          targetMode: "update",
+          timeMode: "exact",
+          targetScheduleId: null,
+        },
+        actor,
+      ),
+    ).resolves.toMatchObject({
+      success: false,
+      error: "validation",
+    });
+    expect(
+      await env.otw_db
+        .prepare("SELECT id FROM pending_schedules WHERE id = 1")
+        .first(),
+    ).not.toBeNull();
+  });
+
+  it("V2 승인 전에 대상 일정이 완성되면 후보를 만료 처리하고 감사 로그를 남긴다", async () => {
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedules (
+           id, member_uid, date, start_time, title, status
+         )
+         VALUES (33, 10, '2026-07-28', '19:00', '이미 완성된 일정', '게릴라')`,
+      )
+      .run();
+    await env.otw_db
+      .prepare(
+        `UPDATE pending_schedules
+         SET action_type = 'update',
+             existing_schedule_id = 33,
+             candidate_kind = 'fill_missing_fields',
+             match_reason = 'time_window',
+             match_confidence = 'high'
+         WHERE id = 1`,
+      )
+      .run();
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+
+    await expect(
+      repository.approve(item!, updateOptions(33), actor),
+    ).resolves.toEqual({
+      success: true,
+      action: "candidate_obsolete",
+      scheduleId: 33,
+    });
+    expect(
+      await env.otw_db
+        .prepare("SELECT id FROM pending_schedules WHERE id = 1")
+        .first(),
+    ).toBeNull();
+    expect(
+      await env.otw_db
+        .prepare(
+          `SELECT action, schedule_id
+           FROM update_logs
+           WHERE action = 'candidate_obsolete'`,
+        )
+        .first(),
+    ).toEqual({
+      action: "candidate_obsolete",
+      schedule_id: 33,
+    });
+  });
+
+  it("새 일정 V2 승인 전에 대응하는 빈 일정이 생기면 후보를 만료 처리한다", async () => {
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedules (
+           id, member_uid, date, start_time, title, status
+         )
+         VALUES (34, 10, '2026-07-28', '20:00', NULL, '미정')`,
+      )
+      .run();
+    await env.otw_db
+      .prepare(
+        `UPDATE pending_schedules
+         SET candidate_kind = 'missing_schedule',
+             match_reason = 'missing_schedule',
+             match_confidence = 'high'
+         WHERE id = 1`,
+      )
+      .run();
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+
+    await expect(
+      repository.approve(item!, options, actor),
+    ).resolves.toEqual({
+      success: true,
+      action: "candidate_obsolete",
+      scheduleId: 34,
+    });
+    expect(
+      await env.otw_db
+        .prepare("SELECT id FROM pending_schedules WHERE id = 1")
+        .first(),
+    ).toBeNull();
+  });
+
   describe("batch rollback", () => {
     it("create 승인 중간 log 실패 시 schedule 생성까지 rollback한다", async () => {
       await installFailingLogTrigger("approve");
@@ -411,6 +773,40 @@ describe("D1 pending schedule transaction", () => {
         ],
         updateLogs: [],
       });
+      expect(
+        await env.otw_db
+          .prepare("SELECT id FROM schedule_candidate_rejections")
+          .first(),
+      ).toBeNull();
+    });
+
+    it("reject 감사 로그 실패 시 제외 기록과 pending 삭제를 rollback한다", async () => {
+      await installFailingLogTrigger("reject");
+      const repository = new D1PendingScheduleRepository(env.otw_db);
+      const item = await repository.findById(1);
+
+      await expect(
+        repository.reject(item!, actor, {
+          reasonCode: "duplicate",
+          reasonNote: null,
+        }),
+      ).rejects.toThrow();
+
+      expect(
+        await env.otw_db
+          .prepare("SELECT id FROM schedule_candidate_rejections")
+          .first(),
+      ).toBeNull();
+      expect(
+        await env.otw_db
+          .prepare("SELECT id FROM pending_schedules WHERE id = 1")
+          .first(),
+      ).not.toBeNull();
+      expect(
+        await env.otw_db
+          .prepare("SELECT id FROM update_logs WHERE action = 'reject'")
+          .first(),
+      ).toBeNull();
     });
 
     it("update 승인 중간 log 실패 시 schedule 수정을 rollback한다", async () => {
@@ -520,7 +916,7 @@ describe("D1 pending schedule transaction", () => {
       const item = await repository.findById(1);
 
       expect(item).not.toBeNull();
-      await expect(repository.reject(item!, actor)).rejects.toThrow();
+      await expect(repository.reject(item!, actor, null)).rejects.toThrow();
 
       expect(await readTransactionState()).toEqual({
         schedules: [],

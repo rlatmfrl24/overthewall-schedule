@@ -1,8 +1,11 @@
-import { apiRoutes } from "@contracts/api-routes";
+import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { apiFetch } from "@/shared/api/client";
 import type {
   PendingApprovalOptions,
+  PendingRejectionOptions,
   PendingSchedule,
+  ScheduleCandidateRejectionList,
+  ScheduleCandidateRejectionQuery,
   SelectedPendingBatchResponse,
 } from "../model/pending-schedule";
 
@@ -20,6 +23,8 @@ type PendingActionsPayload = {
   mode?: "selected" | "all";
   ids?: number[];
   options?: PendingApprovalOptions;
+  reasonCode?: PendingRejectionOptions["reasonCode"];
+  reasonNote?: string | null;
 };
 
 async function runPendingActions<T>(payload: PendingActionsPayload): Promise<T> {
@@ -66,10 +71,12 @@ export async function approvePendingSchedule(
 
 export async function rejectPendingSchedule(
   pendingId: number,
+  options: PendingRejectionOptions = {},
 ): Promise<{ success: boolean }> {
   const response = await runPendingActions<SelectedPendingBatchResponse>({
     action: "reject",
     ids: [pendingId],
+    ...options,
   });
   assertSinglePendingActionResult(
     response,
@@ -139,9 +146,36 @@ export async function approveSelectedPendingSchedules(
 
 export async function rejectSelectedPendingSchedules(
   ids: number[],
+  options: PendingRejectionOptions = {},
 ): Promise<SelectedPendingBatchResponse> {
   return runPendingActions({
     action: "reject",
     ids,
+    ...options,
+  });
+}
+
+export async function fetchScheduleCandidateRejections(
+  query: ScheduleCandidateRejectionQuery,
+): Promise<ScheduleCandidateRejectionList> {
+  const params = new URLSearchParams({
+    page: String(query.page),
+    pageSize: String(query.pageSize),
+  });
+  if (query.search) params.set("search", query.search);
+  if (query.reasonCode) params.set("reasonCode", query.reasonCode);
+  if (query.rejectedFrom) params.set("rejectedFrom", query.rejectedFrom);
+  if (query.rejectedTo) params.set("rejectedTo", query.rejectedTo);
+  return apiFetch<ScheduleCandidateRejectionList>(
+    withRouteSearch(apiRoutes.schedules.pending.rejections.build(), params),
+    { cache: "no-store" },
+  );
+}
+
+export async function reopenScheduleCandidateRejection(
+  id: number,
+): Promise<{ success: boolean; action: string }> {
+  return apiFetch(apiRoutes.schedules.pending.reopenRejection.build(id), {
+    method: "POST",
   });
 }

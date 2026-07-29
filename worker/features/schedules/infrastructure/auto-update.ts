@@ -3,8 +3,9 @@ import { type DbInstance } from "../../../platform/db";
 import {
   members,
   pendingSchedules,
+  scheduleBroadcastObservations,
+  scheduleCandidateRejections,
   schedules,
-  updateLogs,
 } from "@db/schema";
 import type {
   AutoUpdateDetail,
@@ -14,23 +15,22 @@ import type {
 } from "../../../platform/types";
 import {
   extractChzzkChannelId,
-  extractKSTTime,
   getKSTDateString,
-  pMap,
 } from "../../../platform/http-helpers";
 import {
   chzzkVideoCatalog,
   type ChzzkVideoCatalog,
 } from "../../chzzk";
+import {
+  buildBroadcastSessions,
+  matchBroadcastSessions,
+  type AutoUpdateSchedule,
+  type AutoUpdateSessionDecision,
+  type BroadcastObservation,
+} from "../domain/auto-update-matcher";
 
 const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
-const UPDATE_LOG_CHUNK_SIZE = 12;
-const PENDING_VOD_METADATA_COLUMNS = [
-  "vod_started_at",
-  "vod_duration_seconds",
-  "vod_thumbnail_url",
-] as const;
 
 type ChzzkVideo = NonNullable<NonNullable<CachedChzzkVideos["content"]>["data"]>[number];
 
@@ -40,17 +40,8 @@ type PendingCandidate = {
   detail: AutoUpdateDetail;
   pendingKey: string;
   vodId: string;
+  sourceVodIds: string[];
 };
-
-type ProcessEntry =
-  | {
-      kind: "candidate";
-      candidate: PendingCandidate;
-    }
-  | {
-      kind: "detail";
-      detail: AutoUpdateDetail;
-    };
 
 const resolveVideoTiming = (video: ChzzkVideo) => {
   const startTimestamp = video.publishDateAt - video.duration * 1000;
@@ -62,87 +53,315 @@ const resolveVideoTiming = (video: ChzzkVideo) => {
   };
 };
 
-const buildPendingVodFields = (video: ChzzkVideo, startedAt: Date) => ({
-  vod_started_at: startedAt.toISOString(),
-  vod_duration_seconds: Number.isFinite(video.duration)
-    ? Math.max(0, Math.floor(video.duration))
-    : null,
-  vod_thumbnail_url: video.thumbnailImageUrl || null,
-});
-
-const isEmptyScheduleTarget = (schedule: {
-  start_time?: string | null;
-  title?: string | null;
-}) => !schedule.start_time?.trim() && !schedule.title?.trim();
-
-const getErrorText = (error: unknown): string => {
-  if (error instanceof Error) {
-    const cause =
-      "cause" in error && error.cause instanceof Error
-        ? ` ${error.cause.message}`
-        : "";
-    return `${error.message}${cause}`;
-  }
-  return String(error);
-};
-
-const isMissingPendingVodMetadataColumnError = (error: unknown) => {
-  const message = getErrorText(error);
-  return (
-    PENDING_VOD_METADATA_COLUMNS.some((column) => message.includes(column)) &&
-    (message.includes("no such column") ||
-      message.includes("no column named"))
-  );
-};
-
 const insertPendingSchedule = async (
   db: DbInstance,
   item: NewPendingSchedule,
+  logItem: NewUpdateLog,
 ) => {
-  try {
-    return await db
-      .insert(pendingSchedules)
-      .values(item)
-      .onConflictDoNothing();
-  } catch (error) {
-    if (!isMissingPendingVodMetadataColumnError(error)) {
-      throw error;
-    }
-
-    console.warn(
-      "[autoUpdateSchedules] pending_schedules VOD metadata columns are missing; retrying legacy insert. Run D1 migrations to store thumbnails and duration.",
+  const insertStatement = db.$client
+    .prepare(
+      `INSERT INTO pending_schedules (
+      member_uid,
+      member_name,
+      date,
+      start_time,
+      title,
+      status,
+      action_type,
+      existing_schedule_id,
+      previous_status,
+      previous_title,
+      previous_start_time,
+      candidate_kind,
+      match_reason,
+      match_confidence,
+      ranked_schedule_ids,
+      source_vod_ids,
+      session_started_at,
+      session_ended_at,
+      vod_segment_count,
+      vod_id,
+      vod_started_at,
+      vod_duration_seconds,
+      vod_thumbnail_url
+    )
+    SELECT
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE ? IS NULL
+       OR NOT EXISTS (
+         SELECT 1
+         FROM schedule_candidate_rejections AS rejection
+         WHERE rejection.vod_id = ?
+            OR EXISTS (
+              SELECT 1
+              FROM json_each(?) AS source
+              WHERE source.value = rejection.vod_id
+            )
+       )
+    ON CONFLICT DO NOTHING`,
+    )
+    .bind(
+      item.member_uid,
+      item.member_name,
+      item.date,
+      item.start_time ?? null,
+      item.title ?? null,
+      item.status ?? "방송",
+      item.action_type,
+      item.existing_schedule_id ?? null,
+      item.previous_status ?? null,
+      item.previous_title ?? null,
+      item.previous_start_time ?? null,
+      item.candidate_kind ?? null,
+      item.match_reason ?? null,
+      item.match_confidence ?? null,
+      item.ranked_schedule_ids ?? null,
+      item.source_vod_ids ?? null,
+      item.session_started_at ?? null,
+      item.session_ended_at ?? null,
+      item.vod_segment_count ?? 1,
+      item.vod_id ?? null,
+      item.vod_started_at ?? null,
+      item.vod_duration_seconds ?? null,
+      item.vod_thumbnail_url ?? null,
+      item.vod_id ?? null,
+      item.vod_id ?? null,
+      item.source_vod_ids ?? "[]",
     );
+  const logStatement = db.$client
+    .prepare(
+      `INSERT INTO update_logs (
+         schedule_id,
+         member_uid,
+         member_name,
+         schedule_date,
+         action,
+         title,
+         previous_status,
+         vod_id,
+         actor_name
+       )
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE changes() = 1`,
+    )
+    .bind(
+      logItem.schedule_id ?? null,
+      logItem.member_uid ?? null,
+      logItem.member_name ?? null,
+      logItem.schedule_date ?? null,
+      logItem.action,
+      logItem.title ?? null,
+      logItem.previous_status ?? null,
+      logItem.vod_id ?? null,
+      logItem.actor_name ?? "system",
+    );
+  const [insertResult] = await db.$client.batch([
+    insertStatement,
+    logStatement,
+  ]);
+  return insertResult;
+};
 
-    return db.run(sql`
-      INSERT INTO pending_schedules (
-        member_uid,
-        member_name,
-        date,
-        start_time,
-        title,
-        status,
-        action_type,
-        existing_schedule_id,
-        previous_status,
-        previous_title,
-        vod_id
+const deleteObsoletePending = async (
+  db: DbInstance,
+  pending: {
+    id: number;
+    member_uid: number;
+    date: string;
+    existing_schedule_id: number | null;
+    vod_id: string | null;
+  },
+  memberName: string | null,
+) => {
+  const deleteStatement = db.$client
+    .prepare("DELETE FROM pending_schedules WHERE id = ?")
+    .bind(pending.id);
+  const logStatement = db.$client
+    .prepare(
+      `INSERT INTO update_logs (
+         schedule_id,
+         member_uid,
+         member_name,
+         schedule_date,
+         action,
+         title,
+         previous_status,
+         vod_id,
+         actor_name
+       )
+       SELECT ?, ?, ?, ?, 'candidate_obsolete',
+              'auto update candidate reconciled', NULL, ?, 'system'
+       WHERE changes() = 1`,
+    )
+    .bind(
+      pending.existing_schedule_id,
+      pending.member_uid,
+      memberName,
+      pending.date,
+      pending.vod_id,
+    );
+  const [deleteResult] = await db.$client.batch([
+    deleteStatement,
+    logStatement,
+  ]);
+  return deleteResult.meta.changes === 1;
+};
+
+const OBSERVATION_CHUNK_SIZE = 25;
+const SESSION_RESUME_MARGIN_MS = 60 * 60 * 1000;
+
+const toObservation = (
+  member: { uid: number; name: string },
+  channelId: string,
+  video: ChzzkVideo,
+): BroadcastObservation & { channelId: string } => {
+  const { startTimestamp } = resolveVideoTiming(video);
+  const durationSeconds = Number.isFinite(video.duration)
+    ? Math.max(0, Math.floor(video.duration))
+    : 0;
+  return {
+    vodId: `chzzk:${video.videoId}`,
+    memberUid: member.uid,
+    memberName: member.name,
+    channelId,
+    title: video.videoTitle,
+    startedAt: startTimestamp,
+    endedAt: video.publishDateAt,
+    durationSeconds,
+    thumbnailUrl: video.thumbnailImageUrl || null,
+  };
+};
+
+const persistObservations = async (
+  db: DbInstance,
+  observations: Array<BroadcastObservation & { channelId: string }>,
+) => {
+  const observedAt = Date.now();
+  for (
+    let index = 0;
+    index < observations.length;
+    index += OBSERVATION_CHUNK_SIZE
+  ) {
+    const chunk = observations.slice(index, index + OBSERVATION_CHUNK_SIZE);
+    if (chunk.length === 0) continue;
+    await db
+      .insert(scheduleBroadcastObservations)
+      .values(
+        chunk.map((item) => ({
+          vod_id: item.vodId,
+          member_uid: item.memberUid,
+          channel_id: item.channelId,
+          title: item.title,
+          started_at: item.startedAt,
+          ended_at: item.endedAt,
+          duration_seconds: item.durationSeconds,
+          thumbnail_url: item.thumbnailUrl,
+          first_seen_at: observedAt,
+          last_seen_at: observedAt,
+        })),
       )
-      VALUES (
-        ${item.member_uid},
-        ${item.member_name},
-        ${item.date},
-        ${item.start_time ?? null},
-        ${item.title ?? null},
-        ${item.status ?? "방송"},
-        ${item.action_type},
-        ${item.existing_schedule_id ?? null},
-        ${item.previous_status ?? null},
-        ${item.previous_title ?? null},
-        ${item.vod_id ?? null}
-      )
-      ON CONFLICT DO NOTHING
-    `);
+      .onConflictDoUpdate({
+        target: scheduleBroadcastObservations.vod_id,
+        set: {
+          member_uid: sql`excluded.member_uid`,
+          channel_id: sql`excluded.channel_id`,
+          title: sql`excluded.title`,
+          started_at: sql`excluded.started_at`,
+          ended_at: sql`excluded.ended_at`,
+          duration_seconds: sql`excluded.duration_seconds`,
+          thumbnail_url: sql`excluded.thumbnail_url`,
+          last_seen_at: observedAt,
+        },
+      });
   }
+};
+
+const parseJsonArray = (value: string | null) => {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const toCandidate = (
+  decision: Extract<AutoUpdateSessionDecision, { kind: "candidate" }>,
+  scheduleMap: Map<number, AutoUpdateSchedule>,
+): PendingCandidate => {
+  const target = decision.scheduleId
+    ? scheduleMap.get(decision.scheduleId) ?? null
+    : null;
+  const session = decision.session;
+  const action = decision.candidateKind === "missing_schedule"
+    ? "auto_collected"
+    : "auto_updated";
+  const actionType = decision.candidateKind === "missing_schedule"
+    ? "create"
+    : "update";
+  const rankedScheduleIds = decision.rankedSchedules.map((item) => item.scheduleId);
+  const sourceVodIds = session.sourceVodIds;
+  const pendingItem: NewPendingSchedule = {
+    member_uid: session.memberUid,
+    member_name: session.memberName,
+    date: session.date,
+    start_time: session.startTime,
+    title: session.title,
+    status: actionType === "create" ? "방송" : (target?.status ?? "방송"),
+    action_type: actionType,
+    existing_schedule_id: decision.scheduleId,
+    previous_status: target?.status ?? null,
+    previous_start_time: target?.startTime ?? null,
+    previous_title: target?.title ?? null,
+    candidate_kind: decision.candidateKind,
+    match_reason: decision.reason,
+    match_confidence: decision.confidence,
+    ranked_schedule_ids: JSON.stringify(rankedScheduleIds),
+    source_vod_ids: JSON.stringify(sourceVodIds),
+    session_started_at: new Date(session.startedAt).toISOString(),
+    session_ended_at: new Date(session.endedAt).toISOString(),
+    vod_segment_count: session.segmentCount,
+    vod_id: session.vodId,
+    vod_started_at: new Date(session.startedAt).toISOString(),
+    vod_duration_seconds: session.durationSeconds,
+    vod_thumbnail_url: session.thumbnailUrl,
+  };
+  return {
+    pendingItem,
+    logItem: {
+      schedule_id: decision.scheduleId,
+      member_uid: session.memberUid,
+      member_name: session.memberName,
+      schedule_date: session.date,
+      action,
+      title: session.title,
+      previous_status: target?.status ?? null,
+      vod_id: session.vodId,
+      actor_name: "system",
+    },
+    detail: {
+      memberUid: session.memberUid,
+      memberName: session.memberName,
+      scheduleId: decision.scheduleId,
+      scheduleDate: session.date,
+      action,
+      title: session.title,
+      previousStatus: target?.status ?? null,
+      vodId: session.vodId,
+      candidateKind: decision.candidateKind,
+      matchReason: decision.reason,
+      matchConfidence: decision.confidence,
+      sessionStartedAt: new Date(session.startedAt).toISOString(),
+      sessionEndedAt: new Date(session.endedAt).toISOString(),
+      segmentCount: session.segmentCount,
+    },
+    pendingKey: `${session.memberUid}:${session.date}:${session.startTime}`,
+    vodId: session.vodId,
+    sourceVodIds,
+  };
 };
 
 export const scanRecentChzzkVideos = async (
@@ -247,11 +466,7 @@ export const scanRecentChzzkVideosForChannels = async (
   return collectedByChannel;
 };
 
-// 자동 업데이트 핵심 로직 (승인 프로세스 적용)
-// - VOD 수집 후 pending_schedules 테이블에 저장 (관리자 승인 대기)
-// - 스케줄 없음 + VOD 있음 → pending에 action_type: "create"로 저장
-// - 스케줄 있음 + (방송 상태 아니거나 제목 없음) + VOD 있음 → pending에 action_type: "update"로 저장
-// - 스케줄 있음 + 방송 상태 + 제목 있음 → 변경 없음
+// VOD 관측을 세션으로 합친 뒤 일정의 빈 필드만 승인 후보로 제안한다.
 export const autoUpdateSchedules = async (
   db: DbInstance,
   rangeDays: number = 3,
@@ -262,11 +477,21 @@ export const autoUpdateSchedules = async (
 ): Promise<{
   updated: number;
   checked: number;
+  segmentCount: number;
+  sessionCount: number;
+  resumeMergedCount: number;
+  rejectedSuppressed: number;
+  duplicatePending: number;
+  shortSuppressed: number;
+  holidaySuppressed: number;
+  ambiguous: number;
+  obsoletePending: number;
   details: AutoUpdateDetail[];
 }> => {
   const today = getKSTDateString();
+  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
   const startDate = getKSTDateString(
-    new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000),
+    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
   );
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
@@ -282,50 +507,29 @@ export const autoUpdateSchedules = async (
     );
 
   if (allMembers.length === 0) {
-    return { updated: 0, checked: 0, details: [] };
+    return {
+      updated: 0,
+      checked: 0,
+      segmentCount: 0,
+      sessionCount: 0,
+      resumeMergedCount: 0,
+      rejectedSuppressed: 0,
+      duplicatePending: 0,
+      shortSuppressed: 0,
+      holidaySuppressed: 0,
+      ambiguous: 0,
+      obsoletePending: 0,
+      details: [],
+    };
   }
 
-  // 2. 날짜 범위 내의 모든 스케줄 조회 (한 번에)
+  // 2. 날짜 범위 내의 기존 일정 조회
   const existingSchedules = await db
     .select()
     .from(schedules)
     .where(and(gte(schedules.date, startDate), lte(schedules.date, today)));
 
-  // 스케줄을 member_uid + date 기준으로 맵핑 (한 날짜에 여러 스케줄 가능)
-  const scheduleMap = new Map<string, (typeof existingSchedules)[0][]>();
-  for (const schedule of existingSchedules) {
-    const key = `${schedule.member_uid}:${schedule.date}`;
-    const existing = scheduleMap.get(key) || [];
-    existing.push(schedule);
-    scheduleMap.set(key, existing);
-  }
-
-  // 3. 기존 대기 스케줄 조회 (중복 방지용)
-  const existingPending = await db
-    .select({
-      member_uid: pendingSchedules.member_uid,
-      date: pendingSchedules.date,
-      start_time: pendingSchedules.start_time,
-      vod_id: pendingSchedules.vod_id,
-    })
-    .from(pendingSchedules);
-  const pendingVodIds = new Set(
-    existingPending.filter((p) => p.vod_id).map((p) => p.vod_id),
-  );
-  // member_uid + date + start_time 조합으로도 중복 체크
-  const pendingKeys = new Set(
-    existingPending.map(
-      (p) => `${p.member_uid}:${p.date}:${p.start_time || ""}`,
-    ),
-  );
-
-  // 4. 채널별 VOD를 페이지 단위 batch로 확인
-  // 결과를 모아서 한 번에 처리
-  type ProcessResult = {
-    entries: ProcessEntry[];
-    checkedCount: number;
-  };
-
+  // 3. 채널별 최신 VOD를 가져와 영구 관측 기록을 갱신한다.
   const channelIds = Array.from(
     new Set(
       allMembers
@@ -342,213 +546,264 @@ export const autoUpdateSchedules = async (
     options.cacheDb,
     options.videoCatalog?.fetchVideosBatch,
   );
+  const fetchedObservations = allMembers.flatMap((member) => {
+    const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
+    if (!channelId) return [];
+    return (videosByChannel.get(channelId) ?? []).map((video) =>
+      toObservation(member, channelId, video),
+    );
+  });
+  await persistObservations(db, fetchedObservations);
 
-  const results = await pMap(
-    allMembers,
-    async (member): Promise<ProcessResult | null> => {
-      const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
-      if (!channelId) return null;
+  const rangeStartMs =
+    Date.parse(`${startDate}T00:00:00+09:00`) - SESSION_RESUME_MARGIN_MS;
+  const rangeEndMs = Date.parse(`${today}T23:59:59.999+09:00`);
+  const persistedRows = await db
+    .select()
+    .from(scheduleBroadcastObservations)
+    .where(
+      and(
+        gte(scheduleBroadcastObservations.ended_at, rangeStartMs),
+        lte(scheduleBroadcastObservations.started_at, rangeEndMs),
+      ),
+    );
+  const memberNameMap = new Map(
+    allMembers.map((member) => [member.uid, member.name]),
+  );
+  const activeMemberUids = new Set(memberNameMap.keys());
+  const observations: BroadcastObservation[] = persistedRows
+    .filter((row) => activeMemberUids.has(row.member_uid))
+    .map((row) => ({
+      vodId: row.vod_id,
+      memberUid: row.member_uid,
+      memberName: memberNameMap.get(row.member_uid)!,
+      title: row.title,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      durationSeconds: row.duration_seconds,
+      thumbnailUrl: row.thumbnail_url,
+    }));
+  const sessionsInRange = buildBroadcastSessions(observations).filter(
+    (session) => session.date >= startDate && session.date <= today,
+  );
+  const matcherSchedules: AutoUpdateSchedule[] = existingSchedules.map(
+    (schedule) => ({
+      id: schedule.id,
+      memberUid: schedule.member_uid,
+      date: schedule.date,
+      startTime: schedule.start_time,
+      title: schedule.title,
+      status: schedule.status,
+    }),
+  );
+  const scheduleById = new Map(
+    matcherSchedules.map((schedule) => [schedule.id, schedule]),
+  );
+  const decisions = matchBroadcastSessions(sessionsInRange, matcherSchedules);
 
-      const videos = videosByChannel.get(channelId) ?? [];
-      if (videos.length === 0) return null;
-
-      const result: ProcessResult = {
-        entries: [],
-        checkedCount: 0,
-      };
-
-      for (const video of videos) {
-        const vodId = `chzzk:${video.videoId}`;
-        const { startedAt, videoDate } = resolveVideoTiming(video);
-
-        result.checkedCount++;
-
-        const scheduleKey = `${member.uid}:${videoDate}`;
-        const memberSchedules = scheduleMap.get(scheduleKey) || [];
-        const startTime = extractKSTTime(startedAt.toISOString());
-        const vodFields = buildPendingVodFields(video, startedAt);
-
-        const pendingKey = `${member.uid}:${videoDate}:${startTime}`;
-
-        const videoMinutes =
-          parseInt(startTime.split(":")[0]) * 60 +
-          parseInt(startTime.split(":")[1]);
-
-        const matchingSchedule = memberSchedules.find((schedule) => {
-          if (!schedule.start_time) return false;
-          const scheduleMinutes =
-            parseInt(schedule.start_time.split(":")[0]) * 60 +
-            parseInt(schedule.start_time.split(":")[1]);
-          return Math.abs(videoMinutes - scheduleMinutes) <= 30;
-          });
-
-        const emptyScheduleTarget = memberSchedules.find(isEmptyScheduleTarget);
-        const updateTarget = matchingSchedule ?? emptyScheduleTarget;
-
-        if (!updateTarget) {
-          result.entries.push({
-            kind: "candidate",
-            candidate: {
-              pendingItem: {
-                member_uid: member.uid,
-                member_name: member.name,
-                date: videoDate,
-                start_time: startTime,
-                title: video.videoTitle,
-                status: "방송",
-                action_type: "create",
-                existing_schedule_id: null,
-                previous_status: null,
-                previous_title: null,
-                vod_id: vodId,
-                ...vodFields,
-              },
-              logItem: {
-                schedule_id: null,
-                member_uid: member.uid,
-                member_name: member.name,
-                schedule_date: videoDate,
-                action: "auto_collected",
-                title: video.videoTitle,
-                previous_status: null,
-                actor_name: "system",
-              },
-              detail: {
-                memberUid: member.uid,
-                memberName: member.name,
-                scheduleId: null,
-                scheduleDate: videoDate,
-                action: "auto_collected",
-                title: video.videoTitle,
-                previousStatus: null,
-              },
-              pendingKey,
-              vodId,
-            },
-          });
-        } else if (
-          updateTarget.status !== "방송" ||
-          !updateTarget.title?.trim() ||
-          !updateTarget.start_time?.trim()
-        ) {
-          result.entries.push({
-            kind: "candidate",
-            candidate: {
-              pendingItem: {
-                member_uid: member.uid,
-                member_name: member.name,
-                date: videoDate,
-                start_time: startTime,
-                title: video.videoTitle,
-                status: "방송",
-                action_type: "update",
-                existing_schedule_id: updateTarget.id,
-                previous_status: updateTarget.status,
-                previous_title: updateTarget.title,
-                vod_id: vodId,
-                ...vodFields,
-              },
-              logItem: {
-                schedule_id: updateTarget.id,
-                member_uid: member.uid,
-                member_name: member.name,
-                schedule_date: videoDate,
-                action: "auto_updated",
-                title: video.videoTitle,
-                previous_status: updateTarget.status,
-                actor_name: "system",
-              },
-              detail: {
-                memberUid: member.uid,
-                memberName: member.name,
-                scheduleId: updateTarget.id,
-                scheduleDate: videoDate,
-                action: "auto_updated",
-                title: video.videoTitle,
-                previousStatus: updateTarget.status,
-              },
-              pendingKey,
-              vodId,
-            },
-          });
-        } else {
-          // 이미 스케줄이 존재하고, 업데이트가 필요 없는 경우
-          result.entries.push({
-            kind: "detail",
-            detail: {
-              memberUid: member.uid,
-              memberName: member.name,
-              scheduleId: updateTarget.id,
-              scheduleDate: videoDate,
-              action: "existing",
-              title: updateTarget.title ?? undefined,
-              previousStatus: updateTarget.status,
-            },
-          });
-        }
-      }
-      return result;
-    },
-    10, // Concurrency limit
+  // 4. 기존 거부와 pending을 세션 대표 ID 및 모든 조각 ID로 비교한다.
+  const rejectedRows = await db
+    .select({
+      vod_id: scheduleCandidateRejections.vod_id,
+      source_vod_ids: scheduleCandidateRejections.source_vod_ids,
+    })
+    .from(scheduleCandidateRejections);
+  const rejectedVodIds = new Set(
+    rejectedRows.flatMap((row) => [
+      row.vod_id,
+      ...parseJsonArray(row.source_vod_ids),
+    ]),
+  );
+  const pendingRows = await db
+    .select({
+      id: pendingSchedules.id,
+      member_uid: pendingSchedules.member_uid,
+      date: pendingSchedules.date,
+      start_time: pendingSchedules.start_time,
+      action_type: pendingSchedules.action_type,
+      existing_schedule_id: pendingSchedules.existing_schedule_id,
+      candidate_kind: pendingSchedules.candidate_kind,
+      vod_id: pendingSchedules.vod_id,
+    })
+    .from(pendingSchedules);
+  const candidateDecisions = decisions.filter(
+    (
+      decision,
+    ): decision is Extract<AutoUpdateSessionDecision, { kind: "candidate" }> =>
+      decision.kind === "candidate",
+  );
+  const candidateByVodId = new Map(
+    candidateDecisions.map((decision) => [decision.session.vodId, decision]),
+  );
+  const sessionSourceVodIds = new Set(
+    sessionsInRange.flatMap((session) => session.sourceVodIds),
+  );
+  let obsoletePendingCount = 0;
+  const activePendingRows: typeof pendingRows = [];
+  for (const pending of pendingRows) {
+    const currentDecision = pending.vod_id
+      ? candidateByVodId.get(pending.vod_id)
+      : null;
+    const expectedAction = currentDecision?.candidateKind === "missing_schedule"
+      ? "create"
+      : "update";
+    const isV2Candidate = pending.candidate_kind !== null;
+    const isObserved = Boolean(
+      pending.vod_id && sessionSourceVodIds.has(pending.vod_id),
+    );
+    const isObsolete =
+      isV2Candidate &&
+      isObserved &&
+      (!currentDecision ||
+        pending.action_type !== expectedAction ||
+        pending.existing_schedule_id !== currentDecision.scheduleId ||
+        pending.candidate_kind !== currentDecision.candidateKind);
+    if (!isObsolete) {
+      activePendingRows.push(pending);
+      continue;
+    }
+    const deleted = await deleteObsoletePending(
+      db,
+      pending,
+      memberNameMap.get(pending.member_uid) ?? null,
+    );
+    if (deleted) obsoletePendingCount += 1;
+  }
+  const pendingVodIds = new Set(
+    activePendingRows.filter((item) => item.vod_id).map((item) => item.vod_id!),
+  );
+  const pendingKeys = new Set(
+    activePendingRows.map(
+      (item) =>
+        `${item.member_uid}:${item.date}:${item.start_time ?? ""}`,
+    ),
   );
 
-  const allLogItems: NewUpdateLog[] = [];
   const allDetails: AutoUpdateDetail[] = [];
-  let totalChecked = 0;
   let insertedPendingCount = 0;
+  let rejectedSuppressedCount = 0;
+  let duplicatePendingCount = 0;
   const newVodIds = new Set<string>();
   const newPendingKeys = new Set<string>();
-
-  for (const res of results) {
-    if (!res) {
+  for (const decision of decisions) {
+    const session = decision.session;
+    if (decision.kind === "existing") {
+      const existing = scheduleById.get(decision.scheduleId);
+      allDetails.push({
+        memberUid: session.memberUid,
+        memberName: session.memberName,
+        scheduleId: decision.scheduleId,
+        scheduleDate: session.date,
+        action: "existing",
+        title: existing?.title ?? session.title,
+        previousStatus: existing?.status ?? null,
+        vodId: session.vodId,
+        matchReason: decision.reason,
+        matchConfidence: decision.confidence,
+        sessionStartedAt: new Date(session.startedAt).toISOString(),
+        sessionEndedAt: new Date(session.endedAt).toISOString(),
+        segmentCount: session.segmentCount,
+      });
+      continue;
+    }
+    if (decision.kind === "suppressed") {
+      allDetails.push({
+        memberUid: session.memberUid,
+        memberName: session.memberName,
+        scheduleId: null,
+        scheduleDate: session.date,
+        action: decision.reason,
+        title: session.title,
+        previousStatus: null,
+        vodId: session.vodId,
+        matchReason: decision.reason,
+        sessionStartedAt: new Date(session.startedAt).toISOString(),
+        sessionEndedAt: new Date(session.endedAt).toISOString(),
+        segmentCount: session.segmentCount,
+      });
       continue;
     }
 
-    totalChecked += res.checkedCount;
+    const candidate = toCandidate(decision, scheduleById);
+    if (
+      candidate.sourceVodIds.some((vodId) => rejectedVodIds.has(vodId))
+    ) {
+      rejectedSuppressedCount += 1;
+      continue;
+    }
+    if (
+      pendingVodIds.has(candidate.vodId) ||
+      newVodIds.has(candidate.vodId) ||
+      pendingKeys.has(candidate.pendingKey) ||
+      newPendingKeys.has(candidate.pendingKey)
+    ) {
+      duplicatePendingCount += 1;
+      continue;
+    }
 
-    for (const entry of res.entries) {
-      if (entry.kind === "detail") {
-        allDetails.push(entry.detail);
-        continue;
-      }
-
-      const { candidate } = entry;
-
+    const insertResult = await insertPendingSchedule(
+      db,
+      candidate.pendingItem,
+      candidate.logItem,
+    );
+    newVodIds.add(candidate.vodId);
+    newPendingKeys.add(candidate.pendingKey);
+    if (insertResult.meta.changes !== 1) {
+      const currentRejections = await db
+        .select({
+          vod_id: scheduleCandidateRejections.vod_id,
+          source_vod_ids: scheduleCandidateRejections.source_vod_ids,
+        })
+        .from(scheduleCandidateRejections);
+      const currentRejectedVodIds = new Set(
+        currentRejections.flatMap((row) => [
+          row.vod_id,
+          ...parseJsonArray(row.source_vod_ids),
+        ]),
+      );
       if (
-        pendingVodIds.has(candidate.vodId) ||
-        newVodIds.has(candidate.vodId) ||
-        pendingKeys.has(candidate.pendingKey) ||
-        newPendingKeys.has(candidate.pendingKey)
+        candidate.sourceVodIds.some((vodId) =>
+          currentRejectedVodIds.has(vodId),
+        )
       ) {
-        continue;
+        rejectedSuppressedCount += 1;
+      } else {
+        duplicatePendingCount += 1;
       }
-
-      const insertResult = await insertPendingSchedule(db, candidate.pendingItem);
-
-      newVodIds.add(candidate.vodId);
-      newPendingKeys.add(candidate.pendingKey);
-
-      if (insertResult.meta.changes !== 1) {
-        continue;
-      }
-
-      insertedPendingCount += 1;
-      allLogItems.push(candidate.logItem);
-      allDetails.push(candidate.detail);
+      continue;
     }
-  }
-
-  if (allLogItems.length > 0) {
-    for (let i = 0; i < allLogItems.length; i += UPDATE_LOG_CHUNK_SIZE) {
-      await db
-        .insert(updateLogs)
-        .values(allLogItems.slice(i, i + UPDATE_LOG_CHUNK_SIZE));
-    }
+    insertedPendingCount += 1;
+    allDetails.push(candidate.detail);
   }
 
   return {
     updated: insertedPendingCount,
-    checked: totalChecked,
+    checked: fetchedObservations.length,
+    segmentCount: sessionsInRange.reduce(
+      (total, session) => total + session.segmentCount,
+      0,
+    ),
+    sessionCount: sessionsInRange.length,
+    resumeMergedCount: sessionsInRange.reduce(
+      (total, session) => total + Math.max(0, session.segmentCount - 1),
+      0,
+    ),
+    rejectedSuppressed: rejectedSuppressedCount,
+    duplicatePending: duplicatePendingCount,
+    shortSuppressed: decisions.filter(
+      (decision) =>
+        decision.kind === "suppressed" &&
+        decision.reason === "short_suppressed",
+    ).length,
+    holidaySuppressed: decisions.filter(
+      (decision) =>
+        decision.kind === "suppressed" &&
+        decision.reason === "holiday_suppressed",
+    ).length,
+    ambiguous: candidateDecisions.filter(
+      (decision) => decision.candidateKind === "ambiguous",
+    ).length,
+    obsoletePending: obsoletePendingCount,
     details: allDetails,
   };
 };
