@@ -458,11 +458,11 @@ export const queryScheduleCandidateRejections = async (
     bindings.push(input.reasonCode);
   }
   if (input.rejectedFrom) {
-    conditions.push("rejected_at >= ?");
+    conditions.push("rejected_at >= datetime(?, '-9 hours')");
     bindings.push(input.rejectedFrom);
   }
   if (input.rejectedTo) {
-    conditions.push("rejected_at < datetime(?, '+1 day')");
+    conditions.push("rejected_at < datetime(?, '+1 day', '-9 hours')");
     bindings.push(input.rejectedTo);
   }
 

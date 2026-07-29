@@ -575,6 +575,39 @@ describe("D1 pending schedule transaction", () => {
     ]);
   });
 
+  it("거부일 필터는 KST 자정 경계를 UTC 저장 시각으로 변환한다", async () => {
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedule_candidate_rejections (
+           vod_id, member_uid, member_name, date, start_time, title,
+           status, action_type, reason_code, rejected_at
+         )
+         VALUES
+           ('chzzk:kst-before', 10, '테스트 멤버', '2026-07-29', '20:00',
+            '경계 이전', '방송', 'create', 'other', '2026-07-28 14:59:59'),
+           ('chzzk:kst-first', 10, '테스트 멤버', '2026-07-29', '20:00',
+            '경계 시작', '방송', 'create', 'other', '2026-07-28 15:00:00'),
+           ('chzzk:kst-last', 10, '테스트 멤버', '2026-07-29', '20:00',
+            '경계 종료 전', '방송', 'create', 'other', '2026-07-29 14:59:59'),
+           ('chzzk:kst-next', 10, '테스트 멤버', '2026-07-30', '20:00',
+            '다음 날', '방송', 'create', 'other', '2026-07-29 15:00:00')`,
+      )
+      .run();
+
+    const result = await queryScheduleCandidateRejections(env.otw_db, {
+      reasonCode: "other",
+      rejectedFrom: "2026-07-29",
+      rejectedTo: "2026-07-29",
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.items.map((item) => item.vod_id)).toEqual([
+      "chzzk:kst-last",
+      "chzzk:kst-first",
+    ]);
+  });
+
   it("V2 승인에서는 현재 비어 있는 필드만 채우고 기존 시간과 상태를 보존한다", async () => {
     await env.otw_db
       .prepare(
