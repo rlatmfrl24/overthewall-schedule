@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { AutoUpdateSettingsManager } from "./auto-update-settings";
+import { summarizePendingRejectionBatch } from "./pending-rejection-batch";
 
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
 const updateSettingsMock = vi.hoisted(() => vi.fn());
@@ -266,6 +267,41 @@ describe("AutoUpdateSettingsManager", () => {
         .getByRole("button", { name: "거부하고 제외" })
         .hasAttribute("disabled"),
     ).toBe(true);
+  });
+
+  it("일괄 거부의 부분 실패와 전체 실패를 성공으로 표시하지 않는다", () => {
+    expect(
+      summarizePendingRejectionBatch({
+        success: false,
+        totalRequested: 2,
+        successCount: 1,
+        failedCount: 1,
+        results: [
+          { id: 101, success: true },
+          { id: 102, success: false, error: "stale" },
+        ],
+      }),
+    ).toEqual({
+      successfulIds: [101],
+      variant: "info",
+      description: "거부 제외 처리: 성공 1건, 실패 1건",
+    });
+    expect(
+      summarizePendingRejectionBatch({
+        success: false,
+        totalRequested: 2,
+        successCount: 0,
+        failedCount: 2,
+        results: [
+          { id: 101, success: false, error: "stale" },
+          { id: 102, success: false, error: "not found" },
+        ],
+      }),
+    ).toMatchObject({
+      successfulIds: [],
+      variant: "error",
+      description: "거부 제외 처리에 실패했습니다: 실패 2건",
+    });
   });
 
   it("매칭 불확실 V2 후보는 대상 일정 선택 전 승인을 비활성화한다", async () => {

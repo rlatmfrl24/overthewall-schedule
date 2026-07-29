@@ -72,6 +72,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 import { ScheduleRejectionsPanel } from "./schedule-rejections-panel";
 import { AutoUpdateRunHistory } from "./auto-update-run-history";
 import { REJECTION_REASON_OPTIONS } from "../../model/rejection-reasons";
+import { summarizePendingRejectionBatch } from "./pending-rejection-batch";
 
 const INTERVAL_OPTIONS = AUTO_UPDATE_INTERVAL_HOURS.map((value) => ({
   value,
@@ -910,10 +911,20 @@ export function AutoUpdateSettingsManager() {
         reasonCode: rejectionReasonCode,
         reasonNote: rejectionReasonNote.trim() || null,
       };
+      let successfulIds = targetIds;
+      let toastVariant: "success" | "info" | "error" = "success";
+      let toastDescription = `${targetIds.length}건을 거부 제외로 등록했습니다.`;
       if (targetIds.length === 1) {
         await rejectPendingSchedule(targetIds[0], options);
       } else {
-        await rejectSelectedPendingSchedules(targetIds, options);
+        const result = await rejectSelectedPendingSchedules(
+          targetIds,
+          options,
+        );
+        const summary = summarizePendingRejectionBatch(result);
+        successfulIds = summary.successfulIds;
+        toastVariant = summary.variant;
+        toastDescription = summary.description;
       }
       await Promise.all([
         loadPending(),
@@ -926,13 +937,13 @@ export function AutoUpdateSettingsManager() {
       ]);
       setPendingApprovalOptions((prev) => {
         const next = { ...prev };
-        for (const id of targetIds) delete next[id];
+        for (const id of successfulIds) delete next[id];
         return next;
       });
       setPendingRejectIds(null);
       toast({
-        variant: "success",
-        description: `${targetIds.length}건을 거부 제외로 등록했습니다.`,
+        variant: toastVariant,
+        description: toastDescription,
       });
     } catch (error) {
       console.error("Failed to reject pending schedule:", error);

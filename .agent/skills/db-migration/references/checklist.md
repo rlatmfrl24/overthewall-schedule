@@ -25,7 +25,8 @@
   never mark migration rows as applied from a generated final schema.
 - Run `pnpm d1:seed:local` when the affected behavior needs reproducible
   members/settings/ddays/sample schedules.
-- `pnpm d1:seed:local` must refuse to overwrite non-fixture local data. Use
+- Without `--force`, `pnpm d1:seed:local` must require an empty local D1
+  instead of inferring safety from fixture member names. Use
   `pnpm d1:reset:local` first only when discarding the existing local database
   is intentional; reserve `--force` for an explicit destructive fixture reset.
 - Run `pnpm d1:doctor` without `--remote` for the default local-only check.

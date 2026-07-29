@@ -31,7 +31,8 @@ alwaysApply: true
      temporary D1 and promote it only after validation. Do not synthesize the
      final schema and mark migrations as applied.
 3. Seed deterministic local fixtures when needed: `pnpm d1:seed:local`.
-   - The seed command must stop when non-fixture local data exists.
+   - Without `--force`, the seed command must require an empty local D1. Do
+     not infer safety only from `local_*` member identities.
    - Use `pnpm d1:reset:local` before seeding only when deleting the current
      local data is intentional.
    - Use `pnpm d1:seed:local -- --force` only for an explicit destructive
