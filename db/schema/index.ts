@@ -331,6 +331,45 @@ export const chzzkApiCache = sqliteTable(
 export type ChzzkApiCache = typeof chzzkApiCache.$inferSelect;
 export type NewChzzkApiCache = typeof chzzkApiCache.$inferInsert;
 
+// 자동 일정 보완에 사용하는 CHZZK VOD 영구 관측 기록
+export const scheduleBroadcastObservations = sqliteTable(
+  "schedule_broadcast_observations",
+  {
+    vod_id: text("vod_id").primaryKey(),
+    member_uid: integer("member_uid").notNull(),
+    channel_id: text("channel_id").notNull(),
+    title: text().notNull(),
+    started_at: integer("started_at").notNull(),
+    ended_at: integer("ended_at").notNull(),
+    duration_seconds: integer("duration_seconds").notNull(),
+    thumbnail_url: text("thumbnail_url"),
+    first_seen_at: integer("first_seen_at").notNull(),
+    last_seen_at: integer("last_seen_at").notNull(),
+  },
+  (table) => [
+    index("idx_schedule_broadcast_observations_member_started").on(
+      table.member_uid,
+      table.started_at,
+    ),
+    index("idx_schedule_broadcast_observations_last_seen").on(
+      table.last_seen_at,
+    ),
+    check(
+      "schedule_broadcast_observations_timing_check",
+      sql`${table.ended_at} >= ${table.started_at}`,
+    ),
+    check(
+      "schedule_broadcast_observations_duration_check",
+      sql`${table.duration_seconds} >= 0`,
+    ),
+  ],
+);
+
+export type ScheduleBroadcastObservation =
+  typeof scheduleBroadcastObservations.$inferSelect;
+export type NewScheduleBroadcastObservation =
+  typeof scheduleBroadcastObservations.$inferInsert;
+
 // YouTube API 호출 사용량 이벤트 로그
 export const youtubeApiUsageEvents = sqliteTable(
   "youtube_api_usage_events",
@@ -525,6 +564,9 @@ export const updateLogs = sqliteTable(
     action: text().notNull(),
     title: text(),
     previous_status: text("previous_status"),
+    vod_id: text("vod_id"),
+    reason_code: text("reason_code"),
+    reason_note: text("reason_note"),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
@@ -606,10 +648,29 @@ export const autoUpdateRuns = sqliteTable(
     finished_at: integer("finished_at").notNull(),
     range_days: integer("range_days").notNull(),
     checked_count: integer("checked_count").notNull().default(0),
+    segment_count: integer("segment_count").notNull().default(0),
+    session_count: integer("session_count").notNull().default(0),
+    resume_merged_count: integer("resume_merged_count").notNull().default(0),
     updated_count: integer("updated_count").notNull().default(0),
     created_count: integer("created_count").notNull().default(0),
     existing_count: integer("existing_count").notNull().default(0),
     pending_created_count: integer("pending_created_count").notNull().default(0),
+    rejected_suppressed_count: integer("rejected_suppressed_count")
+      .notNull()
+      .default(0),
+    duplicate_pending_count: integer("duplicate_pending_count")
+      .notNull()
+      .default(0),
+    short_suppressed_count: integer("short_suppressed_count")
+      .notNull()
+      .default(0),
+    holiday_suppressed_count: integer("holiday_suppressed_count")
+      .notNull()
+      .default(0),
+    ambiguous_count: integer("ambiguous_count").notNull().default(0),
+    obsolete_pending_count: integer("obsolete_pending_count")
+      .notNull()
+      .default(0),
     actor_id: text("actor_id"),
     actor_name: text("actor_name"),
     actor_ip: text("actor_ip"),
@@ -651,7 +712,16 @@ export const pendingSchedules = sqliteTable(
     action_type: text("action_type").notNull(), // "create" | "update"
     existing_schedule_id: integer("existing_schedule_id"), // 수정 대상 스케줄 ID
     previous_status: text("previous_status"), // 수정 전 상태
+    previous_start_time: text("previous_start_time"), // 수정 전 시작 시각
     previous_title: text("previous_title"), // 수정 전 제목
+    candidate_kind: text("candidate_kind"),
+    match_reason: text("match_reason"),
+    match_confidence: text("match_confidence"),
+    ranked_schedule_ids: text("ranked_schedule_ids"),
+    source_vod_ids: text("source_vod_ids"),
+    session_started_at: text("session_started_at"),
+    session_ended_at: text("session_ended_at"),
+    vod_segment_count: integer("vod_segment_count").notNull().default(1),
     vod_id: text("vod_id"), // 중복 방지용 VOD 식별자
     vod_started_at: text("vod_started_at"), // VOD 기준 방송 시작 시각
     vod_duration_seconds: integer("vod_duration_seconds"), // 총 방송 길이(초)
@@ -684,6 +754,68 @@ export const pendingSchedules = sqliteTable(
 
 export type PendingSchedule = typeof pendingSchedules.$inferSelect;
 export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;
+
+// 관리자가 재검토를 허용할 때까지 수집에서 제외되는 VOD 후보
+export const scheduleCandidateRejections = sqliteTable(
+  "schedule_candidate_rejections",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    vod_id: text("vod_id").notNull(),
+    member_uid: integer("member_uid").notNull(),
+    member_name: text("member_name").notNull(),
+    date: text().notNull(),
+    start_time: text("start_time"),
+    title: text(),
+    status: text().notNull(),
+    action_type: text("action_type").notNull(),
+    existing_schedule_id: integer("existing_schedule_id"),
+    previous_status: text("previous_status"),
+    previous_start_time: text("previous_start_time"),
+    previous_title: text("previous_title"),
+    candidate_kind: text("candidate_kind"),
+    match_reason: text("match_reason"),
+    match_confidence: text("match_confidence"),
+    ranked_schedule_ids: text("ranked_schedule_ids"),
+    source_vod_ids: text("source_vod_ids"),
+    session_started_at: text("session_started_at"),
+    session_ended_at: text("session_ended_at"),
+    vod_segment_count: integer("vod_segment_count").notNull().default(1),
+    vod_started_at: text("vod_started_at"),
+    vod_duration_seconds: integer("vod_duration_seconds"),
+    vod_thumbnail_url: text("vod_thumbnail_url"),
+    reason_code: text("reason_code"),
+    reason_note: text("reason_note"),
+    actor_id: text("actor_id"),
+    actor_name: text("actor_name"),
+    actor_ip: text("actor_ip"),
+    rejected_at: numeric("rejected_at").default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("uidx_schedule_candidate_rejections_vod_id").on(
+      table.vod_id,
+    ),
+    index("idx_schedule_candidate_rejections_rejected_at").on(
+      table.rejected_at,
+    ),
+    index("idx_schedule_candidate_rejections_member_date").on(
+      table.member_uid,
+      table.date,
+    ),
+    index("idx_schedule_candidate_rejections_reason_rejected").on(
+      table.reason_code,
+      table.rejected_at,
+    ),
+    check(
+      "schedule_candidate_rejections_reason_check",
+      sql`${table.reason_code} IS NULL OR ${table.reason_code} IN ('not_needed', 'already_reflected', 'wrong_match', 'duplicate', 'other')`,
+    ),
+  ],
+);
+
+export type ScheduleCandidateRejection =
+  typeof scheduleCandidateRejections.$inferSelect;
+export type NewScheduleCandidateRejection =
+  typeof scheduleCandidateRejections.$inferInsert;
 
 // 키리누키 채널 테이블 (유튜브 채널 영상 모음)
 export const kirinukiChannels = sqliteTable("kirinuki_channels", {

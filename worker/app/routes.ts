@@ -613,6 +613,21 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     methods: methods(get(ADMIN_NO_STORE)),
     handler: handlePendingScheduleQuery,
   },
+  {
+    id: "settings.pending-rejections",
+    owner: "schedules",
+    path: apiRoutes.schedules.pending.rejections.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handlePendingScheduleQuery,
+  },
+  {
+    id: "settings.pending-rejection-reopen",
+    owner: "schedules",
+    path: apiRoutes.schedules.pending.reopenRejection.pattern,
+    numericParams: ["id"],
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handlePendingScheduleCommand,
+  },
   ...[
     {
       action: "reset-processed",

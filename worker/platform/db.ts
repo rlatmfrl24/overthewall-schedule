@@ -2,7 +2,9 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@db/schema";
 import type { Env } from "./types";
 
-export type DbInstance = DrizzleD1Database<typeof schema>;
+export type DbInstance = DrizzleD1Database<typeof schema> & {
+  $client: D1Database;
+};
 
 const dbCache = new WeakMap<D1Database, DbInstance>();
 

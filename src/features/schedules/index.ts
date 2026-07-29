@@ -12,9 +12,11 @@ export {
   approvePendingSchedule,
   approveSelectedPendingSchedules,
   fetchPendingSchedules,
+  fetchScheduleCandidateRejections,
   rejectAllPendingSchedules,
   rejectPendingSchedule,
   rejectSelectedPendingSchedules,
+  reopenScheduleCandidateRejection,
   resetPendingScheduleProcessed,
 } from "./api/pending-schedules";
 export type {
@@ -27,10 +29,15 @@ export type {
 export type {
   PendingApplyMode,
   PendingApprovalOptions,
+  PendingRejectionOptions,
+  PendingRejectionReasonCode,
   PendingSchedule,
   PendingScheduleSummary,
   PendingTargetMode,
   PendingTimeMode,
+  ScheduleCandidateRejection,
+  ScheduleCandidateRejectionList,
+  ScheduleCandidateRejectionQuery,
   SelectedPendingBatchResponse,
   SelectedPendingBatchResult,
 } from "./model/pending-schedule";

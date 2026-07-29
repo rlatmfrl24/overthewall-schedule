@@ -67,27 +67,15 @@ const makeStatusD1 = () => {
         { key: "naver_cafe_collection_last_run", value: String(now - 45 * 60_000) },
       ]);
     }
+    if (sql.includes("FROM schedule_candidate_rejections")) {
+      return makeStatement([{ total: 3 }]);
+    }
     if (sql.includes("FROM pending_schedules")) {
       return makeStatement([
         {
-          id: 101,
-          member_uid: 1,
-          date: "2026-07-09",
-          title: "방송 A",
-          action_type: "create",
-          existing_schedule_id: null,
-          processed_reset_at: null,
-          created_at: "2026-07-09 00:00:00",
-        },
-        {
-          id: 102,
-          member_uid: 2,
-          date: "2026-07-09",
-          title: "방송 B",
-          action_type: "update",
-          existing_schedule_id: 202,
-          processed_reset_at: null,
-          created_at: "2026-07-09 00:00:00",
+          total: 2,
+          create_count: 1,
+          update_count: 1,
         },
       ]);
     }
@@ -108,6 +96,8 @@ const makeStatusD1 = () => {
           created_count: 1,
           existing_count: 2,
           pending_created_count: 2,
+          rejected_suppressed_count: 3,
+          duplicate_pending_count: 1,
           actor_id: null,
           actor_name: null,
           actor_ip: null,
@@ -339,7 +329,7 @@ describe("operations worker route", () => {
     expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
   });
 
-  it("관리자 승인 화면에서 처리 완료로 숨겨지는 pending은 경고 대상에서 제외한다", async () => {
+  it("pending은 과거 처리 로그 추정 없이 실제 행을 경고 대상으로 집계한다", async () => {
     const now = Date.now();
     const updateLogsStatement = makeStatement([
       {
@@ -374,16 +364,14 @@ describe("operations worker route", () => {
       if (sql.includes("FROM pending_schedules")) {
         return makeStatement([
           {
-            id: 101,
-            member_uid: 1,
-            date: "2026-07-09",
-            title: "이미 승인된 방송",
-            action_type: "create",
-            existing_schedule_id: null,
-            processed_reset_at: null,
-            created_at: "2026-07-09 00:00:00",
+            total: 1,
+            create_count: 1,
+            update_count: 0,
           },
         ]);
+      }
+      if (sql.includes("FROM schedule_candidate_rejections")) {
+        return makeStatement([{ total: 0 }]);
       }
       if (sql.includes("FROM update_logs")) {
         updateLogsSql = sql;
@@ -403,6 +391,8 @@ describe("operations worker route", () => {
             created_count: 1,
             existing_count: 2,
             pending_created_count: 2,
+            rejected_suppressed_count: 0,
+            duplicate_pending_count: 0,
             actor_id: null,
             actor_name: null,
             actor_ip: null,
@@ -466,11 +456,10 @@ describe("operations worker route", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(body.autoUpdate.pending.total).toBe(0);
-    expect(updateLogsSql).toContain("member_uid IN (?)");
-    expect(updateLogsSql).toContain("schedule_date IN (?)");
-    expect(updateLogsStatement.bind).toHaveBeenCalledWith(1, "2026-07-09");
-    expect(body.summary.issues.map((issue) => issue.code)).not.toContain(
+    expect(body.autoUpdate.pending.total).toBe(1);
+    expect(updateLogsSql).toBe("");
+    expect(updateLogsStatement.bind).not.toHaveBeenCalled();
+    expect(body.summary.issues.map((issue) => issue.code)).toContain(
       "pending_schedule_backlog",
     );
   });
@@ -495,14 +484,9 @@ describe("operations worker route", () => {
       if (sql.includes("FROM pending_schedules")) {
         return makeStatement([
           {
-            id: 201,
-            member_uid: 1,
-            date: "2026-07-09",
-            title: "반복 방송",
-            action_type: "create",
-            existing_schedule_id: null,
-            processed_reset_at: null,
-            created_at: "2026-07-09 00:20:00",
+            total: 1,
+            create_count: 1,
+            update_count: 0,
           },
         ]);
       }

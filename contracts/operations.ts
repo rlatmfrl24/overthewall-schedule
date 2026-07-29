@@ -17,10 +17,19 @@ export interface AutoUpdateOperationRunDto {
   finishedAt: number;
   rangeDays: number;
   checkedCount: number;
+  segmentCount: number;
+  sessionCount: number;
+  resumeMergedCount: number;
   updatedCount: number;
   createdCount: number;
   existingCount: number;
   pendingCreatedCount: number;
+  rejectedSuppressedCount: number;
+  duplicatePendingCount: number;
+  shortSuppressedCount: number;
+  holidaySuppressedCount: number;
+  ambiguousCount: number;
+  obsoletePendingCount: number;
   actorId: string | null;
   actorName: string | null;
   error: string | null;
@@ -120,6 +129,7 @@ export interface OperationsStatusResponseDto {
       createCount: number;
       updateCount: number;
     };
+    rejectionCount: number;
     latestRun: AutoUpdateOperationRunDto | null;
     recentRuns: AutoUpdateOperationRunDto[];
   };
@@ -228,12 +238,31 @@ export interface AutoUpdateRunDetailDto {
   action: string;
   title?: string;
   previousStatus: string | null;
+  vodId?: string | null;
+  candidateKind?:
+    | "missing_schedule"
+    | "fill_missing_fields"
+    | "ambiguous";
+  matchReason?: string;
+  matchConfidence?: "high" | "medium" | "low";
+  sessionStartedAt?: string;
+  sessionEndedAt?: string;
+  segmentCount?: number;
 }
 
 export interface AutoUpdateRunResultDto {
   success: boolean;
   updated: number;
   checked: number;
+  segmentCount: number;
+  sessionCount: number;
+  resumeMergedCount: number;
+  rejectedSuppressed: number;
+  duplicatePending: number;
+  shortSuppressed: number;
+  holidaySuppressed: number;
+  ambiguous: number;
+  obsoletePending: number;
   details: AutoUpdateRunDetailDto[];
 }
 

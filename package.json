@@ -29,7 +29,7 @@
     "drizzle:migrate:local": "wrangler d1 migrations apply otw-db",
     "d1:doctor": "node scripts/d1-doctor.mjs",
     "d1:reset:local": "node scripts/d1-reset-local.mjs",
-    "d1:seed:local": "wrangler d1 execute otw-db --local --file scripts/fixtures/local-d1-seed.sql",
+    "d1:seed:local": "node scripts/d1-seed-local.mjs",
     "sync:agent-cursor": "node scripts/sync-agent-to-cursor.mjs",
     "sync:agent-cursor:check": "node scripts/sync-agent-to-cursor.mjs --check"
   },

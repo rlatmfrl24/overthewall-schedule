@@ -19,6 +19,7 @@ interface ConfirmActionDialogProps {
   cancelLabel?: string;
   onConfirm: () => void;
   isProcessing?: boolean;
+  confirmDisabled?: boolean;
   destructive?: boolean;
 }
 
@@ -31,6 +32,7 @@ export function ConfirmActionDialog({
   cancelLabel = "취소",
   onConfirm,
   isProcessing = false,
+  confirmDisabled = false,
   destructive = false,
 }: ConfirmActionDialogProps) {
   return (
@@ -51,7 +53,7 @@ export function ConfirmActionDialog({
             {cancelLabel}
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={isProcessing}
+            disabled={isProcessing || confirmDisabled}
             onClick={onConfirm}
             className={destructive ? "bg-destructive text-white hover:bg-destructive/90" : undefined}
           >

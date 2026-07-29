@@ -86,6 +86,8 @@ describe("manual auto-update handler", () => {
     runAutoUpdateWithHistoryMock.mockResolvedValue({
       checked: 4,
       updated: 2,
+      rejectedSuppressed: 3,
+      duplicatePending: 1,
       details: [{ id: 1 }],
     });
 
@@ -97,6 +99,8 @@ describe("manual auto-update handler", () => {
       success: true,
       updated: 2,
       checked: 4,
+      rejectedSuppressed: 3,
+      duplicatePending: 1,
       details: [{ id: 1 }],
     });
     expect(runAutoUpdateWithHistoryMock).toHaveBeenCalledWith(
@@ -114,6 +118,10 @@ describe("manual auto-update handler", () => {
         status: "success",
         targetCount: 4,
         successCount: 2,
+        detail: expect.objectContaining({
+          rejectedSuppressed: 3,
+          duplicatePending: 1,
+        }),
       }),
     );
   });

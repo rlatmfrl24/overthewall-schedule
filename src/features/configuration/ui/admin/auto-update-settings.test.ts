@@ -14,12 +14,15 @@ import { AutoUpdateSettingsManager } from "./auto-update-settings";
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
 const updateSettingsMock = vi.hoisted(() => vi.fn());
 const runAutoUpdateNowMock = vi.hoisted(() => vi.fn());
+const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
 const fetchPendingSchedulesMock = vi.hoisted(() => vi.fn());
 const approvePendingScheduleMock = vi.hoisted(() => vi.fn());
 const rejectPendingScheduleMock = vi.hoisted(() => vi.fn());
 const resetPendingScheduleProcessedMock = vi.hoisted(() => vi.fn());
 const approveSelectedPendingSchedulesMock = vi.hoisted(() => vi.fn());
 const rejectSelectedPendingSchedulesMock = vi.hoisted(() => vi.fn());
+const fetchScheduleCandidateRejectionsMock = vi.hoisted(() => vi.fn());
+const reopenScheduleCandidateRejectionMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/settings", () => ({
@@ -28,6 +31,7 @@ vi.mock("../../api/settings", () => ({
 }));
 
 vi.mock("@/features/operations", () => ({
+  fetchOperationsStatus: fetchOperationsStatusMock,
   runAutoUpdateNow: runAutoUpdateNowMock,
 }));
 
@@ -41,6 +45,10 @@ vi.mock("@/features/schedules", async (importOriginal) => {
     resetPendingScheduleProcessed: resetPendingScheduleProcessedMock,
     approveSelectedPendingSchedules: approveSelectedPendingSchedulesMock,
     rejectSelectedPendingSchedules: rejectSelectedPendingSchedulesMock,
+    fetchScheduleCandidateRejections:
+      fetchScheduleCandidateRejectionsMock,
+    reopenScheduleCandidateRejection:
+      reopenScheduleCandidateRejectionMock,
   };
 });
 
@@ -75,7 +83,17 @@ const makePendingSchedule = (overrides = {}) => ({
   action_type: "create",
   existing_schedule_id: null,
   previous_status: null,
+  previous_start_time: null,
   previous_title: null,
+  candidate_kind: null,
+  match_reason: null,
+  match_confidence: null,
+  missing_fields: [],
+  ranked_schedules: [],
+  source_vod_ids: ["vod-101"],
+  session_started_at: "2026-07-09T03:20:00.000Z",
+  session_ended_at: "2026-07-09T04:20:00.000Z",
+  vod_segment_count: 1,
   vod_id: "vod-101",
   vod_started_at: "2026-07-09T03:20:00.000Z",
   vod_duration_seconds: 3600,
@@ -116,7 +134,25 @@ describe("AutoUpdateSettingsManager", () => {
       success: true,
       updated: 0,
       checked: 0,
+      segmentCount: 0,
+      sessionCount: 0,
+      resumeMergedCount: 0,
+      rejectedSuppressed: 0,
+      duplicatePending: 0,
+      shortSuppressed: 0,
+      holidaySuppressed: 0,
+      ambiguous: 0,
+      obsoletePending: 0,
       details: [],
+    });
+    fetchOperationsStatusMock.mockResolvedValue({
+      autoUpdate: {
+        lastRun: null,
+        nextEligibleAt: null,
+        rejectionCount: 0,
+        latestRun: null,
+        recentRuns: [],
+      },
     });
     fetchPendingSchedulesMock.mockResolvedValue([]);
     approveSelectedPendingSchedulesMock.mockResolvedValue({
@@ -133,6 +169,17 @@ describe("AutoUpdateSettingsManager", () => {
       failedCount: 0,
       results: [{ id: 101, success: true }],
     });
+    fetchScheduleCandidateRejectionsMock.mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+      totalPages: 0,
+    });
+    reopenScheduleCandidateRejectionMock.mockResolvedValue({
+      success: true,
+      action: "reopen_rejection",
+    });
   });
 
   afterEach(() => {
@@ -146,6 +193,7 @@ describe("AutoUpdateSettingsManager", () => {
     });
 
     await waitFor(() => expect(fetchSettingsMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "설정" }));
 
     const switchControl = screen.getByRole("switch", {
       name: "라이브 자동 입력",
@@ -195,5 +243,80 @@ describe("AutoUpdateSettingsManager", () => {
     await waitFor(() =>
       expect(approveSelectedPendingSchedulesMock).toHaveBeenCalledWith([101]),
     );
+  });
+
+  it("거부 확인에서 영구 제외 영향과 필수 사유를 안내한다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([makePendingSchedule()]);
+    render(createElement(AutoUpdateSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const rejectButton = await screen.findByRole("button", { name: "거부" });
+    fireEvent.click(rejectButton);
+
+    expect(
+      screen.getByRole("alertdialog", { name: "후보 영구 제외" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/동일 VOD ID는 제목이나 시간이 바뀌어도/),
+    ).toBeTruthy();
+    expect(screen.getByText("거부 사유")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "거부하고 제외" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("매칭 불확실 V2 후보는 대상 일정 선택 전 승인을 비활성화한다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([
+      makePendingSchedule({
+        action_type: "update",
+        candidate_kind: "ambiguous",
+        match_reason: "ambiguous",
+        match_confidence: "low",
+        missing_fields: [],
+        ranked_schedules: [
+          {
+            id: 201,
+            start_time: "12:00",
+            title: "기존 방송",
+            status: "scheduled",
+            reason: "time_window",
+            confidence: "medium",
+            time_difference_minutes: 20,
+            title_similarity: 0.2,
+          },
+          {
+            id: 202,
+            start_time: "13:00",
+            title: "다른 기존 방송",
+            status: "scheduled",
+            reason: "time_window",
+            confidence: "medium",
+            time_difference_minutes: 40,
+            title_similarity: 0.1,
+          },
+        ],
+      }),
+    ]);
+    render(createElement(AutoUpdateSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect((await screen.findAllByText("매칭 불확실")).length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      screen.getByText(/승인할 기존 일정을 반드시 선택하세요/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "승인" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByRole("button", { name: "전체" })
+        .some((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import type {
   PendingAction,
   PendingApprovalOptions,
+  PendingRejectionOptions,
   PendingScheduleActionResult,
   PendingScheduleBatchResult,
 } from "../../../../contracts/pending-schedules";
@@ -20,6 +21,7 @@ type RunOneInput = {
   id: number;
   action: PendingAction;
   options: PendingApprovalOptions | null;
+  rejectionOptions?: PendingRejectionOptions | null;
   actor: ScheduleActor;
   applyEmptyTarget?: boolean;
 };
@@ -28,6 +30,7 @@ type RunBatchInput = {
   ids: number[];
   action: PendingAction;
   options: PendingApprovalOptions | null;
+  rejectionOptions?: PendingRejectionOptions | null;
   actor: ScheduleActor;
 };
 
@@ -95,6 +98,7 @@ export class PendingScheduleService {
     id,
     action,
     options,
+    rejectionOptions = null,
     actor,
     applyEmptyTarget = false,
   }: RunOneInput): Promise<PendingScheduleActionResult> {
@@ -127,7 +131,12 @@ export class PendingScheduleService {
         actor,
       );
     } else if (action === "reject") {
-      outcome = await rejectPendingSchedule(this.repository, item, actor);
+      outcome = await rejectPendingSchedule(
+        this.repository,
+        item,
+        actor,
+        rejectionOptions,
+      );
     } else {
       outcome = await resetPendingProcessed(this.repository, item, actor);
     }
@@ -139,13 +148,20 @@ export class PendingScheduleService {
     ids,
     action,
     options,
+    rejectionOptions = null,
     actor,
   }: RunBatchInput): Promise<PendingScheduleBatchResult> {
     const results = await mapWithConcurrency(
       ids,
       async (id) => {
         try {
-          return await this.runOne({ id, action, options, actor });
+          return await this.runOne({
+            id,
+            action,
+            options,
+            rejectionOptions,
+            actor,
+          });
         } catch (error) {
           console.error(
             `Failed to ${action} pending schedule ${id}:`,
@@ -164,6 +180,13 @@ export class PendingScheduleService {
       failedCount: ids.length - successCount,
       results,
     };
+  }
+
+  async reopenRejection(id: number, actor: ScheduleActor) {
+    return toActionResult(
+      id,
+      await this.repository.reopenRejection(id, actor),
+    );
   }
 
   async auditBatch({

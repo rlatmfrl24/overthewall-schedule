@@ -90,6 +90,15 @@ export const queryKeys = {
     all: ["settings"] as const,
     detail: () => [...queryKeys.settings.all, "detail"] as const,
     pending: () => [...queryKeys.settings.all, "pending"] as const,
+    pendingRejections: (options: {
+      search?: string;
+      reasonCode?: string;
+      rejectedFrom?: string;
+      rejectedTo?: string;
+      page: number;
+      pageSize: number;
+    }) =>
+      [...queryKeys.settings.all, "pending-rejections", options] as const,
     logs: (options: UpdateLogQuery) =>
       [...queryKeys.settings.all, "logs", options] as const,
     auditLogs: (options: { page: number; pageSize: number }) =>

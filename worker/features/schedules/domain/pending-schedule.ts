@@ -1,6 +1,7 @@
 import type {
   PendingApplyMode,
   PendingApprovalOptions,
+  PendingRejectionReasonCode,
   PendingTargetMode,
   PendingTimeMode,
 } from "../../../../contracts/pending-schedules";
@@ -16,7 +17,20 @@ export type PendingScheduleRow = {
   action_type: string;
   existing_schedule_id: number | null;
   previous_status: string | null;
+  previous_start_time?: string | null;
   previous_title: string | null;
+  candidate_kind?: string | null;
+  match_reason?: string | null;
+  match_confidence?: string | null;
+  ranked_schedule_ids?: string | null;
+  source_vod_ids?: string | null;
+  session_started_at?: string | null;
+  session_ended_at?: string | null;
+  vod_segment_count?: number;
+  vod_id: string | null;
+  vod_started_at: string | null;
+  vod_duration_seconds: number | null;
+  vod_thumbnail_url: string | null;
 };
 
 export const isPendingApplyMode = (
@@ -33,6 +47,15 @@ export const isPendingTimeMode = (
   value: unknown,
 ): value is PendingTimeMode =>
   value === "nearest_hour" || value === "exact";
+
+export const isPendingRejectionReasonCode = (
+  value: unknown,
+): value is PendingRejectionReasonCode =>
+  value === "not_needed" ||
+  value === "already_reflected" ||
+  value === "wrong_match" ||
+  value === "duplicate" ||
+  value === "other";
 
 export const roundTimeToNearestScheduleHour = (time: string | null) => {
   if (!time) return null;

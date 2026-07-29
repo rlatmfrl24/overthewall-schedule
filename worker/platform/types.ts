@@ -291,7 +291,9 @@ export type UpdateLogPayload = {
     | "delete"
     | "approve"
     | "reject"
+    | "reopen_rejection"
     | "reset_processed"
+    | "candidate_obsolete"
     | "auto_collected"
     | "auto_updated"
     | "schedule_auto_created"
@@ -354,6 +356,16 @@ export type AutoUpdateDetail = {
   action: string;
   title?: string;
   previousStatus: string | null;
+  vodId?: string | null;
+  candidateKind?:
+    | "missing_schedule"
+    | "fill_missing_fields"
+    | "ambiguous";
+  matchReason?: string;
+  matchConfidence?: "high" | "medium" | "low";
+  sessionStartedAt?: string;
+  sessionEndedAt?: string;
+  segmentCount?: number;
 };
 
 export type NewPendingSchedule = typeof pendingSchedules.$inferInsert;

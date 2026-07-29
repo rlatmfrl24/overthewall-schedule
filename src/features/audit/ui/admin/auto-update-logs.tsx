@@ -58,6 +58,8 @@ const ACTION_LABELS: Record<string, string> = {
   delete: "삭제",
   approve: "승인",
   reject: "거부",
+  reopen_rejection: "재검토 허용",
+  candidate_obsolete: "만료 후보 정리",
   reset_processed: "처리 표시 리셋",
   auto_collected: "자동 수집",
   auto_updated: "자동 업데이트",
@@ -75,6 +77,8 @@ const ACTION_BADGE_VARIANTS: Record<
   delete: "destructive",
   approve: "default",
   reject: "destructive",
+  reopen_rejection: "outline",
+  candidate_obsolete: "outline",
   reset_processed: "outline",
   auto_collected: "outline",
   auto_updated: "secondary",
@@ -652,6 +656,25 @@ export function AutoUpdateLogsManager() {
                 <span className="text-muted-foreground">이전 상태</span>
                 <span>{selectedLog.previous_status || "-"}</span>
               </div>
+              {selectedLog.vod_id ? (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-muted-foreground">VOD ID</span>
+                  <code className="max-w-[60%] break-all text-right text-xs">
+                    {selectedLog.vod_id}
+                  </code>
+                </div>
+              ) : null}
+              {selectedLog.reason_code ? (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-muted-foreground">거부 사유</span>
+                  <span className="text-right">
+                    {selectedLog.reason_code}
+                    {selectedLog.reason_note
+                      ? ` · ${selectedLog.reason_note}`
+                      : ""}
+                  </span>
+                </div>
+              ) : null}
             </div>
           )}
         </DialogContent>

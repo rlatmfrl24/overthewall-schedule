@@ -23,6 +23,10 @@ const makeItem = (id: number): PendingScheduleRow => ({
   existing_schedule_id: null,
   previous_status: null,
   previous_title: null,
+  vod_id: `chzzk:${id}`,
+  vod_started_at: null,
+  vod_duration_seconds: null,
+  vod_thumbnail_url: null,
 });
 
 const makeRepository = (
@@ -44,6 +48,10 @@ const makeRepository = (
   reject: async () => ({
     success: true,
     action: "reject",
+  }),
+  reopenRejection: async () => ({
+    success: true,
+    action: "reopen_rejection",
   }),
   resetProcessed: async () => ({
     success: true,

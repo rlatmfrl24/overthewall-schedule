@@ -1,4 +1,5 @@
 import type { PendingScheduleQuery } from "./ports/pending-schedule-query";
+import type { ScheduleCandidateRejectionQuery } from "../../../../contracts/pending-schedules";
 
 export class PendingScheduleQueryService {
   private readonly query: PendingScheduleQuery;
@@ -9,5 +10,9 @@ export class PendingScheduleQueryService {
 
   readReview() {
     return this.query.readReview();
+  }
+
+  readRejections(input: ScheduleCandidateRejectionQuery) {
+    return this.query.readRejections(input);
   }
 }

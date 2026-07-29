@@ -21,6 +21,10 @@ const pendingSchedule: PendingScheduleRow = {
   existing_schedule_id: 10,
   previous_status: "방송",
   previous_title: "기존 방송",
+  vod_id: "chzzk:test",
+  vod_started_at: null,
+  vod_duration_seconds: null,
+  vod_thumbnail_url: null,
 };
 
 const makeOptions = (

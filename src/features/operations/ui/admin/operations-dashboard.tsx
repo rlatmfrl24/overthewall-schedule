@@ -210,15 +210,17 @@ function AutoUpdateRunsTable({ runs }: { runs: AutoUpdateOperationRun[] }) {
           <TableHead>시각</TableHead>
           <TableHead>구분</TableHead>
           <TableHead>상태</TableHead>
-          <TableHead>확인</TableHead>
+          <TableHead>VOD / 세션</TableHead>
+          <TableHead>재개 병합</TableHead>
           <TableHead>대기 생성</TableHead>
+          <TableHead>억제</TableHead>
           <TableHead>소요</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {runs.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={6} className="text-muted-foreground">
+            <TableCell colSpan={8} className="text-muted-foreground">
               실행 이력이 없습니다.
             </TableCell>
           </TableRow>
@@ -237,8 +239,14 @@ function AutoUpdateRunsTable({ runs }: { runs: AutoUpdateOperationRun[] }) {
                   {getRunStatusLabel(run.status)}
                 </Badge>
               </TableCell>
-              <TableCell>{run.checkedCount}</TableCell>
+              <TableCell>
+                {run.segmentCount} / {run.sessionCount}
+              </TableCell>
+              <TableCell>{run.resumeMergedCount}</TableCell>
               <TableCell>{run.pendingCreatedCount}</TableCell>
+              <TableCell>
+                {run.rejectedSuppressedCount + run.shortSuppressedCount + run.holidaySuppressedCount}
+              </TableCell>
               <TableCell>{formatDuration(run.startedAt, run.finishedAt)}</TableCell>
             </TableRow>
           ))

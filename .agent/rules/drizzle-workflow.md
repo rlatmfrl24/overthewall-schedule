@@ -23,11 +23,22 @@ alwaysApply: true
 - Never edit already-applied migration files; create a new migration instead.
 
 ## Apply Order (Local -> Remote)
-1. Reset or migrate local D1 first: `pnpm d1:reset:local` or `pnpm drizzle:migrate:local`.
-2. Seed deterministic local fixtures when needed: `pnpm d1:seed:local`.
-3. Run the local D1 doctor: `pnpm d1:doctor`.
-4. Validate behavior locally across affected APIs and UI flows.
-5. Apply to remote D1 only after local validation and only from release/deploy
+1. Verify the full migration chain without replacing the current local D1:
+   `pnpm d1:reset:local -- --validate-only`.
+2. Reset or migrate local D1 when intended: `pnpm d1:reset:local` or
+   `pnpm drizzle:migrate:local`.
+   - The reset command must apply numbered migration SQL to an isolated
+     temporary D1 and promote it only after validation. Do not synthesize the
+     final schema and mark migrations as applied.
+3. Seed deterministic local fixtures when needed: `pnpm d1:seed:local`.
+   - The seed command must stop when non-fixture local data exists.
+   - Use `pnpm d1:reset:local` before seeding only when deleting the current
+     local data is intentional.
+   - Use `pnpm d1:seed:local -- --force` only for an explicit destructive
+     fixture replacement.
+4. Run the local D1 doctor: `pnpm d1:doctor`.
+5. Validate behavior locally across affected APIs and UI flows.
+6. Apply to remote D1 only after local validation and only from release/deploy
    flow: `pnpm drizzle:migrate:remote`.
 
 ## Commit Requirements

@@ -14,13 +14,9 @@ import {
 } from "./data-retention";
 import {
   readOperationsStatusRows,
-  readPendingProcessedLogRows,
-  readPendingScheduleStatusRows,
   type AutoUpdateRunRow,
   type NaverCafeSourceCheckRow,
   type NaverCafeSourceRow,
-  type PendingProcessedLogRow,
-  type PendingScheduleStatusRow,
   type SettingRow,
   type XCollectionRunRow,
   type XUsageSummaryRow,
@@ -100,150 +96,32 @@ const getLatestSuccessAt = <T extends { status: string; finished_at: number | nu
   rows: T[],
 ) => rows.find((row) => row.status === "success")?.finished_at ?? null;
 
-const normalizeComparableText = (value: string | null | undefined) =>
-  value?.trim().toLowerCase() ?? "";
-
-const normalizePendingProcessedResetAt = (value: unknown) =>
-  typeof value === "string" &&
-  !["processed_reset_at", "null", "undefined", ""].includes(value)
-    ? value
-    : null;
-
-const parseTimestampMs = (value: string | number | null | undefined) => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (!value) return null;
-  const sqliteUtcMatch = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value);
-  const normalized = sqliteUtcMatch ? `${value.replace(" ", "T")}Z` : value;
-  const timestamp = new Date(normalized).getTime();
-  return Number.isNaN(timestamp) ? null : timestamp;
-};
-
-const compareTimestamps = (
-  left: string | number | null | undefined,
-  right: string | number | null | undefined,
-) => {
-  const leftTime = parseTimestampMs(left);
-  const rightTime = parseTimestampMs(right);
-  if (leftTime !== null && rightTime !== null) {
-    return leftTime - rightTime;
-  }
-  return String(left ?? "").localeCompare(String(right ?? ""));
-};
-
-const isLogAfterReset = (logCreatedAt: string | null, resetAt: string | null) => {
-  if (!resetAt) return true;
-  if (!logCreatedAt) return false;
-  return compareTimestamps(logCreatedAt, resetAt) > 0;
-};
-
-const getLaterTimestamp = (
-  left: string | null,
-  right: string | null | undefined,
-) => {
-  if (!left) return right ?? null;
-  if (!right) return left;
-  return compareTimestamps(left, right) >= 0 ? left : right;
-};
-
-const getProcessedDecision = (action: string) =>
-  action === "approve" || action === "reject" ? action : null;
-
-const getPendingScheduleKey = (memberUid: number, date: string) =>
-  `${memberUid}:${date}`;
-
-const isMatchingProcessedLogTitleFallback = (
-  item: PendingScheduleStatusRow,
-  log: PendingProcessedLogRow,
-) => {
-  if (
-    normalizeComparableText(log.title) === "" ||
-    normalizeComparableText(log.title) !== normalizeComparableText(item.title)
-  ) {
-    return false;
-  }
-
-  const logTime = parseTimestampMs(log.created_at);
-  const pendingTime = parseTimestampMs(item.created_at);
-  return logTime !== null && pendingTime !== null && logTime >= pendingTime;
-};
-
-const isMatchingProcessedLog = (
-  item: PendingScheduleStatusRow,
-  log: PendingProcessedLogRow,
-) => {
-  if (log.previous_status === `pending:${item.id}`) {
-    return true;
-  }
-  if (item.existing_schedule_id && log.schedule_id === item.existing_schedule_id) {
-    return true;
-  }
-  return isMatchingProcessedLogTitleFallback(item, log);
-};
-
-const isProcessedPending = (
-  item: PendingScheduleStatusRow,
-  logs: PendingProcessedLogRow[],
-) => {
-  const columnProcessedResetAt = normalizePendingProcessedResetAt(
-    item.processed_reset_at,
-  );
-  const latestResetLogAt =
-    logs.find(
-      (log) =>
-        log.action === "reset_processed" && isMatchingProcessedLog(item, log),
-    )?.created_at ?? null;
-  const processedResetAt = getLaterTimestamp(
-    columnProcessedResetAt,
-    latestResetLogAt,
-  );
-
-  return logs.some((log) => {
-    if (!getProcessedDecision(log.action)) return false;
-    if (!isLogAfterReset(log.created_at, processedResetAt)) return false;
-    return isMatchingProcessedLog(item, log);
-  });
-};
-
 const getVisiblePendingSummary = async (
   db: D1Database,
 ): Promise<PendingSummaryRow> => {
-  const pendingRows = await readPendingScheduleStatusRows(db);
-
-  if (pendingRows.length === 0) {
-    return { total: 0, create_count: 0, update_count: 0 };
-  }
-
-  const memberUids = [...new Set(pendingRows.map((row) => row.member_uid))];
-  const dates = [...new Set(pendingRows.map((row) => row.date))];
-  const processedLogs = await readPendingProcessedLogRows(
-    db,
-    memberUids,
-    dates,
-  );
-  const logsByMemberDate = new Map<string, PendingProcessedLogRow[]>();
-
-  for (const log of processedLogs) {
-    if (log.member_uid === null || !log.schedule_date) continue;
-    const key = getPendingScheduleKey(log.member_uid, log.schedule_date);
-    const existing = logsByMemberDate.get(key) ?? [];
-    existing.push(log);
-    logsByMemberDate.set(key, existing);
-  }
-
-  const visibleRows = pendingRows.filter((row) => {
-    const logs =
-      logsByMemberDate.get(getPendingScheduleKey(row.member_uid, row.date)) ??
-      [];
-    return !isProcessedPending(row, logs);
-  });
-
-  return {
-    total: visibleRows.length,
-    create_count: visibleRows.filter((row) => row.action_type === "create")
-      .length,
-    update_count: visibleRows.filter((row) => row.action_type === "update")
-      .length,
+  const result = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN action_type = 'create' THEN 1 ELSE 0 END) AS create_count,
+         SUM(CASE WHEN action_type = 'update' THEN 1 ELSE 0 END) AS update_count
+       FROM pending_schedules`,
+    )
+    .all<PendingSummaryRow>();
+  return result.results[0] ?? {
+    total: 0,
+    create_count: 0,
+    update_count: 0,
   };
+};
+
+const getRejectionCount = async (db: D1Database) => {
+  const result = await db
+    .prepare(
+      "SELECT COUNT(*) AS total FROM schedule_candidate_rejections",
+    )
+    .all<{ total: number }>();
+  return toNumber(result.results[0]?.total);
 };
 
 const getNextEligibleAt = (
@@ -282,10 +160,19 @@ const serializeAutoRun = (row: AutoUpdateRunRow) => ({
   finishedAt: row.finished_at,
   rangeDays: row.range_days,
   checkedCount: row.checked_count,
+  segmentCount: row.segment_count,
+  sessionCount: row.session_count,
+  resumeMergedCount: row.resume_merged_count,
   updatedCount: row.updated_count,
   createdCount: row.created_count,
   existingCount: row.existing_count,
   pendingCreatedCount: row.pending_created_count,
+  rejectedSuppressedCount: row.rejected_suppressed_count,
+  duplicatePendingCount: row.duplicate_pending_count,
+  shortSuppressedCount: row.short_suppressed_count,
+  holidaySuppressedCount: row.holiday_suppressed_count,
+  ambiguousCount: row.ambiguous_count,
+  obsoletePendingCount: row.obsolete_pending_count,
   actorId: row.actor_id,
   actorName: row.actor_name,
   error: row.error,
@@ -619,7 +506,10 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     now,
     naverEnabled,
   );
-  const pending = await getVisiblePendingSummary(env.otw_db);
+  const [pending, rejectionCount] = await Promise.all([
+    getVisiblePendingSummary(env.otw_db),
+    getRejectionCount(env.otw_db),
+  ]);
   const autoEnabled = settings.get("auto_update_enabled") === "true";
   const xEnabled = settings.get("x_collection_enabled") !== "false";
   const parsedXDailyBudgetCents = Number.parseInt(
@@ -754,6 +644,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
         createCount: toNumber(pending.create_count),
         updateCount: toNumber(pending.update_count),
       },
+      rejectionCount,
       latestRun: latestAutoRun ? serializeAutoRun(latestAutoRun) : null,
       recentRuns: autoRuns.slice(0, 10).map(serializeAutoRun),
     },

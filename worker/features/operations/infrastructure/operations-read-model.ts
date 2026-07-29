@@ -11,36 +11,23 @@ export type AutoUpdateRunRow = {
   finished_at: number;
   range_days: number;
   checked_count: number;
+  segment_count: number;
+  session_count: number;
+  resume_merged_count: number;
   updated_count: number;
   created_count: number;
   existing_count: number;
   pending_created_count: number;
+  rejected_suppressed_count: number;
+  duplicate_pending_count: number;
+  short_suppressed_count: number;
+  holiday_suppressed_count: number;
+  ambiguous_count: number;
+  obsolete_pending_count: number;
   actor_id: string | null;
   actor_name: string | null;
   actor_ip: string | null;
   error: string | null;
-};
-
-export type PendingScheduleStatusRow = {
-  id: number;
-  member_uid: number;
-  date: string;
-  title: string | null;
-  action_type: string;
-  existing_schedule_id: number | null;
-  processed_reset_at: string | null;
-  created_at: string | null;
-};
-
-export type PendingProcessedLogRow = {
-  id: number;
-  schedule_id: number | null;
-  member_uid: number | null;
-  schedule_date: string | null;
-  action: string;
-  title: string | null;
-  previous_status: string | null;
-  created_at: string | null;
 };
 
 export type XCollectionRunRow = {
@@ -101,45 +88,6 @@ export type NaverCafeSourceCheckRow = {
 
 const getResults = <T>(result: D1Result<T>) => result.results ?? [];
 
-const createSqlPlaceholders = (count: number) =>
-  Array.from({ length: count }, () => "?").join(", ");
-
-export const readPendingScheduleStatusRows = async (db: D1Database) =>
-  getResults(
-    await db
-      .prepare(
-        `SELECT id, member_uid, date, title, action_type,
-                existing_schedule_id, processed_reset_at, created_at
-         FROM pending_schedules`,
-      )
-      .all<PendingScheduleStatusRow>(),
-  );
-
-export const readPendingProcessedLogRows = async (
-  db: D1Database,
-  memberUids: readonly number[],
-  dates: readonly string[],
-) => {
-  if (memberUids.length === 0 || dates.length === 0) return [];
-
-  const memberPlaceholders = createSqlPlaceholders(memberUids.length);
-  const datePlaceholders = createSqlPlaceholders(dates.length);
-  return getResults(
-    await db
-      .prepare(
-        `SELECT id, schedule_id, member_uid, schedule_date, action, title,
-                previous_status, created_at
-         FROM update_logs
-         WHERE action IN ('approve', 'reject', 'reset_processed')
-           AND member_uid IN (${memberPlaceholders})
-           AND schedule_date IN (${datePlaceholders})
-         ORDER BY created_at DESC, id DESC`,
-      )
-      .bind(...memberUids, ...dates)
-      .all<PendingProcessedLogRow>(),
-  );
-};
-
 export const readOperationsStatusRows = async (
   db: D1Database,
   since: number,
@@ -175,8 +123,12 @@ export const readOperationsStatusRows = async (
     db
       .prepare(
         `SELECT id, source, status, started_at, finished_at, range_days,
-                checked_count, updated_count, created_count, existing_count,
-                pending_created_count, actor_id, actor_name, actor_ip, error
+                checked_count, segment_count, session_count,
+                resume_merged_count, updated_count, created_count, existing_count,
+                pending_created_count, rejected_suppressed_count,
+                duplicate_pending_count, short_suppressed_count,
+                holiday_suppressed_count, ambiguous_count,
+                obsolete_pending_count, actor_id, actor_name, actor_ip, error
          FROM auto_update_runs
          ORDER BY started_at DESC
          LIMIT 50`,
