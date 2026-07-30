@@ -142,13 +142,15 @@ function PublicSidebar({
       <div
         className={cn(
           "flex shrink-0 items-center border-t border-sidebar-border",
-          collapsed ? "h-16 justify-center px-0" : "h-14 px-3",
+          collapsed
+            ? "h-[5.5rem] justify-center px-0 py-2"
+            : "h-14 px-3",
         )}
       >
         <div
           className={cn(
             "flex items-center gap-2",
-            collapsed ? "flex-col gap-0" : "w-full justify-between",
+            collapsed ? "flex-col" : "w-full justify-between",
           )}
         >
           <ModeToggle />

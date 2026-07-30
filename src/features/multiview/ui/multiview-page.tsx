@@ -358,8 +358,8 @@ export function MultiviewPage() {
       data-testid="multiview-root"
       className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground"
     >
-      <section className="z-30 shrink-0 border-b border-border bg-card text-card-foreground">
-        <div className="flex h-12 items-center gap-3 px-3 sm:px-4">
+      <section className="z-30 h-16 shrink-0 border-b border-border bg-card text-card-foreground">
+        <div className="flex h-full items-center gap-3 px-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <MonitorPlay className="h-4 w-4 shrink-0 text-primary" />
             <h1 className="truncate text-sm font-bold sm:text-base">

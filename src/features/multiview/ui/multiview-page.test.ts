@@ -100,6 +100,11 @@ describe("MultiviewPage", () => {
     expect(screen.getByTestId("multiview-root").className).toContain(
       "overflow-hidden",
     );
+    const header = screen
+      .getByRole("heading", { name: "오버더월 멀티뷰" })
+      .closest("section");
+    expect(header?.className).toContain("h-16");
+    expect(header?.firstElementChild?.className).toContain("h-full");
     expect(
       screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
     ).toBeTruthy();
