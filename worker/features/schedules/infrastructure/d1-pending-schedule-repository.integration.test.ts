@@ -541,6 +541,13 @@ describe("D1 pending schedule transaction", () => {
     });
     await env.otw_db
       .prepare(
+        `UPDATE schedule_candidate_rejections
+         SET rejected_at = '2026-07-29 01:00:00'
+         WHERE vod_id = 'chzzk:vod-1'`,
+      )
+      .run();
+    await env.otw_db
+      .prepare(
         `INSERT INTO schedule_candidate_rejections (
            vod_id, member_uid, member_name, date, start_time, title,
            status, action_type, reason_code, rejected_at

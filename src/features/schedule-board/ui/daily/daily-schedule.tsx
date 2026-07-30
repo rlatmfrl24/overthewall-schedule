@@ -22,7 +22,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardMember } from "./card-member";
 import { CardMemberCompact } from "./card-member-compact";
 import { CardMemberSkeleton } from "./card-member-skeleton";
-import { getLiveUrlForSchedule } from "./live-navigation";
 import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
@@ -276,12 +275,6 @@ export const DailySchedule = ({
   };
 
   const handleScheduleClick = (schedule: ScheduleItem) => {
-    const liveUrl = getLiveUrlForSchedule(schedule, members, liveStatuses);
-    if (liveUrl) {
-      window.open(liveUrl, "_blank", "noreferrer");
-      return;
-    }
-
     openEditScheduleDialog(schedule);
   };
 
