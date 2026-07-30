@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/features/members";
@@ -125,6 +125,71 @@ describe("ChronologicalScheduleList", () => {
     expect(screen.queryByText("미등록 LIVE")).toBeNull();
     expect(screen.getAllByText(/방송 중/).length).toBeGreaterThan(0);
     expect(screen.getByText("현재 방송 중입니다")).toBeTruthy();
+  });
+
+  it("방송 중인 편성표 행 클릭은 일정 편집 콜백을 실행한다", () => {
+    const onScheduleClick = vi.fn();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const schedule = makeSchedule({
+      id: 1,
+      member_uid: 1,
+      status: "방송",
+      start_time: "20:00",
+      title: "정규 방송",
+    });
+
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [schedule],
+        liveStatuses,
+        onScheduleClick,
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "20:00 온 하루 정규 방송",
+      }),
+    );
+
+    expect(onScheduleClick).toHaveBeenCalledWith(schedule);
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("방송 외부 링크는 편집 콜백 없이 새 탭을 연다", () => {
+    const onScheduleClick = vi.fn();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+
+    render(
+      createElement(ChronologicalScheduleList, {
+        members: [makeMember(1, "온 하루")],
+        schedules: [
+          makeSchedule({
+            id: 1,
+            member_uid: 1,
+            status: "방송",
+            start_time: "20:00",
+            title: "정규 방송",
+          }),
+        ],
+        liveStatuses,
+        onScheduleClick,
+      }),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "방송 보러가기",
+      }),
+    );
+
+    expect(openSpy).toHaveBeenCalledWith(
+      "https://chzzk.naver.com/live/channel-1",
+      "_blank",
+      "noreferrer",
+    );
+    expect(onScheduleClick).not.toHaveBeenCalled();
   });
 
   it("로딩과 빈 상태를 표시한다", () => {
