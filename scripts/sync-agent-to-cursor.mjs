@@ -28,6 +28,14 @@ const mappings = [
     target: ".cursor/skills/code-review-otw/agents/openai.yaml",
   },
   {
+    source: ".agent/skills/branch-maintenance/SKILL.md",
+    target: ".cursor/skills/branch-maintenance/SKILL.md",
+  },
+  {
+    source: ".agent/skills/branch-maintenance/agents/openai.yaml",
+    target: ".cursor/skills/branch-maintenance/agents/openai.yaml",
+  },
+  {
     source: ".agent/skills/db-migration/SKILL.md",
     target: ".cursor/skills/db-migration/SKILL.md",
   },

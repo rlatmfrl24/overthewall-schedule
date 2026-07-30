@@ -11,12 +11,14 @@
 ## Skills
 
 ### Available skills
+- `branch-maintenance`: Safely clean merged local task branches and fast-forward the default branch. Path: `.agent/skills/branch-maintenance/SKILL.md`
 - `code-review-otw`: Review OTW code changes for correctness, security, performance, accessibility, and regression risks. Path: `.agent/skills/code-review/SKILL.md`
 - `db-migration`: Execute safe Drizzle and D1 migration workflows. Path: `.agent/skills/db-migration/SKILL.md`
 - `worker-api-change`: Implement `/api` contract changes across worker routes and frontend API clients. Path: `.agent/skills/worker-api-change/SKILL.md`
 - `release-ops`: Run release and deployment preflight checks for the web app, Worker, and D1-backed changes. Path: `.agent/skills/release-ops/SKILL.md`
 
 ### Trigger rules
+- Use `branch-maintenance` for merged-branch cleanup, stale ref pruning, or default-branch synchronization requests.
 - Use `code-review-otw` for review, PR review, risk review, or regression review requests.
 - Use `db-migration` for schema or migration changes.
 - Use `worker-api-change` for `/api` endpoints, payloads, query params, or frontend API client changes.
@@ -40,12 +42,14 @@
 - `.cursor/rules/project-standards.mdc`
 - `.cursor/rules/architecture.mdc`
 - `.cursor/rules/drizzle-workflow.mdc`
+- `.cursor/skills/branch-maintenance/SKILL.md`
 - `.cursor/skills/code-review-otw/SKILL.md`
 - `.cursor/skills/db-migration/SKILL.md`
 - `.cursor/skills/worker-api-change/SKILL.md`
 - `.cursor/skills/release-ops/SKILL.md`
 
 ## Compatibility Workflows
+- `.agent/workflows/branch-maintenance.md`
 - `.agent/workflows/db-migration.md`
 - `.agent/workflows/local-dev-setup.md`
 - `.agent/workflows/worker-deploy.md`
