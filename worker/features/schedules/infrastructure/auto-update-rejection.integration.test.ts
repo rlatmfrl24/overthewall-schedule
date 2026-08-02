@@ -160,16 +160,20 @@ const makeVideoCatalog = (getVideos: () => Video[]): ChzzkVideoCatalog => ({
   fetchVideosBatch: vi.fn(async (
     requests: Parameters<ChzzkVideoCatalog["fetchVideosBatch"]>[0],
   ) =>
-    requests.map((request) => ({
-      channelId: request.channelId,
-      content: {
-        page: request.page,
-        size: request.size,
-        totalCount: getVideos().length,
-        totalPages: 1,
-        data: request.page === 0 ? getVideos() : [],
-      },
-    })),
+    requests.map((request) => {
+      const videos = getVideos();
+      const start = request.page * request.size;
+      return {
+        channelId: request.channelId,
+        content: {
+          page: request.page,
+          size: request.size,
+          totalCount: videos.length,
+          totalPages: Math.ceil(videos.length / request.size),
+          data: videos.slice(start, start + request.size),
+        },
+      };
+    }),
   ) as ChzzkVideoCatalog["fetchVideosBatch"],
 });
 
@@ -327,6 +331,26 @@ describe("auto update rejection workflow", () => {
     expect(await countRows("schedule_broadcast_observations")).toBe(1);
     expect(await countRows("pending_schedules")).toBe(1);
     expect(await countRows("update_logs")).toBe(1);
+  });
+
+  it("D1 bind 한도를 넘는 14개 관측도 chunk로 나눠 모두 저장한다", async () => {
+    const videos = Array.from({ length: 14 }, (_, index) =>
+      makeVideo(
+        `vod-bulk-${index}`,
+        `대량 관측 ${index}`,
+        Date.parse("2026-07-29T10:00:00.000Z") + index * 60_000,
+      ),
+    );
+    const videoCatalog = makeVideoCatalog(() => videos);
+    const db = getDb({
+      YOUTUBE_API_KEY: "",
+      otw_db: env.otw_db,
+    });
+
+    const result = await autoUpdateSchedules(db, 1, { videoCatalog });
+
+    expect(result.checked).toBe(14);
+    expect(await countRows("schedule_broadcast_observations")).toBe(14);
   });
 
   it("후보 감사 로그 저장이 실패하면 pending 삽입을 함께 rollback한다", async () => {

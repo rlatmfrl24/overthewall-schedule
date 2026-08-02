@@ -9,6 +9,7 @@ vi.mock("../../chzzk/infrastructure/chzzk-api", () => ({
 }));
 
 import {
+  OBSERVATION_CHUNK_SIZE,
   scanRecentChzzkVideos,
   scanRecentChzzkVideosForChannels,
 } from "./auto-update";
@@ -101,6 +102,20 @@ describe("scanRecentChzzkVideos", () => {
       cacheDb,
       { forceRefresh: true },
     );
+  });
+
+  it("관측 upsert chunk는 D1 쿼리당 bind parameter 100개를 넘지 않는다", () => {
+    const insertBindingsPerObservation = 10;
+    const upsertBindingsPerStatement = 1;
+
+    expect(
+      OBSERVATION_CHUNK_SIZE * insertBindingsPerObservation +
+        upsertBindingsPerStatement,
+    ).toBeLessThanOrEqual(100);
+    expect(
+      (OBSERVATION_CHUNK_SIZE + 1) * insertBindingsPerObservation +
+        upsertBindingsPerStatement,
+    ).toBeGreaterThan(100);
   });
 
   it("범위를 벗어난 VOD를 만나면 다음 페이지를 조회하지 않는다", async () => {
