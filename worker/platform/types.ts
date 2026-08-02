@@ -320,6 +320,9 @@ export type AdminAuditLogPayload = {
 export type NoticePayload = {
   id?: number | string;
   content?: string;
+  links?: Array<{ label: string; url: string }>;
+  image_urls?: string[];
+  related_member_uids?: number[];
   url?: string;
   thumbnail_url?: string | null;
   type?: string;

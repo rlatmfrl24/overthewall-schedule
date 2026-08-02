@@ -110,6 +110,18 @@ export const notices = sqliteTable(
   {
     id: integer().primaryKey({ autoIncrement: true }),
     content: text().notNull(),
+    links: text("links", { mode: "json" })
+      .$type<Array<{ label: string; url: string }>>()
+      .notNull()
+      .default(sql`'[]'`),
+    image_urls: text("image_urls", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    related_member_uids: text("related_member_uids", { mode: "json" })
+      .$type<number[]>()
+      .notNull()
+      .default(sql`'[]'`),
     url: text(),
     thumbnail_url: text("thumbnail_url"),
     type: text("type").notNull().default("notice"),

@@ -1,5 +1,6 @@
 import type {
   NoticeDto,
+  NoticeLinkDto,
   NoticePayload,
   NoticePublisherType,
   NoticeThumbnailAssetStatus,
@@ -12,6 +13,7 @@ import type {
 
 export type Notice = NoticeDto;
 export type {
+  NoticeLinkDto,
   NoticePayload,
   NoticePublisherType,
   NoticeThumbnailAssetStatus,

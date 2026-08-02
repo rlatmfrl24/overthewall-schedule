@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  getScheduleBoard,
   isScheduleChangeAction,
   resolveScheduleBoardUpdatedAt,
 } from "./d1-schedule-board";
+import type { DbInstance } from "../../../platform/db";
 
 describe("schedule-board updatedAt", () => {
   it("조회 시각이 아니라 실제 최신 변경 시각을 ISO 문자열로 반환한다", () => {
@@ -40,5 +42,50 @@ describe("schedule-board updatedAt", () => {
     expect(isScheduleChangeAction("auto_collected")).toBe(false);
     expect(isScheduleChangeAction("auto_updated")).toBe(false);
     expect(isScheduleChangeAction("reject")).toBe(false);
+  });
+
+  it("일정 보드 응답에 공지 다중 콘텐츠 배열을 그대로 전달한다", async () => {
+    const notice = {
+      id: 7,
+      content: "다중 공지",
+      links: [
+        { label: "A", url: "https://example.com/a" },
+        { label: "B", url: "https://example.com/b" },
+      ],
+      image_urls: ["/one.webp", "/two.webp"],
+      related_member_uids: [1, 2],
+      url: "https://example.com/a",
+      thumbnail_url: "/one.webp",
+      type: "notice",
+      publisher_type: "otw",
+      publisher_member_uid: null,
+      is_active: true,
+      is_featured: true,
+      started_at: null,
+      ended_at: null,
+      created_at: "2026-08-03 00:00:00",
+    };
+    const makeQuery = (rows: unknown[]) => {
+      const query = {
+        from: () => query,
+        where: () => query,
+        orderBy: () => query,
+        limit: () => query,
+        then: (resolve: (value: unknown[]) => unknown) => resolve(rows),
+      };
+      return query;
+    };
+    const rowSets = [[], [], [notice], [], []];
+    const db = {
+      select: () => makeQuery(rowSets.shift() ?? []),
+    } as unknown as DbInstance;
+
+    const board = await getScheduleBoard(db, "2026-08-03", "2026-08-09");
+
+    expect(board.notices[0]).toMatchObject({
+      links: notice.links,
+      image_urls: notice.image_urls,
+      related_member_uids: notice.related_member_uids,
+    });
   });
 });

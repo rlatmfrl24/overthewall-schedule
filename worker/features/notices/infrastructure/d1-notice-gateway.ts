@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { members, notices } from "@db/schema";
 import type {
   NoticeDto,
@@ -28,6 +28,50 @@ type NoticeThumbnailReference = {
   key: string;
   url: string;
   referenceCount: number;
+};
+
+type NoticeRow = typeof notices.$inferSelect;
+
+const getNoticeLinks = (row: NoticeRow) => {
+  if (Array.isArray(row.links) && row.links.length > 0) {
+    return row.links;
+  }
+  const legacyUrl = row.url?.trim();
+  return legacyUrl ? [{ label: "자세히 보기", url: legacyUrl }] : [];
+};
+
+const getNoticeImageUrls = (
+  row: Pick<NoticeRow, "image_urls" | "thumbnail_url">,
+) => {
+  if (Array.isArray(row.image_urls) && row.image_urls.length > 0) {
+    return row.image_urls;
+  }
+  const legacyUrl = row.thumbnail_url?.trim();
+  return legacyUrl ? [legacyUrl] : [];
+};
+
+const getRelatedMemberUids = (row: NoticeRow) => {
+  if (Array.isArray(row.related_member_uids)) {
+    return row.related_member_uids;
+  }
+  return row.publisher_type === "member" && row.publisher_member_uid
+    ? [row.publisher_member_uid]
+    : [];
+};
+
+const toNoticeDto = (row: NoticeRow): NoticeDto => {
+  const links = getNoticeLinks(row);
+  const imageUrls = getNoticeImageUrls(row);
+  return {
+    ...row,
+    links,
+    image_urls: imageUrls,
+    related_member_uids: getRelatedMemberUids(row),
+    url: links[0]?.url ?? null,
+    thumbnail_url: imageUrls[0] ?? null,
+    publisher_type: "otw",
+    publisher_member_uid: null,
+  };
 };
 
 const getR2ObjectUploadedAt = (object: R2Object) =>
@@ -69,20 +113,24 @@ export class D1NoticeGateway implements NoticeGateway {
     const baseStatement = this.db.select().from(notices);
     const filteredStatement =
       filters.length > 0 ? baseStatement.where(and(...filters)) : baseStatement;
-    return (await filteredStatement.orderBy(notices.id)) as NoticeDto[];
+    const rows = await filteredStatement.orderBy(notices.id);
+    return rows.map(toNoticeDto);
   }
 
   async create(input: NoticeWriteInput): Promise<NoticeMutationResult> {
-    if (!(await this.isPublisherValid(input))) {
-      return { status: "publisher_not_found" };
+    if (!(await this.areRelatedMembersValid(input.relatedMemberUids))) {
+      return { status: "related_member_not_found" };
     }
     const result = await this.db.insert(notices).values({
       content: input.content,
-      url: input.url,
-      thumbnail_url: input.thumbnailUrl,
+      links: input.links,
+      image_urls: input.imageUrls,
+      related_member_uids: input.relatedMemberUids,
+      url: input.links[0]?.url ?? null,
+      thumbnail_url: input.imageUrls[0] ?? null,
       type: input.type,
-      publisher_type: input.publisherType,
-      publisher_member_uid: input.publisherMemberUid,
+      publisher_type: "otw",
+      publisher_member_uid: null,
       is_active: input.isActive,
       is_featured: false,
       started_at: input.startedAt,
@@ -95,11 +143,14 @@ export class D1NoticeGateway implements NoticeGateway {
     id: number,
     input: NoticeWriteInput,
   ): Promise<NoticeMutationResult> {
-    if (!(await this.isPublisherValid(input))) {
-      return { status: "publisher_not_found" };
+    if (!(await this.areRelatedMembersValid(input.relatedMemberUids))) {
+      return { status: "related_member_not_found" };
     }
     const previousRows = await this.db
-      .select({ thumbnail_url: notices.thumbnail_url })
+      .select({
+        image_urls: notices.image_urls,
+        thumbnail_url: notices.thumbnail_url,
+      })
       .from(notices)
       .where(eq(notices.id, id))
       .limit(1);
@@ -107,11 +158,14 @@ export class D1NoticeGateway implements NoticeGateway {
       .update(notices)
       .set({
         content: input.content,
-        url: input.url,
-        thumbnail_url: input.thumbnailUrl,
+        links: input.links,
+        image_urls: input.imageUrls,
+        related_member_uids: input.relatedMemberUids,
+        url: input.links[0]?.url ?? null,
+        thumbnail_url: input.imageUrls[0] ?? null,
         type: input.type,
-        publisher_type: input.publisherType,
-        publisher_member_uid: input.publisherMemberUid,
+        publisher_type: "otw",
+        publisher_member_uid: null,
         is_active: input.isActive,
         started_at: input.startedAt,
         ended_at: input.endedAt,
@@ -119,22 +173,27 @@ export class D1NoticeGateway implements NoticeGateway {
       .where(eq(notices.id, id));
 
     if (!result.success) return { status: "failed" };
-    await this.deleteThumbnailIfUnused(
-      previousRows[0]?.thumbnail_url,
-      input.thumbnailUrl,
+    await this.deleteImagesIfUnused(
+      previousRows[0] ? getNoticeImageUrls(previousRows[0]) : [],
+      input.imageUrls,
     );
     return { status: "success" };
   }
 
   async remove(id: number): Promise<NoticeMutationResult> {
     const previousRows = await this.db
-      .select({ thumbnail_url: notices.thumbnail_url })
+      .select({
+        image_urls: notices.image_urls,
+        thumbnail_url: notices.thumbnail_url,
+      })
       .from(notices)
       .where(eq(notices.id, id))
       .limit(1);
     const result = await this.db.delete(notices).where(eq(notices.id, id));
     if (!result.success) return { status: "failed" };
-    await this.deleteThumbnailIfUnused(previousRows[0]?.thumbnail_url);
+    await this.deleteImagesIfUnused(
+      previousRows[0] ? getNoticeImageUrls(previousRows[0]) : [],
+    );
     return { status: "success" };
   }
 
@@ -229,39 +288,40 @@ export class D1NoticeGateway implements NoticeGateway {
     };
   }
 
-  private async isPublisherValid(input: NoticeWriteInput) {
-    if (input.publisherType === "otw") return true;
-    if (input.publisherMemberUid === null) return false;
-
+  private async areRelatedMembersValid(memberUids: number[]) {
+    if (memberUids.length === 0) return true;
     const rows = await this.db
       .select({ uid: members.uid })
       .from(members)
       .where(
         and(
-          eq(members.uid, input.publisherMemberUid),
+          inArray(members.uid, memberUids),
           sql`(${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0)`,
         ),
-      )
-      .limit(1);
-    return Boolean(rows[0]);
+      );
+    return rows.length === memberUids.length;
   }
 
   private async getThumbnailReferenceCounts() {
     const rows = await this.db
-      .select({ thumbnail_url: notices.thumbnail_url })
-      .from(notices)
-      .where(sql`${notices.thumbnail_url} IS NOT NULL`);
+      .select({
+        image_urls: notices.image_urls,
+        thumbnail_url: notices.thumbnail_url,
+      })
+      .from(notices);
     const references = new Map<string, NoticeThumbnailReference>();
 
     for (const row of rows) {
-      const key = getOwnedNoticeThumbnailKey(row.thumbnail_url);
-      if (!key) continue;
-      const existing = references.get(key);
-      references.set(key, {
-        key,
-        url: buildNoticeThumbnailAssetUrl(key),
-        referenceCount: (existing?.referenceCount ?? 0) + 1,
-      });
+      for (const imageUrl of new Set(getNoticeImageUrls(row))) {
+        const key = getOwnedNoticeThumbnailKey(imageUrl);
+        if (!key) continue;
+        const existing = references.get(key);
+        references.set(key, {
+          key,
+          url: buildNoticeThumbnailAssetUrl(key),
+          referenceCount: (existing?.referenceCount ?? 0) + 1,
+        });
+      }
     }
     return references;
   }
@@ -365,27 +425,39 @@ export class D1NoticeGateway implements NoticeGateway {
     };
   }
 
-  private async deleteThumbnailIfUnused(
-    thumbnailUrl?: string | null,
-    replacementUrl?: string | null,
+  private async deleteImagesIfUnused(
+    previousImageUrls: string[],
+    replacementImageUrls: string[] = [],
   ) {
-    const key = getOwnedNoticeThumbnailKey(thumbnailUrl);
-    if (!key || key === getOwnedNoticeThumbnailKey(replacementUrl)) return;
-    if (await this.hasThumbnailReference(key)) return;
-    if (!this.bucket) {
-      console.warn(
-        "[notices] R2 asset bucket is not configured for thumbnail cleanup",
-      );
-      return;
-    }
+    const replacementKeys = new Set(
+      replacementImageUrls
+        .map((url) => getOwnedNoticeThumbnailKey(url))
+        .filter((key): key is string => Boolean(key)),
+    );
+    const keys = new Set(
+      previousImageUrls
+        .map((url) => getOwnedNoticeThumbnailKey(url))
+        .filter((key): key is string => Boolean(key)),
+    );
 
-    try {
-      await this.bucket.delete(key);
-    } catch (error) {
-      console.warn("[notices] Failed to delete notice thumbnail", {
-        key,
-        error,
-      });
+    for (const key of keys) {
+      if (replacementKeys.has(key) || (await this.hasThumbnailReference(key))) {
+        continue;
+      }
+      if (!this.bucket) {
+        console.warn(
+          "[notices] R2 asset bucket is not configured for thumbnail cleanup",
+        );
+        return;
+      }
+      try {
+        await this.bucket.delete(key);
+      } catch (error) {
+        console.warn("[notices] Failed to delete notice thumbnail", {
+          key,
+          error,
+        });
+      }
     }
   }
 }

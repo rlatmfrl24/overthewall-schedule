@@ -1,17 +1,16 @@
 import type {
   NoticeDto,
-  NoticePublisherType,
+  NoticeLinkDto,
   NoticeThumbnailCleanupResponse,
   NoticeThumbnailStatusResponse,
 } from "../../../../../contracts/notices";
 
 export interface NoticeWriteInput {
   content: string;
-  url: string | null;
-  thumbnailUrl: string | null;
+  links: NoticeLinkDto[];
+  imageUrls: string[];
+  relatedMemberUids: number[];
   type: string;
-  publisherType: NoticePublisherType;
-  publisherMemberUid: number | null;
   isActive: boolean;
   startedAt: string | null;
   endedAt: string | null;
@@ -19,7 +18,7 @@ export interface NoticeWriteInput {
 
 export type NoticeMutationResult =
   | { status: "success" }
-  | { status: "publisher_not_found" }
+  | { status: "related_member_not_found" }
   | { status: "failed" };
 
 export type NoticeThumbnailDeleteResult =

@@ -32,29 +32,34 @@ const makeEnv = (overrides: Partial<Env> = {}): Env =>
     ...overrides,
   }) as Env;
 
-const selectThumbnailQuery = (thumbnailUrl: string | null) => ({
+const selectThumbnailQuery = (
+  thumbnailUrl: string | null,
+  imageUrls: string[] = thumbnailUrl ? [thumbnailUrl] : [],
+) => ({
   from: () => ({
     where: () => ({
-      limit: async () => [{ thumbnail_url: thumbnailUrl }],
+      limit: async () => [{ image_urls: imageUrls, thumbnail_url: thumbnailUrl }],
     }),
   }),
 });
 
 const selectThumbnailReferencesQuery = (thumbnailUrls: string[]) => ({
-  from: () => ({
-    where: async () =>
-      thumbnailUrls.map((thumbnail_url) => ({ thumbnail_url })),
-  }),
+  from: async () =>
+    thumbnailUrls.map((thumbnail_url) => ({
+      image_urls: [thumbnail_url],
+      thumbnail_url,
+    })),
 });
 
 const makeDeleteDb = (
   thumbnailUrl: string | null,
   references: string[] = [],
+  imageUrls?: string[],
 ) => ({
   select: vi
     .fn()
-    .mockReturnValueOnce(selectThumbnailQuery(thumbnailUrl))
-    .mockReturnValueOnce(selectThumbnailReferencesQuery(references)),
+    .mockReturnValueOnce(selectThumbnailQuery(thumbnailUrl, imageUrls))
+    .mockImplementation(() => selectThumbnailReferencesQuery(references)),
   delete: vi.fn(() => ({
     where: async () => ({ success: true }),
   })),
@@ -67,7 +72,7 @@ const makeUpdateDb = (
   select: vi
     .fn()
     .mockReturnValueOnce(selectThumbnailQuery(thumbnailUrl))
-    .mockReturnValueOnce(selectThumbnailReferencesQuery(references)),
+    .mockImplementation(() => selectThumbnailReferencesQuery(references)),
   update: vi.fn(() => ({
     set: () => ({
       where: async () => ({ success: true }),
@@ -230,6 +235,111 @@ describe("notices route thumbnail handling", () => {
     );
   });
 
+  it("normalizes multi-content payloads and mirrors their first values", async () => {
+    const db = makeCreateDb();
+    getDbMock.mockReturnValue(db);
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: "multi",
+          type: "event",
+          links: [
+            { label: "A", url: "https://example.com/a" },
+            { label: "B", url: "https://example.com/b" },
+          ],
+          image_urls: ["/one.webp", "https://img.example.com/two.png"],
+          related_member_uids: [],
+        }),
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(db.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        links: [
+          { label: "A", url: "https://example.com/a" },
+          { label: "B", url: "https://example.com/b" },
+        ],
+        image_urls: ["/one.webp", "https://img.example.com/two.png"],
+        related_member_uids: [],
+        url: "https://example.com/a",
+        thumbnail_url: "/one.webp",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+      }),
+    );
+  });
+
+  it("promotes legacy single-value payloads into canonical arrays", async () => {
+    const db = makeCreateDb();
+    getDbMock.mockReturnValue(db);
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: "legacy",
+          type: "notice",
+          url: "https://example.com/legacy",
+          thumbnail_url: "/legacy.webp",
+          publisher_type: "otw",
+        }),
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(201);
+    expect(db.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        links: [{ label: "자세히 보기", url: "https://example.com/legacy" }],
+        image_urls: ["/legacy.webp"],
+        related_member_uids: [],
+      }),
+    );
+  });
+
+  it.each([
+    ["non-http link", { links: [{ label: "bad", url: "mailto:test@example.com" }] }],
+    ["duplicate links", { links: [{ label: "A", url: "https://example.com" }, { label: "B", url: "https://example.com" }] }],
+    ["too many links", { links: Array.from({ length: 11 }, (_, index) => ({ label: `${index}`, url: `https://example.com/${index}` })) }],
+    ["duplicate images", { image_urls: ["/same.webp", "/same.webp"] }],
+    ["too many images", { image_urls: Array.from({ length: 11 }, (_, index) => `/image-${index}.webp`) }],
+    ["duplicate members", { related_member_uids: [1, 1] }],
+  ])("rejects %s", async (_label, invalidPayload) => {
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "invalid", type: "notice", ...invalidPayload }),
+      }),
+      makeEnv(),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects inactive or missing related members", async () => {
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({ from: () => ({ where: async () => [] }) })),
+    });
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: "member",
+          type: "notice",
+          related_member_uids: [999],
+        }),
+      }),
+      makeEnv(),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Related member not found");
+  });
+
   it("selects exactly one featured notice in a batch", async () => {
     const db = makeFeaturedDb();
     getDbMock.mockReturnValue(db);
@@ -329,6 +439,29 @@ describe("notices route thumbnail handling", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("cleans up every removed owned image from a deleted notice", async () => {
+    const deleteObject = vi.fn(async () => undefined);
+    getDbMock.mockReturnValue(
+      makeDeleteDb(
+        "/r2-assets/notices/thumbnails/one.webp",
+        [],
+        [
+          "/r2-assets/notices/thumbnails/one.webp",
+          "/r2-assets/notices/thumbnails/two.webp",
+        ],
+      ),
+    );
+    const response = await handleNotices(
+      new Request("https://example.com/api/notices?id=9", { method: "DELETE" }),
+      makeEnv({ ASSET_BUCKET: { delete: deleteObject } as unknown as R2Bucket }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/one.webp");
+    expect(deleteObject).toHaveBeenCalledWith("notices/thumbnails/two.webp");
   });
 
   it("cleans up the old owned thumbnail when it is replaced", async () => {
