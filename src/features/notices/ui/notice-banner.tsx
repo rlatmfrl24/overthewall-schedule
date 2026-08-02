@@ -8,6 +8,7 @@ import { cn } from "@/shared/lib/utils";
 import { fetchNotices } from "../api/notices";
 import { isNoticeVisibleOnDate } from "../model/notice-visibility";
 import { queryKeys } from "@/shared/query/query-keys";
+import { getNoticeLinks } from "../model/notice-content";
 
 const noticeTypeConfigs = {
   notice: {
@@ -92,18 +93,22 @@ export function NoticeBanner({
 
   const noticeType = resolveNoticeType(currentNotice.type);
   const noticeConfig = noticeTypeConfigs[noticeType];
-  const hasLink = Boolean(currentNotice.url);
+  const links = getNoticeLinks(currentNotice);
+  const opensDirectly = links.length === 1;
   const noticeIndexLabel =
     visibleNotices.length > 1
       ? `${currentIndex + 1}/${visibleNotices.length}`
       : null;
 
   const handleNoticeClick = () => {
-    if (hasLink) {
-      window.open(currentNotice.url!, "_blank", "noopener,noreferrer");
+    if (opensDirectly) {
+      window.open(links[0].url, "_blank", "noopener,noreferrer");
       return;
     }
-    navigate({ to: "/notice" });
+    navigate({
+      to: "/notice",
+      search: { noticeId: currentNotice.id },
+    });
   };
 
   return (
@@ -117,6 +122,7 @@ export function NoticeBanner({
         <div className="flex h-full min-h-12 items-center gap-2 py-2 pl-3 pr-2 sm:pl-4 sm:pr-3">
           <Link
             to="/notice"
+            search={{ noticeId: undefined }}
             title="공지사항&이벤트 전체보기"
             aria-label="공지사항&이벤트 전체보기"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground transition-colors group-hover/banner:bg-muted/80"
@@ -132,7 +138,9 @@ export function NoticeBanner({
             )}
             onClick={handleNoticeClick}
             aria-label={
-              hasLink ? "안내 링크 열기" : "공지사항&이벤트 페이지로 이동"
+              opensDirectly
+                ? `${links[0].label} 링크 열기`
+                : "선택한 공지사항의 모든 콘텐츠 보기"
             }
           >
             <div className="relative h-6 min-w-0 flex-1 overflow-hidden">
@@ -157,7 +165,7 @@ export function NoticeBanner({
                   <span className="min-w-0 truncate text-[13px] font-semibold text-foreground sm:text-sm">
                     {currentNotice.content}
                   </span>
-                  {hasLink ? (
+                  {opensDirectly ? (
                     <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   ) : null}
                 </motion.div>
@@ -173,6 +181,7 @@ export function NoticeBanner({
 
           <Link
             to="/notice"
+            search={{ noticeId: undefined }}
             className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-foreground bg-foreground px-2 text-xs font-semibold text-background shadow-xs transition-colors hover:bg-foreground/90 sm:px-3"
           >
             <span className="hidden sm:inline">전체보기</span>

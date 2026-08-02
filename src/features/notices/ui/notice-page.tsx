@@ -1,153 +1,85 @@
-import { useMemo } from "react";
-import { ContentPageShell } from "@/shared/ui/content-page-shell";
+import { useEffect, useMemo, useState } from "react";
+import type { Member } from "@/features/members";
+import { cn } from "@/shared/lib/utils";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { ContentPageShell } from "@/shared/ui/content-page-shell";
 import { Skeleton } from "@/shared/ui/skeleton";
-import {
-  type Member,
-} from "@/features/members";
-import type { Notice } from "../model/types";
 import {
   AlertCircle,
   ArrowUpRight,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Megaphone,
   RefreshCw,
 } from "lucide-react";
-import { cn } from "@/shared/lib/utils";
 import {
   isNoticeVisibleOnDate,
   selectFeaturedNotice,
 } from "../model/notice-visibility";
+import {
+  getNoticeImageUrls,
+  getNoticeLinks,
+  getNoticeRelatedMemberUids,
+} from "../model/notice-content";
+import type { Notice } from "../model/types";
 import { useNoticePageData } from "../queries/use-notice-page-data";
 
-const noticeTypeConfigs = {
+const configs = {
   notice: {
-    label: "공지",
-    fullLabel: "공지사항",
-    badgeClass:
-      "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-200",
-    featuredClass:
-      "border-indigo-200/80 bg-indigo-50/70 dark:border-indigo-400/20 dark:bg-indigo-400/10",
-    thumbnailClass:
-      "border-indigo-200/80 bg-[linear-gradient(135deg,rgba(238,242,255,.9),rgba(255,255,255,.95)_48%,rgba(224,231,255,.85))] dark:border-indigo-400/20 dark:bg-indigo-400/10",
-    iconClass: "bg-indigo-600 text-white",
+    label: "공지사항",
+    badge: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-400/30 dark:bg-indigo-400/10 dark:text-indigo-200",
+    card: "border-indigo-200/80 bg-indigo-50/70 dark:border-indigo-400/20 dark:bg-indigo-400/10",
+    image: "border-indigo-200/80 bg-indigo-50/80 dark:border-indigo-400/20 dark:bg-indigo-400/10",
+    icon: "bg-indigo-600 text-white",
   },
   event: {
     label: "이벤트",
-    fullLabel: "이벤트",
-    badgeClass:
-      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200",
-    featuredClass:
-      "border-amber-200/80 bg-amber-50/70 dark:border-amber-400/20 dark:bg-amber-400/10",
-    thumbnailClass:
-      "border-amber-200/80 bg-[linear-gradient(135deg,rgba(254,243,199,.95),rgba(255,255,255,.95)_48%,rgba(255,237,213,.9))] dark:border-amber-400/20 dark:bg-amber-400/10",
-    iconClass: "bg-amber-500 text-white",
+    badge: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200",
+    card: "border-amber-200/80 bg-amber-50/70 dark:border-amber-400/20 dark:bg-amber-400/10",
+    image: "border-amber-200/80 bg-amber-50/80 dark:border-amber-400/20 dark:bg-amber-400/10",
+    icon: "bg-amber-500 text-white",
   },
 } as const;
 
-type NoticeTypeKey = keyof typeof noticeTypeConfigs;
 type NoticeMemberMap = Map<number, Member>;
-type NoticeProfileImageMap = Map<number, string>;
+type NoticeTypeKey = keyof typeof configs;
 
-const resolveNoticeType = (value?: string | null): NoticeTypeKey => {
-  if (value && value in noticeTypeConfigs) {
-    return value as NoticeTypeKey;
-  }
-  return "notice";
-};
+const resolveType = (value?: string | null): NoticeTypeKey =>
+  value === "event" ? "event" : "notice";
 
-const formatDateValue = (value?: number | string | null) => {
+const formatDate = (value?: number | string | null) => {
   if (value === null || value === undefined || value === "") return null;
-
-  const stringValue = String(value);
-  const datePrefix = stringValue.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
-  if (datePrefix) return datePrefix.replace(/-/g, ".");
-
-  const date = new Date(stringValue);
-  if (Number.isNaN(date.getTime())) return stringValue;
-
-  return date.toISOString().slice(0, 10).replace(/-/g, ".");
+  const raw = String(value);
+  const prefix = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return prefix?.replace(/-/g, ".") ?? raw;
 };
 
-const formatPeriod = (notice: Notice) => {
-  if (!notice.started_at && !notice.ended_at) return "상시 게시";
+const formatPeriod = (notice: Notice) =>
+  !notice.started_at && !notice.ended_at
+    ? "상시 게시"
+    : `${formatDate(notice.started_at) ?? "..."} ~ ${formatDate(notice.ended_at) ?? "..."}`;
 
-  return `${formatDateValue(notice.started_at) ?? "..."} ~ ${
-    formatDateValue(notice.ended_at) ?? "..."
-  }`;
-};
-
-const getNoticeSortTime = (notice: Notice) => {
-  if (!notice.created_at) return notice.id ?? 0;
-
-  const time = new Date(String(notice.created_at)).getTime();
+const getSortTime = (notice: Notice) => {
+  const time = notice.created_at ? new Date(String(notice.created_at)).getTime() : NaN;
   return Number.isNaN(time) ? notice.id ?? 0 : time;
 };
 
-const sortNoticesByLatest = (notices: Notice[]) =>
-  [...notices].sort((a, b) => {
-    const timeDiff = getNoticeSortTime(b) - getNoticeSortTime(a);
-    if (timeDiff !== 0) return timeDiff;
-    return (b.id ?? 0) - (a.id ?? 0);
-  });
+const sortLatest = (notices: Notice[]) =>
+  [...notices].sort((a, b) => getSortTime(b) - getSortTime(a) || (b.id ?? 0) - (a.id ?? 0));
 
-const getNoticePublisherLabel = (
-  notice: Notice,
-  memberMap: NoticeMemberMap,
-) => {
-  if (notice.publisher_type !== "member") return "OTW";
-  const member = notice.publisher_member_uid
-    ? memberMap.get(notice.publisher_member_uid)
-    : null;
-  if (!member) return "멤버";
-  return `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`;
-};
-
-const normalizeNoticeThumbnailUrl = (value?: string | null) => {
-  const trimmed = value?.trim();
-  if (
-    !trimmed ||
-    trimmed === "thumbnail_url" ||
-    trimmed === "null" ||
-    trimmed === "undefined"
-  ) {
-    return null;
-  }
-  return trimmed;
-};
-
-const getNoticeThumbnailImageUrl = (
-  notice: Notice,
-  profileImageMap: NoticeProfileImageMap,
-) => {
-  const noticeThumbnailUrl = normalizeNoticeThumbnailUrl(notice.thumbnail_url);
-  if (noticeThumbnailUrl) return noticeThumbnailUrl;
-  if (notice.publisher_type !== "member" || !notice.publisher_member_uid) {
-    return null;
-  }
-  return profileImageMap.get(notice.publisher_member_uid) ?? null;
-};
-
-export function NoticePage() {
-  const {
-    notices,
-    memberMap,
-    profileImageMap,
-    loading,
-    error,
-    refetch,
-  } = useNoticePageData();
-
+export function NoticePage({ focusedNoticeId }: { focusedNoticeId?: number } = {}) {
+  const { notices, memberMap, loading, error, refetch } = useNoticePageData();
   const activeNotices = useMemo(
-    () =>
-      sortNoticesByLatest(
-        notices.filter((notice) => isNoticeVisibleOnDate(notice)),
-      ),
+    () => sortLatest(notices.filter((notice) => isNoticeVisibleOnDate(notice))),
     [notices],
   );
-  const featuredNotice = selectFeaturedNotice(activeNotices);
+  const focusedNotice = focusedNoticeId
+    ? activeNotices.find((notice) => notice.id === focusedNoticeId)
+    : undefined;
+  const featuredNotice = focusedNotice ?? selectFeaturedNotice(activeNotices);
   const noticeList = featuredNotice
     ? activeNotices.filter((notice) => notice.id !== featuredNotice.id)
     : [];
@@ -161,43 +93,20 @@ export function NoticePage() {
       {loading ? (
         <NoticePageSkeleton />
       ) : error ? (
-        <NoticeError
-          message={
-            error instanceof Error
-              ? error.message
-              : "알 수 없는 오류가 발생했습니다."
-          }
-          onRetry={() => void refetch()}
-        />
+        <NoticeError message={error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."} onRetry={() => void refetch()} />
       ) : !featuredNotice ? (
         <NoticeEmptyState />
       ) : (
         <>
-          <FeaturedNoticeCard
-            notice={featuredNotice}
-            memberMap={memberMap}
-            profileImageMap={profileImageMap}
-          />
-
+          <FeaturedNoticeCard notice={featuredNotice} memberMap={memberMap} focused={Boolean(focusedNotice)} />
           {noticeList.length > 0 ? (
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-foreground">
-                  진행중인 전체 안내
-                </h2>
-                <span className="text-sm font-medium text-muted-foreground">
-                  {noticeList.length}건
-                </span>
+                <h2 className="text-base font-semibold">진행중인 전체 안내</h2>
+                <span className="text-sm font-medium text-muted-foreground">{noticeList.length}건</span>
               </div>
               <div className="overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm">
-                {noticeList.map((notice) => (
-                  <NoticeListItem
-                    key={notice.id}
-                    notice={notice}
-                    memberMap={memberMap}
-                    profileImageMap={profileImageMap}
-                  />
-                ))}
+                {noticeList.map((notice) => <NoticeListItem key={notice.id} notice={notice} memberMap={memberMap} />)}
               </div>
             </section>
           ) : null}
@@ -207,327 +116,124 @@ export function NoticePage() {
   );
 }
 
-function NoticeTypeBadge({ type }: { type: string }) {
-  const config = noticeTypeConfigs[resolveNoticeType(type)];
+function NoticeTypeBadge({ notice }: { notice: Notice }) {
+  const config = configs[resolveType(notice.type)];
+  return <Badge variant="secondary" className={cn("h-7 border px-3 font-semibold", config.badge)}>{config.label}</Badge>;
+}
 
+function RelatedMemberTags({ notice, memberMap }: { notice: Notice; memberMap: NoticeMemberMap }) {
+  const uids = getNoticeRelatedMemberUids(notice);
+  if (uids.length === 0) return <span className="text-sm font-medium text-muted-foreground">OTW</span>;
   return (
-    <Badge
-      variant="secondary"
-      className={cn("h-7 border px-3 font-semibold", config.badgeClass)}
-    >
-      {config.fullLabel}
-    </Badge>
+    <div className="flex flex-wrap gap-1.5" aria-label="관련 멤버">
+      {uids.map((uid) => {
+        const member = memberMap.get(uid);
+        return <Badge key={uid} variant="outline">{member ? `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}` : `멤버 ${uid}`}</Badge>;
+      })}
+    </div>
   );
 }
 
-function NoticePublisherChip({
-  notice,
-  memberMap,
-  className,
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 rounded-md border border-background/70 bg-background/80 px-2 py-1 text-[10px] font-bold text-muted-foreground shadow-xs",
-        className,
-      )}
-    >
-      <span className="truncate">{getNoticePublisherLabel(notice, memberMap)}</span>
-    </span>
-  );
-}
-
-function NoticePublisherText({
-  notice,
-  memberMap,
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-}) {
-  return (
-    <span className="inline-flex min-w-0 text-sm font-medium text-muted-foreground">
-      <span className="min-w-0 truncate">
-        {getNoticePublisherLabel(notice, memberMap)}
-      </span>
-    </span>
-  );
-}
-
-function NoticeMeta({
-  notice,
-  memberMap,
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-}) {
-  return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
-      <div className="min-w-0">
-        <dt className="mb-1 text-xs font-semibold text-muted-foreground">
-          게시자
-        </dt>
-        <dd className="flex min-w-0 font-medium text-foreground">
-          <span className="min-w-0 truncate">
-            {getNoticePublisherLabel(notice, memberMap)}
-          </span>
-        </dd>
-      </div>
-      <div className="min-w-0">
-        <dt className="mb-1 text-xs font-semibold text-muted-foreground">
-          진행 기간
-        </dt>
-        <dd className="flex min-w-0 items-center gap-2 font-medium text-foreground">
-          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 truncate">{formatPeriod(notice)}</span>
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-function NoticeThumbnail({
-  notice,
-  memberMap,
-  profileImageMap,
-  variant = "default",
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-  profileImageMap: NoticeProfileImageMap;
-  variant?: "default" | "compact";
-}) {
-  const config = noticeTypeConfigs[resolveNoticeType(notice.type)];
-  const thumbnailImageUrl = getNoticeThumbnailImageUrl(notice, profileImageMap);
+function NoticeCarousel({ notice, compact = false }: { notice: Notice; compact?: boolean }) {
+  const imageUrls = getNoticeImageUrls(notice);
+  const [index, setIndex] = useState(0);
+  useEffect(() => setIndex(0), [notice.id]);
+  useEffect(() => {
+    setIndex((value) => Math.min(value, Math.max(imageUrls.length - 1, 0)));
+  }, [imageUrls.length]);
+  const current = imageUrls[index];
+  const config = configs[resolveType(notice.type)];
+  const go = (direction: -1 | 1) => setIndex((value) => (value + direction + imageUrls.length) % imageUrls.length);
 
   return (
     <div
       className={cn(
         "relative isolate overflow-hidden rounded-lg border shadow-sm",
-        config.thumbnailClass,
-        variant === "compact"
-          ? "flex aspect-[4/3] min-h-28 items-center justify-center sm:h-32 sm:w-44 sm:shrink-0"
-          : "flex min-h-56 items-center justify-center sm:min-h-64 lg:min-h-full",
+        config.image,
+        compact ? "aspect-[4/3] min-h-28 sm:h-32 sm:w-44 sm:shrink-0" : "min-h-56 sm:min-h-64 lg:min-h-full",
       )}
-      aria-hidden="true"
+      aria-roledescription="carousel"
+      aria-label="공지 이미지"
     >
-      <div className="absolute inset-x-4 top-4 z-20 h-px bg-foreground/10" />
-      {thumbnailImageUrl ? (
-        <>
-          <img
-            src={thumbnailImageUrl}
-            alt=""
-            className="absolute inset-0 z-0 h-full w-full object-cover"
-            draggable={false}
-          />
-          <div className="absolute inset-0 z-10 bg-gradient-to-t from-background/70 via-background/10 to-transparent" />
-        </>
+      {current ? (
+        <img src={current} alt={`${notice.content} 이미지 ${index + 1}`} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
-        <img
-          src="/logo_otw.svg"
-          alt=""
-          className={cn(
-            "relative z-10 max-w-[70%] opacity-90 drop-shadow-sm",
-            variant === "compact" ? "max-h-10" : "max-h-20",
-          )}
-          draggable={false}
-        />
+        <div className="absolute inset-0 flex items-center justify-center"><img src="/logo_otw.svg" alt="OTW" className={cn("max-w-[70%] opacity-90", compact ? "max-h-10" : "max-h-20")} /></div>
       )}
-      <div className="absolute inset-x-4 bottom-4 z-20 flex min-w-0 justify-start">
-        <NoticePublisherChip notice={notice} memberMap={memberMap} />
-      </div>
+      {imageUrls.length > 1 ? (
+        <>
+          <Button type="button" variant="secondary" size="icon-sm" className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90" aria-label="이전 이미지" onClick={() => go(-1)}><ChevronLeft className="h-4 w-4" /></Button>
+          <Button type="button" variant="secondary" size="icon-sm" className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90" aria-label="다음 이미지" onClick={() => go(1)}><ChevronRight className="h-4 w-4" /></Button>
+          <span className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-background/90 px-2 py-1 text-xs font-semibold" aria-live="polite">{index + 1} / {imageUrls.length}</span>
+        </>
+      ) : null}
     </div>
   );
 }
 
-function FeaturedNoticeCard({
-  notice,
-  memberMap,
-  profileImageMap,
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-  profileImageMap: NoticeProfileImageMap;
-}) {
-  const config = noticeTypeConfigs[resolveNoticeType(notice.type)];
-
+function NoticeLinks({ notice, compact = false }: { notice: Notice; compact?: boolean }) {
+  const links = getNoticeLinks(notice);
+  if (links.length === 0) return compact ? null : <div className="flex items-center gap-2 rounded-lg border border-dashed bg-background/70 px-3 py-2 text-sm text-muted-foreground"><ExternalLink className="h-4 w-4" />상세 링크 준비중</div>;
   return (
-    <article
-      className={cn(
-        "overflow-hidden rounded-lg border bg-card shadow-sm",
-        config.featuredClass,
-      )}
-    >
+    <div className={cn("flex flex-wrap gap-2", !compact && "flex-col items-stretch sm:flex-row")} aria-label="관련 링크">
+      {links.map((link, index) => (
+        <Button key={`${link.url}-${index}`} variant={compact ? "outline" : index === 0 ? "default" : "outline"} size={compact ? "sm" : "default"} asChild className={cn("h-auto max-w-full min-w-0 whitespace-normal break-words text-left", !compact && "justify-between")}>
+          <a href={link.url} target="_blank" rel="noopener noreferrer" title={link.url}>{link.label}<ArrowUpRight className="h-4 w-4" /></a>
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function FeaturedNoticeCard({ notice, memberMap, focused }: { notice: Notice; memberMap: NoticeMemberMap; focused: boolean }) {
+  const config = configs[resolveType(notice.type)];
+  return (
+    <article className={cn("overflow-hidden rounded-lg border bg-card shadow-sm", config.card)} data-focused-notice={focused || undefined}>
       <div className="grid min-h-[360px] lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[26rem_minmax(0,1fr)]">
-        <NoticeThumbnail
-          notice={notice}
-          memberMap={memberMap}
-          profileImageMap={profileImageMap}
-        />
-
-        <div className="flex min-w-0 flex-col justify-between gap-9 p-6 sm:p-7 lg:p-8 xl:p-9">
+        <NoticeCarousel notice={notice} />
+        <div className="flex min-w-0 flex-col justify-between gap-8 p-6 sm:p-7 lg:p-8 xl:p-9">
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-lg",
-                config.iconClass,
-              )}
-              aria-hidden="true"
-            >
-              <Megaphone className="h-4.5 w-4.5" />
-            </span>
-            <NoticeTypeBadge type={notice.type} />
+            <span className={cn("flex h-9 w-9 items-center justify-center rounded-lg", config.icon)} aria-hidden="true"><Megaphone className="h-4.5 w-4.5" /></span>
+            <NoticeTypeBadge notice={notice} />
+            {focused ? <Badge variant="outline">선택한 안내</Badge> : null}
           </div>
-
           <div className="min-w-0 space-y-5">
-            <p className="max-w-5xl whitespace-pre-wrap text-2xl font-semibold leading-relaxed text-foreground sm:text-3xl lg:text-[2.35rem]">
-              {notice.content}
-            </p>
-            <NoticeMeta notice={notice} memberMap={memberMap} />
+            <p className="max-w-5xl whitespace-pre-wrap break-words text-2xl font-semibold leading-relaxed sm:text-3xl lg:text-[2.35rem]">{notice.content}</p>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="mb-1 text-xs font-semibold text-muted-foreground">게시자</dt><dd className="font-medium">OTW</dd></div>
+              <div><dt className="mb-1 text-xs font-semibold text-muted-foreground">진행 기간</dt><dd className="flex items-center gap-2 font-medium"><CalendarDays className="h-4 w-4" />{formatPeriod(notice)}</dd></div>
+            </dl>
+            <div><p className="mb-2 text-xs font-semibold text-muted-foreground">관련 멤버</p><RelatedMemberTags notice={notice} memberMap={memberMap} /></div>
           </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            {notice.url ? (
-              <Button asChild className="w-full justify-between sm:w-auto">
-                <a
-                  href={notice.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={notice.url}
-                  aria-label={`${config.fullLabel} 자세히 보기`}
-                >
-                  자세히 보기
-                  <ArrowUpRight className="h-4 w-4" />
-                </a>
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-sm font-medium text-muted-foreground">
-                <ExternalLink className="h-4 w-4 shrink-0" />
-                상세 링크 준비중
-              </div>
-            )}
-          </div>
+          <NoticeLinks notice={notice} />
         </div>
       </div>
     </article>
   );
 }
 
-function NoticeListItem({
-  notice,
-  memberMap,
-  profileImageMap,
-}: {
-  notice: Notice;
-  memberMap: NoticeMemberMap;
-  profileImageMap: NoticeProfileImageMap;
-}) {
+function NoticeListItem({ notice, memberMap }: { notice: Notice; memberMap: NoticeMemberMap }) {
   return (
-    <article className="grid gap-5 border-b border-border/70 p-5 last:border-b-0 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-center sm:p-6">
-      <NoticeThumbnail
-        notice={notice}
-        memberMap={memberMap}
-        profileImageMap={profileImageMap}
-        variant="compact"
-      />
-
+    <article className="grid gap-5 border-b border-border/70 p-5 last:border-b-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:p-6">
+      <NoticeCarousel notice={notice} compact />
       <div className="min-w-0 space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <NoticeTypeBadge type={notice.type} />
-          <NoticePublisherText notice={notice} memberMap={memberMap} />
-          <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-muted-foreground">
-            <CalendarDays className="h-4 w-4 shrink-0" />
-            {formatPeriod(notice)}
-          </span>
-        </div>
-        <p className="whitespace-pre-wrap text-lg font-semibold leading-relaxed text-foreground sm:text-xl">
-          {notice.content}
-        </p>
+        <div className="flex flex-wrap items-center gap-2"><NoticeTypeBadge notice={notice} /><span className="text-sm font-medium text-muted-foreground">OTW</span><span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground"><CalendarDays className="h-4 w-4" />{formatPeriod(notice)}</span></div>
+        <p className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed sm:text-xl">{notice.content}</p>
+        <RelatedMemberTags notice={notice} memberMap={memberMap} />
+        <NoticeLinks notice={notice} compact />
       </div>
-
-      {notice.url ? (
-        <Button variant="outline" size="sm" asChild>
-          <a
-            href={notice.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={notice.url}
-            aria-label="공지 링크 열기"
-          >
-            자세히 보기
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </Button>
-      ) : null}
     </article>
   );
 }
 
 function NoticePageSkeleton() {
-  return (
-    <div className="space-y-5" aria-label="공지사항 로딩 중">
-      <div className="grid min-h-[360px] overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm lg:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[26rem_minmax(0,1fr)]">
-        <Skeleton className="min-h-56 rounded-none sm:min-h-64 lg:min-h-full" />
-        <div className="p-6 sm:p-7 lg:p-8 xl:p-9">
-          <div className="mb-10 flex items-center gap-2">
-            <Skeleton className="h-9 w-9 rounded-lg" />
-            <Skeleton className="h-7 w-24 rounded-full" />
-          </div>
-          <Skeleton className="h-10 w-full max-w-4xl" />
-          <Skeleton className="mt-4 h-10 w-4/5 max-w-3xl" />
-          <Skeleton className="mt-8 h-10 w-32" />
-        </div>
-      </div>
-      <div className="rounded-lg border border-border/80 bg-card p-4 shadow-sm">
-        <Skeleton className="h-6 w-full" />
-        <Skeleton className="mt-4 h-6 w-3/4" />
-      </div>
-    </div>
-  );
+  return <div className="space-y-5" aria-label="공지사항 로딩 중"><div className="grid min-h-[360px] overflow-hidden rounded-lg border bg-card lg:grid-cols-[22rem_minmax(0,1fr)]"><Skeleton className="min-h-56 rounded-none" /><div className="p-8"><Skeleton className="h-9 w-28" /><Skeleton className="mt-10 h-10 w-full" /><Skeleton className="mt-4 h-10 w-4/5" /></div></div></div>;
 }
 
-function NoticeError({
-  message,
-  onRetry,
-}: {
-  message: string;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-4 rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-destructive shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-start gap-3">
-        <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-        <p className="min-w-0 text-sm font-medium">{message}</p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={onRetry}
-      >
-        <RefreshCw className="h-4 w-4" />
-        다시 불러오기
-      </Button>
-    </div>
-  );
+function NoticeError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <div className="flex flex-col gap-4 rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-destructive sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5" /><p className="text-sm font-medium">{message}</p></div><Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw className="h-4 w-4" />다시 불러오기</Button></div>;
 }
 
 function NoticeEmptyState() {
-  return (
-    <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/80 bg-muted/20 px-6 py-14 text-center shadow-sm">
-      <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border/70 bg-card text-muted-foreground shadow-sm">
-        <Megaphone className="h-7 w-7" />
-      </div>
-      <p className="text-base font-semibold text-foreground">
-        표시할 공지사항이 없습니다.
-      </p>
-      <p className="text-sm text-muted-foreground">
-        새로운 소식이 등록되면 이곳에 표시됩니다.
-      </p>
-    </div>
-  );
+  return <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/20 px-6 py-14 text-center"><Megaphone className="h-8 w-8 text-muted-foreground" /><p className="font-semibold">표시할 공지사항이 없습니다.</p><p className="text-sm text-muted-foreground">새로운 소식이 등록되면 이곳에 표시됩니다.</p></div>;
 }

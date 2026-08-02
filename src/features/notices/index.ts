@@ -1,4 +1,9 @@
 export {
+  getNoticeImageUrls,
+  getNoticeLinks,
+  getNoticeRelatedMemberUids,
+} from "./model/notice-content";
+export {
   cleanupUnusedNoticeThumbnails,
   createNotice,
   deleteNotice,
@@ -31,6 +36,7 @@ export {
 } from "./model/notice-thumbnails";
 export type {
   Notice,
+  NoticeLinkDto,
   NoticePayload,
   NoticePublisherType,
   NoticeThumbnailAssetStatus,

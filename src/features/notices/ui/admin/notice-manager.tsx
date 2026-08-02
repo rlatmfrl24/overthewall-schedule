@@ -50,6 +50,11 @@ import { getOwnedNoticeThumbnailKey } from "../../model/notice-thumbnails";
 import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import type { NoticeThumbnailStatusResponse } from "../../model/types";
 import { invalidateNoticeConsumers } from "../../queries/invalidate-notice-consumers";
+import {
+  getNoticeImageUrls,
+  getNoticeLinks,
+  getNoticeRelatedMemberUids,
+} from "../../model/notice-content";
 
 const noticeTypeConfigs = {
   notice: {
@@ -89,16 +94,17 @@ const formatBytes = (value: number) => {
   return `${(value / (1024 * 1024)).toFixed(1)}MB`;
 };
 
-const getPublisherLabel = (
+const getRelatedMemberLabel = (
   notice: Notice,
   memberMap: Map<number, Member>,
 ) => {
-  if (notice.publisher_type !== "member") return "OTW";
-  const member = notice.publisher_member_uid
-    ? memberMap.get(notice.publisher_member_uid)
-    : null;
-  if (!member) return "멤버";
-  return `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`;
+  const names = getNoticeRelatedMemberUids(notice).map((uid) => {
+    const member = memberMap.get(uid);
+    return member
+      ? `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`
+      : `UID ${uid}`;
+  });
+  return names.length > 0 ? names.join(", ") : "OTW 단독";
 };
 
 export function NoticeManager() {
@@ -268,14 +274,7 @@ export function NoticeManager() {
     try {
       const payload = {
         ...data,
-        publisher_member_uid:
-          data.publisher_type === "member" &&
-          Number.isInteger(Number(data.publisher_member_uid))
-            ? Number(data.publisher_member_uid)
-            : null,
         is_active: data.is_active,
-        url: data.url || undefined,
-        thumbnail_url: data.thumbnail_url || undefined,
         started_at: data.started_at || undefined,
         ended_at: data.ended_at || undefined,
       };
@@ -353,41 +352,59 @@ export function NoticeManager() {
   };
 
   const renderThumbnailBadge = (notice: Notice) => {
-    const thumbnailUrl = notice.thumbnail_url?.trim();
-    if (!thumbnailUrl) {
+    const imageUrls = getNoticeImageUrls(notice);
+    if (imageUrls.length === 0) {
       return <Badge variant="outline">없음</Badge>;
     }
 
-    const key = getOwnedNoticeThumbnailKey(thumbnailUrl);
-    if (!key) {
-      return <Badge variant="secondary">외부</Badge>;
+    const countLabel = imageUrls.length > 1 ? ` · ${imageUrls.length}장` : "";
+    const ownedKeys = Array.from(
+      new Set(
+        imageUrls
+          .map((url) => getOwnedNoticeThumbnailKey(url))
+          .filter((key): key is string => Boolean(key)),
+      ),
+    );
+    if (ownedKeys.length === 0) {
+      return <Badge variant="secondary">외부{countLabel}</Badge>;
     }
 
     if (!thumbnailStatus) {
-      return <Badge variant="outline">R2</Badge>;
+      return <Badge variant="outline">R2{countLabel}</Badge>;
     }
 
-    if (missingThumbnailKeys.has(key)) {
+    const missingCount = ownedKeys.filter((key) =>
+      missingThumbnailKeys.has(key),
+    ).length;
+    if (missingCount > 0) {
       return (
         <Badge variant="outline" className="border-rose-300 bg-rose-50 text-rose-800">
-          누락
+          {imageUrls.length > 1
+            ? `누락 ${missingCount}/${imageUrls.length}장`
+            : "누락"}
         </Badge>
       );
     }
 
-    const object = thumbnailStatusByKey.get(key);
-    if (object?.referenced) {
-      return (
-        <Badge
-          variant="outline"
-          className="border-emerald-300 bg-emerald-50 text-emerald-800"
-        >
-          R2 정상
-        </Badge>
-      );
+    const allOwnedImagesReferenced = ownedKeys.every(
+      (key) => thumbnailStatusByKey.get(key)?.referenced,
+    );
+    if (!allOwnedImagesReferenced) {
+      return <Badge variant="outline">R2 확인 전{countLabel}</Badge>;
     }
 
-    return <Badge variant="outline">R2 확인 전</Badge>;
+    if (ownedKeys.length < imageUrls.length) {
+      return <Badge variant="secondary">혼합{countLabel}</Badge>;
+    }
+
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-300 bg-emerald-50 text-emerald-800"
+      >
+        R2 정상{countLabel}
+      </Badge>
+    );
   };
 
   return (
@@ -585,8 +602,8 @@ export function NoticeManager() {
                 <TableHead className="w-[96px]">상태</TableHead>
                 <TableHead className="w-[130px]">대표 공지</TableHead>
                 <TableHead className="w-[110px]">유형</TableHead>
-                <TableHead className="w-[150px]">게시자</TableHead>
-                <TableHead className="w-[110px]">썸네일</TableHead>
+                <TableHead className="w-[180px]">관련 멤버</TableHead>
+                <TableHead className="w-[130px]">이미지</TableHead>
                 <TableHead>내용</TableHead>
                 <TableHead className="w-[190px]">기간</TableHead>
                 <TableHead className="w-[220px]">링크</TableHead>
@@ -643,7 +660,7 @@ export function NoticeManager() {
                   <TableCell className="text-sm">
                     <span className="inline-flex max-w-[130px] truncate rounded-md border bg-background px-2 py-1 font-medium text-muted-foreground">
                       <span className="truncate">
-                        {getPublisherLabel(notice, memberMap)}
+                        {getRelatedMemberLabel(notice, memberMap)}
                       </span>
                     </span>
                   </TableCell>
@@ -661,16 +678,19 @@ export function NoticeManager() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    {notice.url ? (
+                    {getNoticeLinks(notice).length > 0 ? (
                       <a
-                        href={notice.url}
+                        href={getNoticeLinks(notice)[0].url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex max-w-[200px] items-center gap-1 truncate text-xs text-primary hover:underline"
-                        title={notice.url}
+                        title={getNoticeLinks(notice)[0].url}
                       >
                         <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        {notice.url}
+                        {getNoticeLinks(notice)[0].label}
+                        {getNoticeLinks(notice).length > 1
+                          ? ` 외 ${getNoticeLinks(notice).length - 1}개`
+                          : ""}
                       </a>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>

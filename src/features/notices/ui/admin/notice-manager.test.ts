@@ -159,4 +159,98 @@ describe("NoticeManager", () => {
     await waitFor(() => expect(setFeaturedNoticeMock).toHaveBeenCalledWith(2));
     await waitFor(() => expect(fetchNoticesMock).toHaveBeenCalledTimes(2));
   });
+
+  it("관리자 목록에 관련 멤버와 이미지·링크 개수를 요약한다", async () => {
+    fetchActiveMembersMock.mockResolvedValue([
+      { uid: 1, name: "하나", code: "one", oshi_mark: "🌙" },
+      { uid: 2, name: "둘", code: "two", oshi_mark: null },
+    ]);
+    fetchNoticesMock.mockResolvedValue([
+      {
+        id: 38,
+        content: "다중 공지",
+        links: [
+          { label: "첫 링크", url: "https://example.com/one" },
+          { label: "둘째 링크", url: "https://example.com/two" },
+        ],
+        image_urls: ["https://img.example.com/one.webp", "/two.webp"],
+        related_member_uids: [1, 2],
+        url: "https://example.com/one",
+        thumbnail_url: "https://img.example.com/one.webp",
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: true,
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-08-03T00:00:00.000Z",
+      },
+    ]);
+
+    render(createElement(NoticeManager), { wrapper: createQueryWrapper() });
+
+    expect(await screen.findByText("🌙 하나, 둘")).toBeTruthy();
+    expect(screen.getByText("외부 · 2장")).toBeTruthy();
+    expect(screen.getByText("첫 링크 외 1개")).toBeTruthy();
+  });
+
+  it("관리자 목록에서 두 번째 이후 이미지의 R2 누락도 표시한다", async () => {
+    fetchNoticesMock.mockResolvedValue([
+      {
+        id: 38,
+        content: "다중 R2 이미지 공지",
+        links: [],
+        image_urls: [
+          "/r2-assets/notices/thumbnails/one.webp",
+          "/r2-assets/notices/thumbnails/two.webp",
+        ],
+        related_member_uids: [],
+        url: null,
+        thumbnail_url: "/r2-assets/notices/thumbnails/one.webp",
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: true,
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-08-03T00:00:00.000Z",
+      },
+    ]);
+    fetchNoticeThumbnailStatusMock.mockResolvedValue({
+      ...makeThumbnailStatus(),
+      stats: {
+        ...makeThumbnailStatus().stats,
+        totalObjects: 1,
+        referencedObjects: 1,
+        unusedObjects: 0,
+        missingReferencedObjects: 1,
+        cleanupEligibleObjects: 0,
+      },
+      objects: [
+        {
+          key: "notices/thumbnails/one.webp",
+          url: "/r2-assets/notices/thumbnails/one.webp",
+          size: 2_048,
+          uploadedAt: 1_788_000_000_000,
+          referenced: true,
+          referenceCount: 1,
+          cleanupEligible: false,
+        },
+      ],
+      missingReferences: [
+        {
+          key: "notices/thumbnails/two.webp",
+          url: "/r2-assets/notices/thumbnails/two.webp",
+          referenceCount: 1,
+        },
+      ],
+    });
+
+    render(createElement(NoticeManager), { wrapper: createQueryWrapper() });
+
+    expect(await screen.findByText("누락 1/2장")).toBeTruthy();
+    expect(screen.queryByText("R2 정상 · 2장")).toBeNull();
+  });
 });
