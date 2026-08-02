@@ -15,9 +15,7 @@ export interface Env {
   CLERK_ADMIN_IDS?: string;
   otw_db: D1Database;
   ASSET_BUCKET?: R2Bucket;
-  ASSETS?: {
-    fetch: (request: Request) => Response | Promise<Response>;
-  };
+  ASSETS?: Fetcher;
 }
 
 export type CachedLiveStatus = {

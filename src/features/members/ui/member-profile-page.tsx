@@ -10,6 +10,8 @@ import type {
 import type { MemberProfileLink } from "../model/member";
 import { buildProfileBackgroundImageSourceSets } from "../model/profile-background-images";
 import { useMemberProfile } from "../queries/use-member-profile";
+import { buildProfileSiteSeo } from "@contracts/site-seo";
+import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
 import {
   ArrowLeft,
@@ -444,6 +446,11 @@ export function MemberProfilePage({ code }: { code: string }) {
   );
   const memberQuery = useMemberProfile(code);
   const member = memberQuery.data ?? null;
+  const profileSeo = useMemo(
+    () => (member ? buildProfileSiteSeo(member) : null),
+    [member],
+  );
+  useSiteSeo(profileSeo);
   const loading = memberQuery.isLoading;
   const error = memberQuery.error
     ? (memberQuery.error as Error).message || "Failed to fetch member"

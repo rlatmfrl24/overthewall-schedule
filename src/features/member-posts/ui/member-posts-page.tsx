@@ -13,6 +13,9 @@ import { useNaverCafePostsConfig } from "@/features/naver-cafe";
 import { useXPostsConfig } from "@/features/x-posts";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
+import { buildFeedSiteSeo, isFeedPublic } from "@contracts/site-seo";
+import { useSiteSeo } from "@/shared/seo";
+import { useMemo } from "react";
 import { MemberPostsOverview } from "./member-posts-overview";
 
 const isAccessible = (
@@ -27,12 +30,38 @@ const requiresLogin = (
 
 export function MemberPostsPage() {
   const { isLoaded, isSignedIn } = useUser();
-  const { visibility: xVisibility, loading: xLoading } = useXPostsConfig();
+  const {
+    visibility: xVisibility,
+    loading: xLoading,
+    error: xError,
+  } = useXPostsConfig();
   const {
     enabled: cafeEnabled,
     visibility: cafeVisibility,
     loading: cafeLoading,
+    error: cafeError,
   } = useNaverCafePostsConfig();
+
+  const seo = useMemo(
+    () =>
+      buildFeedSiteSeo(
+        !xLoading &&
+          !cafeLoading &&
+          !xError &&
+          !cafeError &&
+          isFeedPublic({ xVisibility, cafeEnabled, cafeVisibility }),
+      ),
+    [
+      cafeEnabled,
+      cafeError,
+      cafeLoading,
+      cafeVisibility,
+      xError,
+      xLoading,
+      xVisibility,
+    ],
+  );
+  useSiteSeo(seo);
 
   const signedIn = Boolean(isSignedIn);
   const xCanLoad = isAccessible(xVisibility, signedIn);

@@ -1,5 +1,44 @@
 import type { Env } from "../platform/types";
 import { workerRouteRegistry } from "./routes";
+import { normalizeAdminSettings } from "@contracts/configuration";
+import { D1MemberReader } from "../features/members";
+import {
+  createSiteSeoHandler,
+  SiteSeoService,
+  type SiteSeoReader,
+} from "../features/seo";
+import { DrizzleSettingsRepository } from "../features/configuration";
+import { getDb } from "../platform/db";
+
+const createSiteSeoService = (env: Env) => {
+  const db = getDb(env);
+  const members = new D1MemberReader(db, env.ASSET_BUCKET);
+  const settings = new DrizzleSettingsRepository(db);
+  const reader: SiteSeoReader = {
+    async readFeedState() {
+      const stored = await settings.read([
+        "x_posts_visibility",
+        "naver_cafe_posts_enabled",
+        "naver_cafe_posts_visibility",
+      ]);
+      const normalized = normalizeAdminSettings(stored).settings;
+      return {
+        xVisibility: normalized.x_posts_visibility,
+        cafeEnabled: normalized.naver_cafe_posts_enabled === "true",
+        cafeVisibility: normalized.naver_cafe_posts_visibility,
+      };
+    },
+    async listActiveProfileCodes() {
+      return (await members.listActive()).map(({ code }) => code);
+    },
+    findActiveProfileByCode(code) {
+      return members.findProfileByCode(code);
+    },
+  };
+  return new SiteSeoService(reader);
+};
+
+const handleSiteSeo = createSiteSeoHandler(createSiteSeoService);
 
 type SerializedError = {
   name: string;
@@ -70,6 +109,8 @@ export const handleWorkerFetch = async (
   const url = new URL(request.url);
 
   try {
+    const seoResponse = await handleSiteSeo(request, env);
+    if (seoResponse) return seoResponse;
     const routedResponse = await workerRouteRegistry.dispatch(request, env);
     if (routedResponse) return routedResponse;
   } catch (error) {
@@ -79,9 +120,7 @@ export const handleWorkerFetch = async (
     throw error;
   }
 
-  if (env.ASSETS) {
-    return env.ASSETS.fetch(request);
-  }
-
-  return new Response(null, { status: 404 });
+  return env.ASSETS
+    ? env.ASSETS.fetch(request)
+    : new Response(null, { status: 404 });
 };

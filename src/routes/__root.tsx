@@ -1,6 +1,9 @@
 import { createRootRoute, Outlet, useLocation } from "@tanstack/react-router";
 import { getAppChromeMode, PublicAppShell } from "@/app/layout";
 import { Footer } from "@/app/layout/footer";
+import { RootRouteError } from "@/app/errors/root-route-error";
+import { RootNotFound } from "@/app/errors/root-not-found";
+import { SiteSeoProvider } from "@/shared/seo";
 
 const RootComponent = () => {
   const location = useLocation();
@@ -9,8 +12,9 @@ const RootComponent = () => {
   const isMultiviewRoute = location.pathname.startsWith("/multiview");
   const chromeMode = getAppChromeMode(location.pathname);
 
+  let content;
   if (chromeMode === "none") {
-    return (
+    content = (
       <div
         className={
           isSnapshotRoute
@@ -23,24 +27,28 @@ const RootComponent = () => {
         <Outlet />
       </div>
     );
-  }
-
-  if (chromeMode === "admin") {
-    return (
+  } else if (chromeMode === "admin") {
+    content = (
       <div className="flex h-[100dvh] w-full overflow-hidden bg-background font-sans">
         <Outlet />
       </div>
     );
+  } else {
+    content = (
+      <PublicAppShell>
+        <Outlet />
+        {!isMultiviewRoute && <Footer />}
+      </PublicAppShell>
+    );
   }
 
   return (
-    <PublicAppShell>
-      <Outlet />
-      {!isMultiviewRoute && <Footer />}
-    </PublicAppShell>
+    <SiteSeoProvider pathname={location.pathname}>{content}</SiteSeoProvider>
   );
 };
 
 export const Route = createRootRoute({
   component: RootComponent,
+  errorComponent: RootRouteError,
+  notFoundComponent: RootNotFound,
 });

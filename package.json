@@ -8,7 +8,7 @@
     "dev": "vite",
     "dev:restart": "node scripts/dev-restart.mjs",
     "dev:stop": "node scripts/dev-restart.mjs --kill-only",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsx scripts/generate-seo-assets.ts",
     "lint": "eslint .",
     "architecture:check": "node scripts/architecture-check.mjs",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
