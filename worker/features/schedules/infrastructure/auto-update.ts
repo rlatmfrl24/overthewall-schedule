@@ -207,7 +207,16 @@ const deleteObsoletePending = async (
   return deleteResult.meta.changes === 1;
 };
 
-const OBSERVATION_CHUNK_SIZE = 25;
+const D1_MAX_BOUND_PARAMETERS = 100;
+const OBSERVATION_BOUND_PARAMETERS_PER_ROW = 10;
+const OBSERVATION_UPSERT_BOUND_PARAMETERS = 1;
+
+// D1은 쿼리당 bind parameter를 최대 100개만 허용한다. 관측 1건은
+// INSERT 값 10개를 사용하고 upsert의 last_seen_at 갱신값 1개가 추가된다.
+export const OBSERVATION_CHUNK_SIZE = Math.floor(
+  (D1_MAX_BOUND_PARAMETERS - OBSERVATION_UPSERT_BOUND_PARAMETERS) /
+    OBSERVATION_BOUND_PARAMETERS_PER_ROW,
+);
 const SESSION_RESUME_MARGIN_MS = 60 * 60 * 1000;
 
 const toObservation = (
