@@ -50,6 +50,8 @@ pnpm build
 pnpm preflight
 ```
 
+The local development server listens on `http://127.0.0.1:4173` by default.
+
 Local development defaults to local D1. Remote D1 is used only by explicit
 release or deploy commands.
 

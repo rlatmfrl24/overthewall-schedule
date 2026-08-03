@@ -7,17 +7,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MemberDto } from "@contracts/members";
+import type { XLinkedPostPreviewDto } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
 import { XPostCard } from "./x-post-card";
-
-const fetchXPostContextMock = vi.hoisted(() => vi.fn());
-
-vi.mock("../api/x-posts-api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../api/x-posts-api")>()),
-  fetchXPostContext: fetchXPostContextMock,
-}));
 
 const makePost = (overrides: Partial<XPostViewModel> = {}): XPostViewModel => ({
   id: "p1",
@@ -35,22 +29,49 @@ const makePost = (overrides: Partial<XPostViewModel> = {}): XPostViewModel => ({
   ...overrides,
 });
 
-const renderCard = (post: XPostViewModel, props = {}) => {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    createElement(
-      QueryClientProvider,
-      { client: queryClient },
-      createElement(XPostCard, { post, ...props }),
-    ),
-  );
+const makeLinkedPost = (
+  overrides: Partial<XLinkedPostPreviewDto> = {},
+): XLinkedPostPreviewDto => ({
+  id: "9876543210",
+  text: "linked post body",
+  createdAt: "2026-05-27T11:00:00Z",
+  url: "https://x.com/linked/status/9876543210",
+  username: "linked",
+  name: "Linked Member",
+  profileImageUrl: null,
+  metrics: {
+    likeCount: 7,
+    replyCount: 1,
+    repostCount: 2,
+    quoteCount: 3,
+  },
+  media: [],
+  ...overrides,
+});
+
+const member: MemberDto = {
+  uid: 1,
+  code: "otw",
+  name: "테스트 멤버",
+  main_color: "#123456",
+  sub_color: null,
+  oshi_mark: null,
+  url_twitter: null,
+  url_youtube: null,
+  url_chzzk: null,
+  youtube_channel_id: null,
+  birth_date: null,
+  debut_date: null,
+  unit_name: null,
+  fan_name: null,
+  introduction: null,
 };
+
+const renderCard = (post: XPostViewModel, props = {}) =>
+  render(createElement(XPostCard, { post, ...props }));
 
 describe("XPostCard", () => {
   beforeEach(() => {
-    fetchXPostContextMock.mockReset();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: undefined,
@@ -60,6 +81,7 @@ describe("XPostCard", () => {
       value: undefined,
     });
   });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
@@ -68,28 +90,28 @@ describe("XPostCard", () => {
   it("프리뷰 가능한 링크는 본문 링크와 별도의 카드로 한 번만 표시한다", () => {
     renderCard(
       makePost({
-          text: "링크 https://t.co/link https://t.co/link",
-          links: [
-            {
-              url: "https://t.co/link",
-              expandedUrl: "https://example.com/full",
-              resolvedUrl: "https://example.com/full",
-              displayUrl: "example.com/full",
-              domain: "example.com",
-              title: "Example Title",
-              description: "Example description",
-              imageUrl: "https://example.com/card.jpg",
-              siteName: "Example",
-              previewStatus: "ready",
-            },
-            {
-              url: "https://t.co/link",
-              expandedUrl: "https://example.com/full",
-              displayUrl: "example.com/full",
-              title: "Example Title",
-              previewStatus: "ready",
-            },
-          ],
+        text: "링크 https://t.co/link https://t.co/link",
+        links: [
+          {
+            url: "https://t.co/link",
+            expandedUrl: "https://example.com/full",
+            resolvedUrl: "https://example.com/full",
+            displayUrl: "example.com/full",
+            domain: "example.com",
+            title: "Example Title",
+            description: "Example description",
+            imageUrl: "https://example.com/card.jpg",
+            siteName: "Example",
+            previewStatus: "ready",
+          },
+          {
+            url: "https://t.co/link",
+            expandedUrl: "https://example.com/full",
+            displayUrl: "example.com/full",
+            title: "Example Title",
+            previewStatus: "ready",
+          },
+        ],
       }),
     );
 
@@ -103,40 +125,27 @@ describe("XPostCard", () => {
   it("연결된 X 게시글 작성자와 본문, 미디어를 렌더링한다", () => {
     const { container } = renderCard(
       makePost({
-          links: [
-            {
-              url: "https://t.co/link",
-              expandedUrl: "https://x.com/linked/status/9876543210",
-              displayUrl: "x.com/linked/status/9876543210",
-              previewStatus: "ready",
-              linkedPost: {
-                id: "9876543210",
-                text: "linked post body",
-                createdAt: "2026-05-27T11:00:00Z",
-                url: "https://x.com/linked/status/9876543210",
-                username: "linked",
-                name: "Linked Member",
-                profileImageUrl: null,
-                metrics: {
-                  likeCount: 7,
-                  replyCount: 1,
-                  repostCount: 2,
-                  quoteCount: 3,
+        links: [
+          {
+            url: "https://t.co/link",
+            expandedUrl: "https://x.com/linked/status/9876543210",
+            displayUrl: "x.com/linked/status/9876543210",
+            previewStatus: "ready",
+            linkedPost: makeLinkedPost({
+              media: [
+                {
+                  mediaKey: "m1",
+                  type: "photo",
+                  url: "https://pbs.twimg.com/media/photo.jpg",
+                  previewImageUrl: null,
+                  width: 1200,
+                  height: 675,
+                  altText: "linked media",
                 },
-                media: [
-                  {
-                    mediaKey: "m1",
-                    type: "photo",
-                    url: "https://pbs.twimg.com/media/photo.jpg",
-                    previewImageUrl: null,
-                    width: 1200,
-                    height: 675,
-                    altText: "linked media",
-                  },
-                ],
-              },
-            },
-          ],
+              ],
+            }),
+          },
+        ],
       }),
     );
 
@@ -150,13 +159,13 @@ describe("XPostCard", () => {
   it("프리뷰 정보가 없는 링크는 본문 원문 링크를 유지한다", () => {
     renderCard(
       makePost({
-          links: [
-            {
-              url: "https://t.co/link",
-              expandedUrl: null,
-              displayUrl: null,
-            },
-          ],
+        links: [
+          {
+            url: "https://t.co/link",
+            expandedUrl: null,
+            displayUrl: null,
+          },
+        ],
       }),
     );
 
@@ -168,30 +177,29 @@ describe("XPostCard", () => {
   it("생략된 X status 프리뷰도 인라인 X 게시글 카드로 표시한다", () => {
     renderCard(
       makePost({
-          links: [
-            {
-              url: "https://t.co/link",
-              expandedUrl: "https://x.com/linked/status/9876543210",
-              displayUrl: "x.com/linked/status/9876543210",
-              previewStatus: "skipped",
-            },
-          ],
+        links: [
+          {
+            url: "https://t.co/link",
+            expandedUrl: "https://x.com/linked/status/9876543210",
+            displayUrl: "x.com/linked/status/9876543210",
+            previewStatus: "skipped",
+          },
+        ],
       }),
     );
 
     expect(screen.getByText("X 게시글 링크")).toBeTruthy();
     expect(
       screen
-        .getByRole("link", {
-          name: "x.com/linked/status/9876543210 열기",
-        })
+        .getByRole("link", { name: "x.com/linked/status/9876543210 열기" })
         .getAttribute("href"),
     ).toBe("https://x.com/linked/status/9876543210");
   });
 
-  it("구조화된 인용 카드를 표시하고 같은 t.co 링크는 중복 렌더링하지 않는다", () => {
+  it("인용 게시글을 자동 노출하고 3줄로 축약하며 라벨과 중복 링크를 숨긴다", () => {
     const quoteId = "2059529979700846500";
-    renderCard(
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { container } = renderCard(
       makePost({
         id: "2059529979700846592",
         text: "인용 내용 https://t.co/quote",
@@ -205,123 +213,114 @@ describe("XPostCard", () => {
         ],
         quote: {
           postId: quoteId,
-          post: {
+          post: makeLinkedPost({
             id: quoteId,
-            text: "quoted post body",
-            createdAt: "2026-05-27T11:00:00Z",
             url: `https://x.com/linked/status/${quoteId}`,
-            username: "linked",
-            name: "Linked Member",
-            profileImageUrl: null,
-            metrics: {
-              likeCount: 0,
-              replyCount: 0,
-              repostCount: 0,
-              quoteCount: 0,
-            },
-            media: [],
-          },
+            text: "quoted post body",
+          }),
         },
       }),
+      { openPostOnCardClick: true },
     );
 
-    expect(screen.getByText("인용")).toBeTruthy();
-    expect(screen.getByText("인용 게시글")).toBeTruthy();
+    expect(screen.queryByText("인용")).toBeNull();
+    expect(screen.queryByText("인용 게시글")).toBeNull();
     expect(screen.getAllByText("quoted post body")).toHaveLength(1);
+    expect(screen.getByText("quoted post body").className).toContain("line-clamp-3");
     expect(screen.queryByText("https://t.co/quote")).toBeNull();
+    const quoteLink = screen.getByRole("link", {
+      name: "Linked Member 게시글 열기",
+    });
+    expect(quoteLink.getAttribute("href")).toBe(
+      `https://x.com/linked/status/${quoteId}`,
+    );
+    quoteLink.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(quoteLink);
+    expect(open).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("a a")).toHaveLength(0);
   });
 
-  it("관련 트윗은 사용자가 요청한 뒤 바로 위 글 1건만 조회하고 토글한다", async () => {
-    const sourcePostId = "2059529979700846592";
+  it("답글 대상을 본문보다 먼저 작게 표시하고 선두 멘션만 제거한다", () => {
     const replyToPostId = "2059529979700846500";
-    fetchXPostContextMock.mockResolvedValue({
-      sourcePostId,
-      replyTo: {
-        id: replyToPostId,
-        text: "parent post body",
-        createdAt: "2026-05-27T11:00:00Z",
-        url: `https://x.com/parent/status/${replyToPostId}`,
-        username: "parent",
-        name: "Parent Member",
-        profileImageUrl: null,
-        metrics: {
-          likeCount: 0,
-          replyCount: 0,
-          repostCount: 0,
-          quoteCount: 0,
-        },
-        media: [],
-      },
-    });
-    renderCard(
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const { container } = renderCard(
       makePost({
-        id: sourcePostId,
-        reply: { postId: replyToPostId, conversationId: replyToPostId },
+        id: "2059529979700846592",
+        text: "@parent @second\n실제 답글 @middle #오버더월",
+        reply: {
+          postId: replyToPostId,
+          conversationId: replyToPostId,
+          post: makeLinkedPost({
+            id: replyToPostId,
+            text: "parent post body",
+            url: `https://x.com/parent/status/${replyToPostId}`,
+            username: "parent",
+            name: "Parent Member",
+            media: [
+              {
+                mediaKey: "parent-media",
+                type: "photo",
+                url: "https://pbs.twimg.com/media/parent.jpg",
+                previewImageUrl: null,
+                width: 100,
+                height: 100,
+                altText: "parent media",
+              },
+            ],
+          }),
+        },
       }),
+      { openPostOnCardClick: true },
     );
 
-    expect(fetchXPostContextMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "관련 트윗 보기" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("parent post body")).toBeTruthy();
-    });
-    expect(fetchXPostContextMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("답글 대상")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "관련 트윗 숨기기" }));
-    expect(screen.queryByText("parent post body")).toBeNull();
+    const parentText = screen.getByText("parent post body");
+    const replyText = screen.getByText((content, element) =>
+      element?.tagName === "P" && content.includes("실제 답글"),
+    );
     expect(
-      screen.getByRole("button", { name: "관련 트윗 보기" }),
+      parentText.compareDocumentPosition(replyText) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    expect(parentText.className).toContain("line-clamp-2");
+    expect(screen.queryByRole("link", { name: "@second" })).toBeNull();
+    expect(screen.getByRole("link", { name: "@middle" }).getAttribute("href"))
+      .toBe("https://x.com/middle");
+    expect(screen.getByRole("link", { name: "#오버더월" })).toBeTruthy();
+    expect(
+      container.querySelector('img[src="https://pbs.twimg.com/media/parent.jpg"]'),
+    ).toBeTruthy();
+    const parentLink = screen.getByRole("link", {
+      name: "Parent Member 답글 원문 열기",
+    });
+    parentLink.addEventListener("click", (event) => event.preventDefault(), {
+      once: true,
+    });
+    fireEvent.click(parentLink);
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.queryByText("답글")).toBeNull();
+    expect(screen.queryByRole("button", { name: /관련 트윗/ })).toBeNull();
   });
 
-  it("관련 트윗 조회 실패 후 같은 버튼 영역에서 재시도한다", async () => {
-    const sourcePostId = "2059529979700846592";
+  it("답글 프리뷰가 없으면 원문 링크 fallback을 표시한다", () => {
     const replyToPostId = "2059529979700846500";
-    fetchXPostContextMock
-      .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValueOnce({
-        sourcePostId,
-        replyTo: {
-          id: replyToPostId,
-          text: "retried parent",
-          createdAt: "2026-05-27T11:00:00Z",
-          url: `https://x.com/parent/status/${replyToPostId}`,
-          username: "parent",
-          name: "Parent Member",
-          profileImageUrl: null,
-          metrics: {
-            likeCount: 0,
-            replyCount: 0,
-            repostCount: 0,
-            quoteCount: 0,
-          },
-          media: [],
-        },
-      });
     renderCard(
       makePost({
-        id: sourcePostId,
-        reply: { postId: replyToPostId, conversationId: null },
+        reply: {
+          postId: replyToPostId,
+          conversationId: null,
+          post: null,
+        },
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "관련 트윗 보기" }));
-    await waitFor(() => {
-      expect(
-        screen.getByText("관련 트윗을 불러오지 못했습니다."),
-      ).toBeTruthy();
-    });
-    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("retried parent")).toBeTruthy();
-    });
-    expect(fetchXPostContextMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("원문을 볼 수 없습니다.")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"),
+    ).toBe(`https://x.com/i/web/status/${replyToPostId}`);
   });
 
-  it("멘션과 해시태그를 X 링크로 만들고 정확한 작성 시각을 노출한다", () => {
+  it("멘션과 해시태그를 X 링크로 만들고 헤더에 정확한 작성 시각을 노출한다", () => {
     const createdAt = "2026-05-27T12:00:34Z";
     renderCard(
       makePost({
@@ -334,19 +333,49 @@ describe("XPostCard", () => {
       .toBe("https://x.com/otw_member");
     expect(screen.getByRole("link", { name: "#오버더월" }).getAttribute("href"))
       .toBe(`https://x.com/hashtag/${encodeURIComponent("오버더월")}`);
-    expect(screen.getByText((_, element) =>
-      element?.tagName === "TIME" && element.getAttribute("datetime") === createdAt,
-    )).toBeTruthy();
+    expect(
+      screen.getByText((_, element) =>
+        element?.tagName === "TIME" && element.getAttribute("datetime") === createdAt,
+      ),
+    ).toBeTruthy();
   });
 
-  it("링크 복사와 공유 버튼은 카드 원문 이동을 일으키지 않는다", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
+  it("카페 카드와 동일한 좌측 정렬 푸터와 멤버 컬러를 사용한다", () => {
+    const { container } = renderCard(
+      makePost({
+        metrics: {
+          replyCount: 0,
+          repostCount: 2,
+          quoteCount: 3,
+          likeCount: 7,
+        },
+      }),
+      { member },
+    );
+
+    const article = container.querySelector("article");
+    const accent = article?.querySelector(":scope > span.absolute") as
+      | HTMLElement
+      | null;
+    const footer = screen.getByLabelText("답글 0개").parentElement;
+    expect(article?.className).toContain("p-3");
+    expect(article?.className).toContain("sm:p-4");
+    expect(accent?.className).toContain("w-1");
+    expect(accent?.style.backgroundColor).toBe("rgb(18, 52, 86)");
+    expect(footer?.className).toContain("flex");
+    expect(footer?.className).toContain("gap-x-4");
+    expect(footer?.className).toContain("pl-1");
+    expect(footer?.className).not.toContain("grid-cols-4");
+    expect(footer?.parentElement).toBe(article);
+    expect(screen.getByLabelText("답글 0개").textContent).toBe("");
+    expect(screen.getByLabelText("재게시 5개").textContent).toBe("5");
+    expect(screen.getByLabelText("좋아요 7개").textContent).toBe("7");
+    expect(screen.getByRole("button", { name: "공유" })).toBeTruthy();
+  });
+
+  it("공유 버튼은 카드 이동 없이 Web Share를 사용한다", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
     Object.defineProperty(navigator, "share", {
       configurable: true,
       value: share,
@@ -354,21 +383,27 @@ describe("XPostCard", () => {
     const post = makePost();
     const { container } = renderCard(post, { openPostOnCardClick: true });
 
-    const copyButton = screen.getByRole("button", { name: "링크 복사" });
-    fireEvent.click(copyButton.querySelector("svg")!);
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(post.url));
-    expect(open).not.toHaveBeenCalled();
-
-    const shareButton = screen.getByRole("button", { name: "공유" });
-    fireEvent.click(shareButton.querySelector("svg")!);
+    fireEvent.click(screen.getByRole("button", { name: "공유" }).querySelector("svg")!);
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     expect(open).not.toHaveBeenCalled();
 
     fireEvent.click(container.querySelector("article")!);
-    expect(open).toHaveBeenCalledWith(
-      post.url,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(open).toHaveBeenCalledWith(post.url, "_blank", "noopener,noreferrer");
+  });
+
+  it("Web Share가 없으면 같은 공유 버튼에서 링크 복사로 대체한다", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const post = makePost();
+    renderCard(post, { openPostOnCardClick: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(post.url));
+    expect(screen.getByRole("button", { name: "링크 복사됨" })).toBeTruthy();
+    expect(open).not.toHaveBeenCalled();
   });
 });

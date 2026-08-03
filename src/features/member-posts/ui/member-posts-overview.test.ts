@@ -248,7 +248,6 @@ describe("MemberPostsOverview", () => {
     expect(screen.queryByRole("button", { name: "새로고침" })).toBeNull();
     expect(screen.getByText(xPost.text)).toBeTruthy();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
-    expect(screen.getAllByLabelText("X 게시글").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("네이버 카페 게시글")).toBeTruthy();
     expect(screen.queryByRole("link", { name: /X에서 보기/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /카페에서 보기/ })).toBeNull();

@@ -242,6 +242,85 @@ describe("member-posts aggregate worker route", () => {
     });
   });
 
+  it("답글 대상 프리뷰를 X 원본과 통합 member-posts 응답에 함께 유지한다", async () => {
+    const replyPreview = {
+      id: "parent1",
+      text: "답글 대상 본문",
+      createdAt: "2026-05-27T11:00:00Z",
+      url: "https://x.com/parent/status/parent1",
+      username: "parent",
+      name: "Parent",
+      profileImageUrl: null,
+      metrics: {
+        likeCount: 0,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+      media: [],
+    };
+    const replyPost = {
+      id: "x1",
+      text: "@parent 답글 본문",
+      createdAt: "2026-05-27T12:00:00Z",
+      url: "https://x.com/otw_member/status/x1",
+      username: "otw_member",
+      metrics: {
+        likeCount: 0,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+      media: [],
+      reply: {
+        postId: "parent1",
+        conversationId: "parent1",
+        post: replyPreview,
+      },
+    };
+    fetchXPostsForHandlesMock.mockResolvedValueOnce({
+      posts: [replyPost],
+      byHandle: [
+        {
+          handle: "otw_member",
+          userId: "u1",
+          posts: [replyPost],
+          error: null,
+          stale: false,
+        },
+      ],
+    });
+
+    const response = await handleMemberPosts(
+      new Request(
+        "https://example.com/api/member-posts?sources=x&maxResults=5&size=5",
+      ),
+      makeEnv(),
+    );
+    const body = (await response.json()) as {
+      posts: Array<{
+        kind: string;
+        post: { reply?: { post?: { id: string; text: string } | null } };
+      }>;
+      x: {
+        posts: Array<{
+          reply?: { post?: { id: string; text: string } | null };
+        }>;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.x.posts[0]?.reply?.post).toEqual(replyPreview);
+    expect(body.posts[0]).toMatchObject({
+      kind: "x",
+      post: {
+        reply: {
+          post: { id: "parent1", text: "답글 대상 본문" },
+        },
+      },
+    });
+  });
+
   it("compact 응답은 canonical posts만 유지하고 중복 post payload를 제거한다", async () => {
     mockXPosts();
     mockNaverCafePosts();

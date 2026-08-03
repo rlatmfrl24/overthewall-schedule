@@ -265,7 +265,8 @@ const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
 const X_STORED_POSTS_RETAIN_LIMIT = 20;
-const X_RELATION_COLLECTION_VERSION = "v1";
+const X_REFERENCED_POST_PREVIEW_MAX_IDS = X_STORED_POSTS_RETAIN_LIMIT * 2;
+const X_RELATION_COLLECTION_VERSION = "v3";
 const X_RELATION_MARKER_TTL_MS = 10 * 365 * 24 * 60 * 60_000;
 const X_COLLECTION_MAX_RESULTS = 5;
 const X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS = 2 * 60 * 60_000;
@@ -885,9 +886,20 @@ const readStoredPostSource = async (
   }
 };
 
+const normalizeStoredXPost = (post: XPostItem): XPostItem =>
+  post.reply
+    ? {
+        ...post,
+        reply: {
+          ...post.reply,
+          post: post.reply.post ?? null,
+        },
+      }
+    : post;
+
 const parseStoredXPost = (row: XStoredPostRow): XPostItem | null => {
   try {
-    return JSON.parse(row.value) as XPostItem;
+    return normalizeStoredXPost(JSON.parse(row.value) as XPostItem);
   } catch (error) {
     console.warn("Failed to parse stored X post", { id: row.id, error });
     return null;
@@ -1252,7 +1264,7 @@ const getCachedPosts = async (
     fetchedAt: persisted.fetchedAt,
     expiresAt: persisted.expiresAt,
     userId: persisted.value.userId,
-    posts: persisted.value.posts,
+    posts: persisted.value.posts.map(normalizeStoredXPost),
   };
   X_POSTS_CACHE.set(cacheKey, entry);
   return entry;
@@ -1480,6 +1492,7 @@ export const normalizeXTimelineResponse = (
         ? {
             postId: replyReference.id,
             conversationId: post.conversation_id ?? null,
+            post: null,
           }
         : null,
     };
@@ -1529,6 +1542,21 @@ const extractLinkedXStatusId = (link: XPostLinkItem, sourcePostId: string) => {
   }
   return null;
 };
+
+const inferMissingXQuoteReferences = (posts: XPostItem[]) =>
+  posts.map((post) => {
+    if (post.quote) return post;
+
+    const quotePostId = (post.links ?? [])
+      .map((link) => extractLinkedXStatusId(link, post.id))
+      .find((id): id is string => Boolean(id));
+    return quotePostId
+      ? {
+          ...post,
+          quote: { postId: quotePostId, post: null },
+        }
+      : post;
+  });
 
 const collectLinkedXStatusIds = (posts: XPostItem[]) => {
   const ids: string[] = [];
@@ -1611,10 +1639,11 @@ const fetchLinkedXPostsByIds = async (
   bearerToken: string,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
+  maxIds = X_LINKED_POST_PREVIEW_MAX_IDS,
 ): Promise<Map<string, XLinkedPostPreviewItem>> => {
   const requestedIds = Array.from(new Set(ids.filter(Boolean))).slice(
     0,
-    X_LINKED_POST_PREVIEW_MAX_IDS,
+    maxIds,
   );
   if (requestedIds.length === 0) return new Map();
 
@@ -1786,49 +1815,61 @@ const enrichXPostsWithLinkedPostPreviews = async (
   });
 };
 
-const enrichXPostsWithQuotedPosts = async (
+const enrichXPostsWithReferencedPosts = async (
   posts: XPostItem[],
   bearerToken: string,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
 ) => {
-  const quoteIds = Array.from(
+  const postsWithInferredQuotes = inferMissingXQuoteReferences(posts);
+  const referenceIds = Array.from(
     new Set(
-      posts
-        .map((post) =>
-          post.quote && !post.quote.post ? post.quote.postId : null,
-        )
-        .filter((id): id is string => Boolean(id)),
+      postsWithInferredQuotes.flatMap((post) => [
+        post.quote && !post.quote.post ? post.quote.postId : null,
+        post.reply && !post.reply.post ? post.reply.postId : null,
+      ]),
     ),
-  ).slice(0, X_LINKED_POST_PREVIEW_MAX_IDS);
-  if (quoteIds.length === 0) return posts;
+  )
+    .filter((id): id is string => Boolean(id))
+    .slice(0, X_REFERENCED_POST_PREVIEW_MAX_IDS);
+  if (referenceIds.length === 0) return posts;
 
   let previews: Map<string, XLinkedPostPreviewItem>;
   try {
     previews = await fetchLinkedXPostsByIds(
-      quoteIds,
+      referenceIds,
       bearerToken,
       cacheDb,
       usageTracker,
+      X_REFERENCED_POST_PREVIEW_MAX_IDS,
     );
   } catch (error) {
-    console.warn("Failed to enrich quoted X posts", error);
-    return posts;
+    console.warn("Failed to enrich referenced X posts", error);
+    return postsWithInferredQuotes;
   }
 
-  return posts.map((post) => {
-    if (!post.quote || post.quote.post) return post;
+  return postsWithInferredQuotes.map((post) => {
+    const quotedPost =
+      post.quote && !post.quote.post
+        ? previews.get(post.quote.postId)
+        : null;
+    const repliedToPost =
+      post.reply && !post.reply.post
+        ? previews.get(post.reply.postId)
+        : null;
+    if (!quotedPost && !repliedToPost) return post;
 
-    const preview = previews.get(post.quote.postId);
-    return preview
-      ? {
-          ...post,
-          quote: {
-            ...post.quote,
-            post: preview,
-          },
-        }
-      : post;
+    return {
+      ...post,
+      quote:
+        post.quote && quotedPost
+          ? { ...post.quote, post: quotedPost }
+          : post.quote,
+      reply:
+        post.reply && repliedToPost
+          ? { ...post.reply, post: repliedToPost }
+          : post.reply,
+    };
   });
 };
 
@@ -1839,7 +1880,10 @@ const enrichNewXPostsWithLinkPreviews = async (
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
 ) => {
-  const postsWithLinkPreviews = await enrichXPostsWithLinkPreviews(posts);
+  const postsWithInferredQuotes = inferMissingXQuoteReferences(posts);
+  const postsWithLinkPreviews = await enrichXPostsWithLinkPreviews(
+    postsWithInferredQuotes,
+  );
   if (!richXLinkPreviewEnabled) {
     return postsWithLinkPreviews;
   }
@@ -1979,7 +2023,7 @@ const fetchXPostsForUser = async (
       usageTracker,
     );
     const mergedPostsForStorage = (
-      await enrichXPostsWithQuotedPosts(
+      await enrichXPostsWithReferencedPosts(
         mergeXPosts(
           posts,
           stored?.posts ?? activeFallback?.posts ?? [],

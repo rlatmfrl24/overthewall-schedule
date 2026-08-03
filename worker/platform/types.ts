@@ -280,6 +280,7 @@ export type XPostItem = {
   reply?: {
     postId: string;
     conversationId: string | null;
+    post: XLinkedPostPreviewItem | null;
   } | null;
 };
 

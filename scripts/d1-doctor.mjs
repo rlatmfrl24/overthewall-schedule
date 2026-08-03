@@ -25,7 +25,7 @@ const getArgValue = (name, fallback) => {
   return value ? value.slice(prefix.length) : fallback;
 };
 
-const baseUrl = getArgValue("--url", "http://127.0.0.1:5173").replace(
+const baseUrl = getArgValue("--url", "http://127.0.0.1:4173").replace(
   /\/$/,
   "",
 );
@@ -39,7 +39,7 @@ if (hasArg("--help") || hasArg("-h")) {
   console.log(`Usage: node scripts/d1-doctor.mjs [options]
 
 Options:
-  --url=http://127.0.0.1:5173  API base URL to check
+  --url=http://127.0.0.1:4173  API base URL to check
   --api, --with-api            Include API health checks (disabled by default)
   --skip-api                   Skip API health checks
   --skip-local                 Skip local D1 checks

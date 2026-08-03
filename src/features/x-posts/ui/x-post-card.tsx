@@ -11,7 +11,6 @@ import type {
   XPostLinkDto,
 } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
-import { useXPostContext } from "../queries/use-x-post-context";
 import IconX from "@/assets/icon_x.svg";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
@@ -19,10 +18,7 @@ import {
   ExternalLink,
   Heart,
   ImageOff,
-  Loader2,
   MessageCircle,
-  Copy,
-  Quote,
   Repeat2,
   Share2,
 } from "lucide-react";
@@ -129,6 +125,8 @@ const shouldClampText = (text: string) =>
 
 const CONTENT_TOKEN_PATTERN =
   /https?:\/\/[^\s<>"']+|@[A-Za-z0-9_]{1,15}|#[\p{L}\p{N}_]+/gu;
+const REPLY_MENTION_PREFIX_PATTERN =
+  /^(?:@[A-Za-z0-9_]{1,15}(?:[ \t]+|(?=\r?\n|$)))+/;
 const TRAILING_PUNCTUATION_PATTERN = /[),.?!;:]+$/;
 const WORD_CHARACTER_PATTERN = /[\p{L}\p{N}_]/u;
 
@@ -266,32 +264,36 @@ const getPreviewLinks = (post: XPostViewModel) => {
 
 const XEmbeddedPostCard = ({
   post,
-  label = "X 게시글",
 }: {
   post: XLinkedPostPreviewDto;
-  label?: string;
 }) => {
   const linkedMedia = post.media
     .map((item) => ({ ...item, src: item.url ?? item.previewImageUrl }))
     .filter((item) => item.src);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
+    <a
+      href={post.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${post.name ?? `@${post.username}`} 게시글 열기`}
+      className="block overflow-hidden rounded-xl border border-border/70 bg-muted/20 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex min-w-0 items-start gap-2.5 p-2.5">
         {post.profileImageUrl ? (
           <img
             src={post.profileImageUrl}
             alt=""
-            className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+            className="h-7 w-7 shrink-0 rounded-full border border-border object-cover"
             loading="lazy"
           />
         ) : (
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold">
             X
           </div>
         )}
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-sm font-semibold text-foreground">
               {post.name ?? `@${post.username}`}
             </span>
@@ -299,24 +301,15 @@ const XEmbeddedPostCard = ({
               @{post.username}
               {post.createdAt ? ` · ${formatRelativeDate(post.createdAt)}` : ""}
             </span>
-            <a
-              href={post.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`${post.name ?? `@${post.username}`} 게시글 열기`}
-              className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <span className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground">
               <ExternalLink className="h-3 w-3" />
-            </a>
+            </span>
           </div>
           {post.text ? (
             <div className="line-clamp-3 whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
               {post.text}
             </div>
           ) : null}
-          <div className="text-[11px] font-medium text-muted-foreground">
-            {label}
-          </div>
         </div>
       </div>
       {linkedMedia.length > 0 ? (
@@ -355,7 +348,100 @@ const XEmbeddedPostCard = ({
           ))}
         </div>
       ) : null}
-    </div>
+    </a>
+  );
+};
+
+const XReplyContextCard = ({
+  reply,
+}: {
+  reply: NonNullable<XPostViewModel["reply"]>;
+}) => {
+  const post = reply.post;
+  const href = post?.url ?? `https://x.com/i/web/status/${reply.postId}`;
+
+  if (!post) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="답글 원문 열기"
+        className="flex min-w-0 items-center gap-2 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:bg-muted/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <MessageCircle className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">
+          원문을 볼 수 없습니다.
+        </span>
+        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+      </a>
+    );
+  }
+
+  const previewMedia = post.media
+    .map((item) => ({ ...item, src: item.url ?? item.previewImageUrl }))
+    .find((item) => Boolean(item.src));
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${post.name ?? `@${post.username}`} 답글 원문 열기`}
+      className="flex min-w-0 items-start gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {post.profileImageUrl ? (
+        <img
+          src={post.profileImageUrl}
+          alt=""
+          className="h-7 w-7 shrink-0 rounded-full border border-border object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-semibold">
+          X
+        </div>
+      )}
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 items-center gap-1.5 text-xs">
+          <span className="truncate font-semibold text-foreground">
+            {post.name ?? `@${post.username}`}
+          </span>
+          <span className="truncate text-muted-foreground">
+            @{post.username}
+          </span>
+          {post.createdAt ? (
+            <>
+              <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+                ·
+              </span>
+              <time
+                dateTime={post.createdAt}
+                title={formatAbsoluteDate(post.createdAt)}
+                className="shrink-0 text-muted-foreground"
+              >
+                {formatRelativeDate(post.createdAt)}
+              </time>
+            </>
+          ) : null}
+        </div>
+        {post.text ? (
+          <div className="line-clamp-2 whitespace-pre-wrap break-words text-xs leading-5 text-foreground">
+            {post.text}
+          </div>
+        ) : null}
+      </div>
+      {previewMedia?.src ? (
+        <img
+          src={previewMedia.src}
+          alt={previewMedia.altText || ""}
+          className="h-14 w-14 shrink-0 rounded-lg border border-border/70 object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      )}
+    </a>
   );
 };
 
@@ -371,7 +457,13 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
     const displayUrl = link.displayUrl ?? link.resolvedUrl ?? link.expandedUrl ?? href;
 
     return (
-      <div className="overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`${displayUrl} 열기`}
+        className="block overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <div className="flex min-w-0 items-center gap-2 p-2.5">
           <span
             aria-label="X 게시글 링크"
@@ -388,17 +480,11 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
               {displayUrl}
             </div>
           </div>
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`${displayUrl} 열기`}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground">
             <ExternalLink className="h-3 w-3" />
-          </a>
+          </span>
         </div>
-      </div>
+      </a>
     );
   }
 
@@ -406,7 +492,13 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
   const description = link.description;
 
   return (
-    <div className="flex min-h-16 overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left">
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`${title} 열기`}
+      className="flex min-h-16 overflow-hidden rounded-lg border border-border/70 bg-muted/20 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       {link.imageUrl ? (
         <div className="h-auto w-20 shrink-0 bg-muted sm:w-28">
           <img
@@ -420,15 +512,9 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-2.5">
         <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <span className="truncate">{link.siteName ?? domain}</span>
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`${title} 열기`}
-            className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+          <span className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground">
             <ExternalLink className="h-3 w-3" />
-          </a>
+          </span>
         </div>
         <div className="line-clamp-2 break-words text-sm font-semibold leading-5 text-foreground">
           {title}
@@ -443,14 +529,14 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
           </div>
         )}
       </div>
-    </div>
+    </a>
   );
 };
 
 const XQuotePostCard = ({ post }: { post: XPostViewModel }) => {
   if (!post.quote) return null;
   if (post.quote.post) {
-    return <XEmbeddedPostCard post={post.quote.post} label="인용 게시글" />;
+    return <XEmbeddedPostCard post={post.quote.post} />;
   }
 
   const href = `https://x.com/i/web/status/${post.quote.postId}`;
@@ -471,7 +557,7 @@ const XLinkPreviewList = ({ post }: { post: XPostViewModel }) => {
   if (links.length === 0) return null;
 
   return (
-    <div className="space-y-1.5 pl-1">
+    <div className="space-y-2">
       {links.map((link) => (
         <XLinkPreviewCard key={getLinkHref(link)} link={link} />
       ))}
@@ -479,19 +565,26 @@ const XLinkPreviewList = ({ post }: { post: XPostViewModel }) => {
   );
 };
 
-const renderPostText = (post: XPostViewModel) => {
+const stripReplyMentionPrefix = (post: XPostViewModel) => {
+  if (!post.reply) return post.text;
+  return post.text
+    .replace(REPLY_MENTION_PREFIX_PATTERN, "")
+    .replace(/^\r?\n/, "");
+};
+
+const renderPostText = (post: XPostViewModel, text = post.text) => {
   const linksByUrl = new Map(
     (post.links ?? []).map((link) => [link.url, link]),
   );
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
 
-  for (const match of post.text.matchAll(CONTENT_TOKEN_PATTERN)) {
+  for (const match of text.matchAll(CONTENT_TOKEN_PATTERN)) {
     const rawMatch = match[0];
     const startIndex = match.index ?? 0;
     const isUrl = rawMatch.startsWith("http");
-    const previousCharacter = post.text[startIndex - 1] ?? "";
-    const nextCharacter = post.text[startIndex + rawMatch.length] ?? "";
+    const previousCharacter = text[startIndex - 1] ?? "";
+    const nextCharacter = text[startIndex + rawMatch.length] ?? "";
     if (
       !isUrl &&
       (WORD_CHARACTER_PATTERN.test(previousCharacter) ||
@@ -501,7 +594,7 @@ const renderPostText = (post: XPostViewModel) => {
     }
 
     if (startIndex > lastIndex) {
-      nodes.push(post.text.slice(lastIndex, startIndex));
+      nodes.push(text.slice(lastIndex, startIndex));
     }
 
     if (isUrl) {
@@ -549,11 +642,11 @@ const renderPostText = (post: XPostViewModel) => {
     lastIndex = startIndex + rawMatch.length;
   }
 
-  if (lastIndex < post.text.length) {
-    nodes.push(post.text.slice(lastIndex));
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
   }
 
-  return nodes.length > 0 ? nodes : post.text;
+  return nodes.length > 0 ? nodes : text;
 };
 
 const shouldIgnoreCardNavigation = (target: EventTarget | null) =>
@@ -582,6 +675,25 @@ const copyText = async (value: string) => {
   if (!copied) throw new Error("Clipboard copy failed");
 };
 
+const XMetricItem = ({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number;
+}) => (
+  <span
+    aria-label={`${label} ${value}개`}
+    title={`${label} ${value}개`}
+    className="inline-flex min-w-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground"
+  >
+    {icon}
+    {value > 0 ? <span>{formatMetric(value)}</span> : null}
+  </span>
+);
+
 export const XPostCard = ({
   post,
   member,
@@ -590,27 +702,14 @@ export const XPostCard = ({
   showExternalLinkButton = true,
 }: XPostCardProps) => {
   const [expanded, setExpanded] = useState(false);
-  const [showReplyContext, setShowReplyContext] = useState(false);
   const [copyStatus, setCopyStatus] = useState<
     "idle" | "copied" | "error"
   >("idle");
-  const replyContext = useXPostContext(post.id);
   const profileSrc = member ? `/profile/${member.code}.webp` : null;
-  const accentColor = member?.main_color || "#111111";
-  const canExpand = useMemo(() => shouldClampText(post.text), [post.text]);
-  const canShare =
-    typeof navigator !== "undefined" && typeof navigator.share === "function";
-  const handleReplyContextToggle = () => {
-    if (showReplyContext) {
-      setShowReplyContext(false);
-      return;
-    }
-
-    setShowReplyContext(true);
-    if (!replyContext.context && !replyContext.loading) {
-      void replyContext.load();
-    }
-  };
+  const accentColor = member?.main_color ?? undefined;
+  const displayText = useMemo(() => stripReplyMentionPrefix(post), [post]);
+  const canExpand = useMemo(() => shouldClampText(displayText), [displayText]);
+  const repostCount = post.metrics.repostCount + post.metrics.quoteCount;
   const handleCopy = async () => {
     try {
       await copyText(post.url);
@@ -620,7 +719,10 @@ export const XPostCard = ({
     }
   };
   const handleShare = async () => {
-    if (!navigator.share) return;
+    if (!navigator.share) {
+      await handleCopy();
+      return;
+    }
     try {
       await navigator.share({
         title: `${member?.name ?? post.username}의 X 게시글`,
@@ -632,6 +734,12 @@ export const XPostCard = ({
       await handleCopy();
     }
   };
+  const shareLabel =
+    copyStatus === "copied"
+      ? "링크 복사됨"
+      : copyStatus === "error"
+        ? "링크 복사 실패"
+        : "공유";
   const navigableProps = openPostOnCardClick
     ? {
         "aria-label": `${member?.name ?? post.username} X 원문 게시글 열기`,
@@ -654,215 +762,130 @@ export const XPostCard = ({
     <article
       {...navigableProps}
       className={cn(
-        "group relative flex flex-col gap-3 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-4",
+        "group relative flex flex-col gap-2.5 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-colors duration-200 hover:border-foreground/25 sm:p-4",
         openPostOnCardClick &&
           "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
-      <span
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ backgroundColor: accentColor }}
-        aria-hidden="true"
-      />
+      {accentColor ? (
+        <span
+          className="absolute inset-y-0 left-0 w-1"
+          style={{ backgroundColor: accentColor }}
+          aria-hidden="true"
+        />
+      ) : null}
 
-      <div className="flex min-w-0 items-start justify-between gap-3 pl-1">
-        <div className="flex min-w-0 items-center gap-3">
-          {profileSrc ? (
-            <img
-              src={profileSrc}
-              alt={member?.name ?? post.username}
-              className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
-            />
-          ) : (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
-              X
-            </div>
-          )}
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: accentColor }}
-              />
-              <h2 className="truncate text-sm font-semibold text-foreground">
-                {member?.name ?? post.username}
-              </h2>
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                aria-label="X 게시글"
-                title="X 게시글"
-                className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center opacity-70"
-              >
-                <img src={IconX} alt="" className="h-3.5 w-3.5" />
-              </span>
-              <span className="truncate">
-                @{post.username} ·{" "}
-                {compactTime ?? formatRelativeDate(post.createdAt)}
-              </span>
-            </div>
+      {post.reply ? <XReplyContextCard reply={post.reply} /> : null}
+
+      <div className="grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3">
+        {profileSrc ? (
+          <img
+            src={profileSrc}
+            alt={member?.name ?? post.username}
+            className="h-10 w-10 shrink-0 rounded-full border-2 border-border object-cover"
+            style={accentColor ? { borderColor: accentColor } : undefined}
+          />
+        ) : (
+          <div
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-border bg-muted text-sm font-semibold"
+            style={accentColor ? { borderColor: accentColor } : undefined}
+          >
+            X
           </div>
-        </div>
-
-        {showExternalLinkButton ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
-          >
-            <a href={post.url} target="_blank" rel="noopener noreferrer">
-              <span className="hidden sm:inline">X에서 보기</span>
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        ) : null}
-      </div>
-
-      {post.reply || post.quote ? (
-        <div className="flex flex-wrap items-center gap-2 pl-1">
-          {post.reply ? (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-              답글
-            </span>
-          ) : null}
-          {post.quote ? (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-              인용
-            </span>
-          ) : null}
-          {post.reply ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 rounded-full px-2.5 text-xs text-muted-foreground"
-              onClick={handleReplyContextToggle}
-              disabled={replyContext.loading && !showReplyContext}
-            >
-              {showReplyContext ? "관련 트윗 숨기기" : "관련 트윗 보기"}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {post.reply && showReplyContext ? (
-        <div className="space-y-2 pl-1" aria-live="polite">
-          {replyContext.loading ? (
-            <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              관련 트윗을 불러오는 중입니다.
-            </div>
-          ) : replyContext.context ? (
-            <XEmbeddedPostCard
-              post={replyContext.context.replyTo}
-              label="답글 대상"
-            />
-          ) : replyContext.error ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-              <span>{replyContext.error}</span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 px-2.5 text-xs"
-                onClick={() => void replyContext.load()}
-              >
-                다시 시도
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <p
-        className={cn(
-          "whitespace-pre-wrap break-words pl-1 text-sm leading-6 text-foreground",
-          canExpand && !expanded && "line-clamp-5",
         )}
-      >
-        {renderPostText(post)}
-      </p>
 
-      {canExpand ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="ml-1 h-6 w-fit rounded-full px-2.5 text-xs text-muted-foreground"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "접기" : "더보기"}
-        </Button>
-      ) : null}
-
-      <XQuotePostCard post={post} />
-
-      <XLinkPreviewList post={post} />
-
-      <div className="pl-1">
-        <XMediaGrid post={post} />
-      </div>
-
-      <div className="space-y-2 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="inline-flex items-center gap-1.5">
-            <MessageCircle className="h-3.5 w-3.5" />
-            {formatMetric(post.metrics.replyCount)}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Repeat2 className="h-3.5 w-3.5" />
-            {formatMetric(post.metrics.repostCount)}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Quote className="h-3.5 w-3.5" />
-            {formatMetric(post.metrics.quoteCount)}
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Heart className="h-3.5 w-3.5" />
-            {formatMetric(post.metrics.likeCount)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <a
-            href={post.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors hover:text-foreground"
-          >
-            <time dateTime={post.createdAt}>
-              {formatAbsoluteDate(post.createdAt)}
-            </time>
-          </a>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 rounded-full px-2.5 text-xs"
-              onClick={() => void handleCopy()}
+        <div className="min-w-0 space-y-2.5">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm">
+            <h2 className="truncate font-semibold text-foreground">
+              {member?.name ?? post.username}
+            </h2>
+            <span className="truncate text-xs text-muted-foreground sm:text-sm">
+              @{post.username}
+            </span>
+            <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+              ·
+            </span>
+            <time
+              dateTime={post.createdAt}
+              title={formatAbsoluteDate(post.createdAt)}
+              className="shrink-0 text-xs text-muted-foreground sm:text-sm"
             >
-              <Copy className="h-3.5 w-3.5" />
-              {copyStatus === "copied"
-                ? "복사됨"
-                : copyStatus === "error"
-                  ? "복사 실패"
-                  : "링크 복사"}
-            </Button>
-            {canShare ? (
+              {compactTime ?? formatRelativeDate(post.createdAt)}
+            </time>
+            {showExternalLinkButton ? (
               <Button
-                type="button"
+                asChild
                 variant="ghost"
                 size="sm"
-                className="h-7 gap-1.5 rounded-full px-2.5 text-xs"
-                onClick={() => void handleShare()}
+                className="ml-auto h-8 w-8 shrink-0 rounded-full p-0 text-muted-foreground hover:text-foreground"
               >
-                <Share2 className="h-3.5 w-3.5" />
-                공유
+                <a
+                  href={post.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="X에서 원문 보기"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
               </Button>
             ) : null}
           </div>
+
+          {displayText ? (
+            <p
+              className={cn(
+                "whitespace-pre-wrap break-words text-sm leading-5 text-foreground",
+                canExpand && !expanded && "line-clamp-5",
+              )}
+            >
+              {renderPostText(post, displayText)}
+            </p>
+          ) : null}
+
+          {canExpand ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 w-fit rounded-full px-2.5 text-xs text-muted-foreground"
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? "접기" : "더보기"}
+            </Button>
+          ) : null}
+
+          <XQuotePostCard post={post} />
+          <XLinkPreviewList post={post} />
+          <XMediaGrid post={post} />
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
+        <XMetricItem
+          icon={<MessageCircle className="h-3.5 w-3.5" />}
+          label="답글"
+          value={post.metrics.replyCount}
+        />
+        <XMetricItem
+          icon={<Repeat2 className="h-3.5 w-3.5" />}
+          label="재게시"
+          value={repostCount}
+        />
+        <XMetricItem
+          icon={<Heart className="h-3.5 w-3.5" />}
+          label="좋아요"
+          value={post.metrics.likeCount}
+        />
+        <button
+          type="button"
+          aria-label={shareLabel}
+          title={shareLabel}
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => void handleShare()}
+        >
+          <Share2 className="h-3.5 w-3.5" />
+          <span className="sr-only">{shareLabel}</span>
+        </button>
       </div>
     </article>
   );

@@ -16,7 +16,7 @@ const getArgValue = (name, fallback) => {
 };
 
 const host = getArgValue("--host", "127.0.0.1");
-const port = getArgValue("--port", "5173");
+const port = getArgValue("--port", "4173");
 const killOnly = hasArg("--kill-only");
 
 if (hasArg("--help") || hasArg("-h")) {
@@ -24,7 +24,7 @@ if (hasArg("--help") || hasArg("-h")) {
 
 Options:
   --host=127.0.0.1  Host for the restarted Vite dev server
-  --port=5173       Port for the restarted Vite dev server
+  --port=4173       Port for the restarted Vite dev server
   --kill-only       Stop matching dev server processes and exit
 `);
   process.exit(0);

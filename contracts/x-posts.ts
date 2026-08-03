@@ -62,6 +62,7 @@ export interface XPostDto {
   reply?: {
     postId: string;
     conversationId: string | null;
+    post: XLinkedPostPreviewDto | null;
   } | null;
 }
 
