@@ -177,7 +177,7 @@ function NoticeLinks({ notice, compact = false }: { notice: Notice; compact?: bo
   return (
     <div className={cn("flex flex-wrap gap-2", !compact && "flex-col items-stretch sm:flex-row")} aria-label="관련 링크">
       {links.map((link, index) => (
-        <Button key={`${link.url}-${index}`} variant={compact ? "outline" : index === 0 ? "default" : "outline"} size={compact ? "sm" : "default"} asChild className={cn("h-auto max-w-full min-w-0 whitespace-normal break-words text-left", !compact && "justify-between")}>
+        <Button key={`${link.url}-${index}`} variant="outline" size={compact ? "sm" : "default"} asChild className={cn("h-auto max-w-full min-w-0 whitespace-normal break-words text-left", !compact && "justify-between")}>
           <a href={link.url} target="_blank" rel="noopener noreferrer" title={link.url}>{link.label}<ArrowUpRight className="h-4 w-4" /></a>
         </Button>
       ))}
