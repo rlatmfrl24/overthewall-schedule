@@ -2,6 +2,7 @@ export {
   createXPostsApplication,
   XAllowlistUnavailableError,
   XPostFeedError,
+  XReplyContextNotFoundError,
   XTargetsNotAllowedError,
   type XPostsApplication,
   type XPostsApplicationPorts,

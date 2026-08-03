@@ -491,6 +491,19 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleXPosts,
   },
   {
+    id: "x-posts.context",
+    owner: "x-posts",
+    path: apiRoutes.xPosts.context.pattern,
+    methods: methods(
+      get({
+        auth: "member-policy",
+        cache: "visibility-dependent",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleXPosts,
+  },
+  {
     id: "naver-cafe.config",
     owner: "naver-cafe",
     path: apiRoutes.naverCafe.config.pattern,

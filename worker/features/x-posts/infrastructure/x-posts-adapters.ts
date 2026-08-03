@@ -11,7 +11,9 @@ import {
 import { readActiveXHandles } from "./d1-active-handles";
 import {
   extractXHandleFromUrl,
+  fetchXPostPreviewById,
   fetchXPostsForHandles,
+  readStoredXReplyReference,
   XApiError,
 } from "./x-api";
 import { runXCollection } from "./x-collection";
@@ -19,6 +21,18 @@ import { readXSetting } from "./x-settings";
 
 export const buildXPostsApplication = (env: Env) => {
   const db = getDb(env);
+
+  const mapApiError = (error: unknown) => {
+    if (error instanceof XApiError) {
+      throw new XPostFeedError(error.message, error.status, {
+        code: error.code,
+        sourceStatus: error.sourceStatus,
+        detail: error.detail,
+        diagnostics: error.diagnostics,
+      });
+    }
+    throw error;
+  };
 
   return createXPostsApplication({
     readSetting: (key) => readXSetting(env.otw_db, key),
@@ -33,13 +47,30 @@ export const buildXPostsApplication = (env: Env) => {
           refresh: options.refresh,
         });
       } catch (error) {
+        return mapApiError(error);
+      }
+    },
+    readStoredReplyReference: (sourcePostId) =>
+      readStoredXReplyReference(env.otw_db, sourcePostId),
+    fetchPostPreview: async (postId) => {
+      try {
+        return await fetchXPostPreviewById(postId, {
+          bearerToken: env.X_BEARER_TOKEN,
+          cacheDb: env.otw_db,
+          usageSource: "reply-context",
+        });
+      } catch (error) {
         if (error instanceof XApiError) {
-          throw new XPostFeedError(error.message, error.status, {
-            code: error.code,
-            sourceStatus: error.sourceStatus,
-            detail: error.detail,
-            diagnostics: error.diagnostics,
-          });
+          throw new XPostFeedError(
+            error.message,
+            error.status === 429 ? 429 : 502,
+            {
+              code: error.code,
+              sourceStatus: error.sourceStatus,
+              detail: error.detail,
+              diagnostics: error.diagnostics,
+            },
+          );
         }
         throw error;
       }

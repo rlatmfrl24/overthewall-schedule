@@ -8,6 +8,7 @@ import {
 import {
   XAllowlistUnavailableError,
   XPostFeedError,
+  XReplyContextNotFoundError,
   XTargetsNotAllowedError,
   type XPostsApplication,
 } from "../application/x-posts-service";
@@ -15,6 +16,7 @@ import {
 const X_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600";
 const X_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
+const X_POST_ID_PATTERN = /^[1-9]\d{4,24}$/;
 type XPostsVisibility = "public" | "members" | "private";
 
 export type BuildXPostsApplication = (env: Env) => XPostsApplication;
@@ -47,12 +49,38 @@ const getXPostsCacheHeaders = ({
   };
 };
 
+const authorizeXRead = async ({
+  request,
+  env,
+  visibility,
+  adminView,
+}: {
+  request: Request;
+  env: Env;
+  visibility: XPostsVisibility;
+  adminView: boolean;
+}) => {
+  if (adminView) {
+    const admin = await requireAdminUser(request, env);
+    return admin.ok ? null : admin.response;
+  }
+  if (visibility === "private") {
+    return new Response("Member posts are private", { status: 403 });
+  }
+  if (visibility === "members") {
+    const auth = await authenticateRequest(request, env);
+    return auth.ok ? null : auth.response;
+  }
+  return null;
+};
+
 export const createXPostsHandler =
   (buildApplication: BuildXPostsApplication) =>
   async (request: Request, env: Env) => {
   const url = new URL(request.url);
   const debug = url.searchParams.get("debug") === "1";
   const adminView = url.searchParams.get("admin") === "1";
+  const contextMatch = url.pathname.match(/^\/api\/x\/posts\/([^/]+)\/context$/);
   const application = buildApplication(env);
 
   if (url.pathname === "/api/x/config") {
@@ -70,7 +98,7 @@ export const createXPostsHandler =
     );
   }
 
-  if (url.pathname !== "/api/x/posts") {
+  if (url.pathname !== "/api/x/posts" && !contextMatch) {
     return new Response(null, { status: 404 });
   }
 
@@ -79,14 +107,56 @@ export const createXPostsHandler =
   }
 
   const visibility = await application.readVisibility();
-  if (debug || adminView) {
-    const admin = await requireAdminUser(request, env);
-    if (!admin.ok) return admin.response;
-  } else if (visibility === "private") {
-    return new Response("Member posts are private", { status: 403 });
-  } else if (visibility === "members") {
-    const auth = await authenticateRequest(request, env);
-    if (!auth.ok) return auth.response;
+  const authResponse = await authorizeXRead({
+    request,
+    env,
+    visibility,
+    adminView: debug || adminView,
+  });
+  if (authResponse) return authResponse;
+
+  if (contextMatch) {
+    const sourcePostId = contextMatch[1] ?? "";
+    if (!X_POST_ID_PATTERN.test(sourcePostId)) {
+      return badRequest("id must be a numeric X post id");
+    }
+
+    try {
+      const content = await application.readReplyContext(sourcePostId);
+      return json(content, 200, {
+        headers: getXPostsCacheHeaders({ adminView, debug, visibility }),
+      });
+    } catch (error) {
+      if (error instanceof XReplyContextNotFoundError) {
+        return new Response("Related X post was not found", {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      if (error instanceof XAllowlistUnavailableError) {
+        return new Response(error.message, {
+          status: 503,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      if (error instanceof XPostFeedError) {
+        console.error("Failed to handle X reply context", getXErrorPayload(error));
+        if (debug) {
+          return json(getXErrorPayload(error), error.status, {
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+        return new Response("Failed to fetch related X post", {
+          status: error.status,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      console.error("Failed to handle X reply context", error);
+      return new Response("Failed to fetch related X post", {
+        status: 502,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
   }
 
   const parsedTargets = parseXHandleTargets(url.searchParams.get("handles"));

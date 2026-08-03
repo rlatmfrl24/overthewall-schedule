@@ -55,6 +55,19 @@ export interface XPostDto {
   };
   media: XPostMediaDto[];
   links?: XPostLinkDto[];
+  quote?: {
+    postId: string;
+    post: XLinkedPostPreviewDto | null;
+  } | null;
+  reply?: {
+    postId: string;
+    conversationId: string | null;
+  } | null;
+}
+
+export interface XPostContextResponseDto {
+  sourcePostId: string;
+  replyTo: XLinkedPostPreviewDto;
 }
 
 export interface XPostsByHandleDto {

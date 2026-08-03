@@ -259,6 +259,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [MEMBER_POLICY_GET],
   },
   {
+    id: "x-posts.context",
+    owner: "x-posts",
+    path: "/api/x/posts/:id/context",
+    methods: [MEMBER_POLICY_GET],
+  },
+  {
     id: "naver-cafe.config",
     owner: "naver-cafe",
     path: "/api/naver-cafe/config",

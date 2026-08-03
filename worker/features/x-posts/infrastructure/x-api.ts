@@ -28,6 +28,12 @@ type XTimelinePost = {
   id: string;
   text?: string;
   created_at?: string;
+  conversation_id?: string;
+  in_reply_to_user_id?: string;
+  referenced_tweets?: Array<{
+    type?: "quoted" | "replied_to" | "retweeted";
+    id?: string;
+  }>;
   public_metrics?: {
     like_count?: number;
     reply_count?: number;
@@ -259,6 +265,8 @@ const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
 const X_STORED_POSTS_RETAIN_LIMIT = 20;
+const X_RELATION_COLLECTION_VERSION = "v1";
+const X_RELATION_MARKER_TTL_MS = 10 * 365 * 24 * 60 * 60_000;
 const X_COLLECTION_MAX_RESULTS = 5;
 const X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS = 2 * 60 * 60_000;
 const X_COLLECTION_IDLE_CHECK_INTERVAL_MS = 12 * 60 * 60_000;
@@ -301,6 +309,9 @@ const getPostsCacheKey = (
   )}:${maxResults}:${richXLinkPreviewEnabled ? "rich" : "plain"}`;
 
 const getLinkedPostCacheKey = (id: string) => `x:linked-post:v1:${id}`;
+
+const getRelationCollectionMarkerKey = (handle: string) =>
+  `x:relations:${X_RELATION_COLLECTION_VERSION}:${normalizeHandle(handle)}`;
 
 export const extractXHandleFromUrl = (value?: string | null): string | null => {
   if (!value) return null;
@@ -799,7 +810,7 @@ const readD1Cache = async <T>(
 const writeD1Cache = async <T>(
   cacheDb: XCacheDb | undefined,
   key: string,
-  type: "user" | "posts" | "linked_post",
+  type: "user" | "posts" | "linked_post" | "relation_version",
   value: T,
   fetchedAt: number,
   ttlMs: number,
@@ -823,6 +834,33 @@ const writeD1Cache = async <T>(
     console.warn("Failed to write X API cache", error);
   }
 };
+
+const hasCurrentRelationCollectionMarker = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+) => {
+  if (!cacheDb) return true;
+
+  const cached = await readD1Cache<{ version: string }>(
+    cacheDb,
+    getRelationCollectionMarkerKey(handle),
+    X_RELATION_MARKER_TTL_MS,
+  );
+  return cached?.value.version === X_RELATION_COLLECTION_VERSION;
+};
+
+const writeCurrentRelationCollectionMarker = (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+) =>
+  writeD1Cache(
+    cacheDb,
+    getRelationCollectionMarkerKey(handle),
+    "relation_version",
+    { version: X_RELATION_COLLECTION_VERSION },
+    now(),
+    X_RELATION_MARKER_TTL_MS,
+  );
 
 const readStoredPostSource = async (
   cacheDb: XCacheDb | undefined,
@@ -852,6 +890,36 @@ const parseStoredXPost = (row: XStoredPostRow): XPostItem | null => {
     return JSON.parse(row.value) as XPostItem;
   } catch (error) {
     console.warn("Failed to parse stored X post", { id: row.id, error });
+    return null;
+  }
+};
+
+export const readStoredXReplyReference = async (
+  cacheDb: XCacheDb | undefined,
+  sourcePostId: string,
+): Promise<{ handle: string; replyToPostId: string } | null> => {
+  if (!cacheDb) return null;
+
+  try {
+    const row = await cacheDb
+      .prepare(
+        `SELECT id, handle, user_id, username, value, created_at, fetched_at, hidden_at
+         FROM x_posts
+         WHERE id = ? AND hidden_at IS NULL`,
+      )
+      .bind(sourcePostId)
+      .first<XStoredPostRow>();
+    if (!row) return null;
+
+    const post = parseStoredXPost(row);
+    if (!post?.reply?.postId) return null;
+
+    return {
+      handle: normalizeHandle(row.handle),
+      replyToPostId: post.reply.postId,
+    };
+  } catch (error) {
+    console.warn("Failed to read stored X reply reference", error);
     return null;
   }
 };
@@ -1198,6 +1266,7 @@ const setCachedPosts = async (
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
   lastSeenPostId?: string | null,
+  postsToStore: XPostItem[] = posts,
 ): Promise<CachedXPostsWriteEntry> => {
   const fetchedAt = now();
   const entry = {
@@ -1225,7 +1294,7 @@ const setCachedPosts = async (
     cacheDb,
     handle,
     user,
-    posts,
+    postsToStore,
     fetchedAt,
   );
   if (storedPostsWrite.ok) {
@@ -1388,6 +1457,12 @@ export const normalizeXTimelineResponse = (
         };
       })
       .filter((item): item is XPostLinkItem => item !== null);
+    const quoteReference = post.referenced_tweets?.find(
+      (reference) => reference.type === "quoted" && Boolean(reference.id),
+    );
+    const replyReference = post.referenced_tweets?.find(
+      (reference) => reference.type === "replied_to" && Boolean(reference.id),
+    );
 
     return {
       id: post.id,
@@ -1398,6 +1473,15 @@ export const normalizeXTimelineResponse = (
       metrics: normalizeXMetrics(post.public_metrics),
       media,
       links,
+      quote: quoteReference?.id
+        ? { postId: quoteReference.id, post: null }
+        : null,
+      reply: replyReference?.id
+        ? {
+            postId: replyReference.id,
+            conversationId: post.conversation_id ?? null,
+          }
+        : null,
     };
   });
 };
@@ -1455,6 +1539,7 @@ const collectLinkedXStatusIds = (posts: XPostItem[]) => {
       if (ids.length >= X_LINKED_POST_PREVIEW_MAX_IDS) return ids;
 
       const id = extractLinkedXStatusId(link, post.id);
+      if (id && id === post.quote?.postId) continue;
       if (!id || seen.has(id)) continue;
 
       seen.add(id);
@@ -1552,6 +1637,12 @@ const fetchLinkedXPostsByIds = async (
   }
 
   if (idsToFetch.length === 0) return result;
+  if (!bearerToken.trim()) {
+    throw new XApiError("X_BEARER_TOKEN is not configured", 502, {
+      code: "missing_bearer_token",
+      detail: "X_BEARER_TOKEN is not configured for this worker.",
+    });
+  }
 
   const params = new URLSearchParams({
     ids: idsToFetch.join(","),
@@ -1618,6 +1709,30 @@ const fetchLinkedXPostsByIds = async (
   return result;
 };
 
+export const fetchXPostPreviewById = async (
+  postId: string,
+  options: {
+    bearerToken?: string | null;
+    cacheDb?: XCacheDb;
+    usageSource?: string;
+  } = {},
+) => {
+  const usageTracker: XApiUsageTracker = {
+    apiCalls: 0,
+    estimatedCostMicros: 0,
+    reservedCostMicros: 0,
+    source: options.usageSource ?? "reply-context",
+    forceRefreshPath: null,
+  };
+  const previews = await fetchLinkedXPostsByIds(
+    [postId],
+    options.bearerToken?.trim() ?? "",
+    options.cacheDb,
+    usageTracker,
+  );
+  return previews.get(postId) ?? null;
+};
+
 const mergeLinkedXPostPreview = (
   link: XPostLinkItem,
   linkedPost: XLinkedPostPreviewItem,
@@ -1671,6 +1786,47 @@ const enrichXPostsWithLinkedPostPreviews = async (
   });
 };
 
+const enrichXPostsWithQuotedPosts = async (
+  posts: XPostItem[],
+  bearerToken: string,
+  cacheDb?: XCacheDb,
+  usageTracker?: XApiUsageTracker,
+) => {
+  const quoteIds = Array.from(
+    new Set(
+      posts
+        .map((post) => post.quote?.postId ?? null)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ).slice(0, X_LINKED_POST_PREVIEW_MAX_IDS);
+  if (quoteIds.length === 0) return posts;
+
+  let previews: Map<string, XLinkedPostPreviewItem>;
+  try {
+    previews = await fetchLinkedXPostsByIds(
+      quoteIds,
+      bearerToken,
+      cacheDb,
+      usageTracker,
+    );
+  } catch (error) {
+    console.warn("Failed to enrich quoted X posts", error);
+    return posts;
+  }
+
+  return posts.map((post) =>
+    post.quote
+      ? {
+          ...post,
+          quote: {
+            ...post.quote,
+            post: previews.get(post.quote.postId) ?? null,
+          },
+        }
+      : post,
+  );
+};
+
 const enrichXPostsWithPreviews = async (
   posts: XPostItem[],
   bearerToken: string,
@@ -1679,12 +1835,18 @@ const enrichXPostsWithPreviews = async (
   usageTracker?: XApiUsageTracker,
 ) => {
   const postsWithLinkPreviews = await enrichXPostsWithLinkPreviews(posts);
+  const postsWithQuotes = await enrichXPostsWithQuotedPosts(
+    postsWithLinkPreviews,
+    bearerToken,
+    cacheDb,
+    usageTracker,
+  );
   if (!richXLinkPreviewEnabled) {
-    return postsWithLinkPreviews;
+    return postsWithQuotes;
   }
 
   return enrichXPostsWithLinkedPostPreviews(
-    postsWithLinkPreviews,
+    postsWithQuotes,
     bearerToken,
     cacheDb,
     usageTracker,
@@ -1707,13 +1869,25 @@ const fetchXPostsForUser = async (
   postsStored: number;
   storageError: string | null;
 }> => {
+  const hasRelationMarker = await hasCurrentRelationCollectionMarker(
+    cacheDb,
+    handle,
+  );
+  const relationCollectionLimit = hasRelationMarker
+    ? maxResults
+    : Math.max(maxResults, X_STORED_POSTS_RETAIN_LIMIT);
   const stored = await readStoredPosts(
     handle,
-    maxResults,
+    relationCollectionLimit,
     richXLinkPreviewEnabled,
     cacheDb,
   );
-  if (!forceRefresh && stored && shouldUseFreshStoredPosts(stored)) {
+  if (
+    hasRelationMarker &&
+    !forceRefresh &&
+    stored &&
+    shouldUseFreshStoredPosts(stored)
+  ) {
     return {
       posts: stored.posts,
       stale: false,
@@ -1733,8 +1907,13 @@ const fetchXPostsForUser = async (
     richXLinkPreviewEnabled,
     cacheDb,
   );
+  const collectionLimit =
+    !hasRelationMarker &&
+    Boolean((stored?.posts.length ?? 0) > 0 || (cached?.posts.length ?? 0) > 0)
+      ? relationCollectionLimit
+      : maxResults;
 
-  if (!forceRefresh && cached && isCacheFresh(cached)) {
+  if (hasRelationMarker && !forceRefresh && cached && isCacheFresh(cached)) {
     return {
       posts: cached.posts,
       stale: false,
@@ -1768,9 +1947,10 @@ const fetchXPostsForUser = async (
   }
 
   const params = new URLSearchParams({
-    max_results: String(maxResults),
-    exclude: "retweets,replies",
-    "tweet.fields": "created_at,public_metrics,attachments,entities",
+    max_results: String(collectionLimit),
+    exclude: "retweets",
+    "tweet.fields":
+      "created_at,public_metrics,attachments,entities,referenced_tweets,conversation_id,in_reply_to_user_id",
     expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
@@ -1778,7 +1958,7 @@ const fetchXPostsForUser = async (
     stored?.lastSeenPostId ??
     sortXPostsDesc(activeFallback?.posts ?? [])[0]?.id ??
     null;
-  if (sinceId) {
+  if (hasRelationMarker && sinceId) {
     params.set("since_id", sinceId);
   }
 
@@ -1799,21 +1979,30 @@ const fetchXPostsForUser = async (
       cacheDb,
       usageTracker,
     );
-    const mergedPosts = mergeXPosts(
+    const mergedPostsForStorage = mergeXPosts(
       posts,
       stored?.posts ?? activeFallback?.posts ?? [],
-    ).slice(0, maxResults);
+    ).slice(0, collectionLimit);
+    const responsePosts = mergedPostsForStorage.slice(0, maxResults);
     const lastSeenPostId =
-      sortXPostsDesc(posts)[0]?.id ?? sinceId ?? mergedPosts[0]?.id ?? null;
-    return setCachedPosts(
+      sortXPostsDesc(posts)[0]?.id ??
+      sinceId ??
+      mergedPostsForStorage[0]?.id ??
+      null;
+    const entry = await setCachedPosts(
       handle,
       user,
-      mergedPosts,
+      responsePosts,
       maxResults,
       richXLinkPreviewEnabled,
       cacheDb,
       lastSeenPostId,
+      mergedPostsForStorage,
     );
+    if (!hasRelationMarker && entry.storageError === null) {
+      await writeCurrentRelationCollectionMarker(cacheDb, handle);
+    }
+    return entry;
   })();
 
   X_POSTS_IN_FLIGHT.set(cacheKey, request);
@@ -1984,13 +2173,22 @@ export const fetchXPostsForHandles = async (
   }
 
   for (const handle of normalizedHandles) {
+    const hasRelationMarker = await hasCurrentRelationCollectionMarker(
+      cacheDb,
+      handle,
+    );
     const cached = await getCachedPosts(
       handle,
       maxResults,
       richXLinkPreviewEnabled,
       cacheDb,
     );
-    if (!forceRefresh && cached && isCacheFresh(cached)) {
+    if (
+      hasRelationMarker &&
+      !forceRefresh &&
+      cached &&
+      isCacheFresh(cached)
+    ) {
       resultByHandle.set(handle, makeCachedPostsResult(handle, cached, false));
       continue;
     }
@@ -2005,7 +2203,12 @@ export const fetchXPostsForHandles = async (
       richXLinkPreviewEnabled,
       cacheDb,
     );
-    if (!forceRefresh && stored && shouldUseFreshStoredPosts(stored)) {
+    if (
+      hasRelationMarker &&
+      !forceRefresh &&
+      stored &&
+      shouldUseFreshStoredPosts(stored)
+    ) {
       resultByHandle.set(handle, makeCachedPostsResult(handle, stored, false));
       continue;
     }

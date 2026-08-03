@@ -67,6 +67,8 @@ export const queryKeys = {
       [...queryKeys.memberPosts.all, "naver-cafe-config"] as const,
     x: (handlesKey: string, maxResults: number, admin: boolean) =>
       [...queryKeys.memberPosts.all, "x", handlesKey, maxResults, admin] as const,
+    xContext: (postId: string) =>
+      [...queryKeys.memberPosts.all, "x-context", postId] as const,
     naverCafe: (size: number, admin: boolean) =>
       [...queryKeys.memberPosts.all, "naver-cafe", size, admin] as const,
     aggregate: (
