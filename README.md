@@ -50,7 +50,15 @@ pnpm build
 pnpm preflight
 ```
 
-The local development server listens on `http://127.0.0.1:4173` by default.
+The local development server listens on `http://127.0.0.1:5173` by default.
+Vite, `pnpm dev:restart`, and `pnpm d1:doctor -- --api` share this default.
+If the port is unavailable, set `OTW_DEV_PORT` before running those commands so
+every local tool uses the same explicit override. For example, in PowerShell:
+
+```powershell
+$env:OTW_DEV_PORT = "5174"
+pnpm dev
+```
 
 Local development defaults to local D1. Remote D1 is used only by explicit
 release or deploy commands.

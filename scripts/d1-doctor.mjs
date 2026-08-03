@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { getMigrationListStatus } from "./d1-doctor-core.mjs";
+import {
+  DEFAULT_LOCAL_DEV_PORT,
+  LOCAL_DEV_HOST,
+  getLocalDevOrigin,
+} from "./local-dev-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
@@ -25,10 +30,6 @@ const getArgValue = (name, fallback) => {
   return value ? value.slice(prefix.length) : fallback;
 };
 
-const baseUrl = getArgValue("--url", "http://127.0.0.1:4173").replace(
-  /\/$/,
-  "",
-);
 const includeApi = hasArg("--api") || hasArg("--with-api");
 const skipApi = hasArg("--skip-api") || !includeApi;
 const skipLocal = hasArg("--skip-local");
@@ -39,15 +40,21 @@ if (hasArg("--help") || hasArg("-h")) {
   console.log(`Usage: node scripts/d1-doctor.mjs [options]
 
 Options:
-  --url=http://127.0.0.1:4173  API base URL to check
+  --url=http://${LOCAL_DEV_HOST}:${DEFAULT_LOCAL_DEV_PORT}  API base URL to check
   --api, --with-api            Include API health checks (disabled by default)
   --skip-api                   Skip API health checks
   --skip-local                 Skip local D1 checks
   --remote                     Include remote D1 checks
   --skip-remote                Skip remote D1 checks (default)
+
+Environment:
+  OTW_DEV_PORT                 Shared Vite and local API port override
 `);
   process.exit(0);
 }
+
+const explicitBaseUrl = getArgValue("--url", null);
+const baseUrl = (explicitBaseUrl ?? getLocalDevOrigin()).replace(/\/$/, "");
 
 const stripAnsi = (value) =>
   value.replace(

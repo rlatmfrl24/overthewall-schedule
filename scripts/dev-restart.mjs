@@ -3,6 +3,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { spawn } from "node:child_process";
+import {
+  DEFAULT_LOCAL_DEV_PORT,
+  LOCAL_DEV_HOST,
+  parseLocalDevPort,
+  resolveLocalDevPort,
+} from "./local-dev-config.mjs";
 
 const execFileAsync = promisify(execFile);
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -15,20 +21,28 @@ const getArgValue = (name, fallback) => {
   return value ? value.slice(prefix.length) : fallback;
 };
 
-const host = getArgValue("--host", "127.0.0.1");
-const port = getArgValue("--port", "4173");
 const killOnly = hasArg("--kill-only");
 
 if (hasArg("--help") || hasArg("-h")) {
   console.log(`Usage: node scripts/dev-restart.mjs [options]
 
 Options:
-  --host=127.0.0.1  Host for the restarted Vite dev server
-  --port=4173       Port for the restarted Vite dev server
+  --host=${LOCAL_DEV_HOST}  Host for the restarted Vite dev server
+  --port=${DEFAULT_LOCAL_DEV_PORT}       Port for the restarted Vite dev server
   --kill-only       Stop matching dev server processes and exit
+
+Environment:
+  OTW_DEV_PORT      Shared Vite and local API port override
 `);
   process.exit(0);
 }
+
+const host = getArgValue("--host", LOCAL_DEV_HOST);
+const portArg = getArgValue("--port", null);
+const port =
+  portArg === null
+    ? resolveLocalDevPort()
+    : parseLocalDevPort(portArg, "--port");
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 

@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { getLocalDevServerConfig } from "./scripts/local-dev-config.mjs";
 
 const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
@@ -27,11 +28,7 @@ const spaDevRewrite = () => ({
 
 // https://vite.dev/config/
 export default defineConfig({
-  server: {
-    host: "127.0.0.1",
-    port: 4173,
-    strictPort: true,
-  },
+  server: getLocalDevServerConfig(),
   plugins: [
     spaDevRewrite(),
     tanstackRouter({
