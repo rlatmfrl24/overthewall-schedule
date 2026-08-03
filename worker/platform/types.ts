@@ -273,6 +273,14 @@ export type XPostItem = {
   };
   media: XPostMediaItem[];
   links?: XPostLinkItem[];
+  quote?: {
+    postId: string;
+    post: XLinkedPostPreviewItem | null;
+  } | null;
+  reply?: {
+    postId: string;
+    conversationId: string | null;
+  } | null;
 };
 
 export type UpdateLogPayload = {

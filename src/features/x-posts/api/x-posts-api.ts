@@ -3,6 +3,7 @@ import { apiFetch } from "@/shared/api/client";
 import { X_POSTS_CLIENT_CACHE_POLICY } from "../model/cache-policy";
 import type {
   XPostDto,
+  XPostContextResponseDto,
   XPostsConfigResponseDto,
   XPostsResponseDto,
 } from "@contracts/x-posts";
@@ -101,4 +102,11 @@ export async function fetchXPostsConfig(options: { force?: boolean } = {}) {
   return apiFetch<XPostsConfigResponseDto>(apiRoutes.xPosts.config.build(), {
     cache: options.force ? "no-store" : "default",
   });
+}
+
+export async function fetchXPostContext(postId: string) {
+  return apiFetch<XPostContextResponseDto>(
+    apiRoutes.xPosts.context.build(postId),
+    { cache: "default" },
+  );
 }

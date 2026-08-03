@@ -131,6 +131,11 @@ export const apiRoutes = {
   xPosts: {
     config: staticRoute("/api/x/config"),
     read: staticRoute("/api/x/posts"),
+    context: dynamicRoute(
+      "/api/x/posts/:id/context",
+      (id: string) =>
+        `/api/x/posts/${encodeURIComponent(id)}/context` as const,
+    ),
     runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
   },
   youtube: {

@@ -1,5 +1,6 @@
 import type { XCollectionRunResultDto } from "@contracts/operations";
 import type {
+  XLinkedPostPreviewDto,
   XPostsByHandleDto,
   XPostsResponseDto,
   XPostsVisibility,
@@ -46,6 +47,10 @@ export interface XPostsApplicationPorts {
     handles: string[],
     options: XPostsFetchOptions,
   ): Promise<XPostsContent>;
+  readStoredReplyReference(
+    sourcePostId: string,
+  ): Promise<{ handle: string; replyToPostId: string } | null>;
+  fetchPostPreview(postId: string): Promise<XLinkedPostPreviewDto | null>;
   runCollection(): Promise<XCollectionRunResultDto>;
   writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
   warn(message: string, error: unknown): void;
@@ -65,6 +70,13 @@ export class XTargetsNotAllowedError extends Error {
     super("Unapproved X handle targets");
     this.name = "XTargetsNotAllowedError";
     this.unauthorized = unauthorized;
+  }
+}
+
+export class XReplyContextNotFoundError extends Error {
+  constructor() {
+    super("X reply context was not found");
+    this.name = "XReplyContextNotFoundError";
   }
 }
 
@@ -172,6 +184,30 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
       richXLinkPreviewEnabled,
       refresh: false,
     });
+  },
+
+  async readReplyContext(sourcePostId: string) {
+    let allowedHandles: ReadonlySet<string>;
+    try {
+      allowedHandles = await ports.readAllowedHandles();
+    } catch (error) {
+      throw new XAllowlistUnavailableError({ cause: error });
+    }
+
+    const reference = await ports.readStoredReplyReference(sourcePostId);
+    if (!reference || !allowedHandles.has(reference.handle.toLowerCase())) {
+      throw new XReplyContextNotFoundError();
+    }
+
+    const replyTo = await ports.fetchPostPreview(reference.replyToPostId);
+    if (!replyTo) {
+      throw new XReplyContextNotFoundError();
+    }
+
+    return {
+      sourcePostId,
+      replyTo,
+    };
   },
 
   async runManualCollection(actor: XActor) {

@@ -7,6 +7,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   MemberPostSourcePolicy,
@@ -18,6 +19,15 @@ import type { XPostViewModel } from "@/features/x-posts";
 import { MemberPostsOverview } from "./member-posts-overview";
 
 const useMemberPostsMock = vi.hoisted(() => vi.fn());
+
+const renderWithQueryClient = (element: ReturnType<typeof createElement>) => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    createElement(QueryClientProvider, { client: queryClient }, element),
+  );
+};
 
 const members: MemberDto[] = [
   {
@@ -228,7 +238,9 @@ describe("MemberPostsOverview", () => {
   it("X 게시글과 네이버 카페 게시글을 한 타임라인에 최신순으로 표시한다", () => {
     useMemberPostsMock.mockReturnValue(makeMemberPostsState());
 
-    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    renderWithQueryClient(
+      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
+    );
 
     expect(screen.getByText("멤버 게시글")).toBeTruthy();
     expect(screen.getByLabelText(/X 마지막 업데이트/)).toBeTruthy();
@@ -311,7 +323,9 @@ describe("MemberPostsOverview", () => {
       makeMemberPostsState({ xPosts: [linkedXPost], cafePosts: [] }),
     );
 
-    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    renderWithQueryClient(
+      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
+    );
 
     fireEvent.click(
       screen.getByRole("link", {
@@ -345,7 +359,9 @@ describe("MemberPostsOverview", () => {
       makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
     );
 
-    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    renderWithQueryClient(
+      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
+    );
 
     fireEvent.click(
       screen.getByRole("link", {
@@ -364,7 +380,9 @@ describe("MemberPostsOverview", () => {
   it("멤버 칩은 단일 선택으로 X와 카페 게시글을 함께 필터링한다", () => {
     useMemberPostsMock.mockReturnValue(makeMemberPostsState());
 
-    render(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    renderWithQueryClient(
+      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
+    );
 
     const topFilter = screen.getByTestId("member-post-filter-top");
 
@@ -388,7 +406,7 @@ describe("MemberPostsOverview", () => {
       makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
     );
 
-    render(
+    renderWithQueryClient(
       createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
     );
 
@@ -422,7 +440,7 @@ describe("MemberPostsOverview", () => {
       }),
     );
 
-    render(
+    renderWithQueryClient(
       createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
     );
 

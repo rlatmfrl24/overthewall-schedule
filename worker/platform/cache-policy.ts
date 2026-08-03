@@ -34,7 +34,7 @@ export const WORKER_CACHE_POLICY = {
     posts: {
       freshTtlMs: 60 * MINUTE_MS,
       staleTtlMs: 24 * HOUR_MS,
-      version: "v3",
+      version: "v4",
     },
     linkedPostLookup: {
       freshTtlMs: 7 * DAY_MS,

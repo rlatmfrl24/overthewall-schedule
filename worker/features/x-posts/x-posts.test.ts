@@ -127,6 +127,10 @@ const makeCacheDb = (
               if (sql.includes("FROM x_post_sources")) {
                 return (sources.get(String(args[0])) ?? null) as T | null;
               }
+              if (sql.includes("FROM x_posts")) {
+                const post = posts.get(String(args[0]));
+                return (post && post.hidden_at === null ? post : null) as T | null;
+              }
               if (sql.includes("SUM(estimated_cost_micros)")) {
                 const since = Number(args[0]);
                 const total = usageEvents
@@ -390,6 +394,35 @@ describe("x worker service", () => {
       ...overrides,
     }) as Parameters<typeof handleXPosts>[1];
 
+  const seedReplyPost = (
+    target: ReturnType<typeof makeCacheDb>,
+    {
+      sourcePostId = "2059529979700846592",
+      replyToPostId = "2059529979700846500",
+      hidden = false,
+    }: {
+      sourcePostId?: string;
+      replyToPostId?: string;
+      hidden?: boolean;
+    } = {},
+  ) => {
+    const post: XPostItem = {
+      ...makePost(sourcePostId, "otw_member"),
+      reply: { postId: replyToPostId, conversationId: replyToPostId },
+    };
+    target.posts.set(sourcePostId, {
+      id: sourcePostId,
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(post),
+      created_at: post.createdAt,
+      fetched_at: Date.now(),
+      hidden_at: hidden ? Date.now() : null,
+    });
+    return { sourcePostId, replyToPostId };
+  };
+
   it("timeline 응답을 게시글 카드 데이터로 정규화한다", () => {
     const posts = normalizeXTimelineResponse(
       {
@@ -404,6 +437,12 @@ describe("x worker service", () => {
               retweet_count: 3,
               quote_count: 1,
             },
+            conversation_id: "100",
+            in_reply_to_user_id: "u0",
+            referenced_tweets: [
+              { type: "replied_to", id: "100" },
+              { type: "quoted", id: "200" },
+            ],
             attachments: { media_keys: ["m1"] },
             entities: {
               urls: [
@@ -445,6 +484,8 @@ describe("x worker service", () => {
         repostCount: 3,
         quoteCount: 1,
       },
+      quote: { postId: "200", post: null },
+      reply: { postId: "100", conversationId: "100" },
     });
     expect(posts[0]?.media[0]).toMatchObject({
       mediaKey: "m1",
@@ -498,6 +539,13 @@ describe("x worker service", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
       "/users/u1/tweets?",
     );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("exclude=retweets");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain(
+      "exclude=replies",
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "referenced_tweets%2Cconversation_id%2Cin_reply_to_user_id",
+    );
     expect(result.posts[0]?.id).toBe("p1");
     expect(result.byHandle[0]).toMatchObject({
       handle: "otw_member",
@@ -505,7 +553,7 @@ describe("x worker service", () => {
       error: null,
     });
     expect(store.has("x:user:v1:otw_member")).toBe(true);
-    expect(store.has("x:posts:v3:otw_member:5:plain")).toBe(true);
+    expect(store.has("x:posts:v4:otw_member:5:plain")).toBe(true);
   });
 
   it("저장된 게시글이 stale이면 since_id로 새 글만 증분 조회한다", async () => {
@@ -532,7 +580,7 @@ describe("x worker service", () => {
         }),
       );
 
-    const { db, posts, sources } = makeCacheDb();
+    const { db, store, posts, sources } = makeCacheDb();
     await fetchXPostsForHandles(["otw_member"], {
       bearerToken: "token",
       cacheDb: db,
@@ -541,6 +589,8 @@ describe("x worker service", () => {
 
     expect(posts.has("p1")).toBe(true);
     expect(sources.get("otw_member")?.last_seen_post_id).toBe("p1");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("since_id=");
+    expect(store.has("x:relations:v1:otw_member")).toBe(true);
 
     clearXServiceCachesForTests();
     vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
@@ -567,6 +617,164 @@ describe("x worker service", () => {
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("since_id=p1");
     expect(result.posts.map((post) => post.id)).toEqual(["p2", "p1"]);
     expect(sources.get("otw_member")?.last_seen_post_id).toBe("p2");
+  });
+
+  it("관계 버전 마커가 없는 기존 handle은 fresh 저장 데이터도 한 번 재수집한 뒤 증분 수집으로 복귀한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+    const target = makeCacheDb();
+    const oldPost = makePost("2059529979700846300", "otw_member");
+    target.posts.set(oldPost.id, {
+      id: oldPost.id,
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(oldPost),
+      created_at: oldPost.createdAt,
+      fetched_at: Date.now(),
+      hidden_at: null,
+    });
+    target.sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: oldPost.id,
+      last_checked_at: Date.now(),
+      updated_at: Date.now(),
+      last_error: null,
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846400",
+              text: "relation backfill post",
+              created_at: "2026-02-13T00:01:00Z",
+              conversation_id: "2059529979700846200",
+              referenced_tweets: [
+                { type: "replied_to", id: "2059529979700846200" },
+              ],
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+
+    const first = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      maxResults: 5,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("since_id=");
+    expect(first.posts[0]).toMatchObject({
+      id: "2059529979700846400",
+      reply: {
+        postId: "2059529979700846200",
+        conversationId: "2059529979700846200",
+      },
+    });
+    expect(target.store.has("x:relations:v1:otw_member")).toBe(true);
+
+    clearXServiceCachesForTests();
+    vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [] }));
+    await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      maxResults: 5,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const incrementalTimelineUrl = String(fetchMock.mock.calls[2]?.[0]);
+    expect(incrementalTimelineUrl).toContain("max_results=5");
+    expect(incrementalTimelineUrl).toContain(
+      "since_id=2059529979700846400",
+    );
+  });
+
+  it("관계 최초 수집은 반환 한도와 무관하게 보존 중인 게시글 전체를 보강한 뒤 마커를 기록한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+    const target = makeCacheDb();
+    const postIds = Array.from(
+      { length: 10 },
+      (_, index) => `20595299797008465${String(index).padStart(2, "0")}`,
+    );
+
+    for (const postId of postIds) {
+      const post = makePost(postId, "otw_member");
+      target.posts.set(post.id, {
+        id: post.id,
+        handle: "otw_member",
+        user_id: "u1",
+        username: "otw_member",
+        value: JSON.stringify(post),
+        created_at: post.createdAt,
+        fetched_at: Date.now(),
+        hidden_at: null,
+      });
+    }
+    target.sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: postIds.at(-1)!,
+      last_checked_at: Date.now(),
+      updated_at: Date.now(),
+      last_error: null,
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: postIds.map((postId, index) => ({
+            id: postId,
+            text: `relation backfill ${index}`,
+            created_at: "2026-02-13T00:00:00Z",
+            conversation_id: "2059529979700846000",
+            referenced_tweets: [
+              {
+                type: "replied_to",
+                id: `2059529979700846${String(index).padStart(3, "0")}`,
+              },
+            ],
+            public_metrics: {},
+          })),
+        }),
+      );
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      maxResults: 5,
+    });
+
+    expect(result.posts).toHaveLength(5);
+    const timelineUrl = String(fetchMock.mock.calls[1]?.[0]);
+    expect(timelineUrl).toContain("max_results=20");
+    expect(timelineUrl).not.toContain("since_id=");
+    expect(target.store.has("x:relations:v1:otw_member")).toBe(true);
+    for (const postId of postIds) {
+      const storedPost = JSON.parse(
+        target.posts.get(postId)?.value ?? "null",
+      ) as XPostItem | null;
+      expect(storedPost?.reply?.postId).toBeTruthy();
+    }
   });
 
   it("새 게시글 저장 실패 시 since_id 커서를 전진시키지 않는다", async () => {
@@ -776,7 +984,7 @@ describe("x worker service", () => {
       );
 
     const { db, posts } = makeCacheDb({
-      "x:posts:v3:otw_member:5:plain": {
+      "x:posts:v4:otw_member:5:plain": {
         type: "posts",
         value: JSON.stringify({
           userId: "u1",
@@ -1522,7 +1730,200 @@ describe("x worker service", () => {
       previewStatus: "skipped",
     });
     expect(result.posts[0]?.links?.[0]?.linkedPost).toBeUndefined();
-    expect(store.has("x:posts:v3:otw_member:5:plain")).toBe(true);
+    expect(store.has("x:posts:v4:otw_member:5:plain")).toBe(true);
+  });
+
+  it("구조화된 인용 게시글은 일반 링크 프리뷰 옵션과 무관하게 배치 lookup으로 보강한다", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846592",
+              text: "quoted https://t.co/status",
+              created_at: "2026-02-13T00:00:00Z",
+              conversation_id: "2059529979700846592",
+              referenced_tweets: [
+                { type: "quoted", id: "2059529979700846500" },
+              ],
+              public_metrics: {},
+              entities: {
+                urls: [
+                  {
+                    url: "https://t.co/status",
+                    expanded_url:
+                      "https://x.com/linked_member/status/2059529979700846500",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846500",
+              author_id: "u2",
+              text: "quoted post body",
+              created_at: "2026-02-12T23:00:00Z",
+              public_metrics: {},
+            },
+          ],
+          includes: {
+            users: [
+              {
+                id: "u2",
+                username: "linked_member",
+                name: "Linked Member",
+              },
+            ],
+          },
+        }),
+      );
+
+    const { db, usageEvents } = makeCacheDb();
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: false,
+      usageSource: "scheduled",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
+      "/tweets?ids=2059529979700846500",
+    );
+    expect(result.posts[0]).toMatchObject({
+      quote: {
+        postId: "2059529979700846500",
+        post: {
+          id: "2059529979700846500",
+          text: "quoted post body",
+          username: "linked_member",
+        },
+      },
+    });
+    expect(result.posts[0]?.links?.[0]?.linkedPost).toBeUndefined();
+    expect(usageEvents.at(-1)).toMatchObject({
+      operation: "tweet_lookup",
+      resource_count: 2,
+    });
+  });
+
+  it("캐시된 구조화된 인용 게시글은 외부 lookup 없이 보강한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846592",
+              text: "quoted https://t.co/status",
+              created_at: "2026-02-13T00:00:00Z",
+              referenced_tweets: [
+                { type: "quoted", id: "2059529979700846500" },
+              ],
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+    const cachedPreview = {
+      id: "2059529979700846500",
+      text: "cached quote",
+      createdAt: "2026-02-12T23:00:00Z",
+      url: "https://x.com/linked_member/status/2059529979700846500",
+      username: "linked_member",
+      name: "Linked Member",
+      profileImageUrl: null,
+      metrics: {
+        likeCount: 0,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+      media: [],
+    };
+    const { db } = makeCacheDb({
+      "x:linked-post:v1:2059529979700846500": {
+        type: "linked_post",
+        value: JSON.stringify({ post: cachedPreview }),
+        fetched_at: Date.now(),
+        expires_at: Date.now() + 7 * 24 * 60 * 60_000,
+      },
+    });
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.posts[0]?.quote?.post).toMatchObject({
+      id: "2059529979700846500",
+      text: "cached quote",
+    });
+  });
+
+  it("구조화된 인용 lookup 실패 시 원문 링크 폴백을 남기고 피드를 반환한다", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846592",
+              text: "quoted https://t.co/status",
+              created_at: "2026-02-13T00:00:00Z",
+              referenced_tweets: [
+                { type: "quoted", id: "2059529979700846500" },
+              ],
+              public_metrics: {},
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: makeCacheDb().db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: false,
+    });
+
+    expect(result.posts[0]).toMatchObject({
+      id: "2059529979700846592",
+      quote: { postId: "2059529979700846500", post: null },
+    });
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "Failed to enrich quoted X posts",
+      expect.any(Error),
+    );
   });
 
   it("X 게시글 링크 lookup 실패는 피드 전체 실패로 전파하지 않는다", async () => {
@@ -1655,6 +2056,163 @@ describe("x worker service", () => {
         },
       ],
     });
+  });
+
+  it("답글 문맥 API는 저장된 공개 답글에서 서버가 도출한 바로 위 게시글만 조회한다", async () => {
+    const target = makeCacheDb(publicXSettings);
+    const { sourcePostId, replyToPostId } = seedReplyPost(target);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: replyToPostId,
+            author_id: "u0",
+            text: "parent post",
+            created_at: "2026-02-12T23:00:00Z",
+            public_metrics: {},
+          },
+        ],
+        includes: {
+          users: [
+            { id: "u0", username: "parent_user", name: "Parent User" },
+          ],
+        },
+      }),
+    );
+
+    const response = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(target.db),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600",
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      sourcePostId,
+      replyTo: {
+        id: replyToPostId,
+        text: "parent post",
+        username: "parent_user",
+      },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain(
+      `/tweets?ids=${replyToPostId}`,
+    );
+  });
+
+  it("답글 문맥 캐시가 적중하면 토큰이나 외부 호출 없이 반환한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+    const replyToPostId = "2059529979700846500";
+    const cachedPreview = {
+      id: replyToPostId,
+      text: "cached parent",
+      createdAt: "2026-02-12T23:00:00Z",
+      url: `https://x.com/parent_user/status/${replyToPostId}`,
+      username: "parent_user",
+      name: "Parent User",
+      profileImageUrl: null,
+      metrics: {
+        likeCount: 0,
+        replyCount: 0,
+        repostCount: 0,
+        quoteCount: 0,
+      },
+      media: [],
+    };
+    const target = makeCacheDb({
+      ...publicXSettings,
+      [`x:linked-post:v1:${replyToPostId}`]: {
+        type: "linked_post",
+        value: JSON.stringify({ post: cachedPreview }),
+        fetched_at: Date.now(),
+        expires_at: Date.now() + 7 * 24 * 60 * 60_000,
+      },
+    });
+    const { sourcePostId } = seedReplyPost(target, { replyToPostId });
+
+    const response = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(target.db, { X_BEARER_TOKEN: "" }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sourcePostId,
+      replyTo: { id: replyToPostId, text: "cached parent" },
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("답글 문맥 API는 잘못된 ID와 임의 또는 숨김 게시글 ID를 차단한다", async () => {
+    const invalidTarget = makeCacheDb(publicXSettings);
+    const invalidResponse = await handleXPosts(
+      new Request("https://example.com/api/x/posts/not-a-post/context"),
+      makeRouteEnv(invalidTarget.db),
+    );
+    expect(invalidResponse.status).toBe(400);
+
+    const missingResponse = await handleXPosts(
+      new Request("https://example.com/api/x/posts/2059529979700846592/context"),
+      makeRouteEnv(makeCacheDb(publicXSettings).db),
+    );
+    expect(missingResponse.status).toBe(404);
+
+    const hiddenTarget = makeCacheDb(publicXSettings);
+    const { sourcePostId } = seedReplyPost(hiddenTarget, { hidden: true });
+    const hiddenResponse = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(hiddenTarget.db),
+    );
+    expect(hiddenResponse.status).toBe(404);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [429, 429],
+    [503, 502],
+  ])(
+    "답글 문맥 외부 lookup의 %i 응답을 공개 API %i로 매핑한다",
+    async (sourceStatus, expectedStatus) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const target = makeCacheDb(publicXSettings);
+      const { sourcePostId } = seedReplyPost(target);
+      vi.mocked(fetch).mockResolvedValueOnce(
+        new Response("upstream error", { status: sourceStatus }),
+      );
+
+      const response = await handleXPosts(
+        new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+        makeRouteEnv(target.db),
+      );
+
+      expect(response.status).toBe(expectedStatus);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+    },
+  );
+
+  it("답글 문맥 API도 members와 private 공개 범위 인증 정책을 따른다", async () => {
+    const membersTarget = makeCacheDb();
+    const { sourcePostId } = seedReplyPost(membersTarget);
+    const membersResponse = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(membersTarget.db),
+    );
+    expect(membersResponse.status).toBe(401);
+
+    const privateTarget = makeCacheDb({
+      x_posts_visibility: { value: "private" },
+    });
+    seedReplyPost(privateTarget, { sourcePostId });
+    const privateResponse = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(privateTarget.db),
+    );
+    expect(privateResponse.status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("공개 설정 조회 endpoint는 로그인 없이 공개 범위를 반환한다", async () => {
@@ -1790,7 +2348,13 @@ describe("x worker service", () => {
 
     const cachedPost = makePost("cached", "otw_member");
     const { db } = makeCacheDb({
-      "x:posts:v3:otw_member:5:plain": {
+      "x:relations:v1:otw_member": {
+        type: "relation_version",
+        value: JSON.stringify({ version: "v1" }),
+        fetched_at: Date.now(),
+        expires_at: Date.now() + 365 * 24 * 60 * 60_000,
+      },
+      "x:posts:v4:otw_member:5:plain": {
         type: "posts",
         value: JSON.stringify({ userId: "u1", posts: [cachedPost] }),
         fetched_at: Date.now(),
@@ -1819,7 +2383,13 @@ describe("x worker service", () => {
     const cachedPost = makePost("stale", "otw_member");
     const fetchedAt = Date.parse("2026-02-13T01:30:00Z");
     const { db } = makeCacheDb({
-      "x:posts:v3:otw_member:5:plain": {
+      "x:relations:v1:otw_member": {
+        type: "relation_version",
+        value: JSON.stringify({ version: "v1" }),
+        fetched_at: fetchedAt,
+        expires_at: fetchedAt + 365 * 24 * 60 * 60_000,
+      },
+      "x:posts:v4:otw_member:5:plain": {
         type: "posts",
         value: JSON.stringify({ userId: "u1", posts: [cachedPost] }),
         fetched_at: fetchedAt,

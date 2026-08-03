@@ -86,7 +86,7 @@ describe("x api", () => {
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v3",
+      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v4",
       { cache: "default" },
     );
   });
@@ -102,7 +102,7 @@ describe("x api", () => {
     await fetchMembersXPosts([makeMember(1, "https://x.com/valid_user")]);
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/x/posts?handles=valid_user&maxResults=5&clientVersion=v3",
+      "/api/x/posts?handles=valid_user&maxResults=5&clientVersion=v4",
       { cache: "default" },
     );
   });
@@ -121,7 +121,7 @@ describe("x api", () => {
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v3&admin=1",
+      "/api/x/posts?handles=valid_user&maxResults=10&clientVersion=v4&admin=1",
       { cache: "default" },
     );
   });
@@ -139,6 +139,21 @@ describe("x api", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/x/config", {
       cache: "default",
     });
+  });
+
+  it("답글 문맥 API는 선택한 저장 게시글 ID의 전용 경로를 호출한다", async () => {
+    const { fetchXPostContext } = await import("./x-posts-api");
+    apiFetchMock.mockResolvedValue({
+      sourcePostId: "2059529979700846592",
+      replyTo: makePost("2059529979700846500", "parent_user"),
+    });
+
+    await fetchXPostContext("2059529979700846592");
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/x/posts/2059529979700846592/context",
+      { cache: "default" },
+    );
   });
 
   it("게시글에 memberUid를 매핑한다", async () => {
