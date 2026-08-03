@@ -1926,6 +1926,119 @@ describe("x worker service", () => {
     );
   });
 
+  it("증분 수집에서 일시적으로 실패한 기존 인용 lookup을 다시 시도한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+    const fetchMock = vi.mocked(fetch);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846592",
+              text: "quoted https://t.co/status",
+              created_at: "2026-02-13T00:00:00Z",
+              referenced_tweets: [
+                { type: "quoted", id: "2059529979700846500" },
+              ],
+              public_metrics: {},
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+
+    const target = makeCacheDb();
+    const first = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: false,
+    });
+
+    expect(first.posts[0]?.quote).toEqual({
+      postId: "2059529979700846500",
+      post: null,
+    });
+    expect(target.sources.get("otw_member")?.last_seen_post_id).toBe(
+      "2059529979700846592",
+    );
+
+    clearXServiceCachesForTests();
+    vi.setSystemTime(new Date("2026-02-13T01:01:00Z"));
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846692",
+              text: "new incremental post",
+              created_at: "2026-02-13T01:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "2059529979700846500",
+              author_id: "u2",
+              text: "recovered quoted post",
+              created_at: "2026-02-12T23:00:00Z",
+              public_metrics: {},
+            },
+          ],
+          includes: {
+            users: [
+              {
+                id: "u2",
+                username: "linked_member",
+                name: "Linked Member",
+              },
+            ],
+          },
+        }),
+      );
+
+    const second = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      maxResults: 5,
+      richXLinkPreviewEnabled: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain(
+      "since_id=2059529979700846592",
+    );
+    expect(String(fetchMock.mock.calls[4]?.[0])).toContain(
+      "/tweets?ids=2059529979700846500",
+    );
+    expect(
+      second.posts.find((post) => post.id === "2059529979700846592")?.quote
+        ?.post,
+    ).toMatchObject({
+      id: "2059529979700846500",
+      text: "recovered quoted post",
+      username: "linked_member",
+    });
+    const storedPost = JSON.parse(
+      target.posts.get("2059529979700846592")?.value ?? "null",
+    ) as XPostItem | null;
+    expect(storedPost?.quote?.post).toMatchObject({
+      id: "2059529979700846500",
+      text: "recovered quoted post",
+    });
+  });
+
   it("X 게시글 링크 lookup 실패는 피드 전체 실패로 전파하지 않는다", async () => {
     const fetchMock = vi.mocked(fetch);
     const consoleWarn = vi

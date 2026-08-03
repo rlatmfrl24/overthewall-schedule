@@ -1795,7 +1795,9 @@ const enrichXPostsWithQuotedPosts = async (
   const quoteIds = Array.from(
     new Set(
       posts
-        .map((post) => post.quote?.postId ?? null)
+        .map((post) =>
+          post.quote && !post.quote.post ? post.quote.postId : null,
+        )
         .filter((id): id is string => Boolean(id)),
     ),
   ).slice(0, X_LINKED_POST_PREVIEW_MAX_IDS);
@@ -1814,20 +1816,23 @@ const enrichXPostsWithQuotedPosts = async (
     return posts;
   }
 
-  return posts.map((post) =>
-    post.quote
+  return posts.map((post) => {
+    if (!post.quote || post.quote.post) return post;
+
+    const preview = previews.get(post.quote.postId);
+    return preview
       ? {
           ...post,
           quote: {
             ...post.quote,
-            post: previews.get(post.quote.postId) ?? null,
+            post: preview,
           },
         }
-      : post,
-  );
+      : post;
+  });
 };
 
-const enrichXPostsWithPreviews = async (
+const enrichNewXPostsWithLinkPreviews = async (
   posts: XPostItem[],
   bearerToken: string,
   richXLinkPreviewEnabled: boolean,
@@ -1835,18 +1840,12 @@ const enrichXPostsWithPreviews = async (
   usageTracker?: XApiUsageTracker,
 ) => {
   const postsWithLinkPreviews = await enrichXPostsWithLinkPreviews(posts);
-  const postsWithQuotes = await enrichXPostsWithQuotedPosts(
-    postsWithLinkPreviews,
-    bearerToken,
-    cacheDb,
-    usageTracker,
-  );
   if (!richXLinkPreviewEnabled) {
-    return postsWithQuotes;
+    return postsWithLinkPreviews;
   }
 
   return enrichXPostsWithLinkedPostPreviews(
-    postsWithQuotes,
+    postsWithLinkPreviews,
     bearerToken,
     cacheDb,
     usageTracker,
@@ -1972,16 +1971,23 @@ const fetchXPostsForUser = async (
         usageTracker,
       },
     );
-    const posts = await enrichXPostsWithPreviews(
+    const posts = await enrichNewXPostsWithLinkPreviews(
       normalizeXTimelineResponse(response, user.username),
       bearerToken,
       richXLinkPreviewEnabled,
       cacheDb,
       usageTracker,
     );
-    const mergedPostsForStorage = mergeXPosts(
-      posts,
-      stored?.posts ?? activeFallback?.posts ?? [],
+    const mergedPostsForStorage = (
+      await enrichXPostsWithQuotedPosts(
+        mergeXPosts(
+          posts,
+          stored?.posts ?? activeFallback?.posts ?? [],
+        ),
+        bearerToken,
+        cacheDb,
+        usageTracker,
+      )
     ).slice(0, collectionLimit);
     const responsePosts = mergedPostsForStorage.slice(0, maxResults);
     const lastSeenPostId =
