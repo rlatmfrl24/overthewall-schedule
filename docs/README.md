@@ -15,6 +15,10 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `architecture-refactoring-verification.md` | Completion evidence and original-purpose audit for the architecture refactor. |
 | `auto-update.md` | Admin-approved CHZZK VOD based schedule auto-update flow. |
 | `cache-policy.md` | Frontend, Worker memory, D1, and HTTP cache TTL roles. |
+| `otw-play-product-requirements.md` | Living product requirements and decision baseline for OTW Play. |
+| `otw-play-system-design.md` | Clean Architecture, Cloudflare runtime, API, algorithms, and D1 schema design for OTW Play. |
+| `otw-play-ui-ux-design.md` | OTW Play visual direction, responsive flows, player, submission, and admin UX specification. |
+| `otw-play-implementation-guide.md` | Phased implementation, migration, verification, rollout, and rollback plan for OTW Play. |
 | `youtube-optimization.md` | YouTube API quota, caching, and fallback strategy. |
 
 ## Archived Context
