@@ -24,6 +24,7 @@ import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminOtwPlayRouteImport } from './routes/admin/otw-play'
 import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
 import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
@@ -106,6 +107,11 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminOtwPlayRoute = AdminOtwPlayRouteImport.update({
+  id: '/otw-play',
+  path: '/otw-play',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminOperationsRoute = AdminOperationsRouteImport.update({
   id: '/operations',
   path: '/operations',
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
+  '/admin/otw-play': typeof AdminOtwPlayRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
+  '/admin/otw-play': typeof AdminOtwPlayRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
+  '/admin/otw-play': typeof AdminOtwPlayRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -223,6 +232,7 @@ export interface FileRouteTypes {
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
+    | '/admin/otw-play'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
+    | '/admin/otw-play'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -267,6 +278,7 @@ export interface FileRouteTypes {
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
+    | '/admin/otw-play'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -395,6 +407,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/otw-play': {
+      id: '/admin/otw-play'
+      path: '/otw-play'
+      fullPath: '/admin/otw-play'
+      preLoaderRoute: typeof AdminOtwPlayRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/operations': {
       id: '/admin/operations'
       path: '/operations'
@@ -447,6 +466,7 @@ interface AdminRouteChildren {
   AdminMemberPostsRoute: typeof AdminMemberPostsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
   AdminOperationsRoute: typeof AdminOperationsRoute
+  AdminOtwPlayRoute: typeof AdminOtwPlayRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminSnapshotRoute: typeof AdminSnapshotRoute
   AdminYoutubeCacheRoute: typeof AdminYoutubeCacheRoute
@@ -460,6 +480,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminMemberPostsRoute: AdminMemberPostsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
   AdminOperationsRoute: AdminOperationsRoute,
+  AdminOtwPlayRoute: AdminOtwPlayRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminSnapshotRoute: AdminSnapshotRoute,
   AdminYoutubeCacheRoute: AdminYoutubeCacheRoute,

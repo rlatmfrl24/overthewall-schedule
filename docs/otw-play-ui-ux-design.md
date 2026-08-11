@@ -1,6 +1,6 @@
 # OTW Play UI/UX 설계
 
-상태: PR-4 공개 API·성능 read-model 기준선, 공개 UI·player 미착수
+상태: PR-5 관리자 catalog UI 구현 중, 공개 UI·player 미착수
 
 기준일: 2026-08-11
 
@@ -395,6 +395,12 @@ stateDiagram-v2
 - 가창 drawer: 곡 관계, 공개 형태, 참여 형태, 참여자, 상태
 - 소스 drawer: YouTube 영상, 채널, 대표 여부, 가용 상태
 - publish command: 검수 항목을 다시 요약하고 별도 실행
+
+PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
+접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative
+readback을 다시 표시하고 optimistic removal은 하지 않는다. GATE-01 미확정 상태에는
+검수 대기 제안과 YouTube 원본 링크를 계속 제공하되 승인 control은 사유를 표시한
+disabled 상태로 유지하고, 거절은 내부 사유 code가 있어야 실행한다.
 
 ## 12. 로딩·빈 상태·오류 상태
 

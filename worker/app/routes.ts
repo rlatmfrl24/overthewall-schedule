@@ -27,10 +27,15 @@ import {
 } from "../features/members";
 import {
   CloudflarePublicCatalogCache,
+  AdminCatalogService,
+  createAdminCatalogHandler,
   createPublicCatalogEtag,
   createPublicCatalogHandler,
+  D1AdminCatalogRepository,
   D1PublicCatalogReader,
+  DrizzleAdminCatalogAudit,
   PublicCatalogService,
+  YouTubeOtwPlayMetadataReader,
 } from "../features/otw-play";
 import {
   collectNaverCafePostsForSources,
@@ -168,6 +173,16 @@ const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
       publicCatalogCache,
     ),
   createPublicCatalogEtag,
+);
+const handleOtwPlayAdminCatalog = createAdminCatalogHandler(
+  (env) =>
+    new AdminCatalogService(
+      new D1AdminCatalogRepository(env.otw_db),
+      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+      new DrizzleAdminCatalogAudit(getDb(env)),
+      () => crypto.randomUUID(),
+      false,
+    ),
 );
 const handleNotices = createHandleNotices(
   (env) =>
@@ -428,6 +443,96 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.admin.catalog",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.catalog.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.entities",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.entities.pattern,
+    methods: methods(
+      post({ ...ADMIN_NO_STORE, successStatus: 201 }),
+      put(ADMIN_NO_STORE),
+    ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.songs",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.songs.pattern,
+    methods: methods(
+      post({ ...ADMIN_NO_STORE, successStatus: 201 }),
+      put(ADMIN_NO_STORE),
+    ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.performances",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.performances.pattern,
+    methods: methods(
+      post({ ...ADMIN_NO_STORE, successStatus: 201 }),
+      put(ADMIN_NO_STORE),
+    ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.performance.publish",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.publishPerformance.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.performance.withdraw",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.withdrawPerformance.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.submissions",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.submissions.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.submission.approve",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.approveSubmission.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.submission.reject",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.rejectSubmission.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.channels",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.channels.pattern,
+    methods: methods(
+      post({ ...ADMIN_NO_STORE, successStatus: 201 }),
+      put(ADMIN_NO_STORE),
+      del(ADMIN_NO_STORE),
+    ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.source.recheck",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.recheckSource.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
   },
   {
     id: "schedule-board.read",

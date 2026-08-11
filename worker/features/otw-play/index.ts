@@ -54,3 +54,8 @@ export {
 } from "./infrastructure/cloudflare-public-catalog-cache";
 export { D1PublicCatalogReader } from "./infrastructure/d1-public-catalog-reader";
 export { createPublicCatalogHandler } from "./http/public-catalog-handler";
+export { AdminCatalogService } from "./application/admin-catalog-service";
+export { D1AdminCatalogRepository } from "./infrastructure/d1-admin-catalog-repository";
+export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
+export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";
+export { createAdminCatalogHandler } from "./http/admin-catalog-handler";

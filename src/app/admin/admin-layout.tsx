@@ -11,6 +11,7 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  Music2,
   Scissors,
   Youtube,
   type LucideIcon,
@@ -74,6 +75,11 @@ const SIDEBAR_SECTIONS: SidebarSection[] = [
   {
     title: "콘텐츠 관리",
     items: [
+      {
+        label: "OTW Play",
+        icon: Music2,
+        href: "/admin/otw-play",
+      },
       {
         label: "공지사항",
         icon: Megaphone,

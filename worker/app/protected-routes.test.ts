@@ -66,4 +66,16 @@ describe("protected worker routes", () => {
     expect(response.status).toBe(401);
     expect(await response.text()).toBe("Login required");
   });
+
+  it("OTW Play admin catalog routes reject unauthenticated requests", async () => {
+    const responses = await Promise.all([
+      dispatch(new Request("https://example.com/api/play/admin/catalog")),
+      dispatch(new Request("https://example.com/api/play/admin/songs", { method: "POST" })),
+      dispatch(new Request("https://example.com/api/play/admin/performances/p-1/publish", { method: "POST" })),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe("Login required");
+    }
+  });
 });

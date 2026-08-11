@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-4 공개 catalog query/API/cache 및 성능 read-model 실행 기준선
+상태: PR-5 관리자 catalog command/UI 및 atomic projection 실행 기준선
 
 기준일: 2026-08-11
 
@@ -67,13 +67,13 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 요구사항의 여러 상태 이름은 하나의 row 상태가 아니라 서로 다른 aggregate와
 관심사다.
 
-| 축 | 저장 위치 | 값 |
-| --- | --- | --- |
-| 회원 제안 심사 | `music_cover_proposals.status` | `pending_review`, `approved`, `rejected`, `withdrawn` |
-| 카탈로그 공개 | `music_performances.publication_status` | `draft`, `published`, `withdrawn` |
-| 카탈로그 품질 | `music_performances.quality_status` | `ok`, `needs_update` |
-| 소스 가용성 | `music_media_sources.availability_status` | `unknown`, `playable`, `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable` |
-| 공식 채널 검수 | `music_channels.verification_status` | `pending`, `approved`, `revoked` |
+| 축             | 저장 위치                                 | 값                                                                                             |
+| -------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 회원 제안 심사 | `music_cover_proposals.status`            | `pending_review`, `approved`, `rejected`, `withdrawn`                                          |
+| 카탈로그 공개  | `music_performances.publication_status`   | `draft`, `published`, `withdrawn`                                                              |
+| 카탈로그 품질  | `music_performances.quality_status`       | `ok`, `needs_update`                                                                           |
+| 소스 가용성    | `music_media_sources.availability_status` | `unknown`, `playable`, `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable` |
+| 공식 채널 검수 | `music_channels.verification_status`      | `pending`, `approved`, `revoked`                                                               |
 
 `unavailable`은 곡이나 가창의 공개 상태가 아니다. 모든 연결 소스가 재생
 불가여도 곡과 가창 메타데이터는 `published`로 보존하고 공개 DTO의
@@ -492,20 +492,20 @@ UUID를 미리 만들면 parent/child ID를 승인 batch 전에 확정할 수 �
 
 ### 6.2 권위 카탈로그
 
-| 테이블 | 핵심 열 | 역할 |
-| --- | --- | --- |
-| `music_entities` | `id`, `member_uid`, `entity_kind`, `display_name`, `normalized_name`, `slug`, `archived_at` | 멤버·외부 인원·원곡 가수·그룹의 통합 identity |
-| `music_entity_aliases` | `entity_id`, `alias`, `normalized_alias`, `locale`, `alias_kind` | 다른 언어·활동명 검색 |
-| `music_songs` | `id`, `slug`, `title`, `normalized_title`, `dedupe_key`, `is_otw_original`, 원곡 공개일, `merged_into_song_id`, `archived_at` | 음악 작품과 OTW 오리지널 여부의 권위 |
-| `music_song_aliases` | `song_id`, `alias`, `normalized_alias`, `locale`, `alias_kind` | 제목 별칭 |
-| `music_song_original_artists` | `song_id`, `entity_id`, `credit_order`, `is_primary` | 복수 원곡 가수 |
-| `music_channels` | provider ID, 표시명, 역할, 검수 상태, 활성 여부 | 공식 채널 allowlist |
-| `music_channel_entities` | `channel_id`, `entity_id` | row 자체가 뜻하는 공동·유닛 채널 소유 연결 |
-| `music_media_sources` | provider 영상 ID, channel, metadata, 가용성, `last_checked_at`, `next_check_at` | YouTube 영상 자체 |
-| `music_media_source_relations` | `source_id`, `related_source_id`, `relation_type` | 방향이 있는 후속 원본·키리누키·대체 영상 연결 |
-| `music_performances` | song, 분류 3축, 공개·품질 상태, 공개일, version | 특정 곡의 한 공식 가창 버전 |
-| `music_performance_participants` | performance, entity, 역할, 순서, credit snapshot | 실제 가창 참여자 |
-| `music_performance_sources` | performance, source, 구간, 역할, 우선순위, primary | 가창과 재생 소스 연결 |
+| 테이블                           | 핵심 열                                                                                                                       | 역할                                          |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `music_entities`                 | `id`, `member_uid`, `entity_kind`, `display_name`, `normalized_name`, `slug`, `archived_at`                                   | 멤버·외부 인원·원곡 가수·그룹의 통합 identity |
+| `music_entity_aliases`           | `entity_id`, `alias`, `normalized_alias`, `locale`, `alias_kind`                                                              | 다른 언어·활동명 검색                         |
+| `music_songs`                    | `id`, `slug`, `title`, `normalized_title`, `dedupe_key`, `is_otw_original`, 원곡 공개일, `merged_into_song_id`, `archived_at` | 음악 작품과 OTW 오리지널 여부의 권위          |
+| `music_song_aliases`             | `song_id`, `alias`, `normalized_alias`, `locale`, `alias_kind`                                                                | 제목 별칭                                     |
+| `music_song_original_artists`    | `song_id`, `entity_id`, `credit_order`, `is_primary`                                                                          | 복수 원곡 가수                                |
+| `music_channels`                 | provider ID, 표시명, 역할, 검수 상태, 활성 여부                                                                               | 공식 채널 allowlist                           |
+| `music_channel_entities`         | `channel_id`, `entity_id`                                                                                                     | row 자체가 뜻하는 공동·유닛 채널 소유 연결    |
+| `music_media_sources`            | provider 영상 ID, channel, metadata, 가용성, `last_checked_at`, `next_check_at`                                               | YouTube 영상 자체                             |
+| `music_media_source_relations`   | `source_id`, `related_source_id`, `relation_type`                                                                             | 방향이 있는 후속 원본·키리누키·대체 영상 연결 |
+| `music_performances`             | song, 분류 3축, 공개·품질 상태, 공개일, version                                                                               | 특정 곡의 한 공식 가창 버전                   |
+| `music_performance_participants` | performance, entity, 역할, 순서, credit snapshot                                                                              | 실제 가창 참여자                              |
+| `music_performance_sources`      | performance, source, 구간, 역할, 우선순위, primary                                                                            | 가창과 재생 소스 연결                         |
 
 `music_media_sources`와 `music_performance_sources`를 분리하는 이유는 하나의 긴
 영상이 후속 단계에서 여러 곡 구간을 포함할 수 있기 때문이다. 동일 YouTube
@@ -522,12 +522,12 @@ channel/entity 연결의 중복을 막는다. source relation은 `source_id`를 
 
 ### 6.3 회원 제안과 이력
 
-| 테이블 | 핵심 열 | 역할 |
-| --- | --- | --- |
-| `music_cover_proposals` | submitter, idempotency key, URL/video ID, 제출 제목, suggested song, note, status, version, review lock, reviewer, result | 제안 aggregate |
-| `music_cover_proposal_participants` | proposal, 순서, resolved entity nullable, 제출명 snapshot, 역할 | 승인 전 참여자 입력 |
-| `music_cover_proposal_original_artists` | proposal, 순서, resolved entity nullable, 제출명 snapshot | 승인 전 원곡 가수 입력 |
-| `music_catalog_events` | aggregate, event, actor, before/after, 제한된 detail, 시각 | append-only 권위 이력 |
+| 테이블                                  | 핵심 열                                                                                                                   | 역할                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `music_cover_proposals`                 | submitter, idempotency key, URL/video ID, 제출 제목, suggested song, note, status, version, review lock, reviewer, result | 제안 aggregate         |
+| `music_cover_proposal_participants`     | proposal, 순서, resolved entity nullable, 제출명 snapshot, 역할                                                           | 승인 전 참여자 입력    |
+| `music_cover_proposal_original_artists` | proposal, 순서, resolved entity nullable, 제출명 snapshot                                                                 | 승인 전 원곡 가수 입력 |
+| `music_catalog_events`                  | aggregate, event, actor, before/after, 제한된 detail, 시각                                                                | append-only 권위 이력  |
 
 제안은 canonical entity/song/performance row를 만들지 않는다. 승인 command가
 제출 snapshot을 검수된 entity와 song에 resolve한 뒤 공개 카탈로그를 만든다.
@@ -567,12 +567,12 @@ expiry는 둘 다 NULL이거나 둘 다 존재해야 한다.
 
 상태별 coherence는 다음과 같다.
 
-| status | lock | reviewer/time | result/note | approved performance |
-| --- | --- | --- | --- | --- |
-| `pending_review` | paired nullable | NULL | NULL | NULL |
-| `approved` | NULL | 둘 다 필수 | 선택 | 필수 |
-| `rejected` | NULL | 둘 다 필수 | 선택 | NULL |
-| `withdrawn` | NULL | NULL | NULL | NULL |
+| status           | lock            | reviewer/time | result/note | approved performance |
+| ---------------- | --------------- | ------------- | ----------- | -------------------- |
+| `pending_review` | paired nullable | NULL          | NULL        | NULL                 |
+| `approved`       | NULL            | 둘 다 필수    | 선택        | 필수                 |
+| `rejected`       | NULL            | 둘 다 필수    | 선택        | NULL                 |
+| `withdrawn`      | NULL            | NULL          | NULL        | NULL                 |
 
 GATE-04가 확정되기 전에는 `withdrawn` 값을 schema에만 보존하고 회원 수정·철회
 command나 전이를 구현하지 않는다. GATE-05가 확정되기 전에는 result code를
@@ -617,14 +617,14 @@ DELETE를 trigger로 막지 않는다. 후속 infrastructure는 insert-only meth
 
 ### 6.4 검색과 카탈로그 meta
 
-| 테이블 | 핵심 열 | 역할 |
-| --- | --- | --- |
-| `music_search_terms` | song, term kind, 표시값, normalized term | 제목·별칭·원곡 가수·참여자 검색 projection |
-| `music_catalog_meta` | singleton ID, revision, public flag, navigation flag, updated_at | cache revision과 단계적 공개 switch |
-| `music_public_performance_sort_keys` | performance, song, 대표 participant entity와 normalized key | participant 정렬의 performance 단위 keyset projection |
-| `music_search_grams` | song, gram size, normalized gram | Unicode 2·3 code point contains 후보 projection |
-| `music_search_gram_stats` | gram size, normalized gram, song count | query gram 중 가장 희소한 후보 key 선택 |
-| `music_public_read_model_meta` | singleton ID, revision, updated_at | 파생 read model 완성 revision과 freshness gate |
+| 테이블                               | 핵심 열                                                          | 역할                                                  |
+| ------------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------- |
+| `music_search_terms`                 | song, term kind, 표시값, normalized term                         | 제목·별칭·원곡 가수·참여자 검색 projection            |
+| `music_catalog_meta`                 | singleton ID, revision, public flag, navigation flag, updated_at | cache revision과 단계적 공개 switch                   |
+| `music_public_performance_sort_keys` | performance, song, 대표 participant entity와 normalized key      | participant 정렬의 performance 단위 keyset projection |
+| `music_search_grams`                 | song, gram size, normalized gram                                 | Unicode 2·3 code point contains 후보 projection       |
+| `music_search_gram_stats`            | gram size, normalized gram, song count                           | query gram 중 가장 희소한 후보 key 선택               |
+| `music_public_read_model_meta`       | singleton ID, revision, updated_at                               | 파생 read model 완성 revision과 freshness gate        |
 
 `music_search_terms`의 PK는 `(song_id, term_kind, normalized_term)`이다. 게시,
 수정, 철회 시 해당 곡의 term projection과 revision을 같은 batch에서 갱신한다.
@@ -721,20 +721,20 @@ erDiagram
 
 ### 6.6 주요 enum과 check
 
-| 열 | 값 |
-| --- | --- |
-| `entity_kind` | `person`, `group`, `organization` |
-| `channel_role` | `otw_official`, `unit_official`, `member_music`, `member_main`, `project_official`, `approved_kirinuki`, `other` |
-| `relation_type` | `original`, `cover` |
-| `release_type` | `official_mv`, `official_video`, `broadcast`, `live`, `shorts` |
-| `participation_type` | `solo`, `duet`, `unit`, `group`, `external_collab` |
-| participant role | `vocal`, `featured_vocal`, `chorus`, `other` |
-| public participant kind | `current_member`, `external`, `group` |
-| source role | `official`, `kirinuki`, `broadcast_original`, `alternate` |
-| source relation | `excerpt_of`, `alternate_of` |
-| proposal status | `pending_review`, `approved`, `rejected`, `withdrawn` |
-| event actor kind | `member`, `admin`, `system` |
-| search term kind | `title`, `title_alias`, `original_artist`, `participant` |
+| 열                      | 값                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `entity_kind`           | `person`, `group`, `organization`                                                                                |
+| `channel_role`          | `otw_official`, `unit_official`, `member_music`, `member_main`, `project_official`, `approved_kirinuki`, `other` |
+| `relation_type`         | `original`, `cover`                                                                                              |
+| `release_type`          | `official_mv`, `official_video`, `broadcast`, `live`, `shorts`                                                   |
+| `participation_type`    | `solo`, `duet`, `unit`, `group`, `external_collab`                                                               |
+| participant role        | `vocal`, `featured_vocal`, `chorus`, `other`                                                                     |
+| public participant kind | `current_member`, `external`, `group`                                                                            |
+| source role             | `official`, `kirinuki`, `broadcast_original`, `alternate`                                                        |
+| source relation         | `excerpt_of`, `alternate_of`                                                                                     |
+| proposal status         | `pending_review`, `approved`, `rejected`, `withdrawn`                                                            |
+| event actor kind        | `member`, `admin`, `system`                                                                                      |
+| search term kind        | `title`, `title_alias`, `original_artist`, `participant`                                                         |
 
 `entity_kind`는 persistence identity의 형태이고 participant role은 가창 credit의
 역할이다. 공개 participant kind는 화면 투영 계약이며 전 소속 멤버를 반드시
@@ -831,6 +831,7 @@ source segment는 `UNIQUE(source_id, start_seconds)`가 별도 performance로 �
 
 source priority는 NULL을 허용하지 않는다. 값이 생략되면 `0`이며 낮은 값부터
 비교한 뒤 최종적으로 source ID를 사용해 결정적인 순서를 만든다.
+
 - `music_cover_proposals(status, created_at, id)`
 - `music_cover_proposals(submitted_by_user_id, created_at DESC, id)`
 - `music_catalog_events(aggregate_type, aggregate_id, created_at DESC)`
@@ -860,13 +861,13 @@ migration에도 넣지 않는다.
 
 ### 8.1 공개
 
-| Method | Path | 목적 | Cache API |
-| --- | --- | --- | --- |
-| GET | `/api/play/config` | 공개·내비게이션 기능 flag와 catalog revision | 예 |
-| GET | `/api/play/catalog` | 검색·필터·정렬·cursor 목록 | `q`·`cursor` 없는 첫 page |
-| GET | `/api/play/facets` | 멤버·그룹·원곡 가수 filter 자료 | 예 |
-| GET | `/api/play/songs/:slug` | 곡과 모든 공개 공식 버전 | 예 |
-| GET | `/api/play/performances/:id` | 가창 직접 링크 | 예 |
+| Method | Path                         | 목적                                         | Cache API                 |
+| ------ | ---------------------------- | -------------------------------------------- | ------------------------- |
+| GET    | `/api/play/config`           | 공개·내비게이션 기능 flag와 catalog revision | 예                        |
+| GET    | `/api/play/catalog`          | 검색·필터·정렬·cursor 목록                   | `q`·`cursor` 없는 첫 page |
+| GET    | `/api/play/facets`           | 멤버·그룹·원곡 가수 filter 자료              | 예                        |
+| GET    | `/api/play/songs/:slug`      | 곡과 모든 공개 공식 버전                     | 예                        |
+| GET    | `/api/play/performances/:id` | 가창 직접 링크                               | 예                        |
 
 목록 parameter:
 
@@ -929,12 +930,12 @@ draft·withdrawn performance도 public `404`다.
 
 ### 8.2 로그인 회원
 
-| Method | Path | 목적 |
-| --- | --- | --- |
-| POST | `/api/play/submissions/preflight` | video ID, exact duplicate와 유사 곡 후보 |
-| POST | `/api/play/submissions` | 공식 커버 제안 |
-| GET | `/api/play/submissions/mine` | 본인 제안 목록 |
-| GET | `/api/play/submissions/:id` | 본인 제안 상세 |
+| Method | Path                              | 목적                                     |
+| ------ | --------------------------------- | ---------------------------------------- |
+| POST   | `/api/play/submissions/preflight` | video ID, exact duplicate와 유사 곡 후보 |
+| POST   | `/api/play/submissions`           | 공식 커버 제안                           |
+| GET    | `/api/play/submissions/mine`      | 본인 제안 목록                           |
+| GET    | `/api/play/submissions/:id`       | 본인 제안 상세                           |
 
 route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 실제 JWT를
 검증한다. 모든 응답은 `Cache-Control: no-store`다.
@@ -946,20 +947,28 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 
 ### 8.3 관리자
 
-| Method | Path | 목적 |
-| --- | --- | --- |
-| GET | `/api/play/admin/catalog` | draft·published 운영 목록 |
-| POST/PUT | `/api/play/admin/songs` | 곡 생성·수정 |
-| POST/PUT | `/api/play/admin/performances` | 가창 draft 생성·수정 |
-| POST | `/api/play/admin/performances/:id/publish` | 검수 후 게시 |
-| POST | `/api/play/admin/performances/:id/withdraw` | 공개 철회 |
-| GET | `/api/play/admin/submissions` | 검토 대기 목록 |
-| POST | `/api/play/admin/submissions/:id/approve` | 검수값으로 승인·게시 |
-| POST | `/api/play/admin/submissions/:id/reject` | 사유와 함께 거절 |
-| CRUD | `/api/play/admin/channels` | 공식 채널 검수·활성 관리 |
-| POST | `/api/play/admin/sources/:id/recheck` | 소스 상태 재검사 |
+| Method   | Path                                        | 목적                                   |
+| -------- | ------------------------------------------- | -------------------------------------- |
+| GET      | `/api/play/admin/catalog`                   | draft·published 운영 목록              |
+| POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
+| POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
+| POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·수정                   |
+| POST     | `/api/play/admin/performances/:id/publish`  | 검수 후 게시                           |
+| POST     | `/api/play/admin/performances/:id/withdraw` | 공개 철회                              |
+| GET      | `/api/play/admin/submissions`               | 검토 대기 목록                         |
+| POST     | `/api/play/admin/submissions/:id/approve`   | 검수값으로 승인·게시                   |
+| POST     | `/api/play/admin/submissions/:id/reject`    | 사유와 함께 거절                       |
+| CRUD     | `/api/play/admin/channels`                  | 공식 채널 검수·활성 관리               |
+| POST     | `/api/play/admin/sources/:id/recheck`       | 소스 상태 재검사                       |
 
 승인, 반려, publish와 withdraw command에는 `expectedVersion`을 요구한다.
+
+PR-5 관리자 고정 오류 code는 `PLAY_ADMIN_INVALID_REQUEST`,
+`PLAY_ADMIN_NOT_FOUND`, `PLAY_ADMIN_STALE_WRITE`,
+`PLAY_ADMIN_VALIDATION_FAILED`, `PLAY_ADMIN_POLICY_UNRESOLVED`,
+`PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE`, `PLAY_ADMIN_INTERNAL_ERROR`다.
+GATE-01 미확정 상태의 proposal approve만 policy-unresolved 409를 반환하며 draft
+catalog command와 제안 거절까지 함께 막지 않는다.
 
 ### 8.4 오류 계약
 
@@ -974,30 +983,30 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 }
 ```
 
-| Status | 의미 |
-| --- | --- |
-| 400 | malformed body/query/cursor |
-| 401 | 로그인 필요 |
-| 403 | 관리자 권한 필요 |
-| 404 | 공개 대상 없음 또는 소유하지 않은 제안 |
-| 409 | exact duplicate, stale version, 잘못된 상태 전이 |
-| 422 | 공식 채널·영상·참여자 검수 실패 |
-| 429 | 제출 제한 |
-| 503 | D1 또는 YouTube의 재시도 가능한 장애 |
+| Status | 의미                                             |
+| ------ | ------------------------------------------------ |
+| 400    | malformed body/query/cursor                      |
+| 401    | 로그인 필요                                      |
+| 403    | 관리자 권한 필요                                 |
+| 404    | 공개 대상 없음 또는 소유하지 않은 제안           |
+| 409    | exact duplicate, stale version, 잘못된 상태 전이 |
+| 422    | 공식 채널·영상·참여자 검수 실패                  |
+| 429    | 제출 제한                                        |
+| 503    | D1 또는 YouTube의 재시도 가능한 장애             |
 
 공유 DTO는 `contracts/otw-play.ts`가 소유하고 Drizzle row type을 노출하지 않는다.
 
 PR-4 public read의 고정 오류 코드는 다음과 같다.
 
-| Status | Code | 조건 |
-| --- | --- | --- |
-| 400 | `PLAY_INVALID_QUERY` | 알 수 없거나 중복된 parameter, 잘못된 enum·날짜·상한 |
-| 400 | `PLAY_INVALID_CURSOR` | token 구조·query·sort가 현재 request와 불일치 |
-| 409 | `PLAY_CURSOR_STALE` | token의 catalog revision이 현재 revision과 불일치 |
-| 404 | `PLAY_PUBLIC_READ_DISABLED` | config 이외 endpoint에서 공개 read flag가 꺼짐 |
-| 404 | `PLAY_NOT_FOUND` | 공개 가능한 canonical song 또는 performance가 없음 |
-| 503 | `PLAY_CATALOG_UNAVAILABLE` | meta 또는 catalog D1 read 실패 |
-| 500 | `PLAY_INTERNAL_ERROR` | 공개 projection 또는 response 조립 계약 위반 |
+| Status | Code                        | 조건                                                 |
+| ------ | --------------------------- | ---------------------------------------------------- |
+| 400    | `PLAY_INVALID_QUERY`        | 알 수 없거나 중복된 parameter, 잘못된 enum·날짜·상한 |
+| 400    | `PLAY_INVALID_CURSOR`       | token 구조·query·sort가 현재 request와 불일치        |
+| 409    | `PLAY_CURSOR_STALE`         | token의 catalog revision이 현재 revision과 불일치    |
+| 404    | `PLAY_PUBLIC_READ_DISABLED` | config 이외 endpoint에서 공개 read flag가 꺼짐       |
+| 404    | `PLAY_NOT_FOUND`            | 공개 가능한 canonical song 또는 performance가 없음   |
+| 503    | `PLAY_CATALOG_UNAVAILABLE`  | meta 또는 catalog D1 read 실패                       |
+| 500    | `PLAY_INTERNAL_ERROR`       | 공개 projection 또는 response 조립 계약 위반         |
 
 공개 read가 비활성화된 config 이외 endpoint의 `404` code는
 `PLAY_PUBLIC_READ_DISABLED`다. 존재하지 않거나 공개되지 않은 song/performance는
@@ -1135,6 +1144,11 @@ WHERE id = ?
 11. 모든 authority·projection 쓰기가 성공한 뒤 read-model meta를 같은 새
     revision으로 갱신
 
+writer는 command 시작 시 catalog revision과 read-model revision의 일치를 요구한다.
+이미 불일치한 상태에서는 영향받은 일부 row만 다시 만들고 revision을 맞추는 자동
+복구를 하지 않으며 관리자 command를 503으로 중단한다. 전체 read model 복구는 별도
+검증 도구가 모든 projection을 재구축한 뒤 ready marker를 마지막에 갱신해야 한다.
+
 UUID는 application에서 미리 만들고, 모든 SQL은 prepared statement로 bind한다.
 YouTube 외부 호출은 batch 밖에서 먼저 끝내고 CAS로 그 사이의 변경을 감지한다.
 위 단계는 PR-5 writer가 하나의 D1 batch로 소유한다. trigger나 별도 비동기 job에
@@ -1172,14 +1186,14 @@ https://otw.internal/cache/play/v1/{catalogRevision}/{canonicalPathAndQuery}
 
 권장 TTL:
 
-| 응답 | Browser | Cache API |
-| --- | --- | --- |
-| 기본 catalog | 60초 | 5분 |
-| 곡 상세 | 60초 | 10분 |
-| facets/config | 60초 | 30분 |
-| 자유 검색 | 최대 30초 | 저장 안 함 |
-| cursor page | 60초 private | 저장 안 함 |
-| 회원·관리자 | 0 | 저장 안 함 |
+| 응답          | Browser      | Cache API  |
+| ------------- | ------------ | ---------- |
+| 기본 catalog  | 60초         | 5분        |
+| 곡 상세       | 60초         | 10분       |
+| facets/config | 60초         | 30분       |
+| 자유 검색     | 최대 30초    | 저장 안 함 |
+| cursor page   | 60초 private | 저장 안 함 |
+| 회원·관리자   | 0            | 저장 안 함 |
 
 Cache API는 PoP local이고 `cache.delete()`도 해당 data center에만 영향을 준다.
 삭제 무효화 대신 revision을 cache key에 포함한다. Cache API 자체는
@@ -1246,18 +1260,18 @@ command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cac
 
 ## 13. 실패 처리
 
-| 실패 | 동작 |
-| --- | --- |
-| 공개 Cache API 실패 | D1을 읽어 정상 응답, 구조화 warning |
-| D1 공개 조회 실패 | 오래된 철회 콘텐츠를 임의 제공하지 않고 503 |
-| YouTube 승인 검증 실패 | proposal 유지, 승인 전이 없음, retryable 503 |
-| source 삭제·비공개 | source 상태 변경, metadata 보존, player fallback/skip |
-| 동시 관리자 승인 | 한 CAS만 성공, 나머지 409, 부분 canonical row 없음 |
-| exact duplicate | 409, 같은 idempotency key면 기존 결과 readback |
-| soft duplicate | 저장 가능, 관리자 warning |
-| current member가 deprecated로 변경 | revision 증가 후 external chip projection |
-| capability event 저장 실패 | 승인 batch 전체 rollback |
-| 전역 admin audit 실패 | 승인 결과 유지, 별도 관측·재기록 대상 |
+| 실패                               | 동작                                                  |
+| ---------------------------------- | ----------------------------------------------------- |
+| 공개 Cache API 실패                | D1을 읽어 정상 응답, 구조화 warning                   |
+| D1 공개 조회 실패                  | 오래된 철회 콘텐츠를 임의 제공하지 않고 503           |
+| YouTube 승인 검증 실패             | proposal 유지, 승인 전이 없음, retryable 503          |
+| source 삭제·비공개                 | source 상태 변경, metadata 보존, player fallback/skip |
+| 동시 관리자 승인                   | 한 CAS만 성공, 나머지 409, 부분 canonical row 없음    |
+| exact duplicate                    | 409, 같은 idempotency key면 기존 결과 readback        |
+| soft duplicate                     | 저장 가능, 관리자 warning                             |
+| current member가 deprecated로 변경 | revision 증가 후 external chip projection             |
+| capability event 저장 실패         | 승인 batch 전체 rollback                              |
+| 전역 admin audit 실패              | 승인 결과 유지, 별도 관측·재기록 대상                 |
 
 ## 14. 관측성과 성능 목표
 
@@ -1281,15 +1295,15 @@ command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cac
 
 초기 목표:
 
-| 지표 | 목표 |
-| --- | --- |
-| 공개 Cache API hit Worker p95 | 150ms 이하 |
-| 공개 cold catalog p95 | 600ms 이하 |
-| D1-only mutation p95 | 1초 이하 |
-| 공개 5xx | 0.5% 미만 |
-| 기본 catalog/detail cache hit ratio | 80% 이상 |
-| catalog response gzip | 100KB 이하 |
-| UI player 제외 CLS | 0.1 이하 |
+| 지표                                | 목표       |
+| ----------------------------------- | ---------- |
+| 공개 Cache API hit Worker p95       | 150ms 이하 |
+| 공개 cold catalog p95               | 600ms 이하 |
+| D1-only mutation p95                | 1초 이하   |
+| 공개 5xx                            | 0.5% 미만  |
+| 기본 catalog/detail cache hit ratio | 80% 이상   |
+| catalog response gzip               | 100KB 이하 |
+| UI player 제외 CLS                  | 0.1 이하   |
 
 YouTube 외부 검증 시간은 mutation 목표와 분리해 측정한다. 목표는 출시 전 로컬
 fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 값으로 다시
