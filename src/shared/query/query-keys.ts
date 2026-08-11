@@ -1,6 +1,17 @@
 import type { UpdateLogQuery } from "@contracts/audit";
 
 export const queryKeys = {
+  otwPlay: {
+    all: ["otw-play"] as const,
+    config: () => [...queryKeys.otwPlay.all, "config"] as const,
+    catalog: (canonicalQuery: string) =>
+      [...queryKeys.otwPlay.all, "catalog", canonicalQuery] as const,
+    facets: () => [...queryKeys.otwPlay.all, "facets"] as const,
+    song: (slug: string) =>
+      [...queryKeys.otwPlay.all, "song", slug] as const,
+    performance: (id: string) =>
+      [...queryKeys.otwPlay.all, "performance", id] as const,
+  },
   members: {
     all: ["members"] as const,
     active: () => [...queryKeys.members.all, "active"] as const,
