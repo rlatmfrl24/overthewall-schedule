@@ -11,6 +11,18 @@ const OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES = [
   "0048_previous_the_phantom.sql",
   "0049_otw_play_catalog_meta_seed.sql",
 ] as const;
+const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
+  "0046_tan_nova.sql",
+  ...OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES,
+  "0050_parched_marvel_apes.sql",
+  "0051_clear_mantis.sql",
+  "0052_otw-play-public-read-model-backfill.sql",
+] as const;
+const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
+  // Actual minimal prerequisite: 0046 adds an FK to members(uid).
+  "0000_flaky_spyke.sql",
+  ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
+] as const;
 
 export default defineConfig({
   resolve: {
@@ -35,6 +47,11 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration] : [];
         });
+      const otwPlayPublicCatalogMigrations =
+        OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.flatMap((name) => {
+          const migration = migrationsByName.get(name);
+          return migration ? [migration] : [];
+        });
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
@@ -53,6 +70,18 @@ export default defineConfig({
           `Expected exact ordered OTW Play proposal/search migrations: ${OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.join(", ")}`,
         );
       }
+      if (
+        otwPlayPublicCatalogMigrations.length !==
+          OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.length ||
+        otwPlayPublicCatalogMigrations.some(
+          ({ name }, index) =>
+            name !== OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES[index],
+        )
+      ) {
+        throw new Error(
+          `Expected exact ordered OTW Play public catalog test migrations: ${OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.join(", ")}`,
+        );
+      }
 
       return {
         miniflare: {
@@ -63,6 +92,8 @@ export default defineConfig({
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
               otwPlayProposalSearchMigrations,
+            OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
+              otwPlayPublicCatalogMigrations,
           },
         },
       };

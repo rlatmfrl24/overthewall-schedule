@@ -7,6 +7,9 @@ import { promisify } from "node:util";
 import {
   REQUIRED_D1_COLUMNS,
   getMusicCatalogMetaStatus,
+  getMusicPublicReadModelMetaStatus,
+  getMusicPublicSortKeyStatus,
+  getMusicSearchGramStatsStatus,
   getMigrationListStatus,
 } from "./d1-doctor-core.mjs";
 import {
@@ -249,6 +252,171 @@ const checkCatalogMeta = async (scope) => {
   return status.ok ? 0 : 1;
 };
 
+const runReadModelDiagnostic = async (scope, label, sql, getStatus) => {
+  const result = await runWrangler([
+    "d1",
+    "execute",
+    "otw-db",
+    ...buildD1LocationArgs(scope, persistTo),
+    "--command",
+    sql,
+  ]);
+
+  if (!result.ok) {
+    const message = summarizeCommandFailure(result);
+    const isLocked = /SQLITE_BUSY|database is locked/i.test(message);
+    printResult(isLocked ? "warn" : "fail", `${scope} ${label}: ${message}`);
+    return isLocked ? 0 : 1;
+  }
+
+  const parsed = extractJsonArray(`${result.stdout}\n${result.stderr}`);
+  const status = getStatus(parsed?.[0]?.results);
+  printResult(status.ok ? "ok" : "fail", `${scope} ${label}: ${status.message}`);
+  return status.ok ? 0 : 1;
+};
+
+const checkPublicReadModelMeta = (scope) =>
+  runReadModelDiagnostic(
+    scope,
+    "music_public_read_model_meta singleton",
+    `SELECT read_model.id,
+            read_model.revision,
+            read_model.updated_at,
+            catalog.revision AS catalog_revision,
+            typeof(read_model.id) AS id_type,
+            typeof(read_model.revision) AS revision_type,
+            typeof(read_model.updated_at) AS updated_at_type,
+            typeof(catalog.revision) AS catalog_revision_type
+       FROM music_public_read_model_meta AS read_model
+       LEFT JOIN music_catalog_meta AS catalog ON catalog.id = 1
+       ORDER BY read_model.id;`,
+    getMusicPublicReadModelMetaStatus,
+  );
+
+const checkPublicSortKeys = (scope) =>
+  runReadModelDiagnostic(
+    scope,
+    "music_public_performance_sort_keys integrity",
+    `WITH ranked_participant AS (
+       SELECT participant.performance_id,
+              participant.entity_id,
+              entity.normalized_name,
+              ROW_NUMBER() OVER (
+                PARTITION BY participant.performance_id
+                ORDER BY participant.credit_order ASC, participant.entity_id ASC
+              ) AS participant_rank
+       FROM music_performance_participants AS participant
+       JOIN music_entities AS entity ON entity.id = participant.entity_id
+     ),
+     expected AS (
+       SELECT performance.id AS performance_id,
+              performance.song_id,
+              ranked_participant.entity_id AS expected_entity_id,
+              ranked_participant.normalized_name AS expected_normalized_participant
+       FROM music_performances AS performance
+       LEFT JOIN ranked_participant
+         ON ranked_participant.performance_id = performance.id
+        AND ranked_participant.participant_rank = 1
+     )
+     SELECT
+       (SELECT COUNT(*) FROM music_performances) AS performance_count,
+       (SELECT COUNT(*) FROM music_public_performance_sort_keys) AS sort_key_count,
+       (SELECT COUNT(*)
+          FROM expected
+          LEFT JOIN music_public_performance_sort_keys AS sort_key
+            ON sort_key.performance_id = expected.performance_id
+         WHERE sort_key.performance_id IS NULL) AS missing_count,
+       (SELECT COUNT(*)
+          FROM music_public_performance_sort_keys AS sort_key
+          LEFT JOIN expected
+            ON expected.performance_id = sort_key.performance_id
+         WHERE expected.performance_id IS NULL) AS unexpected_count,
+       (SELECT COUNT(*)
+          FROM expected
+          JOIN music_public_performance_sort_keys AS sort_key
+            ON sort_key.performance_id = expected.performance_id
+         WHERE sort_key.song_id <> expected.song_id
+            OR sort_key.representative_participant_entity_id
+                 IS NOT expected.expected_entity_id
+            OR sort_key.normalized_participant
+                 IS NOT expected.expected_normalized_participant) AS value_drift_count;`,
+    getMusicPublicSortKeyStatus,
+  );
+
+const checkSearchGramStats = (scope) =>
+  runReadModelDiagnostic(
+    scope,
+    "music_search_gram_stats integrity",
+    `WITH RECURSIVE
+     gram_sizes(gram_size) AS (
+       SELECT 2 UNION ALL SELECT 3
+     ),
+     source_terms(song_id, normalized_term) AS (
+       SELECT id, normalized_title FROM music_songs
+       UNION
+       SELECT song_id, normalized_term FROM music_search_terms
+     ),
+     gram_positions(song_id, normalized_term, gram_size, position) AS (
+       SELECT source_terms.song_id, source_terms.normalized_term,
+              gram_sizes.gram_size, 1
+       FROM source_terms
+       CROSS JOIN gram_sizes
+       WHERE length(source_terms.normalized_term) >= gram_sizes.gram_size
+       UNION ALL
+       SELECT song_id, normalized_term, gram_size, position + 1
+       FROM gram_positions
+       WHERE position < length(normalized_term) - gram_size + 1
+     ),
+     expected_grams AS (
+       SELECT DISTINCT song_id, gram_size,
+              substr(normalized_term, position, gram_size) AS normalized_gram
+       FROM gram_positions
+     ),
+     posting_counts AS (
+       SELECT gram_size, normalized_gram, COUNT(*) AS song_count
+       FROM music_search_grams
+       GROUP BY gram_size, normalized_gram
+     )
+     SELECT
+       (SELECT COUNT(*) FROM expected_grams) AS expected_posting_count,
+       (SELECT COUNT(*) FROM music_search_grams) AS posting_count,
+       (SELECT COUNT(*) FROM posting_counts) AS distinct_gram_count,
+       (SELECT COUNT(*) FROM music_search_gram_stats) AS stat_count,
+       (SELECT COUNT(*)
+          FROM expected_grams AS expected
+          LEFT JOIN music_search_grams AS gram
+            ON gram.song_id = expected.song_id
+           AND gram.gram_size = expected.gram_size
+           AND gram.normalized_gram = expected.normalized_gram
+         WHERE gram.song_id IS NULL) AS missing_posting_count,
+       (SELECT COUNT(*)
+          FROM music_search_grams AS gram
+          LEFT JOIN expected_grams AS expected
+            ON expected.song_id = gram.song_id
+           AND expected.gram_size = gram.gram_size
+           AND expected.normalized_gram = gram.normalized_gram
+         WHERE expected.song_id IS NULL) AS unexpected_posting_count,
+       (SELECT COUNT(*)
+          FROM posting_counts
+          LEFT JOIN music_search_gram_stats AS stat
+            ON stat.gram_size = posting_counts.gram_size
+           AND stat.normalized_gram = posting_counts.normalized_gram
+         WHERE stat.gram_size IS NULL) AS missing_stat_count,
+       (SELECT COUNT(*)
+          FROM music_search_gram_stats AS stat
+          LEFT JOIN posting_counts
+            ON posting_counts.gram_size = stat.gram_size
+           AND posting_counts.normalized_gram = stat.normalized_gram
+         WHERE posting_counts.gram_size IS NULL) AS unexpected_stat_count,
+       (SELECT COUNT(*)
+          FROM posting_counts
+          JOIN music_search_gram_stats AS stat
+            ON stat.gram_size = posting_counts.gram_size
+           AND stat.normalized_gram = posting_counts.normalized_gram
+         WHERE stat.song_count <> posting_counts.song_count) AS value_drift_count;`,
+    getMusicSearchGramStatsStatus,
+  );
+
 const hasRemoteD1Binding = () => {
   const configPath = join(rootDir, "wrangler.jsonc");
   if (!existsSync(configPath)) return false;
@@ -311,6 +479,9 @@ for (const scope of ["remote", "local"]) {
 
   failures += await checkSchema(scope);
   failures += await checkCatalogMeta(scope);
+  failures += await checkPublicReadModelMeta(scope);
+  failures += await checkPublicSortKeys(scope);
+  failures += await checkSearchGramStats(scope);
 }
 
 if (failures > 0) {

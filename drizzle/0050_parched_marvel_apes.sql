@@ -1,0 +1,2 @@
+CREATE INDEX `idx_music_performances_published_released_song_id` ON `music_performances` ("released_at" DESC,`song_id`,`id`) WHERE "music_performances"."publication_status" = 'published';--> statement-breakpoint
+CREATE INDEX `idx_music_performances_published_participation_released_song_id` ON `music_performances` (`participation_type`,"released_at" DESC,`song_id`,`id`) WHERE "music_performances"."publication_status" = 'published';

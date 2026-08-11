@@ -18,13 +18,17 @@ const MUSIC_TABLES = [
   "music_media_source_relations",
   "music_performances",
   "music_performance_participants",
+  "music_public_performance_sort_keys",
   "music_performance_sources",
   "music_cover_proposals",
   "music_cover_proposal_participants",
   "music_cover_proposal_original_artists",
   "music_catalog_events",
   "music_search_terms",
+  "music_search_grams",
+  "music_search_gram_stats",
   "music_catalog_meta",
+  "music_public_read_model_meta",
 ];
 
 const INITIAL_CATALOG_META_ROW = {
@@ -38,6 +42,17 @@ const INITIAL_CATALOG_META_ROW = {
   public_read_enabled_type: "integer",
   navigation_visible_type: "integer",
   updated_at_type: "integer",
+};
+
+const INITIAL_PUBLIC_READ_MODEL_META_ROW = {
+  id: 1,
+  revision: 0,
+  updated_at: 0,
+  catalog_revision: 0,
+  id_type: "integer",
+  revision_type: "integer",
+  updated_at_type: "integer",
+  catalog_revision_type: "integer",
 };
 
 describe("d1 doctor migration status", () => {
@@ -121,6 +136,27 @@ describe("d1 doctor schema coverage", () => {
       "navigation_visible",
       "updated_at",
     ]);
+    expect(REQUIRED_D1_COLUMNS.music_public_performance_sort_keys).toEqual([
+      "performance_id",
+      "song_id",
+      "representative_participant_entity_id",
+      "normalized_participant",
+    ]);
+    expect(REQUIRED_D1_COLUMNS.music_search_grams).toEqual([
+      "song_id",
+      "gram_size",
+      "normalized_gram",
+    ]);
+    expect(REQUIRED_D1_COLUMNS.music_search_gram_stats).toEqual([
+      "gram_size",
+      "normalized_gram",
+      "song_count",
+    ]);
+    expect(REQUIRED_D1_COLUMNS.music_public_read_model_meta).toEqual([
+      "id",
+      "revision",
+      "updated_at",
+    ]);
   });
 
   it("validates the migration-owned catalog meta singleton readback", async () => {
@@ -188,6 +224,145 @@ describe("d1 doctor schema coverage", () => {
       ok: false,
       message: "catalog navigation requires public read to be enabled",
     });
+  });
+
+  it("requires one strictly typed read-model meta row at the catalog revision", async () => {
+    const { getMusicPublicReadModelMetaStatus } = await loadDoctorCore();
+
+    expect(
+      getMusicPublicReadModelMetaStatus(INITIAL_PUBLIC_READ_MODEL_META_ROW),
+    ).toEqual({
+      ok: false,
+      message: "could not read public read-model meta",
+    });
+    expect(
+      getMusicPublicReadModelMetaStatus([INITIAL_PUBLIC_READ_MODEL_META_ROW]),
+    ).toEqual({
+      ok: true,
+      message:
+        "singleton id=1, revision=0, catalog_revision=0, updated_at=0",
+    });
+    expect(getMusicPublicReadModelMetaStatus([])).toEqual({
+      ok: false,
+      message: "expected exactly one public read-model meta row, found 0",
+    });
+    expect(
+      getMusicPublicReadModelMetaStatus([
+        {
+          ...INITIAL_PUBLIC_READ_MODEL_META_ROW,
+          revision: 8,
+          catalog_revision: 9,
+        },
+      ]),
+    ).toEqual({
+      ok: false,
+      message:
+        "public read-model revision 8 does not match catalog revision 9",
+    });
+    expect(
+      getMusicPublicReadModelMetaStatus([
+        {
+          ...INITIAL_PUBLIC_READ_MODEL_META_ROW,
+          revision: "0",
+          revision_type: "text",
+        },
+      ]),
+    ).toEqual({
+      ok: false,
+      message: "public read-model meta revision must be an integer",
+    });
+  });
+
+  it("accepts empty or populated sort-key projections and reports drift", async () => {
+    const { getMusicPublicSortKeyStatus } = await loadDoctorCore();
+    const emptyStatusRow = {
+      performance_count: 0,
+      sort_key_count: 0,
+      missing_count: 0,
+      unexpected_count: 0,
+      value_drift_count: 0,
+    };
+
+    expect(getMusicPublicSortKeyStatus([emptyStatusRow]).ok).toBe(true);
+    expect(
+      getMusicPublicSortKeyStatus([
+        {
+          ...emptyStatusRow,
+          performance_count: 8_000,
+          sort_key_count: 8_000,
+        },
+      ]),
+    ).toEqual({
+      ok: true,
+      message:
+        "performances=8000, sort_keys=8000, missing=0, unexpected=0, value_drift=0",
+    });
+    expect(
+      getMusicPublicSortKeyStatus([
+        {
+          ...emptyStatusRow,
+          performance_count: 3,
+          sort_key_count: 2,
+          missing_count: 1,
+          value_drift_count: 1,
+        },
+      ]).ok,
+    ).toBe(false);
+    expect(
+      getMusicPublicSortKeyStatus([
+        { ...emptyStatusRow, performance_count: "invalid" },
+      ]),
+    ).toEqual({
+      ok: false,
+      message:
+        "public sort-key performance_count must be a non-negative integer",
+    });
+  });
+
+  it("accepts empty or populated gram stats and reports posting drift", async () => {
+    const { getMusicSearchGramStatsStatus } = await loadDoctorCore();
+    const emptyStatusRow = {
+      expected_posting_count: 0,
+      posting_count: 0,
+      distinct_gram_count: 0,
+      stat_count: 0,
+      missing_posting_count: 0,
+      unexpected_posting_count: 0,
+      missing_stat_count: 0,
+      unexpected_stat_count: 0,
+      value_drift_count: 0,
+    };
+
+    expect(getMusicSearchGramStatsStatus([emptyStatusRow]).ok).toBe(true);
+    expect(
+      getMusicSearchGramStatsStatus([
+        {
+          ...emptyStatusRow,
+          expected_posting_count: 27_000,
+          posting_count: 27_000,
+          distinct_gram_count: 9_500,
+          stat_count: 9_500,
+        },
+      ]),
+    ).toEqual({
+      ok: true,
+      message:
+        "expected_postings=27000, postings=27000, distinct_grams=9500, stats=9500, missing_postings=0, unexpected_postings=0, missing_stats=0, unexpected_stats=0, value_drift=0",
+    });
+    expect(
+      getMusicSearchGramStatsStatus([
+        {
+          ...emptyStatusRow,
+          expected_posting_count: 4,
+          posting_count: 3,
+          distinct_gram_count: 2,
+          stat_count: 2,
+          missing_posting_count: 1,
+          unexpected_stat_count: 1,
+          value_drift_count: 1,
+        },
+      ]).ok,
+    ).toBe(false);
   });
 
   it("uses the requested persistence directory only for local checks", () => {

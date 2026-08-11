@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-3 proposal·event·search/meta schema·migration 실행 기준선
+상태: PR-4 공개 catalog query/API/cache 및 성능 read-model 실행 기준선
 
 기준일: 2026-08-11
 
@@ -35,7 +35,9 @@ OTW Play는 기존 VOD 최신 영상 피드의 이름이나 화면만 바꾸는 
    응답은 `no-store`로 분리한다.
 8. 승인·게시·감사 이벤트·catalog revision 증가는 CAS와 D1 batch로
    부분 반영을 막는다.
-9. R2, KV, Durable Objects와 Queues는 MVP에 추가하지 않는다.
+9. 검색·참여자 정렬용 파생 read model은 canonical catalog revision과 일치할
+   때만 config 이외 공개 조회에 사용한다.
+10. R2, KV, Durable Objects와 Queues는 MVP에 추가하지 않는다.
 
 테이블은 제품명 변경에 덜 민감한 `music_*` 접두사를 사용하고, 코드
 capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
@@ -160,6 +162,44 @@ custom migration과 D1 검증만 소유한다. API route·DTO·handler,
 application/repository, frontend route·UI,
 production content, 배포 설정과 원격 D1 적용은 포함하지 않는다. GATE-01~06의
 상태, 숫자와 운영 권장안도 변경하지 않는다.
+
+### ADR-PLAY-008: PR-4 공개 read와 cache 계약
+
+상태: 채택
+
+- `/api/play/config`는 `public_read_enabled=0`이어도 익명 `200`으로 현재 flag와
+  revision을 반환한다. meta 갱신 시각은 cache key와 ETag에만 사용하고 wire에는
+  노출하지 않는다. 나머지 네 public endpoint는 flag가 꺼져
+  있으면 cache를 사용하지 않고 `404 PLAY_PUBLIC_READ_DISABLED`를 반환한다.
+- query는 strict하다. 중복 single-value parameter, 상한 초과,
+  알 수 없는 enum·parameter와 malformed cursor를 clamp하거나 무시하지 않고
+  `400`으로 거부한다.
+- 검색어가 있으면 relevance가 첫 정렬 기준이고 선택한 recent/title/participant
+  정렬은 relevance 동점 해소에 사용한다. 응답은 exact total과 facet count를
+  계산하지 않는다.
+- public member key는 기존 numeric `members.uid`, original artist key는 public
+  entity slug다. group key는 facets가 발급하는 versioned opaque string이며
+  내부 kind는 `entity` 또는 `unit`이다. client는 이를 조립하거나 해석하지 않는다.
+- Cache API는 자유 검색과 cursor page를 저장하지 않는다. `q`와 `cursor`가 없는
+  구조화된 첫 catalog page는 filter·sort 조합을 포함해 저장한다.
+- config cache key와 ETag는 revision, 두 flag와 meta `updated_at`을 포함한다.
+  나머지 ETag는 revision과 canonical path/query의 SHA-256으로 만든 weak validator다.
+  Authorization 또는 Cookie가 있는 요청은 Cache API를 우회하고 `no-store`로
+  응답한다.
+- 공개 read가 활성인 상태에서 `music_catalog_meta.revision`과 공개 read-model
+  revision이 일치하지 않으면 config 이외 endpoint는 cache를 읽기 전에
+  `503 PLAY_CATALOG_UNAVAILABLE`로 fail closed한다. flag-off에서는 기존
+  `404 PLAY_PUBLIC_READ_DISABLED`가 우선하며 `/api/play/config`는 projection
+  상태와 무관하게 현재 flag와 catalog revision을 계속 반환한다.
+- 성능 projection은 후보를 줄이고 participant keyset 순서를 제공할 뿐이다.
+  최종 candidate와 hydration SQL은 canonical·non-archived song,
+  `published` official performance와 동일-performance filter predicate를 다시
+  적용하므로 projection row만으로 공개 자격을 부여하지 않는다.
+- 이 보완은 기존 endpoint, DTO, query, cursor와 cache 계약을 바꾸지 않는다.
+  DB trigger도 추가하지 않으며 후속 PR-5 writer가 canonical 변경, search term,
+  sort key, gram/stat과 두 revision을 같은 D1 batch에서 원자적으로 갱신한다.
+- PR-4는 public read만 구현한다. 관리자 command, 회원 proposal API, frontend
+  route·UI·player, production content, 배포와 원격 D1 적용은 포함하지 않는다.
 
 ## 3. 전체 시스템 구조
 
@@ -581,6 +621,10 @@ DELETE를 trigger로 막지 않는다. 후속 infrastructure는 insert-only meth
 | --- | --- | --- |
 | `music_search_terms` | song, term kind, 표시값, normalized term | 제목·별칭·원곡 가수·참여자 검색 projection |
 | `music_catalog_meta` | singleton ID, revision, public flag, navigation flag, updated_at | cache revision과 단계적 공개 switch |
+| `music_public_performance_sort_keys` | performance, song, 대표 participant entity와 normalized key | participant 정렬의 performance 단위 keyset projection |
+| `music_search_grams` | song, gram size, normalized gram | Unicode 2·3 code point contains 후보 projection |
+| `music_search_gram_stats` | gram size, normalized gram, song count | query gram 중 가장 희소한 후보 key 선택 |
+| `music_public_read_model_meta` | singleton ID, revision, updated_at | 파생 read model 완성 revision과 freshness gate |
 
 `music_search_terms`의 PK는 `(song_id, term_kind, normalized_term)`이다. 게시,
 수정, 철회 시 해당 곡의 term projection과 revision을 같은 batch에서 갱신한다.
@@ -611,6 +655,41 @@ integration test에서만 검증한다. revision 단조 증가는 후속 command
 batch에 넣어 보장한다. PR-3은 초기 row와 atomic increment SQL 가능성만 검증하고
 trigger를 추가하지 않는다.
 
+PR-4 성능 보완의 네 table은 canonical catalog를 대체하지 않는 파생 read model이다.
+`music_public_performance_sort_keys`는 공개 여부와 무관하게 모든 performance마다
+정확히 한 row를 두고, `credit_order ASC, entity_id ASC`의 첫 participant를 대표로
+선택한다. participant가 없으면 entity와 normalized key를 함께 NULL로 둔다.
+`performance_id`가 PK이고 representative entity는 `ON DELETE RESTRICT`다. entity와
+normalized key는 둘 다 NULL이거나 둘 다 non-NULL·non-empty여야 한다. participant
+존재·부재를 나눈 두 keyset index와 representative entity lookup index를 둔다.
+`(performance_id, song_id)`는 `music_performances(id, song_id)`를 composite FK로
+참조하고 performance 삭제 시 cascade한다. 이를 위해 parent에는
+`UNIQUE(id, song_id)`를 둔다. 실제 공개 여부, MVP release type과 모든 filter는
+후보 및 hydration의 canonical SQL이 다시 검증한다.
+
+`music_search_grams`는 canonical `music_songs.normalized_title`과 해당 song의 모든
+`music_search_terms.normalized_term`을 합쳐 song 단위로 중복 제거한 Unicode
+2·3 code point gram을 저장한다. `(song_id, gram_size, normalized_gram)`이 PK이고
+`(gram_size, normalized_gram, song_id)` lookup index를 사용한다.
+gram size는 strict INTEGER `2|3`이고 normalized gram의 Unicode 길이는 size와
+같아야 한다. `music_search_gram_stats`는 `(gram_size, normalized_gram)` PK와 양의
+strict INTEGER `song_count`로 같은 gram의 song 수를 저장한다. contains query는
+query의 서로 다른 모든 2자 또는 3자 gram이 stats에 존재하는지 먼저 확인하고,
+그중 `song_count`가 가장 작은 gram을 선택한다. 희소 posting은 gram에서 song으로
+조회하고, 밀집 posting은 요청 sort index에서 song을 순회하며 해당 gram 존재를
+확인한다. 2·3 code point query는 gram 자체가 전체 query이므로 membership이 exact다.
+더 긴 query는 canonical title과 search term에
+`instr(normalized_value, query) > 0`를 다시 적용한다. 따라서 gram은 false positive를
+공개 결과로 승격시키지 않으며 canonical title만 있는 곡도 검색할 수 있다.
+
+`music_public_read_model_meta`는 `id=1` singleton이다. 초기 custom backfill은 sort
+key, gram과 stats를 모두 채운 다음 마지막 statement에서 `music_catalog_meta`의
+revision과 updated_at을 복사한다. 이후 활성화된 config 이외 공개 read는 두
+revision이 같을 때만 cache 또는 D1 content read를 진행한다. row가 없거나 revision이
+다르면 오래된 cache도 반환하지 않고 `503 PLAY_CATALOG_UNAVAILABLE`이다. flag-off
+`404` 검사가 먼저이며 config는 freshness gate의 예외다. meta의 id, revision과
+updated_at은 strict INTEGER이고 id는 1, 나머지는 0 이상이어야 한다.
+
 ### 6.5 핵심 관계
 
 ```mermaid
@@ -623,6 +702,7 @@ erDiagram
   MUSIC_SONGS ||--o{ MUSIC_PERFORMANCES : "has version"
   MUSIC_ENTITIES ||--o{ MUSIC_PERFORMANCE_PARTICIPANTS : "performs"
   MUSIC_PERFORMANCES ||--o{ MUSIC_PERFORMANCE_PARTICIPANTS : "credits"
+  MUSIC_PERFORMANCES ||--|| MUSIC_PUBLIC_PERFORMANCE_SORT_KEYS : "projects sort key"
   MUSIC_CHANNELS ||--o{ MUSIC_CHANNEL_ENTITIES : "owned by"
   MUSIC_ENTITIES ||--o{ MUSIC_CHANNEL_ENTITIES : "owns"
   MUSIC_CHANNELS ||--o{ MUSIC_MEDIA_SOURCES : "publishes"
@@ -632,6 +712,7 @@ erDiagram
   MUSIC_COVER_PROPOSALS ||--o{ MUSIC_COVER_PROPOSAL_PARTICIPANTS : "submitted credits"
   MUSIC_COVER_PROPOSALS ||--o{ MUSIC_COVER_PROPOSAL_ORIGINAL_ARTISTS : "submitted artists"
   MUSIC_SONGS ||--o{ MUSIC_SEARCH_TERMS : "projects"
+  MUSIC_SONGS ||--o{ MUSIC_SEARCH_GRAMS : "projects contains grams"
   MUSIC_PERFORMANCES ||..o{ MUSIC_CATALOG_EVENTS : "records"
 ```
 
@@ -741,6 +822,8 @@ source segment는 `UNIQUE(source_id, start_seconds)`가 별도 performance로 �
 - published partial `music_performances(released_at DESC, id)` where `publication_status='published'`
 - published partial `music_performances(song_id, released_at DESC, id)` where `publication_status='published'`
 - published partial `music_performances(relation_type, released_at DESC, id)` where `publication_status='published'`
+- published partial `music_performances(released_at DESC, song_id, id)` where `publication_status='published'`
+- published partial `music_performances(participation_type, released_at DESC, song_id, id)` where `publication_status='published'`
 - `music_performances(song_id)` (FK 지원; published partial index와 별도)
 - `music_performance_participants(entity_id, performance_id)`
 - `music_performance_sources(performance_id, priority, source_id)`
@@ -752,14 +835,26 @@ source priority는 NULL을 허용하지 않는다. 값이 생략되면 `0`이며
 - `music_cover_proposals(submitted_by_user_id, created_at DESC, id)`
 - `music_catalog_events(aggregate_type, aggregate_id, created_at DESC)`
 - `music_search_terms(normalized_term, term_kind, song_id)`
+- `music_public_performance_sort_keys(normalized_participant, song_id, performance_id)`
+  partial where representative participant가 존재함
+- `music_public_performance_sort_keys(song_id, performance_id)` partial where
+  participant가 없음
+- `music_public_performance_sort_keys(representative_participant_entity_id, performance_id)`
+- `music_search_grams(gram_size, normalized_gram, song_id)`
 
 인덱스는 예상 조합을 모두 만드는 방식이 아니라 실제 hot query와
 `EXPLAIN QUERY PLAN` 결과에 맞춰 최소화한다. D1은 반환 행이 아니라 읽은 행을
 측정하므로 full scan 제거가 우선이다.
 
-위 세 published partial index는 PR-2 migration에 포함하지 않는다. PR-3의
-search/meta migration에서 추가하고 대표 fixture의 published-only query가
-`EXPLAIN QUERY PLAN`에서 해당 index를 사용하는지 확인한다.
+첫 세 published partial index는 PR-3 search/meta migration에 있고, 뒤의
+`released_at DESC, song_id, id`와 participation index는 기존 `0050_*` migration에
+그대로 유지한다. PR-4 성능 보완은 이를 다시 쓰지 않고 additive
+`0051_clear_mantis.sql`에 네 read-model table, 그 index와
+`music_performances(id, song_id)` UNIQUE를 추가한다.
+`0052_otw-play-public-read-model-backfill.sql` custom migration은 기존 row의
+performance sort key, search gram과 stats를 backfill하고 read-model meta를
+마지막에 채운다. trigger, public contract 변경, production content는 어느
+migration에도 넣지 않는다.
 
 ## 8. API 설계
 
@@ -768,7 +863,7 @@ search/meta migration에서 추가하고 대표 fixture의 published-only query�
 | Method | Path | 목적 | Cache API |
 | --- | --- | --- | --- |
 | GET | `/api/play/config` | 공개·내비게이션 기능 flag와 catalog revision | 예 |
-| GET | `/api/play/catalog` | 검색·필터·정렬·cursor 목록 | 기본 탐색만 |
+| GET | `/api/play/catalog` | 검색·필터·정렬·cursor 목록 | `q`·`cursor` 없는 첫 page |
 | GET | `/api/play/facets` | 멤버·그룹·원곡 가수 filter 자료 | 예 |
 | GET | `/api/play/songs/:slug` | 곡과 모든 공개 공식 버전 | 예 |
 | GET | `/api/play/performances/:id` | 가창 직접 링크 | 예 |
@@ -792,10 +887,23 @@ limit
 
 - 기본 limit 24, 최대 60
 - member 최대 10개
-- q는 trim 전 최대 80자
+- q는 trim 전 Unicode code point 기준 최대 80자
 - 날짜는 ISO day 형식
-- 알 수 없는 enum과 malformed cursor는 `400`
-- query key는 parameter 이름과 반복값을 정렬해 canonicalize한다.
+- member는 numeric `members.uid`, originalArtist는 public entity slug다.
+- group은 facets가 발급한 versioned opaque key만 허용한다. opaque payload kind는
+  `entity` 또는 `unit`이며 API 소비자가 직접 생성하지 않는다.
+- public song/entity slug는 trim된 Unicode 단일 segment이며 최대 128 code point다.
+  control·surrogate와 `\\`, `/`, `?`, `#`, `%`, `.`/`..` segment는 공개 wire에서
+  거부하고, 같은 validator를 response projection과 request에 적용한다.
+- `memberMode` 기본값은 `any`, sort 기본값은 `recent`다.
+- single-value parameter 중복, member raw 항목 10개·limit 60 초과,
+  알 수 없는 parameter·enum과 malformed cursor는 모두 `400`이다. clamp하거나
+  첫 값만 선택하지 않는다. 반복 member UID는 raw 항목 수를 먼저 검증한 뒤
+  중복을 제거하고 numeric 오름차순으로 canonicalize한다.
+- `publishedFrom`과 `publishedTo`는 UTC 기준 inclusive ISO day다. from이 to보다
+  늦으면 `400`이다.
+- query key는 기본값을 명시적으로 채운 뒤 parameter 이름과 의미상 순서가 없는
+  반복값을 정렬해 canonicalize한다.
 
 응답 공통 envelope:
 
@@ -807,6 +915,17 @@ limit
   generatedAt: string;
 }
 ```
+
+`nextCursor`는 catalog 목록에서만 다음 page token을 담고 다른 endpoint에서는
+`null`이다. exact `totalCount`와 facet별 count는 응답하지 않는다. catalog item은
+song 단위이고 카드에 필요한 대표 published performance 하나만 포함한다. detail은
+같은 song의 모든 published performance를 반환한다. 공개 DTO에는 Drizzle row,
+제안·reviewer·internal note와 staging identifier를 넣지 않는다.
+
+`GET /api/play/config`는 public flag가 꺼져 있어도 동작한다. catalog, facets,
+song detail과 performance detail은 meta를 먼저 읽고 `public_read_enabled=0`이면
+`404 PLAY_PUBLIC_READ_DISABLED`를 반환한다. unknown, merged, archived song과
+draft·withdrawn performance도 public `404`다.
 
 ### 8.2 로그인 회원
 
@@ -868,6 +987,24 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 
 공유 DTO는 `contracts/otw-play.ts`가 소유하고 Drizzle row type을 노출하지 않는다.
 
+PR-4 public read의 고정 오류 코드는 다음과 같다.
+
+| Status | Code | 조건 |
+| --- | --- | --- |
+| 400 | `PLAY_INVALID_QUERY` | 알 수 없거나 중복된 parameter, 잘못된 enum·날짜·상한 |
+| 400 | `PLAY_INVALID_CURSOR` | token 구조·query·sort가 현재 request와 불일치 |
+| 409 | `PLAY_CURSOR_STALE` | token의 catalog revision이 현재 revision과 불일치 |
+| 404 | `PLAY_PUBLIC_READ_DISABLED` | config 이외 endpoint에서 공개 read flag가 꺼짐 |
+| 404 | `PLAY_NOT_FOUND` | 공개 가능한 canonical song 또는 performance가 없음 |
+| 503 | `PLAY_CATALOG_UNAVAILABLE` | meta 또는 catalog D1 read 실패 |
+| 500 | `PLAY_INTERNAL_ERROR` | 공개 projection 또는 response 조립 계약 위반 |
+
+공개 read가 비활성화된 config 이외 endpoint의 `404` code는
+`PLAY_PUBLIC_READ_DISABLED`다. 존재하지 않거나 공개되지 않은 song/performance는
+동일한 public not-found envelope를 사용해 draft·withdrawn 존재 여부를 누출하지
+않는다. D1 meta 또는 catalog read 실패는 `503 PLAY_CATALOG_UNAVAILABLE`이며 오래된
+다른 revision을 대신 반환하지 않는다.
+
 ## 9. 알고리즘
 
 ### 9.1 검색 정규화와 순위
@@ -894,15 +1031,24 @@ alias로 등록한다.
 6. 제한된 contains fallback
 7. 동점이면 최신 공식 공개일과 song ID
 
-prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가 부족하고
-검색어가 2자 이상일 때만 작은 limit으로 실행한다. 다음 중 하나를 지속적으로
-넘으면 FTS5 projection을 별도 custom migration으로 검토한다.
+`q`가 있으면 위 relevance bucket이 항상 첫 정렬 기준이다.
+`sort=recent|title|participant`는 같은 relevance bucket 안의 keyset 정렬이며 마지막 tie-break는
+항상 song ID다. `q`가 없으면 선택한 sort가 첫 정렬 기준이다.
 
-- search term 10,000행
-- cold search p95 500ms
-- 한 검색의 D1 rows read 5,000행
+prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가
+부족하고 검색어가 2자 이상일 때만 별도 phase로 실행한다. 2 code point query는
+서로 다른 bigram을, 그보다 긴 query는 서로 다른 trigram을 만들고, stats에서
+모든 query gram의 존재를 확인한 다음 가장 희소한 gram의 song count로 실행 경로를
+선택한다. 희소 검색은 posting 주도, 밀집 검색은 recent/title/participant sort index
+주도로 bounded page를 찾는다. 2·3 code point query는 exact gram membership을 쓰고,
+그보다 긴 후보는 canonical normalized title 또는 normalized search term의 실제
+infix를 다시 검증한다. FTS5와 virtual table은 사용하지 않는다.
 
-FTS5는 권위 테이블이 아니라 교체 가능한 read model이어야 한다.
+성능 수용 기준은 곡 3,000개, search term 10,000개, performance 8,000개의 선언된
+대표 상한 fixture에서 각 query가 D1 rows read 5,000 이하, 최대 6 statements,
+100 bind 이하인 것이다. 이 fixture는 현재 MVP 분포의 회귀 기준이며 임의의 모든
+adversarial 데이터 분포에 대한 수학적 상한을 뜻하지 않는다. 실제 운영 분포가
+달라지면 rows read와 latency를 관측해 read model을 다시 평가한다.
 
 ### 9.2 filter 의미
 
@@ -918,7 +1064,8 @@ FTS5는 권위 테이블이 아니라 교체 가능한 read model이어야 한�
 - recent cursor: `latestReleasedAt + songId`
 - title cursor: `normalizedTitle + songId`
 - participant cursor: 대표 참여자의 `normalizedName + songId`
-- cursor는 version을 포함한 JSON을 base64url로 인코딩하고 server에서 schema를 검증한다.
+- cursor는 version, catalog revision, canonical query fingerprint와 해당 sort tuple을
+  포함한 JSON을 base64url로 인코딩하고 server에서 schema를 검증한다.
 - `OFFSET`은 사용하지 않는다.
 
 같은 query와 catalog revision에서는 페이지 사이 중복·누락이 없어야 한다.
@@ -978,14 +1125,21 @@ WHERE id = ?
 1. proposal CAS claim
 2. 필요한 entity/song/source insert 또는 기존 row 연결
 3. performance, participant, source link 생성
-4. search term projection 생성
-5. performance `published`
-6. proposal `approved`와 approved performance 연결
-7. capability event append
-8. catalog revision 증가
+4. 해당 song의 search term projection 생성
+5. 변경된 모든 performance의 대표 participant sort key 갱신
+6. 영향받은 song의 2·3 code point gram과 gram stats 갱신
+7. performance `published`
+8. proposal `approved`와 approved performance 연결
+9. capability event append
+10. catalog revision CAS 증가
+11. 모든 authority·projection 쓰기가 성공한 뒤 read-model meta를 같은 새
+    revision으로 갱신
 
 UUID는 application에서 미리 만들고, 모든 SQL은 prepared statement로 bind한다.
 YouTube 외부 호출은 batch 밖에서 먼저 끝내고 CAS로 그 사이의 변경을 감지한다.
+위 단계는 PR-5 writer가 하나의 D1 batch로 소유한다. trigger나 별도 비동기 job에
+projection freshness를 맡기지 않으며, 중간 statement가 실패하면 catalog revision과
+read-model revision을 포함해 전체 batch를 rollback한다.
 
 ### 10.3 재시도
 
@@ -1007,9 +1161,13 @@ https://otw.internal/cache/play/v1/{catalogRevision}/{canonicalPathAndQuery}
 
 - 고정 내부 host를 사용해 host 기반 cache poisoning을 막는다.
 - query parameter와 반복값을 정렬해 같은 의미의 key를 하나로 만든다.
-- 기본 catalog, facets와 detail만 저장한다.
-- 자유 검색어는 저장하지 않거나 30초 이하의 작은 browser cache만 허용한다.
+- `q`와 `cursor`가 없는 구조화된 첫 catalog page는 filter·sort 조합을 포함해
+  저장한다. facets, config와 공개 detail도 저장한다.
+- 자유 검색어와 cursor page는 Cache API에 저장하지 않는다. 자유 검색은 browser
+  `private, max-age=30` 이하만 허용하고 cursor page는 browser
+  `private, max-age=60`만 허용한다.
 - member/admin 응답과 Authorization 요청은 저장하지 않는다.
+- Cookie가 있는 요청도 저장하거나 Cache API에서 읽지 않는다.
 - Set-Cookie가 있는 응답을 저장하지 않는다.
 
 권장 TTL:
@@ -1019,16 +1177,20 @@ https://otw.internal/cache/play/v1/{catalogRevision}/{canonicalPathAndQuery}
 | 기본 catalog | 60초 | 5분 |
 | 곡 상세 | 60초 | 10분 |
 | facets/config | 60초 | 30분 |
-| 자유 검색 | 0–30초 | 저장 안 함 |
+| 자유 검색 | 최대 30초 | 저장 안 함 |
+| cursor page | 60초 private | 저장 안 함 |
 | 회원·관리자 | 0 | 저장 안 함 |
 
 Cache API는 PoP local이고 `cache.delete()`도 해당 data center에만 영향을 준다.
 삭제 무효화 대신 revision을 cache key에 포함한다. Cache API 자체는
 `stale-while-revalidate`를 지원하지 않으므로 해당 header만 믿지 않는다.
 
-ETag는 `catalogRevision + canonical query`의 hash로 만든다. 공개 member 상태가
-바뀌는 command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래
-cache되지 않게 한다.
+config cache key와 ETag는 `catalogRevision + public_read_enabled +
+navigation_visible + updated_at`을 사용한다. 나머지 ETag는
+`catalogRevision + canonicalPathAndQuery`의 SHA-256을 사용한 weak validator다.
+`If-None-Match`가 일치하면 body 없는 `304`를 반환한다. 공개 member 상태가 바뀌는
+command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cache되지 않게
+한다. Cache API에 넣는 clone의 TTL과 client에 반환하는 browser TTL은 분리한다.
 
 ### 11.2 D1 query 최적화
 
@@ -1041,6 +1203,12 @@ cache되지 않게 한다.
 - migration 후 `PRAGMA optimize`
 - hot query는 `EXPLAIN QUERY PLAN`에서 index search 확인
 - D1 `rows_read`, `rows_written`, query latency를 관측
+- participant browse는 performance별 대표 key projection에서 시작하되 canonical
+  performance/song predicate와 같은-performance filter guard를 다시 적용
+- contains는 gram stats의 candidate 밀도에 따라 posting 또는 sort index를 먼저
+  사용하고, 2·3 code point 초과 query는 canonical title/search term의 실제 infix를
+  재검증
+- config 이외 content/cache read 전에 catalog와 read-model revision 일치 확인
 
 현재 Smart Placement를 유지한다. D1 read replication은 Sessions API를 사용하지
 않는 현재 adapter에는 자동 적용되지 않으므로, cache miss p95 문제가 실제로
@@ -1135,6 +1303,10 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - 같은 제안을 동시에 승인해도 canonical performance는 하나만 생성된다.
 - 승인 중 event 쓰기가 실패하면 proposal과 catalog 모두 원래 상태다.
 - 검색, member ANY/ALL과 세 정렬이 keyset pagination에서 중복·누락 없이 동작한다.
+- 공개 read 활성 상태에서 파생 read-model revision이 catalog revision과 다르면
+  config 이외 공개 read가 cache 전에 `503`으로 중단되고 config는 계속 읽을 수 있다.
+- performance sort key와 search gram이 있어도 canonical publication·song predicate를
+  통과하지 못한 row는 공개되지 않는다.
 - public GET은 YouTube API를 호출하지 않는다.
 - public/member/admin DTO와 cache가 서로 섞이지 않는다.
 - source가 사라져도 곡·가창·감사 이력은 남는다.

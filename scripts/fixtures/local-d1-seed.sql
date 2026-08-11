@@ -1,3 +1,6 @@
+DELETE FROM music_search_gram_stats;
+DELETE FROM music_search_grams;
+DELETE FROM music_public_performance_sort_keys;
 DELETE FROM music_cover_proposal_participants;
 DELETE FROM music_cover_proposal_original_artists;
 DELETE FROM music_search_terms;
@@ -18,6 +21,19 @@ WHERE merged_into_song_id IS NOT NULL;
 DELETE FROM music_songs;
 DELETE FROM music_channels;
 DELETE FROM music_entities;
+
+UPDATE music_public_read_model_meta
+SET revision = (
+      SELECT revision
+      FROM music_catalog_meta
+      WHERE id = 1
+    ),
+    updated_at = (
+      SELECT updated_at
+      FROM music_catalog_meta
+      WHERE id = 1
+    )
+WHERE id = 1;
 
 DELETE FROM member_links;
 DELETE FROM member_profile_images;

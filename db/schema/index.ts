@@ -1344,6 +1344,10 @@ export const musicPerformances = sqliteTable(
   },
   (table) => [
     uniqueIndex("uidx_music_performances_dedupe_key").on(table.dedupe_key),
+    uniqueIndex("uidx_music_performances_id_song_id").on(
+      table.id,
+      table.song_id,
+    ),
     index("idx_music_performances_song_id").on(table.song_id),
     index("idx_music_performances_published_released_id")
       .on(sql`${table.released_at} DESC`, table.id)
@@ -1353,6 +1357,17 @@ export const musicPerformances = sqliteTable(
       .where(sql`${table.publication_status} = 'published'`),
     index("idx_music_performances_published_relation_released_id")
       .on(table.relation_type, sql`${table.released_at} DESC`, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_released_song_id")
+      .on(sql`${table.released_at} DESC`, table.song_id, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_participation_released_song_id")
+      .on(
+        table.participation_type,
+        sql`${table.released_at} DESC`,
+        table.song_id,
+        table.id,
+      )
       .where(sql`${table.publication_status} = 'published'`),
     check(
       "music_performances_relation_type_check",
@@ -1444,6 +1459,53 @@ export type MusicPerformanceParticipant =
   typeof musicPerformanceParticipants.$inferSelect;
 export type NewMusicPerformanceParticipant =
   typeof musicPerformanceParticipants.$inferInsert;
+
+export const musicPublicPerformanceSortKeys = sqliteTable(
+  "music_public_performance_sort_keys",
+  {
+    performance_id: text("performance_id").primaryKey(),
+    song_id: text("song_id").notNull(),
+    representative_participant_entity_id: text(
+      "representative_participant_entity_id",
+    ).references(() => musicEntities.id, { onDelete: "restrict" }),
+    normalized_participant: text("normalized_participant"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.performance_id, table.song_id],
+      foreignColumns: [musicPerformances.id, musicPerformances.song_id],
+      name: "fk_music_public_performance_sort_keys_performance_song",
+    }).onDelete("cascade"),
+    index(
+      "idx_music_public_performance_sort_keys_participant_song_performance",
+    )
+      .on(
+        table.normalized_participant,
+        table.song_id,
+        table.performance_id,
+      )
+      .where(sql`${table.normalized_participant} IS NOT NULL`),
+    index("idx_music_public_performance_sort_keys_missing_song_performance")
+      .on(table.song_id, table.performance_id)
+      .where(sql`${table.normalized_participant} IS NULL`),
+    index("idx_music_public_performance_sort_keys_entity_performance").on(
+      table.representative_participant_entity_id,
+      table.performance_id,
+    ),
+    check(
+      "music_public_performance_sort_keys_participant_pair_check",
+      sql`(${table.representative_participant_entity_id} IS NULL AND ${table.normalized_participant} IS NULL)
+        OR (${table.representative_participant_entity_id} IS NOT NULL
+          AND ${table.normalized_participant} IS NOT NULL
+          AND length(trim(${table.normalized_participant})) > 0)`,
+    ),
+  ],
+);
+
+export type MusicPublicPerformanceSortKey =
+  typeof musicPublicPerformanceSortKeys.$inferSelect;
+export type NewMusicPublicPerformanceSortKey =
+  typeof musicPublicPerformanceSortKeys.$inferInsert;
 
 export const musicPerformanceSources = sqliteTable(
   "music_performance_sources",
@@ -1841,6 +1903,75 @@ export const musicSearchTerms = sqliteTable(
 export type MusicSearchTerm = typeof musicSearchTerms.$inferSelect;
 export type NewMusicSearchTerm = typeof musicSearchTerms.$inferInsert;
 
+export const musicSearchGrams = sqliteTable(
+  "music_search_grams",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    gram_size: integer("gram_size").notNull(),
+    normalized_gram: text("normalized_gram").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.gram_size, table.normalized_gram],
+      name: "pk_music_search_grams",
+    }),
+    index("idx_music_search_grams_size_normalized_song").on(
+      table.gram_size,
+      table.normalized_gram,
+      table.song_id,
+    ),
+    check(
+      "music_search_grams_size_check",
+      sql`typeof(${table.gram_size}) = 'integer'
+        AND ${table.gram_size} IN (2, 3)`,
+    ),
+    check(
+      "music_search_grams_value_check",
+      sql`typeof(${table.normalized_gram}) = 'text'
+        AND length(${table.normalized_gram}) = ${table.gram_size}`,
+    ),
+  ],
+);
+
+export type MusicSearchGram = typeof musicSearchGrams.$inferSelect;
+export type NewMusicSearchGram = typeof musicSearchGrams.$inferInsert;
+
+export const musicSearchGramStats = sqliteTable(
+  "music_search_gram_stats",
+  {
+    gram_size: integer("gram_size").notNull(),
+    normalized_gram: text("normalized_gram").notNull(),
+    song_count: integer("song_count").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.gram_size, table.normalized_gram],
+      name: "pk_music_search_gram_stats",
+    }),
+    check(
+      "music_search_gram_stats_size_check",
+      sql`typeof(${table.gram_size}) = 'integer'
+        AND ${table.gram_size} IN (2, 3)`,
+    ),
+    check(
+      "music_search_gram_stats_value_check",
+      sql`typeof(${table.normalized_gram}) = 'text'
+        AND length(${table.normalized_gram}) = ${table.gram_size}`,
+    ),
+    check(
+      "music_search_gram_stats_count_check",
+      sql`typeof(${table.song_count}) = 'integer'
+        AND ${table.song_count} > 0`,
+    ),
+  ],
+);
+
+export type MusicSearchGramStat = typeof musicSearchGramStats.$inferSelect;
+export type NewMusicSearchGramStat =
+  typeof musicSearchGramStats.$inferInsert;
+
 export const musicCatalogMeta = sqliteTable(
   "music_catalog_meta",
   {
@@ -1883,3 +2014,31 @@ export const musicCatalogMeta = sqliteTable(
 
 export type MusicCatalogMeta = typeof musicCatalogMeta.$inferSelect;
 export type NewMusicCatalogMeta = typeof musicCatalogMeta.$inferInsert;
+
+export const musicPublicReadModelMeta = sqliteTable(
+  "music_public_read_model_meta",
+  {
+    id: integer().primaryKey(),
+    revision: integer().notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    check(
+      "music_public_read_model_meta_singleton_check",
+      sql`typeof(${table.id}) = 'integer' AND ${table.id} = 1`,
+    ),
+    check(
+      "music_public_read_model_meta_revision_check",
+      sql`typeof(${table.revision}) = 'integer' AND ${table.revision} >= 0`,
+    ),
+    check(
+      "music_public_read_model_meta_time_check",
+      sql`typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= 0`,
+    ),
+  ],
+);
+
+export type MusicPublicReadModelMeta =
+  typeof musicPublicReadModelMeta.$inferSelect;
+export type NewMusicPublicReadModelMeta =
+  typeof musicPublicReadModelMeta.$inferInsert;

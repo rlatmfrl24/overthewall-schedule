@@ -26,6 +26,13 @@ import {
   D1MemberReader,
 } from "../features/members";
 import {
+  CloudflarePublicCatalogCache,
+  createPublicCatalogEtag,
+  createPublicCatalogHandler,
+  D1PublicCatalogReader,
+  PublicCatalogService,
+} from "../features/otw-play";
+import {
   collectNaverCafePostsForSources,
   createD1NaverCafeApplication,
   createNaverCafeHandler,
@@ -152,6 +159,15 @@ const handleDDays = createHandleDDays(
 );
 const handleMembers = createHandleMembers(
   (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
+);
+const publicCatalogCache = new CloudflarePublicCatalogCache();
+const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
+  (env) =>
+    new PublicCatalogService(
+      new D1PublicCatalogReader(env.otw_db),
+      publicCatalogCache,
+    ),
+  createPublicCatalogEtag,
 );
 const handleNotices = createHandleNotices(
   (env) =>
@@ -346,6 +362,72 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.members.profile.pattern,
     methods: methods(get(PUBLIC_NO_STORE)),
     handler: handleMembers,
+  },
+  {
+    id: "otw-play.config",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.config.pattern,
+    methods: methods(
+      get({
+        auth: "public",
+        cache: "public, max-age=60, s-maxage=1800; auth/cookie => no-store",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.catalog",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.catalog.pattern,
+    methods: methods(
+      get({
+        auth: "public",
+        cache:
+          "public, max-age=60, s-maxage=300; q => private, max-age=30; cursor => private, max-age=60; auth/cookie => no-store",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.facets",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.facets.pattern,
+    methods: methods(
+      get({
+        auth: "public",
+        cache: "public, max-age=60, s-maxage=1800; auth/cookie => no-store",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.song",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.song.pattern,
+    methods: methods(
+      get({
+        auth: "public",
+        cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.performance",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.performance.pattern,
+    methods: methods(
+      get({
+        auth: "public",
+        cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store",
+        successStatus: 200,
+      }),
+    ),
+    handler: handleOtwPlayPublicCatalog,
   },
   {
     id: "schedule-board.read",

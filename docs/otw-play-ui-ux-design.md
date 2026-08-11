@@ -1,6 +1,6 @@
 # OTW Play UI/UX 설계
 
-상태: 구현 전 설계 기준선
+상태: PR-4 공개 API·성능 read-model 기준선, 공개 UI·player 미착수
 
 기준일: 2026-08-11
 
@@ -39,8 +39,8 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 ## 2. 설계 기본값과 미결정 항목
 
-다음 값은 구현 설계를 구체화하기 위한 **권장 기본값**이다. 제품 요구사항의
-TBD를 확정으로 바꾸지는 않는다.
+다음 값은 구현 설계를 구체화하기 위한 **권장 기본값**이다. 카탈로그 공개 접근은
+DEC-019로 확정되었고, 나머지 값은 제품 요구사항의 TBD를 확정으로 바꾸지 않는다.
 
 | 항목 | 설계 기본값 | 변경 영향 |
 | --- | --- | --- |
@@ -225,6 +225,10 @@ hero는 썸네일, 곡명, 참여자, 관계, 공개일, `재생`과 `곡 보기
 - 원곡 가수
 - 공식 영상 공개일 범위
 
+API wire에서는 멤버를 기존 numeric member UID로, 원곡 가수를 public entity
+slug로 식별한다. 그룹은 facets가 발급한 versioned opaque key를 그대로 URL
+query에 보존하며 client가 `entity`/`unit` payload를 직접 만들거나 해석하지 않는다.
+
 정렬:
 
 - 최신 공개순 기본
@@ -232,7 +236,8 @@ hero는 썸네일, 곡명, 참여자, 관계, 공개일, `재생`과 `곡 보기
 - 참여자순
 
 활성 필터는 결과 위에 제거 가능한 칩으로 요약한다. 모바일에서 필터 drawer를
-닫은 뒤에도 적용 조건과 결과 수를 바로 알 수 있어야 한다. 결과는 초기에는
+닫은 뒤에도 적용 조건, 현재 불러온 항목 수와 다음 page 존재 여부를 바로 알 수
+있어야 한다. API는 exact total 또는 facet count를 제공하지 않는다. 결과는 초기에는
 곡 단위 목록으로 표시하며, 이미지 탐색을 원하는 사용자를 위한 카드 view는
 데이터와 사용성 검증 후 후속으로 고려한다.
 
@@ -399,6 +404,8 @@ stateDiagram-v2
 | 다음 페이지 로딩 | 기존 결과 유지, 하단 progress와 중복 클릭 방지 |
 | 검색 결과 없음 | 적용 필터 요약, `필터 초기화`, 검색어 수정 제안 |
 | 공개 카탈로그 없음 | 관리 운영 전용 안내, 임의 샘플 데이터 미노출 |
+| 공개 read 비활성 | config flag를 기준으로 OTW Play 준비 중 안내, catalog endpoint 재시도 금지 |
+| 공개 read-model 동기화 중 | config는 유지하되 catalog `503`에서는 이전 revision 결과를 현재 결과처럼 보여주지 않고 일시적 이용 불가와 수동 재시도 제공 |
 | API 오류 | 이전 성공 데이터 유지 가능 시 stale 표시와 재시도 |
 | 영상 unavailable | 곡 메타데이터 유지, 대체 소스 또는 YouTube 외부 링크 제공 |
 | 인증 만료 | 입력 보존 후 로그인 재시도, 공개 탐색은 계속 가능 |
@@ -428,9 +435,23 @@ stateDiagram-v2
 - player API script는 첫 재생 의도 또는 player가 필요한 route에서 한 번만 로드한다.
 - 긴 목록은 cursor pagination을 기본으로 하고 실제 측정 전에는 virtual list를
   도입하지 않는다.
+- participant 정렬과 contains 검색의 내부 read model은 결과를 근사하거나 새 공개
+  상태를 만들지 않는다. 화면에 표시하기 전 canonical song과 published official
+  performance 조건을 통과한 결과만 사용한다.
+- 공개 read 활성 상태에서 catalog revision과 read-model revision이 다르면 config
+  이외 공개 API는 cache 전에 `503`으로 중단된다. 후속 UI는 이를 빈 결과로 오해하지
+  않고 동기화 중 오류 상태로 표시하며, 이전 revision 목록을 최신 결과처럼 계속
+  노출하지 않는다. flag-off 상태는 기존 준비 중 안내를 유지한다.
+- 곡 3,000개, search term 10,000개, performance 8,000개의 선언된 상한 fixture에서
+  rows read 예산을 검증한다. 이는 현재 MVP 대표 분포의 회귀 기준이며 임의의 모든
+  데이터 분포에서 같은 수치를 보장한다는 의미가 아니다.
 - 목표: 공개 카탈로그 cache hit 기준 API p95 300ms 이내, 검색 miss 기준 p95
   800ms 이내, player 이외 화면 CLS 0.1 이하. 수치는 출시 전 실제 환경에서
   재측정하고 조정한다.
+
+PR-4 성능 보완은 API·DTO·cursor와 화면 설계를 바꾸지 않으며 `/play` route,
+navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하지 않으므로 현재
+사용자가 보는 화면에는 영향이 없다.
 
 ## 15. 화면별 수용 기준
 
@@ -445,6 +466,7 @@ stateDiagram-v2
 - 검색·필터·정렬이 URL과 동기화된다.
 - 멤버 ANY와 ALL 의미를 사용자가 구분할 수 있다.
 - 동일 곡은 한 결과로 묶이고 공식 버전 수를 확인할 수 있다.
+- exact total이 있는 것처럼 표시하지 않고 현재 로드 수와 다음 page 여부를 구분한다.
 
 ### Player
 

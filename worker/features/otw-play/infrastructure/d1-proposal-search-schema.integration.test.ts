@@ -1500,11 +1500,25 @@ describe("OTW Play proposal, event, search, and meta migrations", () => {
       "DELETE FROM member_links;",
     );
     expect(nonMusicDeleteIndex).toBeGreaterThan(0);
+    const existingTableRows = await db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all<{ name: string }>();
+    const existingTables = new Set(
+      existingTableRows.results.map(({ name }) => name),
+    );
     const musicCleanupStatements = localD1SeedSql
       .slice(0, nonMusicDeleteIndex)
       .split(";")
       .map((statement) => statement.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((statement) => {
+        const target = statement.match(
+          /^(?:DELETE\s+FROM|UPDATE)\s+(music_[a-z_]+)/i,
+        )?.[1];
+        // This test intentionally applies the historical PR-3 migration slice.
+        // The current seed is separately exercised against the latest schema.
+        return target === undefined || existingTables.has(target);
+      });
     await db.batch(musicCleanupStatements.map((statement) => db.prepare(statement)));
 
     const remaining = await db

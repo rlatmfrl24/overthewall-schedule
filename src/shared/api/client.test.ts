@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiFetch } from "./client";
+import { ApiError, apiFetch } from "./client";
 
 const jsonResponse = () =>
   new Response(JSON.stringify({ ok: true }), {
@@ -63,6 +63,82 @@ describe("apiFetch", () => {
     expect(headers.get("Authorization")).toBe("Bearer caller-token");
     expect(headers.get("X-Request-ID")).toBe("request-1");
     expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("auth omit은 Clerk를 조회하지 않고 호출자 Authorization도 제거한다", async () => {
+    const getToken = vi.fn().mockResolvedValue("session-token");
+    vi.stubGlobal("window", { Clerk: { session: { getToken } } });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/public", {
+      auth: "omit",
+      headers: {
+        Authorization: "Bearer caller-token",
+        "X-Request-ID": "request-1",
+      },
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = new Headers(init?.headers);
+    expect(getToken).not.toHaveBeenCalled();
+    expect(headers.has("Authorization")).toBe(false);
+    expect(headers.get("X-Request-ID")).toBe("request-1");
+    expect(init?.credentials).toBe("omit");
+  });
+
+  it("auth required는 token이 없으면 요청 전에 typed error를 반환한다", async () => {
+    const getToken = vi.fn().mockResolvedValue(null);
+    vi.stubGlobal("window", { Clerk: { session: { getToken } } });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiFetch("/api/protected", { auth: "required" }),
+    ).rejects.toMatchObject({
+      name: "ApiError",
+      message: "Authentication required",
+      status: 401,
+      code: "AUTH_REQUIRED",
+      fields: undefined,
+      requestId: null,
+    });
+    expect(getToken).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("auth required는 명시적인 호출자 Authorization을 허용한다", async () => {
+    vi.stubGlobal("window", { Clerk: {} });
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/protected", {
+      auth: "required",
+      headers: { Authorization: "Bearer caller-token" },
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(new Headers(init?.headers).get("Authorization")).toBe(
+      "Bearer caller-token",
+    );
+  });
+
+  it("auth required는 빈 Authorization header를 token으로 취급하지 않는다", async () => {
+    vi.stubGlobal("window", { Clerk: {} });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiFetch("/api/protected", {
+        auth: "required",
+        headers: { Authorization: "   " },
+      }),
+    ).rejects.toMatchObject({
+      name: "ApiError",
+      status: 401,
+      code: "AUTH_REQUIRED",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("Latin-1 범위를 벗어난 token은 Authorization header에 넣지 않는다", async () => {
@@ -150,6 +226,39 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/example")).rejects.toMatchObject({
       message: "Invalid request",
       status: 422,
+    });
+  });
+
+  it("표준 JSON 오류의 code, fields와 requestId를 보존한다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "INVALID_QUERY",
+              message: "잘못된 검색 조건입니다.",
+              fields: { limit: "최대 60입니다." },
+              requestId: "request-123",
+            },
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    const error = await apiFetch("/api/example").catch((value: unknown) => value);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      message: "잘못된 검색 조건입니다.",
+      status: 400,
+      code: "INVALID_QUERY",
+      fields: { limit: "최대 60입니다." },
+      requestId: "request-123",
     });
   });
 

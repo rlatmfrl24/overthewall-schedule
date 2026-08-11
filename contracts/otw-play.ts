@@ -117,6 +117,15 @@ export const OTW_PLAY_CHANNEL_ROLES = [
 export type OtwPlayChannelRole =
   (typeof OTW_PLAY_CHANNEL_ROLES)[number];
 
+export type OtwPlayPublicChannelRole = Extract<
+  OtwPlayChannelRole,
+  | "otw_official"
+  | "unit_official"
+  | "member_music"
+  | "member_main"
+  | "project_official"
+>;
+
 export const OTW_PLAY_SOURCE_ROLES = [
   "official",
   "kirinuki",
@@ -164,7 +173,7 @@ export type OtwPlayPublicParticipantKind =
   (typeof OTW_PLAY_PUBLIC_PARTICIPANT_KINDS)[number];
 
 export interface OtwPlayPublicError {
-  code: string;
+  code: OtwPlayPublicErrorCode;
   message: string;
   fields?: Record<string, string>;
   requestId: string;
@@ -172,4 +181,192 @@ export interface OtwPlayPublicError {
 
 export interface OtwPlayPublicErrorResponse {
   error: OtwPlayPublicError;
+}
+
+export const OTW_PLAY_PUBLIC_ERROR_CODES = [
+  "PLAY_INVALID_QUERY",
+  "PLAY_INVALID_CURSOR",
+  "PLAY_CURSOR_STALE",
+  "PLAY_PUBLIC_READ_DISABLED",
+  "PLAY_NOT_FOUND",
+  "PLAY_CATALOG_UNAVAILABLE",
+  "PLAY_INTERNAL_ERROR",
+] as const;
+
+export type OtwPlayPublicErrorCode =
+  (typeof OTW_PLAY_PUBLIC_ERROR_CODES)[number];
+
+export const OTW_PLAY_MEMBER_MODES = ["any", "all"] as const;
+export type OtwPlayMemberMode = (typeof OTW_PLAY_MEMBER_MODES)[number];
+
+export const OTW_PLAY_CATALOG_SORTS = [
+  "recent",
+  "title",
+  "participant",
+] as const;
+export type OtwPlayCatalogSort = (typeof OTW_PLAY_CATALOG_SORTS)[number];
+
+export interface OtwPlayPublicCatalogQuery {
+  q?: string;
+  member?: number[];
+  memberMode?: OtwPlayMemberMode;
+  group?: string;
+  relation?: OtwPlayRelationType;
+  participation?: OtwPlayParticipationType;
+  originalArtist?: string;
+  publishedFrom?: string;
+  publishedTo?: string;
+  sort?: OtwPlayCatalogSort;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface OtwPlayPublicEnvelope<T> {
+  data: T;
+  nextCursor: string | null;
+  catalogRevision: number;
+  generatedAt: string;
+}
+
+export interface OtwPlayPublicConfigDto {
+  publicReadEnabled: boolean;
+  navigationVisible: boolean;
+}
+
+export interface OtwPlayPublicCreditDto {
+  entityId: string;
+  slug: string;
+  displayName: string;
+  kind: OtwPlayEntityKind;
+}
+
+interface OtwPlayPublicParticipantBaseDto {
+  entityId: string;
+  slug: string;
+  displayName: string;
+  role: OtwPlayParticipantRole;
+  creditOrder: number;
+}
+
+export interface OtwPlayPublicCurrentMemberParticipantDto
+  extends OtwPlayPublicParticipantBaseDto {
+  kind: "current_member";
+  uid: number;
+  code: string;
+  oshiMark: string | null;
+  unitName: string | null;
+}
+
+export interface OtwPlayPublicExternalParticipantDto
+  extends OtwPlayPublicParticipantBaseDto {
+  kind: "external";
+}
+
+export interface OtwPlayPublicGroupParticipantDto
+  extends OtwPlayPublicParticipantBaseDto {
+  kind: "group";
+}
+
+export type OtwPlayPublicParticipantDto =
+  | OtwPlayPublicCurrentMemberParticipantDto
+  | OtwPlayPublicExternalParticipantDto
+  | OtwPlayPublicGroupParticipantDto;
+
+export interface OtwPlayPublicChannelDto {
+  id: string;
+  displayName: string;
+  role: OtwPlayPublicChannelRole;
+}
+
+export interface OtwPlayPublicSourceDto {
+  sourceId: string;
+  provider: OtwPlayProvider;
+  externalId: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  providerPublishedAt: string | null;
+  availability: OtwPlaySourceAvailabilityStatus;
+  sourceRole: Extract<OtwPlaySourceRole, "official" | "alternate">;
+  startSeconds: number;
+  endSeconds: number | null;
+  priority: number;
+  isPrimary: boolean;
+  playable: boolean;
+  channel: OtwPlayPublicChannelDto;
+}
+
+export interface OtwPlayPublicPerformanceSummaryDto {
+  id: string;
+  relation: OtwPlayRelationType;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  participation: OtwPlayParticipationType;
+  releasedAt: string | null;
+  participants: OtwPlayPublicParticipantDto[];
+  selectedSource: OtwPlayPublicSourceDto | null;
+  sourceCount: number;
+  playable: boolean;
+  usingFallback: boolean;
+}
+
+export interface OtwPlayPublicPerformanceDetailDto
+  extends OtwPlayPublicPerformanceSummaryDto {
+  sources: OtwPlayPublicSourceDto[];
+}
+
+export interface OtwPlayPublicSongSummaryDto {
+  id: string;
+  slug: string;
+  title: string;
+  isOtwOriginal: boolean;
+  originalReleaseDate: string | null;
+  originalReleasePrecision: OtwPlayDatePrecision;
+  originalArtists: OtwPlayPublicCreditDto[];
+  representativePerformance: OtwPlayPublicPerformanceSummaryDto;
+  performanceCount: number;
+  playable: boolean;
+}
+
+export interface OtwPlayPublicCatalogDto {
+  items: OtwPlayPublicSongSummaryDto[];
+}
+
+export interface OtwPlayPublicSongDetailDto
+  extends Omit<OtwPlayPublicSongSummaryDto, "representativePerformance"> {
+  performances: OtwPlayPublicPerformanceDetailDto[];
+}
+
+export interface OtwPlayPublicPerformanceResponseDto {
+  song: {
+    id: string;
+    slug: string;
+    title: string;
+    isOtwOriginal: boolean;
+  };
+  performance: OtwPlayPublicPerformanceDetailDto;
+}
+
+export interface OtwPlayPublicMemberFacetDto {
+  memberUid: number;
+  code: string;
+  displayName: string;
+  oshiMark: string | null;
+  unitName: string | null;
+}
+
+export interface OtwPlayPublicGroupFacetDto {
+  key: string;
+  kind: "entity" | "unit";
+  displayName: string;
+}
+
+export interface OtwPlayPublicOriginalArtistFacetDto {
+  slug: string;
+  displayName: string;
+}
+
+export interface OtwPlayPublicFacetsDto {
+  members: OtwPlayPublicMemberFacetDto[];
+  groups: OtwPlayPublicGroupFacetDto[];
+  originalArtists: OtwPlayPublicOriginalArtistFacetDto[];
 }
