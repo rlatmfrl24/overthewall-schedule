@@ -1,6 +1,6 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-4 공개 catalog query/API/cache 및 성능 read-model 실행 기준선
+상태: PR-5 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
 
 기준일: 2026-08-11
 
@@ -51,14 +51,14 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 
 ### 2.2 관련 slice 전에 확정해야 하는 제품 결정
 
-| ID | 확인 항목 | 필요 시점 | 기본 권장안 |
-| --- | --- | --- | --- |
-| GATE-01 | 공식 커버 인정 기준과 허용 채널 | 관리자 등록·승인 API 전 | 승인된 공식 채널 + 실제 가창 credit 확인 |
-| GATE-02 | 초기 입력 대상 곡·멤버 | 운영 데이터 입력 전 | 그룹별 대표 5–10곡으로 검증 |
-| GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전 | 기록 보존, 현재 화면은 external 표시 |
-| GATE-04 | 회원 제안 수정·철회 | 해당 command 구현 전 | pending_review에서만 허용 |
-| GATE-05 | 거절 사유를 회원에게 보이는 범위 | 내 제안 UI 전 | 코드별 안전한 메시지로 노출, 내부 세부 정보 제외 |
-| GATE-06 | 회원별 제출 제한 | 제출 API 전 | 설정 가능한 일일 제한 + edge burst 제한 |
+| ID      | 확인 항목                            | 필요 시점               | 기본 권장안                                      |
+| ------- | ------------------------------------ | ----------------------- | ------------------------------------------------ |
+| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 관리자 등록·승인 API 전 | 승인된 공식 채널 + 실제 가창 credit 확인         |
+| GATE-02 | 초기 입력 대상 곡·멤버               | 운영 데이터 입력 전     | 그룹별 대표 5–10곡으로 검증                      |
+| GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전     | 기록 보존, 현재 화면은 external 표시             |
+| GATE-04 | 회원 제안 수정·철회                  | 해당 command 구현 전    | pending_review에서만 허용                        |
+| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 내 제안 UI 전           | 코드별 안전한 메시지로 노출, 내부 세부 정보 제외 |
+| GATE-06 | 회원별 제출 제한                     | 제출 API 전             | 설정 가능한 일일 제한 + edge burst 제한          |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
@@ -83,16 +83,16 @@ PR-3 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 �
 
 ### 3.2 권장 PR 흐름
 
-| PR | 결과 | 원격 영향 |
-| --- | --- | --- |
-| PR-1 | 공유 계약, 순수 domain과 공개 index | 없음 |
-| PR-2 | catalog foundation schema와 migration | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
-| PR-3 | proposal·event·search/meta schema와 migration | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
-| PR-4 | 공개 catalog query/API/cache | 숨겨진 API |
-| PR-5 | 관리자 catalog command와 UI | 관리자 전용 |
-| PR-6 | 공개 Discover/Catalog/Detail과 player | feature flag 뒤 |
-| PR-7 | 회원 제출·내 제안·관리자 승인 E2E | 로그인/관리자 전용 |
-| PR-8 | SEO, source health, observability, release switch | 단계적 공개 |
+| PR   | 결과                                              | 원격 영향                                                             |
+| ---- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| PR-1 | 공유 계약, 순수 domain과 공개 index               | 없음                                                                  |
+| PR-2 | catalog foundation schema와 migration             | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
+| PR-3 | proposal·event·search/meta schema와 migration     | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
+| PR-4 | 공개 catalog query/API/cache                      | 숨겨진 API                                                            |
+| PR-5 | 관리자 catalog command와 UI                       | 관리자 전용                                                           |
+| PR-6 | 공개 Discover/Catalog/Detail과 player             | feature flag 뒤                                                       |
+| PR-7 | 회원 제출·내 제안·관리자 승인 E2E                 | 로그인/관리자 전용                                                    |
+| PR-8 | SEO, source health, observability, release switch | 단계적 공개                                                           |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -568,10 +568,11 @@ adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로
 
 ### 주요 touchpoint
 
-- `worker/features/otw-play/application/manage-catalog.ts`
-- `worker/features/otw-play/infrastructure/d1-catalog-writer.ts`
-- `worker/features/otw-play/http/admin-handler.ts`
-- `worker/features/youtube` 공개 metadata service
+- `worker/features/otw-play/application/admin-catalog-service.ts`
+- `worker/features/otw-play/application/ports/admin-catalog-repository.ts`
+- `worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts`
+- `worker/features/otw-play/infrastructure/youtube-metadata-reader.ts`
+- `worker/features/otw-play/http/admin-catalog-handler.ts`
 - `worker/app/routes.ts`
 - `src/features/otw-play/api/admin.ts`
 - `src/features/otw-play/ui/admin/*`
@@ -592,6 +593,24 @@ song의 2·3 code point gram과 gram stats, capability event, catalog revision �
 하나의 batch로 소유한다. 모든 authority·projection statement가 성공한 뒤
 `music_public_read_model_meta`를 같은 새 revision으로 갱신한다. trigger나 후속
 best-effort 갱신으로 분리하지 않으며 어느 statement든 실패하면 전체를 rollback한다.
+command 시작 시 catalog와 read-model revision이 이미 다르면 일부 projection만
+갱신해 정상 상태로 위장하지 않고 `503 PLAY_ADMIN_INTERNAL_ERROR`로 fail closed한다.
+
+PR-5 관리자 route는 `auth=admin`, `Cache-Control: no-store`다. `entity`, `song`,
+`performance`, `channel`, `source` command는 shared DTO와 `expectedVersion`을 사용한다.
+YouTube 영상 command는 client의 제목·채널 주장을 권위값으로 사용하지 않고 외부
+metadata의 video ID와 channel ID를 등록된 내부 channel identity와 다시 대조한다.
+재검사에서 API 호출은 성공했지만 영상 항목이 사라진 경우 기존 source identity와
+metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed 비허용은 별도
+`embed_disabled` 상태로 유지한다.
+capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
+catalog batch를 되돌리지 않는다.
+
+GATE-01이 미확정인 동안 일반 draft 등록·수정, 채널 검수, publish/withdraw와 제안
+거절은 사용할 수 있지만 회원 제안 승인 command는 `409
+PLAY_ADMIN_POLICY_UNRESOLVED`로 fail closed한다. 관리자 UI도 승인 버튼을 비활성화한다.
+이는 권장안을 확정 정책으로 바꾸지 않기 위한 임시 gate이며, GATE-01 결정 뒤 같은
+service policy switch와 UI 검수 조건을 함께 활성화한다.
 
 ### 필수 테스트
 
@@ -602,6 +621,7 @@ best-effort 갱신으로 분리하지 않으며 어느 statement든 실패하면
 - publish event와 revision이 함께 반영
 - publish와 함께 search term, sort key, gram/stat 및 read-model revision이 같은
   batch에서 반영되고 projection 실패 시 전체 rollback
+- 기존 catalog/read-model revision 불일치 상태에서는 command 503 및 무변경
 - event insert 실패 시 publish rollback
 - stale expectedVersion 409
 - 전역 admin audit 실패는 authoritative event를 훼손하지 않음
@@ -804,14 +824,14 @@ fixture나 lower-level API만으로 이 검증을 대체하지 않는다.
 
 ## 15. rollback
 
-| 상태 | 조치 | 데이터 처리 |
-| --- | --- | --- |
-| UI 문제 | `navigation_visible=0` | 카탈로그 보존 |
-| 공개 API 문제 | `public_read_enabled=0` | 관리자·제안 데이터 보존 |
-| 잘못된 공개 데이터 | withdraw/unpublish + revision 증가 | hard delete 금지 |
-| Worker 회귀 | 이전 검증 Worker version 재배포 | additive table 유지 |
-| migration 후 코드 불일치 | feature flag off, 호환 코드 복구 | down migration 자동 실행 금지 |
-| 심각한 DB 손상 | Time Travel 복구 검토 | DB 전체 덮어쓰기이므로 별도 승인 |
+| 상태                     | 조치                               | 데이터 처리                      |
+| ------------------------ | ---------------------------------- | -------------------------------- |
+| UI 문제                  | `navigation_visible=0`             | 카탈로그 보존                    |
+| 공개 API 문제            | `public_read_enabled=0`            | 관리자·제안 데이터 보존          |
+| 잘못된 공개 데이터       | withdraw/unpublish + revision 증가 | hard delete 금지                 |
+| Worker 회귀              | 이전 검증 Worker version 재배포    | additive table 유지              |
+| migration 후 코드 불일치 | feature flag off, 호환 코드 복구   | down migration 자동 실행 금지    |
+| 심각한 DB 손상           | Time Travel 복구 검토              | DB 전체 덮어쓰기이므로 별도 승인 |
 
 일반 rollback에서 migration 파일이나 table을 삭제하지 않는다. Time Travel은
 파괴적 복원이며 정확한 bookmark, 영향 범위와 사용자의 명시적 승인이 필요하다.
@@ -856,37 +876,37 @@ readback을 함께 기록한다.
 
 ## 17. 요구사항 추적표
 
-| 요구사항 묶음 | 구현 소유 | 핵심 검증 |
-| --- | --- | --- |
-| FR-001–005 | public catalog/search | 곡 grouping, 검색 대상, 최신 항목 |
-| FR-006–011 | catalog query | 우선순위, ANY/ALL, cursor 정렬 |
-| FR-012, 014–016 | song detail/catalog | 복수 version, credit, source relation |
-| FR-017, 020–023 | player/queue | single iframe, repeat/shuffle, unavailable |
-| FR-024–025 | route/SEO | song/performance 직접 링크 |
-| FR-030–036 | member proposal | auth, staging, 본인 상태, duplicate |
-| ADM-001–010, 014, 019 | admin catalog | 공식 채널·영상 검수, draft/publish |
-| ADM-011–012, 020–021 | event/proposal | 감사, 미검수 비공개, 거절 이력 |
-| ADM-015–018 | review unit-of-work | 승인 queue, CAS, 공개 승격 |
-| NFR-001–006 | UI/player | YouTube 정책, 키보드, chip 접근성 |
-| NFR-007–012 | repository/auth/cache | published-only, metadata 보존, cache 격리 |
-| NFR-013–015 | rate/ownership/admin | spam, 본인 조회, 관리자 전이 |
+| 요구사항 묶음         | 구현 소유             | 핵심 검증                                  |
+| --------------------- | --------------------- | ------------------------------------------ |
+| FR-001–005            | public catalog/search | 곡 grouping, 검색 대상, 최신 항목          |
+| FR-006–011            | catalog query         | 우선순위, ANY/ALL, cursor 정렬             |
+| FR-012, 014–016       | song detail/catalog   | 복수 version, credit, source relation      |
+| FR-017, 020–023       | player/queue          | single iframe, repeat/shuffle, unavailable |
+| FR-024–025            | route/SEO             | song/performance 직접 링크                 |
+| FR-030–036            | member proposal       | auth, staging, 본인 상태, duplicate        |
+| ADM-001–010, 014, 019 | admin catalog         | 공식 채널·영상 검수, draft/publish         |
+| ADM-011–012, 020–021  | event/proposal        | 감사, 미검수 비공개, 거절 이력             |
+| ADM-015–018           | review unit-of-work   | 승인 queue, CAS, 공개 승격                 |
+| NFR-001–006           | UI/player             | YouTube 정책, 키보드, chip 접근성          |
+| NFR-007–012           | repository/auth/cache | published-only, metadata 보존, cache 격리  |
+| NFR-013–015           | rate/ownership/admin  | spam, 본인 조회, 관리자 전이               |
 
 후속 FR-013, 018, 019, 026–029는 MVP test를 통과시키기 위한 hidden 구현으로
 만들지 않는다. 현재 schema의 source segment와 relation 확장점만 보존한다.
 
 ## 18. 주요 위험과 대응
 
-| 위험 | 가능성 | 영향 | 필수 대응 |
-| --- | --- | --- | --- |
-| 상태를 한 열에 혼합 | 높음 | 공개 누출·잘못된 승인 | proposal/publication/quality/source 축 분리 |
-| 공개 GET에 bearer 자동 첨부 | 높음 | shared cache bypass | `apiFetch auth: omit`와 header test |
-| 동시 승인 | 중간 | 중복 catalog·불일치 | CAS, conditional insert, batch rollback integration |
-| YouTube iframe 숨은 재생 | 중간 | 정책 위반·나쁜 모바일 UX | Play-scoped visible player, 접을 때 pause |
-| D1 fan-out·offset | 중간 | 높은 rows read·지연 | keyset + bounded detail batch + query plan |
-| current member 상태 cache | 중간 | 전 소속 멤버 오표시 | member 상태 변경 시 revision 증가 |
-| stale cache로 철회 콘텐츠 노출 | 낮음–중간 | 운영·권리 문제 | revision key, 오래된 LKG 자동 제공 금지 |
-| migration과 code 순서 불일치 | 중간 | production 5xx | additive schema, flag, 순서와 readback |
-| YouTube quota 장애를 unavailable로 오판 | 중간 | 정상 영상 숨김 | retryable error와 source 상태 분리 |
+| 위험                                    | 가능성    | 영향                     | 필수 대응                                           |
+| --------------------------------------- | --------- | ------------------------ | --------------------------------------------------- |
+| 상태를 한 열에 혼합                     | 높음      | 공개 누출·잘못된 승인    | proposal/publication/quality/source 축 분리         |
+| 공개 GET에 bearer 자동 첨부             | 높음      | shared cache bypass      | `apiFetch auth: omit`와 header test                 |
+| 동시 승인                               | 중간      | 중복 catalog·불일치      | CAS, conditional insert, batch rollback integration |
+| YouTube iframe 숨은 재생                | 중간      | 정책 위반·나쁜 모바일 UX | Play-scoped visible player, 접을 때 pause           |
+| D1 fan-out·offset                       | 중간      | 높은 rows read·지연      | keyset + bounded detail batch + query plan          |
+| current member 상태 cache               | 중간      | 전 소속 멤버 오표시      | member 상태 변경 시 revision 증가                   |
+| stale cache로 철회 콘텐츠 노출          | 낮음–중간 | 운영·권리 문제           | revision key, 오래된 LKG 자동 제공 금지             |
+| migration과 code 순서 불일치            | 중간      | production 5xx           | additive schema, flag, 순서와 readback              |
+| YouTube quota 장애를 unavailable로 오판 | 중간      | 정상 영상 숨김           | retryable error와 source 상태 분리                  |
 
 ## 19. Definition of Done
 

@@ -2,7 +2,7 @@
 
 상태: Living Draft
 
-단계: PR-4 공개 catalog query/API/cache 성능 보완, UI·관리자 command·원격 적용 미착수
+단계: PR-5 관리자 catalog command/UI 구현 중, proposal approve는 GATE-01 확정 대기
 
 최종 갱신일: 2026-08-11
 
@@ -584,6 +584,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | 제안·공개·품질·소스 가용성 상태 축과 PR-1 계약·순수 domain 경계 명시 |
 | 2026-08-11 | PR-2 catalog foundation 권위·관계·dedupe 경계 확정, published partial index는 PR-3으로 연기하고 API·UI·원격 적용은 제외, GATE-01~06은 변경하지 않음 |
 | 2026-08-11 | PR-3 proposal·event·search/meta exact schema 경계 확정, proposal channel 제외, fail-closed meta와 application-owned revision·append-only 채택, API·UI·원격 적용 제외, GATE-01~06 유지 |
+| 2026-08-11 | PR-5 관리자 catalog command의 인증·YouTube metadata 대조·atomic event/projection/revision 경계를 구현 기준으로 기록. GATE-01은 미확정 상태를 유지하고 proposal approve만 명시적 policy-unresolved 409로 fail closed |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 
