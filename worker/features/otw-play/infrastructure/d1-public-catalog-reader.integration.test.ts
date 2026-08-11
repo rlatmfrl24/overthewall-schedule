@@ -5,6 +5,7 @@ import type { PublicCatalogReaderQuery } from "../application/ports/public-catal
 import { parsePublicCatalogQuery } from "../domain/public-catalog-query";
 import { encodePublicCatalogGroupKey } from "../domain/public-group-key";
 import {
+  buildD1ParticipantBrowseCandidateQuery,
   buildD1PublicCatalogCandidateQuery,
   D1PublicCatalogReader,
 } from "./d1-public-catalog-reader";
@@ -15,6 +16,8 @@ const PUBLIC_MIGRATION_NAMES = [
   "0048_previous_the_phantom.sql",
   "0049_otw_play_catalog_meta_seed.sql",
   "0050_parched_marvel_apes.sql",
+  "0051_clear_mantis.sql",
+  "0052_otw-play-public-read-model-backfill.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -47,6 +50,9 @@ const toReaderQuery = (query = ""): PublicCatalogReaderQuery => {
 
 const cleanup = async () => {
   await db.batch([
+    db.prepare("DELETE FROM music_search_gram_stats"),
+    db.prepare("DELETE FROM music_search_grams"),
+    db.prepare("DELETE FROM music_public_performance_sort_keys"),
     db.prepare("DELETE FROM music_cover_proposal_participants"),
     db.prepare("DELETE FROM music_cover_proposal_original_artists"),
     db.prepare("DELETE FROM music_cover_proposals"),
@@ -72,6 +78,88 @@ const cleanup = async () => {
       `UPDATE music_catalog_meta
        SET revision = 7, public_read_enabled = 1,
            navigation_visible = 0, updated_at = ?
+       WHERE id = 1`,
+    ).bind(NOW),
+    db.prepare(
+      `UPDATE music_public_read_model_meta
+       SET revision = 7, updated_at = ?
+       WHERE id = 1`,
+    ).bind(NOW),
+  ]);
+};
+
+const rebuildReadModel = async () => {
+  await db.batch([
+    db.prepare("DELETE FROM music_search_gram_stats"),
+    db.prepare("DELETE FROM music_search_grams"),
+    db.prepare("DELETE FROM music_public_performance_sort_keys"),
+    db.prepare(
+      `INSERT INTO music_public_performance_sort_keys (
+         performance_id, song_id, representative_participant_entity_id,
+         normalized_participant
+       )
+       SELECT performance.id, performance.song_id,
+              representative.entity_id, entity.normalized_name
+       FROM music_performances AS performance
+       LEFT JOIN music_performance_participants AS representative
+         ON representative.performance_id = performance.id
+        AND NOT EXISTS (
+          SELECT 1
+          FROM music_performance_participants AS earlier
+          WHERE earlier.performance_id = representative.performance_id
+            AND (
+              earlier.credit_order < representative.credit_order
+              OR (
+                earlier.credit_order = representative.credit_order
+                AND earlier.entity_id < representative.entity_id
+              )
+            )
+        )
+       LEFT JOIN music_entities AS entity
+         ON entity.id = representative.entity_id`,
+    ),
+    db.prepare(
+      `WITH RECURSIVE
+         gram_sizes(gram_size) AS (
+           SELECT 2 UNION ALL SELECT 3
+         ),
+         source_terms(song_id, normalized_term) AS (
+           SELECT id, normalized_title FROM music_songs
+           UNION
+           SELECT song_id, normalized_term FROM music_search_terms
+         ),
+         gram_positions(song_id, normalized_term, gram_size, position) AS (
+           SELECT source_terms.song_id, source_terms.normalized_term,
+                  gram_sizes.gram_size, 1
+           FROM source_terms
+           CROSS JOIN gram_sizes
+           WHERE length(source_terms.normalized_term) >= gram_sizes.gram_size
+           UNION ALL
+           SELECT song_id, normalized_term, gram_size, position + 1
+           FROM gram_positions
+           WHERE position < length(normalized_term) - gram_size + 1
+         )
+       INSERT OR IGNORE INTO music_search_grams (
+         song_id, gram_size, normalized_gram
+       )
+       SELECT song_id, gram_size,
+              substr(normalized_term, position, gram_size)
+       FROM gram_positions`,
+    ),
+    db.prepare(
+      `INSERT INTO music_search_gram_stats (
+         gram_size, normalized_gram, song_count
+       )
+       SELECT gram_size, normalized_gram, COUNT(*)
+       FROM music_search_grams
+       GROUP BY gram_size, normalized_gram`,
+    ),
+    db.prepare(
+      `UPDATE music_public_read_model_meta
+       SET revision = (
+             SELECT revision FROM music_catalog_meta WHERE id = 1
+           ),
+           updated_at = ?
        WHERE id = 1`,
     ).bind(NOW),
   ]);
@@ -297,12 +385,13 @@ const seedVisibilityFixture = async () => {
          ('performance-visible', 'source-kirinuki', 0, NULL, 'official', 3, 0)`,
     ),
   ]);
+  await rebuildReadModel();
 };
 
 describe("D1PublicCatalogReader", () => {
   beforeEach(async () => {
     expect(
-      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(-5).map(
+      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(-7).map(
         ({ name }) => name,
       ),
     ).toEqual(PUBLIC_MIGRATION_NAMES);
@@ -318,6 +407,7 @@ describe("D1PublicCatalogReader", () => {
     const reader = new D1PublicCatalogReader(db);
     await expect(reader.readMeta()).resolves.toEqual({
       revision: 7,
+      readModelRevision: 7,
       publicReadEnabled: true,
       navigationVisible: false,
       updatedAt: NOW,
@@ -329,6 +419,115 @@ describe("D1PublicCatalogReader", () => {
       statementRowsRead: [expect.any(Number)],
       usesOffset: false,
     });
+  });
+
+  it("applies the additive read-model tables, indexes, foreign keys, and fail-closed checks", async () => {
+    const tableRows = await db
+      .prepare(
+        `SELECT name
+         FROM sqlite_master
+         WHERE type = 'table'
+           AND name IN (
+             'music_public_performance_sort_keys',
+             'music_public_read_model_meta',
+             'music_search_grams',
+             'music_search_gram_stats'
+           )
+         ORDER BY name`,
+      )
+      .all<{ name: string }>();
+    expect(tableRows.results.map(({ name }) => name)).toEqual([
+      "music_public_performance_sort_keys",
+      "music_public_read_model_meta",
+      "music_search_gram_stats",
+      "music_search_grams",
+    ]);
+
+    const [sortIndexes, gramIndexes, performanceIndexes, sortForeignKeys] =
+      await Promise.all([
+        db
+          .prepare("PRAGMA index_list(music_public_performance_sort_keys)")
+          .all<{ name: string }>(),
+        db
+          .prepare("PRAGMA index_list(music_search_grams)")
+          .all<{ name: string }>(),
+        db
+          .prepare("PRAGMA index_list(music_performances)")
+          .all<{ name: string }>(),
+        db
+          .prepare(
+            "PRAGMA foreign_key_list(music_public_performance_sort_keys)",
+          )
+          .all<{ from: string; table: string; to: string; on_delete: string }>(),
+      ]);
+    expect(sortIndexes.results.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        "idx_music_public_performance_sort_keys_participant_song_performance",
+        "idx_music_public_performance_sort_keys_missing_song_performance",
+        "idx_music_public_performance_sort_keys_entity_performance",
+      ]),
+    );
+    expect(gramIndexes.results.map(({ name }) => name)).toContain(
+      "idx_music_search_grams_size_normalized_song",
+    );
+    expect(performanceIndexes.results.map(({ name }) => name)).toContain(
+      "uidx_music_performances_id_song_id",
+    );
+    expect(sortForeignKeys.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: "performance_id",
+          table: "music_performances",
+          to: "id",
+          on_delete: "CASCADE",
+        }),
+        expect.objectContaining({
+          from: "song_id",
+          table: "music_performances",
+          to: "song_id",
+          on_delete: "CASCADE",
+        }),
+        expect.objectContaining({
+          from: "representative_participant_entity_id",
+          table: "music_entities",
+          to: "id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+
+    await expect(
+      db
+        .prepare(
+          `INSERT INTO music_search_gram_stats (
+             gram_size, normalized_gram, song_count
+           ) VALUES (4, 'four', 1)`,
+        )
+        .run(),
+    ).rejects.toThrow(/music_search_gram_stats_size_check/);
+
+    await db.batch([
+      ...insertSong("song-read-model-check", "Read Model Check"),
+      insertPerformance(
+        "performance-read-model-check",
+        "song-read-model-check",
+      ),
+    ]);
+    await expect(
+      db
+        .prepare(
+          `INSERT INTO music_public_performance_sort_keys (
+             performance_id, song_id,
+             representative_participant_entity_id, normalized_participant
+           ) VALUES (
+             'performance-read-model-check', 'song-read-model-check',
+             NULL, 'invalid unpaired value'
+           )`,
+        )
+        .run(),
+    ).rejects.toThrow(
+      /music_public_performance_sort_keys_participant_pair_check/,
+    );
   });
 
   it("projects only canonical published official catalog data and keeps unavailable metadata", async () => {
@@ -343,6 +542,20 @@ describe("D1PublicCatalogReader", () => {
     await expect(
       reader.readCatalog(toReaderQuery("q=rejected%20proposal%20secret")),
     ).resolves.toMatchObject({ items: [] });
+    await expect(
+      reader.readCatalog(toReaderQuery("q=draft%20song")),
+    ).resolves.toMatchObject({ items: [] });
+    await expect(
+      reader.readCatalog(toReaderQuery("q=withdrawn%20song")),
+    ).resolves.toMatchObject({ items: [] });
+    await expect(
+      reader.readCatalog(toReaderQuery("sort=participant")),
+    ).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({ id: "song-visible" }),
+        expect.objectContaining({ id: "song-no-source" }),
+      ],
+    });
     const publicFacets = await reader.readFacets();
     expect(JSON.stringify({ page, publicFacets })).not.toContain(
       "Proposal Only",
@@ -407,6 +620,7 @@ describe("D1PublicCatalogReader", () => {
       insertPerformance("performance-z", "song-tie", { releasedAt: NOW }),
       insertPerformance("performance-a", "song-tie", { releasedAt: NOW }),
     ]);
+    await rebuildReadModel();
     const reader = new D1PublicCatalogReader(db);
     const page = await reader.readCatalog(toReaderQuery("limit=24"));
 
@@ -448,6 +662,7 @@ describe("D1PublicCatalogReader", () => {
       insertParticipant("performance-together", "entity-current-c", 1),
       insertParticipant("performance-together", "entity-group", 2),
     ]);
+    await rebuildReadModel();
     const reader = new D1PublicCatalogReader(db);
 
     const all = await reader.readCatalog(
@@ -477,6 +692,25 @@ describe("D1PublicCatalogReader", () => {
     expect(unit.items.map(({ id }) => id).sort()).toEqual([
       "song-split",
       "song-together",
+    ]);
+
+    const participantSortedCover = await reader.readCatalog(
+      toReaderQuery("relation=cover&sort=participant"),
+    );
+    expect(
+      participantSortedCover.items.map((song) => ({
+        songId: song.id,
+        performanceId: song.representativePerformance.id,
+      })),
+    ).toEqual([
+      {
+        songId: "song-split",
+        performanceId: "performance-split-a",
+      },
+      {
+        songId: "song-together",
+        performanceId: "performance-together",
+      },
     ]);
   });
 
@@ -536,6 +770,7 @@ describe("D1PublicCatalogReader", () => {
       ),
     );
     await db.batch(statements);
+    await rebuildReadModel();
 
     const reader = new D1PublicCatalogReader(db);
     const page = await reader.readCatalog(toReaderQuery("q=hello&limit=24"));
@@ -547,6 +782,78 @@ describe("D1PublicCatalogReader", () => {
       "song-participant-exact",
       "song-contains",
     ]);
+  });
+
+  it("keeps two-codepoint Unicode, repeated, title-only, and term-only contains complete across pages", async () => {
+    const statements: D1PreparedStatement[] = [
+      ...insertSong("song-contains-ko", "앞나다라뒤"),
+      insertPerformance("performance-contains-ko", "song-contains-ko"),
+      ...insertSong("song-contains-ja", "前東京タワー後"),
+      insertPerformance("performance-contains-ja", "song-contains-ja"),
+      ...insertSong("song-contains-repeat", "zaaaaz"),
+      insertPerformance(
+        "performance-contains-repeat",
+        "song-contains-repeat",
+      ),
+      ...insertSong("song-contains-term", "Unrelated title"),
+      insertPerformance("performance-contains-term", "song-contains-term"),
+    ];
+    for (let index = 0; index < 5; index += 1) {
+      statements.push(
+        ...insertSong(
+          `song-contains-page-${index}`,
+          `prefix 나다 page ${index}`,
+        ),
+        insertPerformance(
+          `performance-contains-page-${index}`,
+          `song-contains-page-${index}`,
+        ),
+      );
+    }
+    statements.push(
+      db.prepare(
+        `INSERT INTO music_search_terms (
+           song_id, term_kind, display_value, normalized_term
+         ) VALUES (
+           'song-contains-term', 'title_alias',
+           'prefix long needle suffix', 'prefix long needle suffix'
+         )`,
+      ),
+    );
+    await db.batch(statements);
+    await rebuildReadModel();
+
+    const reader = new D1PublicCatalogReader(db);
+    for (const [query, expectedSongId] of [
+      ["京タ", "song-contains-ja"],
+      ["aaa", "song-contains-repeat"],
+      ["long needle", "song-contains-term"],
+    ] as const) {
+      const page = await reader.readCatalog(
+        toReaderQuery(`q=${encodeURIComponent(query)}`),
+      );
+      expect(page.items.map(({ id }) => id), query).toEqual([
+        expectedSongId,
+      ]);
+    }
+
+    const pagedIds: string[] = [];
+    const base = toReaderQuery(`q=${encodeURIComponent("나다")}&limit=2`);
+    let cursor: PublicCatalogReaderQuery["cursor"] = null;
+    do {
+      const page = await reader.readCatalog({ ...base, cursor });
+      pagedIds.push(...page.items.map(({ id }) => id));
+      cursor = page.nextPosition;
+    } while (cursor);
+    expect(pagedIds).toHaveLength(6);
+    expect(new Set(pagedIds).size).toBe(6);
+    expect(pagedIds).toContain("song-contains-ko");
+
+    await expect(
+      reader.readCatalog(
+        toReaderQuery(`q=${encodeURIComponent("없는검색어")}`),
+      ),
+    ).resolves.toMatchObject({ items: [] });
   });
 
   it("uses stable keyset cursors without duplicate or missing songs for all three sorts", async () => {
@@ -571,6 +878,7 @@ describe("D1PublicCatalogReader", () => {
       }
     }
     await db.batch(statements);
+    await rebuildReadModel();
 
     for (const sort of ["recent", "title", "participant"] as const) {
       const reader = new D1PublicCatalogReader(db);
@@ -613,7 +921,7 @@ describe("D1PublicCatalogReader", () => {
     ).resolves.toBeNull();
   });
 
-  it("uses both generated published indexes in representative plans", async () => {
+  it("uses generated published and participant read-model indexes in representative plans", async () => {
     const recentCandidate = buildD1PublicCatalogCandidateQuery(
       toReaderQuery("sort=recent&limit=24"),
       null,
@@ -624,7 +932,24 @@ describe("D1PublicCatalogReader", () => {
       null,
       25,
     );
-    const [recentPlan, participationPlan] = await Promise.all([
+    const namedParticipantCandidate =
+      buildD1ParticipantBrowseCandidateQuery(
+        toReaderQuery("sort=participant&relation=cover&limit=24"),
+        "named",
+        25,
+      );
+    const missingParticipantCandidate =
+      buildD1ParticipantBrowseCandidateQuery(
+        toReaderQuery("sort=participant&relation=cover&limit=24"),
+        "missing",
+        25,
+      );
+    const [
+      recentPlan,
+      participationPlan,
+      namedParticipantPlan,
+      missingParticipantPlan,
+    ] = await Promise.all([
       db
         .prepare(`EXPLAIN QUERY PLAN ${recentCandidate.sql}`)
         .bind(...recentCandidate.binds)
@@ -632,6 +957,14 @@ describe("D1PublicCatalogReader", () => {
       db
         .prepare(`EXPLAIN QUERY PLAN ${participationCandidate.sql}`)
         .bind(...participationCandidate.binds)
+        .all<{ detail: string }>(),
+      db
+        .prepare(`EXPLAIN QUERY PLAN ${namedParticipantCandidate.sql}`)
+        .bind(...namedParticipantCandidate.binds)
+        .all<{ detail: string }>(),
+      db
+        .prepare(`EXPLAIN QUERY PLAN ${missingParticipantCandidate.sql}`)
+        .bind(...missingParticipantCandidate.binds)
         .all<{ detail: string }>(),
     ]);
     expect(recentPlan.results.map(({ detail }) => detail).join("\n")).toContain(
@@ -641,6 +974,16 @@ describe("D1PublicCatalogReader", () => {
       participationPlan.results.map(({ detail }) => detail).join("\n"),
     ).toContain(
       "idx_music_performances_published_participation_released_song_id",
+    );
+    expect(
+      namedParticipantPlan.results.map(({ detail }) => detail).join("\n"),
+    ).toContain(
+      "idx_music_public_performance_sort_keys_participant_song_performance",
+    );
+    expect(
+      missingParticipantPlan.results.map(({ detail }) => detail).join("\n"),
+    ).toContain(
+      "idx_music_public_performance_sort_keys_missing_song_performance",
     );
   });
 
@@ -714,6 +1057,7 @@ describe("D1PublicCatalogReader", () => {
            FROM sequence`,
         ),
       ]);
+      await rebuildReadModel();
 
       const scaleQuery = toReaderQuery("q=scale%20exact&limit=60");
       const candidateQuery = buildD1PublicCatalogCandidateQuery(
@@ -758,6 +1102,11 @@ describe("D1PublicCatalogReader", () => {
           query: "q=term%209999&limit=60",
           expectedItems: 1,
         },
+        ...(["recent", "title", "participant"] as const).map((sort) => ({
+          name: `contains-two-codepoint-common-${sort}`,
+          query: `q=te&limit=60&sort=${sort}`,
+          expectedItems: 60,
+        })),
       ];
       for (const scaleCase of scaleCases) {
         const reader = new D1PublicCatalogReader(db);
@@ -780,6 +1129,27 @@ describe("D1PublicCatalogReader", () => {
         ).toBeLessThanOrEqual(5_000);
         expect(diagnostics.usesOffset, scaleCase.name).toBe(false);
         if (scaleCase.name === "browse-recent") gzipItems = page.items;
+      }
+
+      for (const sort of ["recent", "title", "participant"] as const) {
+        const reader = new D1PublicCatalogReader(db);
+        const base = toReaderQuery(`q=te&limit=25&sort=${sort}`);
+        const ids: string[] = [];
+        let cursor: PublicCatalogReaderQuery["cursor"] = null;
+        for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
+          const page = await reader.readCatalog({ ...base, cursor });
+          ids.push(...page.items.map(({ id }) => id));
+          cursor = page.nextPosition;
+          const diagnostics = reader.getLastReadDiagnostics();
+          expect(
+            diagnostics.rowsRead,
+            `contains-pagination-${sort}-${pageIndex}: ${JSON.stringify(diagnostics)}`,
+          ).toBeLessThanOrEqual(5_000);
+          expect(diagnostics.usesOffset, sort).toBe(false);
+        }
+        expect(ids, sort).toHaveLength(75);
+        expect(new Set(ids).size, sort).toBe(75);
+        expect(cursor, sort).not.toBeNull();
       }
 
       const compressed = new Response(

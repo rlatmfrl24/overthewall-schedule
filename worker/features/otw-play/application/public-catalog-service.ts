@@ -75,6 +75,7 @@ export type PublicCatalogDetailResult<Data> =
 
 export type PublicCatalogServiceErrorReason =
   | "invalid_meta"
+  | "read_model_stale"
   | "reader_cursor_contract";
 
 export class PublicCatalogServiceError extends Error {
@@ -91,6 +92,9 @@ const validateMeta = (meta: PublicCatalogMeta) => {
   if (
     !Number.isSafeInteger(meta.revision) ||
     meta.revision < 0 ||
+    (meta.readModelRevision !== null &&
+      (!Number.isSafeInteger(meta.readModelRevision) ||
+        meta.readModelRevision < 0)) ||
     typeof meta.publicReadEnabled !== "boolean" ||
     typeof meta.navigationVisible !== "boolean" ||
     (meta.navigationVisible && !meta.publicReadEnabled) ||
@@ -107,6 +111,16 @@ const disabled = (meta: PublicCatalogMeta): PublicCatalogDisabledResult => ({
   reason: "public_read_disabled",
   catalogRevision: meta.revision,
 });
+
+const assertContentReadable = (
+  meta: PublicCatalogMeta,
+): PublicCatalogDisabledResult | null => {
+  if (!meta.publicReadEnabled) return disabled(meta);
+  if (meta.readModelRevision !== meta.revision) {
+    throw new PublicCatalogServiceError("read_model_stale");
+  }
+  return null;
+};
 
 export class PublicCatalogService {
   private readonly reader: PublicCatalogReader;
@@ -159,7 +173,8 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogReadResult<{ items: PublicCatalogSongSummary[] }>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    if (!meta.publicReadEnabled) return disabled(meta);
+    const unavailable = assertContentReadable(meta);
+    if (unavailable) return unavailable;
 
     const queryKey = canonicalizePublicCatalogQuery(query);
     const cursor = query.cursorToken
@@ -363,7 +378,8 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogReadResult<Data>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    if (!meta.publicReadEnabled) return disabled(meta);
+    const unavailable = assertContentReadable(meta);
+    if (unavailable) return unavailable;
     const key = this.cacheKey(meta, resource, identity);
     const cached = context.allowSharedCache
       ? await this.readCache<Data>(key)
@@ -389,7 +405,8 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogDetailResult<Data>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    if (!meta.publicReadEnabled) return disabled(meta);
+    const unavailable = assertContentReadable(meta);
+    if (unavailable) return unavailable;
     const key = this.cacheKey(meta, resource, identity);
     const cached = context.allowSharedCache
       ? await this.readCache<Data>(key)

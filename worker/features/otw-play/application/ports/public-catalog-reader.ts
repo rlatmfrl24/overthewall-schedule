@@ -8,6 +8,7 @@ import type { PublicSourceFallbackReason } from "../../domain/public-source-sele
 
 export interface PublicCatalogMeta {
   revision: number;
+  readModelRevision: number | null;
   publicReadEnabled: boolean;
   navigationVisible: boolean;
   updatedAt: number;

@@ -48,6 +48,7 @@ const makeReader = (
     if (options.failMeta) throw new Error("sensitive SQL failure");
     return {
       revision: 7,
+      readModelRevision: 7,
       publicReadEnabled: true,
       navigationVisible: false,
       updatedAt: 1_786_000_000_000,
@@ -132,6 +133,31 @@ describe("OTW Play public catalog HTTP handler", () => {
       });
       expect(response.headers.get("Cache-Control")).toBe("no-store");
     }
+  });
+
+  it("returns 503 for a stale read model before cache or catalog reads while keeping config available", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const reader = makeReader({ meta: { readModelRevision: 6 } });
+    const readCatalog = vi.spyOn(reader, "readCatalog");
+    const cache = new MemoryCache();
+    const { handler } = makeHandler(reader, cache);
+
+    const response = await handler(request("/api/play/catalog"), env);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "PLAY_CATALOG_UNAVAILABLE" },
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(cache.reads).toBe(0);
+    expect(cache.writes).toBe(0);
+    expect(readCatalog).not.toHaveBeenCalled();
+
+    const config = await handler(request("/api/play/config"), env);
+    expect(config.status).toBe(200);
+    expect(await config.json()).toMatchObject({
+      data: { publicReadEnabled: true, navigationVisible: false },
+    });
+    expect(consoleError).toHaveBeenCalledTimes(1);
   });
 
   it.each([

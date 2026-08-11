@@ -20,10 +20,14 @@ import type {
   PublicCatalogReaderPage,
   PublicCatalogSongDetail,
 } from "./ports/public-catalog-reader";
-import { PublicCatalogService } from "./public-catalog-service";
+import {
+  PublicCatalogService,
+  PublicCatalogServiceError,
+} from "./public-catalog-service";
 
 const META_ON: PublicCatalogMeta = {
   revision: 12,
+  readModelRevision: 12,
   publicReadEnabled: true,
   navigationVisible: true,
   updatedAt: 1_786_374_000_000,
@@ -220,6 +224,40 @@ describe("OTW Play public catalog service", () => {
     expect(reader.readFacets).not.toHaveBeenCalled();
     expect(reader.readSongBySlug).not.toHaveBeenCalled();
     expect(reader.readPerformanceById).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale read model before shared cache or content reads", async () => {
+    const reader = makeReader({ ...META_ON, readModelRevision: 11 });
+    const cache = makeCache();
+    const service = new PublicCatalogService(reader, cache);
+
+    const reads = [
+      () => service.browseCatalog(parse(), { allowSharedCache: true }),
+      () => service.readFacets({ allowSharedCache: true }),
+      () => service.readSong("song-one", { allowSharedCache: true }),
+      () =>
+        service.readPerformance("performance-1", {
+          allowSharedCache: true,
+        }),
+    ];
+
+    for (const read of reads) {
+      await expect(read()).rejects.toEqual(
+        expect.objectContaining<Partial<PublicCatalogServiceError>>({
+          reason: "read_model_stale",
+        }),
+      );
+    }
+    expect(cache.read).not.toHaveBeenCalled();
+    expect(cache.write).not.toHaveBeenCalled();
+    expect(reader.readCatalog).not.toHaveBeenCalled();
+    expect(reader.readFacets).not.toHaveBeenCalled();
+    expect(reader.readSongBySlug).not.toHaveBeenCalled();
+    expect(reader.readPerformanceById).not.toHaveBeenCalled();
+
+    await expect(
+      service.readConfig({ allowSharedCache: false }),
+    ).resolves.toMatchObject({ status: "ok" });
   });
 
   it("caches filtered and sorted structured first pages but bypasses search", async () => {
