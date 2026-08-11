@@ -35,6 +35,29 @@ export const OTW_PLAY_SOURCE_AVAILABILITY_STATUSES = [
 export type OtwPlaySourceAvailabilityStatus =
   (typeof OTW_PLAY_SOURCE_AVAILABILITY_STATUSES)[number];
 
+export const OTW_PLAY_PROVIDERS = ["youtube"] as const;
+
+export type OtwPlayProvider = (typeof OTW_PLAY_PROVIDERS)[number];
+
+export const OTW_PLAY_CHANNEL_VERIFICATION_STATUSES = [
+  "pending",
+  "approved",
+  "revoked",
+] as const;
+
+export type OtwPlayChannelVerificationStatus =
+  (typeof OTW_PLAY_CHANNEL_VERIFICATION_STATUSES)[number];
+
+export const OTW_PLAY_DATE_PRECISIONS = [
+  "year",
+  "month",
+  "day",
+  "unknown",
+] as const;
+
+export type OtwPlayDatePrecision =
+  (typeof OTW_PLAY_DATE_PRECISIONS)[number];
+
 export const OTW_PLAY_RELATION_TYPES = ["original", "cover"] as const;
 
 export type OtwPlayRelationType =
@@ -84,6 +107,14 @@ export const OTW_PLAY_SOURCE_ROLES = [
 
 export type OtwPlaySourceRole =
   (typeof OTW_PLAY_SOURCE_ROLES)[number];
+
+export const OTW_PLAY_SOURCE_RELATION_TYPES = [
+  "excerpt_of",
+  "alternate_of",
+] as const;
+
+export type OtwPlaySourceRelationType =
+  (typeof OTW_PLAY_SOURCE_RELATION_TYPES)[number];
 
 export const OTW_PLAY_ENTITY_KINDS = [
   "person",

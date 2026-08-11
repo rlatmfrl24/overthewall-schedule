@@ -1,6 +1,6 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-1 계약·순수 domain 실행 기준선
+상태: PR-2 catalog foundation schema·migration 실행 기준선
 
 기준일: 2026-08-11
 
@@ -15,7 +15,7 @@
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-1 계약·순수 domain이며 이 문서 자체가 schema 변경이나 배포를 승인하지 않는다.
+PR-2 catalog foundation schema·migration이며 API·UI·원격 적용은 포함하지 않는다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -45,7 +45,7 @@ flowchart LR
 - MVP: 오리지널과 공식 커버만 공개
 
 공개 route, 접근 권한과 내비게이션은 후속 API·UI slice의 설계 기본값이다.
-PR-1에서는 해당 route contract나 실행 경로를 만들지 않는다.
+PR-2에서는 해당 route contract나 실행 경로를 만들지 않는다.
 
 ### 2.2 관련 slice 전에 확정해야 하는 제품 결정
 
@@ -61,6 +61,8 @@ PR-1에서는 해당 route contract나 실행 경로를 만들지 않는다.
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
+
+PR-2 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 변경하지 않는다.
 
 ## 3. 전달 전략
 
@@ -78,7 +80,7 @@ draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TB
 | PR | 결과 | 원격 영향 |
 | --- | --- | --- |
 | PR-1 | 공유 계약, 순수 domain과 공개 index | 없음 |
-| PR-2 | catalog foundation schema와 migration | additive D1 |
+| PR-2 | catalog foundation schema와 migration | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
 | PR-3 | proposal·event·search/meta schema와 migration | additive D1 |
 | PR-4 | 공개 catalog query/API/cache | 숨겨진 API |
 | PR-5 | 관리자 catalog command와 UI | 관리자 전용 |
@@ -180,19 +182,52 @@ PR-1은 `db/schema/index.ts`, Drizzle migration, `contracts/api-routes.ts`,
 - `db/schema/index.ts`
 - 생성된 `drizzle/*.sql`
 - 생성된 `drizzle/meta/*`
-- `worker/features/otw-play/infrastructure/d1-*`
-- `scripts/d1-doctor.mjs`
-- `scripts/d1-seed-local.mjs`
+- `worker/features/otw-play/infrastructure/*.integration.test.ts`
+- `scripts/d1-local-options.mjs`
+- `scripts/d1-doctor.mjs`, `scripts/d1-doctor-core.mjs`와 회귀 테스트
+- `scripts/d1-seed-local.mjs`, `scripts/d1-seed-guard.mjs`와 회귀 테스트
 - `scripts/fixtures/local-d1-seed.sql`
+
+API contract·handler, `worker/app/routes.ts`, frontend route·UI·player, 배포
+설정과 원격 D1 적용은 PR-2에서 수정하거나 실행하지 않는다. production content와
+운영 seed도 migration에 포함하지 않는다.
+
+seed fixture는 `music_*` row를 삽입하지 않는다. 기존 music row를 보호 대상에
+포함하고 명시적인 fixture 교체에서만 FK child-first 순서로 정리한다. seed와
+doctor의 `--persist-to=<dir>`는 local D1 전용이며 두 명령에 같은 검증 경로를
+전달한다. PR-2에서 remote doctor를 실행하지 않는다.
 
 ### migration A: catalog foundation
 
-- `music_entities`, aliases
-- `music_songs`, aliases, original artists
-- `music_channels`, channel entities
-- `music_media_sources`, source relations
-- `music_performances`, participants, source links
-- FK, check, exact duplicate와 partial primary index
+- `music_entities`, `music_entity_aliases`
+- `music_songs`, `music_song_aliases`, `music_song_original_artists`
+- `music_channels`, `music_channel_entities`
+- `music_media_sources`, `music_media_source_relations`
+- `music_performances`, `music_performance_participants`, `music_performance_sources`
+- FK, CHECK, exact duplicate, source segment UNIQUE와 performance별 primary source
+  partial UNIQUE
+
+### PR-2 exact schema 결정
+
+- `music_songs.is_otw_original`이 OTW 오리지널곡 여부의 권위이며 기본값 없는
+  `NOT NULL` 입력이다.
+- `music_channel_entities`는 별도 relation type 없이 연결 row 자체가 관계이며
+  `(channel_id, entity_id)`를 복합 PK로 사용한다.
+- `music_media_source_relations`는 두 source의 순서가 의미를 갖는 directed
+  relation이며 self relation을 허용하지 않는다.
+- `music_performances.dedupe_key`는 생성 후 immutable이고 metadata 수정으로
+  다시 계산하지 않는다.
+- `music_performance_sources`는 `(source_id, start_seconds)`를 UNIQUE로 유지한다.
+- `music_performance_sources.priority`는 `NOT NULL DEFAULT 0`이고 음수를 거부한다.
+- version, epoch-ms timestamp, credit order, source 구간과 priority는 SQLite
+  `typeof(...) = 'integer'` CHECK로 REAL 값을 거부한다.
+- 알려진 원곡 공개일 precision은 NULL을 허용하지 않고 `day`는 실제 달력 날짜를
+  검증한다.
+- `music_songs(merged_into_song_id)`와 `music_performances(song_id)`에는 FK child
+  lookup을 위한 일반 index를 둔다.
+- entity/song alias의 `alias_kind`는 nullable 자유 텍스트이며 CHECK 대상이 아니다.
+- published performance partial index 세 개는 PR-3 search/meta migration으로
+  미룬다.
 
 ### 작업 절차
 
@@ -201,10 +236,9 @@ PR-1은 `db/schema/index.ts`, Drizzle migration, `contracts/api-routes.ts`,
 2. pnpm drizzle:generate
 3. 생성 SQL에서 예상하지 않은 DROP/ALTER/RENAME 검토
 4. pnpm d1:reset:local -- --validate-only
-5. pnpm d1:reset:local
-6. pnpm d1:seed:local
-7. pnpm d1:doctor
-8. isolated D1 integration test
+5. 보호된 local D1의 검증 복사본에 `--persist-to`로 incremental migration 적용
+6. 같은 검증 복사본에서 seed guard·fixture와 doctor 검증
+7. 실제 생성 migration을 적용하는 isolated D1 integration test
 ```
 
 직접 SQL이 필요한 partial index도 schema 표현 가능 여부를 먼저 확인한다.
@@ -221,12 +255,27 @@ Drizzle이 표현하지 못하는 custom SQL은 `pnpm drizzle:generate:custom`�
 - 무효 enum/check insert 실패
 - release source 삭제가 metadata를 연쇄 삭제하지 않음
 - 한 performance에 primary source 하나만 허용
+- `is_otw_original`이 performance relation과 독립적으로 round-trip
+- `is_otw_original` NULL·생략 거부
+- channel/entity 중복 link와 source self relation 거부
+- directed source relation의 양방향 row가 서로 다른 관계로 보존됨
+- 같은 source/start segment의 중복 performance 연결 거부
+- source priority 기본값 `0`, NULL·음수 거부
+- 정수 열의 fractional REAL 값 거부
+- 알려진 공개일 precision의 NULL 및 잘못된 달력 날짜 거부
+- nullable/free `alias_kind` 저장과 enum CHECK 부재
+- performance dedupe key의 `NOT NULL UNIQUE`
+
+performance dedupe key가 metadata 수정 대상에 포함되지 않는지는 PR-2의 DB
+검증이 아니라 후속 repository 허용 field 목록과 application 회귀 테스트에서
+검증한다.
 
 ### 종료 조건
 
-- local reset과 seed가 새 DB와 기존 local DB 모두에서 재현 가능하다.
+- full migration chain과 isolated local D1에서 schema가 재현 가능하다.
 - migration은 additive이며 기존 schedule 기능을 바꾸지 않는다.
 - schema 단일 기준이 `db/schema/index.ts`다.
+- API·UI·배포 설정 변경과 원격 D1 적용이 없다.
 
 ## 7. 3단계 — 제안·감사·검색 schema
 
@@ -246,7 +295,9 @@ Drizzle이 표현하지 못하는 custom SQL은 `pnpm drizzle:generate:custom`�
 
 - `music_search_terms`
 - `music_catalog_meta` singleton 초기 row
-- published catalog hot query index
+- published partial `music_performances(released_at DESC, id)`
+- published partial `music_performances(song_id, released_at DESC, id)`
+- published partial `music_performances(relation_type, released_at DESC, id)`
 
 ### 필수 integration test
 
@@ -577,11 +628,14 @@ fixture나 lower-level API만으로 이 검증을 대체하지 않는다.
 ```text
 pnpm drizzle:generate
 pnpm d1:reset:local -- --validate-only
-pnpm d1:reset:local
-pnpm d1:seed:local
-pnpm d1:doctor
+pnpm exec wrangler d1 migrations apply otw-db --local --persist-to <isolated-persist-dir>
+pnpm d1:seed:local -- --force --persist-to=<isolated-persist-dir>
+pnpm d1:doctor -- --persist-to=<isolated-persist-dir>
 pnpm test:worker-integration
 ```
+
+`<isolated-persist-dir>`는 이전 migration까지 적용된 local D1의 검증 복사본이다.
+현재 local D1에 보호 데이터가 있으면 reset이나 강제 seed를 실행하지 않는다.
 
 ### 관련 기능 PR
 
