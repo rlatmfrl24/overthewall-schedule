@@ -9,6 +9,8 @@ import {
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import {
+  parseCatalogEntryPreflight,
+  parseCreateCatalogEntry,
   parseCreateChannel,
   parseApproveProposal,
   parseCreateEntity,
@@ -98,6 +100,41 @@ export const createAdminCatalogHandler =
     const actor = adminActor(request, admin.user);
 
     try {
+      if (
+        url.pathname === "/api/play/admin/catalog-entries/preflight" &&
+        request.method === "POST"
+      ) {
+        const parsed = await readBody(request, parseCatalogEntryPreflight);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid catalog entry preflight",
+            parsed.fields,
+          );
+        return responseJson({ data: await service.preflightCatalogEntry(parsed.value) });
+      }
+
+      if (
+        url.pathname === "/api/play/admin/catalog-entries" &&
+        request.method === "POST"
+      ) {
+        const parsed = await readBody(request, parseCreateCatalogEntry);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid catalog entry",
+            parsed.fields,
+          );
+        return responseJson(
+          await service.createCatalogEntry(parsed.value, actor),
+          201,
+        );
+      }
+
       if (
         url.pathname === "/api/play/admin/catalog" &&
         request.method === "GET"
@@ -380,6 +417,8 @@ export const createAdminCatalogHandler =
         const status =
           error.code === "unavailable"
             ? 503
+            : error.code === "duplicate_source"
+              ? 409
             : error.code === "not_found"
               ? 404
               : error.code === "stale_write"
@@ -388,12 +427,14 @@ export const createAdminCatalogHandler =
         const code =
           error.code === "unavailable"
             ? "PLAY_ADMIN_INTERNAL_ERROR"
+            : error.code === "duplicate_source"
+              ? "PLAY_ADMIN_DUPLICATE_SOURCE"
             : error.code === "not_found"
               ? "PLAY_ADMIN_NOT_FOUND"
               : error.code === "stale_write"
                 ? "PLAY_ADMIN_STALE_WRITE"
                 : "PLAY_ADMIN_VALIDATION_FAILED";
-        return errorResponse(requestId, status, code, error.message);
+        return errorResponse(requestId, status, code, error.message, error.fields);
       }
       if (error instanceof OtwPlayYouTubeMetadataError) {
         return errorResponse(

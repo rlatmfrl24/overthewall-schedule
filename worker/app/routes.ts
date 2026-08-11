@@ -452,6 +452,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.catalog-entry.preflight",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.catalogEntryPreflight.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.catalog-entry.create",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.catalogEntries.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 201 })),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.entities",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.entities.pattern,

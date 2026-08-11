@@ -97,6 +97,10 @@ export const apiRoutes = {
     ),
     admin: {
       catalog: staticRoute("/api/play/admin/catalog"),
+      catalogEntryPreflight: staticRoute(
+        "/api/play/admin/catalog-entries/preflight",
+      ),
+      catalogEntries: staticRoute("/api/play/admin/catalog-entries"),
       entities: staticRoute("/api/play/admin/entities"),
       songs: staticRoute("/api/play/admin/songs"),
       performances: staticRoute("/api/play/admin/performances"),

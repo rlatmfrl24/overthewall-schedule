@@ -10,6 +10,95 @@ import type { OtwPlayYouTubeVideoMetadata } from "./ports/youtube-metadata";
 const actor = { userId: "admin", displayName: "Admin", ipAddress: null };
 
 describe("AdminCatalogService", () => {
+  it("preflights and then re-verifies YouTube metadata before one integrated catalog command", async () => {
+    const video = {
+      videoId: "dQw4w9WgXcQ",
+      channelId: `UC${"M".repeat(22)}`,
+      channelTitle: "Member Channel",
+      title: "Verified title",
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: 123,
+      availabilityStatus: "playable" as const,
+    };
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 4,
+      video,
+      channel: {
+        state: "recognized_member" as const,
+        catalogChannelId: null,
+        verificationStatus: null,
+        active: false,
+        channelRole: null,
+        memberUid: 1,
+      },
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "created-performance" } },
+      catalogRevision: 5,
+    }));
+    const readVideo = vi.fn(async () => video);
+    let sequence = 0;
+    const service = new AdminCatalogService(
+      {
+        preflightCatalogEntry,
+        createCatalogEntry,
+      } as unknown as AdminCatalogRepository,
+      { readChannel: vi.fn(), readVideo },
+      { record: vi.fn(async () => undefined) },
+      () => `workflow-id-${++sequence}`,
+      false,
+      () => 456,
+    );
+    await expect(
+      service.preflightCatalogEntry({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ catalogRevision: 4 });
+    await expect(
+      service.createCatalogEntry(
+        {
+          expectedCatalogRevision: 4,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "vocal",
+              creditOrder: 0,
+            },
+          ],
+          channel: {
+            kind: "recognized_member",
+            memberUid: 1,
+            channelRole: "member_music",
+          },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        },
+        actor,
+      ),
+    ).resolves.toMatchObject({ catalogRevision: 5 });
+
+    expect(readVideo).toHaveBeenCalledTimes(2);
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video,
+        now: 456,
+        input: expect.objectContaining({ expectedCatalogRevision: 4 }),
+        ids: expect.objectContaining({
+          entityIds: { "member:1": expect.any(String) },
+          performanceId: expect.any(String),
+        }),
+      }),
+    );
+  });
+
   it("coordinates successful admin lifecycle commands and audit mirrors", async () => {
     const result = { data: { id: "resource-1" }, catalogRevision: 2 };
     const repository = {

@@ -21,6 +21,9 @@ const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
 const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual minimal prerequisite: 0046 adds an FK to members(uid).
   "0000_flaky_spyke.sql",
+  "0009_condemned_maximus.sql",
+  // Actual authority table used to recognize enabled member YouTube links.
+  "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
 ] as const;
 
@@ -100,6 +103,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    name: "worker-integration",
     include: ["worker/**/*.integration.test.ts"],
   },
 });

@@ -88,6 +88,105 @@ describe("OTW Play admin catalog handler", () => {
     expect(createSong).not.toHaveBeenCalled();
   });
 
+  it("serves the authenticated preflight and atomic catalog-entry endpoints with no-store", async () => {
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 1,
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "performance-1" } },
+      catalogRevision: 2,
+    }));
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({ preflightCatalogEntry, createCatalogEntry }) as unknown as AdminCatalogService,
+    );
+    const preflightResponse = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries/preflight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+        }),
+      }),
+      env,
+    );
+    expect(preflightResponse.status).toBe(200);
+    expect(preflightResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(preflightCatalogEntry).toHaveBeenCalledOnce();
+
+    const createResponse = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedCatalogRevision: 1,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "vocal",
+              creditOrder: 0,
+            },
+          ],
+          channel: { kind: "existing", channelId: "channel-1" },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        }),
+      }),
+      env,
+    );
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(createCatalogEntry).toHaveBeenCalledOnce();
+  });
+
+  it("returns duplicate source identity in the fixed 409 error", async () => {
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({
+          createCatalogEntry: vi.fn(async () => {
+            throw new AdminCatalogRepositoryError(
+              "duplicate_source",
+              "already registered",
+              { songId: "song-1", performanceId: "performance-1" },
+            );
+          }),
+        }) as unknown as AdminCatalogService,
+    );
+    const response = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedCatalogRevision: 1,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [{ subject: { kind: "member", memberUid: 1 }, participantRole: "vocal", creditOrder: 0 }],
+          channel: { kind: "existing", channelId: "channel-1" },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        }),
+      }),
+      env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PLAY_ADMIN_DUPLICATE_SOURCE",
+        fields: { songId: "song-1", performanceId: "performance-1" },
+      },
+    });
+  });
+
   it("returns 503 without exposing a stale read model as writable", async () => {
     const readCatalog = vi.fn(async () => {
       throw new AdminCatalogRepositoryError(

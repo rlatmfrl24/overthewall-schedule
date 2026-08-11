@@ -61,6 +61,8 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_songs"),
     db.prepare("DELETE FROM music_channels"),
     db.prepare("DELETE FROM music_entities"),
+    db.prepare("DELETE FROM member_links WHERE member_uid = 901"),
+    db.prepare("DELETE FROM members WHERE uid = 901"),
     db.prepare(
       "UPDATE music_catalog_meta SET revision = 0, updated_at = 0 WHERE id = 1",
     ),
@@ -71,6 +73,150 @@ beforeEach(async () => {
 });
 
 describe("D1AdminCatalogRepository", () => {
+  it("creates a member, external identity, channel, song, performance, event, and projection in one catalog batch", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const memberChannelId = `UC${"M".repeat(22)}`;
+    await db
+      .prepare(
+        `INSERT INTO members (uid, code, name, oshi_mark, youtube_channel_id, unit_name, is_deprecated)
+        VALUES (901, 'workflow-member', '워크플로 멤버', '🌙', ?, '워크플로 유닛', 0)`,
+      )
+      .bind(memberChannelId)
+      .run();
+    const video = {
+      videoId: "aBcDeFgHi_1",
+      channelId: memberChannelId,
+      channelTitle: "워크플로 멤버 공식 채널",
+      title: "워크플로 공식 커버",
+      thumbnailUrl: "https://i.ytimg.com/workflow.jpg",
+      durationSeconds: 210,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const preflight = await repository.preflightCatalogEntry(video, 0);
+    expect(preflight.channel).toMatchObject({
+      state: "recognized_member",
+      memberUid: 901,
+      channelRole: "member_main",
+    });
+    expect(preflight.duplicate).toBeNull();
+
+    const result = await repository.createCatalogEntry({
+      input: {
+        expectedCatalogRevision: preflight.catalogRevision,
+        youtubeUrl: `https://youtu.be/${video.videoId}`,
+        startSeconds: 0,
+        endSeconds: null,
+        song: {
+          kind: "create",
+          title: "워크플로 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [{ alias: "Workflow Song" }],
+          originalArtists: [
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "artist-chip",
+                displayName: "외부 원곡 가수",
+                entityKind: "person",
+              },
+              creditOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 901 },
+            participantRole: "vocal",
+            creditOrder: 0,
+            creditNameSnapshot: "워크플로 멤버",
+          },
+        ],
+        channel: {
+          kind: "recognized_member",
+          memberUid: 901,
+          channelRole: "member_music",
+        },
+        relationType: "cover",
+        releaseType: "official_video",
+        participationType: "solo",
+        publicationTarget: "published",
+      },
+      video,
+      actor,
+      now: NOW,
+      ids: {
+        entityIds: {
+          "member:901": "entity-member-901",
+          "external:artist-chip": "entity-artist-chip",
+        },
+        entityEventIds: {
+          "member:901": "event-member-901",
+          "external:artist-chip": "event-artist-chip",
+        },
+        channelId: "channel-workflow",
+        channelEventId: "event-channel-workflow",
+        songId: "song-workflow",
+        songEventId: "event-song-workflow",
+        performanceId: "performance-workflow",
+        performanceEventId: "event-performance-workflow",
+        sourceId: "source-workflow",
+      },
+    });
+
+    expect(result.data.song.title).toBe("워크플로 곡");
+    expect(result.data.performance.publicationStatus).toBe("published");
+    expect(result.data.channel).toMatchObject({
+      verificationStatus: "approved",
+      active: true,
+      entityIds: ["entity-member-901"],
+    });
+    expect(result.data.createdEntities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ memberUid: 901 }),
+        expect.objectContaining({ displayName: "외부 원곡 가수", memberUid: null }),
+      ]),
+    );
+    expect(result.catalogRevision).toBe(1);
+
+    const [meta, eventCount, searchTerms, duplicateAfter] = await Promise.all([
+      db
+        .prepare(
+          `SELECT catalog.revision, read_model.revision AS read_model_revision
+          FROM music_catalog_meta AS catalog
+          JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+          WHERE catalog.id = 1`,
+        )
+        .first<{ revision: number; read_model_revision: number }>(),
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM music_catalog_events WHERE id LIKE 'event-%workflow' OR id IN ('event-member-901', 'event-artist-chip')",
+        )
+        .first<{ count: number }>(),
+      db
+        .prepare(
+          "SELECT term_kind, normalized_term FROM music_search_terms WHERE song_id = 'song-workflow'",
+        )
+        .all<{ term_kind: string; normalized_term: string }>(),
+      repository.preflightCatalogEntry(video, 0),
+    ]);
+    expect(meta).toEqual({ revision: 1, read_model_revision: 1 });
+    expect(Number(eventCount?.count)).toBe(5);
+    expect(searchTerms.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ term_kind: "participant", normalized_term: "워크플로 멤버" }),
+        expect.objectContaining({ term_kind: "original_artist", normalized_term: "외부 원곡 가수" }),
+      ]),
+    );
+    expect(duplicateAfter.duplicate).toEqual({
+      songId: "song-workflow",
+      performanceId: "performance-workflow",
+    });
+  });
+
   it("writes a draft atomically and publishes only after official channel approval", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Singer");
@@ -329,6 +475,272 @@ describe("D1AdminCatalogRepository", () => {
     });
     expect(page.items.map((item) => item.id)).toEqual([song.data.id]);
     expect(page.items[0]?.representativePerformance.playable).toBe(false);
+  });
+
+  it("rolls back the integrated entry when its event fails and rejects a stale preflight revision", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const singer = await createEntity(repository, "Atomic Singer");
+    const artist = await createEntity(repository, "Atomic Artist", "organization");
+    const pending = await repository.createChannel(
+      {
+        externalChannelId: `UC${"R".repeat(22)}`,
+        displayName: "Atomic Channel",
+        channelRole: "member_music",
+        entityIds: [singer.data.id],
+      },
+      actor,
+      { channelId: id("channel"), eventId: id("event") },
+      NOW,
+    );
+    const channel = await repository.updateChannel(
+      {
+        ...pending.data,
+        expectedVersion: pending.data.version,
+        verificationStatus: "approved",
+        active: true,
+      },
+      actor,
+      id("event"),
+      NOW + 1,
+    );
+    const song = await repository.createSong(
+      {
+        slug: "atomic-song",
+        title: "Atomic Song",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [
+          { entityId: artist.data.id, creditOrder: 0, isPrimary: true },
+        ],
+      },
+      actor,
+      { songId: id("song"), eventId: id("event") },
+      NOW + 2,
+    );
+    const video = {
+      videoId: "zYxWvUtSr_2",
+      channelId: channel.data.externalChannelId,
+      channelTitle: channel.data.displayName,
+      title: "Atomic Video",
+      thumbnailUrl: null,
+      durationSeconds: 120,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const preflight = await repository.preflightCatalogEntry(video, 0);
+    const base = {
+      input: {
+        expectedCatalogRevision: preflight.catalogRevision,
+        youtubeUrl: `https://youtu.be/${video.videoId}`,
+        startSeconds: 0,
+        song: { kind: "existing" as const, songId: song.data.id },
+        participants: [
+          {
+            subject: { kind: "entity" as const, entityId: singer.data.id },
+            participantRole: "vocal" as const,
+            creditOrder: 0,
+          },
+        ],
+        channel: { kind: "existing" as const, channelId: channel.data.id },
+        relationType: "cover" as const,
+        releaseType: "official_video" as const,
+        participationType: "solo" as const,
+        publicationTarget: "draft" as const,
+      },
+      video,
+      actor,
+      now: NOW + 3,
+      ids: {
+        entityIds: {},
+        entityEventIds: {},
+        channelId: id("unused-channel"),
+        channelEventId: id("unused-event"),
+        songId: id("unused-song"),
+        songEventId: id("unused-event"),
+        performanceId: "atomic-performance",
+        performanceEventId: "duplicate-event",
+        sourceId: "atomic-source",
+      },
+    };
+    await db
+      .prepare(
+        `INSERT INTO music_catalog_events
+        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, created_at)
+        VALUES ('duplicate-event', 'test', 'test', 'test.created', 'admin', ?, ?)`,
+      )
+      .bind(actor.userId, NOW)
+      .run();
+    const before = await repository.readCatalog();
+    await expect(repository.createCatalogEntry(base)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+    const afterFailure = await repository.readCatalog();
+    expect(afterFailure.revision).toBe(before.revision);
+    expect(afterFailure.performances).toEqual(before.performances);
+    expect(
+      await db
+        .prepare("SELECT id FROM music_media_sources WHERE id = 'atomic-source'")
+        .first(),
+    ).toBeNull();
+
+    await db
+      .prepare(
+        `CREATE TRIGGER fail_catalog_sort_key_projection
+        BEFORE INSERT ON music_public_performance_sort_keys
+        WHEN NEW.performance_id = 'read-model-failure'
+        BEGIN SELECT RAISE(ABORT, 'forced read model failure'); END`,
+      )
+      .run();
+    try {
+      await expect(
+        repository.createCatalogEntry({
+          ...base,
+          ids: {
+            ...base.ids,
+            performanceEventId: "read-model-failure-event",
+            performanceId: "read-model-failure",
+            sourceId: "read-model-failure-source",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "validation_failed" });
+    } finally {
+      await db.prepare("DROP TRIGGER fail_catalog_sort_key_projection").run();
+    }
+    const afterProjectionFailure = await repository.readCatalog();
+    expect(afterProjectionFailure.revision).toBe(before.revision);
+    expect(afterProjectionFailure.performances).toEqual(before.performances);
+    expect(
+      await db
+        .prepare(
+          "SELECT id FROM music_media_sources WHERE id = 'read-model-failure-source'",
+        )
+        .first(),
+    ).toBeNull();
+
+    await expect(
+      repository.createCatalogEntry({
+        ...base,
+        input: {
+          ...base.input,
+          expectedCatalogRevision: preflight.catalogRevision - 1,
+        },
+        ids: {
+          ...base.ids,
+          performanceEventId: "fresh-event",
+          performanceId: "stale-performance",
+          sourceId: "stale-source",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "stale_write" });
+    const afterStale = await repository.readCatalog();
+    expect(afterStale.revision).toBe(before.revision);
+    expect(afterStale.performances).toEqual(before.performances);
+  });
+
+  it("allows an unknown channel to save only a draft and blocks it after revocation", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const singer = await createEntity(repository, "Pending Singer");
+    const artist = await createEntity(repository, "Pending Artist", "organization");
+    const song = await repository.createSong(
+      {
+        slug: "pending-channel-song",
+        title: "Pending Channel Song",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [
+          { entityId: artist.data.id, creditOrder: 0, isPrimary: true },
+        ],
+      },
+      actor,
+      { songId: id("song"), eventId: id("event") },
+      NOW,
+    );
+    const video = {
+      videoId: "pEnDiNgCh_3",
+      channelId: `UC${"N".repeat(22)}`,
+      channelTitle: "Unknown Channel",
+      title: "Pending Video",
+      thumbnailUrl: null,
+      durationSeconds: 90,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const preflight = await repository.preflightCatalogEntry(video, 0);
+    expect(preflight.channel.state).toBe("unknown");
+    const command = {
+      input: {
+        expectedCatalogRevision: preflight.catalogRevision,
+        youtubeUrl: `https://youtu.be/${video.videoId}`,
+        startSeconds: 0,
+        song: { kind: "existing" as const, songId: song.data.id },
+        participants: [
+          {
+            subject: { kind: "entity" as const, entityId: singer.data.id },
+            participantRole: "vocal" as const,
+            creditOrder: 0,
+          },
+        ],
+        channel: {
+          kind: "pending" as const,
+          channelRole: "project_official" as const,
+          owners: [{ kind: "entity" as const, entityId: singer.data.id }],
+        },
+        relationType: "cover" as const,
+        releaseType: "official_video" as const,
+        participationType: "solo" as const,
+        publicationTarget: "draft" as const,
+      },
+      video,
+      actor,
+      now: NOW + 1,
+      ids: {
+        entityIds: {},
+        entityEventIds: {},
+        channelId: "channel-pending-inline",
+        channelEventId: "event-pending-inline",
+        songId: "unused-song",
+        songEventId: "unused-song-event",
+        performanceId: "performance-pending-inline",
+        performanceEventId: "event-performance-pending-inline",
+        sourceId: "source-pending-inline",
+      },
+    };
+    await expect(
+      repository.createCatalogEntry({
+        ...command,
+        input: { ...command.input, publicationTarget: "published" as const },
+      }),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+    expect((await repository.readCatalog()).channels).toEqual([]);
+
+    const result = await repository.createCatalogEntry(command);
+    expect(result.data.performance.publicationStatus).toBe("draft");
+    expect(result.data.channel).toMatchObject({
+      verificationStatus: "pending",
+      active: false,
+    });
+    await repository.updateChannel(
+      {
+        id: result.data.channel.id,
+        externalChannelId: result.data.channel.externalChannelId,
+        displayName: result.data.channel.displayName,
+        channelRole: result.data.channel.channelRole,
+        verificationStatus: "revoked",
+        active: false,
+        entityIds: result.data.channel.entityIds,
+        expectedVersion: result.data.channel.version,
+      },
+      actor,
+      id("event"),
+      NOW + 2,
+    );
+    expect((await repository.preflightCatalogEntry(video, 30)).channel.state).toBe(
+      "revoked",
+    );
   });
 
   it("rolls back every side effect on a stale version", async () => {

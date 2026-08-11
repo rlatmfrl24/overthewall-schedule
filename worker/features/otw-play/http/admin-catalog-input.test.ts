@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCatalogEntryPreflight,
+  parseCreateCatalogEntry,
   parseCreateChannel,
   parseApproveProposal,
   parseCreatePerformance,
@@ -9,6 +11,94 @@ import {
 } from "./admin-catalog-input";
 
 describe("OTW Play admin input", () => {
+  it("parses the workflow-first preflight and integrated catalog command", () => {
+    expect(
+      parseCatalogEntryPreflight({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 0,
+      }),
+    ).toMatchObject({ ok: true });
+    const command = {
+      expectedCatalogRevision: 7,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 0,
+      song: {
+        kind: "create",
+        title: "새 곡",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "artist-chip",
+              displayName: "원곡 가수",
+              entityKind: "person",
+            },
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
+      participants: [
+        {
+          subject: { kind: "member", memberUid: 1 },
+          participantRole: "vocal",
+          creditOrder: 0,
+        },
+      ],
+      channel: {
+        kind: "recognized_member",
+        memberUid: 1,
+        channelRole: "member_music",
+      },
+      relationType: "cover",
+      releaseType: "official_video",
+      participationType: "solo",
+      publicationTarget: "published",
+    };
+    expect(parseCreateCatalogEntry(command)).toMatchObject({
+      ok: true,
+      value: {
+        song: { kind: "create" },
+        participants: [{ subject: { kind: "member", memberUid: 1 } }],
+      },
+    });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 1 },
+            participantRole: "other",
+            creditOrder: 0,
+          },
+        ],
+      }),
+    ).toMatchObject({ ok: false });
+
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        participants: [command.participants[0], command.participants[0]],
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        song: {
+          ...command.song,
+          originalArtists: [
+            command.song.originalArtists[0],
+            { ...command.song.originalArtists[0], isPrimary: false },
+          ],
+        },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("accepts a complete MVP song and rejects missing original artists", () => {
     expect(
       parseCreateSong({

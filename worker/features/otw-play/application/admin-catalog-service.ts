@@ -1,4 +1,7 @@
 import type {
+  OtwPlayAdminCatalogEntryPreflightRequest,
+  OtwPlayAdminCatalogSubjectInput,
+  OtwPlayAdminCreateCatalogEntryRequest,
   OtwPlayAdminCreateChannelRequest,
   OtwPlayAdminApproveProposalRequest,
   OtwPlayAdminCreateEntityRequest,
@@ -54,6 +57,13 @@ const validateVersion = (value: number) => {
   }
 };
 
+const subjectKey = (subject: OtwPlayAdminCatalogSubjectInput) =>
+  subject.kind === "member"
+    ? `member:${subject.memberUid}`
+    : subject.kind === "new_external"
+      ? `external:${subject.clientKey}`
+      : null;
+
 const bestEffortAudit = async (
   audit: AdminCatalogGlobalAudit,
   input: Parameters<AdminCatalogGlobalAudit["record"]>[0],
@@ -100,6 +110,123 @@ export class AdminCatalogService {
 
   readProposals(status?: string) {
     return this.repository.readProposals(status);
+  }
+
+  private async readVerifiedVideo(youtubeUrl: string) {
+    const videoId = extractYouTubeVideoId(youtubeUrl);
+    if (!videoId) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "A supported YouTube video URL is required",
+        { youtubeUrl: "invalid" },
+      );
+    }
+    const metadata = await this.youtube.readVideo(videoId);
+    if (!metadata || metadata.videoId !== videoId) {
+      throw new AdminCatalogServiceError(
+        "external_service_unavailable",
+        "YouTube video metadata is unavailable",
+      );
+    }
+    return metadata;
+  }
+
+  async preflightCatalogEntry(
+    input: OtwPlayAdminCatalogEntryPreflightRequest,
+  ) {
+    if (!Number.isSafeInteger(input.startSeconds) || input.startSeconds < 0) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "startSeconds must be a non-negative integer",
+        { startSeconds: "invalid" },
+      );
+    }
+    return this.repository.preflightCatalogEntry(
+      await this.readVerifiedVideo(input.youtubeUrl),
+      input.startSeconds,
+    );
+  }
+
+  async createCatalogEntry(
+    input: OtwPlayAdminCreateCatalogEntryRequest,
+    actor: AdminCatalogActor,
+  ) {
+    validateVersion(input.expectedCatalogRevision);
+    if (
+      !Number.isSafeInteger(input.startSeconds) ||
+      input.startSeconds < 0 ||
+      (input.endSeconds !== null &&
+        input.endSeconds !== undefined &&
+        (!Number.isSafeInteger(input.endSeconds) ||
+          input.endSeconds <= input.startSeconds))
+    ) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "The source segment is invalid",
+        { startSeconds: "invalid_segment" },
+      );
+    }
+
+    const subjects = [
+      ...input.participants.map((item) => item.subject),
+      ...(input.song.kind === "create"
+        ? input.song.originalArtists.map((item) => item.subject)
+        : []),
+      ...(input.channel.kind === "confirm" || input.channel.kind === "pending"
+        ? input.channel.owners
+        : input.channel.kind === "recognized_member"
+          ? [{ kind: "member" as const, memberUid: input.channel.memberUid }]
+          : []),
+    ];
+    const definitions = new Map<string, string>();
+    const entityIds: Record<string, string> = {};
+    const entityEventIds: Record<string, string> = {};
+    for (const subject of subjects) {
+      const key = subjectKey(subject);
+      if (!key) continue;
+      const definition = JSON.stringify(subject);
+      const previous = definitions.get(key);
+      if (previous && previous !== definition) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "A subject key cannot describe multiple identities",
+          { subjects: "conflicting_identity" },
+        );
+      }
+      definitions.set(key, definition);
+      if (!entityIds[key]) {
+        entityIds[key] = this.createId();
+        entityEventIds[key] = this.createId();
+      }
+    }
+
+    const video = await this.readVerifiedVideo(input.youtubeUrl);
+    const performanceId = this.createId();
+    const result = await this.repository.createCatalogEntry({
+      input,
+      video,
+      actor,
+      now: this.clock(),
+      ids: {
+        entityIds,
+        entityEventIds,
+        channelId: this.createId(),
+        channelEventId: this.createId(),
+        songId: this.createId(),
+        songEventId: this.createId(),
+        performanceId,
+        performanceEventId: this.createId(),
+        sourceId: this.createId(),
+      },
+    });
+    await bestEffortAudit(this.audit, {
+      eventType: "otw_play.catalog_entry.created",
+      resourceType: "music_performance",
+      resourceId: performanceId,
+      actor,
+      detail: { publicationTarget: input.publicationTarget },
+    });
+    return result;
   }
 
   async createEntity(
