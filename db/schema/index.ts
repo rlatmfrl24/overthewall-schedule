@@ -1354,6 +1354,17 @@ export const musicPerformances = sqliteTable(
     index("idx_music_performances_published_relation_released_id")
       .on(table.relation_type, sql`${table.released_at} DESC`, table.id)
       .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_released_song_id")
+      .on(sql`${table.released_at} DESC`, table.song_id, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_participation_released_song_id")
+      .on(
+        table.participation_type,
+        sql`${table.released_at} DESC`,
+        table.song_id,
+        table.id,
+      )
+      .where(sql`${table.publication_status} = 'published'`),
     check(
       "music_performances_relation_type_check",
       sql`${table.relation_type} IN ('original', 'cover')`,
