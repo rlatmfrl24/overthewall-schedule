@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: 구현 전 설계 기준선
+상태: PR-2 catalog foundation schema·migration 실행 기준선
 
 기준일: 2026-08-11
 
@@ -110,6 +110,30 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 - R2: MVP 음악 데이터에는 사용하지 않음
 - Queue: 자동 후보 수집이나 대량 점검이 실제로 필요할 때 도입
 - Durable Object: 서버 재생 대기열이나 전역 lock이 없으므로 사용하지 않음
+
+### ADR-PLAY-006: PR-2 catalog identity와 관계 의미
+
+상태: 채택
+
+- `music_songs.is_otw_original`이 OTW 오리지널곡 여부의 단일 권위다.
+  기본값 없는 `NOT NULL` 값으로 명시 입력하며 performance 관계, 채널 역할 또는
+  source metadata에서 이 값을 추론하지 않는다.
+- entity/song alias의 `alias_kind`는 nullable 자유 텍스트다. PR-2에서 enum이나
+  CHECK를 추가하지 않는다.
+- `music_channel_entities`는 row 존재 자체가 채널의 소유·소속 연결을 뜻한다.
+  별도 relation type 없이 `(channel_id, entity_id)`를 복합 PK로 사용한다.
+- `music_media_source_relations`는 `source_id`에서 `related_source_id`로 향하는
+  directed relation이다. 역방향 row를 암묵적으로 생성하지 않는다.
+- `music_performances.dedupe_key`는 생성 후 불변이다. 참여자, 표시 metadata와
+  source 우선순위 변경으로 다시 계산하지 않는다.
+- 같은 `(source_id, start_seconds)` segment는 둘 이상의 performance에 연결하지
+  않으며 DB UNIQUE로 막는다.
+- `publication_status='published'` 전용 partial index는 search/meta와 함께
+  PR-3에서 추가한다.
+
+PR-2는 local schema, 생성 migration과 D1 검증만 소유한다. API contract·handler,
+frontend route·UI, 배포 설정과 원격 migration 적용은 포함하지 않는다.
+GATE-01~06의 상태와 권장안은 변경하지 않는다.
 
 ## 3. 전체 시스템 구조
 
@@ -391,6 +415,12 @@ sequenceDiagram
 - 원곡 공개일: ISO `TEXT` + `year|month|day|unknown` precision
 - 수정 가능한 aggregate: `version INTEGER NOT NULL DEFAULT 0`
 
+SQLite의 `INTEGER` affinity만으로는 `0.5` 같은 REAL 저장을 막지 못한다. 따라서
+version, timestamp, 공개 순서, source 구간과 priority처럼 논리적으로 정수인 열은
+범위 CHECK와 함께 `typeof(column) = 'integer'`를 검증한다. 알려진 공개일
+precision은 날짜를 반드시 요구하고, `day` precision은 실제 달력 날짜까지
+검증한다.
+
 UUID를 미리 만들면 parent/child ID를 승인 batch 전에 확정할 수 있고
 `last_insert_rowid()` 의존을 피할 수 있다.
 
@@ -400,13 +430,13 @@ UUID를 미리 만들면 parent/child ID를 승인 batch 전에 확정할 수 �
 | --- | --- | --- |
 | `music_entities` | `id`, `member_uid`, `entity_kind`, `display_name`, `normalized_name`, `slug`, `archived_at` | 멤버·외부 인원·원곡 가수·그룹의 통합 identity |
 | `music_entity_aliases` | `entity_id`, `alias`, `normalized_alias`, `locale`, `alias_kind` | 다른 언어·활동명 검색 |
-| `music_songs` | `id`, `slug`, `title`, `normalized_title`, `dedupe_key`, 원곡 공개일, `merged_into_song_id`, `archived_at` | 음악 작품 |
+| `music_songs` | `id`, `slug`, `title`, `normalized_title`, `dedupe_key`, `is_otw_original`, 원곡 공개일, `merged_into_song_id`, `archived_at` | 음악 작품과 OTW 오리지널 여부의 권위 |
 | `music_song_aliases` | `song_id`, `alias`, `normalized_alias`, `locale`, `alias_kind` | 제목 별칭 |
 | `music_song_original_artists` | `song_id`, `entity_id`, `credit_order`, `is_primary` | 복수 원곡 가수 |
 | `music_channels` | provider ID, 표시명, 역할, 검수 상태, 활성 여부 | 공식 채널 allowlist |
-| `music_channel_entities` | `channel_id`, `entity_id`, 관계 | 공동·유닛 채널 소유 연결 |
+| `music_channel_entities` | `channel_id`, `entity_id` | row 자체가 뜻하는 공동·유닛 채널 소유 연결 |
 | `music_media_sources` | provider 영상 ID, channel, metadata, 가용성, `last_checked_at`, `next_check_at` | YouTube 영상 자체 |
-| `music_media_source_relations` | source 두 개와 관계 | 후속 원본·키리누키·대체 영상 연결 |
+| `music_media_source_relations` | `source_id`, `related_source_id`, `relation_type` | 방향이 있는 후속 원본·키리누키·대체 영상 연결 |
 | `music_performances` | song, 분류 3축, 공개·품질 상태, 공개일, version | 특정 곡의 한 공식 가창 버전 |
 | `music_performance_participants` | performance, entity, 역할, 순서, credit snapshot | 실제 가창 참여자 |
 | `music_performance_sources` | performance, source, 구간, 역할, 우선순위, primary | 가창과 재생 소스 연결 |
@@ -414,6 +444,15 @@ UUID를 미리 만들면 parent/child ID를 승인 batch 전에 확정할 수 �
 `music_media_sources`와 `music_performance_sources`를 분리하는 이유는 하나의 긴
 영상이 후속 단계에서 여러 곡 구간을 포함할 수 있기 때문이다. 동일 YouTube
 영상은 한 번만 저장하고 여러 performance가 각 구간으로 연결한다.
+
+`music_songs.is_otw_original`은 저장된 곡 자체의 권위 값이다. performance의
+`relation_type='original'`과 독립적이며 다른 metadata에서 파생하지 않는다.
+`NOT NULL`이고 기본값이 없으므로 생성 command가 값을 명시해야 한다.
+두 alias table의 `alias_kind`는 nullable 자유 텍스트로 저장한다.
+
+`music_channel_entities`에는 관계 종류 열을 두지 않는다. 복합 PK가 같은
+channel/entity 연결의 중복을 막는다. source relation은 `source_id`를 주체,
+`related_source_id`를 대상으로 해 방향을 보존하며 두 ID가 같은 row는 거부한다.
 
 ### 6.3 회원 제안과 이력
 
@@ -486,6 +525,10 @@ erDiagram
 `external`로 변환한다. `group`은 보조 표시이고 실제 참여자 credit을 대체하지
 않는다.
 
+`alias_kind`는 이 enum 표에 포함하지 않는다. nullable 자유 텍스트이므로 DB
+CHECK 대상이 아니다. source relation은 열거값만 제한하고 방향은 source ID 두
+개의 순서로 표현한다.
+
 공식 영상 MVP의 source 구간은 `start_seconds=0`, `end_seconds=NULL`이다.
 `end_seconds`가 있으면 `end_seconds > start_seconds` check를 둔다.
 
@@ -495,6 +538,7 @@ erDiagram
 - song의 alias/original artist: song hard delete 시 `CASCADE`
 - performance의 participant/source link: performance hard delete 시 `CASCADE`
 - performance → song, source → channel, junction → entity/source: `RESTRICT`
+- source relation의 양쪽 source FK: `RESTRICT`
 - proposal의 suggested song: `SET NULL`
 - proposal의 approved performance: `RESTRICT`
 - 공개 song/performance와 rejected proposal은 운영 command에서 hard delete하지 않는다.
@@ -512,7 +556,12 @@ erDiagram
 - `music_entities`: partial `UNIQUE(member_uid) WHERE member_uid IS NOT NULL`
 - `music_songs.dedupe_key`: unique
 - `music_performances.dedupe_key`: unique
+- `music_songs.is_otw_original`: 기본값 없는 `NOT NULL`, `CHECK (is_otw_original IN (0, 1))`
+- `music_channel_entities`: `PRIMARY KEY(channel_id, entity_id)`
+- `music_media_source_relations`: `PRIMARY KEY(source_id, related_source_id, relation_type)`와 `CHECK(source_id <> related_source_id)`
 - `music_performance_sources`: partial `UNIQUE(performance_id) WHERE is_primary=1`
+- `music_performance_sources`: `UNIQUE(source_id, start_seconds)`
+- `music_performance_sources.priority`: `NOT NULL DEFAULT 0`, `CHECK(priority >= 0)`
 - `music_cover_proposals`: partial
   `UNIQUE(youtube_video_id, segment_start_seconds) WHERE status='pending_review'`
 - proposal retry: `UNIQUE(submitted_by_user_id, idempotency_key)`
@@ -531,6 +580,13 @@ domain은 Web Crypto, Node crypto 또는 Cloudflare runtime에 의존하지 않�
 참여자 보완으로 같은 공식 영상이 새 performance가 되지 않도록 performance key에
 참여자 목록은 넣지 않는다.
 
+저장된 `music_performances.dedupe_key`는 immutable identity다. performance의
+metadata나 연결 source의 primary/priority를 편집해도 갱신하지 않는다. 동일
+source segment는 `UNIQUE(source_id, start_seconds)`가 별도 performance로 다시
+연결되는 것을 막는다. Drizzle이 생성하는 PR-2 DDL은 이 값을 `NOT NULL UNIQUE`로
+저장하며, 값 자체의 UPDATE 금지는 후속 repository의 허용 update field 목록에서
+강제한다. 운영 SQL로 이 열을 직접 수정하는 것은 지원하지 않는다.
+
 유사 제목, 유사 원곡 가수, 인접 공개일과 겹치는 참여자는 soft duplicate다.
 자동 병합하지 않고 관리자에게 후보와 근거만 보여준다.
 
@@ -540,17 +596,22 @@ domain은 Web Crypto, Node crypto 또는 Cloudflare runtime에 의존하지 않�
 - `music_entities(member_uid)` partial unique
 - `music_entity_aliases(normalized_alias, entity_id)`
 - `music_songs(normalized_title, id)`
+- `music_songs(merged_into_song_id)` (self-FK 지원)
 - `music_song_aliases(normalized_alias, song_id)`
 - `music_song_original_artists(entity_id, song_id)`
 - `music_channels(verification_status, active, channel_role)`
 - `music_media_sources(channel_id, provider_published_at DESC, id)`
 - `music_media_sources(availability_status, last_checked_at)`
-- published partial `music_performances(released_at DESC, id)`
-- published partial `music_performances(song_id, released_at DESC, id)`
-- published partial `music_performances(relation_type, released_at DESC, id)`
+- [PR-3] published partial `music_performances(released_at DESC, id)`
+- [PR-3] published partial `music_performances(song_id, released_at DESC, id)`
+- [PR-3] published partial `music_performances(relation_type, released_at DESC, id)`
+- `music_performances(song_id)` (FK 지원; published partial index와 별도)
 - `music_performance_participants(entity_id, performance_id)`
 - `music_performance_sources(performance_id, priority, source_id)`
-- `music_performance_sources(source_id, start_seconds)`
+- `music_performance_sources`의 `UNIQUE(source_id, start_seconds)`를 source segment lookup에도 사용
+
+source priority는 NULL을 허용하지 않는다. 값이 생략되면 `0`이며 낮은 값부터
+비교한 뒤 최종적으로 source ID를 사용해 결정적인 순서를 만든다.
 - `music_cover_proposals(status, created_at, id)`
 - `music_cover_proposals(submitted_by_user_id, created_at DESC, id)`
 - `music_catalog_events(aggregate_type, aggregate_id, created_at DESC)`
@@ -559,6 +620,9 @@ domain은 Web Crypto, Node crypto 또는 Cloudflare runtime에 의존하지 않�
 인덱스는 예상 조합을 모두 만드는 방식이 아니라 실제 hot query와
 `EXPLAIN QUERY PLAN` 결과에 맞춰 최소화한다. D1은 반환 행이 아니라 읽은 행을
 측정하므로 full scan 제거가 우선이다.
+
+위 세 published partial index는 PR-2 migration에 포함하지 않는다. PR-3의
+search/meta migration과 대표 fixture query plan 검증에서 함께 추가한다.
 
 ## 8. API 설계
 
