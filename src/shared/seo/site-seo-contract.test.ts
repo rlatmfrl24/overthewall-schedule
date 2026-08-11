@@ -6,6 +6,7 @@ import {
   isFeedPublic,
   normalizeSitePath,
   resolveSiteSeo,
+  STATIC_SHELL_PATHS,
 } from "@contracts/site-seo";
 
 describe("site SEO contract", () => {
@@ -72,5 +73,12 @@ describe("site SEO contract", () => {
   it("keeps utility and unknown routes out of the index", () => {
     expect(resolveSiteSeo("/snapshot").robots).toBe("noindex,follow");
     expect(resolveSiteSeo("/missing").robots).toBe("noindex,nofollow");
+  });
+
+  it("generates a static shell for the OTW Play admin entry point", () => {
+    expect(STATIC_SHELL_PATHS).toContain("/admin/otw-play");
+    expect(resolveSiteSeo("/admin/otw-play").robots).toBe(
+      "noindex,nofollow",
+    );
   });
 });

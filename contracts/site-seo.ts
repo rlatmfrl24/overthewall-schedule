@@ -93,6 +93,7 @@ export const STATIC_SHELL_PATHS = [
   "/admin",
   "/admin/operations",
   "/admin/settings",
+  "/admin/otw-play",
   "/admin/notices",
   "/admin/ddays",
   "/admin/logs",
