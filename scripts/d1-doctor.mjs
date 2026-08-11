@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   REQUIRED_D1_COLUMNS,
+  getMusicCatalogMetaStatus,
   getMigrationListStatus,
 } from "./d1-doctor-core.mjs";
 import {
@@ -212,6 +213,42 @@ const checkSchema = async (scope) => {
   return failures;
 };
 
+const checkCatalogMeta = async (scope) => {
+  const result = await runWrangler([
+    "d1",
+    "execute",
+    "otw-db",
+    ...buildD1LocationArgs(scope, persistTo),
+    "--command",
+    `SELECT id, revision, public_read_enabled, navigation_visible, updated_at,
+            typeof(id) AS id_type,
+            typeof(revision) AS revision_type,
+            typeof(public_read_enabled) AS public_read_enabled_type,
+            typeof(navigation_visible) AS navigation_visible_type,
+            typeof(updated_at) AS updated_at_type
+       FROM music_catalog_meta
+       ORDER BY id;`,
+  ]);
+
+  if (!result.ok) {
+    const message = summarizeCommandFailure(result);
+    const isLocked = /SQLITE_BUSY|database is locked/i.test(message);
+    printResult(
+      isLocked ? "warn" : "fail",
+      `${scope} music_catalog_meta singleton: ${message}`,
+    );
+    return isLocked ? 0 : 1;
+  }
+
+  const parsed = extractJsonArray(`${result.stdout}\n${result.stderr}`);
+  const status = getMusicCatalogMetaStatus(parsed?.[0]?.results);
+  printResult(
+    status.ok ? "ok" : "fail",
+    `${scope} music_catalog_meta singleton: ${status.message}`,
+  );
+  return status.ok ? 0 : 1;
+};
+
 const hasRemoteD1Binding = () => {
   const configPath = join(rootDir, "wrangler.jsonc");
   if (!existsSync(configPath)) return false;
@@ -273,6 +310,7 @@ for (const scope of ["remote", "local"]) {
   }
 
   failures += await checkSchema(scope);
+  failures += await checkCatalogMeta(scope);
 }
 
 if (failures > 0) {

@@ -1,3 +1,8 @@
+DELETE FROM music_cover_proposal_participants;
+DELETE FROM music_cover_proposal_original_artists;
+DELETE FROM music_search_terms;
+DELETE FROM music_catalog_events;
+DELETE FROM music_cover_proposals;
 DELETE FROM music_performance_sources;
 DELETE FROM music_performance_participants;
 DELETE FROM music_media_source_relations;

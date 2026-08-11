@@ -2,7 +2,7 @@
 
 상태: Living Draft
 
-단계: PR-2 catalog foundation schema·migration 착수, API handler·UI·원격 적용 미착수
+단계: PR-3 proposal·event·search/meta schema·migration 착수, API handler·UI·원격 적용 미착수
 
 최종 갱신일: 2026-08-11
 
@@ -67,6 +67,10 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-012 | 가창의 dedupe identity는 생성 후 불변이며 동일 source segment는 한 가창에만 연결한다. | 확정 | 참여자·표시 metadata 수정으로 identity를 다시 만들지 않는다. |
 | DEC-013 | alias 종류는 선택적 운영 metadata다. | 확정 | `alias_kind`는 nullable 자유 텍스트이며 enum이나 필수 입력으로 제한하지 않는다. |
 | DEC-014 | 공개 조회용 performance partial index는 PR-3에서 추가한다. | 확정 | PR-2는 catalog 무결성 제약과 기반 관계에 집중한다. |
+| DEC-015 | 회원 제안 row에는 channel identity를 저장하지 않으며 제출 시점에는 검수 결과를 저장하지 않는다. | 확정 | 회원 제출은 YouTube ID 형식과 중복만 확인하고 채널은 후속 관리자 승인 과정에서 검증한다. |
+| DEC-016 | catalog event의 aggregate·event 이름과 비공개 review result는 확정되지 않은 운영 vocabulary다. | 확정 | non-empty 자유 텍스트로 보존하며 PR-3에서 임의 enum을 만들지 않는다. |
+| DEC-017 | 곡 검색 projection의 term 종류는 `title`, `title_alias`, `original_artist`, `participant`로 한다. | 확정 | normalized term은 표시값과 분리하고 canonical song에 귀속한다. |
+| DEC-018 | catalog meta는 공개 읽기와 내비게이션을 모두 끈 singleton으로 시작한다. | 확정 | revision 증가는 후속 catalog command의 같은 D1 batch가, event append-only는 insert-only repository가 소유한다. PR-3 DB trigger는 만들지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -333,6 +337,11 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 회원 제안 대상은 공식 커버곡으로 제한한다. 오리지널곡 등록은 현재 MVP에서
 관리자 전용이다.
 
+제출 단계에서는 YouTube 채널 metadata를 조회하거나 proposal에 channel ID를
+저장하지 않는다. 채널과 공개일의 권위 검증은 후속 관리자 승인 과정에서만
+수행한다. 제안 메모, 내부 검수 메모와 review result는 공개 catalog나 event
+detail로 자동 복사하지 않는다.
+
 ## 10. 관리자 기능 요구사항
 
 ### 10.1 등록과 검수
@@ -553,6 +562,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | Clean Architecture, Cloudflare, DB, UI/UX 설계와 단계별 구현 가이드 문서 연결 |
 | 2026-08-11 | 제안·공개·품질·소스 가용성 상태 축과 PR-1 계약·순수 domain 경계 명시 |
 | 2026-08-11 | PR-2 catalog foundation 권위·관계·dedupe 경계 확정, published partial index는 PR-3으로 연기하고 API·UI·원격 적용은 제외, GATE-01~06은 변경하지 않음 |
+| 2026-08-11 | PR-3 proposal·event·search/meta exact schema 경계 확정, proposal channel 제외, fail-closed meta와 application-owned revision·append-only 채택, API·UI·원격 적용 제외, GATE-01~06 유지 |
 
 ## 19. 참고
 
