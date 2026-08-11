@@ -32,4 +32,8 @@ describe("OTW Play search normalization", () => {
   it("returns an empty key for punctuation and whitespace only", () => {
     expect(normalizeOtwPlaySearchText("  『――！』  ")).toBe("");
   });
+
+  it("removes SQLite GLOB metacharacters from normalized keys", () => {
+    expect(normalizeOtwPlaySearchText("ab*?[c]")).toBe("ab c");
+  });
 });

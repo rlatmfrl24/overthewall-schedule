@@ -7,6 +7,11 @@ import {
 } from "./d1-seed-guard.mjs";
 
 const MUSIC_DELETE_ORDER = [
+  "music_cover_proposal_participants",
+  "music_cover_proposal_original_artists",
+  "music_search_terms",
+  "music_catalog_events",
+  "music_cover_proposals",
   "music_performance_sources",
   "music_performance_participants",
   "music_media_source_relations",
@@ -40,7 +45,7 @@ describe("hasProtectedLocalSeedData", () => {
 });
 
 describe("OTW Play local seed protection", () => {
-  it("counts every catalog foundation table as protected data", () => {
+  it("counts every deletable catalog table as protected data", () => {
     const musicTables = LOCAL_SEED_PROTECTED_TABLES.filter((tableName) =>
       tableName.startsWith("music_"),
     );
@@ -50,9 +55,10 @@ describe("OTW Play local seed protection", () => {
     for (const tableName of MUSIC_DELETE_ORDER) {
       expect(countSql).toContain(`(SELECT COUNT(*) FROM ${tableName})`);
     }
+    expect(countSql).not.toContain("music_catalog_meta");
   });
 
-  it("deletes music fixtures child-to-parent without inserting music rows", () => {
+  it("deletes music fixtures child-to-parent while preserving migration-owned meta", () => {
     const fixtureSql = readFileSync(
       new URL("./fixtures/local-d1-seed.sql", import.meta.url),
       "utf8",
@@ -64,6 +70,9 @@ describe("OTW Play local seed protection", () => {
 
     expect(musicDeletes).toEqual(MUSIC_DELETE_ORDER);
     expect(fixtureSql).not.toMatch(/INSERT\s+INTO\s+music_/i);
+    expect(fixtureSql).not.toMatch(
+      /(?:DELETE\s+FROM|INSERT\s+INTO)\s+music_catalog_meta/i,
+    );
     expect(fixtureSql).toMatch(
       /UPDATE music_songs\s+SET merged_into_song_id = NULL\s+WHERE merged_into_song_id IS NOT NULL;\s+DELETE FROM music_songs;/i,
     );

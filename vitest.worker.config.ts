@@ -6,6 +6,11 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 const OTW_PLAY_CATALOG_MIGRATION_PREFIX = "0046_";
+const OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES = [
+  "0047_nasty_cargill.sql",
+  "0048_previous_the_phantom.sql",
+  "0049_otw_play_catalog_meta_seed.sql",
+] as const;
 
 export default defineConfig({
   resolve: {
@@ -22,10 +27,30 @@ export default defineConfig({
       const otwPlayCatalogMigrations = migrations.filter(({ name }) =>
         name.startsWith(OTW_PLAY_CATALOG_MIGRATION_PREFIX),
       );
+      const migrationsByName = new Map(
+        migrations.map((migration) => [migration.name, migration]),
+      );
+      const otwPlayProposalSearchMigrations =
+        OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.flatMap((name) => {
+          const migration = migrationsByName.get(name);
+          return migration ? [migration] : [];
+        });
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
           `Expected exactly one ${OTW_PLAY_CATALOG_MIGRATION_PREFIX}*.sql migration, found ${otwPlayCatalogMigrations.length}`,
+        );
+      }
+      if (
+        otwPlayProposalSearchMigrations.length !==
+          OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.length ||
+        otwPlayProposalSearchMigrations.some(
+          ({ name }, index) =>
+            name !== OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES[index],
+        )
+      ) {
+        throw new Error(
+          `Expected exact ordered OTW Play proposal/search migrations: ${OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.join(", ")}`,
         );
       }
 
@@ -36,6 +61,8 @@ export default defineConfig({
           d1Databases: ["otw_db"],
           bindings: {
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
+            OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
+              otwPlayProposalSearchMigrations,
           },
         },
       };
