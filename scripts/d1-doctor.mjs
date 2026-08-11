@@ -4,7 +4,14 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { getMigrationListStatus } from "./d1-doctor-core.mjs";
+import {
+  REQUIRED_D1_COLUMNS,
+  getMigrationListStatus,
+} from "./d1-doctor-core.mjs";
+import {
+  buildD1LocationArgs,
+  parsePersistToOption,
+} from "./d1-local-options.mjs";
 import {
   DEFAULT_LOCAL_DEV_PORT,
   LOCAL_DEV_HOST,
@@ -17,12 +24,7 @@ const require = createRequire(import.meta.url);
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const wranglerEntry = require.resolve("wrangler/bin/wrangler.js");
 
-const requiredColumns = {
-  members: ["uid", "code", "name", "youtube_channel_id", "is_deprecated"],
-  ddays: ["id", "title", "date", "type", "created_at"],
-};
-
-const args = process.argv.slice(2);
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const hasArg = (name) => args.includes(name);
 const getArgValue = (name, fallback) => {
   const prefix = `${name}=`;
@@ -35,6 +37,13 @@ const skipApi = hasArg("--skip-api") || !includeApi;
 const skipLocal = hasArg("--skip-local");
 const includeRemote = hasArg("--remote");
 const skipRemote = hasArg("--skip-remote") || !includeRemote;
+let persistTo;
+try {
+  persistTo = parsePersistToOption(args);
+} catch (error) {
+  console.error(`[d1:doctor] ${error.message}`);
+  process.exit(2);
+}
 
 if (hasArg("--help") || hasArg("-h")) {
   console.log(`Usage: node scripts/d1-doctor.mjs [options]
@@ -44,6 +53,7 @@ Options:
   --api, --with-api            Include API health checks (disabled by default)
   --skip-api                   Skip API health checks
   --skip-local                 Skip local D1 checks
+  --persist-to=<dir>           Use a specific local D1 persistence directory
   --remote                     Include remote D1 checks
   --skip-remote                Skip remote D1 checks (default)
 
@@ -135,7 +145,7 @@ const checkMigrations = async (scope) => {
     "migrations",
     "list",
     "otw-db",
-    scope === "remote" ? "--remote" : "--local",
+    ...buildD1LocationArgs(scope, persistTo),
   ]);
 
   if (!result.ok) {
@@ -151,7 +161,7 @@ const readTableColumns = async (scope, tableName) => {
     "d1",
     "execute",
     "otw-db",
-    scope === "remote" ? "--remote" : "--local",
+    ...buildD1LocationArgs(scope, persistTo),
     "--command",
     `PRAGMA table_info(${tableName});`,
   ]);
@@ -172,7 +182,7 @@ const readTableColumns = async (scope, tableName) => {
 const checkSchema = async (scope) => {
   let failures = 0;
 
-  for (const [tableName, columns] of Object.entries(requiredColumns)) {
+  for (const [tableName, columns] of Object.entries(REQUIRED_D1_COLUMNS)) {
     const result = await readTableColumns(scope, tableName);
     if (!result.ok) {
       const isLocked = /SQLITE_BUSY|database is locked/i.test(result.message);

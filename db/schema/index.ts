@@ -6,8 +6,27 @@ import {
   text,
   index,
   check,
+  foreignKey,
+  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+
+import type {
+  OtwPlayChannelRole,
+  OtwPlayChannelVerificationStatus,
+  OtwPlayDatePrecision,
+  OtwPlayEntityKind,
+  OtwPlayParticipantRole,
+  OtwPlayParticipationType,
+  OtwPlayProvider,
+  OtwPlayPublicationStatus,
+  OtwPlayQualityStatus,
+  OtwPlayRelationType,
+  OtwPlayReleaseType,
+  OtwPlaySourceAvailabilityStatus,
+  OtwPlaySourceRelationType,
+  OtwPlaySourceRole,
+} from "../../contracts/otw-play";
 
 export const members = sqliteTable(
   "members",
@@ -840,3 +859,635 @@ export const kirinukiChannels = sqliteTable("kirinuki_channels", {
 
 export type KirinukiChannel = typeof kirinukiChannels.$inferSelect;
 export type NewKirinukiChannel = typeof kirinukiChannels.$inferInsert;
+
+export const musicEntities = sqliteTable(
+  "music_entities",
+  {
+    id: text().primaryKey(),
+    member_uid: integer("member_uid").references(() => members.uid, {
+      onDelete: "set null",
+    }),
+    entity_kind: text("entity_kind").$type<OtwPlayEntityKind>().notNull(),
+    display_name: text("display_name").notNull(),
+    normalized_name: text("normalized_name").notNull(),
+    slug: text().notNull(),
+    archived_at: integer("archived_at"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_entities_slug").on(table.slug),
+    uniqueIndex("uidx_music_entities_member_uid")
+      .on(table.member_uid)
+      .where(sql`${table.member_uid} IS NOT NULL`),
+    index("idx_music_entities_normalized_name_id").on(
+      table.normalized_name,
+      table.id,
+    ),
+    check(
+      "music_entities_kind_check",
+      sql`${table.entity_kind} IN ('person', 'group', 'organization')`,
+    ),
+    check(
+      "music_entities_member_kind_check",
+      sql`${table.member_uid} IS NULL OR ${table.entity_kind} = 'person'`,
+    ),
+    check(
+      "music_entities_required_text_check",
+      sql`length(trim(${table.id})) > 0 AND length(trim(${table.display_name})) > 0 AND length(trim(${table.normalized_name})) > 0 AND length(trim(${table.slug})) > 0`,
+    ),
+    check(
+      "music_entities_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_entities_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
+        AND (${table.archived_at} IS NULL OR (typeof(${table.archived_at}) = 'integer' AND ${table.archived_at} >= 0))`,
+    ),
+  ],
+);
+
+export type MusicEntity = typeof musicEntities.$inferSelect;
+export type NewMusicEntity = typeof musicEntities.$inferInsert;
+
+export const musicEntityAliases = sqliteTable(
+  "music_entity_aliases",
+  {
+    entity_id: text("entity_id")
+      .notNull()
+      .references(() => musicEntities.id, { onDelete: "cascade" }),
+    alias: text().notNull(),
+    normalized_alias: text("normalized_alias").notNull(),
+    locale: text(),
+    alias_kind: text("alias_kind"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.entity_id, table.normalized_alias],
+      name: "pk_music_entity_aliases",
+    }),
+    index("idx_music_entity_aliases_normalized_alias_entity").on(
+      table.normalized_alias,
+      table.entity_id,
+    ),
+    check(
+      "music_entity_aliases_required_text_check",
+      sql`length(trim(${table.alias})) > 0 AND length(trim(${table.normalized_alias})) > 0`,
+    ),
+  ],
+);
+
+export type MusicEntityAlias = typeof musicEntityAliases.$inferSelect;
+export type NewMusicEntityAlias = typeof musicEntityAliases.$inferInsert;
+
+export const musicSongs = sqliteTable(
+  "music_songs",
+  {
+    id: text().primaryKey(),
+    slug: text().notNull(),
+    title: text().notNull(),
+    normalized_title: text("normalized_title").notNull(),
+    // Immutable canonical identity; mutable display metadata must not rewrite it.
+    dedupe_key: text("dedupe_key").notNull(),
+    is_otw_original: integer("is_otw_original", { mode: "boolean" })
+      .notNull(),
+    original_release_date: text("original_release_date"),
+    original_release_precision: text("original_release_precision")
+      .$type<OtwPlayDatePrecision>()
+      .notNull()
+      .default("unknown"),
+    merged_into_song_id: text("merged_into_song_id"),
+    archived_at: integer("archived_at"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.merged_into_song_id],
+      foreignColumns: [table.id],
+      name: "fk_music_songs_merged_into_song",
+    }).onDelete("restrict"),
+    uniqueIndex("uidx_music_songs_slug").on(table.slug),
+    uniqueIndex("uidx_music_songs_dedupe_key").on(table.dedupe_key),
+    index("idx_music_songs_merged_into_song_id").on(
+      table.merged_into_song_id,
+    ),
+    index("idx_music_songs_normalized_title_id").on(
+      table.normalized_title,
+      table.id,
+    ),
+    check(
+      "music_songs_required_text_check",
+      sql`length(trim(${table.id})) > 0 AND length(trim(${table.slug})) > 0 AND length(trim(${table.title})) > 0 AND length(trim(${table.normalized_title})) > 0 AND length(trim(${table.dedupe_key})) > 0`,
+    ),
+    check(
+      "music_songs_otw_original_check",
+      sql`${table.is_otw_original} IN (0, 1)`,
+    ),
+    check(
+      "music_songs_release_precision_check",
+      sql`${table.original_release_precision} IN ('year', 'month', 'day', 'unknown')`,
+    ),
+    check(
+      "music_songs_release_date_check",
+      sql`(${table.original_release_precision} = 'unknown' AND ${table.original_release_date} IS NULL)
+        OR (${table.original_release_precision} = 'year'
+          AND ${table.original_release_date} IS NOT NULL
+          AND ${table.original_release_date} GLOB '[0-9][0-9][0-9][0-9]')
+        OR (${table.original_release_precision} = 'month'
+          AND ${table.original_release_date} IS NOT NULL
+          AND ${table.original_release_date} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'
+          AND substr(${table.original_release_date}, 6, 2) BETWEEN '01' AND '12')
+        OR (${table.original_release_precision} = 'day'
+          AND ${table.original_release_date} IS NOT NULL
+          AND ${table.original_release_date} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          AND date(${table.original_release_date}, '+0 days') IS NOT NULL
+          AND date(${table.original_release_date}, '+0 days') = ${table.original_release_date})`,
+    ),
+    check(
+      "music_songs_merge_target_check",
+      sql`${table.merged_into_song_id} IS NULL OR ${table.merged_into_song_id} <> ${table.id}`,
+    ),
+    check(
+      "music_songs_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_songs_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
+        AND (${table.archived_at} IS NULL OR (typeof(${table.archived_at}) = 'integer' AND ${table.archived_at} >= 0))`,
+    ),
+  ],
+);
+
+export type MusicSong = typeof musicSongs.$inferSelect;
+export type NewMusicSong = typeof musicSongs.$inferInsert;
+
+export const musicSongAliases = sqliteTable(
+  "music_song_aliases",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    alias: text().notNull(),
+    normalized_alias: text("normalized_alias").notNull(),
+    locale: text(),
+    alias_kind: text("alias_kind"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.normalized_alias],
+      name: "pk_music_song_aliases",
+    }),
+    index("idx_music_song_aliases_normalized_alias_song").on(
+      table.normalized_alias,
+      table.song_id,
+    ),
+    check(
+      "music_song_aliases_required_text_check",
+      sql`length(trim(${table.alias})) > 0 AND length(trim(${table.normalized_alias})) > 0`,
+    ),
+  ],
+);
+
+export type MusicSongAlias = typeof musicSongAliases.$inferSelect;
+export type NewMusicSongAlias = typeof musicSongAliases.$inferInsert;
+
+export const musicSongOriginalArtists = sqliteTable(
+  "music_song_original_artists",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    entity_id: text("entity_id")
+      .notNull()
+      .references(() => musicEntities.id, { onDelete: "restrict" }),
+    credit_order: integer("credit_order").notNull().default(0),
+    is_primary: integer("is_primary", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.entity_id],
+      name: "pk_music_song_original_artists",
+    }),
+    uniqueIndex("uidx_music_song_original_artists_credit_order").on(
+      table.song_id,
+      table.credit_order,
+    ),
+    index("idx_music_song_original_artists_entity_song").on(
+      table.entity_id,
+      table.song_id,
+    ),
+    check(
+      "music_song_original_artists_credit_order_check",
+      sql`typeof(${table.credit_order}) = 'integer' AND ${table.credit_order} >= 0`,
+    ),
+    check(
+      "music_song_original_artists_primary_check",
+      sql`${table.is_primary} IN (0, 1)`,
+    ),
+  ],
+);
+
+export type MusicSongOriginalArtist =
+  typeof musicSongOriginalArtists.$inferSelect;
+export type NewMusicSongOriginalArtist =
+  typeof musicSongOriginalArtists.$inferInsert;
+
+export const musicChannels = sqliteTable(
+  "music_channels",
+  {
+    id: text().primaryKey(),
+    provider: text().$type<OtwPlayProvider>().notNull(),
+    external_channel_id: text("external_channel_id").notNull(),
+    display_name: text("display_name").notNull(),
+    channel_role: text("channel_role").$type<OtwPlayChannelRole>().notNull(),
+    verification_status: text("verification_status")
+      .$type<OtwPlayChannelVerificationStatus>()
+      .notNull()
+      .default("pending"),
+    active: integer({ mode: "boolean" }).notNull().default(false),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_channels_provider_external").on(
+      table.provider,
+      table.external_channel_id,
+    ),
+    index("idx_music_channels_verification_active_role").on(
+      table.verification_status,
+      table.active,
+      table.channel_role,
+    ),
+    check("music_channels_provider_check", sql`${table.provider} = 'youtube'`),
+    check(
+      "music_channels_external_id_check",
+      sql`length(${table.external_channel_id}) = 24 AND substr(${table.external_channel_id}, 1, 2) = 'UC' AND substr(${table.external_channel_id}, 3) NOT GLOB '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "music_channels_role_check",
+      sql`${table.channel_role} IN ('otw_official', 'unit_official', 'member_music', 'member_main', 'project_official', 'approved_kirinuki', 'other')`,
+    ),
+    check(
+      "music_channels_verification_check",
+      sql`${table.verification_status} IN ('pending', 'approved', 'revoked')`,
+    ),
+    check("music_channels_active_check", sql`${table.active} IN (0, 1)`),
+    check(
+      "music_channels_active_approval_check",
+      sql`${table.active} = 0 OR ${table.verification_status} = 'approved'`,
+    ),
+    check(
+      "music_channels_required_text_check",
+      sql`length(trim(${table.id})) > 0 AND length(trim(${table.display_name})) > 0`,
+    ),
+    check(
+      "music_channels_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_channels_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicChannel = typeof musicChannels.$inferSelect;
+export type NewMusicChannel = typeof musicChannels.$inferInsert;
+
+export const musicChannelEntities = sqliteTable(
+  "music_channel_entities",
+  {
+    channel_id: text("channel_id")
+      .notNull()
+      .references(() => musicChannels.id, { onDelete: "cascade" }),
+    entity_id: text("entity_id")
+      .notNull()
+      .references(() => musicEntities.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.channel_id, table.entity_id],
+      name: "pk_music_channel_entities",
+    }),
+    index("idx_music_channel_entities_entity_channel").on(
+      table.entity_id,
+      table.channel_id,
+    ),
+  ],
+);
+
+export type MusicChannelEntity = typeof musicChannelEntities.$inferSelect;
+export type NewMusicChannelEntity = typeof musicChannelEntities.$inferInsert;
+
+export const musicMediaSources = sqliteTable(
+  "music_media_sources",
+  {
+    id: text().primaryKey(),
+    provider: text().$type<OtwPlayProvider>().notNull(),
+    external_id: text("external_id").notNull(),
+    channel_id: text("channel_id")
+      .notNull()
+      .references(() => musicChannels.id, { onDelete: "restrict" }),
+    title: text(),
+    thumbnail_url: text("thumbnail_url"),
+    duration_seconds: integer("duration_seconds"),
+    provider_published_at: integer("provider_published_at"),
+    availability_status: text("availability_status")
+      .$type<OtwPlaySourceAvailabilityStatus>()
+      .notNull()
+      .default("unknown"),
+    last_checked_at: integer("last_checked_at"),
+    next_check_at: integer("next_check_at"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_media_sources_provider_external").on(
+      table.provider,
+      table.external_id,
+    ),
+    index("idx_music_media_sources_channel_published_id").on(
+      table.channel_id,
+      sql`${table.provider_published_at} DESC`,
+      table.id,
+    ),
+    index("idx_music_media_sources_availability_checked").on(
+      table.availability_status,
+      table.last_checked_at,
+    ),
+    check(
+      "music_media_sources_provider_check",
+      sql`${table.provider} = 'youtube'`,
+    ),
+    check(
+      "music_media_sources_external_id_check",
+      sql`length(${table.external_id}) = 11 AND ${table.external_id} NOT GLOB '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "music_media_sources_availability_check",
+      sql`${table.availability_status} IN ('unknown', 'playable', 'private', 'embed_disabled', 'deleted', 'region_blocked', 'unavailable')`,
+    ),
+    check(
+      "music_media_sources_duration_check",
+      sql`${table.duration_seconds} IS NULL OR (typeof(${table.duration_seconds}) = 'integer' AND ${table.duration_seconds} >= 0)`,
+    ),
+    check(
+      "music_media_sources_check_times_check",
+      sql`(${table.last_checked_at} IS NULL OR (typeof(${table.last_checked_at}) = 'integer' AND ${table.last_checked_at} >= 0))
+        AND (${table.next_check_at} IS NULL OR (typeof(${table.next_check_at}) = 'integer' AND ${table.next_check_at} >= 0))
+        AND (${table.provider_published_at} IS NULL OR (typeof(${table.provider_published_at}) = 'integer' AND ${table.provider_published_at} >= 0))`,
+    ),
+    check(
+      "music_media_sources_required_text_check",
+      sql`length(trim(${table.id})) > 0`,
+    ),
+    check(
+      "music_media_sources_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_media_sources_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicMediaSource = typeof musicMediaSources.$inferSelect;
+export type NewMusicMediaSource = typeof musicMediaSources.$inferInsert;
+
+export const musicMediaSourceRelations = sqliteTable(
+  "music_media_source_relations",
+  {
+    // source_id is the dependent excerpt/alternate; related_source_id is its reference.
+    source_id: text("source_id")
+      .notNull()
+      .references(() => musicMediaSources.id, { onDelete: "restrict" }),
+    related_source_id: text("related_source_id")
+      .notNull()
+      .references(() => musicMediaSources.id, { onDelete: "restrict" }),
+    relation_type: text("relation_type")
+      .$type<OtwPlaySourceRelationType>()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.source_id,
+        table.related_source_id,
+        table.relation_type,
+      ],
+      name: "pk_music_media_source_relations",
+    }),
+    index("idx_music_media_source_relations_related_type").on(
+      table.related_source_id,
+      table.relation_type,
+    ),
+    check(
+      "music_media_source_relations_type_check",
+      sql`${table.relation_type} IN ('excerpt_of', 'alternate_of')`,
+    ),
+    check(
+      "music_media_source_relations_self_check",
+      sql`${table.source_id} <> ${table.related_source_id}`,
+    ),
+  ],
+);
+
+export type MusicMediaSourceRelation =
+  typeof musicMediaSourceRelations.$inferSelect;
+export type NewMusicMediaSourceRelation =
+  typeof musicMediaSourceRelations.$inferInsert;
+
+export const musicPerformances = sqliteTable(
+  "music_performances",
+  {
+    id: text().primaryKey(),
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "restrict" }),
+    // Immutable canonical identity; participant metadata is deliberately excluded.
+    dedupe_key: text("dedupe_key").notNull(),
+    relation_type: text("relation_type").$type<OtwPlayRelationType>().notNull(),
+    release_type: text("release_type").$type<OtwPlayReleaseType>().notNull(),
+    participation_type: text("participation_type")
+      .$type<OtwPlayParticipationType>()
+      .notNull(),
+    publication_status: text("publication_status")
+      .$type<OtwPlayPublicationStatus>()
+      .notNull()
+      .default("draft"),
+    quality_status: text("quality_status")
+      .$type<OtwPlayQualityStatus>()
+      .notNull()
+      .default("ok"),
+    released_at: integer("released_at"),
+    internal_note: text("internal_note"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_performances_dedupe_key").on(table.dedupe_key),
+    index("idx_music_performances_song_id").on(table.song_id),
+    check(
+      "music_performances_relation_type_check",
+      sql`${table.relation_type} IN ('original', 'cover')`,
+    ),
+    check(
+      "music_performances_release_type_check",
+      sql`${table.release_type} IN ('official_mv', 'official_video', 'broadcast', 'live', 'shorts')`,
+    ),
+    check(
+      "music_performances_participation_type_check",
+      sql`${table.participation_type} IN ('solo', 'duet', 'unit', 'group', 'external_collab')`,
+    ),
+    check(
+      "music_performances_publication_status_check",
+      sql`${table.publication_status} IN ('draft', 'published', 'withdrawn')`,
+    ),
+    check(
+      "music_performances_quality_status_check",
+      sql`${table.quality_status} IN ('ok', 'needs_update')`,
+    ),
+    check(
+      "music_performances_required_text_check",
+      sql`length(trim(${table.id})) > 0 AND length(trim(${table.dedupe_key})) > 0`,
+    ),
+    check(
+      "music_performances_release_time_check",
+      sql`${table.released_at} IS NULL OR (typeof(${table.released_at}) = 'integer' AND ${table.released_at} >= 0)`,
+    ),
+    check(
+      "music_performances_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_performances_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicPerformance = typeof musicPerformances.$inferSelect;
+export type NewMusicPerformance = typeof musicPerformances.$inferInsert;
+
+export const musicPerformanceParticipants = sqliteTable(
+  "music_performance_participants",
+  {
+    performance_id: text("performance_id")
+      .notNull()
+      .references(() => musicPerformances.id, { onDelete: "cascade" }),
+    entity_id: text("entity_id")
+      .notNull()
+      .references(() => musicEntities.id, { onDelete: "restrict" }),
+    participant_role: text("participant_role")
+      .$type<OtwPlayParticipantRole>()
+      .notNull(),
+    credit_order: integer("credit_order").notNull().default(0),
+    credit_name_snapshot: text("credit_name_snapshot").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.performance_id, table.entity_id],
+      name: "pk_music_performance_participants",
+    }),
+    uniqueIndex("uidx_music_performance_participants_credit_order").on(
+      table.performance_id,
+      table.credit_order,
+    ),
+    index("idx_music_performance_participants_entity_performance").on(
+      table.entity_id,
+      table.performance_id,
+    ),
+    check(
+      "music_performance_participants_role_check",
+      sql`${table.participant_role} IN ('vocal', 'featured_vocal', 'chorus', 'other')`,
+    ),
+    check(
+      "music_performance_participants_credit_order_check",
+      sql`typeof(${table.credit_order}) = 'integer' AND ${table.credit_order} >= 0`,
+    ),
+    check(
+      "music_performance_participants_snapshot_check",
+      sql`length(trim(${table.credit_name_snapshot})) > 0`,
+    ),
+  ],
+);
+
+export type MusicPerformanceParticipant =
+  typeof musicPerformanceParticipants.$inferSelect;
+export type NewMusicPerformanceParticipant =
+  typeof musicPerformanceParticipants.$inferInsert;
+
+export const musicPerformanceSources = sqliteTable(
+  "music_performance_sources",
+  {
+    performance_id: text("performance_id")
+      .notNull()
+      .references(() => musicPerformances.id, { onDelete: "cascade" }),
+    source_id: text("source_id")
+      .notNull()
+      .references(() => musicMediaSources.id, { onDelete: "restrict" }),
+    start_seconds: integer("start_seconds").notNull().default(0),
+    end_seconds: integer("end_seconds"),
+    source_role: text("source_role").$type<OtwPlaySourceRole>().notNull(),
+    priority: integer().notNull().default(0),
+    is_primary: integer("is_primary", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.performance_id, table.source_id, table.start_seconds],
+      name: "pk_music_performance_sources",
+    }),
+    uniqueIndex("uidx_music_performance_sources_source_start").on(
+      table.source_id,
+      table.start_seconds,
+    ),
+    uniqueIndex("uidx_music_performance_sources_primary")
+      .on(table.performance_id)
+      .where(sql`${table.is_primary} = 1`),
+    index("idx_music_performance_sources_performance_priority_source").on(
+      table.performance_id,
+      table.priority,
+      table.source_id,
+    ),
+    check(
+      "music_performance_sources_range_check",
+      sql`typeof(${table.start_seconds}) = 'integer' AND ${table.start_seconds} >= 0
+        AND (${table.end_seconds} IS NULL OR (typeof(${table.end_seconds}) = 'integer' AND ${table.end_seconds} > ${table.start_seconds}))`,
+    ),
+    check(
+      "music_performance_sources_role_check",
+      sql`${table.source_role} IN ('official', 'kirinuki', 'broadcast_original', 'alternate')`,
+    ),
+    check(
+      "music_performance_sources_priority_check",
+      sql`typeof(${table.priority}) = 'integer' AND ${table.priority} >= 0`,
+    ),
+    check(
+      "music_performance_sources_primary_check",
+      sql`${table.is_primary} IN (0, 1)`,
+    ),
+  ],
+);
+
+export type MusicPerformanceSource =
+  typeof musicPerformanceSources.$inferSelect;
+export type NewMusicPerformanceSource =
+  typeof musicPerformanceSources.$inferInsert;

@@ -2,14 +2,29 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hasProtectedLocalSeedData } from "./d1-seed-guard.mjs";
+import {
+  buildDestructiveRowCountSql,
+  hasProtectedLocalSeedData,
+} from "./d1-seed-guard.mjs";
+import {
+  buildD1LocationArgs,
+  parsePersistToOption,
+} from "./d1-local-options.mjs";
 
 const require = createRequire(import.meta.url);
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const wranglerEntry = require.resolve("wrangler/bin/wrangler.js");
 const fixtureFile = resolve(rootDir, "scripts", "fixtures", "local-d1-seed.sql");
-const force = process.argv.includes("--force");
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const force = args.includes("--force");
+let persistTo;
+try {
+  persistTo = parsePersistToOption(args);
+} catch (error) {
+  console.error(`[d1:seed:local] ${error.message}`);
+  process.exit(2);
+}
 
 const runWrangler = (args, options = {}) =>
   new Promise((resolveRun, rejectRun) => {
@@ -47,7 +62,7 @@ const guardResult = await runWrangler(
     "d1",
     "execute",
     "otw-db",
-    "--local",
+    ...buildD1LocationArgs("local", persistTo),
     "--json",
     "--command",
     `
@@ -55,17 +70,7 @@ const guardResult = await runWrangler(
         (SELECT COUNT(*) FROM members) AS member_count,
         (SELECT COUNT(*) FROM members WHERE code LIKE 'local_%') AS fixture_member_count,
         (
-          (SELECT COUNT(*) FROM members) +
-          (SELECT COUNT(*) FROM member_links) +
-          (SELECT COUNT(*) FROM member_profile_images) +
-          (SELECT COUNT(*) FROM naver_cafe_sources) +
-          (SELECT COUNT(*) FROM kirinuki_channels) +
-          (SELECT COUNT(*) FROM schedules) +
-          (SELECT COUNT(*) FROM pending_schedules) +
-          (SELECT COUNT(*) FROM update_logs) +
-          (SELECT COUNT(*) FROM notices) +
-          (SELECT COUNT(*) FROM ddays) +
-          (SELECT COUNT(*) FROM settings)
+          ${buildDestructiveRowCountSql()}
         ) AS destructive_row_count;
     `,
   ],
@@ -118,7 +123,7 @@ const seedResult = await runWrangler([
   "d1",
   "execute",
   "otw-db",
-  "--local",
+  ...buildD1LocationArgs("local", persistTo),
   "--yes",
   "--file",
   fixtureFile,

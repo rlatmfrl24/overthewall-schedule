@@ -1,3 +1,19 @@
+DELETE FROM music_performance_sources;
+DELETE FROM music_performance_participants;
+DELETE FROM music_media_source_relations;
+DELETE FROM music_channel_entities;
+DELETE FROM music_song_original_artists;
+DELETE FROM music_song_aliases;
+DELETE FROM music_entity_aliases;
+DELETE FROM music_performances;
+DELETE FROM music_media_sources;
+UPDATE music_songs
+SET merged_into_song_id = NULL
+WHERE merged_into_song_id IS NOT NULL;
+DELETE FROM music_songs;
+DELETE FROM music_channels;
+DELETE FROM music_entities;
+
 DELETE FROM member_links;
 DELETE FROM member_profile_images;
 DELETE FROM naver_cafe_sources;
