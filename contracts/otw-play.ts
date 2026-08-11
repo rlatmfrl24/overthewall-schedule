@@ -8,6 +8,25 @@ export const OTW_PLAY_PROPOSAL_STATUSES = [
 export type OtwPlayProposalStatus =
   (typeof OTW_PLAY_PROPOSAL_STATUSES)[number];
 
+export const OTW_PLAY_CATALOG_EVENT_ACTOR_KINDS = [
+  "member",
+  "admin",
+  "system",
+] as const;
+
+export type OtwPlayCatalogEventActorKind =
+  (typeof OTW_PLAY_CATALOG_EVENT_ACTOR_KINDS)[number];
+
+export const OTW_PLAY_SEARCH_TERM_KINDS = [
+  "title",
+  "title_alias",
+  "original_artist",
+  "participant",
+] as const;
+
+export type OtwPlaySearchTermKind =
+  (typeof OTW_PLAY_SEARCH_TERM_KINDS)[number];
+
 export const OTW_PLAY_PUBLICATION_STATUSES = [
   "draft",
   "published",

@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import type {
+  OtwPlayCatalogEventActorKind,
   OtwPlayChannelRole,
   OtwPlayChannelVerificationStatus,
   OtwPlayDatePrecision,
@@ -19,10 +20,12 @@ import type {
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
   OtwPlayProvider,
+  OtwPlayProposalStatus,
   OtwPlayPublicationStatus,
   OtwPlayQualityStatus,
   OtwPlayRelationType,
   OtwPlayReleaseType,
+  OtwPlaySearchTermKind,
   OtwPlaySourceAvailabilityStatus,
   OtwPlaySourceRelationType,
   OtwPlaySourceRole,
@@ -1342,6 +1345,15 @@ export const musicPerformances = sqliteTable(
   (table) => [
     uniqueIndex("uidx_music_performances_dedupe_key").on(table.dedupe_key),
     index("idx_music_performances_song_id").on(table.song_id),
+    index("idx_music_performances_published_released_id")
+      .on(sql`${table.released_at} DESC`, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_song_released_id")
+      .on(table.song_id, sql`${table.released_at} DESC`, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
+    index("idx_music_performances_published_relation_released_id")
+      .on(table.relation_type, sql`${table.released_at} DESC`, table.id)
+      .where(sql`${table.publication_status} = 'published'`),
     check(
       "music_performances_relation_type_check",
       sql`${table.relation_type} IN ('original', 'cover')`,
@@ -1491,3 +1503,383 @@ export type MusicPerformanceSource =
   typeof musicPerformanceSources.$inferSelect;
 export type NewMusicPerformanceSource =
   typeof musicPerformanceSources.$inferInsert;
+
+export const musicCoverProposals = sqliteTable(
+  "music_cover_proposals",
+  {
+    id: text().primaryKey(),
+    submitted_by_user_id: text("submitted_by_user_id").notNull(),
+    idempotency_key: text("idempotency_key").notNull(),
+    submitted_url: text("submitted_url").notNull(),
+    youtube_video_id: text("youtube_video_id").notNull(),
+    segment_start_seconds: integer("segment_start_seconds")
+      .notNull()
+      .default(0),
+    submitted_title: text("submitted_title").notNull(),
+    suggested_song_id: text("suggested_song_id").references(
+      () => musicSongs.id,
+      { onDelete: "set null" },
+    ),
+    submitted_note: text("submitted_note"),
+    status: text().$type<OtwPlayProposalStatus>().notNull().default("pending_review"),
+    version: integer().notNull().default(0),
+    review_lock_token: text("review_lock_token"),
+    review_lock_expires_at: integer("review_lock_expires_at"),
+    reviewed_by_user_id: text("reviewed_by_user_id"),
+    reviewed_at: integer("reviewed_at"),
+    review_result_code: text("review_result_code"),
+    review_note: text("review_note"),
+    approved_performance_id: text("approved_performance_id").references(
+      () => musicPerformances.id,
+      { onDelete: "restrict" },
+    ),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_cover_proposals_submitter_idempotency").on(
+      table.submitted_by_user_id,
+      table.idempotency_key,
+    ),
+    uniqueIndex("uidx_music_cover_proposals_pending_video_segment")
+      .on(table.youtube_video_id, table.segment_start_seconds)
+      .where(sql`${table.status} = 'pending_review'`),
+    uniqueIndex("uidx_music_cover_proposals_approved_performance").on(
+      table.approved_performance_id,
+    ),
+    index("idx_music_cover_proposals_status_created_id").on(
+      table.status,
+      table.created_at,
+      table.id,
+    ),
+    index("idx_music_cover_proposals_submitter_created_id").on(
+      table.submitted_by_user_id,
+      sql`${table.created_at} DESC`,
+      table.id,
+    ),
+    index("idx_music_cover_proposals_reviewer_reviewed_id")
+      .on(
+        table.reviewed_by_user_id,
+        sql`${table.reviewed_at} DESC`,
+        table.id,
+      )
+      .where(sql`${table.reviewed_by_user_id} IS NOT NULL`),
+    index("idx_music_cover_proposals_suggested_song_id").on(
+      table.suggested_song_id,
+    ),
+    check(
+      "music_cover_proposals_required_text_check",
+      sql`length(trim(${table.id})) > 0
+        AND length(trim(${table.submitted_by_user_id})) > 0
+        AND length(trim(${table.idempotency_key})) > 0
+        AND length(trim(${table.submitted_url})) > 0
+        AND length(trim(${table.submitted_title})) > 0`,
+    ),
+    check(
+      "music_cover_proposals_video_id_check",
+      sql`length(${table.youtube_video_id}) = 11 AND ${table.youtube_video_id} NOT GLOB '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "music_cover_proposals_segment_check",
+      sql`typeof(${table.segment_start_seconds}) = 'integer' AND ${table.segment_start_seconds} >= 0`,
+    ),
+    check(
+      "music_cover_proposals_status_check",
+      sql`${table.status} IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
+    ),
+    check(
+      "music_cover_proposals_version_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0`,
+    ),
+    check(
+      "music_cover_proposals_lock_pair_check",
+      sql`(${table.review_lock_token} IS NULL AND ${table.review_lock_expires_at} IS NULL)
+        OR (${table.review_lock_token} IS NOT NULL
+          AND length(trim(${table.review_lock_token})) > 0
+          AND typeof(${table.review_lock_expires_at}) = 'integer'
+          AND ${table.review_lock_expires_at} >= 0)`,
+    ),
+    check(
+      "music_cover_proposals_review_pair_check",
+      sql`(${table.reviewed_by_user_id} IS NULL AND ${table.reviewed_at} IS NULL)
+        OR (${table.reviewed_by_user_id} IS NOT NULL
+          AND length(trim(${table.reviewed_by_user_id})) > 0
+          AND typeof(${table.reviewed_at}) = 'integer'
+          AND ${table.reviewed_at} >= ${table.created_at})`,
+    ),
+    check(
+      "music_cover_proposals_status_outcome_check",
+      sql`(${table.status} = 'pending_review'
+          AND ${table.reviewed_by_user_id} IS NULL
+          AND ${table.reviewed_at} IS NULL
+          AND ${table.review_result_code} IS NULL
+          AND ${table.review_note} IS NULL
+          AND ${table.approved_performance_id} IS NULL)
+        OR (${table.status} = 'approved'
+          AND ${table.reviewed_by_user_id} IS NOT NULL
+          AND ${table.reviewed_at} IS NOT NULL
+          AND ${table.approved_performance_id} IS NOT NULL)
+        OR (${table.status} = 'rejected'
+          AND ${table.reviewed_by_user_id} IS NOT NULL
+          AND ${table.reviewed_at} IS NOT NULL
+          AND ${table.approved_performance_id} IS NULL)
+        OR (${table.status} = 'withdrawn'
+          AND ${table.reviewed_by_user_id} IS NULL
+          AND ${table.reviewed_at} IS NULL
+          AND ${table.review_result_code} IS NULL
+          AND ${table.review_note} IS NULL
+          AND ${table.approved_performance_id} IS NULL)`,
+    ),
+    check(
+      "music_cover_proposals_terminal_lock_check",
+      sql`${table.status} = 'pending_review'
+        OR (${table.review_lock_token} IS NULL AND ${table.review_lock_expires_at} IS NULL)`,
+    ),
+    check(
+      "music_cover_proposals_optional_text_check",
+      sql`(${table.submitted_note} IS NULL OR length(trim(${table.submitted_note})) > 0)
+        AND (${table.review_result_code} IS NULL OR length(trim(${table.review_result_code})) > 0)
+        AND (${table.review_note} IS NULL OR length(trim(${table.review_note})) > 0)`,
+    ),
+    check(
+      "music_cover_proposals_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicCoverProposal = typeof musicCoverProposals.$inferSelect;
+export type NewMusicCoverProposal = typeof musicCoverProposals.$inferInsert;
+
+export const musicCoverProposalParticipants = sqliteTable(
+  "music_cover_proposal_participants",
+  {
+    proposal_id: text("proposal_id")
+      .notNull()
+      .references(() => musicCoverProposals.id, { onDelete: "cascade" }),
+    credit_order: integer("credit_order").notNull().default(0),
+    resolved_entity_id: text("resolved_entity_id").references(
+      () => musicEntities.id,
+      { onDelete: "restrict" },
+    ),
+    submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
+    participant_role: text("participant_role")
+      .$type<OtwPlayParticipantRole>()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.proposal_id, table.credit_order],
+      name: "pk_music_cover_proposal_participants",
+    }),
+    index("idx_music_cover_proposal_participants_entity_proposal").on(
+      table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    check(
+      "music_cover_proposal_participants_credit_order_check",
+      sql`typeof(${table.credit_order}) = 'integer' AND ${table.credit_order} >= 0`,
+    ),
+    check(
+      "music_cover_proposal_participants_snapshot_check",
+      sql`length(trim(${table.submitted_name_snapshot})) > 0`,
+    ),
+    check(
+      "music_cover_proposal_participants_role_check",
+      sql`${table.participant_role} IN ('vocal', 'featured_vocal', 'chorus', 'other')`,
+    ),
+  ],
+);
+
+export type MusicCoverProposalParticipant =
+  typeof musicCoverProposalParticipants.$inferSelect;
+export type NewMusicCoverProposalParticipant =
+  typeof musicCoverProposalParticipants.$inferInsert;
+
+export const musicCoverProposalOriginalArtists = sqliteTable(
+  "music_cover_proposal_original_artists",
+  {
+    proposal_id: text("proposal_id")
+      .notNull()
+      .references(() => musicCoverProposals.id, { onDelete: "cascade" }),
+    credit_order: integer("credit_order").notNull().default(0),
+    resolved_entity_id: text("resolved_entity_id").references(
+      () => musicEntities.id,
+      { onDelete: "restrict" },
+    ),
+    submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.proposal_id, table.credit_order],
+      name: "pk_music_cover_proposal_original_artists",
+    }),
+    index("idx_music_cover_proposal_original_artists_entity_proposal").on(
+      table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    check(
+      "music_cover_proposal_original_artists_credit_order_check",
+      sql`typeof(${table.credit_order}) = 'integer' AND ${table.credit_order} >= 0`,
+    ),
+    check(
+      "music_cover_proposal_original_artists_snapshot_check",
+      sql`length(trim(${table.submitted_name_snapshot})) > 0`,
+    ),
+  ],
+);
+
+export type MusicCoverProposalOriginalArtist =
+  typeof musicCoverProposalOriginalArtists.$inferSelect;
+export type NewMusicCoverProposalOriginalArtist =
+  typeof musicCoverProposalOriginalArtists.$inferInsert;
+
+export const musicCatalogEvents = sqliteTable(
+  "music_catalog_events",
+  {
+    id: text().primaryKey(),
+    aggregate_type: text("aggregate_type").notNull(),
+    aggregate_id: text("aggregate_id").notNull(),
+    event_type: text("event_type").notNull(),
+    actor_kind: text("actor_kind")
+      .$type<OtwPlayCatalogEventActorKind>()
+      .notNull(),
+    actor_user_id: text("actor_user_id"),
+    before_json: text("before_json"),
+    after_json: text("after_json"),
+    detail_json: text("detail_json"),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_music_catalog_events_aggregate_created_id").on(
+      table.aggregate_type,
+      table.aggregate_id,
+      sql`${table.created_at} DESC`,
+      table.id,
+    ),
+    check(
+      "music_catalog_events_required_text_check",
+      sql`length(trim(${table.id})) > 0
+        AND length(trim(${table.aggregate_type})) > 0
+        AND length(trim(${table.aggregate_id})) > 0
+        AND length(trim(${table.event_type})) > 0`,
+    ),
+    check(
+      "music_catalog_events_actor_kind_check",
+      sql`${table.actor_kind} IN ('member', 'admin', 'system')`,
+    ),
+    check(
+      "music_catalog_events_actor_check",
+      sql`(${table.actor_kind} = 'system' AND ${table.actor_user_id} IS NULL)
+        OR (${table.actor_kind} IN ('member', 'admin')
+          AND ${table.actor_user_id} IS NOT NULL
+          AND length(trim(${table.actor_user_id})) > 0)`,
+    ),
+    check(
+      "music_catalog_events_json_check",
+        sql`CASE
+          WHEN ${table.before_json} IS NULL THEN 1
+          WHEN typeof(${table.before_json}) <> 'text' THEN 0
+          WHEN json_valid(${table.before_json}) = 0 THEN 0
+          ELSE json_type(${table.before_json}) = 'object'
+        END
+        AND CASE
+          WHEN ${table.after_json} IS NULL THEN 1
+          WHEN typeof(${table.after_json}) <> 'text' THEN 0
+          WHEN json_valid(${table.after_json}) = 0 THEN 0
+          ELSE json_type(${table.after_json}) = 'object'
+        END
+        AND CASE
+          WHEN ${table.detail_json} IS NULL THEN 1
+          WHEN typeof(${table.detail_json}) <> 'text' THEN 0
+          WHEN json_valid(${table.detail_json}) = 0 THEN 0
+          ELSE json_type(${table.detail_json}) = 'object'
+        END`,
+    ),
+    check(
+      "music_catalog_events_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0`,
+    ),
+  ],
+);
+
+export type MusicCatalogEvent = typeof musicCatalogEvents.$inferSelect;
+export type NewMusicCatalogEvent = typeof musicCatalogEvents.$inferInsert;
+
+export const musicSearchTerms = sqliteTable(
+  "music_search_terms",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    term_kind: text("term_kind").$type<OtwPlaySearchTermKind>().notNull(),
+    display_value: text("display_value").notNull(),
+    normalized_term: text("normalized_term").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.term_kind, table.normalized_term],
+      name: "pk_music_search_terms",
+    }),
+    index("idx_music_search_terms_normalized_kind_song").on(
+      table.normalized_term,
+      table.term_kind,
+      table.song_id,
+    ),
+    check(
+      "music_search_terms_kind_check",
+      sql`${table.term_kind} IN ('title', 'title_alias', 'original_artist', 'participant')`,
+    ),
+    check(
+      "music_search_terms_required_text_check",
+      sql`length(trim(${table.display_value})) > 0 AND length(trim(${table.normalized_term})) > 0`,
+    ),
+  ],
+);
+
+export type MusicSearchTerm = typeof musicSearchTerms.$inferSelect;
+export type NewMusicSearchTerm = typeof musicSearchTerms.$inferInsert;
+
+export const musicCatalogMeta = sqliteTable(
+  "music_catalog_meta",
+  {
+    id: integer().primaryKey(),
+    revision: integer().notNull().default(0),
+    public_read_enabled: integer("public_read_enabled", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    navigation_visible: integer("navigation_visible", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    updated_at: integer("updated_at").notNull().default(0),
+  },
+  (table) => [
+    check(
+      "music_catalog_meta_singleton_check",
+      sql`typeof(${table.id}) = 'integer' AND ${table.id} = 1`,
+    ),
+    check(
+      "music_catalog_meta_revision_check",
+      sql`typeof(${table.revision}) = 'integer' AND ${table.revision} >= 0`,
+    ),
+    check(
+      "music_catalog_meta_flags_check",
+      sql`typeof(${table.public_read_enabled}) = 'integer'
+        AND ${table.public_read_enabled} IN (0, 1)
+        AND typeof(${table.navigation_visible}) = 'integer'
+        AND ${table.navigation_visible} IN (0, 1)`,
+    ),
+    check(
+      "music_catalog_meta_navigation_check",
+      sql`${table.navigation_visible} = 0 OR ${table.public_read_enabled} = 1`,
+    ),
+    check(
+      "music_catalog_meta_time_check",
+      sql`typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= 0`,
+    ),
+  ],
+);
+
+export type MusicCatalogMeta = typeof musicCatalogMeta.$inferSelect;
+export type NewMusicCatalogMeta = typeof musicCatalogMeta.$inferInsert;
