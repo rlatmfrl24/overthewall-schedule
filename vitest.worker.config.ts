@@ -15,6 +15,8 @@ const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
   "0046_tan_nova.sql",
   ...OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES,
   "0050_parched_marvel_apes.sql",
+  "0051_clear_mantis.sql",
+  "0052_otw-play-public-read-model-backfill.sql",
 ] as const;
 const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual minimal prerequisite: 0046 adds an FK to members(uid).
