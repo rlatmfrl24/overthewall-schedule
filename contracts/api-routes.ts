@@ -81,6 +81,21 @@ export const apiRoutes = {
       "/api/operations/live-schedule/auto-fill",
     ),
   },
+  otwPlay: {
+    config: staticRoute("/api/play/config"),
+    catalog: staticRoute("/api/play/catalog"),
+    facets: staticRoute("/api/play/facets"),
+    song: dynamicRoute(
+      "/api/play/songs/:slug",
+      (slug: string) =>
+        `/api/play/songs/${encodeURIComponent(slug)}` as const,
+    ),
+    performance: dynamicRoute(
+      "/api/play/performances/:id",
+      (id: string) =>
+        `/api/play/performances/${encodeURIComponent(id)}` as const,
+    ),
+  },
   scheduleBoard: {
     read: staticRoute("/api/schedule-board"),
   },

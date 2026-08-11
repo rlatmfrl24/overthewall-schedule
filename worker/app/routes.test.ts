@@ -47,6 +47,25 @@ const PUBLIC_SHORT_CACHE_GET = {
   cache: "public, max-age=60",
   successStatus: 200,
 } as const;
+const OTW_PLAY_CONFIG_GET = {
+  method: "GET",
+  auth: "public",
+  cache: "public, max-age=60, s-maxage=1800; auth/cookie => no-store",
+  successStatus: 200,
+} as const;
+const OTW_PLAY_CATALOG_GET = {
+  method: "GET",
+  auth: "public",
+  cache:
+    "public, max-age=60, s-maxage=300; q => private, max-age=30; cursor => private, max-age=60; auth/cookie => no-store",
+  successStatus: 200,
+} as const;
+const OTW_PLAY_DETAIL_GET = {
+  method: "GET",
+  auth: "public",
+  cache: "public, max-age=60, s-maxage=600; auth/cookie => no-store",
+  successStatus: 200,
+} as const;
 const MEMBER_POLICY_GET = {
   method: "GET",
   auth: "member-policy",
@@ -164,6 +183,36 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     owner: "members",
     path: "/api/members/:code",
     methods: [PUBLIC_GET],
+  },
+  {
+    id: "otw-play.config",
+    owner: "otw-play",
+    path: "/api/play/config",
+    methods: [OTW_PLAY_CONFIG_GET],
+  },
+  {
+    id: "otw-play.catalog",
+    owner: "otw-play",
+    path: "/api/play/catalog",
+    methods: [OTW_PLAY_CATALOG_GET],
+  },
+  {
+    id: "otw-play.facets",
+    owner: "otw-play",
+    path: "/api/play/facets",
+    methods: [OTW_PLAY_CONFIG_GET],
+  },
+  {
+    id: "otw-play.song",
+    owner: "otw-play",
+    path: "/api/play/songs/:slug",
+    methods: [OTW_PLAY_DETAIL_GET],
+  },
+  {
+    id: "otw-play.performance",
+    owner: "otw-play",
+    path: "/api/play/performances/:id",
+    methods: [OTW_PLAY_DETAIL_GET],
   },
   {
     id: "schedule-board.read",
@@ -426,6 +475,7 @@ describe("OTW Worker route manifest", () => {
       "naver-cafe",
       "notices",
       "operations",
+      "otw-play",
       "schedule-board",
       "schedules",
       "x-posts",
@@ -467,6 +517,7 @@ describe("OTW Worker route manifest", () => {
 
   it.each([
     ["/api/live-status", "POST", "GET"],
+    ["/api/play/catalog", "POST", "GET"],
     ["/api/settings", "POST", "GET, PUT"],
     ["/api/settings/pending/actions", "PUT", "POST"],
     ["/api/settings/pending/approve-all", "GET", "POST"],
