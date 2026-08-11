@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-4 공개 catalog query/API/cache 실행 기준선
+상태: PR-4 공개 catalog query/API/cache 및 성능 read-model 실행 기준선
 
 기준일: 2026-08-11
 
@@ -35,7 +35,9 @@ OTW Play는 기존 VOD 최신 영상 피드의 이름이나 화면만 바꾸는 
    응답은 `no-store`로 분리한다.
 8. 승인·게시·감사 이벤트·catalog revision 증가는 CAS와 D1 batch로
    부분 반영을 막는다.
-9. R2, KV, Durable Objects와 Queues는 MVP에 추가하지 않는다.
+9. 검색·참여자 정렬용 파생 read model은 canonical catalog revision과 일치할
+   때만 config 이외 공개 조회에 사용한다.
+10. R2, KV, Durable Objects와 Queues는 MVP에 추가하지 않는다.
 
 테이블은 제품명 변경에 덜 민감한 `music_*` 접두사를 사용하고, 코드
 capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
@@ -184,6 +186,18 @@ production content, 배포 설정과 원격 D1 적용은 포함하지 않는다.
   나머지 ETag는 revision과 canonical path/query의 SHA-256으로 만든 weak validator다.
   Authorization 또는 Cookie가 있는 요청은 Cache API를 우회하고 `no-store`로
   응답한다.
+- 공개 read가 활성인 상태에서 `music_catalog_meta.revision`과 공개 read-model
+  revision이 일치하지 않으면 config 이외 endpoint는 cache를 읽기 전에
+  `503 PLAY_CATALOG_UNAVAILABLE`로 fail closed한다. flag-off에서는 기존
+  `404 PLAY_PUBLIC_READ_DISABLED`가 우선하며 `/api/play/config`는 projection
+  상태와 무관하게 현재 flag와 catalog revision을 계속 반환한다.
+- 성능 projection은 후보를 줄이고 participant keyset 순서를 제공할 뿐이다.
+  최종 candidate와 hydration SQL은 canonical·non-archived song,
+  `published` official performance와 동일-performance filter predicate를 다시
+  적용하므로 projection row만으로 공개 자격을 부여하지 않는다.
+- 이 보완은 기존 endpoint, DTO, query, cursor와 cache 계약을 바꾸지 않는다.
+  DB trigger도 추가하지 않으며 후속 PR-5 writer가 canonical 변경, search term,
+  sort key, gram/stat과 두 revision을 같은 D1 batch에서 원자적으로 갱신한다.
 - PR-4는 public read만 구현한다. 관리자 command, 회원 proposal API, frontend
   route·UI·player, production content, 배포와 원격 D1 적용은 포함하지 않는다.
 
@@ -607,6 +621,10 @@ DELETE를 trigger로 막지 않는다. 후속 infrastructure는 insert-only meth
 | --- | --- | --- |
 | `music_search_terms` | song, term kind, 표시값, normalized term | 제목·별칭·원곡 가수·참여자 검색 projection |
 | `music_catalog_meta` | singleton ID, revision, public flag, navigation flag, updated_at | cache revision과 단계적 공개 switch |
+| `music_public_performance_sort_keys` | performance, song, 대표 participant entity와 normalized key | participant 정렬의 performance 단위 keyset projection |
+| `music_search_grams` | song, gram size, normalized gram | Unicode 2·3 code point contains 후보 projection |
+| `music_search_gram_stats` | gram size, normalized gram, song count | query gram 중 가장 희소한 후보 key 선택 |
+| `music_public_read_model_meta` | singleton ID, revision, updated_at | 파생 read model 완성 revision과 freshness gate |
 
 `music_search_terms`의 PK는 `(song_id, term_kind, normalized_term)`이다. 게시,
 수정, 철회 시 해당 곡의 term projection과 revision을 같은 batch에서 갱신한다.
@@ -637,6 +655,41 @@ integration test에서만 검증한다. revision 단조 증가는 후속 command
 batch에 넣어 보장한다. PR-3은 초기 row와 atomic increment SQL 가능성만 검증하고
 trigger를 추가하지 않는다.
 
+PR-4 성능 보완의 네 table은 canonical catalog를 대체하지 않는 파생 read model이다.
+`music_public_performance_sort_keys`는 공개 여부와 무관하게 모든 performance마다
+정확히 한 row를 두고, `credit_order ASC, entity_id ASC`의 첫 participant를 대표로
+선택한다. participant가 없으면 entity와 normalized key를 함께 NULL로 둔다.
+`performance_id`가 PK이고 representative entity는 `ON DELETE RESTRICT`다. entity와
+normalized key는 둘 다 NULL이거나 둘 다 non-NULL·non-empty여야 한다. participant
+존재·부재를 나눈 두 keyset index와 representative entity lookup index를 둔다.
+`(performance_id, song_id)`는 `music_performances(id, song_id)`를 composite FK로
+참조하고 performance 삭제 시 cascade한다. 이를 위해 parent에는
+`UNIQUE(id, song_id)`를 둔다. 실제 공개 여부, MVP release type과 모든 filter는
+후보 및 hydration의 canonical SQL이 다시 검증한다.
+
+`music_search_grams`는 canonical `music_songs.normalized_title`과 해당 song의 모든
+`music_search_terms.normalized_term`을 합쳐 song 단위로 중복 제거한 Unicode
+2·3 code point gram을 저장한다. `(song_id, gram_size, normalized_gram)`이 PK이고
+`(gram_size, normalized_gram, song_id)` lookup index를 사용한다.
+gram size는 strict INTEGER `2|3`이고 normalized gram의 Unicode 길이는 size와
+같아야 한다. `music_search_gram_stats`는 `(gram_size, normalized_gram)` PK와 양의
+strict INTEGER `song_count`로 같은 gram의 song 수를 저장한다. contains query는
+query의 서로 다른 모든 2자 또는 3자 gram이 stats에 존재하는지 먼저 확인하고,
+그중 `song_count`가 가장 작은 gram을 선택한다. 희소 posting은 gram에서 song으로
+조회하고, 밀집 posting은 요청 sort index에서 song을 순회하며 해당 gram 존재를
+확인한다. 2·3 code point query는 gram 자체가 전체 query이므로 membership이 exact다.
+더 긴 query는 canonical title과 search term에
+`instr(normalized_value, query) > 0`를 다시 적용한다. 따라서 gram은 false positive를
+공개 결과로 승격시키지 않으며 canonical title만 있는 곡도 검색할 수 있다.
+
+`music_public_read_model_meta`는 `id=1` singleton이다. 초기 custom backfill은 sort
+key, gram과 stats를 모두 채운 다음 마지막 statement에서 `music_catalog_meta`의
+revision과 updated_at을 복사한다. 이후 활성화된 config 이외 공개 read는 두
+revision이 같을 때만 cache 또는 D1 content read를 진행한다. row가 없거나 revision이
+다르면 오래된 cache도 반환하지 않고 `503 PLAY_CATALOG_UNAVAILABLE`이다. flag-off
+`404` 검사가 먼저이며 config는 freshness gate의 예외다. meta의 id, revision과
+updated_at은 strict INTEGER이고 id는 1, 나머지는 0 이상이어야 한다.
+
 ### 6.5 핵심 관계
 
 ```mermaid
@@ -649,6 +702,7 @@ erDiagram
   MUSIC_SONGS ||--o{ MUSIC_PERFORMANCES : "has version"
   MUSIC_ENTITIES ||--o{ MUSIC_PERFORMANCE_PARTICIPANTS : "performs"
   MUSIC_PERFORMANCES ||--o{ MUSIC_PERFORMANCE_PARTICIPANTS : "credits"
+  MUSIC_PERFORMANCES ||--|| MUSIC_PUBLIC_PERFORMANCE_SORT_KEYS : "projects sort key"
   MUSIC_CHANNELS ||--o{ MUSIC_CHANNEL_ENTITIES : "owned by"
   MUSIC_ENTITIES ||--o{ MUSIC_CHANNEL_ENTITIES : "owns"
   MUSIC_CHANNELS ||--o{ MUSIC_MEDIA_SOURCES : "publishes"
@@ -658,6 +712,7 @@ erDiagram
   MUSIC_COVER_PROPOSALS ||--o{ MUSIC_COVER_PROPOSAL_PARTICIPANTS : "submitted credits"
   MUSIC_COVER_PROPOSALS ||--o{ MUSIC_COVER_PROPOSAL_ORIGINAL_ARTISTS : "submitted artists"
   MUSIC_SONGS ||--o{ MUSIC_SEARCH_TERMS : "projects"
+  MUSIC_SONGS ||--o{ MUSIC_SEARCH_GRAMS : "projects contains grams"
   MUSIC_PERFORMANCES ||..o{ MUSIC_CATALOG_EVENTS : "records"
 ```
 
@@ -780,14 +835,26 @@ source priority는 NULL을 허용하지 않는다. 값이 생략되면 `0`이며
 - `music_cover_proposals(submitted_by_user_id, created_at DESC, id)`
 - `music_catalog_events(aggregate_type, aggregate_id, created_at DESC)`
 - `music_search_terms(normalized_term, term_kind, song_id)`
+- `music_public_performance_sort_keys(normalized_participant, song_id, performance_id)`
+  partial where representative participant가 존재함
+- `music_public_performance_sort_keys(song_id, performance_id)` partial where
+  participant가 없음
+- `music_public_performance_sort_keys(representative_participant_entity_id, performance_id)`
+- `music_search_grams(gram_size, normalized_gram, song_id)`
 
 인덱스는 예상 조합을 모두 만드는 방식이 아니라 실제 hot query와
 `EXPLAIN QUERY PLAN` 결과에 맞춰 최소화한다. D1은 반환 행이 아니라 읽은 행을
 측정하므로 full scan 제거가 우선이다.
 
-위 세 published partial index는 PR-2 migration에 포함하지 않는다. PR-3의
-search/meta migration에서 추가하고 대표 fixture의 published-only query가
-`EXPLAIN QUERY PLAN`에서 해당 index를 사용하는지 확인한다.
+첫 세 published partial index는 PR-3 search/meta migration에 있고, 뒤의
+`released_at DESC, song_id, id`와 participation index는 기존 `0050_*` migration에
+그대로 유지한다. PR-4 성능 보완은 이를 다시 쓰지 않고 additive
+`0051_clear_mantis.sql`에 네 read-model table, 그 index와
+`music_performances(id, song_id)` UNIQUE를 추가한다.
+`0052_otw-play-public-read-model-backfill.sql` custom migration은 기존 row의
+performance sort key, search gram과 stats를 backfill하고 read-model meta를
+마지막에 채운다. trigger, public contract 변경, production content는 어느
+migration에도 넣지 않는다.
 
 ## 8. API 설계
 
@@ -968,15 +1035,20 @@ alias로 등록한다.
 `sort=recent|title|participant`는 같은 relevance bucket 안의 keyset 정렬이며 마지막 tie-break는
 항상 song ID다. `q`가 없으면 선택한 sort가 첫 정렬 기준이다.
 
-prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가 부족하고
-검색어가 2자 이상일 때만 작은 limit으로 실행한다. 다음 중 하나를 지속적으로
-넘으면 FTS5 projection을 별도 custom migration으로 검토한다.
+prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가
+부족하고 검색어가 2자 이상일 때만 별도 phase로 실행한다. 2 code point query는
+서로 다른 bigram을, 그보다 긴 query는 서로 다른 trigram을 만들고, stats에서
+모든 query gram의 존재를 확인한 다음 가장 희소한 gram의 song count로 실행 경로를
+선택한다. 희소 검색은 posting 주도, 밀집 검색은 recent/title/participant sort index
+주도로 bounded page를 찾는다. 2·3 code point query는 exact gram membership을 쓰고,
+그보다 긴 후보는 canonical normalized title 또는 normalized search term의 실제
+infix를 다시 검증한다. FTS5와 virtual table은 사용하지 않는다.
 
-- search term 10,000행
-- cold search p95 500ms
-- 한 검색의 D1 rows read 5,000행
-
-FTS5는 권위 테이블이 아니라 교체 가능한 read model이어야 한다.
+성능 수용 기준은 곡 3,000개, search term 10,000개, performance 8,000개의 선언된
+대표 상한 fixture에서 각 query가 D1 rows read 5,000 이하, 최대 6 statements,
+100 bind 이하인 것이다. 이 fixture는 현재 MVP 분포의 회귀 기준이며 임의의 모든
+adversarial 데이터 분포에 대한 수학적 상한을 뜻하지 않는다. 실제 운영 분포가
+달라지면 rows read와 latency를 관측해 read model을 다시 평가한다.
 
 ### 9.2 filter 의미
 
@@ -1053,14 +1125,21 @@ WHERE id = ?
 1. proposal CAS claim
 2. 필요한 entity/song/source insert 또는 기존 row 연결
 3. performance, participant, source link 생성
-4. search term projection 생성
-5. performance `published`
-6. proposal `approved`와 approved performance 연결
-7. capability event append
-8. catalog revision 증가
+4. 해당 song의 search term projection 생성
+5. 변경된 모든 performance의 대표 participant sort key 갱신
+6. 영향받은 song의 2·3 code point gram과 gram stats 갱신
+7. performance `published`
+8. proposal `approved`와 approved performance 연결
+9. capability event append
+10. catalog revision CAS 증가
+11. 모든 authority·projection 쓰기가 성공한 뒤 read-model meta를 같은 새
+    revision으로 갱신
 
 UUID는 application에서 미리 만들고, 모든 SQL은 prepared statement로 bind한다.
 YouTube 외부 호출은 batch 밖에서 먼저 끝내고 CAS로 그 사이의 변경을 감지한다.
+위 단계는 PR-5 writer가 하나의 D1 batch로 소유한다. trigger나 별도 비동기 job에
+projection freshness를 맡기지 않으며, 중간 statement가 실패하면 catalog revision과
+read-model revision을 포함해 전체 batch를 rollback한다.
 
 ### 10.3 재시도
 
@@ -1124,6 +1203,12 @@ command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cac
 - migration 후 `PRAGMA optimize`
 - hot query는 `EXPLAIN QUERY PLAN`에서 index search 확인
 - D1 `rows_read`, `rows_written`, query latency를 관측
+- participant browse는 performance별 대표 key projection에서 시작하되 canonical
+  performance/song predicate와 같은-performance filter guard를 다시 적용
+- contains는 gram stats의 candidate 밀도에 따라 posting 또는 sort index를 먼저
+  사용하고, 2·3 code point 초과 query는 canonical title/search term의 실제 infix를
+  재검증
+- config 이외 content/cache read 전에 catalog와 read-model revision 일치 확인
 
 현재 Smart Placement를 유지한다. D1 read replication은 Sessions API를 사용하지
 않는 현재 adapter에는 자동 적용되지 않으므로, cache miss p95 문제가 실제로
@@ -1218,6 +1303,10 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - 같은 제안을 동시에 승인해도 canonical performance는 하나만 생성된다.
 - 승인 중 event 쓰기가 실패하면 proposal과 catalog 모두 원래 상태다.
 - 검색, member ANY/ALL과 세 정렬이 keyset pagination에서 중복·누락 없이 동작한다.
+- 공개 read 활성 상태에서 파생 read-model revision이 catalog revision과 다르면
+  config 이외 공개 read가 cache 전에 `503`으로 중단되고 config는 계속 읽을 수 있다.
+- performance sort key와 search gram이 있어도 canonical publication·song predicate를
+  통과하지 못한 row는 공개되지 않는다.
 - public GET은 YouTube API를 호출하지 않는다.
 - public/member/admin DTO와 cache가 서로 섞이지 않는다.
 - source가 사라져도 곡·가창·감사 이력은 남는다.

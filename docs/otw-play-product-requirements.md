@@ -2,7 +2,7 @@
 
 상태: Living Draft
 
-단계: PR-4 공개 catalog query/API/cache 착수, UI·관리자 command·원격 적용 미착수
+단계: PR-4 공개 catalog query/API/cache 성능 보완, UI·관리자 command·원격 적용 미착수
 
 최종 갱신일: 2026-08-11
 
@@ -75,6 +75,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-020 | 공개 catalog query는 입력 상한과 vocabulary를 strict contract로 검증한다. | 확정 | member UID, limit, 중복 parameter, 알 수 없는 enum과 malformed cursor를 clamp하거나 무시하지 않고 `400`으로 거부한다. |
 | DEC-021 | 검색어가 있으면 검색 relevance를 첫 정렬 기준으로 사용하고 사용자가 고른 정렬은 동점 해소에 사용한다. | 확정 | 응답은 exact total이나 facet count를 계산하지 않고 현재 page와 `nextCursor`만 제공한다. |
 | DEC-022 | 공개 cache는 revision과 canonical query로 격리하고 인증·cookie 요청은 저장하지 않는다. | 확정 | 구조화된 첫 catalog page, config/facets와 detail만 Cache API에 저장하며 자유 검색과 cursor page는 저장하지 않는다. |
+| DEC-023 | 공개 검색·참여자 정렬의 성능 projection은 canonical catalog와 같은 D1에 두되 권위 데이터로 사용하지 않는다. | 확정 | 공개 read가 활성일 때 파생 read model revision이 catalog revision과 다르면 config 이외 공개 조회를 cache 전에 `503`으로 중단한다. flag-off `404`가 우선이며 config는 항상 현재 flag와 catalog revision을 제공한다. |
 
 ## 4. 제품 원칙
 
@@ -492,6 +493,11 @@ detail로 자동 복사하지 않는다.
 - NFR-016: 공개 catalog API는 로그인 상태와 무관하게 Authorization을 보내지 않는
   동일한 public DTO를 사용해야 하며, Authorization 또는 Cookie가 있는 직접 요청은
   shared Cache API를 우회하고 `no-store`로 응답해야 한다.
+- NFR-017: 공개 검색·정렬 projection은 canonical song과 published performance를
+  대체하지 않아야 한다. 공개 read가 활성인 경우 projection revision이 catalog
+  revision과 일치할 때만 config 이외 공개 응답과 cache를 허용하며, 최종 조회에서도
+  canonical·non-archived song과 published official performance predicate를 다시
+  적용해야 한다.
 
 ## 14. 수용 기준
 
@@ -579,6 +585,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | PR-2 catalog foundation 권위·관계·dedupe 경계 확정, published partial index는 PR-3으로 연기하고 API·UI·원격 적용은 제외, GATE-01~06은 변경하지 않음 |
 | 2026-08-11 | PR-3 proposal·event·search/meta exact schema 경계 확정, proposal channel 제외, fail-closed meta와 application-owned revision·append-only 채택, API·UI·원격 적용 제외, GATE-01~06 유지 |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
+| 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 
 ## 19. 참고
 

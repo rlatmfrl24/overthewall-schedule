@@ -1,6 +1,6 @@
 # OTW Play UI/UX 설계
 
-상태: PR-4 공개 API 계약 기준선, 공개 UI·player 미착수
+상태: PR-4 공개 API·성능 read-model 기준선, 공개 UI·player 미착수
 
 기준일: 2026-08-11
 
@@ -405,6 +405,7 @@ stateDiagram-v2
 | 검색 결과 없음 | 적용 필터 요약, `필터 초기화`, 검색어 수정 제안 |
 | 공개 카탈로그 없음 | 관리 운영 전용 안내, 임의 샘플 데이터 미노출 |
 | 공개 read 비활성 | config flag를 기준으로 OTW Play 준비 중 안내, catalog endpoint 재시도 금지 |
+| 공개 read-model 동기화 중 | config는 유지하되 catalog `503`에서는 이전 revision 결과를 현재 결과처럼 보여주지 않고 일시적 이용 불가와 수동 재시도 제공 |
 | API 오류 | 이전 성공 데이터 유지 가능 시 stale 표시와 재시도 |
 | 영상 unavailable | 곡 메타데이터 유지, 대체 소스 또는 YouTube 외부 링크 제공 |
 | 인증 만료 | 입력 보존 후 로그인 재시도, 공개 탐색은 계속 가능 |
@@ -434,9 +435,23 @@ stateDiagram-v2
 - player API script는 첫 재생 의도 또는 player가 필요한 route에서 한 번만 로드한다.
 - 긴 목록은 cursor pagination을 기본으로 하고 실제 측정 전에는 virtual list를
   도입하지 않는다.
+- participant 정렬과 contains 검색의 내부 read model은 결과를 근사하거나 새 공개
+  상태를 만들지 않는다. 화면에 표시하기 전 canonical song과 published official
+  performance 조건을 통과한 결과만 사용한다.
+- 공개 read 활성 상태에서 catalog revision과 read-model revision이 다르면 config
+  이외 공개 API는 cache 전에 `503`으로 중단된다. 후속 UI는 이를 빈 결과로 오해하지
+  않고 동기화 중 오류 상태로 표시하며, 이전 revision 목록을 최신 결과처럼 계속
+  노출하지 않는다. flag-off 상태는 기존 준비 중 안내를 유지한다.
+- 곡 3,000개, search term 10,000개, performance 8,000개의 선언된 상한 fixture에서
+  rows read 예산을 검증한다. 이는 현재 MVP 대표 분포의 회귀 기준이며 임의의 모든
+  데이터 분포에서 같은 수치를 보장한다는 의미가 아니다.
 - 목표: 공개 카탈로그 cache hit 기준 API p95 300ms 이내, 검색 miss 기준 p95
   800ms 이내, player 이외 화면 CLS 0.1 이하. 수치는 출시 전 실제 환경에서
   재측정하고 조정한다.
+
+PR-4 성능 보완은 API·DTO·cursor와 화면 설계를 바꾸지 않으며 `/play` route,
+navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하지 않으므로 현재
+사용자가 보는 화면에는 영향이 없다.
 
 ## 15. 화면별 수용 기준
 
