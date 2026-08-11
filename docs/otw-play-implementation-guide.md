@@ -1,6 +1,6 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-2 catalog foundation schema·migration 실행 기준선
+상태: PR-3 proposal·event·search/meta schema·migration 실행 기준선
 
 기준일: 2026-08-11
 
@@ -15,7 +15,8 @@
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-2 catalog foundation schema·migration이며 API·UI·원격 적용은 포함하지 않는다.
+PR-3 proposal·event·search/meta schema·migration이며 API·UI·원격 적용은 포함하지
+않는다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -45,7 +46,7 @@ flowchart LR
 - MVP: 오리지널과 공식 커버만 공개
 
 공개 route, 접근 권한과 내비게이션은 후속 API·UI slice의 설계 기본값이다.
-PR-2에서는 해당 route contract나 실행 경로를 만들지 않는다.
+PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 
 ### 2.2 관련 slice 전에 확정해야 하는 제품 결정
 
@@ -62,7 +63,7 @@ PR-2에서는 해당 route contract나 실행 경로를 만들지 않는다.
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-PR-2 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 변경하지 않는다.
+PR-3 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 변경하지 않는다.
 
 ## 3. 전달 전략
 
@@ -81,7 +82,7 @@ PR-2 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 �
 | --- | --- | --- |
 | PR-1 | 공유 계약, 순수 domain과 공개 index | 없음 |
 | PR-2 | catalog foundation schema와 migration | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
-| PR-3 | proposal·event·search/meta schema와 migration | additive D1 |
+| PR-3 | proposal·event·search/meta schema와 migration | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
 | PR-4 | 공개 catalog query/API/cache | 숨겨진 API |
 | PR-5 | 관리자 catalog command와 UI | 관리자 전용 |
 | PR-6 | 공개 Discover/Catalog/Detail과 player | feature flag 뒤 |
@@ -283,13 +284,21 @@ performance dedupe key가 metadata 수정 대상에 포함되지 않는지는 PR
 
 회원 입력을 canonical catalog와 격리하고, 승인 이력과 검색 projection을 제공한다.
 
+API route·DTO contract·handler, application/repository, `worker/app/routes.ts`, frontend
+route·UI, production catalog/proposal content, 배포 설정과 원격 D1 적용은 PR-3에
+포함하지 않는다. 회원 제안 수정·철회 command, 거절 결과의 회원 노출, 제출
+limit 숫자는 각각 GATE-04~06 확정 전 구현하지 않는다. quota/counter table도
+추가하지 않는다.
+
 ### migration B: proposal·event
 
 - `music_cover_proposals`
 - `music_cover_proposal_participants`
 - `music_cover_proposal_original_artists`
 - `music_catalog_events`
-- idempotency, pending video duplicate, channel/reviewer index
+- 사용자/idempotency UNIQUE, pending video/start partial UNIQUE
+- status/submitter/reviewer와 event aggregate 조회 index
+- proposal에는 channel 열이나 channel index를 두지 않음
 
 ### migration C: search·meta
 
@@ -299,21 +308,86 @@ performance dedupe key가 metadata 수정 대상에 포함되지 않는지는 PR
 - published partial `music_performances(song_id, released_at DESC, id)`
 - published partial `music_performances(relation_type, released_at DESC, id)`
 
+### PR-3 exact schema 결정
+
+- proposal aggregate는 UUID `TEXT` PK, epoch-ms `created_at/updated_at`, strict
+  INTEGER `version >= 0`을 사용한다. 제출 URL/video/start/title, suggested song,
+  private note, 독립 status, review lock pair, reviewer/time, private result/note와
+  approved performance를 저장한다.
+- proposal status는 `pending_review`, `approved`, `rejected`, `withdrawn`만
+  허용하고 lock, reviewer/time, result/note, approved performance를 상태별 CHECK로
+  일관되게 유지한다. terminal 상태는 lock을 가질 수 없다.
+- suggested song은 `SET NULL`, approved performance는 `RESTRICT + UNIQUE`다.
+  proposal child는 `(proposal_id, credit_order)` PK, proposal `CASCADE`, nullable
+  resolved entity `RESTRICT`와 제출명 snapshot을 사용한다.
+- proposal 제출 단계에는 channel identity를 저장하거나 YouTube API를 호출하지
+  않는다. 채널·공개일 검증은 후속 관리자 승인 과정의 책임이다.
+- event는 polymorphic aggregate FK 없이 ID, aggregate/event, actor, nullable JSON
+  object before/after/detail과 시각을 저장한다. actor만 `member`, `admin`, `system`
+  enum이며 aggregate/event와 `review_result_code`는 non-empty 자유 텍스트다.
+- event detail은 allowlist를 사용하고 회원 note·내부 review note·이메일·token을
+  복사하지 않는다. append-only는 후속 insert-only repository가 소유하며 DB
+  trigger는 추가하지 않는다.
+- `review_result_code`는 DB nullable 자유 텍스트지만 후속 reject command에서는
+  non-empty 사유를 요구한다. GATE-05 전에는 이를 회원 노출 enum으로 만들지 않는다.
+- search term kind는 `title`, `title_alias`, `original_artist`, `participant`다.
+  PK는 `(song_id, term_kind, normalized_term)`이고 song 삭제 시 `CASCADE`다.
+- catalog meta는 `id=1`, `revision=0`, `public_read_enabled=0`,
+  `navigation_visible=0`, `updated_at=0`인 singleton으로 시작한다. navigation은
+  public read 없이 켤 수 없다.
+- catalog revision 단조 증가는 후속 mutation이 search projection·event와 같은
+  D1 batch에서 수행한다. PR-3은 초기 row와 atomic increment SQL을 검증하며
+  revision trigger는 추가하지 않는다.
+
+### 생성 절차와 migration 분리
+
+PR-2의 `0046_*`까지 적용된 schema에서 시작한다. 실제 다음 migration 번호가
+다르면 그 번호를 따르되 현재 기준은 다음 세 artifact다.
+
+1. `0047_*`: `db/schema/index.ts`의 proposal·event 4개 table을
+   `pnpm drizzle:generate`로 생성한다.
+2. `0048_*`: search/meta 2개 table과 published partial index 세 개를
+   `pnpm drizzle:generate`로 생성한다.
+3. `0049_*`: `pnpm drizzle:generate:custom`으로 빈 migration을 만든 뒤 구조적
+   singleton `(1, 0, 0, 0, 0)` INSERT만 작성한다.
+
+generated SQL·snapshot·journal은 직접 작성하거나 번호를 수동 할당하지 않는다.
+custom migration에는 table/index/trigger나 운영 content를 넣지 않는다. 생성 SQL에
+예상하지 않은 DROP, ALTER, RENAME이 없는지 검토하고 full chain과 PR-2 이후
+incremental 적용을 모두 검증한다.
+
 ### 필수 integration test
 
 - proposal 저장 시 canonical song/performance가 생기지 않음
 - 같은 사용자·idempotency key가 row를 중복 생성하지 않음
 - 같은 video/start pending 중복 거부
 - 다른 사용자 proposal을 submitter predicate로 읽을 수 없음
-- rejected row와 event가 보존됨
-- search term projection의 FK와 delete 정책
-- catalog revision 단조 증가
+- 잘못된 YouTube ID, enum, fractional integer, lock/status/review/performance 조합 거부
+- proposal child의 순서, unresolved snapshot, role, CASCADE/RESTRICT/SET NULL
+- rejected proposal과 event 보존, event actor pairing과 JSON object CHECK
+- search term의 PK, enum, FK, CASCADE와 lookup index
+- normalized prefix `GLOB` query가 lookup index를 range SEARCH로 사용함
+- meta singleton의 fail-closed 초기값, strict integer/boolean과 navigation ⇒ public CHECK
+- `WHERE revision = ?` CAS 기반 atomic increment와 stale revision 0행
+- published partial index의 exact WHERE와 대표 query의 index 사용
+- `PRAGMA foreign_key_check`, `PRAGMA integrity_check`
+- force fixture seed 후 meta singleton이 보존됨
+
+integration test는 테스트용 CREATE TABLE 복사본이 아니라 실제 `0046`과 PR-3
+migration 세 개를 순서대로 Miniflare D1에 적용한다. local seed guard는 proposal,
+event와 search row를 보호하되 구조적 meta row는 보호 row count와 fixture 삭제에서
+제외한다. migration integration은 singleton의 초기 `(1, 0, 0, 0, 0)` 값을
+검증한다. doctor는 새 여섯 table의 핵심 열, `id=1` singleton row 하나와 운영 중
+현재 값의 type·range·flag invariant를 readback하며 revision과 flag가 0이라고
+가정하지 않는다.
 
 ### 종료 조건
 
 - 공개 reader는 proposal table에 의존하지 않는다.
 - production content가 migration SQL에 포함되지 않는다.
 - performance fixture로 hot query의 index 사용을 확인한다.
+- full migration chain과 PR-2 이후 incremental migration이 isolated D1에서 재현된다.
+- API·UI·배포 설정 변경과 원격 D1 적용이 없다.
 
 ## 8. 4단계 — 공개 catalog API와 cache
 

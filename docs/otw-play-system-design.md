@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-2 catalog foundation schema·migration 실행 기준선
+상태: PR-3 proposal·event·search/meta schema·migration 실행 기준선
 
 기준일: 2026-08-11
 
@@ -134,6 +134,32 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 PR-2는 local schema, 생성 migration과 D1 검증만 소유한다. API contract·handler,
 frontend route·UI, 배포 설정과 원격 migration 적용은 포함하지 않는다.
 GATE-01~06의 상태와 권장안은 변경하지 않는다.
+
+### ADR-PLAY-007: PR-3 proposal·event·search/meta 경계
+
+상태: 채택
+
+- proposal은 미검수 입력 snapshot이며 canonical song, performance, source 또는
+  channel row를 만들지 않는다. 제출 시 channel metadata를 조회하거나 proposal에
+  channel ID를 저장하지 않고, 후속 관리자 승인 과정에서 검증한다.
+- catalog event의 `aggregate_type`, `event_type`과 proposal의
+  `review_result_code`는 non-empty 자유 텍스트다. 운영 vocabulary가 정해지기 전
+  enum이나 CHECK 값을 발명하지 않는다.
+- event actor만 `member`, `admin`, `system`으로 제한하고 사용자 actor와 Clerk
+  `sub`의 존재를 함께 검증한다.
+- 검색 term 종류는 `title`, `title_alias`, `original_artist`, `participant`로
+  고정한다.
+- catalog meta는 `id=1`, `revision=0`, `public_read_enabled=0`,
+  `navigation_visible=0`, `updated_at=0`인 구조적 singleton으로 시작한다.
+- revision 증가는 후속 catalog command의 같은 D1 batch가 소유한다. event의
+  append-only는 후속 insert-only repository가 소유하며 PR-3에서는 UPDATE/DELETE
+  trigger나 revision trigger를 만들지 않는다.
+
+PR-3은 shared DB vocabulary contract, local schema, 생성 migration, singleton
+custom migration과 D1 검증만 소유한다. API route·DTO·handler,
+application/repository, frontend route·UI,
+production content, 배포 설정과 원격 D1 적용은 포함하지 않는다. GATE-01~06의
+상태, 숫자와 운영 권장안도 변경하지 않는다.
 
 ## 3. 전체 시스템 구조
 
@@ -469,6 +495,86 @@ channel/entity 연결의 중복을 막는다. source relation은 `source_id`를 
 Clerk 사용자 정보는 `sub`만 저장하고 이메일 같은 불필요한 개인정보를 복제하지
 않는다. note 원문은 구조화 로그나 전역 audit detail에 넣지 않는다.
 
+#### `music_cover_proposals` exact schema
+
+- `id TEXT PRIMARY KEY`: application이 만드는 UUID, trim 후 non-empty
+- `submitted_by_user_id TEXT NOT NULL`: Clerk `sub`
+- `idempotency_key TEXT NOT NULL`: 후속 API의 `clientRequestId`를 영구 저장
+- `submitted_url TEXT NOT NULL`, `youtube_video_id TEXT NOT NULL`,
+  `segment_start_seconds INTEGER NOT NULL DEFAULT 0`
+- `submitted_title TEXT NOT NULL`, `suggested_song_id TEXT NULL`,
+  `submitted_note TEXT NULL`
+- `status TEXT NOT NULL DEFAULT 'pending_review'`,
+  `version INTEGER NOT NULL DEFAULT 0`
+- `review_lock_token TEXT NULL`, `review_lock_expires_at INTEGER NULL`
+- `reviewed_by_user_id TEXT NULL`, `reviewed_at INTEGER NULL`,
+  `review_result_code TEXT NULL`, `review_note TEXT NULL`
+- `approved_performance_id TEXT NULL`
+- `created_at INTEGER NOT NULL`, `updated_at INTEGER NOT NULL`
+
+`suggested_song_id`는 `music_songs(id) ON DELETE SET NULL`,
+`approved_performance_id`는 `music_performances(id) ON DELETE RESTRICT`이며 한
+performance는 최대 한 proposal의 승인 결과다. `(submitted_by_user_id,
+idempotency_key)`는 UNIQUE다. `(youtube_video_id, segment_start_seconds)`는
+`status='pending_review'`일 때만 UNIQUE다.
+
+`youtube_video_id`는 `[A-Za-z0-9_-]`로 된 정확히 11자리만 허용한다.
+segment, version과 모든 시각은 SQLite `typeof(...)='integer'`로 REAL 값을
+거부하고 0 이상이어야 하며 `updated_at >= created_at`, 존재하는
+`reviewed_at >= created_at`이다. 필수 텍스트와
+존재하는 lock token·result code·note는 trim 후 non-empty다. lock token과
+expiry는 둘 다 NULL이거나 둘 다 존재해야 한다.
+
+상태별 coherence는 다음과 같다.
+
+| status | lock | reviewer/time | result/note | approved performance |
+| --- | --- | --- | --- | --- |
+| `pending_review` | paired nullable | NULL | NULL | NULL |
+| `approved` | NULL | 둘 다 필수 | 선택 | 필수 |
+| `rejected` | NULL | 둘 다 필수 | 선택 | NULL |
+| `withdrawn` | NULL | NULL | NULL | NULL |
+
+GATE-04가 확정되기 전에는 `withdrawn` 값을 schema에만 보존하고 회원 수정·철회
+command나 전이를 구현하지 않는다. GATE-05가 확정되기 전에는 result code를
+비공개 자유 텍스트로만 저장하며 회원 노출 vocabulary로 사용하지 않는다. DB
+열은 nullable로 유지하되 후속 reject command는 non-empty 사유 입력을 요구한다.
+
+조회 index는 `(status, created_at, id)`, `(submitted_by_user_id, created_at DESC,
+id)`, `(reviewed_by_user_id, reviewed_at DESC, id) WHERE reviewed_by_user_id IS NOT
+NULL`과 FK lookup용 `(suggested_song_id)`다. proposal에 channel 열이나 channel
+index를 만들지 않는다.
+
+#### proposal child exact schema
+
+두 child table은 `(proposal_id, credit_order)`를 복합 PK로 사용한다.
+`proposal_id`는 proposal 삭제 시 `CASCADE`, nullable `resolved_entity_id`는
+`music_entities(id) ON DELETE RESTRICT`다. `credit_order`는 0 이상의 strict
+INTEGER이고 `submitted_name_snapshot`은 non-empty다.
+`music_cover_proposal_participants`만 `participant_role`을 가지며 기존
+`vocal`, `featured_vocal`, `chorus`, `other` CHECK를 재사용한다. resolved entity
+역조회 index를 두며 unresolved snapshot을 중복 이름만으로 병합하지 않는다.
+
+#### `music_catalog_events` exact schema
+
+- `id TEXT PRIMARY KEY`
+- `aggregate_type TEXT NOT NULL`, `aggregate_id TEXT NOT NULL`,
+  `event_type TEXT NOT NULL`
+- `actor_kind TEXT NOT NULL`: `member`, `admin`, `system`
+- `actor_user_id TEXT NULL`
+- `before_json TEXT NULL`, `after_json TEXT NULL`, `detail_json TEXT NULL`
+- `created_at INTEGER NOT NULL`
+
+polymorphic aggregate FK는 만들지 않아 대상 row와 독립적으로 이력을 보존한다.
+ID, aggregate/event와 존재하는 actor user ID는 non-empty다. `member`와 `admin`
+actor는 `actor_user_id`가 필수이고 `system` actor는 NULL이어야 한다. JSON 열은
+NULL 또는 유효한 JSON object만 허용한다. `created_at`은 0 이상의 strict
+INTEGER다. `(aggregate_type, aggregate_id, created_at DESC, id)` index를 둔다.
+
+event detail은 command별 allowlist만 기록한다. `submitted_note`, `review_note`,
+이메일과 token을 before/after/detail에 복사하지 않는다. PR-3 DB는 event UPDATE와
+DELETE를 trigger로 막지 않는다. 후속 infrastructure는 insert-only method만
+노출하고 승인 batch에서 event append 실패를 전체 실패로 처리한다.
+
 ### 6.4 검색과 카탈로그 meta
 
 | 테이블 | 핵심 열 | 역할 |
@@ -478,6 +584,32 @@ Clerk 사용자 정보는 `sub`만 저장하고 이메일 같은 불필요한 �
 
 `music_search_terms`의 PK는 `(song_id, term_kind, normalized_term)`이다. 게시,
 수정, 철회 시 해당 곡의 term projection과 revision을 같은 batch에서 갱신한다.
+
+`music_search_terms`는 `song_id TEXT NOT NULL`, `term_kind TEXT NOT NULL`,
+`display_value TEXT NOT NULL`, `normalized_term TEXT NOT NULL`만 가진다.
+`song_id`는 `music_songs(id) ON DELETE CASCADE`이고 term kind는 `title`,
+`title_alias`, `original_artist`, `participant`만 허용한다. 표시값과 normalized
+값은 각각 trim 후 non-empty이며 `(normalized_term, term_kind, song_id)` lookup
+index를 둔다. exact 검색은 `normalized_term = ?`, prefix 검색은 정규화가 GLOB
+metacharacter인 구두점도 제거한다는 전제에서 `normalized_term GLOB ?`와
+`normalized-prefix + '*'` bind를 사용한다. 기본 BINARY index에서 range SEARCH가
+되지 않는 `LIKE 'prefix%'`는 사용하지 않는다.
+
+`music_catalog_meta`는 `id INTEGER PRIMARY KEY`, `revision INTEGER NOT NULL`,
+`public_read_enabled INTEGER NOT NULL`, `navigation_visible INTEGER NOT NULL`,
+`updated_at INTEGER NOT NULL`만 가진다. 모든 값은 strict INTEGER이고 id는 1,
+revision과 updated_at은 0 이상, flag는 0 또는 1이어야 한다.
+`navigation_visible=1`이면 `public_read_enabled=1`이어야 한다. migration은
+`(1, 0, 0, 0, 0)` row 하나를 삽입해 fail-closed로 시작한다.
+
+singleton row는 운영 content가 아니라 구조적 상태다. local seed guard의 보호
+row count와 fixture 삭제에서 제외한다. doctor는 `id=1` row가 정확히 하나인지와
+현재 값의 type·range·flag invariant를 readback하되 운영 중 변경 가능한 revision과
+flag가 0이라고 가정하지 않는다. 초기 `(1, 0, 0, 0, 0)` exact 값은 migration
+integration test에서만 검증한다. revision 단조 증가는 후속 command가
+`revision = revision + 1`을 catalog 변경·search projection·event와 같은 D1
+batch에 넣어 보장한다. PR-3은 초기 row와 atomic increment SQL 가능성만 검증하고
+trigger를 추가하지 않는다.
 
 ### 6.5 핵심 관계
 
@@ -519,6 +651,9 @@ erDiagram
 | public participant kind | `current_member`, `external`, `group` |
 | source role | `official`, `kirinuki`, `broadcast_original`, `alternate` |
 | source relation | `excerpt_of`, `alternate_of` |
+| proposal status | `pending_review`, `approved`, `rejected`, `withdrawn` |
+| event actor kind | `member`, `admin`, `system` |
+| search term kind | `title`, `title_alias`, `original_artist`, `participant` |
 
 `entity_kind`는 persistence identity의 형태이고 participant role은 가창 credit의
 역할이다. 공개 participant kind는 화면 투영 계약이며 전 소속 멤버를 반드시
@@ -565,6 +700,7 @@ CHECK 대상이 아니다. source relation은 열거값만 제한하고 방향�
 - `music_cover_proposals`: partial
   `UNIQUE(youtube_video_id, segment_start_seconds) WHERE status='pending_review'`
 - proposal retry: `UNIQUE(submitted_by_user_id, idempotency_key)`
+- approved proposal result: `UNIQUE(approved_performance_id)`; SQLite의 nullable UNIQUE는 여러 NULL을 허용
 
 Domain은 hash가 아니라 다음과 같은 버전 포함 canonical key material을 만든다.
 각 요소는 JSON tuple처럼 경계가 모호하지 않은 형식으로 직렬화한다.
@@ -602,9 +738,9 @@ source segment는 `UNIQUE(source_id, start_seconds)`가 별도 performance로 �
 - `music_channels(verification_status, active, channel_role)`
 - `music_media_sources(channel_id, provider_published_at DESC, id)`
 - `music_media_sources(availability_status, last_checked_at)`
-- [PR-3] published partial `music_performances(released_at DESC, id)`
-- [PR-3] published partial `music_performances(song_id, released_at DESC, id)`
-- [PR-3] published partial `music_performances(relation_type, released_at DESC, id)`
+- published partial `music_performances(released_at DESC, id)` where `publication_status='published'`
+- published partial `music_performances(song_id, released_at DESC, id)` where `publication_status='published'`
+- published partial `music_performances(relation_type, released_at DESC, id)` where `publication_status='published'`
 - `music_performances(song_id)` (FK 지원; published partial index와 별도)
 - `music_performance_participants(entity_id, performance_id)`
 - `music_performance_sources(performance_id, priority, source_id)`
@@ -622,7 +758,8 @@ source priority는 NULL을 허용하지 않는다. 값이 생략되면 `0`이며
 측정하므로 full scan 제거가 우선이다.
 
 위 세 published partial index는 PR-2 migration에 포함하지 않는다. PR-3의
-search/meta migration과 대표 fixture query plan 검증에서 함께 추가한다.
+search/meta migration에서 추가하고 대표 fixture의 published-only query가
+`EXPLAIN QUERY PLAN`에서 해당 index를 사용하는지 확인한다.
 
 ## 8. API 설계
 
@@ -757,7 +894,7 @@ alias로 등록한다.
 6. 제한된 contains fallback
 7. 동점이면 최신 공식 공개일과 song ID
 
-prefix query는 `${normalized}%`를 bind한다. contains는 prefix 결과가 부족하고
+prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가 부족하고
 검색어가 2자 이상일 때만 작은 limit으로 실행한다. 다음 중 하나를 지속적으로
 넘으면 FTS5 projection을 별도 custom migration으로 검토한다.
 
