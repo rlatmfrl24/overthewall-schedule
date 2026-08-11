@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-5 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
+상태: PR-5.1 workflow-first 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
 
-기준일: 2026-08-11
+기준일: 2026-08-12
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -583,9 +583,15 @@ adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로
 ### 사용자 흐름
 
 ```text
-공식 채널 검수 → YouTube 영상 확인 → 곡 연결/생성 → 원곡 가수 →
-참여자와 분류 3축 → draft 저장 → 재생 미리보기 → publish
+새 영상 등록 → YouTube metadata·중복·채널 preflight → 곡 연결/생성 →
+현재 멤버·외부 칩과 분류 3축 → 전체 검토 → draft 또는 confirm 후 publish
 ```
+
+DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일상 진입점으로 사용하지
+않는다. 최상위는 카탈로그와 제안 검수만 유지한다. 현재 멤버와 권위 YouTube channel
+ID는 자동 추천·연결하고, 외부 identity와 unknown channel은 같은 dialog에서 명시적으로
+생성·승인하거나 pending으로 보류한다. 기존 entity/channel endpoint는 고급 수정과
+호환성을 위해 유지한다.
 
 PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
 `music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
@@ -605,6 +611,13 @@ metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed �
 `embed_disabled` 상태로 유지한다.
 capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
 catalog batch를 되돌리지 않는다.
+
+통합 경로는 `POST /api/play/admin/catalog-entries/preflight`와
+`POST /api/play/admin/catalog-entries`다. preflight는 mutation하지 않고 revision을
+반환하며 commit은 YouTube metadata를 다시 읽는다. entity·channel·song·performance,
+source, event, search/read-model projection과 두 revision은 한 D1 batch로 처리한다.
+stale revision과 duplicate source는 각각 고정 409로 응답한다. DB migration, 공개 UI,
+운영 공개 flag 변경은 이 slice에 포함하지 않는다.
 
 GATE-01이 미확정인 동안 일반 draft 등록·수정, 채널 검수, publish/withdraw와 제안
 거절은 사용할 수 있지만 회원 제안 승인 command는 `409
@@ -626,6 +639,11 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - stale expectedVersion 409
 - 전역 admin audit 실패는 authoritative event를 훼손하지 않음
 - 관리자 UI가 서버 성공 후 authoritative readback
+- 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
+- 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
+- 새 곡+가창, 기존 곡+가창 추가, draft와 confirm publish를 통합 command로 검증
+- YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
+- 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
 
 ### 종료 조건
 

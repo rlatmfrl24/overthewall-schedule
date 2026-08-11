@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-5 관리자 catalog UI 구현 중, 공개 UI·player 미착수
+상태: PR-5.1 workflow-first 관리자 catalog UI 구현 중, 공개 UI·player 미착수
 
-기준일: 2026-08-11
+기준일: 2026-08-12
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -389,12 +389,21 @@ stateDiagram-v2
 
 ### 11.3 Catalog manager
 
-곡, 가창 기록, 영상 소스를 하나의 거대한 form에서 동시에 수정하지 않는다.
+관리자에게 DB 구조를 선행 작업으로 노출하지 않는다. 최상위 화면은 `카탈로그`와
+`제안 검수`만 두고, 일상 입력은 `새 영상 등록` 하나로 시작한다. 카탈로그 목록은
+곡 단위이며 행을 펼치면 모든 가창 버전, 한국어 상태, 참여자, 채널과 source가
+나타난다. 데스크톱은 확장형 table, 모바일은 곡 card 아래 가창 card를 사용한다.
 
-- 곡 drawer: 제목, 별칭, 원곡 가수, 원곡 공개 정보
-- 가창 drawer: 곡 관계, 공개 형태, 참여 형태, 참여자, 상태
-- 소스 drawer: YouTube 영상, 채널, 대표 여부, 가용 상태
-- publish command: 검수 항목을 다시 요약하고 별도 실행
+`새 영상 등록`은 넓은 dialog, 모바일에서는 전체 폭으로 다음 네 단계를 유지한다.
+
+1. 영상 확인: URL metadata, 동일 segment, 승인·pending·revoked·멤버 권위 채널 확인
+2. 곡 연결: 곡명·별칭·원곡 가수 검색 또는 인라인 새 곡 생성
+3. 참여자와 분류: 현재 멤버 자동완성, 기존 외부 후보, 명시적인 새 외부/그룹 칩, 미등록·재승인 채널의 소유·연결 주체 확인
+4. 검토와 저장: 영상·채널·곡·원곡 가수·참여자·분류를 요약하고 draft 또는 confirm 후 publish
+
+채널과 외부 identity 관리는 `고급 관리` 우측 Sheet에만 둔다. 현재 멤버 identity는
+`members`가 권위이므로 수동 UID·slug 편집을 제공하지 않는다. 입력 오류가 발생해도
+dialog, 현재 단계와 모든 입력값을 유지한다.
 
 PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
 접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative

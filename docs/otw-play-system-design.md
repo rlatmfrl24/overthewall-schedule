@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-5 관리자 catalog command/UI 및 atomic projection 실행 기준선
+상태: PR-5.1 workflow-first 관리자 등록 및 atomic projection 실행 기준선
 
-기준일: 2026-08-11
+기준일: 2026-08-12
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -950,6 +950,8 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | Method   | Path                                        | 목적                                   |
 | -------- | ------------------------------------------- | -------------------------------------- |
 | GET      | `/api/play/admin/catalog`                   | draft·published 운영 목록              |
+| POST     | `/api/play/admin/catalog-entries/preflight` | URL·YouTube metadata·채널·중복과 현재 revision 확인 |
+| POST     | `/api/play/admin/catalog-entries`           | 곡·가창·identity·채널을 한 atomic command로 등록 |
 | POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
 | POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
 | POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·수정                   |
@@ -963,8 +965,23 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 
 승인, 반려, publish와 withdraw command에는 `expectedVersion`을 요구한다.
 
+통합 등록의 preflight는 mutation 없이 authoritative YouTube video/channel metadata,
+동일 source segment, 기존 채널 상태와 `members.youtube_channel_id` 및 활성
+`member_links.youtube_channel_id` 일치를 확인한다. commit은 client가 표시한 제목과
+채널 주장을 사용하지 않고 metadata를 다시 조회한다. preflight revision과 commit
+revision이 다르면 `409 PLAY_ADMIN_STALE_WRITE`, 동일 video/segment면 기존 song과
+performance ID를 포함한 `409 PLAY_ADMIN_DUPLICATE_SOURCE`를 반환한다.
+
+현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
+기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도
+identity가 된다. 권위 멤버 채널은 자동 연결할 수 있지만 그 밖의 새 채널은 인라인
+관리자 승인 또는 pending/inactive 중 하나가 필요하다. pending/inactive 채널은 draft만,
+revoked 채널은 등록과 게시 모두 금지한다. canonical row, search term, participant sort
+key, gram/stat, event와 catalog/read-model revision은 같은 D1 batch에서 반영한다.
+
 PR-5 관리자 고정 오류 code는 `PLAY_ADMIN_INVALID_REQUEST`,
 `PLAY_ADMIN_NOT_FOUND`, `PLAY_ADMIN_STALE_WRITE`,
+`PLAY_ADMIN_DUPLICATE_SOURCE`,
 `PLAY_ADMIN_VALIDATION_FAILED`, `PLAY_ADMIN_POLICY_UNRESOLVED`,
 `PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE`, `PLAY_ADMIN_INTERNAL_ERROR`다.
 GATE-01 미확정 상태의 proposal approve만 policy-unresolved 409를 반환하며 draft
