@@ -11,6 +11,9 @@ export const queryKeys = {
       [...queryKeys.otwPlay.all, "song", slug] as const,
     performance: (id: string) =>
       [...queryKeys.otwPlay.all, "performance", id] as const,
+    adminCatalog: () => [...queryKeys.otwPlay.all, "admin", "catalog"] as const,
+    adminProposals: (status: string) =>
+      [...queryKeys.otwPlay.all, "admin", "proposals", status] as const,
   },
   members: {
     all: ["members"] as const,

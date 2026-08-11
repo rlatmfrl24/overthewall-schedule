@@ -1,0 +1,190 @@
+// @vitest-environment jsdom
+import { createElement } from "react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createQueryWrapper } from "@/test/query-client";
+import { OtwPlayCatalogManager } from "./catalog-manager";
+
+const fetchCatalogMock = vi.hoisted(() => vi.fn());
+const fetchProposalsMock = vi.hoisted(() => vi.fn());
+const createEntityMock = vi.hoisted(() => vi.fn());
+const rejectProposalMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../../api/admin", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../api/admin")>();
+  return {
+    ...actual,
+    fetchOtwPlayAdminCatalog: fetchCatalogMock,
+    fetchOtwPlayAdminProposals: fetchProposalsMock,
+    createOtwPlayEntity: createEntityMock,
+    rejectOtwPlayProposal: rejectProposalMock,
+  };
+});
+
+vi.mock("@/shared/ui/toast", () => ({
+  useToast: () => ({ toast: toastMock }),
+}));
+
+const catalog = {
+  revision: 7,
+  readModelRevision: 7,
+  songs: [],
+  performances: [],
+  entities: [],
+  channels: [],
+};
+
+const proposal = {
+  id: "proposal-1",
+  submittedByUserId: "member-1",
+  submittedUrl: "https://youtu.be/dQw4w9WgXcQ",
+  youtubeVideoId: "dQw4w9WgXcQ",
+  segmentStartSeconds: 0,
+  submittedTitle: "검수할 공식 커버",
+  suggestedSongId: null,
+  submittedNote: "제출 메모",
+  status: "pending_review" as const,
+  version: 2,
+  reviewedByUserId: null,
+  reviewedAt: null,
+  reviewResultCode: null,
+  reviewNote: null,
+  approvedPerformanceId: null,
+  createdAt: 1_788_000_000_000,
+  participants: [
+    {
+      creditOrder: 0,
+      resolvedEntityId: null,
+      submittedNameSnapshot: "참여자",
+      participantRole: "vocal" as const,
+    },
+  ],
+  originalArtists: [
+    {
+      creditOrder: 0,
+      resolvedEntityId: null,
+      submittedNameSnapshot: "원곡 가수",
+    },
+  ],
+};
+
+describe("OtwPlayCatalogManager", () => {
+  beforeEach(() => {
+    fetchCatalogMock.mockResolvedValue(catalog);
+    fetchProposalsMock.mockResolvedValue([proposal]);
+    rejectProposalMock.mockResolvedValue({
+      data: { ...proposal, status: "rejected", version: 3 },
+      catalogRevision: 7,
+    });
+    createEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("keeps proposal approval closed while showing the no-cookie review player", async () => {
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const player = await screen.findByTitle("검수할 공식 커버 검수 영상");
+    expect(player.getAttribute("src")).toBe(
+      "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+    );
+    expect(
+      (screen.getByRole("button", { name: "승인" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(screen.getByText(/GATE-01이 확정될 때까지/)).toBeTruthy();
+  });
+
+  it("rejects with an internal reason and then refetches authoritative state", async () => {
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const rejectButton = await screen.findByRole("button", { name: "거절" });
+    expect((rejectButton as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("검수할 공식 커버 거절 코드"), {
+      target: { value: "duplicate" },
+    });
+    fireEvent.click(rejectButton);
+
+    await waitFor(() =>
+      expect(rejectProposalMock).toHaveBeenCalledWith("proposal-1", {
+        expectedVersion: 2,
+        resultCode: "duplicate",
+      }),
+    );
+    await waitFor(() => {
+      expect(fetchCatalogMock.mock.calls.length).toBeGreaterThan(1);
+      expect(fetchProposalsMock.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: "success",
+      description: "제안 거절 작업을 완료했습니다.",
+    });
+  });
+
+  it("keeps form input after a failed command without an unhandled rejection", async () => {
+    createEntityMock.mockRejectedValueOnce(new Error("write failed"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findByText("OTW Play 카탈로그");
+    fireEvent.click(screen.getByRole("button", { name: "인물·그룹" }));
+    const nameInput = screen.getByLabelText(
+      "인물·그룹 표시명",
+    ) as HTMLInputElement;
+    const slugInput = screen.getByLabelText(
+      "인물·그룹 slug",
+    ) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "입력 보존" } });
+    fireEvent.change(slugInput, { target: { value: "preserved-input" } });
+    fireEvent.click(screen.getByRole("button", { name: "등록" }));
+
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: "error",
+        description: "인물 등록 작업에 실패했습니다.",
+      }),
+    );
+    expect(nameInput.value).toBe("입력 보존");
+    expect(slugInput.value).toBe("preserved-input");
+    consoleError.mockRestore();
+  });
+
+  it("disables catalog writes while the public read model revision is stale", async () => {
+    fetchCatalogMock.mockResolvedValueOnce({
+      ...catalog,
+      revision: 8,
+      readModelRevision: 7,
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "관리자 쓰기를 중단했습니다",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "인물·그룹" }));
+    expect(
+      (screen.getByRole("button", { name: "등록" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+});
