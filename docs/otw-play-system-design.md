@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-3 proposal·event·search/meta schema·migration 실행 기준선
+상태: PR-4 공개 catalog query/API/cache 실행 기준선
 
 기준일: 2026-08-11
 
@@ -160,6 +160,32 @@ custom migration과 D1 검증만 소유한다. API route·DTO·handler,
 application/repository, frontend route·UI,
 production content, 배포 설정과 원격 D1 적용은 포함하지 않는다. GATE-01~06의
 상태, 숫자와 운영 권장안도 변경하지 않는다.
+
+### ADR-PLAY-008: PR-4 공개 read와 cache 계약
+
+상태: 채택
+
+- `/api/play/config`는 `public_read_enabled=0`이어도 익명 `200`으로 현재 flag와
+  revision을 반환한다. meta 갱신 시각은 cache key와 ETag에만 사용하고 wire에는
+  노출하지 않는다. 나머지 네 public endpoint는 flag가 꺼져
+  있으면 cache를 사용하지 않고 `404 PLAY_PUBLIC_READ_DISABLED`를 반환한다.
+- query는 strict하다. 중복 single-value parameter, 상한 초과,
+  알 수 없는 enum·parameter와 malformed cursor를 clamp하거나 무시하지 않고
+  `400`으로 거부한다.
+- 검색어가 있으면 relevance가 첫 정렬 기준이고 선택한 recent/title/participant
+  정렬은 relevance 동점 해소에 사용한다. 응답은 exact total과 facet count를
+  계산하지 않는다.
+- public member key는 기존 numeric `members.uid`, original artist key는 public
+  entity slug다. group key는 facets가 발급하는 versioned opaque string이며
+  내부 kind는 `entity` 또는 `unit`이다. client는 이를 조립하거나 해석하지 않는다.
+- Cache API는 자유 검색과 cursor page를 저장하지 않는다. `q`와 `cursor`가 없는
+  구조화된 첫 catalog page는 filter·sort 조합을 포함해 저장한다.
+- config cache key와 ETag는 revision, 두 flag와 meta `updated_at`을 포함한다.
+  나머지 ETag는 revision과 canonical path/query의 SHA-256으로 만든 weak validator다.
+  Authorization 또는 Cookie가 있는 요청은 Cache API를 우회하고 `no-store`로
+  응답한다.
+- PR-4는 public read만 구현한다. 관리자 command, 회원 proposal API, frontend
+  route·UI·player, production content, 배포와 원격 D1 적용은 포함하지 않는다.
 
 ## 3. 전체 시스템 구조
 
@@ -741,6 +767,8 @@ source segment는 `UNIQUE(source_id, start_seconds)`가 별도 performance로 �
 - published partial `music_performances(released_at DESC, id)` where `publication_status='published'`
 - published partial `music_performances(song_id, released_at DESC, id)` where `publication_status='published'`
 - published partial `music_performances(relation_type, released_at DESC, id)` where `publication_status='published'`
+- published partial `music_performances(released_at DESC, song_id, id)` where `publication_status='published'`
+- published partial `music_performances(participation_type, released_at DESC, song_id, id)` where `publication_status='published'`
 - `music_performances(song_id)` (FK 지원; published partial index와 별도)
 - `music_performance_participants(entity_id, performance_id)`
 - `music_performance_sources(performance_id, priority, source_id)`
@@ -768,7 +796,7 @@ search/meta migration에서 추가하고 대표 fixture의 published-only query�
 | Method | Path | 목적 | Cache API |
 | --- | --- | --- | --- |
 | GET | `/api/play/config` | 공개·내비게이션 기능 flag와 catalog revision | 예 |
-| GET | `/api/play/catalog` | 검색·필터·정렬·cursor 목록 | 기본 탐색만 |
+| GET | `/api/play/catalog` | 검색·필터·정렬·cursor 목록 | `q`·`cursor` 없는 첫 page |
 | GET | `/api/play/facets` | 멤버·그룹·원곡 가수 filter 자료 | 예 |
 | GET | `/api/play/songs/:slug` | 곡과 모든 공개 공식 버전 | 예 |
 | GET | `/api/play/performances/:id` | 가창 직접 링크 | 예 |
@@ -792,10 +820,23 @@ limit
 
 - 기본 limit 24, 최대 60
 - member 최대 10개
-- q는 trim 전 최대 80자
+- q는 trim 전 Unicode code point 기준 최대 80자
 - 날짜는 ISO day 형식
-- 알 수 없는 enum과 malformed cursor는 `400`
-- query key는 parameter 이름과 반복값을 정렬해 canonicalize한다.
+- member는 numeric `members.uid`, originalArtist는 public entity slug다.
+- group은 facets가 발급한 versioned opaque key만 허용한다. opaque payload kind는
+  `entity` 또는 `unit`이며 API 소비자가 직접 생성하지 않는다.
+- public song/entity slug는 trim된 Unicode 단일 segment이며 최대 128 code point다.
+  control·surrogate와 `\\`, `/`, `?`, `#`, `%`, `.`/`..` segment는 공개 wire에서
+  거부하고, 같은 validator를 response projection과 request에 적용한다.
+- `memberMode` 기본값은 `any`, sort 기본값은 `recent`다.
+- single-value parameter 중복, member raw 항목 10개·limit 60 초과,
+  알 수 없는 parameter·enum과 malformed cursor는 모두 `400`이다. clamp하거나
+  첫 값만 선택하지 않는다. 반복 member UID는 raw 항목 수를 먼저 검증한 뒤
+  중복을 제거하고 numeric 오름차순으로 canonicalize한다.
+- `publishedFrom`과 `publishedTo`는 UTC 기준 inclusive ISO day다. from이 to보다
+  늦으면 `400`이다.
+- query key는 기본값을 명시적으로 채운 뒤 parameter 이름과 의미상 순서가 없는
+  반복값을 정렬해 canonicalize한다.
 
 응답 공통 envelope:
 
@@ -807,6 +848,17 @@ limit
   generatedAt: string;
 }
 ```
+
+`nextCursor`는 catalog 목록에서만 다음 page token을 담고 다른 endpoint에서는
+`null`이다. exact `totalCount`와 facet별 count는 응답하지 않는다. catalog item은
+song 단위이고 카드에 필요한 대표 published performance 하나만 포함한다. detail은
+같은 song의 모든 published performance를 반환한다. 공개 DTO에는 Drizzle row,
+제안·reviewer·internal note와 staging identifier를 넣지 않는다.
+
+`GET /api/play/config`는 public flag가 꺼져 있어도 동작한다. catalog, facets,
+song detail과 performance detail은 meta를 먼저 읽고 `public_read_enabled=0`이면
+`404 PLAY_PUBLIC_READ_DISABLED`를 반환한다. unknown, merged, archived song과
+draft·withdrawn performance도 public `404`다.
 
 ### 8.2 로그인 회원
 
@@ -868,6 +920,24 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 
 공유 DTO는 `contracts/otw-play.ts`가 소유하고 Drizzle row type을 노출하지 않는다.
 
+PR-4 public read의 고정 오류 코드는 다음과 같다.
+
+| Status | Code | 조건 |
+| --- | --- | --- |
+| 400 | `PLAY_INVALID_QUERY` | 알 수 없거나 중복된 parameter, 잘못된 enum·날짜·상한 |
+| 400 | `PLAY_INVALID_CURSOR` | token 구조·query·sort가 현재 request와 불일치 |
+| 409 | `PLAY_CURSOR_STALE` | token의 catalog revision이 현재 revision과 불일치 |
+| 404 | `PLAY_PUBLIC_READ_DISABLED` | config 이외 endpoint에서 공개 read flag가 꺼짐 |
+| 404 | `PLAY_NOT_FOUND` | 공개 가능한 canonical song 또는 performance가 없음 |
+| 503 | `PLAY_CATALOG_UNAVAILABLE` | meta 또는 catalog D1 read 실패 |
+| 500 | `PLAY_INTERNAL_ERROR` | 공개 projection 또는 response 조립 계약 위반 |
+
+공개 read가 비활성화된 config 이외 endpoint의 `404` code는
+`PLAY_PUBLIC_READ_DISABLED`다. 존재하지 않거나 공개되지 않은 song/performance는
+동일한 public not-found envelope를 사용해 draft·withdrawn 존재 여부를 누출하지
+않는다. D1 meta 또는 catalog read 실패는 `503 PLAY_CATALOG_UNAVAILABLE`이며 오래된
+다른 revision을 대신 반환하지 않는다.
+
 ## 9. 알고리즘
 
 ### 9.1 검색 정규화와 순위
@@ -894,6 +964,10 @@ alias로 등록한다.
 6. 제한된 contains fallback
 7. 동점이면 최신 공식 공개일과 song ID
 
+`q`가 있으면 위 relevance bucket이 항상 첫 정렬 기준이다.
+`sort=recent|title|participant`는 같은 relevance bucket 안의 keyset 정렬이며 마지막 tie-break는
+항상 song ID다. `q`가 없으면 선택한 sort가 첫 정렬 기준이다.
+
 prefix query는 `${normalized}*`를 `GLOB ?`에 bind한다. contains는 prefix 결과가 부족하고
 검색어가 2자 이상일 때만 작은 limit으로 실행한다. 다음 중 하나를 지속적으로
 넘으면 FTS5 projection을 별도 custom migration으로 검토한다.
@@ -918,7 +992,8 @@ FTS5는 권위 테이블이 아니라 교체 가능한 read model이어야 한�
 - recent cursor: `latestReleasedAt + songId`
 - title cursor: `normalizedTitle + songId`
 - participant cursor: 대표 참여자의 `normalizedName + songId`
-- cursor는 version을 포함한 JSON을 base64url로 인코딩하고 server에서 schema를 검증한다.
+- cursor는 version, catalog revision, canonical query fingerprint와 해당 sort tuple을
+  포함한 JSON을 base64url로 인코딩하고 server에서 schema를 검증한다.
 - `OFFSET`은 사용하지 않는다.
 
 같은 query와 catalog revision에서는 페이지 사이 중복·누락이 없어야 한다.
@@ -1007,9 +1082,13 @@ https://otw.internal/cache/play/v1/{catalogRevision}/{canonicalPathAndQuery}
 
 - 고정 내부 host를 사용해 host 기반 cache poisoning을 막는다.
 - query parameter와 반복값을 정렬해 같은 의미의 key를 하나로 만든다.
-- 기본 catalog, facets와 detail만 저장한다.
-- 자유 검색어는 저장하지 않거나 30초 이하의 작은 browser cache만 허용한다.
+- `q`와 `cursor`가 없는 구조화된 첫 catalog page는 filter·sort 조합을 포함해
+  저장한다. facets, config와 공개 detail도 저장한다.
+- 자유 검색어와 cursor page는 Cache API에 저장하지 않는다. 자유 검색은 browser
+  `private, max-age=30` 이하만 허용하고 cursor page는 browser
+  `private, max-age=60`만 허용한다.
 - member/admin 응답과 Authorization 요청은 저장하지 않는다.
+- Cookie가 있는 요청도 저장하거나 Cache API에서 읽지 않는다.
 - Set-Cookie가 있는 응답을 저장하지 않는다.
 
 권장 TTL:
@@ -1019,16 +1098,20 @@ https://otw.internal/cache/play/v1/{catalogRevision}/{canonicalPathAndQuery}
 | 기본 catalog | 60초 | 5분 |
 | 곡 상세 | 60초 | 10분 |
 | facets/config | 60초 | 30분 |
-| 자유 검색 | 0–30초 | 저장 안 함 |
+| 자유 검색 | 최대 30초 | 저장 안 함 |
+| cursor page | 60초 private | 저장 안 함 |
 | 회원·관리자 | 0 | 저장 안 함 |
 
 Cache API는 PoP local이고 `cache.delete()`도 해당 data center에만 영향을 준다.
 삭제 무효화 대신 revision을 cache key에 포함한다. Cache API 자체는
 `stale-while-revalidate`를 지원하지 않으므로 해당 header만 믿지 않는다.
 
-ETag는 `catalogRevision + canonical query`의 hash로 만든다. 공개 member 상태가
-바뀌는 command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래
-cache되지 않게 한다.
+config cache key와 ETag는 `catalogRevision + public_read_enabled +
+navigation_visible + updated_at`을 사용한다. 나머지 ETag는
+`catalogRevision + canonicalPathAndQuery`의 SHA-256을 사용한 weak validator다.
+`If-None-Match`가 일치하면 body 없는 `304`를 반환한다. 공개 member 상태가 바뀌는
+command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cache되지 않게
+한다. Cache API에 넣는 clone의 TTL과 client에 반환하는 browser TTL은 분리한다.
 
 ### 11.2 D1 query 최적화
 

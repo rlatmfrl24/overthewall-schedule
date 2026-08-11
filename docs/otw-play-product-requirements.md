@@ -2,7 +2,7 @@
 
 상태: Living Draft
 
-단계: PR-3 proposal·event·search/meta schema·migration 착수, API handler·UI·원격 적용 미착수
+단계: PR-4 공개 catalog query/API/cache 착수, UI·관리자 command·원격 적용 미착수
 
 최종 갱신일: 2026-08-11
 
@@ -71,6 +71,10 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-016 | catalog event의 aggregate·event 이름과 비공개 review result는 확정되지 않은 운영 vocabulary다. | 확정 | non-empty 자유 텍스트로 보존하며 PR-3에서 임의 enum을 만들지 않는다. |
 | DEC-017 | 곡 검색 projection의 term 종류는 `title`, `title_alias`, `original_artist`, `participant`로 한다. | 확정 | normalized term은 표시값과 분리하고 canonical song에 귀속한다. |
 | DEC-018 | catalog meta는 공개 읽기와 내비게이션을 모두 끈 singleton으로 시작한다. | 확정 | revision 증가는 후속 catalog command의 같은 D1 batch가, event append-only는 insert-only repository가 소유한다. PR-3 DB trigger는 만들지 않는다. |
+| DEC-019 | 공개 catalog API는 익명 GET으로 제공하되 `public_read_enabled`가 꺼져 있으면 config를 제외한 조회를 공개하지 않는다. | 확정 | config는 항상 flag와 revision을 `200`으로 반환하고, 나머지 공개 조회는 `404 PLAY_PUBLIC_READ_DISABLED`로 fail closed한다. |
+| DEC-020 | 공개 catalog query는 입력 상한과 vocabulary를 strict contract로 검증한다. | 확정 | member UID, limit, 중복 parameter, 알 수 없는 enum과 malformed cursor를 clamp하거나 무시하지 않고 `400`으로 거부한다. |
+| DEC-021 | 검색어가 있으면 검색 relevance를 첫 정렬 기준으로 사용하고 사용자가 고른 정렬은 동점 해소에 사용한다. | 확정 | 응답은 exact total이나 facet count를 계산하지 않고 현재 page와 `nextCursor`만 제공한다. |
+| DEC-022 | 공개 cache는 revision과 canonical query로 격리하고 인증·cookie 요청은 저장하지 않는다. | 확정 | 구조화된 첫 catalog page, config/facets와 detail만 Cache API에 저장하며 자유 검색과 cursor page는 저장하지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -291,6 +295,12 @@ source 관계는 `source_id`에서 `related_source_id`로 향하는 directed rel
 - FR-009: 최신 공개순, 곡명순과 참여자순 정렬을 제공해야 한다.
 - FR-010: 멤버 복수 선택의 기본 의미는 선택한 멤버 중 한 명 이상 포함으로 한다.
 - FR-011: 선택한 멤버가 모두 함께 참여한 기록만 보는 조건을 별도로 제공할 수 있어야 한다.
+- 공개 API의 멤버 filter는 기존 numeric member UID를 사용한다. 원곡 가수는 공개
+  entity slug를 사용하고, 그룹은 facets가 발급한 versioned opaque key를 그대로
+  다시 보낸다. opaque key의 kind는 `entity` 또는 `unit`이며 client가 내부 값을
+  조립하거나 해석하지 않는다.
+- 검색 결과는 exact total을 제공하지 않는다. UI는 현재 불러온 항목과 다음 page
+  존재 여부만 표현한다.
 - FR-027 [후속]: 방송일과 키리누키 공개 형태로 필터링할 수 있어야 한다.
 - FR-029 [후속]: 방송 가창을 포함한 뒤 많이 부른 순 정렬을 제공해야 한다.
 
@@ -479,6 +489,9 @@ detail로 자동 복사하지 않는다.
 - NFR-013: 반복 제출과 자동화된 스팸을 제한할 수 있는 운영 보호 장치를 마련해야 한다.
 - NFR-014: 일반 회원은 자신의 제안과 상태만 조회할 수 있어야 한다.
 - NFR-015: 승인, 거절과 공개 상태 변경은 관리자 권한에서만 수행할 수 있어야 한다.
+- NFR-016: 공개 catalog API는 로그인 상태와 무관하게 Authorization을 보내지 않는
+  동일한 public DTO를 사용해야 하며, Authorization 또는 Cookie가 있는 직접 요청은
+  shared Cache API를 우회하고 `no-store`로 응답해야 한다.
 
 ## 14. 수용 기준
 
@@ -522,7 +535,6 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | ID | 항목 | 현재 권장안 |
 | --- | --- | --- |
 | TBD-001 | 공개 라우트 | /play 권장, 최종 결정 필요 |
-| TBD-002 | 접근 권한 | 공개 열람 권장, 회원 전용 여부 최종 결정 필요 |
 | TBD-003 | 내비게이션 위치와 라벨 | OTW Play 단독 메뉴 권장 |
 | TBD-004 | 후속 키리누키 채널 승인 기준과 해제 절차 | 관리자 allowlist와 개별 게시 승인 분리 |
 | TBD-005 | 후속 단계에서 키리누키가 없는 방송 가창의 공개 여부 | 원본 방송 타임스탬프로 공개 권장 |
@@ -535,6 +547,9 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | TBD-012 | 회원이 승인 전 제안을 수정하거나 철회할 수 있는지 | `pending_review` 상태에서만 허용 권장 |
 | TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | 사이트 내 상태 표시를 MVP 기본값으로 권장 |
 | TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | 일일 제한과 동일 영상 중복 차단 검토 |
+
+기존 TBD-002는 DEC-019로 해결되었다. 공개 catalog API는 익명이고 회원 제안은
+로그인, 검수와 공개 상태 변경은 관리자 권한을 사용한다.
 
 ## 17. 변경 관리
 
@@ -563,6 +578,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | 제안·공개·품질·소스 가용성 상태 축과 PR-1 계약·순수 domain 경계 명시 |
 | 2026-08-11 | PR-2 catalog foundation 권위·관계·dedupe 경계 확정, published partial index는 PR-3으로 연기하고 API·UI·원격 적용은 제외, GATE-01~06은 변경하지 않음 |
 | 2026-08-11 | PR-3 proposal·event·search/meta exact schema 경계 확정, proposal channel 제외, fail-closed meta와 application-owned revision·append-only 채택, API·UI·원격 적용 제외, GATE-01~06 유지 |
+| 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 
 ## 19. 참고
 
