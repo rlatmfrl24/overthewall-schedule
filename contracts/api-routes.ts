@@ -95,6 +95,39 @@ export const apiRoutes = {
       (id: string) =>
         `/api/play/performances/${encodeURIComponent(id)}` as const,
     ),
+    admin: {
+      catalog: staticRoute("/api/play/admin/catalog"),
+      entities: staticRoute("/api/play/admin/entities"),
+      songs: staticRoute("/api/play/admin/songs"),
+      performances: staticRoute("/api/play/admin/performances"),
+      publishPerformance: dynamicRoute(
+        "/api/play/admin/performances/:id/publish",
+        (id: string) =>
+          `/api/play/admin/performances/${encodeURIComponent(id)}/publish` as const,
+      ),
+      withdrawPerformance: dynamicRoute(
+        "/api/play/admin/performances/:id/withdraw",
+        (id: string) =>
+          `/api/play/admin/performances/${encodeURIComponent(id)}/withdraw` as const,
+      ),
+      submissions: staticRoute("/api/play/admin/submissions"),
+      approveSubmission: dynamicRoute(
+        "/api/play/admin/submissions/:id/approve",
+        (id: string) =>
+          `/api/play/admin/submissions/${encodeURIComponent(id)}/approve` as const,
+      ),
+      rejectSubmission: dynamicRoute(
+        "/api/play/admin/submissions/:id/reject",
+        (id: string) =>
+          `/api/play/admin/submissions/${encodeURIComponent(id)}/reject` as const,
+      ),
+      channels: staticRoute("/api/play/admin/channels"),
+      recheckSource: dynamicRoute(
+        "/api/play/admin/sources/:id/recheck",
+        (id: string) =>
+          `/api/play/admin/sources/${encodeURIComponent(id)}/recheck` as const,
+      ),
+    },
   },
   scheduleBoard: {
     read: staticRoute("/api/schedule-board"),

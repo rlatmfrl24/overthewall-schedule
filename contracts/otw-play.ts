@@ -370,3 +370,268 @@ export interface OtwPlayPublicFacetsDto {
   groups: OtwPlayPublicGroupFacetDto[];
   originalArtists: OtwPlayPublicOriginalArtistFacetDto[];
 }
+
+export const OTW_PLAY_ADMIN_ERROR_CODES = [
+  "PLAY_ADMIN_INVALID_REQUEST",
+  "PLAY_ADMIN_NOT_FOUND",
+  "PLAY_ADMIN_STALE_WRITE",
+  "PLAY_ADMIN_VALIDATION_FAILED",
+  "PLAY_ADMIN_POLICY_UNRESOLVED",
+  "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+  "PLAY_ADMIN_INTERNAL_ERROR",
+] as const;
+
+export type OtwPlayAdminErrorCode = (typeof OTW_PLAY_ADMIN_ERROR_CODES)[number];
+
+export interface OtwPlayAdminErrorResponse {
+  error: {
+    code: OtwPlayAdminErrorCode;
+    message: string;
+    fields?: Record<string, string>;
+    requestId: string;
+  };
+}
+
+export interface OtwPlayAdminEntityDto {
+  id: string;
+  memberUid: number | null;
+  entityKind: OtwPlayEntityKind;
+  displayName: string;
+  normalizedName: string;
+  slug: string;
+  archivedAt: number | null;
+  version: number;
+}
+
+export interface OtwPlayAdminSongDto {
+  id: string;
+  slug: string;
+  title: string;
+  normalizedTitle: string;
+  isOtwOriginal: boolean;
+  originalReleaseDate: string | null;
+  originalReleasePrecision: OtwPlayDatePrecision;
+  archivedAt: number | null;
+  version: number;
+  aliases: Array<{
+    alias: string;
+    normalizedAlias: string;
+    locale: string | null;
+    aliasKind: string | null;
+  }>;
+  originalArtists: Array<{
+    entityId: string;
+    displayName: string;
+    creditOrder: number;
+    isPrimary: boolean;
+  }>;
+}
+
+export interface OtwPlayAdminChannelDto {
+  id: string;
+  provider: OtwPlayProvider;
+  externalChannelId: string;
+  displayName: string;
+  channelRole: OtwPlayChannelRole;
+  verificationStatus: OtwPlayChannelVerificationStatus;
+  active: boolean;
+  entityIds: string[];
+  version: number;
+}
+
+export interface OtwPlayAdminSourceDto {
+  id: string;
+  provider: OtwPlayProvider;
+  externalId: string;
+  channelId: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  providerPublishedAt: number | null;
+  availabilityStatus: OtwPlaySourceAvailabilityStatus;
+  lastCheckedAt: number | null;
+  version: number;
+}
+
+export interface OtwPlayAdminPerformanceDto {
+  id: string;
+  songId: string;
+  relationType: OtwPlayRelationType;
+  releaseType: OtwPlayReleaseType;
+  participationType: OtwPlayParticipationType;
+  publicationStatus: OtwPlayPublicationStatus;
+  qualityStatus: OtwPlayQualityStatus;
+  releasedAt: number | null;
+  internalNote: string | null;
+  version: number;
+  participants: Array<{
+    entityId: string;
+    displayName: string;
+    participantRole: OtwPlayParticipantRole;
+    creditOrder: number;
+    creditNameSnapshot: string;
+  }>;
+  sources: Array<{
+    source: OtwPlayAdminSourceDto;
+    startSeconds: number;
+    endSeconds: number | null;
+    sourceRole: OtwPlaySourceRole;
+    priority: number;
+    isPrimary: boolean;
+  }>;
+}
+
+export interface OtwPlayAdminProposalDto {
+  id: string;
+  submittedByUserId: string;
+  submittedUrl: string;
+  youtubeVideoId: string;
+  segmentStartSeconds: number;
+  submittedTitle: string;
+  suggestedSongId: string | null;
+  submittedNote: string | null;
+  status: OtwPlayProposalStatus;
+  version: number;
+  reviewedByUserId: string | null;
+  reviewedAt: number | null;
+  reviewResultCode: string | null;
+  reviewNote: string | null;
+  approvedPerformanceId: string | null;
+  createdAt: number;
+  participants: Array<{
+    creditOrder: number;
+    resolvedEntityId: string | null;
+    submittedNameSnapshot: string;
+    participantRole: OtwPlayParticipantRole;
+  }>;
+  originalArtists: Array<{
+    creditOrder: number;
+    resolvedEntityId: string | null;
+    submittedNameSnapshot: string;
+  }>;
+}
+
+export interface OtwPlayAdminCatalogDto {
+  revision: number;
+  readModelRevision: number;
+  songs: OtwPlayAdminSongDto[];
+  performances: OtwPlayAdminPerformanceDto[];
+  entities: OtwPlayAdminEntityDto[];
+  channels: OtwPlayAdminChannelDto[];
+}
+
+export interface OtwPlayAdminEntityReferenceInput {
+  entityId: string;
+  creditOrder: number;
+  isPrimary?: boolean;
+  participantRole?: OtwPlayParticipantRole;
+  creditNameSnapshot?: string;
+}
+
+export interface OtwPlayAdminSongWriteInput {
+  slug: string;
+  title: string;
+  isOtwOriginal: boolean;
+  originalReleaseDate: string | null;
+  originalReleasePrecision: OtwPlayDatePrecision;
+  aliases: Array<{
+    alias: string;
+    locale?: string | null;
+    aliasKind?: string | null;
+  }>;
+  originalArtists: OtwPlayAdminEntityReferenceInput[];
+}
+
+export type OtwPlayAdminCreateSongRequest = OtwPlayAdminSongWriteInput;
+
+export interface OtwPlayAdminUpdateSongRequest
+  extends OtwPlayAdminSongWriteInput {
+  id: string;
+  expectedVersion: number;
+}
+
+export interface OtwPlayAdminPerformanceWriteInput {
+  songId: string;
+  relationType: OtwPlayRelationType;
+  releaseType: OtwPlayReleaseType;
+  participationType: OtwPlayParticipationType;
+  qualityStatus: OtwPlayQualityStatus;
+  releasedAt: number | null;
+  internalNote?: string | null;
+  participants: OtwPlayAdminEntityReferenceInput[];
+  source: {
+    youtubeUrl: string;
+    channelId: string;
+    startSeconds: number;
+    endSeconds?: number | null;
+    sourceRole: Extract<OtwPlaySourceRole, "official" | "alternate">;
+  };
+}
+
+export type OtwPlayAdminCreatePerformanceRequest =
+  OtwPlayAdminPerformanceWriteInput;
+
+export interface OtwPlayAdminUpdatePerformanceRequest
+  extends OtwPlayAdminPerformanceWriteInput {
+  id: string;
+  expectedVersion: number;
+}
+
+export interface OtwPlayAdminExpectedVersionRequest {
+  expectedVersion: number;
+}
+
+export interface OtwPlayAdminRecheckSourceRequest
+  extends OtwPlayAdminExpectedVersionRequest {
+  youtubeUrl: string;
+  channelId: string;
+}
+
+export interface OtwPlayAdminRejectProposalRequest
+  extends OtwPlayAdminExpectedVersionRequest {
+  resultCode: string;
+  note?: string | null;
+}
+
+export interface OtwPlayAdminApproveProposalRequest
+  extends OtwPlayAdminExpectedVersionRequest {
+  song: { existingSongId: string } | { create: OtwPlayAdminSongWriteInput };
+  performance: Omit<OtwPlayAdminPerformanceWriteInput, "songId" | "source"> & {
+    source: Omit<OtwPlayAdminPerformanceWriteInput["source"], "youtubeUrl">;
+  };
+  publish: boolean;
+}
+
+export interface OtwPlayAdminCreateChannelRequest {
+  externalChannelId: string;
+  displayName: string;
+  channelRole: OtwPlayChannelRole;
+  entityIds: string[];
+}
+
+export interface OtwPlayAdminCreateEntityRequest {
+  memberUid?: number | null;
+  entityKind: OtwPlayEntityKind;
+  displayName: string;
+  slug: string;
+}
+
+export interface OtwPlayAdminUpdateEntityRequest
+  extends OtwPlayAdminCreateEntityRequest {
+  id: string;
+  expectedVersion: number;
+  archived: boolean;
+}
+
+export interface OtwPlayAdminUpdateChannelRequest
+  extends OtwPlayAdminCreateChannelRequest {
+  id: string;
+  verificationStatus: OtwPlayChannelVerificationStatus;
+  active: boolean;
+  expectedVersion: number;
+}
+
+export interface OtwPlayAdminCommandResponse<T> {
+  data: T;
+  catalogRevision: number;
+}
