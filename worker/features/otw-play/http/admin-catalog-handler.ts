@@ -437,11 +437,18 @@ export const createAdminCatalogHandler =
         return errorResponse(requestId, status, code, error.message, error.fields);
       }
       if (error instanceof OtwPlayYouTubeMetadataError) {
+        console.warn("OTW Play YouTube metadata request failed", {
+          path: url.pathname,
+          method: request.method,
+          reason: error.message,
+          requestId,
+        });
         return errorResponse(
           requestId,
           503,
           "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
           "YouTube metadata is temporarily unavailable",
+          { youtube: error.message },
         );
       }
       console.error("OTW Play admin request failed", {

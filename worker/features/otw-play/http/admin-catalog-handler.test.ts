@@ -5,6 +5,7 @@ import {
   AdminCatalogServiceError,
 } from "../application/admin-catalog-service";
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
+import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import { createAdminCatalogHandler } from "./admin-catalog-handler";
 
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
@@ -144,6 +145,51 @@ describe("OTW Play admin catalog handler", () => {
     expect(createResponse.status).toBe(201);
     expect(createResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(createCatalogEntry).toHaveBeenCalledOnce();
+  });
+
+  it("returns a redacted YouTube diagnostic with the request id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({
+          preflightCatalogEntry: vi.fn(async () => {
+            throw new OtwPlayYouTubeMetadataError(
+              "YouTube metadata request returned 403",
+            );
+          }),
+        }) as unknown as AdminCatalogService,
+    );
+    const response = await handler(
+      new Request(
+        "https://example.com/api/play/admin/catalog-entries/preflight",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: 0,
+          }),
+        },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        fields: { youtube: "YouTube metadata request returned 403" },
+        requestId: expect.any(String),
+      },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "OTW Play YouTube metadata request failed",
+      expect.objectContaining({
+        reason: "YouTube metadata request returned 403",
+        requestId: expect.any(String),
+      }),
+    );
+    warn.mockRestore();
   });
 
   it("returns duplicate source identity in the fixed 409 error", async () => {

@@ -85,7 +85,7 @@ const preflightErrorMessage = (error: unknown) => {
     case "PLAY_ADMIN_INVALID_REQUEST":
       return `지원하는 YouTube 영상 URL과 시작 위치를 확인하세요.${requestSuffix}`;
     case "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE":
-      return `YouTube metadata 조회에 실패했습니다. 잠시 후 다시 시도하세요.${requestSuffix}`;
+      return `YouTube metadata 조회에 실패했습니다${error.fields?.youtube ? `: ${error.fields.youtube}` : ". 잠시 후 다시 시도하세요."}${requestSuffix}`;
     case "PLAY_ADMIN_INTERNAL_ERROR":
       return `로컬 카탈로그를 확인하지 못했습니다. D1 상태를 점검하세요.${requestSuffix}`;
     default:

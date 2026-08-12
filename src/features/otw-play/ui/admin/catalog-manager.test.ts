@@ -313,6 +313,7 @@ describe("OtwPlayCatalogManager", () => {
     preflightEntryMock.mockRejectedValueOnce(
       new ApiError("YouTube metadata is temporarily unavailable", 503, {
         code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        fields: { youtube: "YouTube metadata request returned 403" },
         requestId: "request-preflight-1",
       }),
     );
@@ -330,7 +331,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
 
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "YouTube metadata 조회에 실패했습니다",
+      "YouTube metadata request returned 403",
     );
     expect(screen.getByRole("alert").textContent).toContain(
       "request-preflight-1",
