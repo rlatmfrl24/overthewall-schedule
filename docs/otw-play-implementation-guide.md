@@ -612,6 +612,15 @@ original artist ID로 canonical dedupe key material을 만들며 soft duplicate�
 검색/read-model projection, event와 revision을 `PUT /api/play/admin/songs`의 한 D1
 batch에서 생성·교체한다.
 
+`가창 정보 수정`은 연결 song, 현재 멤버·외부 participant와 역할·credit snapshot,
+relation/release/participation/quality 축, 공개일시, YouTube URL·channel·segment·source
+role 및 내부 메모를 모두 받는다. `PUT /api/play/admin/performances`는 YouTube metadata를
+다시 확인하고 새 participant identity 생성, participant/source 교체, 이전·새 song의
+projection 재생성, orphan source 정리, event와 두 revision을 한 D1 batch로 수행한다.
+dedupe key와 publication status는 수정하지 않으며 publish/withdraw는 기존 conditional
+command와 confirm UI로만 처리한다. withdrawn performance는 correction 대상이 아니며
+삭제하거나 replacement draft를 만든다.
+
 PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
 `music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
 song의 2·3 code point gram과 gram stats, capability event, catalog revision 증가를
@@ -664,6 +673,11 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - stale expectedVersion 409
 - 전역 admin audit 실패는 authoritative event를 훼손하지 않음
 - 관리자 UI가 서버 성공 후 authoritative readback
+- 가창 correction에서 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시,
+  YouTube source·channel·segment·role과 메모를 함께 수정하고 새 identity·양쪽 song
+  projection·event·revision을 원자적으로 반영
+- 가창 correction의 stale version 또는 identity/event/projection 실패 시 새 identity와
+  authority·revision이 모두 rollback
 - 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
 - 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
 - 오리지널·커버의 수동 곡 연결 생략과 metadata 기반 song+performance 생성, 기존 곡의 `다른 가창 추가`, draft와 confirm publish를 통합 command로 검증

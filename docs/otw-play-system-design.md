@@ -958,7 +958,7 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
 | POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
 | DELETE   | `/api/play/admin/songs/:id`                 | published가 없는 테스트·오입력 곡 정리 |
-| POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·수정                   |
+| POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·전체 metadata 수정     |
 | DELETE   | `/api/play/admin/performances/:id`           | draft·withdrawn 가창 정리              |
 | POST     | `/api/play/admin/performances/:id/publish`  | 검수 후 게시                           |
 | POST     | `/api/play/admin/performances/:id/withdraw` | 공개 철회                              |
@@ -996,6 +996,16 @@ subject로 받는다. 현재 멤버 identity가 없거나 새 외부 가수 칩�
 song credit 교체, dedupe/search/gram projection, capability event와 두 revision 갱신을
 하나의 D1 batch로 수행한다. 수정 form에서 원곡 공개일을 받지 않더라도 client는 읽은
 기존 날짜와 precision을 그대로 보내며 server는 이를 보존한다.
+
+가창 수정 command도 참여자를 `member|entity|new_external` subject로 받는다. 연결
+song, 관계·공개 형태·참여 형태, 품질, 공개일시, 내부 메모, 전체 participant credit과
+공식 YouTube source의 channel·segment·source role을 교체할 수 있다. server는 입력
+URL에서 video ID를 다시 검증하고 YouTube metadata의 channel ID를 선택된 내부 channel과
+대조한다. 아직 entity가 없는 현재 멤버와 새 외부 subject는 같은 batch에서 identity로
+만든다. 이전 song과 새 song의 search/gram/participant sort projection, orphan source
+정리, `performance.updated` event와 두 revision도 그 batch에 포함한다. performance
+dedupe key와 publication status는 이 correction의 수정 허용 field가 아니며, 게시·철회는
+각각의 conditional transition command로만 수행한다.
 
 현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
 기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도

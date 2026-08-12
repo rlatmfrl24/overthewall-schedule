@@ -414,6 +414,14 @@ stateDiagram-v2
 identity를 추천하고, 검색 결과가 없으면 새 외부 인물·그룹 칩을 명시적으로 추가한다.
 첫 번째 칩을 대표 원곡 가수로 저장하며 빈 목록은 저장하지 않는다.
 
+`가창 정보 수정`은 축약된 분류 form이 아니라 넓은 correction dialog다. 연결 곡,
+곡 관계, 공개 형태, 참여 형태, 품질, 가창 공개일시, 참여자, 참여자별 역할과 표시
+credit, YouTube URL, 공식 채널, 시작·종료 구간, source 역할과 내부 메모를 모두
+편집할 수 있어야 한다. 참여자 입력은 등록과 같은 현재 멤버 자동완성·기존 외부
+identity·새 외부/그룹 칩을 사용한다. 게시 상태는 이 form의 enum select로 섞지 않고
+목록의 게시·철회 confirm action으로 유지한다. 저장 실패 시 dialog와 모든 입력을
+보존하며 성공한 authoritative readback 뒤에만 닫는다.
+
 채널과 외부 identity 관리는 `고급 관리` 우측 Sheet에만 둔다. 고급 관리는 목록과
 현재 편집 form을 시각적으로 분리하고, label·help·action이 한 입력 단위로 읽히는
 1열 또는 2열 반응형 form을 사용한다. 현재 멤버 identity는 `members`가 권위이므로

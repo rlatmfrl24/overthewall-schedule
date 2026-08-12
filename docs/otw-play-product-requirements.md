@@ -80,6 +80,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-025 | 새 영상 등록은 metadata 확인 직후 `오리지널곡`, `공식 커버곡`, `노래방송`으로 유형을 먼저 확정한다. | 확정 | 오리지널·커버는 수동 곡 연결 화면을 건너뛴다. 오리지널은 검증한 영상 제목과 선택한 참여자로 song을 만들고, 커버는 관리자가 원곡 제목과 원곡 가수명을 구분해 입력해 song을 만든다. 다곡·구간 연결이 필요한 노래방송은 후속 범위로 표시하고 현재 command로 저장하지 않는다. |
 | DEC-026 | 관리자 hard delete는 테스트·오입력 catalog를 정리하는 용도로 `draft`와 `withdrawn`에 허용한다. | 확정 | draft·withdrawn 가창은 개별 삭제할 수 있고, 곡은 연결된 가창에 `published`가 없을 때 함께 삭제할 수 있다. 현재 게시 중인 가창, 승인 proposal 참조와 merge 대상은 삭제하지 않으며 삭제 event와 revision은 남긴다. |
 | DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
+| DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
 
 ## 4. 제품 원칙
 
@@ -598,6 +599,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-12 | DEC-025 보완. 공식 커버 등록은 영상 제목을 원곡 정보로 대체하지 않고 원곡 제목과 원곡 가수명을 별도 필수 입력으로 수집 |
 | 2026-08-12 | DEC-026 관리자 삭제 정책 보완. 테스트·오입력 정리를 위해 draft·withdrawn 가창과 published가 없는 곡은 확인 후 삭제할 수 있게 하되 현재 게시·승인 proposal·merge 관계는 보호 |
 | 2026-08-12 | DEC-027 곡 수정 입력 단순화. 원곡 공개일 입력을 제거하고 원곡 가수를 기존 identity 추천 또는 새 외부 칩으로 직접 수정하도록 확정 |
+| 2026-08-12 | DEC-028 가창 전체 수정 확정. 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시, YouTube source·채널·구간·역할과 메모를 한 atomic correction으로 편집하고 공개 상태 전이는 별도 command로 유지 |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 
