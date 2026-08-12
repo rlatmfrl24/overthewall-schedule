@@ -546,6 +546,7 @@ export interface OtwPlayAdminCatalogParticipantInput {
 
 export type OtwPlayAdminCatalogSongDecision =
   | { kind: "existing"; songId: string }
+  | { kind: "from_video" }
   | {
       kind: "create";
       title: string;

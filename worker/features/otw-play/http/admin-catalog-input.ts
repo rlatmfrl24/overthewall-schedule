@@ -561,6 +561,8 @@ export const parseCreateCatalogEntry = (
   if (value.song.kind === "existing") {
     const songId = nonEmptyString(value.song.songId, 128);
     if (songId) song = { kind: "existing", songId };
+  } else if (value.song.kind === "from_video") {
+    song = { kind: "from_video" };
   } else if (value.song.kind === "create") {
     const title = nonEmptyString(value.song.title, 300);
     const precision = inValues(

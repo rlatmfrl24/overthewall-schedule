@@ -3,6 +3,7 @@ export {
   assessSoftDuplicate,
   createPerformanceDedupeKeyMaterial,
   createSongDedupeKeyMaterial,
+  createVideoBackedSongDedupeKeyMaterial,
 } from "./domain/duplicate-policy";
 export type {
   ExactDuplicateAssessment,
@@ -13,6 +14,7 @@ export type {
   SoftDuplicateSignals,
   SongDedupeKeyInput,
   SourceSegmentIdentity,
+  VideoBackedSongDedupeKeyInput,
 } from "./domain/duplicate-policy";
 export { normalizeOtwPlaySearchText } from "./domain/search-normalization";
 export { selectPreferredOfficialSource } from "./domain/source-selection";

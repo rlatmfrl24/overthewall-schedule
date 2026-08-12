@@ -66,6 +66,17 @@ describe("OTW Play admin input", () => {
         participants: [{ subject: { kind: "member", memberUid: 1 } }],
       },
     });
+    const fromVideo = parseCreateCatalogEntry({
+      ...command,
+      song: { kind: "from_video", title: "client-supplied title" },
+    });
+    expect(fromVideo).toMatchObject({
+      ok: true,
+      value: { song: { kind: "from_video" } },
+    });
+    if (fromVideo.ok) {
+      expect(fromVideo.value.song).toEqual({ kind: "from_video" });
+    }
     expect(
       parseCreateCatalogEntry({
         ...command,

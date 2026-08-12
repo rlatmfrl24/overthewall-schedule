@@ -18,6 +18,7 @@ import type {
 import {
   createPerformanceDedupeKeyMaterial,
   createSongDedupeKeyMaterial,
+  createVideoBackedSongDedupeKeyMaterial,
 } from "../domain/duplicate-policy";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 import {
@@ -1516,7 +1517,30 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       songId = song.id;
     } else {
       songId = ids.songId;
-      const artists = input.song.originalArtists.map((item) => ({
+      const songInput =
+        input.song.kind === "from_video"
+          ? {
+              title: video.title,
+              isOtwOriginal: input.relationType === "original",
+              originalReleaseDate: null,
+              originalReleasePrecision: "unknown" as const,
+              aliases: [],
+              originalArtists:
+                input.relationType === "original"
+                  ? [...input.participants]
+                      .sort(
+                        (left, right) =>
+                          left.creditOrder - right.creditOrder,
+                      )
+                      .map((participant, index) => ({
+                        subject: participant.subject,
+                        creditOrder: index,
+                        isPrimary: index === 0,
+                      }))
+                  : [],
+            }
+          : input.song;
+      const artists = songInput.originalArtists.map((item) => ({
         ...item,
         resolved: resolveSubject(item.subject),
       }));
@@ -1526,7 +1550,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           "An original artist can only be credited once",
         );
       }
-      const slug = generatedSlug(input.song.title, songId);
+      const slug = generatedSlug(songInput.title, songId);
       statements.push(
         this.database
           .prepare(
@@ -1538,19 +1562,24 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           .bind(
             songId,
             slug,
-            input.song.title.trim(),
-            normalizeOtwPlaySearchText(input.song.title),
-            createSongDedupeKeyMaterial({
-              title: input.song.title,
-              originalArtistIds: artists.map((item) => item.resolved.id),
-            }),
-            input.song.isOtwOriginal ? 1 : 0,
-            input.song.originalReleaseDate,
-            input.song.originalReleasePrecision,
+            songInput.title.trim(),
+            normalizeOtwPlaySearchText(songInput.title),
+            input.song.kind === "from_video"
+              ? createVideoBackedSongDedupeKeyMaterial({
+                  title: songInput.title,
+                  youtubeVideoId: video.videoId,
+                })
+              : createSongDedupeKeyMaterial({
+                  title: songInput.title,
+                  originalArtistIds: artists.map((item) => item.resolved.id),
+                }),
+            songInput.isOtwOriginal ? 1 : 0,
+            songInput.originalReleaseDate,
+            songInput.originalReleasePrecision,
             now,
             now,
           ),
-        ...input.song.aliases.map((alias) =>
+        ...songInput.aliases.map((alias) =>
           this.database
             .prepare(
               `INSERT INTO music_song_aliases
@@ -1588,7 +1617,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             ids.songEventId,
             songId,
             actor.userId,
-            eventJson({ title: input.song.title, slug }),
+            eventJson({
+              title: songInput.title,
+              slug,
+              creationMode:
+                input.song.kind === "from_video" ? "from_video" : "inline",
+            }),
             now,
           ),
       );

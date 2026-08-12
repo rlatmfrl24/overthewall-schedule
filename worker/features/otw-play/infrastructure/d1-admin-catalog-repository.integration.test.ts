@@ -217,6 +217,137 @@ describe("D1AdminCatalogRepository", () => {
     });
   });
 
+  it("creates a cover from verified video metadata without inventing an original-artist identity", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const memberChannelId = `UC${"C".repeat(22)}`;
+    await db
+      .prepare(
+        `INSERT INTO members (uid, code, name, youtube_channel_id, is_deprecated)
+        VALUES (901, 'cover-member', '커버 멤버', ?, 0)`,
+      )
+      .bind(memberChannelId)
+      .run();
+    const video = {
+      videoId: "cOvErViDe_1",
+      channelId: memberChannelId,
+      channelTitle: "커버 멤버 채널",
+      title: "영상 제목 기반 공식 커버",
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const preflight = await repository.preflightCatalogEntry(video, 0);
+
+    const result = await repository.createCatalogEntry({
+      input: {
+        expectedCatalogRevision: preflight.catalogRevision,
+        youtubeUrl: `https://youtu.be/${video.videoId}`,
+        startSeconds: 0,
+        song: { kind: "from_video" },
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 901 },
+            participantRole: "vocal",
+            creditOrder: 0,
+          },
+        ],
+        channel: {
+          kind: "recognized_member",
+          memberUid: 901,
+          channelRole: "member_main",
+        },
+        relationType: "cover",
+        releaseType: "official_video",
+        participationType: "solo",
+        publicationTarget: "draft",
+      },
+      video,
+      actor,
+      now: NOW,
+      ids: {
+        entityIds: { "member:901": "entity-cover-member" },
+        entityEventIds: { "member:901": "event-cover-member" },
+        channelId: "channel-cover-member",
+        channelEventId: "event-channel-cover-member",
+        songId: "song-cover-from-video",
+        songEventId: "event-song-cover-from-video",
+        performanceId: "performance-cover-from-video",
+        performanceEventId: "event-performance-cover-from-video",
+        sourceId: "source-cover-from-video",
+      },
+    });
+
+    expect(result.data.song).toMatchObject({
+      title: video.title,
+      isOtwOriginal: false,
+      originalArtists: [],
+    });
+    expect(result.data.createdEntities).toEqual([
+      expect.objectContaining({ memberUid: 901 }),
+    ]);
+    expect(result.data.performance).toMatchObject({
+      relationType: "cover",
+      publicationStatus: "draft",
+    });
+
+    const originalVideo = {
+      ...video,
+      videoId: "oRiGiNaL__2",
+      title: "영상 제목 기반 오리지널곡",
+    };
+    const originalPreflight = await repository.preflightCatalogEntry(
+      originalVideo,
+      0,
+    );
+    const originalResult = await repository.createCatalogEntry({
+      input: {
+        expectedCatalogRevision: originalPreflight.catalogRevision,
+        youtubeUrl: `https://youtu.be/${originalVideo.videoId}`,
+        startSeconds: 0,
+        song: { kind: "from_video" },
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 901 },
+            participantRole: "vocal",
+            creditOrder: 0,
+          },
+        ],
+        channel: { kind: "existing", channelId: result.data.channel.id },
+        relationType: "original",
+        releaseType: "official_video",
+        participationType: "solo",
+        publicationTarget: "draft",
+      },
+      video: originalVideo,
+      actor,
+      now: NOW + 1,
+      ids: {
+        entityIds: {},
+        entityEventIds: {},
+        channelId: "unused-original-channel",
+        channelEventId: "unused-original-channel-event",
+        songId: "song-original-from-video",
+        songEventId: "event-song-original-from-video",
+        performanceId: "performance-original-from-video",
+        performanceEventId: "event-performance-original-from-video",
+        sourceId: "source-original-from-video",
+      },
+    });
+
+    expect(originalResult.data.song).toMatchObject({
+      title: originalVideo.title,
+      isOtwOriginal: true,
+      originalArtists: [
+        expect.objectContaining({
+          entityId: "entity-cover-member",
+          isPrimary: true,
+        }),
+      ],
+    });
+    expect(originalResult.data.performance.relationType).toBe("original");
+  });
+
   it("writes a draft atomically and publishes only after official channel approval", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Singer");
