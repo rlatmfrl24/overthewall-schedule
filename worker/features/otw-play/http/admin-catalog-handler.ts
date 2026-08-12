@@ -210,7 +210,10 @@ export const createAdminCatalogHandler =
           );
         const result =
           request.method === "POST"
-            ? await service.createSong(parsed.value, actor)
+            ? await service.createSong(
+                parsed.value as Parameters<typeof service.createSong>[0],
+                actor,
+              )
             : await service.updateSong(
                 parsed.value as Parameters<typeof service.updateSong>[0],
                 actor,

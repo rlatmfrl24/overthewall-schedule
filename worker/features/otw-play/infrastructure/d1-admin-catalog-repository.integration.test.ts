@@ -1259,21 +1259,31 @@ describe("D1AdminCatalogRepository", () => {
     await expect(
       repository.updateSong(
         {
-          id: song.data.id,
-          expectedVersion: 99,
-          slug: "should-not-commit",
-          title: "Should Not Commit",
-          isOtwOriginal: false,
-          originalReleaseDate: null,
-          originalReleasePrecision: "unknown",
-          aliases: [{ alias: "bad alias" }],
-          originalArtists: [
-            { entityId: artist.data.id, creditOrder: 0, isPrimary: true },
-          ],
+          input: {
+            id: song.data.id,
+            expectedVersion: 99,
+            slug: "should-not-commit",
+            title: "Should Not Commit",
+            isOtwOriginal: false,
+            originalReleaseDate: null,
+            originalReleasePrecision: "unknown",
+            aliases: [{ alias: "bad alias" }],
+            originalArtists: [
+              {
+                subject: { kind: "entity", entityId: artist.data.id },
+                creditOrder: 0,
+                isPrimary: true,
+              },
+            ],
+          },
+          actor,
+          ids: {
+            entityIds: {},
+            entityEventIds: {},
+            songEventId: id("event"),
+          },
+          now: NOW + 1,
         },
-        actor,
-        id("event"),
-        NOW + 1,
       ),
     ).rejects.toMatchObject({ code: "stale_write" });
 
@@ -1290,6 +1300,95 @@ describe("D1AdminCatalogRepository", () => {
       )
       .first<{ count: number }>();
     expect(Number(strayEvent?.count)).toBe(0);
+  });
+
+  it("creates a new original artist and updates the song in one catalog batch", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const previousArtist = await createEntity(repository, "Previous Artist", "person");
+    const song = await repository.createSong(
+      {
+        slug: "editable-song",
+        title: "Editable Song",
+        isOtwOriginal: false,
+        originalReleaseDate: "2020-05-03",
+        originalReleasePrecision: "day",
+        aliases: [],
+        originalArtists: [
+          {
+            entityId: previousArtist.data.id,
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
+      actor,
+      { songId: id("song"), eventId: id("event") },
+      NOW,
+    );
+    const before = await repository.readCatalog();
+    const entityId = id("entity");
+
+    const updated = await repository.updateSong({
+      input: {
+        id: song.data.id,
+        expectedVersion: song.data.version,
+        slug: song.data.slug,
+        title: "Edited Song",
+        isOtwOriginal: false,
+        originalReleaseDate: song.data.originalReleaseDate,
+        originalReleasePrecision: song.data.originalReleasePrecision,
+        aliases: [],
+        originalArtists: [
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "new-artist-chip",
+              displayName: "New Original Artist",
+              entityKind: "person",
+            },
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
+      actor,
+      ids: {
+        entityIds: { "external:new-artist-chip": entityId },
+        entityEventIds: { "external:new-artist-chip": id("event") },
+        songEventId: id("event"),
+      },
+      now: NOW + 1,
+    });
+
+    expect(updated.catalogRevision).toBe(before.revision + 1);
+    expect(updated.data).toMatchObject({
+      title: "Edited Song",
+      originalReleaseDate: "2020-05-03",
+      originalReleasePrecision: "day",
+      originalArtists: [
+        {
+          entityId,
+          displayName: "New Original Artist",
+          creditOrder: 0,
+          isPrimary: true,
+        },
+      ],
+    });
+    const after = await repository.readCatalog();
+    expect(after.readModelRevision).toBe(updated.catalogRevision);
+    expect(after.entities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: entityId, displayName: "New Original Artist" }),
+      ]),
+    );
+    const searchTerm = await db
+      .prepare(
+        `SELECT normalized_term FROM music_search_terms
+         WHERE song_id = ? AND term_kind = 'original_artist'`,
+      )
+      .bind(song.data.id)
+      .first<{ normalized_term: string }>();
+    expect(searchTerm?.normalized_term).toBe("new original artist");
   });
 
   it("fails closed instead of healing an already stale public read model", async () => {
@@ -1359,13 +1458,26 @@ describe("D1AdminCatalogRepository", () => {
     await expect(
       repository.updateSong(
         {
-          ...songInput("dedupe-two", "Dedupe One"),
-          id: second.data.id,
-          expectedVersion: second.data.version,
+          input: {
+            ...songInput("dedupe-two", "Dedupe One"),
+            originalArtists: [
+              {
+                subject: { kind: "entity", entityId: artist.data.id },
+                creditOrder: 0,
+                isPrimary: true,
+              },
+            ],
+            id: second.data.id,
+            expectedVersion: second.data.version,
+          },
+          actor,
+          ids: {
+            entityIds: {},
+            entityEventIds: {},
+            songEventId: id("event"),
+          },
+          now: NOW + 2,
         },
-        actor,
-        id("event"),
-        NOW + 2,
       ),
     ).rejects.toMatchObject({ code: "validation_failed" });
 

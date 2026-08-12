@@ -661,9 +661,10 @@ export interface OtwPlayAdminSongWriteInput {
 export type OtwPlayAdminCreateSongRequest = OtwPlayAdminSongWriteInput;
 
 export interface OtwPlayAdminUpdateSongRequest
-  extends OtwPlayAdminSongWriteInput {
+  extends Omit<OtwPlayAdminSongWriteInput, "originalArtists"> {
   id: string;
   expectedVersion: number;
+  originalArtists: OtwPlayAdminCatalogArtistInput[];
 }
 
 export interface OtwPlayAdminPerformanceWriteInput {

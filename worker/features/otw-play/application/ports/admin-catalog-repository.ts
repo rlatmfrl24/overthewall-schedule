@@ -118,6 +118,17 @@ export interface AdminCreateCatalogEntryCommand {
   };
 }
 
+export interface AdminUpdateSongCommand {
+  input: OtwPlayAdminUpdateSongRequest;
+  actor: AdminCatalogActor;
+  now: number;
+  ids: {
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    songEventId: string;
+  };
+}
+
 export interface AdminCatalogRepository {
   readCatalog(): Promise<OtwPlayAdminCatalogDto>;
   preflightCatalogEntry(
@@ -147,10 +158,7 @@ export interface AdminCatalogRepository {
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
   updateSong(
-    input: OtwPlayAdminUpdateSongRequest,
-    actor: AdminCatalogActor,
-    eventId: string,
-    now: number,
+    command: AdminUpdateSongCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
   deleteSong(
     id: string,

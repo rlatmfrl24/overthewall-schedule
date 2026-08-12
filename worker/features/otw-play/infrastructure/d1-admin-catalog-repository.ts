@@ -13,7 +13,6 @@ import type {
   OtwPlayAdminSongDto,
   OtwPlayAdminUpdateChannelRequest,
   OtwPlayAdminUpdateEntityRequest,
-  OtwPlayAdminUpdateSongRequest,
 } from "@contracts/otw-play";
 import {
   createPerformanceDedupeKeyMaterial,
@@ -28,6 +27,7 @@ import {
   type AdminApproveProposalCommand,
   type AdminCreateCatalogEntryCommand,
   type AdminCreatePerformanceCommand,
+  type AdminUpdateSongCommand,
   type AdminUpdatePerformanceCommand,
 } from "../application/ports/admin-catalog-repository";
 
@@ -961,18 +961,165 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     return this.readSong(ids.songId);
   }
 
-  async updateSong(
-    input: OtwPlayAdminUpdateSongRequest,
-    actor: AdminCatalogActor,
-    eventId: string,
-    now: number,
-  ) {
+  async updateSong(command: AdminUpdateSongCommand) {
+    const { input, actor, ids, now } = command;
     const meta = await this.readRevision();
+    const catalog = await this.readCatalog();
+    const entityStatements: D1PreparedStatement[] = [];
+    const resolved = new Map<string, { id: string; displayName: string }>();
+    for (const artist of input.originalArtists) {
+      const subject = artist.subject;
+      if (subject.kind === "entity") {
+        const entity = catalog.entities.find(
+          (item) => item.id === subject.entityId && item.archivedAt === null,
+        );
+        if (!entity) {
+          throw new AdminCatalogRepositoryError(
+            "not_found",
+            "Selected original artist identity was not found",
+          );
+        }
+        resolved.set(`entity:${subject.entityId}`, {
+          id: entity.id,
+          displayName: entity.displayName,
+        });
+        continue;
+      }
+
+      const key = subjectKey(subject)!;
+      if (resolved.has(key)) continue;
+      if (subject.kind === "member") {
+        const authority = await this.database
+          .prepare(
+            `SELECT uid, code, name FROM members
+            WHERE uid = ? AND (is_deprecated IS NULL OR is_deprecated = 0)`,
+          )
+          .bind(subject.memberUid)
+          .first<{ uid: number; code: string; name: string }>();
+        if (!authority) {
+          throw new AdminCatalogRepositoryError(
+            "not_found",
+            "Current member was not found",
+          );
+        }
+        const existing = catalog.entities.find(
+          (item) => item.memberUid === subject.memberUid,
+        );
+        if (existing) {
+          if (existing.archivedAt !== null) {
+            throw new AdminCatalogRepositoryError(
+              "validation_failed",
+              "The current member identity is archived",
+            );
+          }
+          resolved.set(key, { id: existing.id, displayName: authority.name });
+          continue;
+        }
+        const entityId = ids.entityIds[key];
+        const entityEventId = ids.entityEventIds[key];
+        if (!entityId || !entityEventId) {
+          throw new Error("Missing generated member identity ids");
+        }
+        entityStatements.push(
+          this.database
+            .prepare(
+              `INSERT INTO music_entities (
+              id, member_uid, entity_kind, display_name, normalized_name, slug,
+              version, created_at, updated_at
+            ) VALUES (?, ?, 'person', ?, ?, ?, 0, ?, ?)`,
+            )
+            .bind(
+              entityId,
+              authority.uid,
+              authority.name,
+              normalizeOtwPlaySearchText(authority.name),
+              authority.code.trim().toLowerCase(),
+              now,
+              now,
+            ),
+          this.database
+            .prepare(
+              `INSERT INTO music_catalog_events
+              (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
+              VALUES (?, 'entity', ?, 'entity.created_from_member', 'admin', ?, ?, ?)`,
+            )
+            .bind(
+              entityEventId,
+              entityId,
+              actor.userId,
+              eventJson({ memberUid: authority.uid }),
+              now,
+            ),
+        );
+        resolved.set(key, { id: entityId, displayName: authority.name });
+        continue;
+      }
+
+      const entityId = ids.entityIds[key];
+      const entityEventId = ids.entityEventIds[key];
+      if (!entityId || !entityEventId) {
+        throw new Error("Missing generated external identity ids");
+      }
+      entityStatements.push(
+        this.database
+          .prepare(
+            `INSERT INTO music_entities (
+            id, member_uid, entity_kind, display_name, normalized_name, slug,
+            version, created_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, ?, 0, ?, ?)`,
+          )
+          .bind(
+            entityId,
+            subject.entityKind,
+            subject.displayName.trim(),
+            normalizeOtwPlaySearchText(subject.displayName),
+            generatedSlug(subject.displayName, entityId),
+            now,
+            now,
+          ),
+        this.database
+          .prepare(
+            `INSERT INTO music_catalog_events
+            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
+            VALUES (?, 'entity', ?, 'entity.created_inline', 'admin', ?, ?, ?)`,
+          )
+          .bind(
+            entityEventId,
+            entityId,
+            actor.userId,
+            eventJson({
+              displayName: subject.displayName,
+              entityKind: subject.entityKind,
+            }),
+            now,
+          ),
+      );
+      resolved.set(key, {
+        id: entityId,
+        displayName: subject.displayName.trim(),
+      });
+    }
+    const artists = input.originalArtists.map((artist) => {
+      const key =
+        artist.subject.kind === "entity"
+          ? `entity:${artist.subject.entityId}`
+          : subjectKey(artist.subject)!;
+      const entity = resolved.get(key);
+      if (!entity) throw new Error("Unresolved original artist identity");
+      return { ...artist, entity };
+    });
+    if (new Set(artists.map((artist) => artist.entity.id)).size !== artists.length) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "An original artist can only be credited once",
+      );
+    }
     const dedupeKey = createSongDedupeKeyMaterial({
       title: input.title,
-      originalArtistIds: input.originalArtists.map((item) => item.entityId),
+      originalArtistIds: artists.map((artist) => artist.entity.id),
     });
     const statements: D1PreparedStatement[] = [
+      ...entityStatements,
       this.database
         .prepare(
           `UPDATE music_songs SET slug = ?, title = ?, normalized_title = ?, dedupe_key = ?,
@@ -1012,7 +1159,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare("DELETE FROM music_song_original_artists WHERE song_id = ?")
         .bind(input.id),
-      ...input.originalArtists.map((artist) =>
+      ...artists.map((artist) =>
         this.database
           .prepare(
             `INSERT INTO music_song_original_artists
@@ -1020,7 +1167,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           )
           .bind(
             input.id,
-            artist.entityId,
+            artist.entity.id,
             artist.creditOrder,
             artist.isPrimary ? 1 : 0,
           ),
@@ -1033,7 +1180,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         VALUES (?, 'song', ?, 'song.updated', 'admin', ?, ?, ?)`,
         )
         .bind(
-          eventId,
+          ids.songEventId,
           input.id,
           actor.userId,
           eventJson({ version: input.expectedVersion + 1 }),

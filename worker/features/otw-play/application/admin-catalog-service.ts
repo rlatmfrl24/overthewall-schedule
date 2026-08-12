@@ -294,12 +294,37 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     validateVersion(input.expectedVersion);
-    const result = await this.repository.updateSong(
+    const entityIds: Record<string, string> = {};
+    const entityEventIds: Record<string, string> = {};
+    const definitions = new Map<string, string>();
+    for (const artist of input.originalArtists) {
+      const key = subjectKey(artist.subject);
+      if (!key) continue;
+      const definition = JSON.stringify(artist.subject);
+      const previous = definitions.get(key);
+      if (previous && previous !== definition) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "A subject key cannot describe multiple identities",
+          { originalArtists: "conflicting_identity" },
+        );
+      }
+      definitions.set(key, definition);
+      if (!entityIds[key]) {
+        entityIds[key] = this.createId();
+        entityEventIds[key] = this.createId();
+      }
+    }
+    const result = await this.repository.updateSong({
       input,
       actor,
-      this.createId(),
-      this.clock(),
-    );
+      now: this.clock(),
+      ids: {
+        entityIds,
+        entityEventIds,
+        songEventId: this.createId(),
+      },
+    });
     await bestEffortAudit(this.audit, {
       eventType: "otw_play.song.updated",
       resourceType: "music_song",

@@ -172,18 +172,6 @@ export const parseCreateSong = (
   return parsed ? { ok: true, value: parsed } : fail({ body: "invalid_song" });
 };
 
-export const parseUpdateSong = (
-  value: unknown,
-): AdminInputResult<OtwPlayAdminUpdateSongRequest> => {
-  if (!isObject(value)) return fail({ body: "object_required" });
-  const parsed = parseSongCore(value);
-  const id = nonEmptyString(value.id, 128);
-  const expectedVersion = integer(value.expectedVersion);
-  return parsed && id && expectedVersion !== null
-    ? { ok: true, value: { ...parsed, id, expectedVersion } }
-    : fail({ body: "invalid_song" });
-};
-
 const parsePerformanceCore = (value: JsonObject) => {
   const songId = nonEmptyString(value.songId, 128);
   const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
@@ -498,6 +486,95 @@ const parseCatalogSubjects = (value: unknown, allowEmpty = false) => {
   return parsed.some((item) => item === null)
     ? null
     : parsed.filter((item): item is OtwPlayAdminCatalogSubjectInput => item !== null);
+};
+
+export const parseUpdateSong = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminUpdateSongRequest> => {
+  if (!isObject(value)) return fail({ body: "object_required" });
+  const id = nonEmptyString(value.id, 128);
+  const expectedVersion = integer(value.expectedVersion);
+  const slug = nonEmptyString(value.slug, 128);
+  const title = nonEmptyString(value.title, 300);
+  const originalReleasePrecision = inValues(
+    value.originalReleasePrecision,
+    OTW_PLAY_DATE_PRECISIONS,
+  );
+  const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
+  const aliases =
+    Array.isArray(value.aliases) && value.aliases.length <= 50
+      ? value.aliases.map((raw) => {
+          if (!isObject(raw)) return null;
+          const alias = nonEmptyString(raw.alias, 300);
+          return alias
+            ? {
+                alias,
+                locale: nullableString(raw.locale, 30),
+                aliasKind: nullableString(raw.aliasKind, 60),
+              }
+            : null;
+        })
+      : null;
+  const artists = Array.isArray(value.originalArtists)
+    ? value.originalArtists.map((raw) => {
+        if (!isObject(raw)) return null;
+        const subject = parseCatalogSubject(raw.subject);
+        const creditOrder = integer(raw.creditOrder);
+        return subject &&
+          creditOrder !== null &&
+          typeof raw.isPrimary === "boolean"
+          ? { subject, creditOrder, isPrimary: raw.isPrimary }
+          : null;
+      })
+    : null;
+  const validDate =
+    originalReleasePrecision === "unknown"
+      ? value.originalReleaseDate === null
+      : originalReleaseDate !== null;
+  const parsedArtists = artists?.filter(
+    (artist): artist is NonNullable<typeof artist> => artist !== null,
+  );
+  const artistOrders = parsedArtists?.map((artist) => artist.creditOrder) ?? [];
+  const artistKeys =
+    parsedArtists?.map((artist) => catalogSubjectKey(artist.subject)) ?? [];
+  if (
+    !id ||
+    expectedVersion === null ||
+    !slug ||
+    !title ||
+    typeof value.isOtwOriginal !== "boolean" ||
+    !originalReleasePrecision ||
+    !validDate ||
+    !aliases ||
+    aliases.some((alias) => alias === null) ||
+    !parsedArtists ||
+    parsedArtists.length === 0 ||
+    parsedArtists.length > 30 ||
+    parsedArtists.length !== artists?.length ||
+    new Set(artistOrders).size !== artistOrders.length ||
+    new Set(artistKeys).size !== artistKeys.length ||
+    parsedArtists.filter((artist) => artist.isPrimary).length !== 1
+  ) {
+    return fail({ body: "invalid_song" });
+  }
+  return {
+    ok: true,
+    value: {
+      id,
+      expectedVersion,
+      slug,
+      title,
+      isOtwOriginal: value.isOtwOriginal,
+      originalReleaseDate,
+      originalReleasePrecision,
+      aliases: aliases.filter(
+        (alias): alias is NonNullable<typeof alias> => alias !== null,
+      ),
+      originalArtists: parsedArtists.sort(
+        (left, right) => left.creditOrder - right.creditOrder,
+      ),
+    },
+  };
 };
 
 const catalogSubjectKey = (subject: OtwPlayAdminCatalogSubjectInput) => {

@@ -47,7 +47,7 @@ import {
   preflightOtwPlayCatalogEntry,
 } from "../../api/admin";
 
-type SelectedSubject = {
+export type SelectedSubject = {
   key: string;
   label: string;
   detail?: string;
@@ -98,11 +98,16 @@ const subjectFromMember = (member: Member): SelectedSubject => ({
 const subjectFromEntity = (entity: OtwPlayAdminEntityDto): SelectedSubject => ({
   key: `entity:${entity.id}`,
   label: entity.displayName,
-  detail: entity.entityKind === "group" ? "기존 그룹" : "기존 외부 인물",
+  detail:
+    entity.entityKind === "group"
+      ? "기존 그룹"
+      : entity.entityKind === "organization"
+        ? "기존 단체"
+        : "기존 외부 인물",
   subject: { kind: "entity", entityId: entity.id },
 });
 
-function SubjectPicker({
+export function SubjectPicker({
   label,
   placeholder = "멤버 또는 기존 외부 identity 검색",
   helpText = "기존 외부 identity 후보를 먼저 보여주며, 새 칩은 자동 병합하지 않고 별도 identity로 저장합니다.",
@@ -272,7 +277,11 @@ function SubjectPicker({
             >
               <span>{entity.displayName}</span>
               <span className="text-xs text-muted-foreground">
-                {entity.entityKind === "group" ? "기존 그룹" : "기존 외부 인물"}
+                {entity.entityKind === "group"
+                  ? "기존 그룹"
+                  : entity.entityKind === "organization"
+                    ? "기존 단체"
+                    : "기존 외부 인물"}
               </span>
             </button>
             );

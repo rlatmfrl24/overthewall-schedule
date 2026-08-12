@@ -16,6 +16,7 @@ import { OtwPlayCatalogManager } from "./catalog-manager";
 const fetchCatalogMock = vi.hoisted(() => vi.fn());
 const fetchProposalsMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
+const updateSongMock = vi.hoisted(() => vi.fn());
 const preflightEntryMock = vi.hoisted(() => vi.fn());
 const createEntryMock = vi.hoisted(() => vi.fn());
 const deleteSongMock = vi.hoisted(() => vi.fn());
@@ -31,6 +32,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     fetchOtwPlayAdminCatalog: fetchCatalogMock,
     fetchOtwPlayAdminProposals: fetchProposalsMock,
     updateOtwPlayEntity: updateEntityMock,
+    updateOtwPlaySong: updateSongMock,
     preflightOtwPlayCatalogEntry: preflightEntryMock,
     createOtwPlayCatalogEntry: createEntryMock,
     deleteOtwPlaySong: deleteSongMock,
@@ -99,6 +101,7 @@ describe("OtwPlayCatalogManager", () => {
       catalogRevision: 7,
     });
     updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     fetchMembersMock.mockResolvedValue([
       {
         uid: 1,
@@ -251,6 +254,87 @@ describe("OtwPlayCatalogManager", () => {
     expect((submit as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByLabelText("채널 역할")).toBeTruthy();
     expect(screen.getByText("등록된 채널")).toBeTruthy();
+  });
+
+  it("edits original artists as reusable chips without exposing the original release date", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      songs: [
+        {
+          id: "song-edit",
+          slug: "song-edit",
+          title: "수정 전 곡",
+          normalizedTitle: "수정 전 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: "2020-05-03",
+          originalReleasePrecision: "day",
+          version: 3,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [
+            {
+              entityId: "artist-existing",
+              displayName: "기존 원곡 가수",
+              creditOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+      ],
+      entities: [
+        {
+          id: "artist-existing",
+          memberUid: null,
+          entityKind: "person",
+          displayName: "기존 원곡 가수",
+          normalizedName: "기존 원곡 가수",
+          slug: "existing-artist",
+          version: 0,
+          archivedAt: null,
+        },
+      ],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findAllByText("수정 전 곡");
+    fireEvent.click(screen.getAllByRole("button", { name: "곡 정보 수정" })[0]!);
+    const dialog = screen.getByRole("dialog", { name: "곡 정보 수정" });
+    expect(within(dialog).queryByLabelText("원곡 공개일")).toBeNull();
+    expect(within(dialog).getByLabelText("원곡 가수 검색")).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "기존 원곡 가수 제거" }));
+    fireEvent.change(within(dialog).getByLabelText("원곡 가수 검색"), {
+      target: { value: "새 원곡 가수" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "외부 인물로 추가" }));
+    fireEvent.change(within(dialog).getByLabelText("곡명"), {
+      target: { value: "수정한 곡" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(updateSongMock).toHaveBeenCalledTimes(1));
+    expect(updateSongMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "song-edit",
+        expectedVersion: 3,
+        title: "수정한 곡",
+        originalReleaseDate: "2020-05-03",
+        originalReleasePrecision: "day",
+        originalArtists: [
+          {
+            subject: expect.objectContaining({
+              kind: "new_external",
+              displayName: "새 원곡 가수",
+              entityKind: "person",
+            }),
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      }),
+    );
   });
 
   it("disables catalog writes while the public read model revision is stale", async () => {

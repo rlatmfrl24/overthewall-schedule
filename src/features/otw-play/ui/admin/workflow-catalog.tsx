@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminPerformanceDto,
@@ -7,6 +8,8 @@ import type {
   OtwPlayRelationType,
 } from "@contracts/otw-play";
 import { ConfirmActionDialog } from "@/app/admin";
+import { fetchActiveMembers, type Member } from "@/features/members";
+import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent } from "@/shared/ui/card";
@@ -45,8 +48,13 @@ import {
   updateOtwPlaySong,
   withdrawOtwPlayPerformance,
 } from "../../api/admin";
+import {
+  SubjectPicker,
+  type SelectedSubject,
+} from "./catalog-entry-dialog";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
+const EMPTY_MEMBERS: Member[] = [];
 
 const relationLabel = (value: string) => (value === "original" ? "오리지널" : "공식 커버");
 const publicationLabel = (value: string) =>
@@ -219,25 +227,68 @@ export function WorkflowCatalog({
           </div>
         </>
       )}
-      <SongEditDialog song={editSong} onOpenChange={(open) => !open && setEditSong(null)} run={run} />
+      <SongEditDialog catalog={catalog} song={editSong} onOpenChange={(open) => !open && setEditSong(null)} run={run} />
       <PerformanceEditDialog performance={editPerformance} onOpenChange={(open) => !open && setEditPerformance(null)} run={run} />
       <ConfirmActionDialog open={confirmation !== null} onOpenChange={(open) => !open && setConfirmation(null)} title={confirmation?.title ?? "확인"} description={confirmation?.description ?? ""} destructive={confirmation?.destructive} confirmLabel={confirmation?.confirmLabel ?? "계속"} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); if (action) void action(); }} />
     </>
   );
 }
 
-function SongEditDialog({ song, onOpenChange, run }: { song: OtwPlayAdminSongDto | null; onOpenChange: (open: boolean) => void; run: Run }) {
+function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlayAdminCatalogDto; song: OtwPlayAdminSongDto | null; onOpenChange: (open: boolean) => void; run: Run }) {
   const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
   const [original, setOriginal] = useState(false);
+  const [artists, setArtists] = useState<SelectedSubject[]>([]);
+  const membersQuery = useQuery({
+    queryKey: queryKeys.members.active(),
+    queryFn: fetchActiveMembers,
+    staleTime: 60_000,
+    enabled: song !== null,
+  });
+  const members = membersQuery.data ?? EMPTY_MEMBERS;
   useEffect(() => {
     if (!song) return;
     setTitle(song.title);
-    setDate(song.originalReleaseDate ?? "");
     setOriginal(song.isOtwOriginal);
-  }, [song]);
+    setArtists(song.originalArtists.map((artist) => {
+      const entity = catalog.entities.find((item) => item.id === artist.entityId);
+      const memberUid = entity?.memberUid ?? null;
+      return {
+        key: memberUid !== null ? `member:${memberUid}` : `entity:${artist.entityId}`,
+        label: artist.displayName,
+        detail: memberUid !== null
+          ? "현재 멤버"
+          : entity?.entityKind === "group"
+            ? "기존 그룹"
+            : entity?.entityKind === "organization"
+              ? "기존 단체"
+              : "기존 외부 인물",
+        subject: memberUid !== null
+          ? { kind: "member" as const, memberUid }
+          : { kind: "entity" as const, entityId: artist.entityId },
+      };
+    }));
+  }, [catalog.entities, song]);
+  useEffect(() => {
+    if (!membersQuery.data) return;
+    const membersByUid = new Map(
+      membersQuery.data.map((member) => [member.uid, member]),
+    );
+    setArtists((current) => current.map((artist) => {
+      if (artist.subject.kind !== "member") return artist;
+      const member = membersByUid.get(artist.subject.memberUid);
+      return member
+        ? {
+            ...artist,
+            label: member.name,
+            detail: [member.oshi_mark, member.unit_name]
+              .filter(Boolean)
+              .join(" · "),
+          }
+        : artist;
+    }));
+  }, [membersQuery.data]);
   const open = song !== null;
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-4"><div className="space-y-1.5"><Label>곡명</Label><Input value={title} onChange={(event) => setTitle(event.target.value)} /></div><div className="space-y-1.5"><Label>원곡 공개일</Label><Input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div><label className="flex gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label><p className="text-xs text-muted-foreground">원곡 가수 identity 수정은 고급 관리가 아니라 등록 흐름의 재사용 후보를 통해 별도 보정합니다.</p></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim()} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: date || null, originalReleasePrecision: date ? "day" : "unknown", aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: song.originalArtists.map((artist) => ({ entityId: artist.entityId, creditOrder: artist.creditOrder, isPrimary: artist.isPrimary })) })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 identity를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })) })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 function PerformanceEditDialog({ performance, onOpenChange, run }: { performance: OtwPlayAdminPerformanceDto | null; onOpenChange: (open: boolean) => void; run: Run }) {

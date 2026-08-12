@@ -8,6 +8,7 @@ import {
   parseCreateSong,
   parseRejectProposal,
   parseUpdateChannel,
+  parseUpdateSong,
 } from "./admin-catalog-input";
 
 describe("OTW Play admin input", () => {
@@ -153,6 +154,48 @@ describe("OTW Play admin input", () => {
         aliases: [],
         originalArtists: [
           { entityId: "artist-1", creditOrder: 0, isPrimary: false },
+        ],
+      }),
+    ).toEqual({ ok: false, fields: { body: "invalid_song" } });
+  });
+
+  it("parses original artist subjects for the integrated song edit", () => {
+    const input = {
+      id: "song-1",
+      expectedVersion: 2,
+      slug: "song-slug",
+      title: "수정한 곡",
+      isOtwOriginal: false,
+      originalReleaseDate: null,
+      originalReleasePrecision: "unknown",
+      aliases: [],
+      originalArtists: [
+        {
+          subject: {
+            kind: "new_external",
+            clientKey: "artist-chip",
+            displayName: "새 원곡 가수",
+            entityKind: "person",
+          },
+          creditOrder: 0,
+          isPrimary: true,
+        },
+      ],
+    };
+    expect(parseUpdateSong(input)).toMatchObject({
+      ok: true,
+      value: {
+        originalArtists: [
+          { subject: { kind: "new_external", displayName: "새 원곡 가수" } },
+        ],
+      },
+    });
+    expect(
+      parseUpdateSong({
+        ...input,
+        originalArtists: [
+          input.originalArtists[0],
+          { ...input.originalArtists[0], isPrimary: false },
         ],
       }),
     ).toEqual({ ok: false, fields: { body: "invalid_song" } });

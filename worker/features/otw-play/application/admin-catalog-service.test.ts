@@ -168,7 +168,18 @@ describe("AdminCatalogService", () => {
     );
     await service.createSong(song, actor);
     await service.updateSong(
-      { ...song, id: "song-1", expectedVersion: 0 },
+      {
+        ...song,
+        id: "song-1",
+        expectedVersion: 0,
+        originalArtists: [
+          {
+            subject: { kind: "entity", entityId: "artist" },
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
       actor,
     );
     await service.deletePerformance(
