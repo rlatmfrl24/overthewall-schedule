@@ -103,28 +103,30 @@ export function WorkflowCatalog({
         </Button>
       )}
       {performance.publicationStatus === "draft" && (
-        <>
-          <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
-            title: "가창을 게시할까요?",
-            description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
-            action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
-          })}>게시</Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            disabled={saving !== null}
-            onClick={() => setConfirmation({
-              title: "임시 저장 가창을 삭제할까요?",
-              description: "이 가창과 연결 정보가 영구 삭제됩니다. 게시 이력은 없으며 이 작업은 되돌릴 수 없습니다.",
-              destructive: true,
-              confirmLabel: "삭제",
-              action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
-            })}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> 삭제
-          </Button>
-        </>
+        <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
+          title: "가창을 게시할까요?",
+          description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
+          action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+        })}>게시</Button>
+      )}
+      {(performance.publicationStatus === "draft" || performance.publicationStatus === "withdrawn") && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-destructive hover:text-destructive"
+          disabled={saving !== null}
+          onClick={() => setConfirmation({
+            title: performance.publicationStatus === "withdrawn" ? "철회된 가창을 삭제할까요?" : "임시 저장 가창을 삭제할까요?",
+            description: performance.publicationStatus === "withdrawn"
+              ? "철회 이력과 이 가창의 연결 정보가 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+              : "이 가창과 연결 정보가 영구 삭제됩니다. 게시 이력은 없으며 이 작업은 되돌릴 수 없습니다.",
+            destructive: true,
+            confirmLabel: "삭제",
+            action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+          })}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> 삭제
+        </Button>
       )}
       {performance.publicationStatus === "published" && (
         <Button size="sm" variant="destructive" disabled={saving !== null} onClick={() => setConfirmation({
@@ -142,8 +144,11 @@ export function WorkflowCatalog({
     performances: OtwPlayAdminPerformanceDto[],
   ) => {
     const canDelete = performances.every(
-      (performance) => performance.publicationStatus === "draft",
+      (performance) => performance.publicationStatus !== "published",
     );
+    const withdrawnCount = performances.filter(
+      (performance) => performance.publicationStatus === "withdrawn",
+    ).length;
     return (
       <Button
         size="sm"
@@ -153,12 +158,12 @@ export function WorkflowCatalog({
         title={
           canDelete
             ? undefined
-            : "게시 또는 철회 이력이 있는 곡은 삭제할 수 없습니다."
+            : "현재 게시 중인 가창이 있는 곡은 삭제할 수 없습니다."
         }
         onClick={() => setConfirmation({
           title: "곡을 삭제할까요?",
           description: performances.length > 0
-            ? `곡 정보와 임시 저장 가창 ${performances.length}개를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`
+            ? `곡 정보와 가창 ${performances.length}개${withdrawnCount > 0 ? ` (철회 ${withdrawnCount}개 포함)` : ""}를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`
             : "곡 정보를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
           destructive: true,
           confirmLabel: "삭제",

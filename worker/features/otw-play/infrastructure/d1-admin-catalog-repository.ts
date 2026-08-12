@@ -1082,12 +1082,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .all<{ id: string; publication_status: string }>();
     if (
       performances.results.some(
-        (performance) => performance.publication_status !== "draft",
+        (performance) => performance.publication_status === "published",
       )
     ) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
-        "Songs with published or withdrawn performances cannot be deleted",
+        "Songs with published performances cannot be deleted",
       );
     }
 
@@ -1134,7 +1134,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(
           `DELETE FROM music_performances
-           WHERE song_id = ? AND publication_status = 'draft'`,
+           WHERE song_id = ? AND publication_status IN ('draft', 'withdrawn')`,
         )
         .bind(id),
       this.database
@@ -1171,7 +1171,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           eventJson({
             title: current.title,
             version: expectedVersion,
-            draftPerformanceCount: performances.results.length,
+            draftPerformanceCount: performances.results.filter(
+              (performance) => performance.publication_status === "draft",
+            ).length,
+            withdrawnPerformanceCount: performances.results.filter(
+              (performance) => performance.publication_status === "withdrawn",
+            ).length,
           }),
           now,
         ),
@@ -2229,10 +2234,13 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "Performance changed since it was loaded",
       );
     }
-    if (current.publication_status !== "draft") {
+    if (
+      current.publication_status !== "draft" &&
+      current.publication_status !== "withdrawn"
+    ) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
-        "Only draft performances can be deleted",
+        "Only draft or withdrawn performances can be deleted",
       );
     }
     const approvedProposal = await this.database
@@ -2259,7 +2267,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(
           `DELETE FROM music_performances
-           WHERE id = ? AND version = ? AND publication_status = 'draft'`,
+           WHERE id = ? AND version = ?
+             AND publication_status IN ('draft', 'withdrawn')`,
         )
         .bind(id, expectedVersion),
       versionGuard(this.database),
@@ -2292,7 +2301,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           actor.userId,
           eventJson({
             songId: current.song_id,
-            publicationStatus: "draft",
+            publicationStatus: current.publication_status,
             version: expectedVersion,
           }),
           now,

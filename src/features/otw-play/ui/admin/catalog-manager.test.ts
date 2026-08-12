@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -272,7 +273,7 @@ describe("OtwPlayCatalogManager", () => {
     ).toBe(true);
   });
 
-  it("confirms draft cleanup and keeps published history out of hard-delete actions", async () => {
+  it("deletes draft and withdrawn test data while protecting currently published catalog", async () => {
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
       songs: [
@@ -298,6 +299,19 @@ describe("OtwPlayCatalogManager", () => {
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+        {
+          id: "song-withdrawn",
+          slug: "withdrawn-song",
+          title: "철회 곡",
+          normalizedTitle: "철회 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 5,
           archivedAt: null,
           aliases: [],
           originalArtists: [],
@@ -332,6 +346,20 @@ describe("OtwPlayCatalogManager", () => {
           participants: [],
           sources: [],
         },
+        {
+          id: "performance-withdrawn",
+          songId: "song-withdrawn",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "withdrawn",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 6,
+          participants: [],
+          sources: [],
+        },
       ],
     });
     render(createElement(OtwPlayCatalogManager), {
@@ -346,7 +374,7 @@ describe("OtwPlayCatalogManager", () => {
     const disabledSongDeletes = songDeleteButtons.filter(
       (button) => (button as HTMLButtonElement).disabled,
     );
-    expect(enabledSongDeletes).toHaveLength(2);
+    expect(enabledSongDeletes).toHaveLength(4);
     expect(disabledSongDeletes).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "임시 곡 가창 펼치기" }));
@@ -366,6 +394,36 @@ describe("OtwPlayCatalogManager", () => {
     await waitFor(() =>
       expect(deleteSongMock).toHaveBeenCalledWith("song-draft", {
         expectedVersion: 2,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "철회 곡 가창 펼치기" }));
+    const withdrawnStatus = screen.getAllByText("철회됨")[0]!;
+    const withdrawnRow = withdrawnStatus.closest("tr");
+    expect(withdrawnRow).toBeTruthy();
+    fireEvent.click(
+      within(withdrawnRow!).getByRole("button", { name: "삭제" }),
+    );
+    expect(screen.getByText("철회된 가창을 삭제할까요?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
+    await waitFor(() =>
+      expect(deletePerformanceMock).toHaveBeenCalledWith(
+        "performance-withdrawn",
+        { expectedVersion: 6 },
+      ),
+    );
+
+    const withdrawnSongTitle = screen.getAllByText("철회 곡")[0]!;
+    const withdrawnSongRow = withdrawnSongTitle.closest("tr");
+    expect(withdrawnSongRow).toBeTruthy();
+    fireEvent.click(
+      within(withdrawnSongRow!).getByRole("button", { name: "곡 삭제" }),
+    );
+    expect(screen.getByText(/철회 1개 포함/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    await waitFor(() =>
+      expect(deleteSongMock).toHaveBeenCalledWith("song-withdrawn", {
+        expectedVersion: 5,
       }),
     );
   });

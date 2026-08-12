@@ -740,7 +740,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(page.items[0]?.representativePerformance.playable).toBe(false);
   });
 
-  it("deletes only drafts while keeping events, projections, and revisions atomic", async () => {
+  it("deletes draft and withdrawn test data while keeping events, projections, and revisions atomic", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const draft = await createDraftFixture(
       repository,
@@ -882,6 +882,91 @@ describe("D1AdminCatalogRepository", () => {
         NOW + 5,
       ),
     ).rejects.toMatchObject({ code: "validation_failed" });
+
+    const withdrawn = await repository.transitionPerformance(
+      published.data.id,
+      published.data.version,
+      "withdrawn",
+      actor,
+      id("event"),
+      NOW + 6,
+    );
+    const deletedWithdrawnPerformance = await repository.deletePerformance(
+      withdrawn.data.id,
+      withdrawn.data.version,
+      actor,
+      id("event"),
+      NOW + 7,
+    );
+    expect(deletedWithdrawnPerformance.data.id).toBe(withdrawn.data.id);
+    const withdrawnDeleteEvent = await db
+      .prepare(
+        `SELECT before_json FROM music_catalog_events
+         WHERE aggregate_id = ? AND event_type = 'performance.deleted'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .bind(withdrawn.data.id)
+      .first<{ before_json: string }>();
+    expect(JSON.parse(withdrawnDeleteEvent!.before_json)).toMatchObject({
+      publicationStatus: "withdrawn",
+    });
+    await expect(
+      repository.deleteSong(
+        publishedFixture.song.data.id,
+        publishedFixture.song.data.version,
+        actor,
+        id("event"),
+        NOW + 8,
+      ),
+    ).resolves.toMatchObject({ data: { id: publishedFixture.song.data.id } });
+
+    const withdrawnChildFixture = await createDraftFixture(
+      repository,
+      "withdrawn-child",
+      "wItHdRaWn_1",
+      true,
+    );
+    const publishedChild = await repository.transitionPerformance(
+      withdrawnChildFixture.performance.data.id,
+      withdrawnChildFixture.performance.data.version,
+      "published",
+      actor,
+      id("event"),
+      NOW + 9,
+    );
+    await repository.transitionPerformance(
+      publishedChild.data.id,
+      publishedChild.data.version,
+      "withdrawn",
+      actor,
+      id("event"),
+      NOW + 10,
+    );
+    await repository.deleteSong(
+      withdrawnChildFixture.song.data.id,
+      withdrawnChildFixture.song.data.version,
+      actor,
+      id("event"),
+      NOW + 11,
+    );
+    const withdrawnCascade = await db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM music_songs WHERE id = ?) AS songs,
+           (SELECT COUNT(*) FROM music_performances WHERE id = ?) AS performances,
+           (SELECT COUNT(*) FROM music_media_sources WHERE external_id = ?) AS sources`,
+      )
+      .bind(
+        withdrawnChildFixture.song.data.id,
+        withdrawnChildFixture.performance.data.id,
+        "wItHdRaWn_1",
+      )
+      .first<Record<string, number>>();
+    expect(withdrawnCascade).toEqual({
+      songs: 0,
+      performances: 0,
+      sources: 0,
+    });
   });
 
   it("rolls back the integrated entry when its event fails and rejects a stale preflight revision", async () => {
