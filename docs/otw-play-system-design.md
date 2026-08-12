@@ -991,6 +991,12 @@ key material을 만든다. 커버 song은 normalized original title과 선택·�
 artist identity로 canonical dedupe key material을 만든다. exact 중복은 충돌로 거부하되
 soft duplicate를 자동 연결하지 않는다.
 
+곡 수정 command는 원곡 가수를 raw 이름 문자열이 아니라 `member|entity|new_external`
+subject로 받는다. 현재 멤버 identity가 없거나 새 외부 가수 칩이 포함되면 identity 생성,
+song credit 교체, dedupe/search/gram projection, capability event와 두 revision 갱신을
+하나의 D1 batch로 수행한다. 수정 form에서 원곡 공개일을 받지 않더라도 client는 읽은
+기존 날짜와 precision을 그대로 보내며 server는 이를 보존한다.
+
 현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
 기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도
 identity가 된다. 권위 멤버 채널은 자동 연결할 수 있지만 그 밖의 새 채널은 인라인

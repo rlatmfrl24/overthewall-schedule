@@ -605,6 +605,13 @@ YouTube title과 participant로 song을 자동 생성한다. 커버는 영상 �
 versioned dedupe key material을 만든다. 커버 song은 normalized original title과 resolved
 original artist ID로 canonical dedupe key material을 만들며 soft duplicate를 자동 병합하지 않는다.
 
+카탈로그의 `곡 정보 수정`은 원곡 공개일 control을 노출하지 않는다. 곡명과 OTW
+오리지널 여부 외에 등록 흐름과 같은 원곡 가수 자동완성·칩을 제공하며, 최소 한 명과
+대표 한 명을 요구한다. 기존 날짜/precision은 read DTO의 값을 그대로 보존한다. 새
+외부 가수 또는 아직 entity가 없는 현재 멤버를 선택한 경우 identity와 song credit,
+검색/read-model projection, event와 revision을 `PUT /api/play/admin/songs`의 한 D1
+batch에서 생성·교체한다.
+
 PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
 `music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
 song의 2·3 code point gram과 gram stats, capability event, catalog revision 증가를
