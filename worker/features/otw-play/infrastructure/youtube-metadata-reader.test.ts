@@ -40,6 +40,10 @@ describe("YouTubeOtwPlayMetadataReader", () => {
       availabilityStatus: "playable",
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.every((call) => call.length === 1)).toBe(true);
+    expect(fetcher.mock.contexts.every((context) => context === undefined)).toBe(
+      true,
+    );
   });
 
   it("fails closed when YouTube is unavailable", async () => {
@@ -49,6 +53,20 @@ describe("YouTubeOtwPlayMetadataReader", () => {
     );
     await expect(reader.readVideo("dQw4w9WgXcQ")).rejects.toBeInstanceOf(
       OtwPlayYouTubeMetadataError,
+    );
+  });
+
+  it("reports only a safe fetch failure classification", async () => {
+    const failure = new TypeError("secret-key must not be exposed");
+    const reader = new YouTubeOtwPlayMetadataReader(
+      "secret-key",
+      vi.fn<typeof fetch>(async () => {
+        throw failure;
+      }),
+    );
+
+    await expect(reader.readVideo("dQw4w9WgXcQ")).rejects.toThrow(
+      "YouTube metadata request failed (TypeError)",
     );
   });
 

@@ -38,6 +38,20 @@ const parsePublishedAt = (value: string | undefined) => {
   return Number.isFinite(timestamp) && timestamp >= 0 ? timestamp : null;
 };
 
+const getSafeFetchFailureCode = (error: unknown) => {
+  if (!(error instanceof Error)) return null;
+  const cause = error.cause;
+  if (!cause || typeof cause !== "object" || !("code" in cause)) {
+    return error.name !== "Error" ? error.name : null;
+  }
+  const code = (cause as { code?: unknown }).code;
+  return typeof code === "string" && /^[A-Za-z0-9_]{1,50}$/.test(code)
+    ? code
+    : error.name !== "Error"
+      ? error.name
+      : null;
+};
+
 export class YouTubeOtwPlayMetadataReader
   implements OtwPlayYouTubeMetadataReader
 {
@@ -56,14 +70,19 @@ export class YouTubeOtwPlayMetadataReader
       );
     }
     const search = new URLSearchParams({ ...parameters, key: this.apiKey });
+    const fetcher = this.fetcher;
     let response: Response;
     try {
-      response = await this.fetcher(
+      response = await fetcher(
         `https://www.googleapis.com/youtube/v3/${path}?${search.toString()}`,
-        { headers: { Accept: "application/json" } },
       );
-    } catch {
-      throw new OtwPlayYouTubeMetadataError("YouTube metadata request failed");
+    } catch (error) {
+      const failureCode = getSafeFetchFailureCode(error);
+      throw new OtwPlayYouTubeMetadataError(
+        failureCode
+          ? `YouTube metadata request failed (${failureCode})`
+          : "YouTube metadata request failed",
+      );
     }
     if (!response.ok) {
       throw new OtwPlayYouTubeMetadataError(
