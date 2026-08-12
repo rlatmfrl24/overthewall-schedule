@@ -243,7 +243,12 @@ export const createAdminCatalogHandler =
           );
         const result =
           request.method === "POST"
-            ? await service.createPerformance(parsed.value, actor)
+            ? await service.createPerformance(
+                parsed.value as Parameters<
+                  typeof service.createPerformance
+                >[0],
+                actor,
+              )
             : await service.updatePerformance(
                 parsed.value as Parameters<typeof service.updatePerformance>[0],
                 actor,

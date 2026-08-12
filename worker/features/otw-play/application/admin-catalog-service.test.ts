@@ -312,6 +312,111 @@ describe("AdminCatalogService", () => {
     expect(createPerformance).not.toHaveBeenCalled();
   });
 
+  it("coordinates a full performance correction and allocates inline participant identities", async () => {
+    const externalChannelId = `UC${"A".repeat(22)}`;
+    const video = {
+      videoId: "ASRCBcCY_qE",
+      channelId: externalChannelId,
+      channelTitle: "Official",
+      title: "Corrected video",
+      thumbnailUrl: null,
+      durationSeconds: 190,
+      publishedAt: 1_786_500_000_000,
+      availabilityStatus: "playable" as const,
+    };
+    const updatePerformance = vi.fn(async () => ({
+      data: { id: "performance-1" },
+      catalogRevision: 8,
+    }));
+    const repository = {
+      readCatalog: vi.fn(async () => ({
+        revision: 7,
+        readModelRevision: 7,
+        entities: [],
+        songs: [],
+        performances: [],
+        channels: [
+          {
+            id: "channel-1",
+            externalChannelId,
+            displayName: "Official",
+          },
+        ],
+      })),
+      updatePerformance,
+    } as unknown as AdminCatalogRepository;
+    let sequence = 0;
+    const service = new AdminCatalogService(
+      repository,
+      { readChannel: vi.fn(), readVideo: vi.fn(async () => video) },
+      { record: vi.fn(async () => undefined) },
+      () => `generated-${++sequence}`,
+      false,
+      () => 123,
+    );
+
+    await expect(
+      service.updatePerformance(
+        {
+          id: "performance-1",
+          expectedVersion: 4,
+          songId: "song-2",
+          relationType: "original",
+          releaseType: "official_mv",
+          participationType: "duet",
+          qualityStatus: "needs_update",
+          releasedAt: video.publishedAt,
+          internalNote: "corrected",
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "featured_vocal",
+              creditOrder: 0,
+              creditNameSnapshot: "Member",
+            },
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "guest-chip",
+                displayName: "Guest",
+                entityKind: "person",
+              },
+              participantRole: "vocal",
+              creditOrder: 1,
+              creditNameSnapshot: "Guest",
+            },
+          ],
+          source: {
+            youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+            channelId: "channel-1",
+            startSeconds: 12,
+            endSeconds: 170,
+            sourceRole: "alternate",
+          },
+        },
+        actor,
+      ),
+    ).resolves.toMatchObject({ catalogRevision: 8 });
+    expect(updatePerformance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video,
+        now: 123,
+        ids: {
+          entityIds: {
+            "member:1": expect.any(String),
+            "external:guest-chip": expect.any(String),
+          },
+          entityEventIds: {
+            "member:1": expect.any(String),
+            "external:guest-chip": expect.any(String),
+          },
+          sourceId: expect.any(String),
+          eventId: expect.any(String),
+        },
+      }),
+    );
+  });
+
   it("keeps an authoritative success when the global audit mirror fails", async () => {
     const result = { data: { id: "song-1" }, catalogRevision: 2 };
     const repository = {

@@ -4,8 +4,11 @@ import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminPerformanceDto,
   OtwPlayAdminSongDto,
+  OtwPlayParticipantRole,
   OtwPlayParticipationType,
+  OtwPlayQualityStatus,
   OtwPlayRelationType,
+  OtwPlayReleaseType,
 } from "@contracts/otw-play";
 import { ConfirmActionDialog } from "@/app/admin";
 import { fetchActiveMembers, type Member } from "@/features/members";
@@ -16,6 +19,7 @@ import { Card, CardContent } from "@/shared/ui/card";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -228,7 +232,7 @@ export function WorkflowCatalog({
         </>
       )}
       <SongEditDialog catalog={catalog} song={editSong} onOpenChange={(open) => !open && setEditSong(null)} run={run} />
-      <PerformanceEditDialog performance={editPerformance} onOpenChange={(open) => !open && setEditPerformance(null)} run={run} />
+      <PerformanceEditDialog catalog={catalog} performance={editPerformance} onOpenChange={(open) => !open && setEditPerformance(null)} run={run} />
       <ConfirmActionDialog open={confirmation !== null} onOpenChange={(open) => !open && setConfirmation(null)} title={confirmation?.title ?? "확인"} description={confirmation?.description ?? ""} destructive={confirmation?.destructive} confirmLabel={confirmation?.confirmLabel ?? "계속"} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); if (action) void action(); }} />
     </>
   );
@@ -291,15 +295,468 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 identity를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })) })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
-function PerformanceEditDialog({ performance, onOpenChange, run }: { performance: OtwPlayAdminPerformanceDto | null; onOpenChange: (open: boolean) => void; run: Run }) {
+type EditableParticipant = SelectedSubject & {
+  participantRole: OtwPlayParticipantRole;
+  creditNameSnapshot: string;
+};
+
+const toDateTimeLocal = (value: number | null) => {
+  if (value === null) return "";
+  const date = new Date(value);
+  const local = new Date(value - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+};
+
+function PerformanceEditDialog({
+  catalog,
+  performance,
+  onOpenChange,
+  run,
+}: {
+  catalog: OtwPlayAdminCatalogDto;
+  performance: OtwPlayAdminPerformanceDto | null;
+  onOpenChange: (open: boolean) => void;
+  run: Run;
+}) {
+  const [songId, setSongId] = useState("");
   const [relation, setRelation] = useState<OtwPlayRelationType>("cover");
-  const [participation, setParticipation] = useState<OtwPlayParticipationType>("solo");
+  const [releaseType, setReleaseType] =
+    useState<OtwPlayReleaseType>("official_video");
+  const [participation, setParticipation] =
+    useState<OtwPlayParticipationType>("solo");
+  const [quality, setQuality] = useState<OtwPlayQualityStatus>("ok");
+  const [releasedAt, setReleasedAt] = useState("");
+  const [participants, setParticipants] = useState<EditableParticipant[]>([]);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [channelId, setChannelId] = useState("");
+  const [startSeconds, setStartSeconds] = useState("0");
+  const [endSeconds, setEndSeconds] = useState("");
+  const [sourceRole, setSourceRole] = useState<"official" | "alternate">(
+    "official",
+  );
   const [note, setNote] = useState("");
+  const membersQuery = useQuery({
+    queryKey: queryKeys.members.active(),
+    queryFn: fetchActiveMembers,
+    staleTime: 60_000,
+    enabled: performance !== null,
+  });
+  const members = membersQuery.data ?? EMPTY_MEMBERS;
+
   useEffect(() => {
     if (!performance) return;
+    const source = performance.sources[0];
+    setSongId(performance.songId);
     setRelation(performance.relationType);
+    setReleaseType(
+      performance.releaseType === "official_mv"
+        ? "official_mv"
+        : "official_video",
+    );
     setParticipation(performance.participationType);
+    setQuality(performance.qualityStatus);
+    setReleasedAt(toDateTimeLocal(performance.releasedAt));
+    setParticipants(
+      performance.participants.map((participant) => {
+        const entity = catalog.entities.find(
+          (item) => item.id === participant.entityId,
+        );
+        const memberUid = entity?.memberUid ?? null;
+        return {
+          key:
+            memberUid !== null
+              ? `member:${memberUid}`
+              : `entity:${participant.entityId}`,
+          label: participant.displayName,
+          detail:
+            memberUid !== null
+              ? "현재 멤버"
+              : entity?.entityKind === "group"
+                ? "기존 그룹"
+                : "기존 외부 인물",
+          subject:
+            memberUid !== null
+              ? { kind: "member" as const, memberUid }
+              : {
+                  kind: "entity" as const,
+                  entityId: participant.entityId,
+                },
+          participantRole: participant.participantRole,
+          creditNameSnapshot: participant.creditNameSnapshot,
+        };
+      }),
+    );
+    setYoutubeUrl(
+      source
+        ? `https://www.youtube.com/watch?v=${source.source.externalId}`
+        : "",
+    );
+    setChannelId(source?.source.channelId ?? "");
+    setStartSeconds(String(source?.startSeconds ?? 0));
+    setEndSeconds(
+      source?.endSeconds === null || source?.endSeconds === undefined
+        ? ""
+        : String(source.endSeconds),
+    );
+    setSourceRole(source?.sourceRole === "alternate" ? "alternate" : "official");
     setNote(performance.internalNote ?? "");
-  }, [performance]);
-  return <Dialog open={performance !== null} onOpenChange={onOpenChange}><DialogContent><DialogHeader><DialogTitle>가창 정보 수정</DialogTitle></DialogHeader>{performance && <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label>곡 관계</Label><Select value={relation} onValueChange={(value) => setRelation(value as OtwPlayRelationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="original">오리지널</SelectItem><SelectItem value="cover">공식 커버</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label>참여 형태</Label><Select value={participation} onValueChange={(value) => setParticipation(value as OtwPlayParticipationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solo">솔로</SelectItem><SelectItem value="duet">듀엣</SelectItem><SelectItem value="unit">유닛</SelectItem><SelectItem value="group">그룹</SelectItem><SelectItem value="external_collab">외부 협업</SelectItem></SelectContent></Select></div><div className="space-y-1.5 sm:col-span-2"><Label>내부 메모</Label><Textarea value={note} onChange={(event) => setNote(event.target.value)} /></div></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!performance?.sources[0]} onClick={() => { if (!performance?.sources[0]) return; const source = performance.sources[0]; void run("가창 정보 수정", () => updateOtwPlayPerformance({ id: performance.id, expectedVersion: performance.version, songId: performance.songId, relationType: relation, releaseType: performance.releaseType === "official_mv" ? "official_mv" : "official_video", participationType: participation, qualityStatus: performance.qualityStatus, releasedAt: performance.releasedAt, internalNote: note.trim() || null, participants: performance.participants.map((item) => ({ entityId: item.entityId, participantRole: item.participantRole, creditOrder: item.creditOrder, creditNameSnapshot: item.creditNameSnapshot })), source: { youtubeUrl: `https://www.youtube.com/watch?v=${source.source.externalId}`, channelId: source.source.channelId, startSeconds: source.startSeconds, endSeconds: source.endSeconds, sourceRole: source.sourceRole === "alternate" ? "alternate" : "official" } })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  }, [catalog.entities, performance]);
+
+  useEffect(() => {
+    if (!membersQuery.data) return;
+    const membersByUid = new Map(
+      membersQuery.data.map((member) => [member.uid, member]),
+    );
+    setParticipants((current) =>
+      current.map((participant) => {
+        if (participant.subject.kind !== "member") return participant;
+        const member = membersByUid.get(participant.subject.memberUid);
+        return member
+          ? {
+              ...participant,
+              label: member.name,
+              detail: [member.oshi_mark, member.unit_name]
+                .filter(Boolean)
+                .join(" · "),
+            }
+          : participant;
+      }),
+    );
+  }, [membersQuery.data]);
+
+  const updateSubjects = (subjects: SelectedSubject[]) => {
+    setParticipants((current) => {
+      const currentByKey = new Map(current.map((item) => [item.key, item]));
+      return subjects.map((subject) => {
+        const existing = currentByKey.get(subject.key);
+        return {
+          ...subject,
+          participantRole: existing?.participantRole ?? "vocal",
+          creditNameSnapshot:
+            existing?.creditNameSnapshot || subject.label,
+        };
+      });
+    });
+  };
+  const parsedStart = Number(startSeconds);
+  const parsedEnd = endSeconds.trim() ? Number(endSeconds) : null;
+  const validRange =
+    Number.isInteger(parsedStart) &&
+    parsedStart >= 0 &&
+    (parsedEnd === null ||
+      (Number.isInteger(parsedEnd) && parsedEnd > parsedStart));
+  const canSave =
+    performance !== null &&
+    songId.length > 0 &&
+    participants.length > 0 &&
+    youtubeUrl.trim().length > 0 &&
+    channelId.length > 0 &&
+    validRange;
+
+  return (
+    <Dialog open={performance !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>가창 정보 수정</DialogTitle>
+          <DialogDescription>
+            연결된 곡, 참여자, 분류와 공식 영상 source를 한 번에 수정합니다.
+          </DialogDescription>
+        </DialogHeader>
+        {performance && (
+          <div className="space-y-6">
+            <p className="text-sm text-muted-foreground">
+              게시 상태 변경은 목록의 게시·철회 작업을 사용합니다. 이 화면에서는
+              연결된 곡, 참여자와 source를 포함한 가창 정보를 수정합니다.
+            </p>
+            <section className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>연결된 곡</Label>
+                <Select value={songId} onValueChange={setSongId}>
+                  <SelectTrigger aria-label="연결된 곡">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {catalog.songs
+                      .filter((song) => song.archivedAt === null)
+                      .map((song) => (
+                        <SelectItem key={song.id} value={song.id}>
+                          {song.title}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>곡 관계</Label>
+                <Select
+                  value={relation}
+                  onValueChange={(value) =>
+                    setRelation(value as OtwPlayRelationType)
+                  }
+                >
+                  <SelectTrigger aria-label="곡 관계">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="original">오리지널</SelectItem>
+                    <SelectItem value="cover">공식 커버</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>공개 형태</Label>
+                <Select
+                  value={releaseType}
+                  onValueChange={(value) =>
+                    setReleaseType(value as OtwPlayReleaseType)
+                  }
+                >
+                  <SelectTrigger aria-label="공개 형태">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="official_video">공식 영상</SelectItem>
+                    <SelectItem value="official_mv">공식 MV</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>참여 형태</Label>
+                <Select
+                  value={participation}
+                  onValueChange={(value) =>
+                    setParticipation(value as OtwPlayParticipationType)
+                  }
+                >
+                  <SelectTrigger aria-label="참여 형태">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="solo">솔로</SelectItem>
+                    <SelectItem value="duet">듀엣</SelectItem>
+                    <SelectItem value="unit">유닛</SelectItem>
+                    <SelectItem value="group">그룹</SelectItem>
+                    <SelectItem value="external_collab">외부 협업</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>데이터 품질</Label>
+                <Select
+                  value={quality}
+                  onValueChange={(value) =>
+                    setQuality(value as OtwPlayQualityStatus)
+                  }
+                >
+                  <SelectTrigger aria-label="데이터 품질">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ok">정상</SelectItem>
+                    <SelectItem value="needs_update">업데이트 필요</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-performance-released-at">가창 공개일시</Label>
+                <Input
+                  id="edit-performance-released-at"
+                  type="datetime-local"
+                  value={releasedAt}
+                  onChange={(event) => setReleasedAt(event.target.value)}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <SubjectPicker
+                label="가창 참여자"
+                placeholder="현재 멤버 또는 기존 외부 identity 검색"
+                members={members}
+                entities={catalog.entities}
+                selected={participants}
+                onChange={updateSubjects}
+              />
+              {participants.map((participant) => (
+                <div
+                  key={participant.key}
+                  className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
+                >
+                  <div className="space-y-1.5">
+                    <Label>{participant.label} 역할</Label>
+                    <Select
+                      value={participant.participantRole}
+                      onValueChange={(value) =>
+                        setParticipants((current) =>
+                          current.map((item) =>
+                            item.key === participant.key
+                              ? {
+                                  ...item,
+                                  participantRole:
+                                    value as OtwPlayParticipantRole,
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                    >
+                      <SelectTrigger aria-label={`${participant.label} 역할`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="vocal">메인 보컬</SelectItem>
+                        <SelectItem value="featured_vocal">피처링 보컬</SelectItem>
+                        <SelectItem value="chorus">코러스</SelectItem>
+                        <SelectItem value="other">기타</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`credit-name-${participant.key}`}>
+                      {participant.label} 표시 크레딧
+                    </Label>
+                    <Input
+                      id={`credit-name-${participant.key}`}
+                      value={participant.creditNameSnapshot}
+                      onChange={(event) =>
+                        setParticipants((current) =>
+                          current.map((item) =>
+                            item.key === participant.key
+                              ? {
+                                  ...item,
+                                  creditNameSnapshot: event.target.value,
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-performance-youtube-url">YouTube URL</Label>
+                <Input
+                  id="edit-performance-youtube-url"
+                  value={youtubeUrl}
+                  onChange={(event) => setYoutubeUrl(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>공식 채널</Label>
+                <Select value={channelId} onValueChange={setChannelId}>
+                  <SelectTrigger aria-label="공식 채널">
+                    <SelectValue placeholder="채널 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {catalog.channels.map((channel) => (
+                      <SelectItem key={channel.id} value={channel.id}>
+                        {channel.displayName} · {channel.verificationStatus} ·
+                        {channel.active ? " 활성" : " 비활성"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-performance-start">시작 위치(초)</Label>
+                <Input
+                  id="edit-performance-start"
+                  type="number"
+                  min={0}
+                  value={startSeconds}
+                  onChange={(event) => setStartSeconds(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-performance-end">종료 위치(초)</Label>
+                <Input
+                  id="edit-performance-end"
+                  type="number"
+                  min={0}
+                  value={endSeconds}
+                  onChange={(event) => setEndSeconds(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>source 역할</Label>
+                <Select
+                  value={sourceRole}
+                  onValueChange={(value) =>
+                    setSourceRole(value as "official" | "alternate")
+                  }
+                >
+                  <SelectTrigger aria-label="source 역할">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="official">공식 source</SelectItem>
+                    <SelectItem value="alternate">대체 source</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-performance-note">내부 메모</Label>
+                <Textarea
+                  id="edit-performance-note"
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                />
+              </div>
+            </section>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            취소
+          </Button>
+          <Button
+            disabled={!canSave}
+            onClick={() => {
+              if (!performance || !canSave) return;
+              const releasedTimestamp = releasedAt
+                ? new Date(releasedAt).getTime()
+                : null;
+              void run("가창 정보 수정", () =>
+                updateOtwPlayPerformance({
+                  id: performance.id,
+                  expectedVersion: performance.version,
+                  songId,
+                  relationType: relation,
+                  releaseType,
+                  participationType: participation,
+                  qualityStatus: quality,
+                  releasedAt:
+                    releasedTimestamp !== null &&
+                    Number.isFinite(releasedTimestamp)
+                      ? releasedTimestamp
+                      : null,
+                  internalNote: note.trim() || null,
+                  participants: participants.map((participant, index) => ({
+                    subject: participant.subject,
+                    participantRole: participant.participantRole,
+                    creditOrder: index,
+                    creditNameSnapshot:
+                      participant.creditNameSnapshot.trim() || participant.label,
+                  })),
+                  source: {
+                    youtubeUrl: youtubeUrl.trim(),
+                    channelId,
+                    startSeconds: parsedStart,
+                    endSeconds: parsedEnd,
+                    sourceRole,
+                  },
+                }),
+              ).then((ok) => ok && onOpenChange(false));
+            }}
+          >
+            전체 정보 저장
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

@@ -8,6 +8,7 @@ import {
   parseCreateSong,
   parseRejectProposal,
   parseUpdateChannel,
+  parseUpdatePerformance,
   parseUpdateSong,
 } from "./admin-catalog-input";
 
@@ -231,6 +232,68 @@ describe("OTW Play admin input", () => {
     expect(
       parseCreatePerformance({ ...base, participationType: "published" }),
     ).toMatchObject({ ok: false });
+  });
+
+  it("parses a full performance correction with subject-based participants", () => {
+    const input = {
+      id: "performance-1",
+      expectedVersion: 3,
+      songId: "song-2",
+      relationType: "original",
+      releaseType: "official_mv",
+      participationType: "duet",
+      qualityStatus: "needs_update",
+      releasedAt: 1_786_500_000_000,
+      internalNote: "corrected",
+      participants: [
+        {
+          subject: { kind: "member", memberUid: 1 },
+          participantRole: "featured_vocal",
+          creditOrder: 0,
+          creditNameSnapshot: "Member",
+        },
+        {
+          subject: {
+            kind: "new_external",
+            clientKey: "guest-chip",
+            displayName: "Guest",
+            entityKind: "person",
+          },
+          participantRole: "vocal",
+          creditOrder: 1,
+          creditNameSnapshot: "Guest",
+        },
+      ],
+      source: {
+        youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+        channelId: "channel-2",
+        startSeconds: 12,
+        endSeconds: 170,
+        sourceRole: "alternate",
+      },
+    };
+    expect(parseUpdatePerformance(input)).toMatchObject({
+      ok: true,
+      value: {
+        songId: "song-2",
+        participants: [
+          { subject: { kind: "member", memberUid: 1 } },
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "guest-chip",
+            },
+          },
+        ],
+        source: { sourceRole: "alternate" },
+      },
+    });
+    expect(
+      parseUpdatePerformance({
+        ...input,
+        participants: [input.participants[0], input.participants[0]],
+      }),
+    ).toEqual({ ok: false, fields: { body: "invalid_performance" } });
   });
 
   it("requires exact YouTube channel IDs and prevents active unapproved channels", () => {

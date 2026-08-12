@@ -334,7 +334,9 @@ export class AdminCatalogService {
     return result;
   }
 
-  private async verifyVideo(input: OtwPlayAdminCreatePerformanceRequest) {
+  private async verifyVideo(
+    input: Pick<OtwPlayAdminCreatePerformanceRequest, "source">,
+  ) {
     const videoId = extractYouTubeVideoId(input.source.youtubeUrl);
     if (!videoId) {
       throw new AdminCatalogServiceError(
@@ -399,13 +401,39 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     validateVersion(input.expectedVersion);
+    const entityIds: Record<string, string> = {};
+    const entityEventIds: Record<string, string> = {};
+    const definitions = new Map<string, string>();
+    for (const participant of input.participants) {
+      const key = subjectKey(participant.subject);
+      if (!key) continue;
+      const definition = JSON.stringify(participant.subject);
+      const previous = definitions.get(key);
+      if (previous && previous !== definition) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "A subject key cannot describe multiple identities",
+          { participants: "conflicting_identity" },
+        );
+      }
+      definitions.set(key, definition);
+      if (!entityIds[key]) {
+        entityIds[key] = this.createId();
+        entityEventIds[key] = this.createId();
+      }
+    }
     const video = await this.verifyVideo(input);
     const result = await this.repository.updatePerformance({
       input,
       video,
       actor,
       now: this.clock(),
-      ids: { sourceId: this.createId(), eventId: this.createId() },
+      ids: {
+        entityIds,
+        entityEventIds,
+        sourceId: this.createId(),
+        eventId: this.createId(),
+      },
     });
     await bestEffortAudit(this.audit, {
       eventType: "otw_play.performance.updated",

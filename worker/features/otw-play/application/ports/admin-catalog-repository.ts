@@ -80,7 +80,12 @@ export interface AdminUpdatePerformanceCommand {
   video: VerifiedYouTubeVideo;
   actor: AdminCatalogActor;
   now: number;
-  ids: { sourceId: string; eventId: string };
+  ids: {
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    sourceId: string;
+    eventId: string;
+  };
 }
 
 export interface AdminApproveProposalCommand {

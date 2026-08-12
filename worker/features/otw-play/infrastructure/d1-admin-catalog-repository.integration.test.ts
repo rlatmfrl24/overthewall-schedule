@@ -1737,4 +1737,229 @@ describe("D1AdminCatalogRepository", () => {
       .first<{ count: number }>();
     expect(Number(leakedTerms?.count)).toBe(0);
   });
+
+  it("atomically corrects every performance field and rebuilds participant identities and projections", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const fixture = await createDraftFixture(
+      repository,
+      "update",
+      "dQw4w9WgXcQ",
+      true,
+    );
+    const targetArtist = await createEntity(repository, "Target Artist");
+    const targetSong = await repository.createSong(
+      {
+        slug: "performance-update-target",
+        title: "Performance Update Target",
+        isOtwOriginal: true,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [
+          {
+            entityId: targetArtist.data.id,
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
+      actor,
+      { songId: id("song"), eventId: id("event") },
+      NOW,
+    );
+    await db
+      .prepare(
+        `INSERT INTO members
+        (uid, code, name, oshi_mark, youtube_channel_id, unit_name, is_deprecated)
+        VALUES (901, 'correction-member', '수정 멤버', '🌙', NULL, '수정 유닛', 0)`,
+      )
+      .run();
+    const memberEntityId = id("entity-member");
+    const guestEntityId = id("entity-guest");
+    const revisionBefore = (await repository.readCatalog()).revision;
+
+    const updated = await repository.updatePerformance({
+      input: {
+        id: fixture.performance.data.id,
+        expectedVersion: fixture.performance.data.version,
+        songId: targetSong.data.id,
+        relationType: "cover",
+        releaseType: "official_mv",
+        participationType: "duet",
+        qualityStatus: "needs_update",
+        releasedAt: NOW + 60_000,
+        internalNote: "all fields corrected",
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 901 },
+            participantRole: "featured_vocal",
+            creditOrder: 0,
+            creditNameSnapshot: "수정 멤버 크레딧",
+          },
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "guest-chip",
+              displayName: "수정 게스트",
+              entityKind: "person",
+            },
+            participantRole: "vocal",
+            creditOrder: 1,
+            creditNameSnapshot: "게스트 크레딧",
+          },
+        ],
+        source: {
+          youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+          channelId: fixture.channel.data.id,
+          startSeconds: 12,
+          endSeconds: 170,
+          sourceRole: "alternate",
+        },
+      },
+      video: {
+        videoId: "ASRCBcCY_qE",
+        channelId: fixture.channel.data.externalChannelId,
+        channelTitle: fixture.channel.data.displayName,
+        title: "Corrected performance video",
+        thumbnailUrl: null,
+        durationSeconds: 190,
+        publishedAt: NOW + 60_000,
+        availabilityStatus: "playable",
+      },
+      actor,
+      now: NOW + 60_000,
+      ids: {
+        entityIds: {
+          "member:901": memberEntityId,
+          "external:guest-chip": guestEntityId,
+        },
+        entityEventIds: {
+          "member:901": id("event"),
+          "external:guest-chip": id("event"),
+        },
+        sourceId: id("source"),
+        eventId: id("event"),
+      },
+    });
+
+    expect(updated.data.songId).toBe(targetSong.data.id);
+    expect(updated.data.relationType).toBe("cover");
+    expect(updated.data.releaseType).toBe("official_mv");
+    expect(updated.data.participationType).toBe("duet");
+    expect(updated.data.qualityStatus).toBe("needs_update");
+    expect(updated.data.releasedAt).toBe(NOW + 60_000);
+    expect(updated.data.internalNote).toBe("all fields corrected");
+    expect(updated.data.participants).toEqual([
+      expect.objectContaining({
+        entityId: memberEntityId,
+        displayName: "수정 멤버",
+        participantRole: "featured_vocal",
+        creditOrder: 0,
+        creditNameSnapshot: "수정 멤버 크레딧",
+      }),
+      expect.objectContaining({
+        entityId: guestEntityId,
+        displayName: "수정 게스트",
+        participantRole: "vocal",
+        creditOrder: 1,
+        creditNameSnapshot: "게스트 크레딧",
+      }),
+    ]);
+    expect(updated.data.sources).toEqual([
+      expect.objectContaining({
+        startSeconds: 12,
+        endSeconds: 170,
+        sourceRole: "alternate",
+        source: expect.objectContaining({
+          externalId: "ASRCBcCY_qE",
+          channelId: fixture.channel.data.id,
+        }),
+      }),
+    ]);
+    const oldSource = await db
+      .prepare(
+        "SELECT id FROM music_media_sources WHERE external_id = 'dQw4w9WgXcQ'",
+      )
+      .first();
+    expect(oldSource).toBeNull();
+    const catalogAfter = await repository.readCatalog();
+    expect(catalogAfter.revision).toBe(revisionBefore + 1);
+    expect(catalogAfter.readModelRevision).toBe(catalogAfter.revision);
+    expect(
+      catalogAfter.entities.find((entity) => entity.id === memberEntityId)
+        ?.memberUid,
+    ).toBe(901);
+    expect(
+      catalogAfter.entities.find((entity) => entity.id === guestEntityId)
+        ?.displayName,
+    ).toBe("수정 게스트");
+    const event = await db
+      .prepare(
+        "SELECT event_type FROM music_catalog_events WHERE aggregate_id = ? AND event_type = 'performance.updated'",
+      )
+      .bind(updated.data.id)
+      .first<{ event_type: string }>();
+    expect(event?.event_type).toBe("performance.updated");
+
+    const leakEntityId = id("entity-leak");
+    const beforeStale = await repository.readCatalog();
+    await expect(
+      repository.updatePerformance({
+        input: {
+          id: updated.data.id,
+          expectedVersion: fixture.performance.data.version,
+          songId: targetSong.data.id,
+          relationType: "cover",
+          releaseType: "official_mv",
+          participationType: "solo",
+          qualityStatus: "ok",
+          releasedAt: null,
+          participants: [
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "leak-chip",
+                displayName: "Must Roll Back",
+                entityKind: "person",
+              },
+              participantRole: "vocal",
+              creditOrder: 0,
+              creditNameSnapshot: "Must Roll Back",
+            },
+          ],
+          source: {
+            youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+            channelId: fixture.channel.data.id,
+            startSeconds: 12,
+            endSeconds: 170,
+            sourceRole: "alternate",
+          },
+        },
+        video: {
+          videoId: "ASRCBcCY_qE",
+          channelId: fixture.channel.data.externalChannelId,
+          channelTitle: fixture.channel.data.displayName,
+          title: "Corrected performance video",
+          thumbnailUrl: null,
+          durationSeconds: 190,
+          publishedAt: NOW + 60_000,
+          availabilityStatus: "playable",
+        },
+        actor,
+        now: NOW + 120_000,
+        ids: {
+          entityIds: { "external:leak-chip": leakEntityId },
+          entityEventIds: { "external:leak-chip": id("event") },
+          sourceId: id("source"),
+          eventId: id("event"),
+        },
+      }),
+    ).rejects.toBeInstanceOf(AdminCatalogRepositoryError);
+    const afterStale = await repository.readCatalog();
+    expect(afterStale.revision).toBe(beforeStale.revision);
+    expect(afterStale.performances).toEqual(beforeStale.performances);
+    expect(
+      afterStale.entities.some((entity) => entity.id === leakEntityId),
+    ).toBe(false);
+  });
 });

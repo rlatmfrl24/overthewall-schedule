@@ -689,9 +689,10 @@ export type OtwPlayAdminCreatePerformanceRequest =
   OtwPlayAdminPerformanceWriteInput;
 
 export interface OtwPlayAdminUpdatePerformanceRequest
-  extends OtwPlayAdminPerformanceWriteInput {
+  extends Omit<OtwPlayAdminPerformanceWriteInput, "participants"> {
   id: string;
   expectedVersion: number;
+  participants: OtwPlayAdminCatalogParticipantInput[];
 }
 
 export interface OtwPlayAdminExpectedVersionRequest {

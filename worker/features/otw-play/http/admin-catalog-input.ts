@@ -243,18 +243,6 @@ export const parseCreatePerformance = (
     : fail({ body: "invalid_performance" });
 };
 
-export const parseUpdatePerformance = (
-  value: unknown,
-): AdminInputResult<OtwPlayAdminUpdatePerformanceRequest> => {
-  if (!isObject(value)) return fail({ body: "object_required" });
-  const parsed = parsePerformanceCore(value);
-  const id = nonEmptyString(value.id, 128);
-  const expectedVersion = integer(value.expectedVersion);
-  return parsed && id && expectedVersion !== null
-    ? { ok: true, value: { ...parsed, id, expectedVersion } }
-    : fail({ body: "invalid_performance" });
-};
-
 const parseChannelCore = (value: JsonObject) => {
   const externalChannelId = nonEmptyString(value.externalChannelId, 24);
   const displayName = nonEmptyString(value.displayName, 300);
@@ -573,6 +561,122 @@ export const parseUpdateSong = (
       originalArtists: parsedArtists.sort(
         (left, right) => left.creditOrder - right.creditOrder,
       ),
+    },
+  };
+};
+
+export const parseUpdatePerformance = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminUpdatePerformanceRequest> => {
+  if (!isObject(value)) return fail({ body: "object_required" });
+  const id = nonEmptyString(value.id, 128);
+  const expectedVersion = integer(value.expectedVersion);
+  const songId = nonEmptyString(value.songId, 128);
+  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const releaseType = inValues(value.releaseType, [
+    "official_mv",
+    "official_video",
+  ] as const);
+  const participationType = inValues(
+    value.participationType,
+    OTW_PLAY_PARTICIPATION_TYPES,
+  );
+  const qualityStatus = inValues(
+    value.qualityStatus,
+    OTW_PLAY_QUALITY_STATUSES,
+  );
+  const releasedAt =
+    value.releasedAt === null ? null : integer(value.releasedAt);
+  const participants = Array.isArray(value.participants)
+    ? value.participants.map((raw) => {
+        if (!isObject(raw)) return null;
+        const subject = parseCatalogSubject(raw.subject);
+        const participantRole = inValues(
+          raw.participantRole,
+          OTW_PLAY_PARTICIPANT_ROLES,
+        );
+        const creditOrder = integer(raw.creditOrder);
+        const creditNameSnapshot = nullableString(raw.creditNameSnapshot, 300);
+        return subject && participantRole && creditOrder !== null
+          ? {
+              subject,
+              participantRole,
+              creditOrder,
+              ...(creditNameSnapshot ? { creditNameSnapshot } : {}),
+            }
+          : null;
+      })
+    : null;
+  const source = isObject(value.source) ? value.source : null;
+  const youtubeUrl = source ? nonEmptyString(source.youtubeUrl, 500) : null;
+  const channelId = source ? nonEmptyString(source.channelId, 128) : null;
+  const startSeconds = source ? integer(source.startSeconds) : null;
+  const endSeconds =
+    source?.endSeconds === null || source?.endSeconds === undefined
+      ? null
+      : integer(source.endSeconds);
+  const sourceRole = source
+    ? inValues(source.sourceRole, ["official", "alternate"] as const)
+    : null;
+  const parsedParticipants = participants?.filter(
+    (participant): participant is NonNullable<typeof participant> =>
+      participant !== null,
+  );
+  const participantOrders =
+    parsedParticipants?.map((participant) => participant.creditOrder) ?? [];
+  const participantKeys =
+    parsedParticipants?.map((participant) =>
+      catalogSubjectKey(participant.subject),
+    ) ?? [];
+  if (
+    !id ||
+    expectedVersion === null ||
+    !songId ||
+    !relationType ||
+    !releaseType ||
+    !participationType ||
+    !qualityStatus ||
+    (value.releasedAt !== null && releasedAt === null) ||
+    !parsedParticipants ||
+    parsedParticipants.length === 0 ||
+    parsedParticipants.length > 30 ||
+    parsedParticipants.length !== participants?.length ||
+    new Set(participantOrders).size !== participantOrders.length ||
+    new Set(participantKeys).size !== participantKeys.length ||
+    !source ||
+    !youtubeUrl ||
+    !channelId ||
+    startSeconds === null ||
+    !sourceRole ||
+    (source.endSeconds !== null &&
+      source.endSeconds !== undefined &&
+      endSeconds === null) ||
+    (endSeconds !== null && endSeconds <= startSeconds)
+  ) {
+    return fail({ body: "invalid_performance" });
+  }
+  return {
+    ok: true,
+    value: {
+      id,
+      expectedVersion,
+      songId,
+      relationType,
+      releaseType,
+      participationType,
+      qualityStatus,
+      releasedAt,
+      internalNote: nullableString(value.internalNote, 2_000),
+      participants: parsedParticipants.sort(
+        (left, right) => left.creditOrder - right.creditOrder,
+      ),
+      source: {
+        youtubeUrl,
+        channelId,
+        startSeconds,
+        endSeconds,
+        sourceRole,
+      },
     },
   };
 };

@@ -17,6 +17,7 @@ const fetchCatalogMock = vi.hoisted(() => vi.fn());
 const fetchProposalsMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
+const updatePerformanceMock = vi.hoisted(() => vi.fn());
 const preflightEntryMock = vi.hoisted(() => vi.fn());
 const createEntryMock = vi.hoisted(() => vi.fn());
 const deleteSongMock = vi.hoisted(() => vi.fn());
@@ -33,6 +34,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     fetchOtwPlayAdminProposals: fetchProposalsMock,
     updateOtwPlayEntity: updateEntityMock,
     updateOtwPlaySong: updateSongMock,
+    updateOtwPlayPerformance: updatePerformanceMock,
     preflightOtwPlayCatalogEntry: preflightEntryMock,
     createOtwPlayCatalogEntry: createEntryMock,
     deleteOtwPlaySong: deleteSongMock,
@@ -94,6 +96,10 @@ const proposal = {
 
 describe("OtwPlayCatalogManager", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
     fetchCatalogMock.mockResolvedValue(catalog);
     fetchProposalsMock.mockResolvedValue([proposal]);
     rejectProposalMock.mockResolvedValue({
@@ -102,6 +108,7 @@ describe("OtwPlayCatalogManager", () => {
     });
     updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    updatePerformanceMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     fetchMembersMock.mockResolvedValue([
       {
         uid: 1,
@@ -335,6 +342,205 @@ describe("OtwPlayCatalogManager", () => {
         ],
       }),
     );
+  });
+
+  it("edits the linked song, participants, classifications, source, and notes in one performance form", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      songs: [
+        {
+          id: "song-source",
+          slug: "source-song",
+          title: "기존 연결 곡",
+          normalizedTitle: "기존 연결 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+        {
+          id: "song-target",
+          slug: "target-song",
+          title: "변경할 연결 곡",
+          normalizedTitle: "변경할 연결 곡",
+          isOtwOriginal: true,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+      ],
+      entities: [
+        {
+          id: "external-old",
+          memberUid: null,
+          entityKind: "person",
+          displayName: "기존 외부 인물",
+          normalizedName: "기존 외부 인물",
+          slug: "external-old",
+          version: 0,
+          archivedAt: null,
+        },
+      ],
+      channels: [
+        {
+          id: "channel-approved",
+          provider: "youtube",
+          externalChannelId: `UC${"C".repeat(22)}`,
+          displayName: "승인 공식 채널",
+          channelRole: "member_main",
+          verificationStatus: "approved",
+          active: true,
+          entityIds: [],
+          version: 0,
+        },
+      ],
+      performances: [
+        {
+          id: "performance-edit",
+          songId: "song-source",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "draft",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: "기존 메모",
+          version: 4,
+          participants: [
+            {
+              entityId: "external-old",
+              displayName: "기존 외부 인물",
+              participantRole: "vocal",
+              creditOrder: 0,
+              creditNameSnapshot: "기존 크레딧",
+            },
+          ],
+          sources: [
+            {
+              source: {
+                id: "source-old",
+                provider: "youtube",
+                externalId: "dQw4w9WgXcQ",
+                channelId: "channel-approved",
+                title: "기존 영상",
+                thumbnailUrl: null,
+                durationSeconds: 180,
+                providerPublishedAt: null,
+                availabilityStatus: "playable",
+                lastCheckedAt: null,
+                version: 0,
+              },
+              startSeconds: 0,
+              endSeconds: null,
+              sourceRole: "official",
+              priority: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+      ],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findAllByText("기존 연결 곡");
+    fireEvent.click(
+      screen.getByRole("button", { name: "기존 연결 곡 가창 펼치기" }),
+    );
+    const performanceRow = screen.getAllByText("임시 저장")[0]!.closest("tr");
+    expect(performanceRow).toBeTruthy();
+    fireEvent.click(within(performanceRow!).getByRole("button", { name: "수정" }));
+
+    const dialog = screen.getByRole("dialog", { name: "가창 정보 수정" });
+    expect(within(dialog).getByLabelText("연결된 곡")).toBeTruthy();
+    expect(within(dialog).getByLabelText("곡 관계")).toBeTruthy();
+    expect(within(dialog).getByLabelText("공개 형태")).toBeTruthy();
+    expect(within(dialog).getByLabelText("참여 형태")).toBeTruthy();
+    expect(within(dialog).getByLabelText("데이터 품질")).toBeTruthy();
+    expect(within(dialog).getByLabelText("가창 공개일시")).toBeTruthy();
+    expect(within(dialog).getByLabelText("YouTube URL")).toBeTruthy();
+    expect(within(dialog).getByLabelText("공식 채널")).toBeTruthy();
+    expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
+    expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
+    expect(within(dialog).getByLabelText("source 역할")).toBeTruthy();
+    expect(within(dialog).getByLabelText("내부 메모")).toBeTruthy();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "기존 외부 인물 제거" }),
+    );
+    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
+      target: { value: "현재 멤버" },
+    });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    fireEvent.change(within(dialog).getByLabelText("현재 멤버 표시 크레딧"), {
+      target: { value: "수정한 멤버 크레딧" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
+      target: { value: "https://youtu.be/ASRCBcCY_qE" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("시작 위치(초)"), {
+      target: { value: "12" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), {
+      target: { value: "170" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("가창 공개일시"), {
+      target: { value: "2026-08-12T12:30" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("내부 메모"), {
+      target: { value: "전체 정보 수정" },
+    });
+
+    fireEvent.click(within(dialog).getByLabelText("연결된 곡"));
+    fireEvent.click(await screen.findByRole("option", { name: "변경할 연결 곡" }));
+    fireEvent.click(within(dialog).getByLabelText("곡 관계"));
+    fireEvent.click(await screen.findByRole("option", { name: "오리지널" }));
+    fireEvent.click(within(dialog).getByLabelText("공개 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
+    fireEvent.click(within(dialog).getByLabelText("참여 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "듀엣" }));
+    fireEvent.click(within(dialog).getByLabelText("데이터 품질"));
+    fireEvent.click(await screen.findByRole("option", { name: "업데이트 필요" }));
+    fireEvent.click(within(dialog).getByLabelText("현재 멤버 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
+    fireEvent.click(within(dialog).getByLabelText("source 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "대체 source" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "전체 정보 저장" }));
+
+    await waitFor(() => expect(updatePerformanceMock).toHaveBeenCalledTimes(1));
+    expect(updatePerformanceMock).toHaveBeenCalledWith({
+      id: "performance-edit",
+      expectedVersion: 4,
+      songId: "song-target",
+      relationType: "original",
+      releaseType: "official_mv",
+      participationType: "duet",
+      qualityStatus: "needs_update",
+      releasedAt: new Date("2026-08-12T12:30").getTime(),
+      internalNote: "전체 정보 수정",
+      participants: [
+        {
+          subject: { kind: "member", memberUid: 1 },
+          participantRole: "featured_vocal",
+          creditOrder: 0,
+          creditNameSnapshot: "수정한 멤버 크레딧",
+        },
+      ],
+      source: {
+        youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+        channelId: "channel-approved",
+        startSeconds: 12,
+        endSeconds: 170,
+        sourceRole: "alternate",
+      },
+    });
   });
 
   it("disables catalog writes while the public read model revision is stale", async () => {

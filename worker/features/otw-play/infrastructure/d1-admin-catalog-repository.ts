@@ -2089,6 +2089,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   async updatePerformance(command: AdminUpdatePerformanceCommand) {
     const { input, video, actor, now, ids } = command;
     const meta = await this.readRevision();
+    const catalog = await this.readCatalog();
     const current = await this.database
       .prepare(
         `SELECT song_id, publication_status
@@ -2101,6 +2102,164 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "not_found",
         "Performance not found",
       );
+    const targetSong = catalog.songs.find(
+      (song) => song.id === input.songId && song.archivedAt === null,
+    );
+    if (!targetSong) {
+      throw new AdminCatalogRepositoryError("not_found", "Song not found");
+    }
+    const entityStatements: D1PreparedStatement[] = [];
+    const resolved = new Map<string, { id: string; displayName: string }>();
+    for (const participant of input.participants) {
+      const subject = participant.subject;
+      if (subject.kind === "entity") {
+        const entity = catalog.entities.find(
+          (item) => item.id === subject.entityId && item.archivedAt === null,
+        );
+        if (!entity) {
+          throw new AdminCatalogRepositoryError(
+            "not_found",
+            "Selected participant identity was not found",
+          );
+        }
+        resolved.set(`entity:${subject.entityId}`, {
+          id: entity.id,
+          displayName: entity.displayName,
+        });
+        continue;
+      }
+
+      const key = subjectKey(subject)!;
+      if (resolved.has(key)) continue;
+      if (subject.kind === "member") {
+        const authority = await this.database
+          .prepare(
+            `SELECT uid, code, name FROM members
+            WHERE uid = ? AND (is_deprecated IS NULL OR is_deprecated = 0)`,
+          )
+          .bind(subject.memberUid)
+          .first<{ uid: number; code: string; name: string }>();
+        if (!authority) {
+          throw new AdminCatalogRepositoryError(
+            "not_found",
+            "Current member was not found",
+          );
+        }
+        const existing = catalog.entities.find(
+          (item) => item.memberUid === subject.memberUid,
+        );
+        if (existing) {
+          if (existing.archivedAt !== null) {
+            throw new AdminCatalogRepositoryError(
+              "validation_failed",
+              "The current member identity is archived",
+            );
+          }
+          resolved.set(key, { id: existing.id, displayName: authority.name });
+          continue;
+        }
+        const entityId = ids.entityIds[key];
+        const entityEventId = ids.entityEventIds[key];
+        if (!entityId || !entityEventId) {
+          throw new Error("Missing generated member identity ids");
+        }
+        entityStatements.push(
+          this.database
+            .prepare(
+              `INSERT INTO music_entities (
+              id, member_uid, entity_kind, display_name, normalized_name, slug,
+              version, created_at, updated_at
+            ) VALUES (?, ?, 'person', ?, ?, ?, 0, ?, ?)`,
+            )
+            .bind(
+              entityId,
+              authority.uid,
+              authority.name,
+              normalizeOtwPlaySearchText(authority.name),
+              authority.code.trim().toLowerCase(),
+              now,
+              now,
+            ),
+          this.database
+            .prepare(
+              `INSERT INTO music_catalog_events
+              (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
+              VALUES (?, 'entity', ?, 'entity.created_from_member', 'admin', ?, ?, ?)`,
+            )
+            .bind(
+              entityEventId,
+              entityId,
+              actor.userId,
+              eventJson({ memberUid: authority.uid }),
+              now,
+            ),
+        );
+        resolved.set(key, { id: entityId, displayName: authority.name });
+        continue;
+      }
+
+      const entityId = ids.entityIds[key];
+      const entityEventId = ids.entityEventIds[key];
+      if (!entityId || !entityEventId) {
+        throw new Error("Missing generated external identity ids");
+      }
+      entityStatements.push(
+        this.database
+          .prepare(
+            `INSERT INTO music_entities (
+            id, member_uid, entity_kind, display_name, normalized_name, slug,
+            version, created_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, ?, 0, ?, ?)`,
+          )
+          .bind(
+            entityId,
+            subject.entityKind,
+            subject.displayName.trim(),
+            normalizeOtwPlaySearchText(subject.displayName),
+            generatedSlug(subject.displayName, entityId),
+            now,
+            now,
+          ),
+        this.database
+          .prepare(
+            `INSERT INTO music_catalog_events
+            (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
+            VALUES (?, 'entity', ?, 'entity.created_inline', 'admin', ?, ?, ?)`,
+          )
+          .bind(
+            entityEventId,
+            entityId,
+            actor.userId,
+            eventJson({
+              displayName: subject.displayName,
+              entityKind: subject.entityKind,
+            }),
+            now,
+          ),
+      );
+      resolved.set(key, {
+        id: entityId,
+        displayName: subject.displayName.trim(),
+      });
+    }
+    const participants = input.participants.map((participant) => {
+      const key =
+        participant.subject.kind === "entity"
+          ? `entity:${participant.subject.entityId}`
+          : subjectKey(participant.subject)!;
+      const entity = resolved.get(key);
+      if (!entity) throw new Error("Unresolved participant identity");
+      return { ...participant, entity };
+    });
+    if (
+      new Set(participants.map((participant) => participant.entity.id)).size !==
+      participants.length
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "A participant can only be credited once",
+      );
+    }
     if (current.publication_status === "withdrawn") {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
@@ -2147,7 +2306,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .bind(video.videoId)
       .first<{ id: string }>();
     const sourceId = existingSource?.id ?? ids.sourceId;
+    const previousSourceRows = await this.database
+      .prepare(
+        "SELECT source_id FROM music_performance_sources WHERE performance_id = ?",
+      )
+      .bind(input.id)
+      .all<{ source_id: string }>();
     const statements: D1PreparedStatement[] = [
+      ...entityStatements,
       this.database
         .prepare(
           "DELETE FROM music_public_performance_sort_keys WHERE performance_id = ?",
@@ -2174,14 +2340,32 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         ),
       versionGuard(this.database),
       ...(existingSource
-        ? []
+        ? [
+            this.database
+              .prepare(
+                `UPDATE music_media_sources SET channel_id = ?, title = ?, thumbnail_url = ?,
+                duration_seconds = ?, provider_published_at = ?, availability_status = ?,
+                last_checked_at = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+              )
+              .bind(
+                input.source.channelId,
+                video.title,
+                video.thumbnailUrl,
+                video.durationSeconds,
+                video.publishedAt,
+                video.availabilityStatus,
+                now,
+                now,
+                sourceId,
+              ),
+          ]
         : [this.sourceInsert(sourceId, video, input.source.channelId, now)]),
       this.database
         .prepare(
           "DELETE FROM music_performance_participants WHERE performance_id = ?",
         )
         .bind(input.id),
-      ...input.participants.map((participant) =>
+      ...participants.map((participant) =>
         this.database
           .prepare(
             `INSERT INTO music_performance_participants
@@ -2190,10 +2374,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           )
           .bind(
             input.id,
-            participant.entityId,
-            participant.participantRole ?? "vocal",
+            participant.entity.id,
+            participant.participantRole,
             participant.creditOrder,
-            participant.creditNameSnapshot?.trim() || participant.entityId,
+            participant.creditNameSnapshot?.trim() || participant.entity.displayName,
           ),
       ),
       this.database
@@ -2213,6 +2397,23 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.source.startSeconds,
           input.source.endSeconds ?? null,
           input.source.sourceRole,
+        ),
+      ...previousSourceRows.results
+        .filter((row) => row.source_id !== sourceId)
+        .map((row) =>
+          this.database
+            .prepare(
+              `DELETE FROM music_media_sources
+               WHERE id = ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM music_performance_sources WHERE source_id = ?
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM music_media_source_relations
+                   WHERE source_id = ? OR related_source_id = ?
+                 )`,
+            )
+            .bind(row.source_id, row.source_id, row.source_id, row.source_id),
         ),
       ...projectionStatements(this.database, current.song_id),
       ...(current.song_id === input.songId
