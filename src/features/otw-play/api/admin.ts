@@ -80,6 +80,14 @@ export const updateOtwPlaySong = (json: OtwPlayAdminUpdateSongRequest) =>
     apiRoutes.otwPlay.admin.songs.build(),
     { method: "PUT", json },
   );
+export const deleteOtwPlaySong = (
+  id: string,
+  json: OtwPlayAdminExpectedVersionRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
+    apiRoutes.otwPlay.admin.deleteSong.build(id),
+    { method: "DELETE", json },
+  );
 export const createOtwPlayPerformance = (
   json: OtwPlayAdminCreatePerformanceRequest,
 ) =>
@@ -93,6 +101,14 @@ export const updateOtwPlayPerformance = (
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.performances.build(),
     { method: "PUT", json },
+  );
+export const deleteOtwPlayPerformance = (
+  id: string,
+  json: OtwPlayAdminExpectedVersionRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
+    apiRoutes.otwPlay.admin.deletePerformance.build(id),
+    { method: "DELETE", json },
   );
 export const publishOtwPlayPerformance = (
   id: string,

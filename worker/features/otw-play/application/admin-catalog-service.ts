@@ -391,6 +391,50 @@ export class AdminCatalogService {
     return result;
   }
 
+  async deleteSong(
+    id: string,
+    input: OtwPlayAdminExpectedVersionRequest,
+    actor: AdminCatalogActor,
+  ) {
+    validateVersion(input.expectedVersion);
+    const result = await this.repository.deleteSong(
+      id,
+      input.expectedVersion,
+      actor,
+      this.createId(),
+      this.clock(),
+    );
+    await bestEffortAudit(this.audit, {
+      eventType: "otw_play.song.deleted",
+      resourceType: "music_song",
+      resourceId: id,
+      actor,
+    });
+    return result;
+  }
+
+  async deletePerformance(
+    id: string,
+    input: OtwPlayAdminExpectedVersionRequest,
+    actor: AdminCatalogActor,
+  ) {
+    validateVersion(input.expectedVersion);
+    const result = await this.repository.deletePerformance(
+      id,
+      input.expectedVersion,
+      actor,
+      this.createId(),
+      this.clock(),
+    );
+    await bestEffortAudit(this.audit, {
+      eventType: "otw_play.performance.deleted",
+      resourceType: "music_performance",
+      resourceId: id,
+      actor,
+    });
+    return result;
+  }
+
   async transitionPerformance(
     id: string,
     input: OtwPlayAdminExpectedVersionRequest,

@@ -36,6 +36,101 @@ const createEntity = async (
     NOW,
   );
 
+const createDraftFixture = async (
+  repository: D1AdminCatalogRepository,
+  suffix: string,
+  videoId: string,
+  approved = false,
+) => {
+  const singer = await createEntity(repository, `Delete Singer ${suffix}`);
+  const createdChannel = await repository.createChannel(
+    {
+      externalChannelId: `UC${suffix.slice(0, 1).toUpperCase().repeat(22)}`,
+      displayName: `Delete Channel ${suffix}`,
+      channelRole: "member_music",
+      entityIds: [singer.data.id],
+    },
+    actor,
+    { channelId: id("channel"), eventId: id("event") },
+    NOW,
+  );
+  const channel = approved
+    ? await repository.updateChannel(
+        {
+          id: createdChannel.data.id,
+          externalChannelId: createdChannel.data.externalChannelId,
+          displayName: createdChannel.data.displayName,
+          channelRole: createdChannel.data.channelRole,
+          verificationStatus: "approved",
+          active: true,
+          entityIds: createdChannel.data.entityIds,
+          expectedVersion: createdChannel.data.version,
+        },
+        actor,
+        id("event"),
+        NOW,
+      )
+    : createdChannel;
+  const song = await repository.createSong(
+    {
+      slug: `delete-song-${suffix}`,
+      title: `Delete Song ${suffix}`,
+      isOtwOriginal: true,
+      originalReleaseDate: null,
+      originalReleasePrecision: "unknown",
+      aliases: [],
+      originalArtists: [
+        { entityId: singer.data.id, creditOrder: 0, isPrimary: true },
+      ],
+    },
+    actor,
+    { songId: id("song"), eventId: id("event") },
+    NOW,
+  );
+  const performance = await repository.createPerformance({
+    input: {
+      songId: song.data.id,
+      relationType: "original",
+      releaseType: "official_video",
+      participationType: "solo",
+      qualityStatus: "ok",
+      releasedAt: NOW,
+      participants: [
+        {
+          entityId: singer.data.id,
+          participantRole: "vocal",
+          creditOrder: 0,
+          creditNameSnapshot: singer.data.displayName,
+        },
+      ],
+      source: {
+        youtubeUrl: `https://youtu.be/${videoId}`,
+        channelId: channel.data.id,
+        startSeconds: 0,
+        sourceRole: "official",
+      },
+    },
+    video: {
+      videoId,
+      channelId: channel.data.externalChannelId,
+      channelTitle: channel.data.displayName,
+      title: `Delete Video ${suffix}`,
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: NOW,
+      availabilityStatus: "playable",
+    },
+    actor,
+    now: NOW,
+    ids: {
+      performanceId: id("performance"),
+      sourceId: id("source"),
+      eventId: id("event"),
+    },
+  });
+  return { singer, channel, song, performance };
+};
+
 beforeEach(async () => {
   idSequence = 0;
   await applyD1Migrations(db, testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS);
@@ -643,6 +738,150 @@ describe("D1AdminCatalogRepository", () => {
     });
     expect(page.items.map((item) => item.id)).toEqual([song.data.id]);
     expect(page.items[0]?.representativePerformance.playable).toBe(false);
+  });
+
+  it("deletes only drafts while keeping events, projections, and revisions atomic", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const draft = await createDraftFixture(
+      repository,
+      "draft",
+      "dQw4w9WgXcQ",
+    );
+    const deletedPerformance = await repository.deletePerformance(
+      draft.performance.data.id,
+      draft.performance.data.version,
+      actor,
+      id("event"),
+      NOW + 1,
+    );
+    expect(deletedPerformance.data.id).toBe(draft.performance.data.id);
+    expect(
+      await db
+        .prepare("SELECT id FROM music_media_sources WHERE external_id = ?")
+        .bind("dQw4w9WgXcQ")
+        .first(),
+    ).toBeNull();
+
+    const remainingSong = (await repository.readCatalog()).songs.find(
+      (song) => song.id === draft.song.data.id,
+    );
+    expect(remainingSong).toBeTruthy();
+    const deletedSong = await repository.deleteSong(
+      draft.song.data.id,
+      remainingSong!.version,
+      actor,
+      id("event"),
+      NOW + 2,
+    );
+    const [rows, events, meta, foreignKeys] = await Promise.all([
+      db
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM music_songs WHERE id = ?) AS songs,
+             (SELECT COUNT(*) FROM music_search_terms WHERE song_id = ?) AS search_terms,
+             (SELECT COUNT(*) FROM music_search_grams WHERE song_id = ?) AS grams,
+             (SELECT COUNT(*) FROM music_public_performance_sort_keys WHERE song_id = ?) AS sort_keys`,
+        )
+        .bind(
+          draft.song.data.id,
+          draft.song.data.id,
+          draft.song.data.id,
+          draft.song.data.id,
+        )
+        .first<Record<string, number>>(),
+      db
+        .prepare(
+          `SELECT event_type FROM music_catalog_events
+           WHERE event_type IN ('performance.deleted', 'song.deleted')
+           ORDER BY created_at, id`,
+        )
+        .all<{ event_type: string }>(),
+      db
+        .prepare(
+          `SELECT catalog.revision, read_model.revision AS read_model_revision
+           FROM music_catalog_meta AS catalog
+           JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+           WHERE catalog.id = 1`,
+        )
+        .first<{ revision: number; read_model_revision: number }>(),
+      db.prepare("PRAGMA foreign_key_check").all(),
+    ]);
+    expect(rows).toEqual({
+      songs: 0,
+      search_terms: 0,
+      grams: 0,
+      sort_keys: 0,
+    });
+    expect(events.results.map((event) => event.event_type)).toEqual([
+      "performance.deleted",
+      "song.deleted",
+    ]);
+    expect(meta?.revision).toBe(deletedSong.catalogRevision);
+    expect(meta?.read_model_revision).toBe(deletedSong.catalogRevision);
+    expect(foreignKeys.results).toEqual([]);
+
+    const draftWithChild = await createDraftFixture(
+      repository,
+      "child",
+      "zYxWvUtSr_9",
+    );
+    const deletedSongWithChild = await repository.deleteSong(
+      draftWithChild.song.data.id,
+      draftWithChild.song.data.version,
+      actor,
+      id("event"),
+      NOW + 3,
+    );
+    const cascaded = await db
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM music_songs WHERE id = ?) AS songs,
+           (SELECT COUNT(*) FROM music_performances WHERE id = ?) AS performances,
+           (SELECT COUNT(*) FROM music_media_sources WHERE external_id = ?) AS sources`,
+      )
+      .bind(
+        draftWithChild.song.data.id,
+        draftWithChild.performance.data.id,
+        "zYxWvUtSr_9",
+      )
+      .first<Record<string, number>>();
+    expect(cascaded).toEqual({ songs: 0, performances: 0, sources: 0 });
+    expect(deletedSongWithChild.catalogRevision).toBeGreaterThan(
+      deletedSong.catalogRevision,
+    );
+
+    const publishedFixture = await createDraftFixture(
+      repository,
+      "published",
+      "aBcDeFgHi_1",
+      true,
+    );
+    const published = await repository.transitionPerformance(
+      publishedFixture.performance.data.id,
+      publishedFixture.performance.data.version,
+      "published",
+      actor,
+      id("event"),
+      NOW + 4,
+    );
+    await expect(
+      repository.deletePerformance(
+        published.data.id,
+        published.data.version,
+        actor,
+        id("event"),
+        NOW + 5,
+      ),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(
+      repository.deleteSong(
+        publishedFixture.song.data.id,
+        publishedFixture.song.data.version,
+        actor,
+        id("event"),
+        NOW + 5,
+      ),
+    ).rejects.toMatchObject({ code: "validation_failed" });
   });
 
   it("rolls back the integrated entry when its event fails and rejects a stale preflight revision", async () => {

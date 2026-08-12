@@ -248,6 +248,35 @@ export const createAdminCatalogHandler =
         return responseJson(result, request.method === "POST" ? 201 : 200);
       }
 
+      const deleteSongId = pathId(
+        url.pathname,
+        /^\/api\/play\/admin\/songs\/([^/]+)$/u,
+      );
+      const deletePerformanceId = pathId(
+        url.pathname,
+        /^\/api\/play\/admin\/performances\/([^/]+)$/u,
+      );
+      if ((deleteSongId || deletePerformanceId) && request.method === "DELETE") {
+        const parsed = await readBody(request, parseVersionRequest);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid expected version",
+            parsed.fields,
+          );
+        return responseJson(
+          deleteSongId
+            ? await service.deleteSong(deleteSongId, parsed.value, actor)
+            : await service.deletePerformance(
+                deletePerformanceId!,
+                parsed.value,
+                actor,
+              ),
+        );
+      }
+
       const publishId = pathId(
         url.pathname,
         /^\/api\/play\/admin\/performances\/([^/]+)\/publish$/u,

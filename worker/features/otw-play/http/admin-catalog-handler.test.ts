@@ -89,6 +89,53 @@ describe("OTW Play admin catalog handler", () => {
     expect(createSong).not.toHaveBeenCalled();
   });
 
+  it("deletes draft songs and performances through authenticated dynamic routes", async () => {
+    const deleteSong = vi.fn(async (id) => ({
+      data: { id },
+      catalogRevision: 2,
+    }));
+    const deletePerformance = vi.fn(async (id) => ({
+      data: { id },
+      catalogRevision: 3,
+    }));
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({ deleteSong, deletePerformance }) as unknown as AdminCatalogService,
+    );
+    const songResponse = await handler(
+      new Request("https://example.com/api/play/admin/songs/song%20one", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: 1 }),
+      }),
+      env,
+    );
+    const performanceResponse = await handler(
+      new Request(
+        "https://example.com/api/play/admin/performances/performance%20one",
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedVersion: 2 }),
+        },
+      ),
+      env,
+    );
+
+    expect(songResponse.status).toBe(200);
+    expect(performanceResponse.status).toBe(200);
+    expect(deleteSong).toHaveBeenCalledWith(
+      "song one",
+      { expectedVersion: 1 },
+      expect.objectContaining({ userId: "admin" }),
+    );
+    expect(deletePerformance).toHaveBeenCalledWith(
+      "performance one",
+      { expectedVersion: 2 },
+      expect.objectContaining({ userId: "admin" }),
+    );
+  });
+
   it("serves the authenticated preflight and atomic catalog-entry endpoints with no-store", async () => {
     const preflightCatalogEntry = vi.fn(async () => ({
       catalogRevision: 1,

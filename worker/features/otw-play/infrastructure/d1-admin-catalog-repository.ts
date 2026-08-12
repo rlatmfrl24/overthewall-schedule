@@ -1044,6 +1044,142 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     return this.readSong(input.id);
   }
 
+  async deleteSong(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ) {
+    const meta = await this.readRevision();
+    const current = await this.database
+      .prepare(
+        "SELECT title, version, archived_at FROM music_songs WHERE id = ?",
+      )
+      .bind(id)
+      .first<{ title: string; version: number; archived_at: number | null }>();
+    if (!current)
+      throw new AdminCatalogRepositoryError("not_found", "Song not found");
+    if (Number(current.version) !== expectedVersion) {
+      throw new AdminCatalogRepositoryError(
+        "stale_write",
+        "Song changed since it was loaded",
+      );
+    }
+    if (current.archived_at !== null) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Archived songs must be preserved",
+      );
+    }
+
+    const performances = await this.database
+      .prepare(
+        `SELECT id, publication_status FROM music_performances
+         WHERE song_id = ?`,
+      )
+      .bind(id)
+      .all<{ id: string; publication_status: string }>();
+    if (
+      performances.results.some(
+        (performance) => performance.publication_status !== "draft",
+      )
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Songs with published or withdrawn performances cannot be deleted",
+      );
+    }
+
+    const protectedReference = await this.database
+      .prepare(
+        `SELECT
+           EXISTS (
+             SELECT 1 FROM music_songs WHERE merged_into_song_id = ?
+           ) AS has_merge_child,
+           EXISTS (
+             SELECT 1
+             FROM music_cover_proposals AS proposal
+             JOIN music_performances AS performance
+               ON performance.id = proposal.approved_performance_id
+             WHERE performance.song_id = ?
+           ) AS has_approved_proposal`,
+      )
+      .bind(id, id)
+      .first<{ has_merge_child: number; has_approved_proposal: number }>();
+    if (protectedReference?.has_merge_child) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "A song used as a merge target cannot be deleted",
+      );
+    }
+    if (protectedReference?.has_approved_proposal) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "A song linked to an approved proposal cannot be deleted",
+      );
+    }
+
+    const sourceRows = await this.database
+      .prepare(
+        `SELECT DISTINCT link.source_id
+         FROM music_performance_sources AS link
+         JOIN music_performances AS performance
+           ON performance.id = link.performance_id
+         WHERE performance.song_id = ?`,
+      )
+      .bind(id)
+      .all<{ source_id: string }>();
+    const statements: D1PreparedStatement[] = [
+      this.database
+        .prepare(
+          `DELETE FROM music_performances
+           WHERE song_id = ? AND publication_status = 'draft'`,
+        )
+        .bind(id),
+      this.database
+        .prepare("DELETE FROM music_songs WHERE id = ? AND version = ?")
+        .bind(id, expectedVersion),
+      versionGuard(this.database),
+      ...sourceRows.results.map((row) =>
+        this.database
+          .prepare(
+            `DELETE FROM music_media_sources
+             WHERE id = ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM music_performance_sources WHERE source_id = ?
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM music_media_source_relations
+                 WHERE source_id = ? OR related_source_id = ?
+               )`,
+          )
+          .bind(row.source_id, row.source_id, row.source_id, row.source_id),
+      ),
+      ...projectionStatements(this.database, id),
+      this.database
+        .prepare(
+          `INSERT INTO music_catalog_events
+          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id,
+           before_json, created_at)
+          VALUES (?, 'song', ?, 'song.deleted', 'admin', ?, ?, ?)`,
+        )
+        .bind(
+          eventId,
+          id,
+          actor.userId,
+          eventJson({
+            title: current.title,
+            version: expectedVersion,
+            draftPerformanceCount: performances.results.length,
+          }),
+          now,
+        ),
+    ];
+    await this.executeCatalogBatch(statements, Number(meta.revision), now);
+    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
+  }
+
   private sourceInsert(
     sourceId: string,
     video: AdminCreatePerformanceCommand["video"],
@@ -2061,6 +2197,109 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ];
     await this.executeCatalogBatch(statements, Number(meta.revision), now);
     return this.readPerformance(id);
+  }
+
+  async deletePerformance(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ) {
+    const meta = await this.readRevision();
+    const current = await this.database
+      .prepare(
+        `SELECT song_id, version, publication_status
+         FROM music_performances WHERE id = ?`,
+      )
+      .bind(id)
+      .first<{
+        song_id: string;
+        version: number;
+        publication_status: string;
+      }>();
+    if (!current)
+      throw new AdminCatalogRepositoryError(
+        "not_found",
+        "Performance not found",
+      );
+    if (Number(current.version) !== expectedVersion) {
+      throw new AdminCatalogRepositoryError(
+        "stale_write",
+        "Performance changed since it was loaded",
+      );
+    }
+    if (current.publication_status !== "draft") {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Only draft performances can be deleted",
+      );
+    }
+    const approvedProposal = await this.database
+      .prepare(
+        `SELECT id FROM music_cover_proposals
+         WHERE approved_performance_id = ? LIMIT 1`,
+      )
+      .bind(id)
+      .first<{ id: string }>();
+    if (approvedProposal) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "A performance linked to an approved proposal cannot be deleted",
+      );
+    }
+    const sourceRows = await this.database
+      .prepare(
+        `SELECT source_id FROM music_performance_sources
+         WHERE performance_id = ?`,
+      )
+      .bind(id)
+      .all<{ source_id: string }>();
+    const statements: D1PreparedStatement[] = [
+      this.database
+        .prepare(
+          `DELETE FROM music_performances
+           WHERE id = ? AND version = ? AND publication_status = 'draft'`,
+        )
+        .bind(id, expectedVersion),
+      versionGuard(this.database),
+      ...sourceRows.results.map((row) =>
+        this.database
+          .prepare(
+            `DELETE FROM music_media_sources
+             WHERE id = ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM music_performance_sources WHERE source_id = ?
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM music_media_source_relations
+                 WHERE source_id = ? OR related_source_id = ?
+               )`,
+          )
+          .bind(row.source_id, row.source_id, row.source_id, row.source_id),
+      ),
+      ...projectionStatements(this.database, current.song_id),
+      this.database
+        .prepare(
+          `INSERT INTO music_catalog_events
+          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id,
+           before_json, created_at)
+          VALUES (?, 'performance', ?, 'performance.deleted', 'admin', ?, ?, ?)`,
+        )
+        .bind(
+          eventId,
+          id,
+          actor.userId,
+          eventJson({
+            songId: current.song_id,
+            publicationStatus: "draft",
+            version: expectedVersion,
+          }),
+          now,
+        ),
+    ];
+    await this.executeCatalogBatch(statements, Number(meta.revision), now);
+    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   async createChannel(

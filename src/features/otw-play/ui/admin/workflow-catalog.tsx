@@ -35,8 +35,10 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { Textarea } from "@/shared/ui/textarea";
-import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import {
+  deleteOtwPlayPerformance,
+  deleteOtwPlaySong,
   publishOtwPlayPerformance,
   recheckOtwPlaySource,
   updateOtwPlayPerformance,
@@ -71,6 +73,7 @@ export function WorkflowCatalog({
     title: string;
     description: string;
     destructive?: boolean;
+    confirmLabel?: string;
     action: () => Promise<void>;
   } | null>(null);
   const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
@@ -100,11 +103,28 @@ export function WorkflowCatalog({
         </Button>
       )}
       {performance.publicationStatus === "draft" && (
-        <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
-          title: "가창을 게시할까요?",
-          description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
-          action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
-        })}>게시</Button>
+        <>
+          <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
+            title: "가창을 게시할까요?",
+            description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
+            action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+          })}>게시</Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            disabled={saving !== null}
+            onClick={() => setConfirmation({
+              title: "임시 저장 가창을 삭제할까요?",
+              description: "이 가창과 연결 정보가 영구 삭제됩니다. 게시 이력은 없으며 이 작업은 되돌릴 수 없습니다.",
+              destructive: true,
+              confirmLabel: "삭제",
+              action: async () => { await run("가창 삭제", () => deleteOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
+            })}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> 삭제
+          </Button>
+        </>
       )}
       {performance.publicationStatus === "published" && (
         <Button size="sm" variant="destructive" disabled={saving !== null} onClick={() => setConfirmation({
@@ -116,6 +136,39 @@ export function WorkflowCatalog({
       )}
     </div>
   );
+
+  const songDeleteAction = (
+    song: OtwPlayAdminSongDto,
+    performances: OtwPlayAdminPerformanceDto[],
+  ) => {
+    const canDelete = performances.every(
+      (performance) => performance.publicationStatus === "draft",
+    );
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        disabled={saving !== null || !canDelete}
+        title={
+          canDelete
+            ? undefined
+            : "게시 또는 철회 이력이 있는 곡은 삭제할 수 없습니다."
+        }
+        onClick={() => setConfirmation({
+          title: "곡을 삭제할까요?",
+          description: performances.length > 0
+            ? `곡 정보와 임시 저장 가창 ${performances.length}개를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`
+            : "곡 정보를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.",
+          destructive: true,
+          confirmLabel: "삭제",
+          action: async () => { await run("곡 삭제", () => deleteOtwPlaySong(song.id, { expectedVersion: song.version })); },
+        })}
+      >
+        <Trash2 className="h-3.5 w-3.5" /> 곡 삭제
+      </Button>
+    );
+  };
 
   return (
     <>
@@ -139,7 +192,7 @@ export function WorkflowCatalog({
                       <TableCell>{song.originalArtists.map((artist) => artist.displayName).join(", ")}</TableCell>
                       <TableCell>{performances.length}개</TableCell>
                       <TableCell>-</TableCell>
-                      <TableCell><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button></div></TableCell>
+                      <TableCell><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
                     </TableRow>,
                   ];
                   if (open) rows.push(...performances.map((performance) => {
@@ -156,14 +209,14 @@ export function WorkflowCatalog({
           <div className="space-y-3 md:hidden">
             {activeSongs.map((song) => {
               const performances = catalog.performances.filter((item) => item.songId === song.id);
-              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button></div><div className="space-y-2">{performances.map((performance) => { const source = performance.sources[0]?.source; const channel = catalog.channels.find((item) => item.id === source?.channelId); return <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div><div className="mt-1 text-xs text-muted-foreground">{channel?.displayName ?? "채널 없음"} · {source?.title ?? "source 없음"}</div><div className="mt-2">{performanceActions(performance)}</div></div>; })}</div></CardContent></Card>;
+              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => { const source = performance.sources[0]?.source; const channel = catalog.channels.find((item) => item.id === source?.channelId); return <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div><div className="mt-1 text-xs text-muted-foreground">{channel?.displayName ?? "채널 없음"} · {source?.title ?? "source 없음"}</div><div className="mt-2">{performanceActions(performance)}</div></div>; })}</div></CardContent></Card>;
             })}
           </div>
         </>
       )}
       <SongEditDialog song={editSong} onOpenChange={(open) => !open && setEditSong(null)} run={run} />
       <PerformanceEditDialog performance={editPerformance} onOpenChange={(open) => !open && setEditPerformance(null)} run={run} />
-      <ConfirmActionDialog open={confirmation !== null} onOpenChange={(open) => !open && setConfirmation(null)} title={confirmation?.title ?? "확인"} description={confirmation?.description ?? ""} destructive={confirmation?.destructive} confirmLabel="계속" onConfirm={() => { const action = confirmation?.action; setConfirmation(null); if (action) void action(); }} />
+      <ConfirmActionDialog open={confirmation !== null} onOpenChange={(open) => !open && setConfirmation(null)} title={confirmation?.title ?? "확인"} description={confirmation?.description ?? ""} destructive={confirmation?.destructive} confirmLabel={confirmation?.confirmLabel ?? "계속"} onConfirm={() => { const action = confirmation?.action; setConfirmation(null); if (action) void action(); }} />
     </>
   );
 }

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOtwPlayCatalogEntry,
   createOtwPlayPerformance,
+  deleteOtwPlayPerformance,
+  deleteOtwPlaySong,
   fetchOtwPlayAdminCatalog,
   fetchOtwPlayAdminProposals,
   publishOtwPlayPerformance,
@@ -113,6 +115,10 @@ describe("OTW Play admin API", () => {
       expectedVersion: 2,
       resultCode: "duplicate",
     });
+    await deleteOtwPlayPerformance("performance / draft", {
+      expectedVersion: 4,
+    });
+    await deleteOtwPlaySong("song / draft", { expectedVersion: 5 });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/play/admin/performances/performance%20%2F%20one/publish",
@@ -126,6 +132,16 @@ describe("OTW Play admin API", () => {
         json: { expectedVersion: 2, resultCode: "duplicate" },
         auth: "required",
       },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/performances/performance%20%2F%20draft",
+      { method: "DELETE", json: { expectedVersion: 4 }, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/play/admin/songs/song%20%2F%20draft",
+      { method: "DELETE", json: { expectedVersion: 5 }, auth: "required" },
     );
   });
 });

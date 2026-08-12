@@ -17,6 +17,8 @@ const fetchProposalsMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
 const preflightEntryMock = vi.hoisted(() => vi.fn());
 const createEntryMock = vi.hoisted(() => vi.fn());
+const deleteSongMock = vi.hoisted(() => vi.fn());
+const deletePerformanceMock = vi.hoisted(() => vi.fn());
 const fetchMembersMock = vi.hoisted(() => vi.fn());
 const rejectProposalMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
@@ -30,6 +32,8 @@ vi.mock("../../api/admin", async (importOriginal) => {
     updateOtwPlayEntity: updateEntityMock,
     preflightOtwPlayCatalogEntry: preflightEntryMock,
     createOtwPlayCatalogEntry: createEntryMock,
+    deleteOtwPlaySong: deleteSongMock,
+    deleteOtwPlayPerformance: deletePerformanceMock,
     rejectOtwPlayProposal: rejectProposalMock,
   };
 });
@@ -126,6 +130,8 @@ describe("OtwPlayCatalogManager", () => {
       duplicate: null,
     });
     createEntryMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    deleteSongMock.mockResolvedValue({ data: { id: "song-draft" }, catalogRevision: 8 });
+    deletePerformanceMock.mockResolvedValue({ data: { id: "performance-draft" }, catalogRevision: 8 });
   });
 
   afterEach(() => {
@@ -264,6 +270,104 @@ describe("OtwPlayCatalogManager", () => {
       (screen.getByRole("button", { name: "채널 확인 후 등록" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it("confirms draft cleanup and keeps published history out of hard-delete actions", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      songs: [
+        {
+          id: "song-draft",
+          slug: "draft-song",
+          title: "임시 곡",
+          normalizedTitle: "임시 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 2,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+        {
+          id: "song-published",
+          slug: "published-song",
+          title: "게시 이력 곡",
+          normalizedTitle: "게시 이력 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+      ],
+      performances: [
+        {
+          id: "performance-draft",
+          songId: "song-draft",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "draft",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 3,
+          participants: [],
+          sources: [],
+        },
+        {
+          id: "performance-published",
+          songId: "song-published",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "published",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 4,
+          participants: [],
+          sources: [],
+        },
+      ],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findAllByText("임시 곡");
+    const songDeleteButtons = screen.getAllByRole("button", { name: "곡 삭제" });
+    const enabledSongDeletes = songDeleteButtons.filter(
+      (button) => !(button as HTMLButtonElement).disabled,
+    );
+    const disabledSongDeletes = songDeleteButtons.filter(
+      (button) => (button as HTMLButtonElement).disabled,
+    );
+    expect(enabledSongDeletes).toHaveLength(2);
+    expect(disabledSongDeletes).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "임시 곡 가창 펼치기" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "삭제" })[0]!);
+    expect(screen.getByText("임시 저장 가창을 삭제할까요?")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "삭제" }).at(-1)!);
+    await waitFor(() =>
+      expect(deletePerformanceMock).toHaveBeenCalledWith(
+        "performance-draft",
+        { expectedVersion: 3 },
+      ),
+    );
+
+    fireEvent.click(enabledSongDeletes[0]!);
+    expect(screen.getByText("곡을 삭제할까요?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    await waitFor(() =>
+      expect(deleteSongMock).toHaveBeenCalledWith("song-draft", {
+        expectedVersion: 2,
+      }),
+    );
   });
 
   it("shows only workflow sections and suggests current members without a prerequisite identity screen", async () => {

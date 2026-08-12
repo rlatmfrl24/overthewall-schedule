@@ -486,6 +486,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.song.delete",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.deleteSong.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.performances",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.performances.pattern,
@@ -493,6 +500,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       post({ ...ADMIN_NO_STORE, successStatus: 201 }),
       put(ADMIN_NO_STORE),
     ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.performance.delete",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.deletePerformance.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
     handler: handleOtwPlayAdminCatalog,
   },
   {

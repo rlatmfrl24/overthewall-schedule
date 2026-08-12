@@ -106,6 +106,8 @@ describe("AdminCatalogService", () => {
       updateEntity: vi.fn(async () => result),
       createSong: vi.fn(async () => result),
       updateSong: vi.fn(async () => result),
+      deleteSong: vi.fn(async () => result),
+      deletePerformance: vi.fn(async () => result),
       transitionPerformance: vi.fn(async () => result),
       createChannel: vi.fn(async () => result),
       updateChannel: vi.fn(async () => result),
@@ -169,6 +171,12 @@ describe("AdminCatalogService", () => {
       { ...song, id: "song-1", expectedVersion: 0 },
       actor,
     );
+    await service.deletePerformance(
+      "performance-draft",
+      { expectedVersion: 0 },
+      actor,
+    );
+    await service.deleteSong("song-draft", { expectedVersion: 0 }, actor);
     await service.transitionPerformance(
       "performance-1",
       { expectedVersion: 0 },
@@ -200,7 +208,21 @@ describe("AdminCatalogService", () => {
       expect.any(String),
       123,
     );
-    expect(audit.record).toHaveBeenCalledTimes(7);
+    expect(repository.deletePerformance).toHaveBeenCalledWith(
+      "performance-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+    expect(repository.deleteSong).toHaveBeenCalledWith(
+      "song-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+    expect(audit.record).toHaveBeenCalledTimes(9);
   });
 
   it("does not persist a video whose authoritative YouTube channel differs", async () => {
@@ -359,6 +381,8 @@ describe("AdminCatalogService", () => {
       createChannel: vi.fn(),
       updateChannel: vi.fn(),
       deleteChannel: vi.fn(),
+      deleteSong: vi.fn(),
+      deletePerformance: vi.fn(),
     } as unknown as AdminCatalogRepository;
     const service = new AdminCatalogService(
       repository,
@@ -380,6 +404,12 @@ describe("AdminCatalogService", () => {
     ).rejects.toMatchObject({ code: "invalid_request" });
     await expect(
       service.deleteChannel("channel-1", { expectedVersion: -1 }, actor),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      service.deleteSong("song-1", { expectedVersion: 0.5 }, actor),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      service.deletePerformance("performance-1", { expectedVersion: -1 }, actor),
     ).rejects.toMatchObject({ code: "invalid_request" });
 
     readChannel.mockResolvedValueOnce(null);
@@ -415,6 +445,8 @@ describe("AdminCatalogService", () => {
     expect(repository.createChannel).not.toHaveBeenCalled();
     expect(repository.updateChannel).not.toHaveBeenCalled();
     expect(repository.deleteChannel).not.toHaveBeenCalled();
+    expect(repository.deleteSong).not.toHaveBeenCalled();
+    expect(repository.deletePerformance).not.toHaveBeenCalled();
   });
 
   it("marks a missing YouTube item unavailable while preserving stored identity", async () => {

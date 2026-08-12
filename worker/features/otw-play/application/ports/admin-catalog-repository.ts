@@ -152,12 +152,26 @@ export interface AdminCatalogRepository {
     eventId: string,
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
+  deleteSong(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
   createPerformance(
     command: AdminCreatePerformanceCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>;
   updatePerformance(
     command: AdminUpdatePerformanceCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>;
+  deletePerformance(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
   transitionPerformance(
     id: string,
     expectedVersion: number,
