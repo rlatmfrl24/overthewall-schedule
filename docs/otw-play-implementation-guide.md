@@ -583,8 +583,8 @@ adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로
 ### 사용자 흐름
 
 ```text
-새 영상 등록 → YouTube metadata·중복·채널 preflight → 곡 연결/생성 →
-현재 멤버·외부 칩과 분류 3축 → 전체 검토 → draft 또는 confirm 후 publish
+새 영상 등록 → YouTube metadata·중복·채널 preflight → 영상 유형 선택 →
+현재 멤버·외부 칩과 공개·참여 분류 → 전체 검토 → draft 또는 confirm 후 publish
 ```
 
 DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일상 진입점으로 사용하지
@@ -592,6 +592,15 @@ DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일�
 ID는 자동 추천·연결하고, 외부 identity와 unknown channel은 같은 dialog에서 명시적으로
 생성·승인하거나 pending으로 보류한다. 기존 entity/channel endpoint는 고급 수정과
 호환성을 위해 유지한다.
+
+일반 `새 영상 등록`에서는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저
+선택한다. 오리지널·커버는 기존 곡 검색과 새 곡 form을 건너뛰며, commit 시 다시
+검증한 YouTube title로 song을 자동 생성한다. 오리지널은 participant를 original artist로
+재사용하고 커버는 원곡 가수 미확정 상태를 빈 relation으로 보존한다. 기존 곡에서
+`다른 가창 추가`로 진입했을 때만 기존 song ID를 사용한다. 노래방송은 다곡·구간
+연결 계약이 마련되기 전까지 다음 단계와 저장을 막으며 별도 staging data도 만들지 않는다.
+자동 생성 song은 normalized title과 commit에서 검증한 video ID로 versioned dedupe key
+material을 만들고, 제목이 같은 서로 다른 영상을 자동 연결하지 않는다.
 
 PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
 `music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
@@ -641,7 +650,8 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - 관리자 UI가 서버 성공 후 authoritative readback
 - 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
 - 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
-- 새 곡+가창, 기존 곡+가창 추가, draft와 confirm publish를 통합 command로 검증
+- 오리지널·커버의 수동 곡 연결 생략과 metadata 기반 song+performance 생성, 기존 곡의 `다른 가창 추가`, draft와 confirm publish를 통합 command로 검증
+- 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
 - YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
 - 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
 

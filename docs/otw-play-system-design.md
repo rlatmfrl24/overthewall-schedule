@@ -972,6 +972,17 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 revision이 다르면 `409 PLAY_ADMIN_STALE_WRITE`, 동일 video/segment면 기존 song과
 performance ID를 포함한 `409 PLAY_ADMIN_DUPLICATE_SOURCE`를 반환한다.
 
+새 영상 UI는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저 구분한다.
+오리지널과 공식 커버는 수동 song 선택을 요구하지 않고 검증된 video title로 내부
+song을 생성한다. 오리지널은 선택한 participant identity를 original artist credit으로
+재사용한다. 공식 커버의 원곡 가수가 미확정이면 빈 relation을 허용하며 임의의 외부
+identity를 생성하지 않는다. 기존 곡의 `다른 가창 추가` 진입만 명시적으로 그 song을
+재사용한다. 노래방송은 한 source에 여러 곡과 segment를 연결해야 하므로 현재 통합
+command가 받지 않으며 canonical row나 staging row를 생성하지 않는다.
+자동 생성 song의 dedupe key material은 normalized video title과 검증된 YouTube video
+ID를 함께 사용한다. 같은 제목의 서로 다른 영상을 자동 연결하거나 unique 충돌로
+막지 않으며, 추후 관리자가 명시적으로 같은 곡으로 정리하는 정책과 분리한다.
+
 현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
 기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도
 identity가 된다. 권위 멤버 채널은 자동 연결할 수 있지만 그 밖의 새 채널은 인라인
