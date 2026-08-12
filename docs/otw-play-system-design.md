@@ -973,15 +973,18 @@ revision이 다르면 `409 PLAY_ADMIN_STALE_WRITE`, 동일 video/segment면 기�
 performance ID를 포함한 `409 PLAY_ADMIN_DUPLICATE_SOURCE`를 반환한다.
 
 새 영상 UI는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저 구분한다.
-오리지널과 공식 커버는 수동 song 선택을 요구하지 않고 검증된 video title로 내부
-song을 생성한다. 오리지널은 선택한 participant identity를 original artist credit으로
-재사용한다. 공식 커버의 원곡 가수가 미확정이면 빈 relation을 허용하며 임의의 외부
-identity를 생성하지 않는다. 기존 곡의 `다른 가창 추가` 진입만 명시적으로 그 song을
-재사용한다. 노래방송은 한 source에 여러 곡과 segment를 연결해야 하므로 현재 통합
-command가 받지 않으며 canonical row나 staging row를 생성하지 않는다.
-자동 생성 song의 dedupe key material은 normalized video title과 검증된 YouTube video
-ID를 함께 사용한다. 같은 제목의 서로 다른 영상을 자동 연결하거나 unique 충돌로
-막지 않으며, 추후 관리자가 명시적으로 같은 곡으로 정리하는 정책과 분리한다.
+오리지널은 수동 song 선택을 요구하지 않고 검증된 video title로 내부 song을 만들며,
+선택한 participant identity를 original artist credit으로 재사용한다. 공식 커버는
+관리자가 `원곡 제목`과 하나 이상의 `원곡 가수` identity를 별도로 입력하고 그 값으로
+song을 만든다. client의 video title/channel 주장은 계속 신뢰하지 않지만, 관리자가
+명시적으로 입력한 원곡 정보는 catalog command의 검증된 입력으로 취급한다. 기존 곡의
+`다른 가창 추가` 진입만 명시적으로 그 song과 원곡 정보를 재사용한다. 노래방송은 한
+source에 여러 곡과 segment를 연결해야 하므로 현재 통합 command가 받지 않으며
+canonical row나 staging row를 생성하지 않는다.
+오리지널 자동 생성 song은 normalized video title과 검증된 YouTube video ID로 dedupe
+key material을 만든다. 커버 song은 normalized original title과 선택·생성된 original
+artist identity로 canonical dedupe key material을 만든다. exact 중복은 충돌로 거부하되
+soft duplicate를 자동 연결하지 않는다.
 
 현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
 기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도
