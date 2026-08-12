@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
+import { ApiError } from "@/shared/api/client";
 import { OtwPlayCatalogManager } from "./catalog-manager";
 
 const fetchCatalogMock = vi.hoisted(() => vi.fn());
@@ -305,6 +306,34 @@ describe("OtwPlayCatalogManager", () => {
           song: expect.objectContaining({ kind: "create" }),
         }),
       ),
+    );
+  });
+
+  it("shows the actionable preflight API error and request id", async () => {
+    preflightEntryMock.mockRejectedValueOnce(
+      new ApiError("YouTube metadata is temporarily unavailable", 503, {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        requestId: "request-preflight-1",
+      }),
+    );
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+      target: {
+        value:
+          "https://www.youtube.com/watch?v=ASRCBcCY_qE&list=RDASRCBcCY_qE&start_radio=1",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "YouTube metadata 조회에 실패했습니다",
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "request-preflight-1",
     );
   });
 

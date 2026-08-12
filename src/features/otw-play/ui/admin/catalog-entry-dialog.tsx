@@ -11,6 +11,7 @@ import type {
 } from "@contracts/otw-play";
 import { ConfirmActionDialog } from "@/app/admin";
 import { fetchActiveMembers, type Member } from "@/features/members";
+import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -68,6 +69,28 @@ const participationLabels: Record<OtwPlayParticipationType, string> = {
   unit: "유닛",
   group: "그룹",
   external_collab: "외부 협업",
+};
+
+const preflightErrorMessage = (error: unknown) => {
+  if (!(error instanceof ApiError)) {
+    return "로컬 Worker에 연결하지 못했습니다. 개발 서버 상태를 확인한 뒤 다시 시도하세요.";
+  }
+
+  const requestSuffix = error.requestId
+    ? ` 요청 ID: ${error.requestId}`
+    : "";
+  switch (error.code) {
+    case "AUTH_REQUIRED":
+      return "관리자 로그인 세션을 확인한 뒤 페이지를 새로고침하세요.";
+    case "PLAY_ADMIN_INVALID_REQUEST":
+      return `지원하는 YouTube 영상 URL과 시작 위치를 확인하세요.${requestSuffix}`;
+    case "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE":
+      return `YouTube metadata 조회에 실패했습니다. 잠시 후 다시 시도하세요.${requestSuffix}`;
+    case "PLAY_ADMIN_INTERNAL_ERROR":
+      return `로컬 카탈로그를 확인하지 못했습니다. D1 상태를 점검하세요.${requestSuffix}`;
+    default:
+      return `${error.message}${error.code ? ` (${error.code})` : ""}${requestSuffix}`;
+  }
 };
 
 const subjectFromMember = (member: Member): SelectedSubject => ({
@@ -377,8 +400,8 @@ export function CatalogEntryDialog({
       if (result.channel.channelRole === "member_music" || result.channel.channelRole === "member_main" || result.channel.channelRole === "project_official" || result.channel.channelRole === "otw_official" || result.channel.channelRole === "unit_official") {
         setChannelRole(result.channel.channelRole);
       }
-    } catch {
-      setErrorMessage("영상 metadata를 확인하지 못했습니다. URL과 YouTube 상태를 확인하세요.");
+    } catch (error) {
+      setErrorMessage(preflightErrorMessage(error));
     } finally {
       setChecking(false);
     }
