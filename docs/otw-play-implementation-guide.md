@@ -624,6 +624,12 @@ metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed �
 capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
 catalog batch를 되돌리지 않는다.
 
+`DELETE /api/play/admin/performances/:id`는 `draft`만 삭제하고,
+`DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두 `draft`일 때만
+곡과 draft performance를 함께 삭제한다. published·withdrawn 이력, merge 대상과 승인
+proposal이 참조하는 performance는 삭제를 거부한다. 소유 child와 orphan source 정리,
+capability event, search/gram/sort projection 및 두 revision 증가는 하나의 D1 batch다.
+
 통합 경로는 `POST /api/play/admin/catalog-entries/preflight`와
 `POST /api/play/admin/catalog-entries`다. preflight는 mutation하지 않고 revision을
 반환하며 commit은 YouTube metadata를 다시 읽는다. entity·channel·song·performance,
@@ -657,6 +663,9 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
 - YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
 - 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
+- draft performance 개별 삭제와 draft-only song 삭제의 원자성, orphan source 정리,
+  event·projection·revision 동시 반영
+- published·withdrawn performance 및 해당 이력이 있는 song hard delete 거부
 
 ### 종료 조건
 

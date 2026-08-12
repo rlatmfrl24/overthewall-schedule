@@ -78,6 +78,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-023 | 공개 검색·참여자 정렬의 성능 projection은 canonical catalog와 같은 D1에 두되 권위 데이터로 사용하지 않는다. | 확정 | 공개 read가 활성일 때 파생 read model revision이 catalog revision과 다르면 config 이외 공개 조회를 cache 전에 `503`으로 중단한다. flag-off `404`가 우선이며 config는 항상 현재 flag와 catalog revision을 제공한다. |
 | DEC-024 | 관리자 카탈로그는 DB aggregate별 선행 등록 화면이 아니라 YouTube 영상 등록 작업을 중심으로 구성한다. | 확정 | `song`, `performance`, `entity`, `channel` 분리는 내부에 유지하되 현재 멤버와 권위 채널은 자동 추천·연결하고 외부 인물·그룹과 미등록 채널은 같은 흐름에서 명시적으로 확인한다. |
 | DEC-025 | 새 영상 등록은 metadata 확인 직후 `오리지널곡`, `공식 커버곡`, `노래방송`으로 유형을 먼저 확정한다. | 확정 | 오리지널·커버는 수동 곡 연결 화면을 건너뛴다. 오리지널은 검증한 영상 제목과 선택한 참여자로 song을 만들고, 커버는 관리자가 원곡 제목과 원곡 가수명을 구분해 입력해 song을 만든다. 다곡·구간 연결이 필요한 노래방송은 후속 범위로 표시하고 현재 command로 저장하지 않는다. |
+| DEC-026 | 관리자 hard delete는 공개된 적 없는 draft 입력 오류를 정리하는 용도로만 허용한다. | 확정 | draft 가창은 개별 삭제할 수 있고, 곡은 연결된 가창이 모두 draft일 때만 함께 삭제할 수 있다. published·withdrawn 이력이 있는 곡과 가창은 삭제하지 않고 철회·보관으로 이력을 유지한다. |
 
 ## 4. 제품 원칙
 
@@ -594,6 +595,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-12 | DEC-024 workflow-first admin catalog 확정. 인물·그룹과 채널의 선행 등록 탭을 제거하고 4단계 YouTube 영상 등록과 통합 atomic command를 기준선으로 변경 |
 | 2026-08-12 | DEC-025 영상 유형 우선 등록 흐름 확정. 오리지널·공식 커버는 수동 곡 연결을 생략하고 영상 metadata로 내부 곡을 생성하며, 노래방송의 다곡·구간 연결은 후속 범위로 유지 |
 | 2026-08-12 | DEC-025 보완. 공식 커버 등록은 영상 제목을 원곡 정보로 대체하지 않고 원곡 제목과 원곡 가수명을 별도 필수 입력으로 수집 |
+| 2026-08-12 | DEC-026 draft-only 관리자 삭제 정책 확정. 미공개 가창과 미공개 가창만 가진 곡은 확인 후 삭제하되 published·withdrawn 이력은 철회·보관으로 보존 |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 
