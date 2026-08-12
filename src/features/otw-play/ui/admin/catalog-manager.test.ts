@@ -224,6 +224,28 @@ describe("OtwPlayCatalogManager", () => {
     consoleError.mockRestore();
   });
 
+  it("presents advanced channel data as a labeled correction form", async () => {
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findByText("OTW Play 카탈로그");
+    fireEvent.click(screen.getByRole("button", { name: "고급 관리" }));
+
+    expect(screen.getByText("채널 수동 등록")).toBeTruthy();
+    expect(screen.getByText(/예외 보정용/)).toBeTruthy();
+    const channelId = screen.getByLabelText("YouTube channel ID");
+    const displayName = screen.getByLabelText("채널 표시명");
+    const submit = screen.getByRole("button", { name: "채널 확인 후 등록" });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(channelId, { target: { value: `UC${"F".repeat(22)}` } });
+    fireEvent.change(displayName, { target: { value: "정리된 공식 채널" } });
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByLabelText("채널 역할")).toBeTruthy();
+    expect(screen.getByText("등록된 채널")).toBeTruthy();
+  });
+
   it("disables catalog writes while the public read model revision is stale", async () => {
     fetchCatalogMock.mockResolvedValueOnce({
       ...catalog,
@@ -270,6 +292,16 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
     expect(screen.queryByText("기존 곡 연결")).toBeNull();
     expect(screen.queryByText("새 곡 만들기")).toBeNull();
+    const coverNext = screen.getByRole("button", { name: /다음/ });
+    expect((coverNext as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+      target: { value: "정식 원곡 제목" },
+    });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
+      target: { value: "원곡 가수" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
+    expect((coverNext as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     const participantSearch = screen.getByLabelText("가창 참여자 검색");
     fireEvent.change(participantSearch, {
@@ -302,7 +334,26 @@ describe("OtwPlayCatalogManager", () => {
             channelRole: "member_main",
           },
           relationType: "cover",
-          song: { kind: "from_video" },
+          song: {
+            kind: "create",
+            title: "정식 원곡 제목",
+            isOtwOriginal: false,
+            originalReleaseDate: null,
+            originalReleasePrecision: "unknown",
+            aliases: [],
+            originalArtists: [
+              {
+                subject: {
+                  kind: "new_external",
+                  clientKey: expect.any(String),
+                  displayName: "원곡 가수",
+                  entityKind: "person",
+                },
+                creditOrder: 0,
+                isPrimary: true,
+              },
+            ],
+          },
         }),
       ),
     );
@@ -425,6 +476,13 @@ describe("OtwPlayCatalogManager", () => {
     await screen.findByText("채널: 미등록");
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+      target: { value: "미등록 채널 원곡" },
+    });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
+      target: { value: "미등록 채널 원곡 가수" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
       target: { value: "현재 멤버" },
@@ -470,6 +528,13 @@ describe("OtwPlayCatalogManager", () => {
     await screen.findByText(/멤버 채널 자동 인식/);
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+      target: { value: "실패 후 보존 원곡" },
+    });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
+      target: { value: "입력 보존 가수" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
       target: { value: "현재 멤버" },
@@ -481,5 +546,7 @@ describe("OtwPlayCatalogManager", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("stale revision");
     expect(screen.getByRole("dialog", { name: "새 YouTube 영상 등록" })).toBeTruthy();
     expect(screen.getAllByText(/현재 멤버/).length).toBeGreaterThan(0);
+    expect(screen.getByText("실패 후 보존 원곡")).toBeTruthy();
+    expect(screen.getByText(/입력 보존 가수/)).toBeTruthy();
   });
 });

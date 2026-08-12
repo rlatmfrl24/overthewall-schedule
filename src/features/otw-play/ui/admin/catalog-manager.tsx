@@ -10,6 +10,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
@@ -79,14 +80,21 @@ const channelVerificationLabels = {
 
 const Field = ({
   label,
+  htmlFor,
+  description,
   children,
 }: {
   label: string;
+  htmlFor?: string;
+  description?: string;
   children: React.ReactNode;
 }) => (
   <div className="space-y-1.5">
-    <Label>{label}</Label>
+    <Label htmlFor={htmlFor}>{label}</Label>
     {children}
+    {description && (
+      <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+    )}
   </div>
 );
 
@@ -256,12 +264,15 @@ export function OtwPlayCatalogManager() {
         onSaved={refresh}
       />
       <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <SheetContent className="w-full overflow-y-auto p-5 sm:max-w-3xl">
-          <SheetTitle>고급 관리</SheetTitle>
-          <SheetDescription>
-            채널 상태와 외부 인물·그룹 identity만 관리합니다. 현재 멤버 정보는 members가 권위입니다.
-          </SheetDescription>
-          <div className="space-y-6 pb-8">
+        <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
+          <div className="border-b bg-background p-6 pr-12">
+            <SheetTitle className="text-lg">고급 관리</SheetTitle>
+            <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
+              일상 등록에서 자동 처리하지 못한 채널 상태와 외부 인물·그룹만
+              수정합니다. 현재 멤버 정보는 members가 권위입니다.
+            </SheetDescription>
+          </div>
+          <div className="space-y-6 p-4 pb-10 sm:p-6">
             <ChannelSection
               items={catalog.channels}
               entities={catalog.entities}
@@ -481,37 +492,47 @@ function EntitySection({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">외부 인물·그룹 identity</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">외부 인물·그룹</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          영상 등록에서 만든 외부 가수·참여자·그룹의 표시명과 보관 상태를 관리합니다.
+        </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        <p className="text-sm text-muted-foreground">
-          새 identity는 영상 등록의 외부 인물·그룹 칩에서 만듭니다. 여기서는 이름 수정과 보관만 관리합니다.
-        </p>
         {editing && (
-          <div className="space-y-3 rounded-lg border p-3">
-            <Field label="표시명">
+          <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+            <div>
+              <div className="font-medium">{editing.displayName} 수정</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {editing.entityKind === "group" ? "그룹" : "외부 인물"} · 내부 식별자는 변경하지 않습니다.
+              </div>
+            </div>
+            <Field
+              label="표시명"
+              htmlFor="advanced-entity-display-name"
+              description="검색·칩·공개 크레딧에 표시되는 이름입니다."
+            >
               <Input
+                id="advanced-entity-display-name"
                 aria-label="외부 identity 표시명"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
               />
             </Field>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+            <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
+              <Checkbox
+                id="advanced-entity-archived"
                 checked={archived}
-                onChange={(event) => setArchived(event.target.checked)}
+                onCheckedChange={(checked) => setArchived(checked === true)}
               />
-              공개 카탈로그에서 보관 처리
-            </label>
-            <div className="flex gap-2">
-              <Button
-                disabled={!displayName.trim() || saving !== null}
-                onClick={() => void submit()}
-              >
-                수정 저장
-              </Button>
+              <div className="space-y-1">
+                <Label htmlFor="advanced-entity-archived">보관 처리</Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  새 등록 후보와 공개 카탈로그에서 제외하되 기존 기록은 유지합니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
               <Button
                 type="button"
                 variant="outline"
@@ -519,6 +540,12 @@ function EntitySection({
                 onClick={() => setEditing(null)}
               >
                 취소
+              </Button>
+              <Button
+                disabled={!displayName.trim() || saving !== null}
+                onClick={() => void submit()}
+              >
+                수정 저장
               </Button>
             </div>
           </div>
@@ -528,7 +555,9 @@ function EntitySection({
             저장된 외부 인물·그룹이 없습니다.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">저장된 identity</div>
+            <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -560,6 +589,7 @@ function EntitySection({
                 ))}
               </TableBody>
             </Table>
+            </div>
           </div>
         )}
       </CardContent>
@@ -619,13 +649,31 @@ function ChannelSection({
   };
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">공식 채널 allowlist</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">공식 채널</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          인라인 등록에서 확인된 YouTube 채널의 역할, 연결 주체와 사용 가능 상태를 관리합니다.
+        </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-4">
-          <Field label="YouTube channel ID">
+        <div className="space-y-5 rounded-xl border bg-muted/20 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 수동 등록"}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                일반 등록에서는 영상 확인 단계가 채널을 자동 인식합니다. 이 폼은 예외 보정용입니다.
+              </p>
+            </div>
+            {editing && <Badge variant="outline">version {editing.version}</Badge>}
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+          <Field
+            label="YouTube 채널 ID"
+            htmlFor="advanced-channel-id"
+            description="YouTube의 UC로 시작하는 권위 channel ID를 입력합니다."
+          >
             <Input
+              id="advanced-channel-id"
               aria-label="YouTube channel ID"
               value={form.externalChannelId}
               onChange={(e) =>
@@ -633,8 +681,13 @@ function ChannelSection({
               }
             />
           </Field>
-          <Field label="표시명 (YouTube 확인값으로 대체)">
+          <Field
+            label="채널 표시명"
+            htmlFor="advanced-channel-display-name"
+            description="관리 화면과 출처 정보에 표시할 이름입니다."
+          >
             <Input
+              id="advanced-channel-display-name"
               aria-label="채널 표시명"
               value={form.displayName}
               onChange={(e) =>
@@ -642,7 +695,7 @@ function ChannelSection({
               }
             />
           </Field>
-          <Field label="역할">
+          <Field label="채널 역할" description="공개 source 우선순위와 공식성 판단에 사용합니다.">
             <Select
               value={form.channelRole}
               onValueChange={(value) =>
@@ -667,20 +720,27 @@ function ChannelSection({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="연결 entity (복수 선택 가능)">
-            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
+          <Field
+            label="소유·연결 주체"
+            description="이 채널을 공식적으로 소유하거나 운영하는 멤버·그룹을 모두 선택합니다."
+          >
+            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+              {entities.length === 0 && (
+                <p className="p-2 text-sm text-muted-foreground">선택할 identity가 없습니다.</p>
+              )}
               {entities.map((entity) => (
                 <label
                   key={entity.id}
-                  className="flex items-center gap-2 text-sm"
+                  htmlFor={`advanced-channel-owner-${entity.id}`}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted"
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    id={`advanced-channel-owner-${entity.id}`}
                     checked={form.entityIds.includes(entity.id)}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       setForm({
                         ...form,
-                        entityIds: event.target.checked
+                        entityIds: checked === true
                           ? [...form.entityIds, entity.id]
                           : form.entityIds.filter((id) => id !== entity.id),
                       })
@@ -691,10 +751,10 @@ function ChannelSection({
               ))}
             </div>
           </Field>
-        </div>
+          </div>
         {editing && (
-          <div className="flex gap-3">
-            <Field label="검수 상태">
+          <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+            <Field label="검수 상태" description="승인됨 상태에서만 채널을 활성화할 수 있습니다.">
               <Select
                 value={form.verificationStatus}
                 onValueChange={(value) =>
@@ -705,7 +765,7 @@ function ChannelSection({
                   })
                 }
               >
-                <SelectTrigger className="w-40" aria-label="채널 검수 상태">
+                <SelectTrigger aria-label="채널 검수 상태">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -715,24 +775,47 @@ function ChannelSection({
                 </SelectContent>
               </Select>
             </Field>
-            <label className="flex items-center gap-2 self-end pb-2 text-sm">
-              <input
-                type="checkbox"
+            <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
+              <Checkbox
+                id="advanced-channel-active"
                 checked={form.active}
                 disabled={form.verificationStatus !== "approved"}
-                onChange={(e) => setForm({ ...form, active: e.target.checked })}
-              />{" "}
-              활성
-            </label>
+                onCheckedChange={(checked) => setForm({ ...form, active: checked === true })}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="advanced-channel-active">카탈로그 source에 사용</Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  비활성 채널의 영상은 공개 source 후보로 선택되지 않습니다.
+                </p>
+              </div>
+            </div>
           </div>
         )}
-        <Button
-          disabled={!form.externalChannelId || saving !== null}
-          onClick={() => void submit()}
-        >
-          {editing ? "검수 저장" : "채널 확인 후 등록"}
-        </Button>
-        <div className="overflow-x-auto">
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+            {editing && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving !== null}
+                onClick={() => {
+                  setEditing(null);
+                  setForm(empty);
+                }}
+              >
+                취소
+              </Button>
+            )}
+            <Button
+              disabled={!form.externalChannelId.trim() || !form.displayName.trim() || saving !== null}
+              onClick={() => void submit()}
+            >
+              {editing ? "채널 수정 저장" : "채널 확인 후 등록"}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="text-sm font-medium">등록된 채널</div>
+          <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -779,6 +862,7 @@ function ChannelSection({
               ))}
             </TableBody>
           </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

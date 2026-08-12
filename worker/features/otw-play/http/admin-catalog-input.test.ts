@@ -69,6 +69,7 @@ describe("OTW Play admin input", () => {
     const fromVideo = parseCreateCatalogEntry({
       ...command,
       song: { kind: "from_video", title: "client-supplied title" },
+      relationType: "original",
     });
     expect(fromVideo).toMatchObject({
       ok: true,
@@ -77,6 +78,13 @@ describe("OTW Play admin input", () => {
     if (fromVideo.ok) {
       expect(fromVideo.value.song).toEqual({ kind: "from_video" });
     }
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        song: { kind: "from_video" },
+        relationType: "cover",
+      }),
+    ).toMatchObject({ ok: false });
     expect(
       parseCreateCatalogEntry({
         ...command,

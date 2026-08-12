@@ -104,6 +104,8 @@ const subjectFromEntity = (entity: OtwPlayAdminEntityDto): SelectedSubject => ({
 
 function SubjectPicker({
   label,
+  placeholder = "멤버 또는 기존 외부 identity 검색",
+  helpText = "기존 외부 identity 후보를 먼저 보여주며, 새 칩은 자동 병합하지 않고 별도 identity로 저장합니다.",
   members,
   entities,
   selected,
@@ -111,6 +113,8 @@ function SubjectPicker({
   allowGroup = true,
 }: {
   label: string;
+  placeholder?: string;
+  helpText?: string;
   members: Member[];
   entities: OtwPlayAdminEntityDto[];
   selected: SelectedSubject[];
@@ -220,7 +224,7 @@ function SubjectPicker({
               selectSuggestion(activeIndex);
             }
           }}
-          placeholder="멤버 또는 기존 외부 identity 검색"
+          placeholder={placeholder}
           className="pl-9"
           aria-label={`${label} 검색`}
           role="combobox"
@@ -285,9 +289,7 @@ function SubjectPicker({
           </div>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        기존 외부 identity 후보를 먼저 보여주며, 새 칩은 자동 병합하지 않고 별도 identity로 저장합니다.
-      </p>
+      <p className="text-xs text-muted-foreground">{helpText}</p>
     </div>
   );
 }
@@ -322,6 +324,8 @@ export function CatalogEntryDialog({
   const [channelRole, setChannelRole] = useState<"member_music" | "member_main" | "project_official" | "otw_official" | "unit_official">("project_official");
   const [songId, setSongId] = useState("");
   const [videoKind, setVideoKind] = useState<VideoKind | null>(null);
+  const [coverOriginalTitle, setCoverOriginalTitle] = useState("");
+  const [coverOriginalArtists, setCoverOriginalArtists] = useState<SelectedSubject[]>([]);
   const [participants, setParticipants] = useState<SelectedSubject[]>([]);
   const [channelOwners, setChannelOwners] = useState<SelectedSubject[]>([]);
   const [releaseType, setReleaseType] = useState<"official_mv" | "official_video">("official_video");
@@ -341,6 +345,8 @@ export function CatalogEntryDialog({
     setChannelChoice("pending");
     setChannelRole("project_official");
     setVideoKind(null);
+    setCoverOriginalTitle("");
+    setCoverOriginalArtists([]);
     setParticipants([]);
     setChannelOwners([]);
     setReleaseType("official_video");
@@ -363,6 +369,8 @@ export function CatalogEntryDialog({
       });
       setPreflight(result);
       setVideoKind(null);
+      setCoverOriginalTitle("");
+      setCoverOriginalArtists([]);
       setChannelChoice(result.channel.state === "approved" || result.channel.state === "recognized_member" ? "approved" : "pending");
       if (result.channel.channelRole === "member_music" || result.channel.channelRole === "member_main" || result.channel.channelRole === "project_official" || result.channel.channelRole === "otw_official" || result.channel.channelRole === "unit_official") {
         setChannelRole(result.channel.channelRole);
@@ -386,7 +394,10 @@ export function CatalogEntryDialog({
   );
   const stepReady = [
     Boolean(preflight && !preflight.duplicate && preflight.channel.state !== "revoked"),
-    videoKind === "original" || videoKind === "cover",
+    videoKind === "original" ||
+      (videoKind === "cover" &&
+        (Boolean(songId) ||
+          (Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0))),
     participants.length > 0 &&
       (!needsChannelOwnerChoice || channelOwners.length > 0),
     true,
@@ -412,7 +423,21 @@ export function CatalogEntryDialog({
       endSeconds: null,
       song: songId
         ? { kind: "existing", songId }
-        : { kind: "from_video" },
+        : videoKind === "original"
+          ? { kind: "from_video" }
+          : {
+              kind: "create",
+              title: coverOriginalTitle.trim(),
+              isOtwOriginal: false,
+              originalReleaseDate: null,
+              originalReleasePrecision: "unknown",
+              aliases: [],
+              originalArtists: coverOriginalArtists.map((artist, index) => ({
+                subject: artist.subject,
+                creditOrder: index,
+                isPrimary: index === 0,
+              })),
+            },
       participants: participants.map((participant, index) => ({
         subject: participant.subject,
         participantRole: "vocal",
@@ -496,7 +521,7 @@ export function CatalogEntryDialog({
                 <div className="grid gap-3 sm:grid-cols-3" role="group" aria-label="영상 유형">
                   {([
                     ["original", "오리지널곡", "선택한 참여자를 원곡 가수로 사용합니다."],
-                    ["cover", "공식 커버곡", "원곡 가수는 추후 곡 정보에서 보완할 수 있습니다."],
+                    ["cover", "공식 커버곡", "원곡 제목과 원곡 가수를 구분해 입력합니다."],
                     ["karaoke", "노래방송", "여러 곡과 구간 연결이 필요해 후속 단계에서 지원합니다."],
                   ] as const).map(([kind, label, description]) => (
                     <button
@@ -524,6 +549,35 @@ export function CatalogEntryDialog({
                       {catalog.songs.find((song) => song.id === songId)?.title ?? songId}
                     </strong>
                     을 자동으로 재사용합니다.
+                  </div>
+                )}
+                {videoKind === "cover" && !songId && (
+                  <div className="space-y-4 rounded-xl border bg-card p-4">
+                    <div>
+                      <h4 className="font-semibold">원곡 정보</h4>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        YouTube 영상 제목이 아니라 실제 원곡의 제목과 가수명을 입력하세요.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="cover-original-title">원곡 제목</Label>
+                      <Input
+                        id="cover-original-title"
+                        value={coverOriginalTitle}
+                        onChange={(event) => setCoverOriginalTitle(event.target.value)}
+                        placeholder="예: 원곡의 정식 제목"
+                        maxLength={300}
+                      />
+                    </div>
+                    <SubjectPicker
+                      label="원곡 가수"
+                      placeholder="가수명을 검색하거나 새 외부 가수로 추가"
+                      helpText="첫 번째 가수를 대표 원곡 가수로 저장합니다. 기존 후보는 직접 선택할 때만 재사용합니다."
+                      members={members}
+                      entities={catalog.entities}
+                      selected={coverOriginalArtists}
+                      onChange={setCoverOriginalArtists}
+                    />
                   </div>
                 )}
                 {videoKind === "karaoke" && (
@@ -578,13 +632,19 @@ export function CatalogEntryDialog({
                 <div className="space-y-4 rounded-xl border p-4">
                   <div>
                     <div className="text-sm font-semibold">곡</div>
-                    <div>{songId ? catalog.songs.find((song) => song.id === songId)?.title : preflight.video.title}</div>
+                    <div>
+                      {songId
+                        ? catalog.songs.find((song) => song.id === songId)?.title
+                        : videoKind === "cover"
+                          ? coverOriginalTitle
+                          : preflight.video.title}
+                    </div>
                     <div className="text-sm text-muted-foreground">
                       {songId
                         ? "기존 곡을 자동 재사용"
                         : videoKind === "original"
                           ? "영상 제목으로 자동 생성 · 참여자를 원곡 가수로 사용"
-                          : "영상 제목으로 자동 생성 · 원곡 가수는 추후 보완"}
+                          : `원곡 가수: ${coverOriginalArtists.map((artist) => artist.label).join(", ")}`}
                     </div>
                   </div>
                   <div><div className="text-sm font-semibold">참여자</div><div className="flex flex-wrap gap-1">{participants.map((participant) => <Badge key={participant.key} variant="secondary">{participant.label}</Badge>)}</div></div>

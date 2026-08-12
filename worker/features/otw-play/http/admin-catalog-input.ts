@@ -698,6 +698,7 @@ export const parseCreateCatalogEntry = (
     (channelOwners !== null && hasDuplicateCatalogSubjects(channelOwners)) ||
     !channel ||
     !relationType ||
+    (song?.kind === "from_video" && relationType !== "original") ||
     !releaseType ||
     !participationType ||
     !publicationTarget ||

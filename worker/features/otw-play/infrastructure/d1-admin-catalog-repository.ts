@@ -1516,6 +1516,12 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         throw new AdminCatalogRepositoryError("not_found", "Song not found");
       songId = song.id;
     } else {
+      if (input.song.kind === "from_video" && input.relationType !== "original") {
+        throw new AdminCatalogRepositoryError(
+          "validation_failed",
+          "Cover entries require explicit original song metadata",
+        );
+      }
       songId = ids.songId;
       const songInput =
         input.song.kind === "from_video"

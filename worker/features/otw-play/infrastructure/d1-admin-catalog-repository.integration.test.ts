@@ -217,7 +217,7 @@ describe("D1AdminCatalogRepository", () => {
     });
   });
 
-  it("creates a cover from verified video metadata without inventing an original-artist identity", async () => {
+  it("creates a cover from separate original title and artist input", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const memberChannelId = `UC${"C".repeat(22)}`;
     await db
@@ -244,7 +244,26 @@ describe("D1AdminCatalogRepository", () => {
         expectedCatalogRevision: preflight.catalogRevision,
         youtubeUrl: `https://youtu.be/${video.videoId}`,
         startSeconds: 0,
-        song: { kind: "from_video" },
+        song: {
+          kind: "create",
+          title: "정식 원곡 제목",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [],
+          originalArtists: [
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "cover-original-artist",
+                displayName: "정식 원곡 가수",
+                entityKind: "person",
+              },
+              creditOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
         participants: [
           {
             subject: { kind: "member", memberUid: 901 },
@@ -266,8 +285,14 @@ describe("D1AdminCatalogRepository", () => {
       actor,
       now: NOW,
       ids: {
-        entityIds: { "member:901": "entity-cover-member" },
-        entityEventIds: { "member:901": "event-cover-member" },
+        entityIds: {
+          "member:901": "entity-cover-member",
+          "external:cover-original-artist": "entity-cover-original-artist",
+        },
+        entityEventIds: {
+          "member:901": "event-cover-member",
+          "external:cover-original-artist": "event-cover-original-artist",
+        },
         channelId: "channel-cover-member",
         channelEventId: "event-channel-cover-member",
         songId: "song-cover-from-video",
@@ -279,13 +304,25 @@ describe("D1AdminCatalogRepository", () => {
     });
 
     expect(result.data.song).toMatchObject({
-      title: video.title,
+      title: "정식 원곡 제목",
       isOtwOriginal: false,
-      originalArtists: [],
+      originalArtists: [
+        expect.objectContaining({
+          entityId: "entity-cover-original-artist",
+          displayName: "정식 원곡 가수",
+          isPrimary: true,
+        }),
+      ],
     });
-    expect(result.data.createdEntities).toEqual([
-      expect.objectContaining({ memberUid: 901 }),
-    ]);
+    expect(result.data.createdEntities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ memberUid: 901 }),
+        expect.objectContaining({
+          id: "entity-cover-original-artist",
+          displayName: "정식 원곡 가수",
+        }),
+      ]),
+    );
     expect(result.data.performance).toMatchObject({
       relationType: "cover",
       publicationStatus: "draft",
