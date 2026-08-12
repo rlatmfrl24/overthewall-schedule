@@ -624,9 +624,9 @@ metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed �
 capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
 catalog batch를 되돌리지 않는다.
 
-`DELETE /api/play/admin/performances/:id`는 `draft`만 삭제하고,
-`DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두 `draft`일 때만
-곡과 draft performance를 함께 삭제한다. published·withdrawn 이력, merge 대상과 승인
+`DELETE /api/play/admin/performances/:id`는 `draft|withdrawn`을 삭제하고,
+`DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두
+`draft|withdrawn`일 때 곡과 performance를 함께 삭제한다. 현재 published, merge 대상과 승인
 proposal이 참조하는 performance는 삭제를 거부한다. 소유 child와 orphan source 정리,
 capability event, search/gram/sort projection 및 두 revision 증가는 하나의 D1 batch다.
 
@@ -663,9 +663,9 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
 - YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
 - 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
-- draft performance 개별 삭제와 draft-only song 삭제의 원자성, orphan source 정리,
+- draft·withdrawn performance 개별 삭제와 published가 없는 song 삭제의 원자성, orphan source 정리,
   event·projection·revision 동시 반영
-- published·withdrawn performance 및 해당 이력이 있는 song hard delete 거부
+- 현재 published performance 및 해당 곡 hard delete 거부
 
 ### 종료 조건
 
@@ -868,7 +868,7 @@ fixture나 lower-level API만으로 이 검증을 대체하지 않는다.
 | ------------------------ | ---------------------------------- | -------------------------------- |
 | UI 문제                  | `navigation_visible=0`             | 카탈로그 보존                    |
 | 공개 API 문제            | `public_read_enabled=0`            | 관리자·제안 데이터 보존          |
-| 잘못된 공개 데이터       | withdraw/unpublish + revision 증가 | hard delete 금지                 |
+| 잘못된 운영 공개 데이터  | withdraw/unpublish + revision 증가 | 기본 보존, 테스트·오입력의 명시적 관리자 삭제만 예외 |
 | Worker 회귀              | 이전 검증 Worker version 재배포    | additive table 유지              |
 | migration 후 코드 불일치 | feature flag off, 호환 코드 복구   | down migration 자동 실행 금지    |
 | 심각한 DB 손상           | Time Travel 복구 검토              | DB 전체 덮어쓰기이므로 별도 승인 |

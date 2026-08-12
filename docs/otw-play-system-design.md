@@ -757,10 +757,10 @@ CHECK 대상이 아니다. source relation은 열거값만 제한하고 방향�
 - source relation의 양쪽 source FK: `RESTRICT`
 - proposal의 suggested song: `SET NULL`
 - proposal의 approved performance: `RESTRICT`
-- 관리자는 `draft` performance만 개별 hard delete할 수 있다.
-- song hard delete는 보관되지 않은 곡에 연결된 performance가 없거나 모두 `draft`이고, merge 대상이나 승인 proposal의 performance 참조가 없을 때만 허용한다. 이 경우 draft performance와 소유 child를 같은 batch에서 함께 삭제한다.
-- `published` 또는 `withdrawn` performance가 연결된 song/performance와 rejected proposal은 운영 command에서 hard delete하지 않는다.
-- 잘못된 공개 데이터는 `withdrawn`, `archived`, merge 관계로 보존한다.
+- 관리자는 테스트·오입력 정리를 위해 `draft` 또는 `withdrawn` performance를 개별 hard delete할 수 있다.
+- song hard delete는 보관되지 않은 곡에 연결된 performance가 없거나 모두 `draft|withdrawn`이고, merge 대상이나 승인 proposal의 performance 참조가 없을 때만 허용한다. 이 경우 performance와 소유 child를 같은 batch에서 함께 삭제한다.
+- 현재 `published` performance가 연결된 song/performance와 rejected proposal은 운영 command에서 hard delete하지 않는다.
+- 일반 운영의 잘못된 공개 데이터는 우선 `withdrawn`, `archived`, merge 관계로 보존한다. 관리자가 테스트·오입력 정리를 위해 명시적 삭제를 선택한 withdrawn 항목만 irreversible confirm 뒤 예외적으로 제거한다.
 - draft 삭제도 capability event를 남기고 search/read-model projection과 catalog/read-model revision을 같은 D1 batch에서 갱신한다. source는 다른 performance가 참조하지 않을 때만 함께 제거한다.
 
 마이그레이션에서는 foreign key와 CHECK를 명시하고
@@ -957,9 +957,9 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | POST     | `/api/play/admin/catalog-entries`           | 곡·가창·identity·채널을 한 atomic command로 등록 |
 | POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
 | POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
-| DELETE   | `/api/play/admin/songs/:id`                 | 미공개 draft 곡과 draft 가창 정리      |
+| DELETE   | `/api/play/admin/songs/:id`                 | published가 없는 테스트·오입력 곡 정리 |
 | POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·수정                   |
-| DELETE   | `/api/play/admin/performances/:id`           | 미공개 draft 가창 정리                 |
+| DELETE   | `/api/play/admin/performances/:id`           | draft·withdrawn 가창 정리              |
 | POST     | `/api/play/admin/performances/:id/publish`  | 검수 후 게시                           |
 | POST     | `/api/play/admin/performances/:id/withdraw` | 공개 철회                              |
 | GET      | `/api/play/admin/submissions`               | 검토 대기 목록                         |
