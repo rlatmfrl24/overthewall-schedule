@@ -62,7 +62,7 @@ import {
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
 } from "../../model/settings-config";
-import { roundTimeToNearestScheduleHour } from "@/features/schedules";
+import { roundTimeToNearestScheduleHalfHour } from "@/features/schedules";
 import { cn } from "@/shared/lib/utils";
 import {
   AdminSectionHeader,
@@ -224,7 +224,7 @@ const getPendingApprovalDefaults = (
         : targetScheduleId || isV2
           ? "update"
           : "create",
-    timeMode: isV2 ? "exact" : "nearest_hour",
+    timeMode: "nearest_half_hour",
     targetScheduleId,
   };
 };
@@ -251,7 +251,7 @@ const getEffectivePendingStartTime = (
   if (options.applyMode === "title") return null;
   return options.timeMode === "exact"
     ? pending.start_time
-    : roundTimeToNearestScheduleHour(pending.start_time);
+    : roundTimeToNearestScheduleHalfHour(pending.start_time);
 };
 
 const getPendingScheduleSummaryById = (
@@ -1841,22 +1841,14 @@ export function AutoUpdateSettingsManager() {
                                 <div className="flex items-start gap-2 rounded-md bg-muted/40 p-3">
                                   <Checkbox
                                     id={`round-time-${pending.id}`}
-                                    checked={options.timeMode === "nearest_hour"}
-                                    disabled={isProcessed || isV2}
-                                    onCheckedChange={(checked) =>
-                                      updatePendingApprovalOptions(pending, {
-                                        timeMode:
-                                          checked === true ? "nearest_hour" : "exact",
-                                      })
-                                    }
+                                    checked
+                                    disabled
                                   />
                                   <Label
                                     htmlFor={`round-time-${pending.id}`}
                                     className="text-xs leading-snug text-muted-foreground"
                                   >
-                                    {isV2
-                                      ? "세션 시작 시각 그대로 적용"
-                                      : "가장 가까운 정각 적용"}
+                                    가장 가까운 30분 단위로 적용
                                     <span className="ml-1 font-medium text-foreground tabular-nums">
                                       {effectiveStartTime || "--:--"}
                                     </span>

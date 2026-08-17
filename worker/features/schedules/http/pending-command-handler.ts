@@ -87,7 +87,7 @@ const parseApprovalOptions = (
       : "update",
     timeMode: isPendingTimeMode(value.timeMode)
       ? value.timeMode
-      : "nearest_hour",
+      : "nearest_half_hour",
     targetScheduleId,
   };
 };

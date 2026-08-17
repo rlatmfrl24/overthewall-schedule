@@ -429,7 +429,7 @@ export const matchBroadcastSessions = (
     }
 
     const eligibleSchedules = daySchedules.filter((schedule) =>
-      ["방송", "미정", "게릴라"].includes(schedule.status),
+      ["방송", "미정"].includes(schedule.status),
     );
     const completeSchedules = eligibleSchedules.filter(
       (schedule) => getMissingScheduleFields(schedule).length === 0,

@@ -145,7 +145,9 @@ const getScheduleKey = (memberUid: number, date: string) =>
   `${memberUid}:${date}`;
 
 const isEmptyScheduleTarget = (schedule: ScheduleSummary) =>
-  !schedule.start_time?.trim() && !schedule.title?.trim();
+  schedule.status !== "게릴라" &&
+  !schedule.start_time?.trim() &&
+  !schedule.title?.trim();
 
 const parseStringArray = (value: string | null) => {
   if (!value) return [];

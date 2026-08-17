@@ -46,7 +46,39 @@ export const isPendingTargetMode = (
 export const isPendingTimeMode = (
   value: unknown,
 ): value is PendingTimeMode =>
-  value === "nearest_hour" || value === "exact";
+  value === "nearest_half_hour" ||
+  value === "nearest_hour" ||
+  value === "exact";
+
+export const roundTimeToNearestScheduleHalfHour = (
+  time: string | null,
+) => {
+  if (!time) return null;
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!match) return time;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return time;
+  }
+
+  const roundedMinutes = Math.min(
+    Math.round((hour * 60 + minute) / 30) * 30,
+    23 * 60 + 30,
+  );
+  return `${Math.floor(roundedMinutes / 60)
+    .toString()
+    .padStart(2, "0")}:${(roundedMinutes % 60)
+    .toString()
+    .padStart(2, "0")}`;
+};
 
 export const isPendingRejectionReasonCode = (
   value: unknown,
@@ -86,7 +118,9 @@ export const getPendingApprovalValues = (
     options.applyMode === "all" || options.applyMode === "time"
       ? options.timeMode === "exact"
         ? item.start_time
-        : roundTimeToNearestScheduleHour(item.start_time)
+        : options.timeMode === "nearest_half_hour"
+          ? roundTimeToNearestScheduleHalfHour(item.start_time)
+          : roundTimeToNearestScheduleHour(item.start_time)
       : null,
   title:
     options.applyMode === "all" || options.applyMode === "title"

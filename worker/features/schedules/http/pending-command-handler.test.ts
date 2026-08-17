@@ -209,6 +209,29 @@ describe("pending schedule command boundary", () => {
     expect(repositoryMock.approve).not.toHaveBeenCalled();
   });
 
+  it("승인 옵션의 기본 시간 정책을 가장 가까운 30분 단위로 정규화한다", async () => {
+    const response = await handlePendingScheduleCommand(
+      makeRequest("/api/settings/pending/actions", {
+        action: "approve",
+        ids: [12],
+        options: { applyMode: "time", targetMode: "update" },
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(repositoryMock.approve).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 12 }),
+      {
+        applyMode: "time",
+        targetMode: "update",
+        timeMode: "nearest_half_hour",
+        targetScheduleId: null,
+      },
+      expect.objectContaining({ actorId: "admin" }),
+    );
+  });
+
   it("preserves every single-command compatibility response shape", async () => {
     const approve = await handlePendingScheduleCommand(
       makeRequest("/api/settings/pending/12/approve", {

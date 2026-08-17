@@ -226,7 +226,7 @@ describe("AutoUpdateSettingsManager", () => {
     });
 
     await waitFor(() => expect(screen.getByText("중복 가능")).toBeTruthy());
-    expect(screen.getByText("변경 2개")).toBeTruthy();
+    expect(screen.getByText("변경 3개")).toBeTruthy();
     expect(screen.getByText("검토 필요")).toBeTruthy();
     expect(screen.getByText("중복 후보")).toBeTruthy();
 
@@ -243,6 +243,51 @@ describe("AutoUpdateSettingsManager", () => {
 
     await waitFor(() =>
       expect(approveSelectedPendingSchedulesMock).toHaveBeenCalledWith([101]),
+    );
+  });
+
+  it("V2 자동 업데이트 승인 시 가장 가까운 30분 단위 시간을 안내하고 전송한다", async () => {
+    const pending = makePendingSchedule({
+      candidate_kind: "missing_schedule",
+      match_reason: "missing_schedule",
+      match_confidence: "high",
+      missing_fields: ["time", "title"],
+      same_day_schedule_count: 1,
+      same_day_schedules: [
+        {
+          id: 203,
+          start_time: null,
+          title: "게릴라",
+          status: "게릴라",
+        },
+      ],
+    });
+    fetchPendingSchedulesMock
+      .mockResolvedValueOnce([pending])
+      .mockResolvedValueOnce([]);
+    approvePendingScheduleMock.mockResolvedValue({
+      success: true,
+      action: "create",
+      scheduleId: 301,
+    });
+
+    render(createElement(AutoUpdateSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(
+      await screen.findByText("가장 가까운 30분 단위로 적용"),
+    ).toBeTruthy();
+    expect(screen.getAllByText("12:30").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "승인" }));
+
+    await waitFor(() =>
+      expect(approvePendingScheduleMock).toHaveBeenCalledWith(101, {
+        applyMode: "all",
+        targetMode: "create",
+        timeMode: "nearest_half_hour",
+        targetScheduleId: null,
+      }),
     );
   });
 
