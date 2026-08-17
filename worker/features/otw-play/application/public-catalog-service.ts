@@ -191,6 +191,7 @@ export class PublicCatalogService {
       memberMode: query.memberMode,
       groupKey: query.groupKey,
       group: query.group,
+      participantSlug: query.participantSlug,
       relation: query.relation,
       participation: query.participation,
       originalArtistSlug: query.originalArtistSlug,

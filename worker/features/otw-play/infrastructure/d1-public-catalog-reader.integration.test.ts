@@ -37,6 +37,7 @@ const toReaderQuery = (query = ""): PublicCatalogReaderQuery => {
     memberMode: parsed.memberMode,
     groupKey: parsed.groupKey,
     group: parsed.group,
+    participantSlug: parsed.participantSlug,
     relation: parsed.relation,
     participation: parsed.participation,
     originalArtistSlug: parsed.originalArtistSlug,
@@ -674,6 +675,13 @@ describe("D1PublicCatalogReader", () => {
       toReaderQuery("member=1&relation=original"),
     );
     expect(crossed.items).toEqual([]);
+
+    const exactParticipant = await reader.readCatalog(
+      toReaderQuery("member=1&participant=current-c"),
+    );
+    expect(exactParticipant.items.map(({ id }) => id)).toEqual([
+      "song-together",
+    ]);
 
     const groupKey = encodeURIComponent(
       encodePublicCatalogGroupKey({ entityId: "entity-group", unitName: null }),

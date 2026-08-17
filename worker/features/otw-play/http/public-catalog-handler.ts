@@ -32,6 +32,7 @@ import type {
   PublicCatalogSource,
 } from "../application/ports/public-catalog-reader";
 import { PublicCatalogCursorError } from "../domain/public-catalog-cursor";
+import { encodePublicCatalogGroupKey } from "../domain/public-group-key";
 import {
   canonicalizePublicCatalogQuery,
   isValidPublicCatalogSlug,
@@ -105,10 +106,17 @@ const toParticipant = (
       unitName: participant.member.unitName,
     };
   }
-  return {
-    ...base,
-    kind: participant.kind,
-  };
+  if (participant.kind === "group") {
+    return {
+      ...base,
+      kind: "group",
+      groupKey: encodePublicCatalogGroupKey({
+        entityId: participant.id,
+        unitName: null,
+      }),
+    };
+  }
+  return { ...base, kind: "external" };
 };
 
 const toSource = (

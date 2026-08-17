@@ -211,6 +211,7 @@ export interface OtwPlayPublicCatalogQuery {
   member?: number[];
   memberMode?: OtwPlayMemberMode;
   group?: string;
+  participant?: string;
   relation?: OtwPlayRelationType;
   participation?: OtwPlayParticipationType;
   originalArtist?: string;
@@ -265,6 +266,7 @@ export interface OtwPlayPublicExternalParticipantDto
 export interface OtwPlayPublicGroupParticipantDto
   extends OtwPlayPublicParticipantBaseDto {
   kind: "group";
+  groupKey: string;
 }
 
 export type OtwPlayPublicParticipantDto =

@@ -63,6 +63,7 @@ export function serializeOtwPlayCatalogQuery(
     params.set("memberMode", query.memberMode);
   }
   appendOptional(params, "group", query.group);
+  appendOptional(params, "participant", query.participant);
   appendOptional(params, "relation", query.relation);
   appendOptional(params, "participation", query.participation);
   appendOptional(params, "originalArtist", query.originalArtist);

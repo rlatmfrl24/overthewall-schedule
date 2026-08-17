@@ -343,6 +343,18 @@ const buildPerformanceFilters = (
     )`);
     binds.push(query.originalArtistSlug);
   }
+  if (query.participantSlug !== null) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM music_performance_participants AS exact_participant
+      JOIN music_entities AS exact_participant_entity
+        ON exact_participant_entity.id = exact_participant.entity_id
+      WHERE exact_participant.performance_id = performance.id
+        AND exact_participant_entity.slug = ?
+        AND exact_participant_entity.archived_at IS NULL
+    )`);
+    binds.push(query.participantSlug);
+  }
   if (query.memberUids.length > 0) {
     const memberPlaceholders = placeholders(query.memberUids.length);
     if (query.memberMode === "all") {

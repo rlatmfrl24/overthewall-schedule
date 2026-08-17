@@ -347,4 +347,60 @@ describe("OTW Play public catalog HTTP handler", () => {
       error: { code: "PLAY_INTERNAL_ERROR" },
     });
   });
+
+  it("projects an opaque server-issued group key for group participants", async () => {
+    const reader = makeReader();
+    reader.readCatalog = async () => ({
+      items: [
+        {
+          id: "song-1",
+          slug: "song-1",
+          title: "Group Song",
+          normalizedTitle: "group song",
+          isOtwOriginal: true,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          originalArtists: [],
+          publishedPerformanceCount: 1,
+          representativePerformance: {
+            id: "performance-1",
+            relation: "original",
+            releaseType: "official_video",
+            participation: "group",
+            releasedAt: null,
+            participants: [
+              {
+                id: "entity-group",
+                slug: "otw-unit",
+                displayName: "OTW Unit",
+                entityKind: "group",
+                creditName: "OTW Unit",
+                participantRole: "vocal",
+                creditOrder: 0,
+                kind: "group",
+                member: null,
+              },
+            ],
+            sources: [],
+            primarySourceId: null,
+            playbackSourceId: null,
+            playable: false,
+            fallbackReason: "missing_primary",
+          },
+        },
+      ],
+      nextPosition: null,
+    });
+    const { handler } = makeHandler(reader);
+
+    const response = await handler(request("/api/play/catalog"), env);
+    const body = await response.json<{
+      data: { items: Array<{ representativePerformance: { participants: Array<{ groupKey?: string }> } }> };
+    }>();
+
+    expect(response.status).toBe(200);
+    expect(
+      body.data.items[0]?.representativePerformance.participants[0]?.groupKey,
+    ).toMatch(/^g1_/);
+  });
 });

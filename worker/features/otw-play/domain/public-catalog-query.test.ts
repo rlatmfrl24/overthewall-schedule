@@ -82,6 +82,17 @@ describe("OTW Play public catalog query", () => {
     );
   });
 
+  it("canonicalizes a single external participant slug", () => {
+    const query = parse(
+      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&relation=cover",
+    );
+
+    expect(query.participantSlug).toBe("외부-参加者");
+    expect(canonicalizePublicCatalogQuery(query)).toBe(
+      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&relation=cover",
+    );
+  });
+
   it.each([
     ["unknown=1", "unknown_parameter", "unknown"],
     ["sort=recent&sort=title", "duplicate_parameter", "sort"],
@@ -92,6 +103,12 @@ describe("OTW Play public catalog query", () => {
     ["group=plain", "invalid_group", "group"],
     ["relation=broadcast", "invalid_relation", "relation"],
     ["participation=trio", "invalid_participation", "participation"],
+    ["participant=bad%2Fslug", "invalid_participant", "participant"],
+    [
+      "participant=one&participant=two",
+      "duplicate_parameter",
+      "participant",
+    ],
     ["originalArtist=bad%00slug", "invalid_original_artist", "originalArtist"],
     ["publishedFrom=2026-02-30", "invalid_date", "publishedFrom"],
     [
