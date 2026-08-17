@@ -6,7 +6,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { getLocalDevServerConfig } from "./scripts/local-dev-config.mjs";
 
-const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
+const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
 const spaDevRewrite = () => ({
   name: "otw-spa-dev-rewrite",

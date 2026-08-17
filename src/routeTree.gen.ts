@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as VodsRouteImport } from './routes/vods'
 import { Route as SnapshotRouteImport } from './routes/snapshot'
+import { Route as PlayRouteImport } from './routes/play'
 import { Route as NoticeRouteImport } from './routes/notice'
 import { Route as MultiviewRouteImport } from './routes/multiview'
 import { Route as FeedRouteImport } from './routes/feed'
@@ -19,8 +20,10 @@ import { Route as CafeRouteImport } from './routes/cafe'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
+import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as PlaySongsRouteImport } from './routes/play/songs'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
@@ -31,6 +34,8 @@ import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-post
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
+import { Route as PlaySongsIndexRouteImport } from './routes/play/songs/index'
+import { Route as PlaySongsSongSlugRouteImport } from './routes/play/songs/$songSlug'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
@@ -45,6 +50,11 @@ const VodsRoute = VodsRouteImport.update({
 const SnapshotRoute = SnapshotRouteImport.update({
   id: '/snapshot',
   path: '/snapshot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlayRoute = PlayRouteImport.update({
+  id: '/play',
+  path: '/play',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NoticeRoute = NoticeRouteImport.update({
@@ -82,6 +92,11 @@ const VodsIndexRoute = VodsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => VodsRoute,
 } as any)
+const PlayIndexRoute = PlayIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PlayRoute,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -91,6 +106,11 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
   id: '/profile/$code',
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PlaySongsRoute = PlaySongsRouteImport.update({
+  id: '/songs',
+  path: '/songs',
+  getParentRoute: () => PlayRoute,
 } as any)
 const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
   id: '/youtube-cache',
@@ -142,6 +162,16 @@ const AdminDdaysRoute = AdminDdaysRouteImport.update({
   path: '/ddays',
   getParentRoute: () => AdminRoute,
 } as any)
+const PlaySongsIndexRoute = PlaySongsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PlaySongsRoute,
+} as any)
+const PlaySongsSongSlugRoute = PlaySongsSongSlugRouteImport.update({
+  id: '/$songSlug',
+  path: '/$songSlug',
+  getParentRoute: () => PlaySongsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -150,6 +180,7 @@ export interface FileRoutesByFullPath {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
+  '/play': typeof PlayRouteWithChildren
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
@@ -163,9 +194,13 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/songs': typeof PlaySongsRouteWithChildren
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
+  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
+  '/play/songs/': typeof PlaySongsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -187,7 +222,10 @@ export interface FileRoutesByTo {
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
+  '/play': typeof PlayIndexRoute
   '/vods': typeof VodsIndexRoute
+  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
+  '/play/songs': typeof PlaySongsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -197,6 +235,7 @@ export interface FileRoutesById {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
+  '/play': typeof PlayRouteWithChildren
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
@@ -210,9 +249,13 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/songs': typeof PlaySongsRouteWithChildren
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
+  '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
+  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
+  '/play/songs/': typeof PlaySongsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -223,6 +266,7 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
+    | '/play'
     | '/snapshot'
     | '/vods'
     | '/weekly'
@@ -236,9 +280,13 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/songs'
     | '/profile/$code'
     | '/admin/'
+    | '/play/'
     | '/vods/'
+    | '/play/songs/$songSlug'
+    | '/play/songs/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -260,7 +308,10 @@ export interface FileRouteTypes {
     | '/admin/youtube-cache'
     | '/profile/$code'
     | '/admin'
+    | '/play'
     | '/vods'
+    | '/play/songs/$songSlug'
+    | '/play/songs'
   id:
     | '__root__'
     | '/'
@@ -269,6 +320,7 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
+    | '/play'
     | '/snapshot'
     | '/vods'
     | '/weekly'
@@ -282,9 +334,13 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/songs'
     | '/profile/$code'
     | '/admin/'
+    | '/play/'
     | '/vods/'
+    | '/play/songs/$songSlug'
+    | '/play/songs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -294,6 +350,7 @@ export interface RootRouteChildren {
   FeedRoute: typeof FeedRoute
   MultiviewRoute: typeof MultiviewRoute
   NoticeRoute: typeof NoticeRoute
+  PlayRoute: typeof PlayRouteWithChildren
   SnapshotRoute: typeof SnapshotRoute
   VodsRoute: typeof VodsRouteWithChildren
   WeeklyRoute: typeof WeeklyRoute
@@ -321,6 +378,13 @@ declare module '@tanstack/react-router' {
       path: '/snapshot'
       fullPath: '/snapshot'
       preLoaderRoute: typeof SnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/play': {
+      id: '/play'
+      path: '/play'
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notice': {
@@ -372,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VodsIndexRouteImport
       parentRoute: typeof VodsRoute
     }
+    '/play/': {
+      id: '/play/'
+      path: '/'
+      fullPath: '/play/'
+      preLoaderRoute: typeof PlayIndexRouteImport
+      parentRoute: typeof PlayRoute
+    }
     '/admin/': {
       id: '/admin/'
       path: '/'
@@ -385,6 +456,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile/$code'
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/play/songs': {
+      id: '/play/songs'
+      path: '/songs'
+      fullPath: '/play/songs'
+      preLoaderRoute: typeof PlaySongsRouteImport
+      parentRoute: typeof PlayRoute
     }
     '/admin/youtube-cache': {
       id: '/admin/youtube-cache'
@@ -456,6 +534,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDdaysRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/play/songs/': {
+      id: '/play/songs/'
+      path: '/'
+      fullPath: '/play/songs/'
+      preLoaderRoute: typeof PlaySongsIndexRouteImport
+      parentRoute: typeof PlaySongsRoute
+    }
+    '/play/songs/$songSlug': {
+      id: '/play/songs/$songSlug'
+      path: '/$songSlug'
+      fullPath: '/play/songs/$songSlug'
+      preLoaderRoute: typeof PlaySongsSongSlugRouteImport
+      parentRoute: typeof PlaySongsRoute
+    }
   }
 }
 
@@ -489,6 +581,32 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
+interface PlaySongsRouteChildren {
+  PlaySongsSongSlugRoute: typeof PlaySongsSongSlugRoute
+  PlaySongsIndexRoute: typeof PlaySongsIndexRoute
+}
+
+const PlaySongsRouteChildren: PlaySongsRouteChildren = {
+  PlaySongsSongSlugRoute: PlaySongsSongSlugRoute,
+  PlaySongsIndexRoute: PlaySongsIndexRoute,
+}
+
+const PlaySongsRouteWithChildren = PlaySongsRoute._addFileChildren(
+  PlaySongsRouteChildren,
+)
+
+interface PlayRouteChildren {
+  PlaySongsRoute: typeof PlaySongsRouteWithChildren
+  PlayIndexRoute: typeof PlayIndexRoute
+}
+
+const PlayRouteChildren: PlayRouteChildren = {
+  PlaySongsRoute: PlaySongsRouteWithChildren,
+  PlayIndexRoute: PlayIndexRoute,
+}
+
+const PlayRouteWithChildren = PlayRoute._addFileChildren(PlayRouteChildren)
+
 interface VodsRouteChildren {
   VodsIndexRoute: typeof VodsIndexRoute
 }
@@ -506,6 +624,7 @@ const rootRouteChildren: RootRouteChildren = {
   FeedRoute: FeedRoute,
   MultiviewRoute: MultiviewRoute,
   NoticeRoute: NoticeRoute,
+  PlayRoute: PlayRouteWithChildren,
   SnapshotRoute: SnapshotRoute,
   VodsRoute: VodsRouteWithChildren,
   WeeklyRoute: WeeklyRoute,
