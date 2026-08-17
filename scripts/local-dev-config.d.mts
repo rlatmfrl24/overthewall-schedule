@@ -15,3 +15,6 @@ export function getLocalDevServerConfig(
 export function getLocalDevOrigin(
   environment?: Record<string, string | undefined>,
 ): string;
+export function resolveLocalD1PersistState(
+  environment?: Record<string, string | undefined>,
+): true | { path: string };

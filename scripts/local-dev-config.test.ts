@@ -6,6 +6,7 @@ import {
   getLocalDevOrigin,
   getLocalDevServerConfig,
   parseLocalDevPort,
+  resolveLocalD1PersistState,
   resolveLocalDevPort,
 } from "./local-dev-config.mjs";
 
@@ -29,6 +30,15 @@ describe("local development server config", () => {
     expect(resolveLocalDevPort(environment)).toBe(5180);
     expect(getLocalDevServerConfig(environment).port).toBe(5180);
     expect(getLocalDevOrigin(environment)).toBe("http://127.0.0.1:5180");
+  });
+
+  it("uses an isolated D1 state only when explicitly configured", () => {
+    expect(resolveLocalD1PersistState({})).toBe(true);
+    expect(
+      resolveLocalD1PersistState({
+        OTW_D1_PERSIST_TO: " C:/tmp/otw-play-pr6 ",
+      }),
+    ).toEqual({ path: "C:/tmp/otw-play-pr6" });
   });
 
   it.each(["abc", "5173.5", "1023", "65536"])(

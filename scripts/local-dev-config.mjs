@@ -36,3 +36,8 @@ export const getLocalDevServerConfig = (environment = process.env) => ({
 
 export const getLocalDevOrigin = (environment = process.env) =>
   `http://${LOCAL_DEV_HOST}:${resolveLocalDevPort(environment)}`;
+
+export const resolveLocalD1PersistState = (environment = process.env) => {
+  const configuredPath = environment.OTW_D1_PERSIST_TO?.trim();
+  return configuredPath ? { path: configuredPath } : true;
+};

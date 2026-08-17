@@ -4,7 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { getLocalDevServerConfig } from "./scripts/local-dev-config.mjs";
+import {
+  getLocalDevServerConfig,
+  resolveLocalD1PersistState,
+} from "./scripts/local-dev-config.mjs";
 
 const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
@@ -38,6 +41,7 @@ export default defineConfig({
     react(),
     cloudflare({
       configPath: "./wrangler.jsonc",
+      persistState: resolveLocalD1PersistState(),
     }),
     tailwindcss(),
   ],
