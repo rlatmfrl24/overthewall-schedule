@@ -205,13 +205,21 @@ export function OtwPlayPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (index === queue.currentIndex) {
-        loadedKeyRef.current = null;
+        if (currentTrack && playerRef.current) {
+          playerRef.current.load({
+            videoId: currentTrack.source.externalId,
+            startSeconds: currentTrack.source.startSeconds,
+            ...(currentTrack.source.endSeconds === null
+              ? {}
+              : { endSeconds: currentTrack.source.endSeconds }),
+          });
+        }
       } else {
         dispatch({ type: "select", index });
       }
       setHasPlaybackIntent(true);
     },
-    [queue, tracks, unavailableItemIds],
+    [currentTrack, queue, tracks, unavailableItemIds],
   );
   selectPlayableRef.current = selectPlayable;
 

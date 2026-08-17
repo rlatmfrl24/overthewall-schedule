@@ -18,6 +18,11 @@ const mocks = vi.hoisted(() => ({
     stop: vi.fn(),
     destroy: vi.fn(),
   },
+  events: { current: null as null | {
+    onReady?: () => void;
+    onError?: (code: number) => void;
+    onAutoplayBlocked?: () => void;
+  } },
 }));
 
 vi.mock("./youtube-iframe-api", () => ({
@@ -65,6 +70,22 @@ const track = {
   },
 } satisfies OtwPlayTrack;
 
+const alternateSource = {
+  ...track.source,
+  sourceId: "source-2",
+  externalId: "AAAAAAAAAAA",
+  isPrimary: false,
+  priority: 1,
+};
+
+const detailTrack: OtwPlayTrack = {
+  ...track,
+  performance: {
+    ...track.performance,
+    sources: [track.source, alternateSource],
+  },
+};
+
 class VisibleIntersectionObserver {
   private readonly callback: IntersectionObserverCallback;
   constructor(callback: IntersectionObserverCallback) {
@@ -90,6 +111,7 @@ function Consumer() {
     <div>
       <div ref={player.setHostElement} data-testid="host" />
       <button type="button" onClick={() => player.play(track)}>play</button>
+      <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
       <span data-testid="status">{player.status}</span>
     </div>
   );
@@ -101,6 +123,7 @@ describe("OtwPlayPlayerProvider", () => {
     vi.clearAllMocks();
     vi.stubGlobal("IntersectionObserver", VisibleIntersectionObserver);
     mocks.createPlayer.mockImplementation(async (_element, events) => {
+      mocks.events.current = events;
       events.onReady?.();
       return mocks.controller;
     });
@@ -152,5 +175,28 @@ describe("OtwPlayPlayerProvider", () => {
     await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledWith("performance-1"));
     expect(mocks.createPlayer).not.toHaveBeenCalled();
     expect(mocks.controller.load).not.toHaveBeenCalled();
+  });
+
+  it("uses the next playable official source after a player error", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play detail" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({
+      videoId: "dQw4w9WgXcQ",
+      startSeconds: 0,
+    }));
+
+    mocks.events.current?.onError?.(100);
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({
+      videoId: "AAAAAAAAAAA",
+      startSeconds: 0,
+    }));
+  });
+
+  it("surfaces autoplay blocking until the user explicitly resumes", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledOnce());
+    mocks.events.current?.onAutoplayBlocked?.();
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("blocked"));
   });
 });
