@@ -1,9 +1,12 @@
 import type {
   OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogEntryPreflightDto,
+  OtwPlayAdminCatalogEntryResultDto,
   OtwPlayAdminApproveProposalRequest,
   OtwPlayAdminChannelDto,
   OtwPlayAdminCommandResponse,
   OtwPlayAdminCreateChannelRequest,
+  OtwPlayAdminCreateCatalogEntryRequest,
   OtwPlayAdminCreateEntityRequest,
   OtwPlayAdminCreatePerformanceRequest,
   OtwPlayAdminCreateSongRequest,
@@ -40,16 +43,23 @@ export interface VerifiedYouTubeVideo {
 export type AdminCatalogRepositoryErrorCode =
   | "not_found"
   | "stale_write"
+  | "duplicate_source"
   | "validation_failed"
   | "unavailable";
 
 export class AdminCatalogRepositoryError extends Error {
   readonly code: AdminCatalogRepositoryErrorCode;
+  readonly fields?: Record<string, string>;
 
-  constructor(code: AdminCatalogRepositoryErrorCode, message: string) {
+  constructor(
+    code: AdminCatalogRepositoryErrorCode,
+    message: string,
+    fields?: Record<string, string>,
+  ) {
     super(message);
     this.name = "AdminCatalogRepositoryError";
     this.code = code;
+    this.fields = fields;
   }
 }
 
@@ -70,7 +80,12 @@ export interface AdminUpdatePerformanceCommand {
   video: VerifiedYouTubeVideo;
   actor: AdminCatalogActor;
   now: number;
-  ids: { sourceId: string; eventId: string };
+  ids: {
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    sourceId: string;
+    eventId: string;
+  };
 }
 
 export interface AdminApproveProposalCommand {
@@ -90,8 +105,44 @@ export interface AdminApproveProposalCommand {
   };
 }
 
+export interface AdminCreateCatalogEntryCommand {
+  input: OtwPlayAdminCreateCatalogEntryRequest;
+  video: VerifiedYouTubeVideo;
+  actor: AdminCatalogActor;
+  now: number;
+  ids: {
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    channelId: string;
+    channelEventId: string;
+    songId: string;
+    songEventId: string;
+    performanceId: string;
+    performanceEventId: string;
+    sourceId: string;
+  };
+}
+
+export interface AdminUpdateSongCommand {
+  input: OtwPlayAdminUpdateSongRequest;
+  actor: AdminCatalogActor;
+  now: number;
+  ids: {
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    songEventId: string;
+  };
+}
+
 export interface AdminCatalogRepository {
   readCatalog(): Promise<OtwPlayAdminCatalogDto>;
+  preflightCatalogEntry(
+    video: VerifiedYouTubeVideo,
+    startSeconds: number,
+  ): Promise<OtwPlayAdminCatalogEntryPreflightDto>;
+  createCatalogEntry(
+    command: AdminCreateCatalogEntryCommand,
+  ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminCatalogEntryResultDto>>;
   readProposals(status?: string): Promise<OtwPlayAdminProposalDto[]>;
   createEntity(
     input: OtwPlayAdminCreateEntityRequest,
@@ -112,17 +163,28 @@ export interface AdminCatalogRepository {
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
   updateSong(
-    input: OtwPlayAdminUpdateSongRequest,
+    command: AdminUpdateSongCommand,
+  ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
+  deleteSong(
+    id: string,
+    expectedVersion: number,
     actor: AdminCatalogActor,
     eventId: string,
     now: number,
-  ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>;
+  ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
   createPerformance(
     command: AdminCreatePerformanceCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>;
   updatePerformance(
     command: AdminUpdatePerformanceCommand,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>;
+  deletePerformance(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
   transitionPerformance(
     id: string,
     expectedVersion: number,

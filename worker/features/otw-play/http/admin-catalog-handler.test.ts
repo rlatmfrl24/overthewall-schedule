@@ -5,6 +5,7 @@ import {
   AdminCatalogServiceError,
 } from "../application/admin-catalog-service";
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
+import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import { createAdminCatalogHandler } from "./admin-catalog-handler";
 
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
@@ -86,6 +87,197 @@ describe("OTW Play admin catalog handler", () => {
       },
     });
     expect(createSong).not.toHaveBeenCalled();
+  });
+
+  it("deletes draft songs and performances through authenticated dynamic routes", async () => {
+    const deleteSong = vi.fn(async (id) => ({
+      data: { id },
+      catalogRevision: 2,
+    }));
+    const deletePerformance = vi.fn(async (id) => ({
+      data: { id },
+      catalogRevision: 3,
+    }));
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({ deleteSong, deletePerformance }) as unknown as AdminCatalogService,
+    );
+    const songResponse = await handler(
+      new Request("https://example.com/api/play/admin/songs/song%20one", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: 1 }),
+      }),
+      env,
+    );
+    const performanceResponse = await handler(
+      new Request(
+        "https://example.com/api/play/admin/performances/performance%20one",
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expectedVersion: 2 }),
+        },
+      ),
+      env,
+    );
+
+    expect(songResponse.status).toBe(200);
+    expect(performanceResponse.status).toBe(200);
+    expect(deleteSong).toHaveBeenCalledWith(
+      "song one",
+      { expectedVersion: 1 },
+      expect.objectContaining({ userId: "admin" }),
+    );
+    expect(deletePerformance).toHaveBeenCalledWith(
+      "performance one",
+      { expectedVersion: 2 },
+      expect.objectContaining({ userId: "admin" }),
+    );
+  });
+
+  it("serves the authenticated preflight and atomic catalog-entry endpoints with no-store", async () => {
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 1,
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "performance-1" } },
+      catalogRevision: 2,
+    }));
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({ preflightCatalogEntry, createCatalogEntry }) as unknown as AdminCatalogService,
+    );
+    const preflightResponse = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries/preflight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+        }),
+      }),
+      env,
+    );
+    expect(preflightResponse.status).toBe(200);
+    expect(preflightResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(preflightCatalogEntry).toHaveBeenCalledOnce();
+
+    const createResponse = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedCatalogRevision: 1,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "vocal",
+              creditOrder: 0,
+            },
+          ],
+          channel: { kind: "existing", channelId: "channel-1" },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        }),
+      }),
+      env,
+    );
+    expect(createResponse.status).toBe(201);
+    expect(createResponse.headers.get("Cache-Control")).toBe("no-store");
+    expect(createCatalogEntry).toHaveBeenCalledOnce();
+  });
+
+  it("returns a redacted YouTube diagnostic with the request id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({
+          preflightCatalogEntry: vi.fn(async () => {
+            throw new OtwPlayYouTubeMetadataError(
+              "YouTube metadata request returned 403",
+            );
+          }),
+        }) as unknown as AdminCatalogService,
+    );
+    const response = await handler(
+      new Request(
+        "https://example.com/api/play/admin/catalog-entries/preflight",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+            startSeconds: 0,
+          }),
+        },
+      ),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        fields: { youtube: "YouTube metadata request returned 403" },
+        requestId: expect.any(String),
+      },
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "OTW Play YouTube metadata request failed",
+      expect.objectContaining({
+        reason: "YouTube metadata request returned 403",
+        requestId: expect.any(String),
+      }),
+    );
+    warn.mockRestore();
+  });
+
+  it("returns duplicate source identity in the fixed 409 error", async () => {
+    const handler = createAdminCatalogHandler(
+      () =>
+        ({
+          createCatalogEntry: vi.fn(async () => {
+            throw new AdminCatalogRepositoryError(
+              "duplicate_source",
+              "already registered",
+              { songId: "song-1", performanceId: "performance-1" },
+            );
+          }),
+        }) as unknown as AdminCatalogService,
+    );
+    const response = await handler(
+      new Request("https://example.com/api/play/admin/catalog-entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedCatalogRevision: 1,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [{ subject: { kind: "member", memberUid: 1 }, participantRole: "vocal", creditOrder: 0 }],
+          channel: { kind: "existing", channelId: "channel-1" },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        }),
+      }),
+      env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "PLAY_ADMIN_DUPLICATE_SOURCE",
+        fields: { songId: "song-1", performanceId: "performance-1" },
+      },
+    });
   });
 
   it("returns 503 without exposing a stale read model as writable", async () => {

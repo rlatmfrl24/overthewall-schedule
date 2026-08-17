@@ -121,6 +121,7 @@ export class D1PendingScheduleRepository
          FROM schedules
          WHERE member_uid = ?
            AND date = ?
+           AND status <> '게릴라'
            AND COALESCE(TRIM(start_time), '') = ''
            AND COALESCE(TRIM(title), '') = ''
          ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, id
@@ -151,13 +152,17 @@ export class D1PendingScheduleRepository
         ? "update"
         : options?.targetMode ??
           (item.action_type === "create" ? "create" : "update");
-    const normalizedOptions: PendingApprovalOptions =
+    const requestedOptions: PendingApprovalOptions =
       options ?? {
         applyMode: "all",
         targetMode,
-        timeMode: "exact",
+        timeMode: "nearest_half_hour",
         targetScheduleId: null,
       };
+    const normalizedOptions: PendingApprovalOptions = {
+      ...requestedOptions,
+      timeMode: "nearest_half_hour",
+    };
     const values = getPendingApprovalValues(item, normalizedOptions);
 
     if (targetMode === "create") {
@@ -198,18 +203,25 @@ export class D1PendingScheduleRepository
       const options: PendingApprovalOptions = {
         applyMode: "all",
         targetMode: "update",
-        timeMode: "exact",
+        timeMode: "nearest_half_hour",
         targetScheduleId: target.id,
       };
+      const values = getPendingApprovalValues(item, options);
       return this.updateFromPending(
         item,
         target.id,
         options,
-        { startTime: item.start_time, title: item.title },
+        values,
         actor,
         true,
       );
     }
+    const values = getPendingApprovalValues(item, {
+      applyMode: "all",
+      targetMode: "update",
+      timeMode: "nearest_half_hour",
+      targetScheduleId: target.id,
+    });
     const results = await this.db.batch([
       this.db
         .prepare(
@@ -225,8 +237,8 @@ export class D1PendingScheduleRepository
              )`,
         )
         .bind(
-          item.start_time,
-          item.title,
+          values.startTime,
+          values.title,
           item.status,
           target.id,
           item.member_uid,
@@ -502,8 +514,12 @@ export class D1PendingScheduleRepository
                  SELECT 1
                  FROM schedules AS existing
                  WHERE existing.member_uid = pending.member_uid
-                   AND existing.date = pending.date
-                   AND existing.start_time IS NOT NULL
+                    AND existing.date = pending.date
+                    AND (
+                      pending.candidate_kind IS NULL
+                      OR existing.status <> '게릴라'
+                    )
+                    AND existing.start_time IS NOT NULL
                    AND ABS(
                      (
                        CAST(SUBSTR(existing.start_time, 1, 2) AS INTEGER) * 60
@@ -600,6 +616,22 @@ export class D1PendingScheduleRepository
         error: "not_found",
         message: "수정 대상 스케줄을 찾을 수 없습니다.",
       };
+    }
+
+    if (item.candidate_kind && target.status === "게릴라") {
+      const createOptions: PendingApprovalOptions = {
+        applyMode: "all",
+        targetMode: "create",
+        timeMode: "nearest_half_hour",
+        targetScheduleId: null,
+      };
+      const createValues = getPendingApprovalValues(item, createOptions);
+      return this.createFromPending(
+        item,
+        createValues.startTime,
+        createValues.title,
+        actor,
+      );
     }
 
     const assignments: string[] = [];
@@ -729,6 +761,7 @@ export class D1PendingScheduleRepository
          FROM schedules
          WHERE member_uid = ?
            AND date = ?
+           AND (? = 0 OR status <> '게릴라')
            AND start_time IS NOT NULL
            AND ABS(
              (
@@ -739,7 +772,13 @@ export class D1PendingScheduleRepository
          ORDER BY id
          LIMIT 1`,
       )
-      .bind(item.member_uid, item.date, minutes, conflictWindow)
+      .bind(
+        item.member_uid,
+        item.date,
+        item.candidate_kind ? 1 : 0,
+        minutes,
+        conflictWindow,
+      )
       .first<{ id: number; start_time: string }>();
   }
 
@@ -764,6 +803,7 @@ export class D1PendingScheduleRepository
       }>();
     const candidateMinutes = timeToMinutes(startTime);
     for (const schedule of result.results) {
+      if (schedule.status === "게릴라") continue;
       if (schedule.status === "휴방") return { id: schedule.id };
       const scheduleMinutes = timeToMinutes(schedule.start_time);
       if (
@@ -778,12 +818,15 @@ export class D1PendingScheduleRepository
         return { id: schedule.id };
       }
     }
+    const replaceableSchedules = result.results.filter(
+      (schedule) => schedule.status !== "게릴라",
+    );
     if (
-      result.results.length === 1 &&
-      !result.results[0].start_time?.trim() &&
-      !result.results[0].title?.trim()
+      replaceableSchedules.length === 1 &&
+      !replaceableSchedules[0].start_time?.trim() &&
+      !replaceableSchedules[0].title?.trim()
     ) {
-      return { id: result.results[0].id };
+      return { id: replaceableSchedules[0].id };
     }
     return null;
   }

@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-5 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
+상태: PR-5.1 workflow-first 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
 
-기준일: 2026-08-11
+기준일: 2026-08-12
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -583,9 +583,43 @@ adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로
 ### 사용자 흐름
 
 ```text
-공식 채널 검수 → YouTube 영상 확인 → 곡 연결/생성 → 원곡 가수 →
-참여자와 분류 3축 → draft 저장 → 재생 미리보기 → publish
+새 영상 등록 → YouTube metadata·중복·채널 preflight → 영상 유형 선택
+(커버는 원곡 제목·가수 입력) → 현재 멤버·외부 칩과 공개·참여 분류 →
+전체 검토 → draft 또는 confirm 후 publish
 ```
+
+DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일상 진입점으로 사용하지
+않는다. 최상위는 카탈로그와 제안 검수만 유지한다. 현재 멤버와 권위 YouTube channel
+ID는 자동 추천·연결하고, 외부 identity와 unknown channel은 같은 dialog에서 명시적으로
+생성·승인하거나 pending으로 보류한다. 기존 entity/channel endpoint는 고급 수정과
+호환성을 위해 유지한다.
+
+일반 `새 영상 등록`에서는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저
+선택한다. 오리지널은 기존 곡 검색과 새 곡 form을 건너뛰고 commit에서 다시 검증한
+YouTube title과 participant로 song을 자동 생성한다. 커버는 영상 유형 단계 안에서
+원곡 제목과 하나 이상의 원곡 가수를 필수로 받으며, 기존 identity 추천 또는 명시적인
+새 외부 identity 칩을 `create` song command에 전달한다. 기존 곡에서 `다른 가창 추가`로
+진입했을 때는 기존 song ID와 원곡 정보를 재사용한다. 노래방송은 다곡·구간 연결 계약이
+마련되기 전까지 다음 단계와 저장을 막으며 별도 staging data도 만들지 않는다.
+오리지널 자동 생성 song은 normalized video title과 commit에서 검증한 video ID로
+versioned dedupe key material을 만든다. 커버 song은 normalized original title과 resolved
+original artist ID로 canonical dedupe key material을 만들며 soft duplicate를 자동 병합하지 않는다.
+
+카탈로그의 `곡 정보 수정`은 원곡 공개일 control을 노출하지 않는다. 곡명과 OTW
+오리지널 여부 외에 등록 흐름과 같은 원곡 가수 자동완성·칩을 제공하며, 최소 한 명과
+대표 한 명을 요구한다. 기존 날짜/precision은 read DTO의 값을 그대로 보존한다. 새
+외부 가수 또는 아직 entity가 없는 현재 멤버를 선택한 경우 identity와 song credit,
+검색/read-model projection, event와 revision을 `PUT /api/play/admin/songs`의 한 D1
+batch에서 생성·교체한다.
+
+`가창 정보 수정`은 연결 song, 현재 멤버·외부 participant와 역할·credit snapshot,
+relation/release/participation/quality 축, 공개일시, YouTube URL·channel·segment·source
+role 및 내부 메모를 모두 받는다. `PUT /api/play/admin/performances`는 YouTube metadata를
+다시 확인하고 새 participant identity 생성, participant/source 교체, 이전·새 song의
+projection 재생성, orphan source 정리, event와 두 revision을 한 D1 batch로 수행한다.
+dedupe key와 publication status는 수정하지 않으며 publish/withdraw는 기존 conditional
+command와 confirm UI로만 처리한다. withdrawn performance는 correction 대상이 아니며
+삭제하거나 replacement draft를 만든다.
 
 PR-5 D1 writer는 canonical song/performance/source/participant 변경, 해당 song의
 `music_search_terms`, 모든 변경 performance의 대표 participant sort key, 영향받은
@@ -605,6 +639,19 @@ metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed �
 `embed_disabled` 상태로 유지한다.
 capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
 catalog batch를 되돌리지 않는다.
+
+`DELETE /api/play/admin/performances/:id`는 `draft|withdrawn`을 삭제하고,
+`DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두
+`draft|withdrawn`일 때 곡과 performance를 함께 삭제한다. 현재 published, merge 대상과 승인
+proposal이 참조하는 performance는 삭제를 거부한다. 소유 child와 orphan source 정리,
+capability event, search/gram/sort projection 및 두 revision 증가는 하나의 D1 batch다.
+
+통합 경로는 `POST /api/play/admin/catalog-entries/preflight`와
+`POST /api/play/admin/catalog-entries`다. preflight는 mutation하지 않고 revision을
+반환하며 commit은 YouTube metadata를 다시 읽는다. entity·channel·song·performance,
+source, event, search/read-model projection과 두 revision은 한 D1 batch로 처리한다.
+stale revision과 duplicate source는 각각 고정 409로 응답한다. DB migration, 공개 UI,
+운영 공개 flag 변경은 이 slice에 포함하지 않는다.
 
 GATE-01이 미확정인 동안 일반 draft 등록·수정, 채널 검수, publish/withdraw와 제안
 거절은 사용할 수 있지만 회원 제안 승인 command는 `409
@@ -626,6 +673,20 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - stale expectedVersion 409
 - 전역 admin audit 실패는 authoritative event를 훼손하지 않음
 - 관리자 UI가 서버 성공 후 authoritative readback
+- 가창 correction에서 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시,
+  YouTube source·channel·segment·role과 메모를 함께 수정하고 새 identity·양쪽 song
+  projection·event·revision을 원자적으로 반영
+- 가창 correction의 stale version 또는 identity/event/projection 실패 시 새 identity와
+  authority·revision이 모두 rollback
+- 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
+- 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
+- 오리지널·커버의 수동 곡 연결 생략과 metadata 기반 song+performance 생성, 기존 곡의 `다른 가창 추가`, draft와 confirm publish를 통합 command로 검증
+- 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
+- YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
+- 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존
+- draft·withdrawn performance 개별 삭제와 published가 없는 song 삭제의 원자성, orphan source 정리,
+  event·projection·revision 동시 반영
+- 현재 published performance 및 해당 곡 hard delete 거부
 
 ### 종료 조건
 
@@ -828,7 +889,7 @@ fixture나 lower-level API만으로 이 검증을 대체하지 않는다.
 | ------------------------ | ---------------------------------- | -------------------------------- |
 | UI 문제                  | `navigation_visible=0`             | 카탈로그 보존                    |
 | 공개 API 문제            | `public_read_enabled=0`            | 관리자·제안 데이터 보존          |
-| 잘못된 공개 데이터       | withdraw/unpublish + revision 증가 | hard delete 금지                 |
+| 잘못된 운영 공개 데이터  | withdraw/unpublish + revision 증가 | 기본 보존, 테스트·오입력의 명시적 관리자 삭제만 예외 |
 | Worker 회귀              | 이전 검증 Worker version 재배포    | additive table 유지              |
 | migration 후 코드 불일치 | feature flag off, 호환 코드 복구   | down migration 자동 실행 금지    |
 | 심각한 DB 손상           | Time Travel 복구 검토              | DB 전체 덮어쓰기이므로 별도 승인 |

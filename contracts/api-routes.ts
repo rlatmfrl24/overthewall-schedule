@@ -97,9 +97,23 @@ export const apiRoutes = {
     ),
     admin: {
       catalog: staticRoute("/api/play/admin/catalog"),
+      catalogEntryPreflight: staticRoute(
+        "/api/play/admin/catalog-entries/preflight",
+      ),
+      catalogEntries: staticRoute("/api/play/admin/catalog-entries"),
       entities: staticRoute("/api/play/admin/entities"),
       songs: staticRoute("/api/play/admin/songs"),
+      deleteSong: dynamicRoute(
+        "/api/play/admin/songs/:id",
+        (id: string) =>
+          `/api/play/admin/songs/${encodeURIComponent(id)}` as const,
+      ),
       performances: staticRoute("/api/play/admin/performances"),
+      deletePerformance: dynamicRoute(
+        "/api/play/admin/performances/:id",
+        (id: string) =>
+          `/api/play/admin/performances/${encodeURIComponent(id)}` as const,
+      ),
       publishPerformance: dynamicRoute(
         "/api/play/admin/performances/:id/publish",
         (id: string) =>

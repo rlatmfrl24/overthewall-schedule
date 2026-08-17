@@ -1,14 +1,125 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseCatalogEntryPreflight,
+  parseCreateCatalogEntry,
   parseCreateChannel,
   parseApproveProposal,
   parseCreatePerformance,
   parseCreateSong,
   parseRejectProposal,
   parseUpdateChannel,
+  parseUpdatePerformance,
+  parseUpdateSong,
 } from "./admin-catalog-input";
 
 describe("OTW Play admin input", () => {
+  it("parses the workflow-first preflight and integrated catalog command", () => {
+    expect(
+      parseCatalogEntryPreflight({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 0,
+      }),
+    ).toMatchObject({ ok: true });
+    const command = {
+      expectedCatalogRevision: 7,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 0,
+      song: {
+        kind: "create",
+        title: "새 곡",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "artist-chip",
+              displayName: "원곡 가수",
+              entityKind: "person",
+            },
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
+      participants: [
+        {
+          subject: { kind: "member", memberUid: 1 },
+          participantRole: "vocal",
+          creditOrder: 0,
+        },
+      ],
+      channel: {
+        kind: "recognized_member",
+        memberUid: 1,
+        channelRole: "member_music",
+      },
+      relationType: "cover",
+      releaseType: "official_video",
+      participationType: "solo",
+      publicationTarget: "published",
+    };
+    expect(parseCreateCatalogEntry(command)).toMatchObject({
+      ok: true,
+      value: {
+        song: { kind: "create" },
+        participants: [{ subject: { kind: "member", memberUid: 1 } }],
+      },
+    });
+    const fromVideo = parseCreateCatalogEntry({
+      ...command,
+      song: { kind: "from_video", title: "client-supplied title" },
+      relationType: "original",
+    });
+    expect(fromVideo).toMatchObject({
+      ok: true,
+      value: { song: { kind: "from_video" } },
+    });
+    if (fromVideo.ok) {
+      expect(fromVideo.value.song).toEqual({ kind: "from_video" });
+    }
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        song: { kind: "from_video" },
+        relationType: "cover",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        participants: [
+          {
+            subject: { kind: "member", memberUid: 1 },
+            participantRole: "other",
+            creditOrder: 0,
+          },
+        ],
+      }),
+    ).toMatchObject({ ok: false });
+
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        participants: [command.participants[0], command.participants[0]],
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        song: {
+          ...command.song,
+          originalArtists: [
+            command.song.originalArtists[0],
+            { ...command.song.originalArtists[0], isPrimary: false },
+          ],
+        },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
   it("accepts a complete MVP song and rejects missing original artists", () => {
     expect(
       parseCreateSong({
@@ -49,6 +160,48 @@ describe("OTW Play admin input", () => {
     ).toEqual({ ok: false, fields: { body: "invalid_song" } });
   });
 
+  it("parses original artist subjects for the integrated song edit", () => {
+    const input = {
+      id: "song-1",
+      expectedVersion: 2,
+      slug: "song-slug",
+      title: "수정한 곡",
+      isOtwOriginal: false,
+      originalReleaseDate: null,
+      originalReleasePrecision: "unknown",
+      aliases: [],
+      originalArtists: [
+        {
+          subject: {
+            kind: "new_external",
+            clientKey: "artist-chip",
+            displayName: "새 원곡 가수",
+            entityKind: "person",
+          },
+          creditOrder: 0,
+          isPrimary: true,
+        },
+      ],
+    };
+    expect(parseUpdateSong(input)).toMatchObject({
+      ok: true,
+      value: {
+        originalArtists: [
+          { subject: { kind: "new_external", displayName: "새 원곡 가수" } },
+        ],
+      },
+    });
+    expect(
+      parseUpdateSong({
+        ...input,
+        originalArtists: [
+          input.originalArtists[0],
+          { ...input.originalArtists[0], isPrimary: false },
+        ],
+      }),
+    ).toEqual({ ok: false, fields: { body: "invalid_song" } });
+  });
+
   it("keeps classification axes separate and rejects broadcast from the MVP writer", () => {
     const base = {
       songId: "song-1",
@@ -79,6 +232,68 @@ describe("OTW Play admin input", () => {
     expect(
       parseCreatePerformance({ ...base, participationType: "published" }),
     ).toMatchObject({ ok: false });
+  });
+
+  it("parses a full performance correction with subject-based participants", () => {
+    const input = {
+      id: "performance-1",
+      expectedVersion: 3,
+      songId: "song-2",
+      relationType: "original",
+      releaseType: "official_mv",
+      participationType: "duet",
+      qualityStatus: "needs_update",
+      releasedAt: 1_786_500_000_000,
+      internalNote: "corrected",
+      participants: [
+        {
+          subject: { kind: "member", memberUid: 1 },
+          participantRole: "featured_vocal",
+          creditOrder: 0,
+          creditNameSnapshot: "Member",
+        },
+        {
+          subject: {
+            kind: "new_external",
+            clientKey: "guest-chip",
+            displayName: "Guest",
+            entityKind: "person",
+          },
+          participantRole: "vocal",
+          creditOrder: 1,
+          creditNameSnapshot: "Guest",
+        },
+      ],
+      source: {
+        youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+        channelId: "channel-2",
+        startSeconds: 12,
+        endSeconds: 170,
+        sourceRole: "alternate",
+      },
+    };
+    expect(parseUpdatePerformance(input)).toMatchObject({
+      ok: true,
+      value: {
+        songId: "song-2",
+        participants: [
+          { subject: { kind: "member", memberUid: 1 } },
+          {
+            subject: {
+              kind: "new_external",
+              clientKey: "guest-chip",
+            },
+          },
+        ],
+        source: { sourceRole: "alternate" },
+      },
+    });
+    expect(
+      parseUpdatePerformance({
+        ...input,
+        participants: [input.participants[0], input.participants[0]],
+      }),
+    ).toEqual({ ok: false, fields: { body: "invalid_performance" } });
   });
 
   it("requires exact YouTube channel IDs and prevents active unapproved channels", () => {

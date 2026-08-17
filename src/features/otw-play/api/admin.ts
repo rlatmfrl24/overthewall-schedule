@@ -1,9 +1,13 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type {
   OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogEntryPreflightDto,
+  OtwPlayAdminCatalogEntryPreflightRequest,
+  OtwPlayAdminCatalogEntryResultDto,
   OtwPlayAdminChannelDto,
   OtwPlayAdminCommandResponse,
   OtwPlayAdminCreateChannelRequest,
+  OtwPlayAdminCreateCatalogEntryRequest,
   OtwPlayAdminCreateEntityRequest,
   OtwPlayAdminCreatePerformanceRequest,
   OtwPlayAdminCreateSongRequest,
@@ -31,6 +35,22 @@ export const fetchOtwPlayAdminCatalog = () =>
   adminRequest<{ data: OtwPlayAdminCatalogDto }>(
     apiRoutes.otwPlay.admin.catalog.build(),
   ).then((response) => response.data);
+
+export const preflightOtwPlayCatalogEntry = (
+  json: OtwPlayAdminCatalogEntryPreflightRequest,
+) =>
+  adminRequest<{ data: OtwPlayAdminCatalogEntryPreflightDto }>(
+    apiRoutes.otwPlay.admin.catalogEntryPreflight.build(),
+    { method: "POST", json },
+  ).then((response) => response.data);
+
+export const createOtwPlayCatalogEntry = (
+  json: OtwPlayAdminCreateCatalogEntryRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminCatalogEntryResultDto>>(
+    apiRoutes.otwPlay.admin.catalogEntries.build(),
+    { method: "POST", json },
+  );
 
 export const fetchOtwPlayAdminProposals = (status?: string) => {
   const search = new URLSearchParams();
@@ -60,6 +80,14 @@ export const updateOtwPlaySong = (json: OtwPlayAdminUpdateSongRequest) =>
     apiRoutes.otwPlay.admin.songs.build(),
     { method: "PUT", json },
   );
+export const deleteOtwPlaySong = (
+  id: string,
+  json: OtwPlayAdminExpectedVersionRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
+    apiRoutes.otwPlay.admin.deleteSong.build(id),
+    { method: "DELETE", json },
+  );
 export const createOtwPlayPerformance = (
   json: OtwPlayAdminCreatePerformanceRequest,
 ) =>
@@ -73,6 +101,14 @@ export const updateOtwPlayPerformance = (
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminPerformanceDto>>(
     apiRoutes.otwPlay.admin.performances.build(),
     { method: "PUT", json },
+  );
+export const deleteOtwPlayPerformance = (
+  id: string,
+  json: OtwPlayAdminExpectedVersionRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
+    apiRoutes.otwPlay.admin.deletePerformance.build(id),
+    { method: "DELETE", json },
   );
 export const publishOtwPlayPerformance = (
   id: string,

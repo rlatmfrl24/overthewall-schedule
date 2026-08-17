@@ -2,9 +2,9 @@
 
 상태: Living Draft
 
-단계: PR-5 관리자 catalog command/UI 구현 중, proposal approve는 GATE-01 확정 대기
+단계: PR-5.1 workflow-first 관리자 등록 흐름 구현 중, proposal approve는 GATE-01 확정 대기
 
-최종 갱신일: 2026-08-11
+최종 갱신일: 2026-08-12
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -76,6 +76,11 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-021 | 검색어가 있으면 검색 relevance를 첫 정렬 기준으로 사용하고 사용자가 고른 정렬은 동점 해소에 사용한다. | 확정 | 응답은 exact total이나 facet count를 계산하지 않고 현재 page와 `nextCursor`만 제공한다. |
 | DEC-022 | 공개 cache는 revision과 canonical query로 격리하고 인증·cookie 요청은 저장하지 않는다. | 확정 | 구조화된 첫 catalog page, config/facets와 detail만 Cache API에 저장하며 자유 검색과 cursor page는 저장하지 않는다. |
 | DEC-023 | 공개 검색·참여자 정렬의 성능 projection은 canonical catalog와 같은 D1에 두되 권위 데이터로 사용하지 않는다. | 확정 | 공개 read가 활성일 때 파생 read model revision이 catalog revision과 다르면 config 이외 공개 조회를 cache 전에 `503`으로 중단한다. flag-off `404`가 우선이며 config는 항상 현재 flag와 catalog revision을 제공한다. |
+| DEC-024 | 관리자 카탈로그는 DB aggregate별 선행 등록 화면이 아니라 YouTube 영상 등록 작업을 중심으로 구성한다. | 확정 | `song`, `performance`, `entity`, `channel` 분리는 내부에 유지하되 현재 멤버와 권위 채널은 자동 추천·연결하고 외부 인물·그룹과 미등록 채널은 같은 흐름에서 명시적으로 확인한다. |
+| DEC-025 | 새 영상 등록은 metadata 확인 직후 `오리지널곡`, `공식 커버곡`, `노래방송`으로 유형을 먼저 확정한다. | 확정 | 오리지널·커버는 수동 곡 연결 화면을 건너뛴다. 오리지널은 검증한 영상 제목과 선택한 참여자로 song을 만들고, 커버는 관리자가 원곡 제목과 원곡 가수명을 구분해 입력해 song을 만든다. 다곡·구간 연결이 필요한 노래방송은 후속 범위로 표시하고 현재 command로 저장하지 않는다. |
+| DEC-026 | 관리자 hard delete는 테스트·오입력 catalog를 정리하는 용도로 `draft`와 `withdrawn`에 허용한다. | 확정 | draft·withdrawn 가창은 개별 삭제할 수 있고, 곡은 연결된 가창에 `published`가 없을 때 함께 삭제할 수 있다. 현재 게시 중인 가창, 승인 proposal 참조와 merge 대상은 삭제하지 않으며 삭제 event와 revision은 남긴다. |
+| DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
+| DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
 
 ## 4. 제품 원칙
 
@@ -370,6 +375,10 @@ detail로 자동 복사하지 않는다.
 - ADM-017: 관리자는 회원 제안을 승인하거나 거절할 수 있어야 한다.
 - ADM-018: 관리자 승인만 회원 제안을 공개 카탈로그 항목으로 전환할 수 있어야 한다.
 - ADM-019: 오리지널곡은 관리자만 등록하고 게시할 수 있어야 한다.
+- ADM-020: 관리자 최상위 작업은 카탈로그와 제안 검수로 제한하고, 곡 아래에 모든 가창 버전과 상태·참여자·채널·source를 함께 확인할 수 있어야 한다.
+- ADM-021: 현재 멤버는 `members` 권위 데이터를 자동완성하고, 검색되지 않는 외부 인물·그룹은 칩으로 추가하되 기존 identity와 자동 병합하지 않아야 한다.
+- ADM-022: 공식 채널은 별도 선행 등록을 요구하지 않는다. 권위 멤버 채널은 자동 연결하고 미등록 채널은 인라인 승인 또는 pending draft를 선택해야 한다.
+- ADM-023: 통합 등록은 metadata 재검증, entity·channel·song·performance·event·projection과 두 revision을 하나의 D1 batch로 반영해야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -585,6 +594,12 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | PR-2 catalog foundation 권위·관계·dedupe 경계 확정, published partial index는 PR-3으로 연기하고 API·UI·원격 적용은 제외, GATE-01~06은 변경하지 않음 |
 | 2026-08-11 | PR-3 proposal·event·search/meta exact schema 경계 확정, proposal channel 제외, fail-closed meta와 application-owned revision·append-only 채택, API·UI·원격 적용 제외, GATE-01~06 유지 |
 | 2026-08-11 | PR-5 관리자 catalog command의 인증·YouTube metadata 대조·atomic event/projection/revision 경계를 구현 기준으로 기록. GATE-01은 미확정 상태를 유지하고 proposal approve만 명시적 policy-unresolved 409로 fail closed |
+| 2026-08-12 | DEC-024 workflow-first admin catalog 확정. 인물·그룹과 채널의 선행 등록 탭을 제거하고 4단계 YouTube 영상 등록과 통합 atomic command를 기준선으로 변경 |
+| 2026-08-12 | DEC-025 영상 유형 우선 등록 흐름 확정. 오리지널·공식 커버는 수동 곡 연결을 생략하고 영상 metadata로 내부 곡을 생성하며, 노래방송의 다곡·구간 연결은 후속 범위로 유지 |
+| 2026-08-12 | DEC-025 보완. 공식 커버 등록은 영상 제목을 원곡 정보로 대체하지 않고 원곡 제목과 원곡 가수명을 별도 필수 입력으로 수집 |
+| 2026-08-12 | DEC-026 관리자 삭제 정책 보완. 테스트·오입력 정리를 위해 draft·withdrawn 가창과 published가 없는 곡은 확인 후 삭제할 수 있게 하되 현재 게시·승인 proposal·merge 관계는 보호 |
+| 2026-08-12 | DEC-027 곡 수정 입력 단순화. 원곡 공개일 입력을 제거하고 원곡 가수를 기존 identity 추천 또는 새 외부 칩으로 직접 수정하도록 확정 |
+| 2026-08-12 | DEC-028 가창 전체 수정 확정. 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시, YouTube source·채널·구간·역할과 메모를 한 atomic correction으로 편집하고 공개 상태 전이는 별도 command로 유지 |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 

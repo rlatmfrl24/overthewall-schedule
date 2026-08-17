@@ -1,21 +1,16 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminChannelDto,
   OtwPlayAdminEntityDto,
-  OtwPlayAdminPerformanceDto,
-  OtwPlayAdminSongDto,
   OtwPlayChannelRole,
-  OtwPlayEntityKind,
-  OtwPlayParticipationType,
-  OtwPlayReleaseType,
-  OtwPlayRelationType,
 } from "@contracts/otw-play";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import {
@@ -33,73 +28,86 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/ui/table";
-import { Textarea } from "@/shared/ui/textarea";
 import { useToast } from "@/shared/ui/toast";
-import { Loader2, Pencil, PlusCircle, RefreshCw } from "lucide-react";
+import {
+  Loader2,
+  Pencil,
+  RefreshCw,
+  Settings2,
+  Video,
+} from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/shared/ui/sheet";
 import {
   createOtwPlayChannel,
-  createOtwPlayEntity,
-  createOtwPlayPerformance,
-  createOtwPlaySong,
-  publishOtwPlayPerformance,
-  recheckOtwPlaySource,
   rejectOtwPlayProposal,
   updateOtwPlayChannel,
   updateOtwPlayEntity,
-  updateOtwPlayPerformance,
-  updateOtwPlaySong,
-  withdrawOtwPlayPerformance,
 } from "../../api/admin";
 import {
   useOtwPlayAdminCatalog,
   useOtwPlayAdminProposals,
 } from "../../queries/use-admin-catalog";
+import { CatalogEntryDialog } from "./catalog-entry-dialog";
+import { WorkflowCatalog } from "./workflow-catalog";
 
-type Section = "review" | "songs" | "performances" | "channels" | "entities";
+type Section = "catalog" | "review";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
+  { value: "catalog", label: "카탈로그" },
   { value: "review", label: "제안 검수" },
-  { value: "songs", label: "곡" },
-  { value: "performances", label: "가창" },
-  { value: "channels", label: "공식 채널" },
-  { value: "entities", label: "인물·그룹" },
 ];
+
+const channelRoleLabels: Record<OtwPlayChannelRole, string> = {
+  otw_official: "OTW 공식",
+  unit_official: "유닛 공식",
+  member_music: "멤버 노래 채널",
+  member_main: "멤버 메인 채널",
+  project_official: "승인 프로젝트",
+  approved_kirinuki: "승인 키리누키",
+  other: "기타",
+};
+
+const channelVerificationLabels = {
+  pending: "검수 대기",
+  approved: "승인됨",
+  revoked: "철회됨",
+} as const;
 
 const Field = ({
   label,
+  htmlFor,
+  description,
   children,
 }: {
   label: string;
+  htmlFor?: string;
+  description?: string;
   children: React.ReactNode;
 }) => (
   <div className="space-y-1.5">
-    <Label>{label}</Label>
+    <Label htmlFor={htmlFor}>{label}</Label>
     {children}
+    {description && (
+      <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+    )}
   </div>
 );
-
-const asEpoch = (value: string) =>
-  value ? Date.parse(`${value}T00:00:00Z`) : null;
-const asDay = (value: number | null) =>
-  value ? new Date(value).toISOString().slice(0, 10) : "";
-const isMvpReleaseType = (
-  value: OtwPlayReleaseType,
-): value is "official_mv" | "official_video" =>
-  value === "official_mv" || value === "official_video";
 
 export function OtwPlayCatalogManager() {
   const catalogQuery = useOtwPlayAdminCatalog();
   const proposalsQuery = useOtwPlayAdminProposals();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [section, setSection] = useState<Section>("review");
+  const [section, setSection] = useState<Section>("catalog");
   const [saving, setSaving] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{
-    title: string;
-    description: string;
-    action: () => Promise<void>;
-    destructive?: boolean;
-  } | null>(null);
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const catalog = catalogQuery.data;
   const refresh = async () => {
@@ -162,24 +170,38 @@ export function OtwPlayCatalogManager() {
     <div className="space-y-5">
       <AdminSectionHeader
         title="OTW Play 카탈로그"
-        description="공식 채널과 YouTube metadata를 검수하고 곡·가창 draft를 게시합니다. 모든 command는 event와 공개 read model revision을 함께 갱신합니다."
+        description="YouTube 영상 하나를 확인해 곡, 가창, 참여자와 공식 채널을 한 흐름에서 등록합니다."
         count={catalog.songs.length}
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refresh()}
-            disabled={catalogQuery.isFetching}
-          >
-            {catalogQuery.isFetching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            새로고침
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                setPreselectedSongId(null);
+                setRegistrationOpen(true);
+              }}
+            >
+              <Video className="h-4 w-4" /> 새 영상 등록
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setAdvancedOpen(true)}>
+              <Settings2 className="h-4 w-4" /> 고급 관리
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void refresh()}
+              disabled={catalogQuery.isFetching}
+            >
+              {catalogQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              새로고침
+            </Button>
+          </div>
         }
       />
+      <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+        <Badge variant="secondary">곡 {catalog.songs.length}</Badge>
+        <Badge variant="secondary">가창 {catalog.performances.length}</Badge>
+      </div>
       <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
         {SECTIONS.map((item) => (
           <Button
@@ -222,56 +244,49 @@ export function OtwPlayCatalogManager() {
           run={run}
         />
       )}
-      {section === "entities" && (
-        <EntitySection
-          items={catalog.entities}
+      {section === "catalog" && (
+        <WorkflowCatalog
+          catalog={catalog}
           saving={effectiveSaving}
           run={run}
-        />
-      )}
-      {section === "channels" && (
-        <ChannelSection
-          items={catalog.channels}
-          entities={catalog.entities}
-          saving={effectiveSaving}
-          run={run}
-        />
-      )}
-      {section === "songs" && (
-        <SongSection
-          items={catalog.songs}
-          entities={catalog.entities}
-          saving={effectiveSaving}
-          run={run}
-        />
-      )}
-      {section === "performances" && (
-        <PerformanceSection
-          items={catalog.performances}
-          songs={catalog.songs}
-          entities={catalog.entities}
-          channels={catalog.channels}
-          saving={effectiveSaving}
-          run={run}
-          confirm={setConfirmation}
+          onAddPerformance={(songId) => {
+            setPreselectedSongId(songId);
+            setRegistrationOpen(true);
+          }}
         />
       )}
 
-      <ConfirmActionDialog
-        open={confirmation !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmation(null);
-        }}
-        title={confirmation?.title ?? "확인"}
-        description={confirmation?.description ?? ""}
-        confirmLabel="계속"
-        destructive={confirmation?.destructive}
-        onConfirm={() => {
-          const action = confirmation?.action;
-          setConfirmation(null);
-          if (action) void action();
-        }}
+      <CatalogEntryDialog
+        open={registrationOpen}
+        onOpenChange={setRegistrationOpen}
+        catalog={catalog}
+        preselectedSongId={preselectedSongId}
+        onSaved={refresh}
       />
+      <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
+          <div className="border-b bg-background p-6 pr-12">
+            <SheetTitle className="text-lg">고급 관리</SheetTitle>
+            <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
+              일상 등록에서 자동 처리하지 못한 채널 상태와 외부 인물·그룹만
+              수정합니다. 현재 멤버 정보는 members가 권위입니다.
+            </SheetDescription>
+          </div>
+          <div className="space-y-6 p-4 pb-10 sm:p-6">
+            <ChannelSection
+              items={catalog.channels}
+              entities={catalog.entities}
+              saving={effectiveSaving}
+              run={run}
+            />
+            <EntitySection
+              items={catalog.entities.filter((item) => item.memberUid === null)}
+              saving={effectiveSaving}
+              run={run}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -449,150 +464,134 @@ function EntitySection({
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
-  const empty = {
-    displayName: "",
-    slug: "",
-    entityKind: "person" as OtwPlayEntityKind,
-    memberUid: "",
-    archived: false,
-  };
-  const [form, setForm] = useState(empty);
   const [editing, setEditing] = useState<OtwPlayAdminEntityDto | null>(null);
-  const submit = async () => {
-    const payload = {
-      displayName: form.displayName,
-      slug: form.slug,
-      entityKind: form.entityKind,
-      memberUid: form.memberUid ? Number(form.memberUid) : null,
-    };
-    const succeeded = await run(editing ? "인물 수정" : "인물 등록", () =>
-      editing
-        ? updateOtwPlayEntity({
-            ...payload,
-            id: editing.id,
-            expectedVersion: editing.version,
-            archived: form.archived,
-          })
-        : createOtwPlayEntity(payload),
-    );
-    if (!succeeded) return;
-    setEditing(null);
-    setForm(empty);
+  const [displayName, setDisplayName] = useState("");
+  const [archived, setArchived] = useState(false);
+
+  const beginEdit = (item: OtwPlayAdminEntityDto) => {
+    setEditing(item);
+    setDisplayName(item.displayName);
+    setArchived(Boolean(item.archivedAt));
   };
+
+  const submit = async () => {
+    if (!editing) return;
+    const succeeded = await run("외부 identity 수정", () =>
+      updateOtwPlayEntity({
+        id: editing.id,
+        expectedVersion: editing.version,
+        displayName: displayName.trim(),
+        slug: editing.slug,
+        entityKind: editing.entityKind,
+        memberUid: null,
+        archived,
+      }),
+    );
+    if (succeeded) setEditing(null);
+  };
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">인물·그룹 identity</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">외부 인물·그룹</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          영상 등록에서 만든 외부 가수·참여자·그룹의 표시명과 보관 상태를 관리합니다.
+        </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-4">
-          <Field label="표시명">
-            <Input
-              aria-label="인물·그룹 표시명"
-              value={form.displayName}
-              onChange={(e) =>
-                setForm({ ...form, displayName: e.target.value })
-              }
-            />
-          </Field>
-          <Field label="slug">
-            <Input
-              aria-label="인물·그룹 slug"
-              value={form.slug}
-              onChange={(e) => setForm({ ...form, slug: e.target.value })}
-            />
-          </Field>
-          <Field label="종류">
-            <Select
-              value={form.entityKind}
-              onValueChange={(value) =>
-                setForm({ ...form, entityKind: value as OtwPlayEntityKind })
-              }
-            >
-              <SelectTrigger aria-label="인물·그룹 종류">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="person">인물</SelectItem>
-                <SelectItem value="group">그룹</SelectItem>
-                <SelectItem value="organization">조직</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="현재 멤버 UID">
-            <Input
-              aria-label="현재 멤버 UID"
-              type="number"
-              min="1"
-              value={form.memberUid}
-              onChange={(e) => setForm({ ...form, memberUid: e.target.value })}
-              disabled={form.entityKind !== "person"}
-            />
-          </Field>
-        </div>
         {editing && (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.archived}
-              onChange={(event) =>
-                setForm({ ...form, archived: event.target.checked })
-              }
-            />
-            공개 카탈로그에서 보관 처리
-          </label>
+          <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+            <div>
+              <div className="font-medium">{editing.displayName} 수정</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {editing.entityKind === "group" ? "그룹" : "외부 인물"} · 내부 식별자는 변경하지 않습니다.
+              </div>
+            </div>
+            <Field
+              label="표시명"
+              htmlFor="advanced-entity-display-name"
+              description="검색·칩·공개 크레딧에 표시되는 이름입니다."
+            >
+              <Input
+                id="advanced-entity-display-name"
+                aria-label="외부 identity 표시명"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </Field>
+            <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
+              <Checkbox
+                id="advanced-entity-archived"
+                checked={archived}
+                onCheckedChange={(checked) => setArchived(checked === true)}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="advanced-entity-archived">보관 처리</Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  새 등록 후보와 공개 카탈로그에서 제외하되 기존 기록은 유지합니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving !== null}
+                onClick={() => setEditing(null)}
+              >
+                취소
+              </Button>
+              <Button
+                disabled={!displayName.trim() || saving !== null}
+                onClick={() => void submit()}
+              >
+                수정 저장
+              </Button>
+            </div>
+          </div>
         )}
-        <Button
-          disabled={
-            !form.displayName.trim() || !form.slug.trim() || saving !== null
-          }
-          onClick={() => void submit()}
-        >
-          <PlusCircle className="h-4 w-4" />
-          {editing ? "수정 저장" : "등록"}
-        </Button>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>표시명</TableHead>
-                <TableHead>종류</TableHead>
-                <TableHead>멤버 UID</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.displayName}</TableCell>
-                  <TableCell>{item.entityKind}</TableCell>
-                  <TableCell>{item.memberUid ?? "-"}</TableCell>
-                  <TableCell>{item.archivedAt ? "보관" : "활성"}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`${item.displayName} 수정`}
-                      onClick={() => {
-                        setEditing(item);
-                        setForm({
-                          displayName: item.displayName,
-                          slug: item.slug,
-                          entityKind: item.entityKind,
-                          memberUid: item.memberUid?.toString() ?? "",
-                          archived: Boolean(item.archivedAt),
-                        });
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+        {items.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            저장된 외부 인물·그룹이 없습니다.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-sm font-medium">저장된 identity</div>
+            <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>표시명</TableHead>
+                  <TableHead>종류</TableHead>
+                  <TableHead>상태</TableHead>
+                  <TableHead />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>{item.displayName}</TableCell>
+                    <TableCell>
+                      {item.entityKind === "group" ? "그룹" : "외부 인물"}
+                    </TableCell>
+                    <TableCell>{item.archivedAt ? "보관" : "활성"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`${item.displayName} 수정`}
+                        onClick={() => beginEdit(item)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -650,13 +649,31 @@ function ChannelSection({
   };
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">공식 채널 allowlist</CardTitle>
+      <CardHeader className="border-b">
+        <CardTitle className="text-base">공식 채널</CardTitle>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          인라인 등록에서 확인된 YouTube 채널의 역할, 연결 주체와 사용 가능 상태를 관리합니다.
+        </p>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-4">
-          <Field label="YouTube channel ID">
+        <div className="space-y-5 rounded-xl border bg-muted/20 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 수동 등록"}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                일반 등록에서는 영상 확인 단계가 채널을 자동 인식합니다. 이 폼은 예외 보정용입니다.
+              </p>
+            </div>
+            {editing && <Badge variant="outline">version {editing.version}</Badge>}
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+          <Field
+            label="YouTube 채널 ID"
+            htmlFor="advanced-channel-id"
+            description="YouTube의 UC로 시작하는 권위 channel ID를 입력합니다."
+          >
             <Input
+              id="advanced-channel-id"
               aria-label="YouTube channel ID"
               value={form.externalChannelId}
               onChange={(e) =>
@@ -664,8 +681,13 @@ function ChannelSection({
               }
             />
           </Field>
-          <Field label="표시명 (YouTube 확인값으로 대체)">
+          <Field
+            label="채널 표시명"
+            htmlFor="advanced-channel-display-name"
+            description="관리 화면과 출처 정보에 표시할 이름입니다."
+          >
             <Input
+              id="advanced-channel-display-name"
               aria-label="채널 표시명"
               value={form.displayName}
               onChange={(e) =>
@@ -673,7 +695,7 @@ function ChannelSection({
               }
             />
           </Field>
-          <Field label="역할">
+          <Field label="채널 역할" description="공개 source 우선순위와 공식성 판단에 사용합니다.">
             <Select
               value={form.channelRole}
               onValueChange={(value) =>
@@ -692,26 +714,33 @@ function ChannelSection({
                   "project_official",
                 ].map((role) => (
                   <SelectItem key={role} value={role}>
-                    {role}
+                    {channelRoleLabels[role as OtwPlayChannelRole]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Field>
-          <Field label="연결 entity (복수 선택 가능)">
-            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
+          <Field
+            label="소유·연결 주체"
+            description="이 채널을 공식적으로 소유하거나 운영하는 멤버·그룹을 모두 선택합니다."
+          >
+            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+              {entities.length === 0 && (
+                <p className="p-2 text-sm text-muted-foreground">선택할 identity가 없습니다.</p>
+              )}
               {entities.map((entity) => (
                 <label
                   key={entity.id}
-                  className="flex items-center gap-2 text-sm"
+                  htmlFor={`advanced-channel-owner-${entity.id}`}
+                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted"
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
+                    id={`advanced-channel-owner-${entity.id}`}
                     checked={form.entityIds.includes(entity.id)}
-                    onChange={(event) =>
+                    onCheckedChange={(checked) =>
                       setForm({
                         ...form,
-                        entityIds: event.target.checked
+                        entityIds: checked === true
                           ? [...form.entityIds, entity.id]
                           : form.entityIds.filter((id) => id !== entity.id),
                       })
@@ -722,10 +751,10 @@ function ChannelSection({
               ))}
             </div>
           </Field>
-        </div>
+          </div>
         {editing && (
-          <div className="flex gap-3">
-            <Field label="검수 상태">
+          <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
+            <Field label="검수 상태" description="승인됨 상태에서만 채널을 활성화할 수 있습니다.">
               <Select
                 value={form.verificationStatus}
                 onValueChange={(value) =>
@@ -736,34 +765,57 @@ function ChannelSection({
                   })
                 }
               >
-                <SelectTrigger className="w-40" aria-label="채널 검수 상태">
+                <SelectTrigger aria-label="채널 검수 상태">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">pending</SelectItem>
-                  <SelectItem value="approved">approved</SelectItem>
-                  <SelectItem value="revoked">revoked</SelectItem>
+                  <SelectItem value="pending">검수 대기</SelectItem>
+                  <SelectItem value="approved">승인됨</SelectItem>
+                  <SelectItem value="revoked">철회됨</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
-            <label className="flex items-center gap-2 self-end pb-2 text-sm">
-              <input
-                type="checkbox"
+            <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
+              <Checkbox
+                id="advanced-channel-active"
                 checked={form.active}
                 disabled={form.verificationStatus !== "approved"}
-                onChange={(e) => setForm({ ...form, active: e.target.checked })}
-              />{" "}
-              활성
-            </label>
+                onCheckedChange={(checked) => setForm({ ...form, active: checked === true })}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="advanced-channel-active">카탈로그 source에 사용</Label>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  비활성 채널의 영상은 공개 source 후보로 선택되지 않습니다.
+                </p>
+              </div>
+            </div>
           </div>
         )}
-        <Button
-          disabled={!form.externalChannelId || saving !== null}
-          onClick={() => void submit()}
-        >
-          {editing ? "검수 저장" : "채널 확인 후 등록"}
-        </Button>
-        <div className="overflow-x-auto">
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+            {editing && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving !== null}
+                onClick={() => {
+                  setEditing(null);
+                  setForm(empty);
+                }}
+              >
+                취소
+              </Button>
+            )}
+            <Button
+              disabled={!form.externalChannelId.trim() || !form.displayName.trim() || saving !== null}
+              onClick={() => void submit()}
+            >
+              {editing ? "채널 수정 저장" : "채널 확인 후 등록"}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="text-sm font-medium">등록된 채널</div>
+          <div className="overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -783,8 +835,8 @@ function ChannelSection({
                       {item.externalChannelId}
                     </div>
                   </TableCell>
-                  <TableCell>{item.channelRole}</TableCell>
-                  <TableCell>{item.verificationStatus}</TableCell>
+                  <TableCell>{channelRoleLabels[item.channelRole]}</TableCell>
+                  <TableCell>{channelVerificationLabels[item.verificationStatus]}</TableCell>
                   <TableCell>{item.active ? "예" : "아니오"}</TableCell>
                   <TableCell className="text-right">
                     <Button
@@ -810,585 +862,7 @@ function ChannelSection({
               ))}
             </TableBody>
           </Table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SongSection({
-  items,
-  entities,
-  saving,
-  run,
-}: {
-  items: OtwPlayAdminSongDto[];
-  entities: OtwPlayAdminEntityDto[];
-  saving: string | null;
-  run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
-}) {
-  const empty = {
-    title: "",
-    slug: "",
-    artistIds: [] as string[],
-    aliases: "",
-    isOtwOriginal: false,
-  };
-  const [form, setForm] = useState(empty);
-  const [editing, setEditing] = useState<OtwPlayAdminSongDto | null>(null);
-  const submit = async () => {
-    const core = {
-      title: form.title,
-      slug: form.slug,
-      isOtwOriginal: form.isOtwOriginal,
-      originalReleaseDate: null,
-      originalReleasePrecision: "unknown" as const,
-      aliases: form.aliases
-        .split("\n")
-        .map((alias) => alias.trim())
-        .filter(Boolean)
-        .map((alias) => ({ alias })),
-      originalArtists: form.artistIds.map((entityId, creditOrder) => ({
-        entityId,
-        creditOrder,
-        isPrimary: creditOrder === 0,
-      })),
-    };
-    const succeeded = await run(editing ? "곡 수정" : "곡 등록", () =>
-      editing
-        ? updateOtwPlaySong({
-            ...core,
-            id: editing.id,
-            expectedVersion: editing.version,
-          })
-        : createOtwPlaySong(core),
-    );
-    if (!succeeded) return;
-    setEditing(null);
-    setForm(empty);
-  };
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">곡 identity</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-3">
-          <Field label="곡명">
-            <Input
-              aria-label="곡명"
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </Field>
-          <Field label="slug">
-            <Input
-              aria-label="곡 slug"
-              value={form.slug}
-              onChange={(e) => setForm({ ...form, slug: e.target.value })}
-            />
-          </Field>
-          <Field label="원곡 가수 (복수 선택 가능)">
-            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
-              {entities.map((entity) => (
-                <label
-                  key={entity.id}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.artistIds.includes(entity.id)}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        artistIds: event.target.checked
-                          ? [...form.artistIds, entity.id]
-                          : form.artistIds.filter((id) => id !== entity.id),
-                      })
-                    }
-                  />
-                  {entity.displayName}
-                </label>
-              ))}
-            </div>
-          </Field>
-        </div>
-        <Field label="별칭 (줄마다 하나)">
-          <Textarea
-            aria-label="곡 별칭"
-            value={form.aliases}
-            onChange={(e) => setForm({ ...form, aliases: e.target.value })}
-          />
-        </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.isOtwOriginal}
-            onChange={(e) =>
-              setForm({ ...form, isOtwOriginal: e.target.checked })
-            }
-          />{" "}
-          OTW 오리지널
-        </label>
-        <Button
-          disabled={
-            !form.title ||
-            !form.slug ||
-            form.artistIds.length === 0 ||
-            saving !== null
-          }
-          onClick={() => void submit()}
-        >
-          {editing ? "곡 수정 저장" : "곡 등록"}
-        </Button>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>곡</TableHead>
-                <TableHead>원곡 가수</TableHead>
-                <TableHead>종류</TableHead>
-                <TableHead>version</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <div>{item.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {item.slug}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {item.originalArtists
-                      .map((artist) => artist.displayName)
-                      .join(", ")}
-                  </TableCell>
-                  <TableCell>
-                    {item.isOtwOriginal ? "오리지널" : "일반"}
-                  </TableCell>
-                  <TableCell>{item.version}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`${item.title} 수정`}
-                      onClick={() => {
-                        setEditing(item);
-                        setForm({
-                          title: item.title,
-                          slug: item.slug,
-                          artistIds: item.originalArtists.map(
-                            (artist) => artist.entityId,
-                          ),
-                          aliases: item.aliases
-                            .map((alias) => alias.alias)
-                            .join("\n"),
-                          isOtwOriginal: item.isOtwOriginal,
-                        });
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PerformanceSection({
-  items,
-  songs,
-  entities,
-  channels,
-  saving,
-  run,
-  confirm,
-}: {
-  items: OtwPlayAdminPerformanceDto[];
-  songs: OtwPlayAdminSongDto[];
-  entities: OtwPlayAdminEntityDto[];
-  channels: OtwPlayAdminChannelDto[];
-  saving: string | null;
-  run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
-  confirm: React.Dispatch<
-    React.SetStateAction<{
-      title: string;
-      description: string;
-      action: () => Promise<void>;
-      destructive?: boolean;
-    } | null>
-  >;
-}) {
-  const empty = {
-    songId: "",
-    participantIds: [] as string[],
-    channelId: "",
-    youtubeUrl: "",
-    relationType: "cover" as OtwPlayRelationType,
-    releaseType: "official_video" as "official_mv" | "official_video",
-    participationType: "solo" as OtwPlayParticipationType,
-    releasedAt: "",
-  };
-  const [form, setForm] = useState(empty);
-  const [editing, setEditing] = useState<OtwPlayAdminPerformanceDto | null>(
-    null,
-  );
-  const channel = useMemo(
-    () => channels.find((item) => item.id === form.channelId),
-    [channels, form.channelId],
-  );
-  const submit = async () => {
-    const core = {
-      songId: form.songId,
-      relationType: form.relationType,
-      releaseType: form.releaseType,
-      participationType: form.participationType,
-      qualityStatus: "ok" as const,
-      releasedAt: asEpoch(form.releasedAt),
-      participants: form.participantIds.map((entityId, creditOrder) => {
-        const participant = entities.find((item) => item.id === entityId)!;
-        return {
-          entityId,
-          participantRole: "vocal" as const,
-          creditOrder,
-          creditNameSnapshot: participant.displayName,
-        };
-      }),
-      source: {
-        youtubeUrl: form.youtubeUrl,
-        channelId: form.channelId,
-        startSeconds: 0,
-        sourceRole: "official" as const,
-      },
-    };
-    const succeeded = await run(
-      editing ? "가창 수정" : "가창 draft 등록",
-      () =>
-        editing
-          ? updateOtwPlayPerformance({
-              ...core,
-              id: editing.id,
-              expectedVersion: editing.version,
-            })
-          : createOtwPlayPerformance(core),
-    );
-    if (!succeeded) return;
-    setEditing(null);
-    setForm(empty);
-  };
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">가창 draft와 게시</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-3">
-          <Field label="곡">
-            <Select
-              value={form.songId}
-              onValueChange={(songId) => setForm({ ...form, songId })}
-            >
-              <SelectTrigger aria-label="가창 곡">
-                <SelectValue placeholder="선택" />
-              </SelectTrigger>
-              <SelectContent>
-                {songs.map((song) => (
-                  <SelectItem key={song.id} value={song.id}>
-                    {song.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="가창 참여자 (복수 선택 가능)">
-            <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2">
-              {entities.map((entity) => (
-                <label
-                  key={entity.id}
-                  className="flex items-center gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.participantIds.includes(entity.id)}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        participantIds: event.target.checked
-                          ? [...form.participantIds, entity.id]
-                          : form.participantIds.filter(
-                              (id) => id !== entity.id,
-                            ),
-                      })
-                    }
-                  />
-                  {entity.displayName}
-                </label>
-              ))}
-            </div>
-          </Field>
-          <Field label="승인 채널">
-            <Select
-              value={form.channelId}
-              onValueChange={(channelId) => setForm({ ...form, channelId })}
-            >
-              <SelectTrigger aria-label="가창 승인 채널">
-                <SelectValue placeholder="선택" />
-              </SelectTrigger>
-              <SelectContent>
-                {channels.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.displayName} · {item.verificationStatus}
-                    {item.active ? " 활성" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="YouTube URL">
-            <Input
-              aria-label="가창 YouTube URL"
-              value={form.youtubeUrl}
-              onChange={(e) => setForm({ ...form, youtubeUrl: e.target.value })}
-            />
-          </Field>
-          <Field label="공개일">
-            <Input
-              aria-label="가창 공개일"
-              type="date"
-              value={form.releasedAt}
-              onChange={(e) => setForm({ ...form, releasedAt: e.target.value })}
-            />
-          </Field>
-          <Field label="곡 관계">
-            <Select
-              value={form.relationType}
-              onValueChange={(value) =>
-                setForm({ ...form, relationType: value as OtwPlayRelationType })
-              }
-            >
-              <SelectTrigger aria-label="곡 관계">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="original">original</SelectItem>
-                <SelectItem value="cover">cover</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="공개 형태">
-            <Select
-              value={form.releaseType}
-              onValueChange={(value) =>
-                setForm({
-                  ...form,
-                  releaseType: value as "official_mv" | "official_video",
-                })
-              }
-            >
-              <SelectTrigger aria-label="공개 형태">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="official_mv">official_mv</SelectItem>
-                <SelectItem value="official_video">official_video</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="참여 형태">
-            <Select
-              value={form.participationType}
-              onValueChange={(value) =>
-                setForm({
-                  ...form,
-                  participationType: value as OtwPlayParticipationType,
-                })
-              }
-            >
-              <SelectTrigger aria-label="참여 형태">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["solo", "duet", "unit", "group", "external_collab"].map(
-                  (value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
-          </Field>
-        </div>
-        {channel &&
-          (!channel.active || channel.verificationStatus !== "approved") && (
-            <p className="text-sm text-destructive">
-              이 채널로 draft는 만들 수 있지만 게시할 수 없습니다.
-            </p>
-          )}
-        <Button
-          disabled={
-            !form.songId ||
-            form.participantIds.length === 0 ||
-            !form.channelId ||
-            !form.youtubeUrl ||
-            saving !== null
-          }
-          onClick={() => void submit()}
-        >
-          {editing ? "가창 수정 저장" : "YouTube 확인 후 draft 생성"}
-        </Button>
-        <div className="overflow-x-auto">
-          <Table className="min-w-[900px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>곡</TableHead>
-                <TableHead>분류</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead>참여자</TableHead>
-                <TableHead>source</TableHead>
-                <TableHead className="text-right">작업</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    {songs.find((song) => song.id === item.songId)?.title ??
-                      item.songId}
-                  </TableCell>
-                  <TableCell>
-                    {item.relationType} · {item.releaseType} ·{" "}
-                    {item.participationType}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        item.publicationStatus === "published"
-                          ? "default"
-                          : "secondary"
-                      }
-                    >
-                      {item.publicationStatus}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {item.participants
-                      .map((participant) => participant.displayName)
-                      .join(", ")}
-                  </TableCell>
-                  <TableCell>
-                    {item.sources[0]?.source.externalId ?? "없음"}
-                    {item.sources[0] && (
-                      <Button
-                        className="ml-2"
-                        size="sm"
-                        variant="outline"
-                        disabled={saving !== null}
-                        onClick={() => {
-                          const source = item.sources[0]!.source;
-                          void run("source 재검사", () =>
-                            recheckOtwPlaySource(source.id, {
-                              expectedVersion: source.version,
-                              youtubeUrl: `https://www.youtube.com/watch?v=${source.externalId}`,
-                              channelId: source.channelId,
-                            }),
-                          );
-                        }}
-                      >
-                        재검사
-                      </Button>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`${songs.find((song) => song.id === item.songId)?.title ?? item.id} 가창 수정`}
-                      disabled={
-                        item.publicationStatus === "withdrawn" ||
-                        !isMvpReleaseType(item.releaseType)
-                      }
-                      onClick={() => {
-                        if (!isMvpReleaseType(item.releaseType)) return;
-                        const source = item.sources[0];
-                        setEditing(item);
-                        setForm({
-                          songId: item.songId,
-                          participantIds: item.participants.map(
-                            (participant) => participant.entityId,
-                          ),
-                          channelId: source?.source.channelId ?? "",
-                          youtubeUrl: source
-                            ? `https://www.youtube.com/watch?v=${source.source.externalId}`
-                            : "",
-                          relationType: item.relationType,
-                          releaseType: item.releaseType,
-                          participationType: item.participationType,
-                          releasedAt: asDay(item.releasedAt),
-                        });
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    {item.publicationStatus === "draft" && (
-                      <Button
-                        size="sm"
-                        disabled={saving !== null}
-                        onClick={() =>
-                          confirm({
-                            title: "가창 게시",
-                            description:
-                              "승인·활성 공식 채널, 실제 가창 credit와 primary source를 확인한 뒤 공개합니다.",
-                            action: async () => {
-                              await run("가창 게시", () =>
-                                publishOtwPlayPerformance(item.id, {
-                                  expectedVersion: item.version,
-                                }),
-                              );
-                            },
-                          })
-                        }
-                      >
-                        게시
-                      </Button>
-                    )}
-                    {item.publicationStatus === "published" && (
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={saving !== null}
-                        onClick={() =>
-                          confirm({
-                            title: "가창 철회",
-                            description:
-                              "공개 목록에서는 제거되지만 metadata와 감사 이력은 보존됩니다.",
-                            destructive: true,
-                            action: async () => {
-                              await run("가창 철회", () =>
-                                withdrawOtwPlayPerformance(item.id, {
-                                  expectedVersion: item.version,
-                                }),
-                              );
-                            },
-                          })
-                        }
-                      >
-                        철회
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          </div>
         </div>
       </CardContent>
     </Card>

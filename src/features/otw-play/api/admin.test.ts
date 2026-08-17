@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createOtwPlayCatalogEntry,
   createOtwPlayPerformance,
+  deleteOtwPlayPerformance,
+  deleteOtwPlaySong,
   fetchOtwPlayAdminCatalog,
   fetchOtwPlayAdminProposals,
   publishOtwPlayPerformance,
+  preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
 } from "./admin";
 
@@ -21,6 +25,43 @@ describe("OTW Play admin API", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/catalog",
       { auth: "required" },
+    );
+  });
+
+  it("uses the integrated preflight and catalog-entry routes without changing the payload", async () => {
+    const preflight = {
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 0,
+    };
+    await preflightOtwPlayCatalogEntry(preflight);
+    const command = {
+      expectedCatalogRevision: 1,
+      youtubeUrl: preflight.youtubeUrl,
+      startSeconds: 0,
+      song: { kind: "existing" as const, songId: "song-1" },
+      participants: [
+        {
+          subject: { kind: "member" as const, memberUid: 1 },
+          participantRole: "vocal" as const,
+          creditOrder: 0,
+        },
+      ],
+      channel: { kind: "existing" as const, channelId: "channel-1" },
+      relationType: "cover" as const,
+      releaseType: "official_video" as const,
+      participationType: "solo" as const,
+      publicationTarget: "draft" as const,
+    };
+    await createOtwPlayCatalogEntry(command);
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/catalog-entries/preflight",
+      { method: "POST", json: preflight, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/catalog-entries",
+      { method: "POST", json: command, auth: "required" },
     );
   });
 
@@ -74,6 +115,10 @@ describe("OTW Play admin API", () => {
       expectedVersion: 2,
       resultCode: "duplicate",
     });
+    await deleteOtwPlayPerformance("performance / draft", {
+      expectedVersion: 4,
+    });
+    await deleteOtwPlaySong("song / draft", { expectedVersion: 5 });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/play/admin/performances/performance%20%2F%20one/publish",
@@ -87,6 +132,16 @@ describe("OTW Play admin API", () => {
         json: { expectedVersion: 2, resultCode: "duplicate" },
         auth: "required",
       },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/performances/performance%20%2F%20draft",
+      { method: "DELETE", json: { expectedVersion: 4 }, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/play/admin/songs/song%20%2F%20draft",
+      { method: "DELETE", json: { expectedVersion: 5 }, auth: "required" },
     );
   });
 });

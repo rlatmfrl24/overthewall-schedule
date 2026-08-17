@@ -366,6 +366,28 @@ describe("matchBroadcastSessions", () => {
     });
   });
 
+  it("게릴라 일정은 자동 매칭 대상으로 사용하지 않고 신규 후보로 유지한다", () => {
+    const [session] = buildBroadcastSessions([
+      observation(
+        "chzzk:guerrilla",
+        "2026-07-28T10:05:00.000Z",
+        "2026-07-28T11:30:00.000Z",
+        { title: "실제 게릴라 방송" },
+      ),
+    ]);
+
+    const [decision] = matchBroadcastSessions([session], [
+      schedule(1, "19:00", "게릴라", { status: "게릴라" }),
+    ]);
+
+    expect(decision).toMatchObject({
+      kind: "candidate",
+      candidateKind: "missing_schedule",
+      scheduleId: null,
+      reason: "missing_schedule",
+    });
+  });
+
   it("동률인 복수 빈 일정은 관리자 선택이 필요한 ambiguous 후보로 남긴다", () => {
     const sessions = buildBroadcastSessions([
       observation(

@@ -4,6 +4,7 @@ import {
   assessSoftDuplicate,
   createPerformanceDedupeKeyMaterial,
   createSongDedupeKeyMaterial,
+  createVideoBackedSongDedupeKeyMaterial,
 } from "./duplicate-policy";
 
 describe("OTW Play duplicate policy", () => {
@@ -27,6 +28,24 @@ describe("OTW Play duplicate policy", () => {
     ]);
     expect(artistIds).toEqual(["artist-b", "artist-a", "artist-a"]);
     expect(material).not.toMatch(/^[a-f\d]{64}$/i);
+  });
+
+  it("keeps video-backed songs distinct without auto-linking equal titles", () => {
+    const first = createVideoBackedSongDedupeKeyMaterial({
+      title: " Ｓａｍｅ　Ｓｏｎｇ ",
+      youtubeVideoId: "aBcDeFgHi_1",
+    });
+    const second = createVideoBackedSongDedupeKeyMaterial({
+      title: "same song",
+      youtubeVideoId: "zYxWvUtSr_2",
+    });
+
+    expect(JSON.parse(first)).toEqual([
+      "song-from-video:v1",
+      "same song",
+      "aBcDeFgHi_1",
+    ]);
+    expect(first).not.toBe(second);
   });
 
   it("creates versioned performance key material with a canonical start", () => {

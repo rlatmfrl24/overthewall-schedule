@@ -670,6 +670,65 @@ describe("D1 pending schedule transaction", () => {
     });
   });
 
+  it("V2 승인에서 빈 시작 시각은 요청 모드와 무관하게 가장 가까운 30분 단위로 채운다", async () => {
+    await env.otw_db
+      .prepare(
+        `INSERT INTO schedules (
+           id, member_uid, date, start_time, title, status
+         )
+         VALUES (31, 10, '2026-07-28', NULL, '기존 제목', '미정')`,
+      )
+      .run();
+    await env.otw_db
+      .prepare(
+        `UPDATE pending_schedules
+         SET action_type = 'update',
+             existing_schedule_id = 31,
+             candidate_kind = 'fill_missing_fields',
+             match_reason = 'title_similarity',
+             match_confidence = 'high',
+             start_time = '20:17',
+             title = '기존 제목'
+         WHERE id = 1`,
+      )
+      .run();
+
+    const repository = new D1PendingScheduleRepository(env.otw_db);
+    const item = await repository.findById(1);
+    const result = await repository.approve(
+      item!,
+      {
+        applyMode: "time",
+        targetMode: "update",
+        timeMode: "exact",
+        targetScheduleId: 31,
+      },
+      actor,
+    );
+    const schedule = await env.otw_db
+      .prepare(
+        `SELECT start_time, title, status
+         FROM schedules
+         WHERE id = 31`,
+      )
+      .first<{
+        start_time: string | null;
+        title: string | null;
+        status: string;
+      }>();
+
+    expect(result).toEqual({
+      success: true,
+      action: "update",
+      scheduleId: 31,
+    });
+    expect(schedule).toEqual({
+      start_time: "20:30",
+      title: "기존 제목",
+      status: "미정",
+    });
+  });
+
   it("매칭 불확실 후보는 대상 일정 선택 전 승인할 수 없다", async () => {
     await env.otw_db
       .prepare(
@@ -707,13 +766,13 @@ describe("D1 pending schedule transaction", () => {
     ).not.toBeNull();
   });
 
-  it("V2 승인 전에 대상 일정이 완성되면 후보를 만료 처리하고 감사 로그를 남긴다", async () => {
+  it("게릴라에 매칭된 기존 V2 후보도 게릴라를 유지하고 30분 단위 신규 방송으로 승인한다", async () => {
     await env.otw_db
       .prepare(
         `INSERT INTO schedules (
            id, member_uid, date, start_time, title, status
          )
-         VALUES (33, 10, '2026-07-28', '19:00', '이미 완성된 일정', '게릴라')`,
+         VALUES (33, 10, '2026-07-28', '20:00', '게릴라', '게릴라')`,
       )
       .run();
     await env.otw_db
@@ -723,7 +782,9 @@ describe("D1 pending schedule transaction", () => {
              existing_schedule_id = 33,
              candidate_kind = 'fill_missing_fields',
              match_reason = 'time_window',
-             match_confidence = 'high'
+             match_confidence = 'high',
+             start_time = '20:17',
+             title = '실제 방송'
          WHERE id = 1`,
       )
       .run();
@@ -732,28 +793,42 @@ describe("D1 pending schedule transaction", () => {
 
     await expect(
       repository.approve(item!, updateOptions(33), actor),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       success: true,
-      action: "candidate_obsolete",
-      scheduleId: 33,
+      action: "create",
     });
+    const schedules = await env.otw_db
+      .prepare(
+        `SELECT id, start_time, title, status
+         FROM schedules
+         WHERE member_uid = 10 AND date = '2026-07-28'
+         ORDER BY id`,
+      )
+      .all<{
+        id: number;
+        start_time: string | null;
+        title: string | null;
+        status: string;
+      }>();
+    expect(schedules.results).toEqual([
+      {
+        id: 33,
+        start_time: "20:00",
+        title: "게릴라",
+        status: "게릴라",
+      },
+      {
+        id: expect.any(Number),
+        start_time: "20:30",
+        title: "실제 방송",
+        status: "방송",
+      },
+    ]);
     expect(
       await env.otw_db
         .prepare("SELECT id FROM pending_schedules WHERE id = 1")
         .first(),
     ).toBeNull();
-    expect(
-      await env.otw_db
-        .prepare(
-          `SELECT action, schedule_id
-           FROM update_logs
-           WHERE action = 'candidate_obsolete'`,
-        )
-        .first(),
-    ).toEqual({
-      action: "candidate_obsolete",
-      schedule_id: 33,
-    });
   });
 
   it("새 일정 V2 승인 전에 대응하는 빈 일정이 생기면 후보를 만료 처리한다", async () => {

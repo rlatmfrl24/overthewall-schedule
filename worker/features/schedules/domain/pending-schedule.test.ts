@@ -5,6 +5,7 @@ import {
   isPendingApplyMode,
   isPendingTargetMode,
   isPendingTimeMode,
+  roundTimeToNearestScheduleHalfHour,
   roundTimeToNearestScheduleHour,
   type PendingScheduleRow,
 } from "./pending-schedule";
@@ -32,7 +33,7 @@ const makeOptions = (
 ): PendingApprovalOptions => ({
   applyMode: "all",
   targetMode: "update",
-  timeMode: "nearest_hour",
+  timeMode: "nearest_half_hour",
   ...overrides,
 });
 
@@ -65,7 +66,7 @@ describe("pending schedule domain policy", () => {
     },
   );
 
-  it.each(["nearest_hour", "exact"])(
+  it.each(["nearest_half_hour", "nearest_hour", "exact"])(
     "지원하는 시간 모드를 허용한다: %s",
     (value) => {
       expect(isPendingTimeMode(value)).toBe(true);
@@ -92,6 +93,19 @@ describe("pending schedule domain policy", () => {
     expect(roundTimeToNearestScheduleHour(value)).toBe(expected);
   });
 
+  it.each([
+    [null, null],
+    ["", null],
+    ["0:00", "00:00"],
+    ["12:14", "12:00"],
+    ["12:15", "12:30"],
+    ["12:44", "12:30"],
+    ["12:45", "13:00"],
+    ["23:45", "23:30"],
+  ])("시간을 가장 가까운 30분 경계에 맞춰 반올림한다: %s", (value, expected) => {
+    expect(roundTimeToNearestScheduleHalfHour(value)).toBe(expected);
+  });
+
   it.each(["9", "09:5", "-1:00", "24:00", "12:60", "not-a-time"])(
     "형식이나 범위를 벗어난 시간은 원본을 유지한다: %s",
     (value) => {
@@ -104,6 +118,16 @@ describe("pending schedule domain policy", () => {
       getPendingApprovalValues(
         pendingSchedule,
         makeOptions({ timeMode: "exact" }),
+      ),
+    ).toEqual({
+      startTime: "12:30",
+      title: "테스트 방송",
+    });
+
+    expect(
+      getPendingApprovalValues(
+        pendingSchedule,
+        makeOptions({ timeMode: "nearest_half_hour" }),
       ),
     ).toEqual({
       startTime: "12:30",

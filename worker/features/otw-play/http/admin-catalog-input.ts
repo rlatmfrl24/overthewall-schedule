@@ -8,6 +8,9 @@ import {
   OTW_PLAY_QUALITY_STATUSES,
   OTW_PLAY_RELATION_TYPES,
   type OtwPlayAdminCreateChannelRequest,
+  type OtwPlayAdminCatalogSubjectInput,
+  type OtwPlayAdminCatalogEntryPreflightRequest,
+  type OtwPlayAdminCreateCatalogEntryRequest,
   type OtwPlayAdminApproveProposalRequest,
   type OtwPlayAdminCreateEntityRequest,
   type OtwPlayAdminCreatePerformanceRequest,
@@ -169,18 +172,6 @@ export const parseCreateSong = (
   return parsed ? { ok: true, value: parsed } : fail({ body: "invalid_song" });
 };
 
-export const parseUpdateSong = (
-  value: unknown,
-): AdminInputResult<OtwPlayAdminUpdateSongRequest> => {
-  if (!isObject(value)) return fail({ body: "object_required" });
-  const parsed = parseSongCore(value);
-  const id = nonEmptyString(value.id, 128);
-  const expectedVersion = integer(value.expectedVersion);
-  return parsed && id && expectedVersion !== null
-    ? { ok: true, value: { ...parsed, id, expectedVersion } }
-    : fail({ body: "invalid_song" });
-};
-
 const parsePerformanceCore = (value: JsonObject) => {
   const songId = nonEmptyString(value.songId, 128);
   const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
@@ -249,18 +240,6 @@ export const parseCreatePerformance = (
   const parsed = parsePerformanceCore(value);
   return parsed
     ? { ok: true, value: parsed }
-    : fail({ body: "invalid_performance" });
-};
-
-export const parseUpdatePerformance = (
-  value: unknown,
-): AdminInputResult<OtwPlayAdminUpdatePerformanceRequest> => {
-  if (!isObject(value)) return fail({ body: "object_required" });
-  const parsed = parsePerformanceCore(value);
-  const id = nonEmptyString(value.id, 128);
-  const expectedVersion = integer(value.expectedVersion);
-  return parsed && id && expectedVersion !== null
-    ? { ok: true, value: { ...parsed, id, expectedVersion } }
     : fail({ body: "invalid_performance" });
 };
 
@@ -463,4 +442,470 @@ export const parseRecheckSource = (
   return youtubeUrl && channelId
     ? { ok: true, value: { ...version.value, youtubeUrl, channelId } }
     : fail({ body: "invalid_recheck" });
+};
+
+const parseCatalogSubject = (
+  value: unknown,
+): OtwPlayAdminCatalogSubjectInput | null => {
+  if (!isObject(value)) return null;
+  if (value.kind === "member") {
+    const memberUid = integer(value.memberUid, 1);
+    return memberUid === null ? null : { kind: "member", memberUid };
+  }
+  if (value.kind === "entity") {
+    const entityId = nonEmptyString(value.entityId, 128);
+    return entityId ? { kind: "entity", entityId } : null;
+  }
+  if (value.kind === "new_external") {
+    const clientKey = nonEmptyString(value.clientKey, 128);
+    const displayName = nonEmptyString(value.displayName, 300);
+    const entityKind = inValues(value.entityKind, ["person", "group"] as const);
+    return clientKey && displayName && entityKind
+      ? { kind: "new_external", clientKey, displayName, entityKind }
+      : null;
+  }
+  return null;
+};
+
+const parseCatalogSubjects = (value: unknown, allowEmpty = false) => {
+  if (!Array.isArray(value) || value.length > 30 || (!allowEmpty && value.length === 0))
+    return null;
+  const parsed = value.map(parseCatalogSubject);
+  return parsed.some((item) => item === null)
+    ? null
+    : parsed.filter((item): item is OtwPlayAdminCatalogSubjectInput => item !== null);
+};
+
+export const parseUpdateSong = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminUpdateSongRequest> => {
+  if (!isObject(value)) return fail({ body: "object_required" });
+  const id = nonEmptyString(value.id, 128);
+  const expectedVersion = integer(value.expectedVersion);
+  const slug = nonEmptyString(value.slug, 128);
+  const title = nonEmptyString(value.title, 300);
+  const originalReleasePrecision = inValues(
+    value.originalReleasePrecision,
+    OTW_PLAY_DATE_PRECISIONS,
+  );
+  const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
+  const aliases =
+    Array.isArray(value.aliases) && value.aliases.length <= 50
+      ? value.aliases.map((raw) => {
+          if (!isObject(raw)) return null;
+          const alias = nonEmptyString(raw.alias, 300);
+          return alias
+            ? {
+                alias,
+                locale: nullableString(raw.locale, 30),
+                aliasKind: nullableString(raw.aliasKind, 60),
+              }
+            : null;
+        })
+      : null;
+  const artists = Array.isArray(value.originalArtists)
+    ? value.originalArtists.map((raw) => {
+        if (!isObject(raw)) return null;
+        const subject = parseCatalogSubject(raw.subject);
+        const creditOrder = integer(raw.creditOrder);
+        return subject &&
+          creditOrder !== null &&
+          typeof raw.isPrimary === "boolean"
+          ? { subject, creditOrder, isPrimary: raw.isPrimary }
+          : null;
+      })
+    : null;
+  const validDate =
+    originalReleasePrecision === "unknown"
+      ? value.originalReleaseDate === null
+      : originalReleaseDate !== null;
+  const parsedArtists = artists?.filter(
+    (artist): artist is NonNullable<typeof artist> => artist !== null,
+  );
+  const artistOrders = parsedArtists?.map((artist) => artist.creditOrder) ?? [];
+  const artistKeys =
+    parsedArtists?.map((artist) => catalogSubjectKey(artist.subject)) ?? [];
+  if (
+    !id ||
+    expectedVersion === null ||
+    !slug ||
+    !title ||
+    typeof value.isOtwOriginal !== "boolean" ||
+    !originalReleasePrecision ||
+    !validDate ||
+    !aliases ||
+    aliases.some((alias) => alias === null) ||
+    !parsedArtists ||
+    parsedArtists.length === 0 ||
+    parsedArtists.length > 30 ||
+    parsedArtists.length !== artists?.length ||
+    new Set(artistOrders).size !== artistOrders.length ||
+    new Set(artistKeys).size !== artistKeys.length ||
+    parsedArtists.filter((artist) => artist.isPrimary).length !== 1
+  ) {
+    return fail({ body: "invalid_song" });
+  }
+  return {
+    ok: true,
+    value: {
+      id,
+      expectedVersion,
+      slug,
+      title,
+      isOtwOriginal: value.isOtwOriginal,
+      originalReleaseDate,
+      originalReleasePrecision,
+      aliases: aliases.filter(
+        (alias): alias is NonNullable<typeof alias> => alias !== null,
+      ),
+      originalArtists: parsedArtists.sort(
+        (left, right) => left.creditOrder - right.creditOrder,
+      ),
+    },
+  };
+};
+
+export const parseUpdatePerformance = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminUpdatePerformanceRequest> => {
+  if (!isObject(value)) return fail({ body: "object_required" });
+  const id = nonEmptyString(value.id, 128);
+  const expectedVersion = integer(value.expectedVersion);
+  const songId = nonEmptyString(value.songId, 128);
+  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const releaseType = inValues(value.releaseType, [
+    "official_mv",
+    "official_video",
+  ] as const);
+  const participationType = inValues(
+    value.participationType,
+    OTW_PLAY_PARTICIPATION_TYPES,
+  );
+  const qualityStatus = inValues(
+    value.qualityStatus,
+    OTW_PLAY_QUALITY_STATUSES,
+  );
+  const releasedAt =
+    value.releasedAt === null ? null : integer(value.releasedAt);
+  const participants = Array.isArray(value.participants)
+    ? value.participants.map((raw) => {
+        if (!isObject(raw)) return null;
+        const subject = parseCatalogSubject(raw.subject);
+        const participantRole = inValues(
+          raw.participantRole,
+          OTW_PLAY_PARTICIPANT_ROLES,
+        );
+        const creditOrder = integer(raw.creditOrder);
+        const creditNameSnapshot = nullableString(raw.creditNameSnapshot, 300);
+        return subject && participantRole && creditOrder !== null
+          ? {
+              subject,
+              participantRole,
+              creditOrder,
+              ...(creditNameSnapshot ? { creditNameSnapshot } : {}),
+            }
+          : null;
+      })
+    : null;
+  const source = isObject(value.source) ? value.source : null;
+  const youtubeUrl = source ? nonEmptyString(source.youtubeUrl, 500) : null;
+  const channelId = source ? nonEmptyString(source.channelId, 128) : null;
+  const startSeconds = source ? integer(source.startSeconds) : null;
+  const endSeconds =
+    source?.endSeconds === null || source?.endSeconds === undefined
+      ? null
+      : integer(source.endSeconds);
+  const sourceRole = source
+    ? inValues(source.sourceRole, ["official", "alternate"] as const)
+    : null;
+  const parsedParticipants = participants?.filter(
+    (participant): participant is NonNullable<typeof participant> =>
+      participant !== null,
+  );
+  const participantOrders =
+    parsedParticipants?.map((participant) => participant.creditOrder) ?? [];
+  const participantKeys =
+    parsedParticipants?.map((participant) =>
+      catalogSubjectKey(participant.subject),
+    ) ?? [];
+  if (
+    !id ||
+    expectedVersion === null ||
+    !songId ||
+    !relationType ||
+    !releaseType ||
+    !participationType ||
+    !qualityStatus ||
+    (value.releasedAt !== null && releasedAt === null) ||
+    !parsedParticipants ||
+    parsedParticipants.length === 0 ||
+    parsedParticipants.length > 30 ||
+    parsedParticipants.length !== participants?.length ||
+    new Set(participantOrders).size !== participantOrders.length ||
+    new Set(participantKeys).size !== participantKeys.length ||
+    !source ||
+    !youtubeUrl ||
+    !channelId ||
+    startSeconds === null ||
+    !sourceRole ||
+    (source.endSeconds !== null &&
+      source.endSeconds !== undefined &&
+      endSeconds === null) ||
+    (endSeconds !== null && endSeconds <= startSeconds)
+  ) {
+    return fail({ body: "invalid_performance" });
+  }
+  return {
+    ok: true,
+    value: {
+      id,
+      expectedVersion,
+      songId,
+      relationType,
+      releaseType,
+      participationType,
+      qualityStatus,
+      releasedAt,
+      internalNote: nullableString(value.internalNote, 2_000),
+      participants: parsedParticipants.sort(
+        (left, right) => left.creditOrder - right.creditOrder,
+      ),
+      source: {
+        youtubeUrl,
+        channelId,
+        startSeconds,
+        endSeconds,
+        sourceRole,
+      },
+    },
+  };
+};
+
+const catalogSubjectKey = (subject: OtwPlayAdminCatalogSubjectInput) => {
+  switch (subject.kind) {
+    case "member":
+      return `member:${subject.memberUid}`;
+    case "entity":
+      return `entity:${subject.entityId}`;
+    case "new_external":
+      return `new_external:${subject.clientKey}`;
+  }
+};
+
+const hasDuplicateCatalogSubjects = (
+  subjects: OtwPlayAdminCatalogSubjectInput[],
+) => {
+  const keys = subjects.map(catalogSubjectKey);
+  return new Set(keys).size !== keys.length;
+};
+
+export const parseCatalogEntryPreflight = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminCatalogEntryPreflightRequest> => {
+  if (!isObject(value)) return fail({ body: "object_required" });
+  const youtubeUrl = nonEmptyString(value.youtubeUrl, 500);
+  const startSeconds = integer(value.startSeconds);
+  return youtubeUrl && startSeconds !== null
+    ? { ok: true, value: { youtubeUrl, startSeconds } }
+    : fail({ body: "invalid_preflight" });
+};
+
+export const parseCreateCatalogEntry = (
+  value: unknown,
+): AdminInputResult<OtwPlayAdminCreateCatalogEntryRequest> => {
+  if (!isObject(value) || !isObject(value.song) || !isObject(value.channel)) {
+    return fail({ body: "invalid_catalog_entry" });
+  }
+  const expectedCatalogRevision = integer(value.expectedCatalogRevision);
+  const youtubeUrl = nonEmptyString(value.youtubeUrl, 500);
+  const startSeconds = integer(value.startSeconds);
+  const endSeconds =
+    value.endSeconds === null || value.endSeconds === undefined
+      ? null
+      : integer(value.endSeconds);
+  const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
+  const releaseType = inValues(value.releaseType, [
+    "official_mv",
+    "official_video",
+  ] as const);
+  const participationType = inValues(
+    value.participationType,
+    OTW_PLAY_PARTICIPATION_TYPES,
+  );
+  const publicationTarget = inValues(value.publicationTarget, [
+    "draft",
+    "published",
+  ] as const);
+  const internalNote = nullableString(value.internalNote, 2_000);
+
+  let song: OtwPlayAdminCreateCatalogEntryRequest["song"] | null = null;
+  if (value.song.kind === "existing") {
+    const songId = nonEmptyString(value.song.songId, 128);
+    if (songId) song = { kind: "existing", songId };
+  } else if (value.song.kind === "from_video") {
+    song = { kind: "from_video" };
+  } else if (value.song.kind === "create") {
+    const title = nonEmptyString(value.song.title, 300);
+    const precision = inValues(
+      value.song.originalReleasePrecision,
+      OTW_PLAY_DATE_PRECISIONS,
+    );
+    const releaseDate = nullableString(value.song.originalReleaseDate, 10);
+    const aliases = Array.isArray(value.song.aliases) && value.song.aliases.length <= 50
+      ? value.song.aliases.map((raw) => {
+          if (!isObject(raw)) return null;
+          const alias = nonEmptyString(raw.alias, 300);
+          return alias
+            ? {
+                alias,
+                locale: nullableString(raw.locale, 30),
+                aliasKind: nullableString(raw.aliasKind, 60),
+              }
+            : null;
+        })
+      : null;
+    const artists = Array.isArray(value.song.originalArtists)
+      ? value.song.originalArtists.map((raw) => {
+          if (!isObject(raw)) return null;
+          const subject = parseCatalogSubject(raw.subject);
+          const creditOrder = integer(raw.creditOrder);
+          return subject && creditOrder !== null && typeof raw.isPrimary === "boolean"
+            ? { subject, creditOrder, isPrimary: raw.isPrimary }
+            : null;
+        })
+      : null;
+    const validDate =
+      precision === "unknown"
+        ? value.song.originalReleaseDate === null
+        : releaseDate !== null;
+    if (
+      title &&
+      typeof value.song.isOtwOriginal === "boolean" &&
+      precision &&
+      validDate &&
+      aliases &&
+      !aliases.some((item) => item === null) &&
+      artists &&
+      artists.length > 0 &&
+      artists.length <= 30 &&
+      !artists.some((item) => item === null) &&
+      artists.filter((item) => item?.isPrimary).length === 1
+    ) {
+      song = {
+        kind: "create",
+        title,
+        isOtwOriginal: value.song.isOtwOriginal,
+        originalReleaseDate: releaseDate,
+        originalReleasePrecision: precision,
+        aliases: aliases.filter((item): item is NonNullable<typeof item> => item !== null),
+        originalArtists: artists.filter((item): item is NonNullable<typeof item> => item !== null),
+      };
+    }
+  }
+
+  const participants = Array.isArray(value.participants)
+    ? value.participants.map((raw) => {
+        if (!isObject(raw)) return null;
+        const subject = parseCatalogSubject(raw.subject);
+        const participantRole = inValues(
+          raw.participantRole,
+          OTW_PLAY_PARTICIPANT_ROLES,
+        );
+        const creditOrder = integer(raw.creditOrder);
+        const creditNameSnapshot = nullableString(raw.creditNameSnapshot, 300);
+        return subject && participantRole && creditOrder !== null
+          ? {
+              subject,
+              participantRole,
+              creditOrder,
+              ...(creditNameSnapshot ? { creditNameSnapshot } : {}),
+            }
+          : null;
+      })
+    : null;
+
+  let channel: OtwPlayAdminCreateCatalogEntryRequest["channel"] | null = null;
+  if (value.channel.kind === "existing") {
+    const channelId = nonEmptyString(value.channel.channelId, 128);
+    if (channelId) channel = { kind: "existing", channelId };
+  } else if (value.channel.kind === "recognized_member") {
+    const memberUid = integer(value.channel.memberUid, 1);
+    const channelRole = inValues(value.channel.channelRole, [
+      "member_music",
+      "member_main",
+    ] as const);
+    if (memberUid !== null && channelRole)
+      channel = { kind: "recognized_member", memberUid, channelRole };
+  } else if (value.channel.kind === "confirm" || value.channel.kind === "pending") {
+    const channelRole = inValues(value.channel.channelRole, OTW_PLAY_CHANNEL_ROLES);
+    const owners = parseCatalogSubjects(value.channel.owners);
+    if (channelRole && owners)
+      channel = { kind: value.channel.kind, channelRole, owners };
+  }
+
+  const orders = participants?.map((item) => item?.creditOrder) ?? [];
+  const parsedParticipants = participants?.filter(
+    (item): item is NonNullable<typeof item> => item !== null,
+  );
+  const parsedArtists = song?.kind === "create" ? song.originalArtists : null;
+  const artistOrders = parsedArtists?.map((item) => item.creditOrder) ?? [];
+  const channelOwners =
+    channel?.kind === "confirm" || channel?.kind === "pending"
+      ? channel.owners
+      : null;
+  const hasSingingCredit = participants?.some(
+    (item) =>
+      item?.participantRole === "vocal" ||
+      item?.participantRole === "featured_vocal" ||
+      item?.participantRole === "chorus",
+  );
+  if (
+    expectedCatalogRevision === null ||
+    !youtubeUrl ||
+    startSeconds === null ||
+    (value.endSeconds !== null && value.endSeconds !== undefined && endSeconds === null) ||
+    (endSeconds !== null && endSeconds <= startSeconds) ||
+    !song ||
+    !participants ||
+    participants.length === 0 ||
+    participants.length > 30 ||
+    participants.some((item) => item === null) ||
+    new Set(orders).size !== orders.length ||
+    (parsedParticipants !== undefined &&
+      hasDuplicateCatalogSubjects(parsedParticipants.map((item) => item.subject))) ||
+    (parsedArtists !== null &&
+      (new Set(artistOrders).size !== artistOrders.length ||
+        hasDuplicateCatalogSubjects(parsedArtists.map((item) => item.subject)))) ||
+    (channelOwners !== null && hasDuplicateCatalogSubjects(channelOwners)) ||
+    !channel ||
+    !relationType ||
+    (song?.kind === "from_video" && relationType !== "original") ||
+    !releaseType ||
+    !participationType ||
+    !publicationTarget ||
+    (value.internalNote !== undefined && value.internalNote !== null && internalNote === null) ||
+    (publicationTarget === "published" && !hasSingingCredit)
+  ) {
+    return fail({ body: "invalid_catalog_entry" });
+  }
+
+  return {
+    ok: true,
+    value: {
+      expectedCatalogRevision,
+      youtubeUrl,
+      startSeconds,
+      endSeconds,
+      song,
+      participants: participants.filter(
+        (item): item is NonNullable<typeof item> => item !== null,
+      ),
+      channel,
+      relationType,
+      releaseType,
+      participationType,
+      publicationTarget,
+      internalNote,
+    },
+  };
 };

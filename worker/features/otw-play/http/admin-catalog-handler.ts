@@ -9,6 +9,8 @@ import {
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import {
+  parseCatalogEntryPreflight,
+  parseCreateCatalogEntry,
   parseCreateChannel,
   parseApproveProposal,
   parseCreateEntity,
@@ -99,6 +101,41 @@ export const createAdminCatalogHandler =
 
     try {
       if (
+        url.pathname === "/api/play/admin/catalog-entries/preflight" &&
+        request.method === "POST"
+      ) {
+        const parsed = await readBody(request, parseCatalogEntryPreflight);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid catalog entry preflight",
+            parsed.fields,
+          );
+        return responseJson({ data: await service.preflightCatalogEntry(parsed.value) });
+      }
+
+      if (
+        url.pathname === "/api/play/admin/catalog-entries" &&
+        request.method === "POST"
+      ) {
+        const parsed = await readBody(request, parseCreateCatalogEntry);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid catalog entry",
+            parsed.fields,
+          );
+        return responseJson(
+          await service.createCatalogEntry(parsed.value, actor),
+          201,
+        );
+      }
+
+      if (
         url.pathname === "/api/play/admin/catalog" &&
         request.method === "GET"
       ) {
@@ -173,7 +210,10 @@ export const createAdminCatalogHandler =
           );
         const result =
           request.method === "POST"
-            ? await service.createSong(parsed.value, actor)
+            ? await service.createSong(
+                parsed.value as Parameters<typeof service.createSong>[0],
+                actor,
+              )
             : await service.updateSong(
                 parsed.value as Parameters<typeof service.updateSong>[0],
                 actor,
@@ -203,12 +243,46 @@ export const createAdminCatalogHandler =
           );
         const result =
           request.method === "POST"
-            ? await service.createPerformance(parsed.value, actor)
+            ? await service.createPerformance(
+                parsed.value as Parameters<
+                  typeof service.createPerformance
+                >[0],
+                actor,
+              )
             : await service.updatePerformance(
                 parsed.value as Parameters<typeof service.updatePerformance>[0],
                 actor,
               );
         return responseJson(result, request.method === "POST" ? 201 : 200);
+      }
+
+      const deleteSongId = pathId(
+        url.pathname,
+        /^\/api\/play\/admin\/songs\/([^/]+)$/u,
+      );
+      const deletePerformanceId = pathId(
+        url.pathname,
+        /^\/api\/play\/admin\/performances\/([^/]+)$/u,
+      );
+      if ((deleteSongId || deletePerformanceId) && request.method === "DELETE") {
+        const parsed = await readBody(request, parseVersionRequest);
+        if (!parsed.ok)
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Invalid expected version",
+            parsed.fields,
+          );
+        return responseJson(
+          deleteSongId
+            ? await service.deleteSong(deleteSongId, parsed.value, actor)
+            : await service.deletePerformance(
+                deletePerformanceId!,
+                parsed.value,
+                actor,
+              ),
+        );
       }
 
       const publishId = pathId(
@@ -380,6 +454,8 @@ export const createAdminCatalogHandler =
         const status =
           error.code === "unavailable"
             ? 503
+            : error.code === "duplicate_source"
+              ? 409
             : error.code === "not_found"
               ? 404
               : error.code === "stale_write"
@@ -388,19 +464,28 @@ export const createAdminCatalogHandler =
         const code =
           error.code === "unavailable"
             ? "PLAY_ADMIN_INTERNAL_ERROR"
+            : error.code === "duplicate_source"
+              ? "PLAY_ADMIN_DUPLICATE_SOURCE"
             : error.code === "not_found"
               ? "PLAY_ADMIN_NOT_FOUND"
               : error.code === "stale_write"
                 ? "PLAY_ADMIN_STALE_WRITE"
                 : "PLAY_ADMIN_VALIDATION_FAILED";
-        return errorResponse(requestId, status, code, error.message);
+        return errorResponse(requestId, status, code, error.message, error.fields);
       }
       if (error instanceof OtwPlayYouTubeMetadataError) {
+        console.warn("OTW Play YouTube metadata request failed", {
+          path: url.pathname,
+          method: request.method,
+          reason: error.message,
+          requestId,
+        });
         return errorResponse(
           requestId,
           503,
           "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
           "YouTube metadata is temporarily unavailable",
+          { youtube: error.message },
         );
       }
       console.error("OTW Play admin request failed", {

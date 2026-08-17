@@ -42,5 +42,8 @@ export type {
   SelectedPendingBatchResult,
 } from "./model/pending-schedule";
 export { saveScheduleWithConflicts } from "./use-cases/save-schedule";
-export { roundTimeToNearestScheduleHour } from "./model/pending-time";
+export {
+  roundTimeToNearestScheduleHalfHour,
+  roundTimeToNearestScheduleHour,
+} from "./model/pending-time";
 export { ScheduleDialog } from "./ui/schedule-dialog";

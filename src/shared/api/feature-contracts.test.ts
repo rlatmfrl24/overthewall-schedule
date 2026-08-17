@@ -560,7 +560,7 @@ describe("api wrapper modules", () => {
     await approvePendingSchedule(16, {
       applyMode: "time",
       targetMode: "update",
-      timeMode: "nearest_hour",
+      timeMode: "nearest_half_hour",
       targetScheduleId: 160,
     });
     await applyPendingScheduleToEmptyTarget(15);
@@ -638,7 +638,7 @@ describe("api wrapper modules", () => {
           options: {
             applyMode: "time",
             targetMode: "update",
-            timeMode: "nearest_hour",
+            timeMode: "nearest_half_hour",
             targetScheduleId: 160,
           },
         },

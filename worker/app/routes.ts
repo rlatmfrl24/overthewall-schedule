@@ -452,6 +452,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.catalog-entry.preflight",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.catalogEntryPreflight.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.catalog-entry.create",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.catalogEntries.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 201 })),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.entities",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.entities.pattern,
@@ -472,6 +486,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.song.delete",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.deleteSong.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.performances",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.performances.pattern,
@@ -479,6 +500,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       post({ ...ADMIN_NO_STORE, successStatus: 201 }),
       put(ADMIN_NO_STORE),
     ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.performance.delete",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.deletePerformance.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
     handler: handleOtwPlayAdminCatalog,
   },
   {

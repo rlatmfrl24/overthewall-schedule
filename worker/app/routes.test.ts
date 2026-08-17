@@ -221,6 +221,18 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
+    id: "otw-play.admin.catalog-entry.preflight",
+    owner: "otw-play",
+    path: "/api/play/admin/catalog-entries/preflight",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.catalog-entry.create",
+    owner: "otw-play",
+    path: "/api/play/admin/catalog-entries",
+    methods: [ADMIN_POST_CREATED],
+  },
+  {
     id: "otw-play.admin.entities",
     owner: "otw-play",
     path: "/api/play/admin/entities",
@@ -233,10 +245,22 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_POST_CREATED, ADMIN_PUT],
   },
   {
+    id: "otw-play.admin.song.delete",
+    owner: "otw-play",
+    path: "/api/play/admin/songs/:id",
+    methods: [ADMIN_DELETE],
+  },
+  {
     id: "otw-play.admin.performances",
     owner: "otw-play",
     path: "/api/play/admin/performances",
     methods: [ADMIN_POST_CREATED, ADMIN_PUT],
+  },
+  {
+    id: "otw-play.admin.performance.delete",
+    owner: "otw-play",
+    path: "/api/play/admin/performances/:id",
+    methods: [ADMIN_DELETE],
   },
   {
     id: "otw-play.admin.performance.publish",

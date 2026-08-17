@@ -1,6 +1,9 @@
 export type PendingApplyMode = "all" | "time" | "title";
 export type PendingTargetMode = "update" | "create";
-export type PendingTimeMode = "nearest_hour" | "exact";
+export type PendingTimeMode =
+  | "nearest_half_hour"
+  | "nearest_hour"
+  | "exact";
 export type PendingAction = "approve" | "reject" | "reset_processed";
 export type PendingRejectionReasonCode =
   | "not_needed"

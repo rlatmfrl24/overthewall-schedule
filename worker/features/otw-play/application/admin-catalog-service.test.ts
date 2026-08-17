@@ -10,6 +10,95 @@ import type { OtwPlayYouTubeVideoMetadata } from "./ports/youtube-metadata";
 const actor = { userId: "admin", displayName: "Admin", ipAddress: null };
 
 describe("AdminCatalogService", () => {
+  it("preflights and then re-verifies YouTube metadata before one integrated catalog command", async () => {
+    const video = {
+      videoId: "dQw4w9WgXcQ",
+      channelId: `UC${"M".repeat(22)}`,
+      channelTitle: "Member Channel",
+      title: "Verified title",
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: 123,
+      availabilityStatus: "playable" as const,
+    };
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 4,
+      video,
+      channel: {
+        state: "recognized_member" as const,
+        catalogChannelId: null,
+        verificationStatus: null,
+        active: false,
+        channelRole: null,
+        memberUid: 1,
+      },
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "created-performance" } },
+      catalogRevision: 5,
+    }));
+    const readVideo = vi.fn(async () => video);
+    let sequence = 0;
+    const service = new AdminCatalogService(
+      {
+        preflightCatalogEntry,
+        createCatalogEntry,
+      } as unknown as AdminCatalogRepository,
+      { readChannel: vi.fn(), readVideo },
+      { record: vi.fn(async () => undefined) },
+      () => `workflow-id-${++sequence}`,
+      false,
+      () => 456,
+    );
+    await expect(
+      service.preflightCatalogEntry({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ catalogRevision: 4 });
+    await expect(
+      service.createCatalogEntry(
+        {
+          expectedCatalogRevision: 4,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          startSeconds: 0,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "vocal",
+              creditOrder: 0,
+            },
+          ],
+          channel: {
+            kind: "recognized_member",
+            memberUid: 1,
+            channelRole: "member_music",
+          },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationTarget: "draft",
+        },
+        actor,
+      ),
+    ).resolves.toMatchObject({ catalogRevision: 5 });
+
+    expect(readVideo).toHaveBeenCalledTimes(2);
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video,
+        now: 456,
+        input: expect.objectContaining({ expectedCatalogRevision: 4 }),
+        ids: expect.objectContaining({
+          entityIds: { "member:1": expect.any(String) },
+          performanceId: expect.any(String),
+        }),
+      }),
+    );
+  });
+
   it("coordinates successful admin lifecycle commands and audit mirrors", async () => {
     const result = { data: { id: "resource-1" }, catalogRevision: 2 };
     const repository = {
@@ -17,6 +106,8 @@ describe("AdminCatalogService", () => {
       updateEntity: vi.fn(async () => result),
       createSong: vi.fn(async () => result),
       updateSong: vi.fn(async () => result),
+      deleteSong: vi.fn(async () => result),
+      deletePerformance: vi.fn(async () => result),
       transitionPerformance: vi.fn(async () => result),
       createChannel: vi.fn(async () => result),
       updateChannel: vi.fn(async () => result),
@@ -77,9 +168,26 @@ describe("AdminCatalogService", () => {
     );
     await service.createSong(song, actor);
     await service.updateSong(
-      { ...song, id: "song-1", expectedVersion: 0 },
+      {
+        ...song,
+        id: "song-1",
+        expectedVersion: 0,
+        originalArtists: [
+          {
+            subject: { kind: "entity", entityId: "artist" },
+            creditOrder: 0,
+            isPrimary: true,
+          },
+        ],
+      },
       actor,
     );
+    await service.deletePerformance(
+      "performance-draft",
+      { expectedVersion: 0 },
+      actor,
+    );
+    await service.deleteSong("song-draft", { expectedVersion: 0 }, actor);
     await service.transitionPerformance(
       "performance-1",
       { expectedVersion: 0 },
@@ -111,7 +219,21 @@ describe("AdminCatalogService", () => {
       expect.any(String),
       123,
     );
-    expect(audit.record).toHaveBeenCalledTimes(7);
+    expect(repository.deletePerformance).toHaveBeenCalledWith(
+      "performance-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+    expect(repository.deleteSong).toHaveBeenCalledWith(
+      "song-draft",
+      0,
+      actor,
+      expect.any(String),
+      123,
+    );
+    expect(audit.record).toHaveBeenCalledTimes(9);
   });
 
   it("does not persist a video whose authoritative YouTube channel differs", async () => {
@@ -188,6 +310,111 @@ describe("AdminCatalogService", () => {
       code: "validation_failed",
     } satisfies Partial<AdminCatalogServiceError>);
     expect(createPerformance).not.toHaveBeenCalled();
+  });
+
+  it("coordinates a full performance correction and allocates inline participant identities", async () => {
+    const externalChannelId = `UC${"A".repeat(22)}`;
+    const video = {
+      videoId: "ASRCBcCY_qE",
+      channelId: externalChannelId,
+      channelTitle: "Official",
+      title: "Corrected video",
+      thumbnailUrl: null,
+      durationSeconds: 190,
+      publishedAt: 1_786_500_000_000,
+      availabilityStatus: "playable" as const,
+    };
+    const updatePerformance = vi.fn(async () => ({
+      data: { id: "performance-1" },
+      catalogRevision: 8,
+    }));
+    const repository = {
+      readCatalog: vi.fn(async () => ({
+        revision: 7,
+        readModelRevision: 7,
+        entities: [],
+        songs: [],
+        performances: [],
+        channels: [
+          {
+            id: "channel-1",
+            externalChannelId,
+            displayName: "Official",
+          },
+        ],
+      })),
+      updatePerformance,
+    } as unknown as AdminCatalogRepository;
+    let sequence = 0;
+    const service = new AdminCatalogService(
+      repository,
+      { readChannel: vi.fn(), readVideo: vi.fn(async () => video) },
+      { record: vi.fn(async () => undefined) },
+      () => `generated-${++sequence}`,
+      false,
+      () => 123,
+    );
+
+    await expect(
+      service.updatePerformance(
+        {
+          id: "performance-1",
+          expectedVersion: 4,
+          songId: "song-2",
+          relationType: "original",
+          releaseType: "official_mv",
+          participationType: "duet",
+          qualityStatus: "needs_update",
+          releasedAt: video.publishedAt,
+          internalNote: "corrected",
+          participants: [
+            {
+              subject: { kind: "member", memberUid: 1 },
+              participantRole: "featured_vocal",
+              creditOrder: 0,
+              creditNameSnapshot: "Member",
+            },
+            {
+              subject: {
+                kind: "new_external",
+                clientKey: "guest-chip",
+                displayName: "Guest",
+                entityKind: "person",
+              },
+              participantRole: "vocal",
+              creditOrder: 1,
+              creditNameSnapshot: "Guest",
+            },
+          ],
+          source: {
+            youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
+            channelId: "channel-1",
+            startSeconds: 12,
+            endSeconds: 170,
+            sourceRole: "alternate",
+          },
+        },
+        actor,
+      ),
+    ).resolves.toMatchObject({ catalogRevision: 8 });
+    expect(updatePerformance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video,
+        now: 123,
+        ids: {
+          entityIds: {
+            "member:1": expect.any(String),
+            "external:guest-chip": expect.any(String),
+          },
+          entityEventIds: {
+            "member:1": expect.any(String),
+            "external:guest-chip": expect.any(String),
+          },
+          sourceId: expect.any(String),
+          eventId: expect.any(String),
+        },
+      }),
+    );
   });
 
   it("keeps an authoritative success when the global audit mirror fails", async () => {
@@ -270,6 +497,8 @@ describe("AdminCatalogService", () => {
       createChannel: vi.fn(),
       updateChannel: vi.fn(),
       deleteChannel: vi.fn(),
+      deleteSong: vi.fn(),
+      deletePerformance: vi.fn(),
     } as unknown as AdminCatalogRepository;
     const service = new AdminCatalogService(
       repository,
@@ -291,6 +520,12 @@ describe("AdminCatalogService", () => {
     ).rejects.toMatchObject({ code: "invalid_request" });
     await expect(
       service.deleteChannel("channel-1", { expectedVersion: -1 }, actor),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      service.deleteSong("song-1", { expectedVersion: 0.5 }, actor),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(
+      service.deletePerformance("performance-1", { expectedVersion: -1 }, actor),
     ).rejects.toMatchObject({ code: "invalid_request" });
 
     readChannel.mockResolvedValueOnce(null);
@@ -326,6 +561,8 @@ describe("AdminCatalogService", () => {
     expect(repository.createChannel).not.toHaveBeenCalled();
     expect(repository.updateChannel).not.toHaveBeenCalled();
     expect(repository.deleteChannel).not.toHaveBeenCalled();
+    expect(repository.deleteSong).not.toHaveBeenCalled();
+    expect(repository.deletePerformance).not.toHaveBeenCalled();
   });
 
   it("marks a missing YouTube item unavailable while preserving stored identity", async () => {

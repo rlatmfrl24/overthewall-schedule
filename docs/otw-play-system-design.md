@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-5 관리자 catalog command/UI 및 atomic projection 실행 기준선
+상태: PR-5.1 workflow-first 관리자 등록 및 atomic projection 실행 기준선
 
-기준일: 2026-08-11
+기준일: 2026-08-12
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -757,8 +757,11 @@ CHECK 대상이 아니다. source relation은 열거값만 제한하고 방향�
 - source relation의 양쪽 source FK: `RESTRICT`
 - proposal의 suggested song: `SET NULL`
 - proposal의 approved performance: `RESTRICT`
-- 공개 song/performance와 rejected proposal은 운영 command에서 hard delete하지 않는다.
-- 잘못된 공개 데이터는 `withdrawn`, `archived`, merge 관계로 보존한다.
+- 관리자는 테스트·오입력 정리를 위해 `draft` 또는 `withdrawn` performance를 개별 hard delete할 수 있다.
+- song hard delete는 보관되지 않은 곡에 연결된 performance가 없거나 모두 `draft|withdrawn`이고, merge 대상이나 승인 proposal의 performance 참조가 없을 때만 허용한다. 이 경우 performance와 소유 child를 같은 batch에서 함께 삭제한다.
+- 현재 `published` performance가 연결된 song/performance와 rejected proposal은 운영 command에서 hard delete하지 않는다.
+- 일반 운영의 잘못된 공개 데이터는 우선 `withdrawn`, `archived`, merge 관계로 보존한다. 관리자가 테스트·오입력 정리를 위해 명시적 삭제를 선택한 withdrawn 항목만 irreversible confirm 뒤 예외적으로 제거한다.
+- draft 삭제도 capability event를 남기고 search/read-model projection과 catalog/read-model revision을 같은 D1 batch에서 갱신한다. source는 다른 performance가 참조하지 않을 때만 함께 제거한다.
 
 마이그레이션에서는 foreign key와 CHECK를 명시하고
 `PRAGMA foreign_key_check`, `PRAGMA integrity_check`로 검증한다.
@@ -950,9 +953,13 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | Method   | Path                                        | 목적                                   |
 | -------- | ------------------------------------------- | -------------------------------------- |
 | GET      | `/api/play/admin/catalog`                   | draft·published 운영 목록              |
+| POST     | `/api/play/admin/catalog-entries/preflight` | URL·YouTube metadata·채널·중복과 현재 revision 확인 |
+| POST     | `/api/play/admin/catalog-entries`           | 곡·가창·identity·채널을 한 atomic command로 등록 |
 | POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
 | POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
-| POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·수정                   |
+| DELETE   | `/api/play/admin/songs/:id`                 | published가 없는 테스트·오입력 곡 정리 |
+| POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·전체 metadata 수정     |
+| DELETE   | `/api/play/admin/performances/:id`           | draft·withdrawn 가창 정리              |
 | POST     | `/api/play/admin/performances/:id/publish`  | 검수 후 게시                           |
 | POST     | `/api/play/admin/performances/:id/withdraw` | 공개 철회                              |
 | GET      | `/api/play/admin/submissions`               | 검토 대기 목록                         |
@@ -961,10 +968,55 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | CRUD     | `/api/play/admin/channels`                  | 공식 채널 검수·활성 관리               |
 | POST     | `/api/play/admin/sources/:id/recheck`       | 소스 상태 재검사                       |
 
-승인, 반려, publish와 withdraw command에는 `expectedVersion`을 요구한다.
+승인, 반려, publish, withdraw와 draft 삭제 command에는 `expectedVersion`을 요구한다.
+
+통합 등록의 preflight는 mutation 없이 authoritative YouTube video/channel metadata,
+동일 source segment, 기존 채널 상태와 `members.youtube_channel_id` 및 활성
+`member_links.youtube_channel_id` 일치를 확인한다. commit은 client가 표시한 제목과
+채널 주장을 사용하지 않고 metadata를 다시 조회한다. preflight revision과 commit
+revision이 다르면 `409 PLAY_ADMIN_STALE_WRITE`, 동일 video/segment면 기존 song과
+performance ID를 포함한 `409 PLAY_ADMIN_DUPLICATE_SOURCE`를 반환한다.
+
+새 영상 UI는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저 구분한다.
+오리지널은 수동 song 선택을 요구하지 않고 검증된 video title로 내부 song을 만들며,
+선택한 participant identity를 original artist credit으로 재사용한다. 공식 커버는
+관리자가 `원곡 제목`과 하나 이상의 `원곡 가수` identity를 별도로 입력하고 그 값으로
+song을 만든다. client의 video title/channel 주장은 계속 신뢰하지 않지만, 관리자가
+명시적으로 입력한 원곡 정보는 catalog command의 검증된 입력으로 취급한다. 기존 곡의
+`다른 가창 추가` 진입만 명시적으로 그 song과 원곡 정보를 재사용한다. 노래방송은 한
+source에 여러 곡과 segment를 연결해야 하므로 현재 통합 command가 받지 않으며
+canonical row나 staging row를 생성하지 않는다.
+오리지널 자동 생성 song은 normalized video title과 검증된 YouTube video ID로 dedupe
+key material을 만든다. 커버 song은 normalized original title과 선택·생성된 original
+artist identity로 canonical dedupe key material을 만든다. exact 중복은 충돌로 거부하되
+soft duplicate를 자동 연결하지 않는다.
+
+곡 수정 command는 원곡 가수를 raw 이름 문자열이 아니라 `member|entity|new_external`
+subject로 받는다. 현재 멤버 identity가 없거나 새 외부 가수 칩이 포함되면 identity 생성,
+song credit 교체, dedupe/search/gram projection, capability event와 두 revision 갱신을
+하나의 D1 batch로 수행한다. 수정 form에서 원곡 공개일을 받지 않더라도 client는 읽은
+기존 날짜와 precision을 그대로 보내며 server는 이를 보존한다.
+
+가창 수정 command도 참여자를 `member|entity|new_external` subject로 받는다. 연결
+song, 관계·공개 형태·참여 형태, 품질, 공개일시, 내부 메모, 전체 participant credit과
+공식 YouTube source의 channel·segment·source role을 교체할 수 있다. server는 입력
+URL에서 video ID를 다시 검증하고 YouTube metadata의 channel ID를 선택된 내부 channel과
+대조한다. 아직 entity가 없는 현재 멤버와 새 외부 subject는 같은 batch에서 identity로
+만든다. 이전 song과 새 song의 search/gram/participant sort projection, orphan source
+정리, `performance.updated` event와 두 revision도 그 batch에 포함한다. performance
+dedupe key와 publication status는 이 correction의 수정 허용 field가 아니며, 게시·철회는
+각각의 conditional transition command로만 수행한다.
+
+현재 멤버 entity가 없으면 `member_uid`로 자동 생성한다. 외부 인물·그룹은 관리자가
+기존 후보를 선택한 경우만 재사용하며 새 칩은 UUID suffix의 server slug를 가진 별도
+identity가 된다. 권위 멤버 채널은 자동 연결할 수 있지만 그 밖의 새 채널은 인라인
+관리자 승인 또는 pending/inactive 중 하나가 필요하다. pending/inactive 채널은 draft만,
+revoked 채널은 등록과 게시 모두 금지한다. canonical row, search term, participant sort
+key, gram/stat, event와 catalog/read-model revision은 같은 D1 batch에서 반영한다.
 
 PR-5 관리자 고정 오류 code는 `PLAY_ADMIN_INVALID_REQUEST`,
 `PLAY_ADMIN_NOT_FOUND`, `PLAY_ADMIN_STALE_WRITE`,
+`PLAY_ADMIN_DUPLICATE_SOURCE`,
 `PLAY_ADMIN_VALIDATION_FAILED`, `PLAY_ADMIN_POLICY_UNRESOLVED`,
 `PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE`, `PLAY_ADMIN_INTERNAL_ERROR`다.
 GATE-01 미확정 상태의 proposal approve만 policy-unresolved 409를 반환하며 draft

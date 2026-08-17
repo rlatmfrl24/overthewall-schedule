@@ -10,16 +10,11 @@ export default defineConfig({
     },
   },
   test: {
-    name: "unit",
-    environment: "node",
-    include: [
-      "src/**/*.test.ts",
-      "worker/**/*.test.ts",
-      "scripts/**/*.test.ts",
-    ],
-    exclude: ["worker/**/*.integration.test.ts"],
+    projects: ["vitest.config.ts", "vitest.worker.config.ts"],
     coverage: {
-      provider: "v8",
+      // Workerd does not expose the V8 inspector coverage API. Istanbul lets
+      // unit and Miniflare D1 integration tests contribute to one report.
+      provider: "istanbul",
       reporter: ["text", "json-summary", "html"],
       include: [
         "src/features/**/api/**/*.ts",

@@ -40,6 +40,20 @@ export const createSongDedupeKeyMaterial = (
     normalizeIds(input.originalArtistIds),
   ]);
 
+export interface VideoBackedSongDedupeKeyInput {
+  title: string;
+  youtubeVideoId: string;
+}
+
+export const createVideoBackedSongDedupeKeyMaterial = (
+  input: VideoBackedSongDedupeKeyInput,
+): string =>
+  serializeKeyMaterial([
+    "song-from-video:v1",
+    normalizeOtwPlaySearchText(input.title),
+    input.youtubeVideoId.trim(),
+  ]);
+
 export interface PerformanceDedupeKeyInput {
   songId: string;
   sourceId: string;
