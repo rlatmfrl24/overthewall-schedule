@@ -2,9 +2,9 @@
 
 상태: Living Draft
 
-단계: PR-5.1 workflow-first 관리자 등록 흐름 구현 중, proposal approve는 GATE-01 확정 대기
+단계: PR-6 공개 Discover·Catalog·곡 상세와 단일 player 구현 중, proposal approve는 GATE-01 확정 대기
 
-최종 갱신일: 2026-08-12
+최종 갱신일: 2026-08-18
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -81,6 +81,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-026 | 관리자 hard delete는 테스트·오입력 catalog를 정리하는 용도로 `draft`와 `withdrawn`에 허용한다. | 확정 | draft·withdrawn 가창은 개별 삭제할 수 있고, 곡은 연결된 가창에 `published`가 없을 때 함께 삭제할 수 있다. 현재 게시 중인 가창, 승인 proposal 참조와 merge 대상은 삭제하지 않으며 삭제 event와 revision은 남긴다. |
 | DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
 | DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
+| DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 모바일 접기 전 pause, 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
 
 ## 4. 제품 원칙
 
@@ -330,7 +331,8 @@ source 관계는 `source_id`에서 `related_source_id`로 향하는 directed rel
 - FR-023: 재생 불가 소스는 상태를 안내하고 사용자가 다음 항목으로 이동할 수 있어야 한다.
 
 재생 대기열은 현재 감상 세션을 위한 기능이며 저장형 플레이리스트가 아니다.
-대기열의 새로고침 이후 유지 여부는 구현 착수 전에 별도로 결정한다.
+대기열은 versioned `sessionStorage`에 식별자와 순서·현재 index·repeat·shuffle만
+보존한다. 복원 항목은 공개 performance API로 다시 검증하며 자동 재생하지 않는다.
 
 MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 방송 가창 확장과
 함께 도입한다.
@@ -549,13 +551,8 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 
 | ID | 항목 | 현재 권장안 |
 | --- | --- | --- |
-| TBD-001 | 공개 라우트 | /play 권장, 최종 결정 필요 |
-| TBD-003 | 내비게이션 위치와 라벨 | OTW Play 단독 메뉴 권장 |
 | TBD-004 | 후속 키리누키 채널 승인 기준과 해제 절차 | 관리자 allowlist와 개별 게시 승인 분리 |
 | TBD-005 | 후속 단계에서 키리누키가 없는 방송 가창의 공개 여부 | 원본 방송 타임스탬프로 공개 권장 |
-| TBD-006 | 플레이어가 접히거나 다른 페이지로 이동할 때의 재생 정책 | 정책 검토 후 결정 |
-| TBD-007 | 세션 대기열의 새로고침 이후 유지 여부 | 브라우저 로컬 저장 검토 |
-| TBD-008 | 외부 참여자의 클릭 또는 검색 범위 | 검색 필터만 제공하고 공개 프로필은 제외 권장 |
 | TBD-009 | 첫 오리지널곡·공식 커버곡 데이터 입력 범위와 우선 멤버 | 운영 비용 산정 후 결정 |
 | TBD-010 | 공식 커버곡으로 인정할 채널과 영상 기준 | 승인된 공식 채널과 실제 가창 참여 크레딧 기준 권장 |
 | TBD-011 | 전 소속 멤버의 과거 OTW 공식곡 포함 범위 | 현재 표시 정책과 별도로 카탈로그 보존 범위 결정 필요 |
@@ -563,8 +560,9 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | 사이트 내 상태 표시를 MVP 기본값으로 권장 |
 | TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | 일일 제한과 동일 영상 중복 차단 검토 |
 
-기존 TBD-002는 DEC-019로 해결되었다. 공개 catalog API는 익명이고 회원 제안은
-로그인, 검수와 공개 상태 변경은 관리자 권한을 사용한다.
+기존 TBD-002는 DEC-019로 해결되었다. TBD-001·003·006·007·008은 DEC-029로
+해결되었다. 공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태
+변경은 관리자 권한을 사용한다.
 
 ## 17. 변경 관리
 
@@ -602,6 +600,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-12 | DEC-028 가창 전체 수정 확정. 연결 곡, 멤버·외부 참여자와 credit, 모든 분류·품질, 공개일시, YouTube source·채널·구간·역할과 메모를 한 atomic correction으로 편집하고 공개 상태 전이는 별도 command로 유지 |
 | 2026-08-11 | PR-4 익명 public endpoint, fail-closed flag, strict query, relevance 우선 정렬, count 없는 cursor 응답, revision cache·ETag와 auth/cookie cache 격리 계약 확정 |
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
+| 2026-08-18 | DEC-029 공개 Play 경험 확정. `/play`, 조건부 `OTW Play` 내비게이션, Play-scoped 단일 player, 접기·이탈 cleanup, versioned session queue와 외부 참여자 exact filter를 채택하고 TBD-001·003·006·007·008을 해결 |
 
 ## 19. 참고
 

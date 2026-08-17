@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-5.1 workflow-first 관리자 등록 및 atomic projection 실행 기준선
+상태: PR-6 공개 UI·단일 player 구현 기준선
 
-기준일: 2026-08-12
+기준일: 2026-08-18
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -94,12 +94,20 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 
 ### ADR-PLAY-004: 단일 Play-scoped player
 
-상태: 채택할 구현 기본값
+상태: 채택
 
 `/play` 중첩 route가 player provider와 단일 YouTube iframe을 소유한다. Play
 내부 탐색에서는 재생 문맥을 유지하고 다른 사이트 영역으로 이동하면 player를
 정리한다. 이는 저장 플레이리스트 없이도 음악 앱의 연속성을 제공하면서 숨은
 재생 금지 정책을 지킨다.
+
+- player script와 `YT.Player`는 첫 사용자 재생 의도 뒤에 한 번만 생성한다.
+- iframe이 절반 이상 보일 때만 `loadVideoById`를 호출한다.
+- 모바일 compact 전환은 먼저 pause하고 `/play` 이탈은 stop 뒤 destroy한다.
+- queue는 versioned `sessionStorage` 식별자 상태만 저장하고 공개 performance
+  API로 복원 유효성을 다시 확인한다. 복원 직후 자동 재생하지 않는다.
+- player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
+  위에 overlay를 두지 않는다.
 
 ### ADR-PLAY-005: MVP Cloudflare 구성 최소화
 
@@ -200,6 +208,12 @@ production content, 배포 설정과 원격 D1 적용은 포함하지 않는다.
   sort key, gram/stat과 두 revision을 같은 D1 batch에서 원자적으로 갱신한다.
 - PR-4는 public read만 구현한다. 관리자 command, 회원 proposal API, frontend
   route·UI·player, production content, 배포와 원격 D1 적용은 포함하지 않는다.
+
+PR-6은 기존 공개 read에 하위 호환 필드 두 개만 더한다. catalog의 단일
+`participant` parameter는 public entity slug를 받아 다른 filter와 같은 published
+performance에서 만족해야 한다. group participant DTO의 `groupKey`는 서버가
+발급한 opaque key이며 client는 생성하거나 해석하지 않는다. schema 변경 없이
+기존 participant/entity index와 canonical cursor·cache key를 사용한다.
 
 ## 3. 전체 시스템 구조
 

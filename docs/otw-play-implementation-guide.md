@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-5.1 workflow-first 관리자 catalog command/UI 구현 중, GATE-01 fail-closed 기준선
+상태: PR-6 공개 UI·단일 player 구현 중, GATE-01 fail-closed 기준선
 
-기준일: 2026-08-12
+기준일: 2026-08-18
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -15,9 +15,9 @@
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-4 공개 catalog query/API/cache와 선언된 상한 fixture의 성능 보완이며 frontend
-route·UI·player, 관리자·회원 command, production content, 배포와 원격 적용은
-포함하지 않는다.
+PR-6 공개 Discover·Catalog·곡 상세, 기존 public API의 participant/groupKey 호환
+추가와 Play-scoped 단일 YouTube player다. DB migration, 관리자·회원 command,
+저장 플레이리스트, SEO, production flag 변경, 배포와 원격 적용은 포함하지 않는다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -716,15 +716,24 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 
 ### 구현 순서
 
-1. `/play` nested route와 PlayShell
-2. Discover와 Catalog
-3. URL-synced 검색·filter·정렬
+1. DEC-029와 participant/groupKey 하위 호환 contract
+2. `/play` nested route와 config-gated PlayShell
+3. Discover와 Catalog, URL-synced 검색·filter·정렬
 4. song detail과 performance 직접 링크
-5. single iframe player provider
-6. queue reducer, repeat, shuffle, skip
-7. `sessionStorage` restore
-8. responsive player rail/dock/sheet
-9. 모든 loading/empty/error/unavailable state
+5. first-intent single iframe player provider
+6. queue reducer, repeat, shuffle, bounded unavailable skip
+7. versioned `sessionStorage` restore와 public performance 재검증
+8. 400px rail, tablet dock, mobile 16:9 sheet
+9. 모든 loading/empty/404/409/503/unavailable state
+
+config가 꺼져 있으면 `/play`는 준비 중 화면만 렌더링하고 catalog·facets·detail
+요청을 시작하지 않는다. 내비게이션은 `publicReadEnabled && navigationVisible`일
+때만 `OTW Play`를 표시하며 직접 route 진입은 항상 가능하다. 회원 제안 CTA는
+PR-7의 실제 route가 생기기 전까지 만들지 않는다.
+
+Catalog query는 단일 `participant=<public entity slug>`를 추가하고 group participant
+DTO는 서버 생성 `groupKey`를 제공한다. 둘 다 기존 filter와 동일 published
+performance에서 만족하고 schema와 기존 공개 route 수는 변경하지 않는다.
 
 ### 플레이어 검증
 
@@ -753,6 +762,8 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - 대표 사용자가 내비게이션에서 OTW Play를 열어 곡을 찾고 재생하며 다음 곡으로 이동한다.
 - UI가 YouTube 정책을 우회하거나 숨은 재생에 의존하지 않는다.
 - 모바일에서 player를 접으면 재생이 일시정지한다.
+- session queue 복원은 public performance 재검증 뒤에만 표시되고 자동 재생하지 않는다.
+- 운영 D1의 `public_read_enabled=0`, `navigation_visible=0`과 GATE-01~06은 그대로다.
 
 ## 11. 7단계 — 회원 제안과 관리자 승인 E2E
 

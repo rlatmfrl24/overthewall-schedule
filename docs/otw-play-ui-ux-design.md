@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-5.1 workflow-first 관리자 catalog UI 구현 중, 공개 UI·player 미착수
+상태: PR-6 공개 Discover·Catalog·곡 상세와 단일 player 구현 기준선
 
-기준일: 2026-08-12
+기준일: 2026-08-18
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -39,8 +39,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 ## 2. 설계 기본값과 미결정 항목
 
-다음 값은 구현 설계를 구체화하기 위한 **권장 기본값**이다. 카탈로그 공개 접근은
-DEC-019로 확정되었고, 나머지 값은 제품 요구사항의 TBD를 확정으로 바꾸지 않는다.
+다음 값은 DEC-019와 DEC-029로 확정된 공개 경험 기준이다.
 
 | 항목 | 설계 기본값 | 변경 영향 |
 | --- | --- | --- |
@@ -228,6 +227,9 @@ hero는 썸네일, 곡명, 참여자, 관계, 공개일, `재생`과 `곡 보기
 API wire에서는 멤버를 기존 numeric member UID로, 원곡 가수를 public entity
 slug로 식별한다. 그룹은 facets가 발급한 versioned opaque key를 그대로 URL
 query에 보존하며 client가 `entity`/`unit` payload를 직접 만들거나 해석하지 않는다.
+외부·전 소속 참여자 칩은 서버가 제공한 public entity slug를 단일 `participant`
+query로 보내며 별도 공개 프로필로 이동하지 않는다. 모든 참여자·그룹 조건은 다른
+필터와 같은 published performance에서 동시에 만족해야 한다.
 
 정렬:
 
@@ -323,6 +325,8 @@ stateDiagram-v2
 
 `sessionStorage`에는 식별자, 순서, 현재 index, repeat와 shuffle 상태만 저장한다.
 로그인 계정과 동기화하지 않으며 플레이리스트라는 이름을 사용하지 않는다.
+복원 시 각 performance를 공개 API로 재검증하고 재생 가능한 source를 다시 선택한다.
+복원은 player 생성이나 자동 재생을 유발하지 않는다.
 
 ## 10. 회원 공식 커버 제안
 
