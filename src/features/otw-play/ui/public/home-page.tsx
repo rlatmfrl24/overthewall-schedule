@@ -1,6 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, LoaderCircle, Search } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { ArrowLeft, ArrowRight, LoaderCircle, Search } from "lucide-react";
+import {
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import type { OtwPlayPublicSongSummaryDto } from "@contracts/otw-play";
 import { Button } from "@/shared/ui/button";
 import {
@@ -18,6 +25,8 @@ const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
 
 export function OtwPlayHomePage() {
   const [search, setSearch] = useState("");
+  const [featuredIndex, setFeaturedIndex] = useState(0);
+  const dragStartX = useRef<number | null>(null);
   const navigate = useNavigate();
   const latest = useOtwPlayCatalog({ limit: 8 });
   const facets = useOtwPlayFacets();
@@ -47,8 +56,55 @@ export function OtwPlayHomePage() {
   }
 
   const songs = pageItems(latest);
-  const featured = songs[0] ?? null;
-  const supporting = songs.slice(1, 3);
+  const activeIndex = songs.length === 0 ? 0 : featuredIndex % songs.length;
+  const featured = songs[activeIndex] ?? null;
+  const previousIndex = songs.length === 0
+    ? 0
+    : (activeIndex - 1 + songs.length) % songs.length;
+  const nextIndex = songs.length === 0 ? 0 : (activeIndex + 1) % songs.length;
+  const supporting = songs.length > 1
+    ? [
+        { side: "previous" as const, index: previousIndex, song: songs[previousIndex]! },
+        ...(songs.length > 2
+          ? [{ side: "next" as const, index: nextIndex, song: songs[nextIndex]! }]
+          : []),
+      ]
+    : [];
+
+  const moveFeatured = (direction: -1 | 1) => {
+    if (songs.length < 2) return;
+    setFeaturedIndex((current) =>
+      (current + direction + songs.length) % songs.length,
+    );
+  };
+
+  const handleHeroPointerDown = (event: PointerEvent<HTMLElement>) => {
+    if ((event.target as Element).closest("a, button, input")) return;
+    dragStartX.current = event.clientX;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handleHeroPointerUp = (event: PointerEvent<HTMLElement>) => {
+    if (dragStartX.current === null) return;
+    const distance = event.clientX - dragStartX.current;
+    dragStartX.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (Math.abs(distance) >= 48) moveFeatured(distance < 0 ? 1 : -1);
+  };
+
+  const handleHeroWheel = (event: WheelEvent<HTMLElement>) => {
+    if (Math.abs(event.deltaX) < 32 || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
+      return;
+    }
+    event.preventDefault();
+    moveFeatured(event.deltaX > 0 ? 1 : -1);
+  };
+
+  const handleHeroKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    moveFeatured(event.key === "ArrowLeft" ? -1 : 1);
+  };
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -83,22 +139,36 @@ export function OtwPlayHomePage() {
       </form>
 
       {featured ? (
-        <section aria-labelledby="play-home-featured" className="relative isolate mx-auto max-w-5xl py-4 sm:py-8">
-          {supporting.map((song, index) => (
-            <div
-              key={song.id}
+        <section
+          aria-roledescription="carousel"
+          aria-label="추천 카드"
+          tabIndex={0}
+          className="relative isolate mx-auto max-w-5xl touch-pan-y py-4 outline-none focus-visible:ring-2 focus-visible:ring-ring sm:py-8"
+          onPointerDown={handleHeroPointerDown}
+          onPointerUp={handleHeroPointerUp}
+          onPointerCancel={() => {
+            dragStartX.current = null;
+          }}
+          onWheel={handleHeroWheel}
+          onKeyDown={handleHeroKeyDown}
+        >
+          {supporting.map(({ song, side, index }) => (
+            <button
+              type="button"
+              key={`${side}:${song.id}`}
+              aria-label={side === "previous" ? "이전 추천곡 보기" : "다음 추천곡 보기"}
+              onClick={() => setFeaturedIndex(index)}
               className={
-                index === 0
-                  ? "absolute inset-y-14 left-0 hidden w-[44%] -translate-x-5 -rotate-3 overflow-hidden rounded-3xl border bg-card opacity-60 shadow-lg md:block"
-                  : "absolute inset-y-14 right-0 hidden w-[44%] translate-x-5 rotate-3 overflow-hidden rounded-3xl border bg-card opacity-60 shadow-lg md:block"
+                side === "previous"
+                  ? "absolute inset-y-14 left-0 hidden w-[44%] -translate-x-5 -rotate-3 overflow-hidden rounded-3xl border bg-card opacity-60 shadow-lg transition hover:opacity-85 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:block"
+                  : "absolute inset-y-14 right-0 hidden w-[44%] translate-x-5 rotate-3 overflow-hidden rounded-3xl border bg-card opacity-60 shadow-lg transition hover:opacity-85 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:block"
               }
-              aria-hidden="true"
             >
               <SongImage song={song} eager />
-            </div>
+            </button>
           ))}
 
-          <article className="relative z-10 mx-auto w-full overflow-hidden rounded-[2rem] border bg-card shadow-2xl md:w-[78%]">
+          <article className="relative z-10 mx-auto w-full cursor-grab overflow-hidden rounded-[2rem] border bg-card shadow-2xl active:cursor-grabbing md:w-[78%]">
             <div className="relative aspect-[16/9] min-h-[300px] sm:min-h-[360px]">
               <SongImage song={featured} eager />
               <div className="absolute inset-0 bg-black/55" />
@@ -143,6 +213,47 @@ export function OtwPlayHomePage() {
               </div>
             </div>
           </article>
+
+          {songs.length > 1 ? (
+            <div className="relative z-20 mt-4 flex items-center justify-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="rounded-full"
+                aria-label="이전 추천곡"
+                onClick={() => moveFeatured(-1)}
+              >
+                <ArrowLeft />
+              </Button>
+              <div className="flex gap-1.5" aria-label={`${activeIndex + 1} / ${songs.length}`}>
+                {songs.map((song, index) => (
+                  <button
+                    type="button"
+                    key={song.id}
+                    aria-label={`${index + 1}번째 추천곡 보기`}
+                    aria-current={index === activeIndex ? "true" : undefined}
+                    onClick={() => setFeaturedIndex(index)}
+                    className={
+                      index === activeIndex
+                        ? "h-2 w-6 rounded-full bg-foreground transition-[width]"
+                        : "size-2 rounded-full bg-muted-foreground/35 hover:bg-muted-foreground"
+                    }
+                  />
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                className="rounded-full"
+                aria-label="다음 추천곡"
+                onClick={() => moveFeatured(1)}
+              >
+                <ArrowRight />
+              </Button>
+            </div>
+          ) : null}
         </section>
       ) : (
         <section className="rounded-3xl border bg-card p-10 text-center">

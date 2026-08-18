@@ -145,8 +145,8 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
   return (
     <OtwPlayPlayerProvider adminPreview>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/20">
-        <header className="z-20 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex h-16 items-center gap-4 px-3 sm:px-5 lg:px-7 xl:px-8">
+        <header className="z-20 h-16 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex h-full items-center gap-4 px-3 sm:px-5 lg:px-7 xl:px-8">
             <Link to="/play" className="flex items-center gap-2 font-semibold">
               <Music2 className="size-5" /> OTW Play
             </Link>

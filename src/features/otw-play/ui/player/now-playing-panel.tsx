@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   ChevronDown,
   ChevronUp,
@@ -13,6 +14,8 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useState } from "react";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
@@ -32,6 +35,40 @@ const statusLabel = {
   error: "재생할 수 없음",
 } as const;
 
+const relationLabel = {
+  original: "오리지널",
+  cover: "공식 커버",
+} as const;
+
+const releaseTypeLabel = {
+  official_mv: "공식 MV",
+  official_video: "공식 영상",
+} as const;
+
+const participationLabel = {
+  solo: "솔로",
+  duet: "듀엣",
+  unit: "유닛",
+  group: "단체",
+  external_collab: "외부 협업",
+} as const;
+
+const availabilityLabel = {
+  unknown: "확인 전",
+  playable: "재생 가능",
+  private: "비공개",
+  embed_disabled: "임베드 제한",
+  deleted: "삭제됨",
+  region_blocked: "지역 제한",
+  unavailable: "재생 불가",
+} as const;
+
+const formatDuration = (seconds: number | null) => {
+  if (seconds === null) return "길이 미상";
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
 export function OtwPlayQueuePanel() {
   const player = useOtwPlayPlayer();
   const hasQueue = player.queue.items.length > 0;
@@ -41,7 +78,7 @@ export function OtwPlayQueuePanel() {
       aria-label="플레이큐"
       className={cn(
         "z-40 min-h-0 shrink-0 border-border bg-card text-card-foreground",
-        "fixed inset-x-0 bottom-20 top-16 border-t shadow-2xl lg:static lg:flex lg:w-[360px] lg:flex-col lg:border-l lg:border-t-0 lg:shadow-none",
+        "fixed inset-x-0 bottom-14 top-16 border-t shadow-2xl lg:static lg:flex lg:w-[360px] lg:flex-col lg:border-l lg:border-t-0 lg:shadow-none",
         player.panelExpanded ? "flex flex-col" : "hidden lg:flex",
       )}
     >
@@ -181,6 +218,7 @@ export function OtwPlayQueuePanel() {
 export function OtwPlayPlaybackBar() {
   const player = useOtwPlayPlayer();
   const current = player.currentTrack;
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const RepeatIcon = player.queue.repeat === "one" ? Repeat1 : Repeat;
   const nextRepeat =
     player.queue.repeat === "off"
@@ -190,45 +228,133 @@ export function OtwPlayPlaybackBar() {
         : "off";
 
   return (
-    <section
-      aria-label="재생 컨트롤"
+    <div
       className={cn(
-        "z-50 grid h-20 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t bg-background/95 px-3 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-5 lg:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.15fr)_minmax(15rem,1fr)]",
-        !current && "hidden lg:grid",
+        "z-50 shrink-0",
+        !current && "hidden lg:block",
       )}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="size-12 shrink-0 overflow-hidden rounded-lg bg-muted">
-          {current?.source.thumbnailUrl ? (
-            <img
-              src={current.source.thumbnailUrl}
-              alt=""
-              width={96}
-              height={96}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Play className="size-4 text-muted-foreground" />
+      {current && detailsExpanded ? (
+        <section
+          id="otw-play-current-details"
+          aria-label="현재 재생 상세"
+          className="max-h-[min(26rem,calc(100dvh-7.5rem))] overflow-y-auto border-t bg-card shadow-[0_-18px_36px_rgba(0,0,0,0.12)]"
+        >
+          <div className="mx-auto grid w-full max-w-6xl gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.2fr)_minmax(13rem,0.65fr)] lg:items-center">
+            <div className="aspect-video min-h-[200px] overflow-hidden rounded-2xl bg-black">
+              {current.source.thumbnailUrl ? (
+                <img
+                  src={current.source.thumbnailUrl}
+                  alt=""
+                  width={640}
+                  height={360}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-white/60">
+                  썸네일 없음
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">
-            {current?.song.title ?? "재생할 곡을 선택하세요"}
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {current
-              ? current.performance.participants
-                  .map(({ displayName }) => displayName)
-                  .join(", ") || "참여자 정보 없음"
-              : "OTW Play"}
-          </p>
-        </div>
-      </div>
 
-      <div className="hidden min-w-0 flex-col items-center gap-1 lg:flex">
-        <div className="flex items-center gap-1">
+            <div className="min-w-0 space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge>{relationLabel[current.performance.relation]}</Badge>
+                <Badge variant="secondary">
+                  {releaseTypeLabel[current.performance.releaseType]}
+                </Badge>
+                <Badge variant="outline">
+                  {participationLabel[current.performance.participation]}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Now playing
+                </p>
+                <h2 className="mt-1 break-words text-2xl font-bold sm:text-3xl">
+                  {current.song.title}
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {current.performance.participants.length > 0 ? (
+                  current.performance.participants.map((participant) => (
+                    <span
+                      key={`${participant.entityId}:${participant.creditOrder}`}
+                      className="rounded-full border bg-background px-3 py-1 text-xs font-medium"
+                    >
+                      {participant.displayName}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">참여자 정보 없음</span>
+                )}
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to="/play/songs/$songSlug"
+                  params={{ songSlug: current.song.slug }}
+                  search={{ performance: current.performance.id }}
+                >
+                  곡과 가창 상세 보기 <ExternalLink />
+                </Link>
+              </Button>
+            </div>
+
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-2xl border bg-background/70 p-4 text-sm">
+              <dt className="text-muted-foreground">채널</dt>
+              <dd className="truncate font-medium">{current.source.channel.displayName}</dd>
+              <dt className="text-muted-foreground">소스</dt>
+              <dd className="truncate font-medium">
+                {current.source.title ?? "제목 정보 없음"}
+              </dd>
+              <dt className="text-muted-foreground">재생 상태</dt>
+              <dd className="font-medium">
+                {availabilityLabel[current.source.availability]}
+              </dd>
+              <dt className="text-muted-foreground">길이</dt>
+              <dd className="font-medium">
+                {formatDuration(current.source.durationSeconds)}
+              </dd>
+            </dl>
+          </div>
+        </section>
+      ) : null}
+
+      <section
+        aria-label="재생 컨트롤"
+        className="grid h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t bg-background/95 px-3 shadow-[0_-10px_30px_rgba(0,0,0,0.08)] backdrop-blur sm:px-5 lg:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.15fr)_minmax(15rem,1fr)]"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="size-10 shrink-0 overflow-hidden rounded-lg bg-muted">
+            {current?.source.thumbnailUrl ? (
+              <img
+                src={current.source.thumbnailUrl}
+                alt=""
+                width={96}
+                height={96}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center">
+                <Play className="size-4 text-muted-foreground" />
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">
+              {current?.song.title ?? "재생할 곡을 선택하세요"}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {current
+                ? current.performance.participants
+                    .map(({ displayName }) => displayName)
+                    .join(", ") || "참여자 정보 없음"
+                : "OTW Play"}
+            </p>
+          </div>
+        </div>
+
+        <div className="hidden min-w-0 items-center justify-center gap-1 lg:flex">
           <Button
             type="button"
             variant="ghost"
@@ -242,7 +368,7 @@ export function OtwPlayPlaybackBar() {
           {player.status === "playing" ? (
             <Button
               type="button"
-              size="icon-lg"
+              size="icon"
               className="rounded-full"
               aria-label="일시정지"
               onClick={player.pause}
@@ -252,7 +378,7 @@ export function OtwPlayPlaybackBar() {
           ) : (
             <Button
               type="button"
-              size="icon-lg"
+              size="icon"
               className="rounded-full"
               aria-label="재생"
               disabled={!current}
@@ -271,74 +397,86 @@ export function OtwPlayPlaybackBar() {
           >
             <SkipForward />
           </Button>
+          <span className="ml-2 text-[11px] text-muted-foreground">
+            {statusLabel[player.status]}
+          </span>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          {statusLabel[player.status]}
-        </p>
-      </div>
 
-      <div className="flex items-center justify-end gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="lg:hidden"
-          aria-label={player.status === "playing" ? "일시정지" : "재생"}
-          disabled={!current}
-          onClick={player.status === "playing" ? player.pause : player.resume}
-        >
-          {player.status === "playing" ? <Pause /> : <Play />}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="hidden sm:inline-flex"
-          aria-label={`${repeatLabel[player.queue.repeat]}; 다음 모드로 변경`}
-          aria-pressed={player.queue.repeat !== "off"}
-          disabled={!current}
-          onClick={() => player.setRepeat(nextRepeat)}
-        >
-          <RepeatIcon />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="hidden sm:inline-flex"
-          aria-label="현재 곡을 제외하고 대기열 섞기"
-          aria-pressed={player.queue.shuffled}
-          disabled={player.queue.items.length < 2}
-          onClick={player.shuffle}
-        >
-          <Shuffle />
-        </Button>
-        {current ? (
-          <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex">
-            <a
-              href={`https://www.youtube.com/watch?v=${encodeURIComponent(current.source.externalId)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="YouTube에서 열기"
-            >
-              <ExternalLink />
-            </a>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            aria-label={player.status === "playing" ? "일시정지" : "재생"}
+            disabled={!current}
+            onClick={player.status === "playing" ? player.pause : player.resume}
+          >
+            {player.status === "playing" ? <Pause /> : <Play />}
           </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant={player.panelExpanded ? "secondary" : "ghost"}
-          size="icon"
-          className="lg:hidden"
-          aria-label={player.panelExpanded ? "플레이큐 닫기" : "플레이큐 열기"}
-          aria-expanded={player.panelExpanded}
-          onClick={
-            player.panelExpanded ? player.pauseAndCollapse : player.expand
-          }
-        >
-          <ListMusic />
-        </Button>
-      </div>
-    </section>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden sm:inline-flex"
+            aria-label={`${repeatLabel[player.queue.repeat]}; 다음 모드로 변경`}
+            aria-pressed={player.queue.repeat !== "off"}
+            disabled={!current}
+            onClick={() => player.setRepeat(nextRepeat)}
+          >
+            <RepeatIcon />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden sm:inline-flex"
+            aria-label="현재 곡을 제외하고 대기열 섞기"
+            aria-pressed={player.queue.shuffled}
+            disabled={player.queue.items.length < 2}
+            onClick={player.shuffle}
+          >
+            <Shuffle />
+          </Button>
+          {current ? (
+            <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex">
+              <a
+                href={`https://www.youtube.com/watch?v=${encodeURIComponent(current.source.externalId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="YouTube에서 열기"
+              >
+                <ExternalLink />
+              </a>
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant={detailsExpanded ? "secondary" : "ghost"}
+            size="icon"
+            aria-label={detailsExpanded ? "재생 상세 접기" : "재생 상세 펼치기"}
+            aria-controls="otw-play-current-details"
+            aria-expanded={detailsExpanded}
+            disabled={!current}
+            onClick={() => setDetailsExpanded((expanded) => !expanded)}
+          >
+            {detailsExpanded ? <ChevronDown /> : <ChevronUp />}
+          </Button>
+          <Button
+            type="button"
+            variant={player.panelExpanded ? "secondary" : "ghost"}
+            size="icon"
+            className="lg:hidden"
+            aria-label={player.panelExpanded ? "플레이큐 닫기" : "플레이큐 열기"}
+            aria-expanded={player.panelExpanded}
+            onClick={
+              player.panelExpanded ? player.pauseAndCollapse : player.expand
+            }
+          >
+            <ListMusic />
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }

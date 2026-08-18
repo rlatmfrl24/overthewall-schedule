@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../player/play-player-context", () => ({
   useOtwPlayPlayer: mocks.usePlayer,
 }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
+}));
 
 import { OtwPlayPlaybackBar, OtwPlayQueuePanel } from "./now-playing-panel";
 
@@ -41,10 +46,26 @@ const emptyPlayer = {
 
 const track = {
   song: { id: "song-1", slug: "song", title: "재생 중인 노래" },
-  performance: { participants: [{ displayName: "참여 멤버" }] },
+  performance: {
+    id: "performance-1",
+    relation: "cover",
+    releaseType: "official_video",
+    participation: "solo",
+    participants: [
+      {
+        entityId: "entity-1",
+        creditOrder: 0,
+        displayName: "참여 멤버",
+      },
+    ],
+  },
   source: {
     externalId: "dQw4w9WgXcQ",
     thumbnailUrl: "https://example.com/thumb.jpg",
+    title: "공식 커버 영상",
+    availability: "playable",
+    durationSeconds: 184,
+    channel: { displayName: "OTW 공식 채널" },
   },
 };
 
@@ -89,6 +110,20 @@ describe("OTW Play queue rail and playback bar", () => {
     );
 
     expect(screen.getAllByText("재생 중인 노래").length).toBeGreaterThan(0);
+    const playbackRegion = screen.getByRole("region", { name: "재생 컨트롤" });
+    expect(playbackRegion.className).toContain("h-14");
+
+    fireEvent.click(screen.getByRole("button", { name: "재생 상세 펼치기" }));
+    expect(screen.getByRole("region", { name: "현재 재생 상세" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "재생 중인 노래" })).toBeTruthy();
+    expect(screen.getByText("OTW 공식 채널")).toBeTruthy();
+    expect(screen.getByText("3:04")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /곡과 가창 상세 보기/ }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "재생 상세 접기" }));
+    expect(screen.queryByRole("region", { name: "현재 재생 상세" })).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "다음 항목" }));
     expect(actions.next).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "플레이큐 닫기" }));

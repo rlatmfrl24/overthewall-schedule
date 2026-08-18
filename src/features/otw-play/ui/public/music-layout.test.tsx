@@ -129,6 +129,17 @@ describe("OTW Play home and discover layouts", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+
+    const carousel = screen.getByRole("region", { name: "추천 카드" });
+    fireEvent.wheel(carousel, { deltaX: 120, deltaY: 0 });
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    fireEvent.keyDown(carousel, { key: "ArrowLeft" });
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+
     expect(screen.getByRole("heading", { name: "멤버로 시작하기" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("OTW Play 곡 검색"), {
       target: { value: "  커버 검색  " },
