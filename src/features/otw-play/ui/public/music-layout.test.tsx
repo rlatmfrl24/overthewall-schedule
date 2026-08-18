@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OtwPlayPublicSongSummaryDto } from "@contracts/otw-play";
 
 const mocks = vi.hoisted(() => ({
-  navigate: vi.fn(),
   useCatalog: vi.fn(),
   useFacets: vi.fn(),
 }));
@@ -14,7 +13,6 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
-  useNavigate: () => mocks.navigate,
 }));
 vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayCatalog: mocks.useCatalog,
@@ -98,7 +96,7 @@ const catalogResult = {
   refetch: vi.fn(),
 };
 
-describe("OTW Play home and discover layouts", () => {
+describe("OTW Play discover layout", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useCatalog.mockReturnValue(catalogResult);
@@ -120,7 +118,7 @@ describe("OTW Play home and discover layouts", () => {
   });
   afterEach(cleanup);
 
-  it("uses the new home as a search-led featured entry point", () => {
+  it("uses discovery as a compact featured entry point", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
@@ -136,15 +134,8 @@ describe("OTW Play home and discover layouts", () => {
     fireEvent.keyDown(carousel, { key: "ArrowLeft" });
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
 
-    expect(screen.getByRole("heading", { name: "멤버로 시작하기" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("OTW Play 곡 검색"), {
-      target: { value: "  커버 검색  " },
-    });
-    fireEvent.submit(screen.getByRole("search"));
-    expect(mocks.navigate).toHaveBeenCalledWith({
-      to: "/play/songs",
-      search: { q: "커버 검색" },
-    });
+    expect(screen.getByRole("heading", { name: "멤버로 찾기" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "최근 공개된 곡" })).toBeTruthy();
   });
 
 });

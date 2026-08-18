@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -26,8 +26,8 @@ const actions = {
   next: vi.fn(),
   setRepeat: vi.fn(),
   shuffle: vi.fn(),
-  expand: vi.fn(),
-  pauseAndCollapse: vi.fn(),
+  openQueue: vi.fn(),
+  closeQueue: vi.fn(),
   select: vi.fn(),
   move: vi.fn(),
   remove: vi.fn(),
@@ -35,6 +35,7 @@ const actions = {
 
 const emptyPlayer = {
   queue: { items: [], currentIndex: null, repeat: "off", shuffled: false },
+  currentItem: null,
   currentTrack: null,
   status: "idle",
   panelExpanded: false,
@@ -97,6 +98,7 @@ describe("OTW Play queue rail and playback bar", () => {
         repeat: "off",
         shuffled: false,
       },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
       currentTrack: track,
       panelExpanded: true,
       trackForItem: () => track,
@@ -111,10 +113,14 @@ describe("OTW Play queue rail and playback bar", () => {
 
     expect(screen.getAllByText("재생 중인 노래").length).toBeGreaterThan(0);
     const playbackRegion = screen.getByRole("region", { name: "재생 컨트롤" });
-    expect(playbackRegion.className).toContain("h-14");
+    expect(playbackRegion.className).toContain("h-16");
 
-    fireEvent.click(screen.getByRole("button", { name: "재생 상세 펼치기" }));
     expect(screen.getByRole("region", { name: "현재 재생 상세" })).toBeTruthy();
+    expect(screen.getByLabelText("YouTube 영상 플레이어")).toBeTruthy();
+    expect(
+      within(screen.getByRole("complementary", { name: "플레이큐" }))
+        .queryByLabelText("YouTube 영상 플레이어"),
+    ).toBeNull();
     expect(screen.getByRole("heading", { name: "재생 중인 노래" })).toBeTruthy();
     expect(screen.getByText("OTW 공식 채널")).toBeTruthy();
     expect(screen.getByText("3:04")).toBeTruthy();
@@ -123,10 +129,16 @@ describe("OTW Play queue rail and playback bar", () => {
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "재생 상세 접기" }));
     expect(screen.queryByRole("region", { name: "현재 재생 상세" })).toBeNull();
+    expect(actions.pause).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "재생 상세 펼치기" }));
+    expect(screen.getByRole("region", { name: "현재 재생 상세" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "다음 항목" }));
     expect(actions.next).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "플레이큐 닫기" }));
-    expect(actions.pauseAndCollapse).toHaveBeenCalledOnce();
+    fireEvent.click(
+      within(screen.getByRole("complementary", { name: "플레이큐" }))
+        .getByRole("button", { name: "플레이큐 닫기" }),
+    );
+    expect(actions.closeQueue).toHaveBeenCalledOnce();
   });
 });

@@ -109,18 +109,21 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 - player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
   위에 overlay를 두지 않는다.
 
-DEC-031과 이를 단순화한 DEC-033에 따라 이 provider를 소비하는 `PlayShell`은
+DEC-031과 이를 단순화한 DEC-033·034에 따라 이 provider를 소비하는 `PlayShell`은
 route 콘텐츠와 별도로 데스크톱 우측 `PlayQueueRail`과 하단 `PlaybackBar`를
-소유한다. 상위 탐색은 `/play` Home과 `/play/songs` 곡 검색만 제공하고,
+소유한다. 상위 탐색은 `/play` 발견과 `/play/songs` 곡 검색만 제공하고,
 `/play/discover`는 기존 링크를 `/play`로 redirect한다. 두 route 사이를 이동해도
 queue와 player instance는 유지된다.
-iframe host는 queue rail/sheet 안에 하나만 두고, 하단 bar는 그 player의 상태와
-명령만 표시한다. 이 재배치는 API, schema, cache key와 운영 flag를 바꾸지 않는다.
+queue rail은 순서·선택·삭제·재정렬만 소유하며 iframe을 포함하지 않는다. iframe
+host는 하단 bar가 위로 펼치는 현재 재생 상세에 하나만 둔다. 상세 접기는 먼저
+pause하고 panel은 absolute overlay로 열려 중앙 콘텐츠·queue 높이를 다시 계산하지
+않는다. 이 재배치는 API, schema, cache key와 운영 flag를 바꾸지 않는다.
 
-DEC-032의 layout chrome은 `PlayShell` 안에서 상단 64px와 compact 재생바 56px를
-각각 기존 좌측 메뉴의 상·하단 기준선에 맞춘다. 재생 상세 펼치기는 player 상태의
-동일한 현재 track을 읽어 thumbnail과 공개 metadata만 렌더링하며 iframe host를
-복제하거나 별도 player instance를 만들지 않는다. Home 대표 카드의 수동 carousel
+DEC-032·034의 layout chrome은 `PlayShell` 안에서 상단 64px와 compact 재생바
+64px를 기준선에 맞춘다. 중앙 catalog와 우측 queue는 document scroll 대신 각자
+`overflow-y: auto`를 사용한다. 재생 상세 펼치기는 player 상태의 동일한 현재 track과
+공개 metadata 및 단일 iframe host를 렌더링하며 별도 player instance를 만들지 않는다.
+발견 대표 카드의 수동 carousel
 state는 표현 계층에만 존재하고 catalog 순서, cursor, queue와 player authority를
 변경하지 않는다.
 

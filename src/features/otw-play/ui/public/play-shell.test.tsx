@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,12 +8,14 @@ const mocks = vi.hoisted(() => ({
   useUser: vi.fn(),
   isAdminUser: vi.fn(),
   childMounted: vi.fn(),
+  navigate: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
+  useNavigate: () => mocks.navigate,
 }));
 vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -107,12 +109,24 @@ describe("OtwPlayShell config gate", () => {
     expect(screen.getByText("catalog child")).toBeTruthy();
     expect(mocks.childMounted).toHaveBeenCalledOnce();
     expect(mocks.useConfig).toHaveBeenCalledWith({ adminPreview: true });
-    expect(screen.getByRole("link", { name: "홈" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "발견" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "발견" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "홈" })).toBeNull();
     expect(screen.queryByRole("link", { name: "전체 곡" })).toBeNull();
     expect(screen.queryByRole("link", { name: "오리지널" })).toBeNull();
     expect(screen.queryByRole("link", { name: "커버" })).toBeNull();
+    expect(screen.getByRole("search", { name: "OTW Play 빠른 검색" })).toBeTruthy();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" }),
+      { target: { value: "  공식 커버  " } },
+    );
+    fireEvent.submit(screen.getByRole("search", { name: "OTW Play 빠른 검색" }));
+    expect(mocks.navigate).toHaveBeenCalledWith({
+      to: "/play/songs",
+      search: { q: "공식 커버" },
+    });
+    expect(screen.getByTestId("otw-play-app-frame").className).toContain("overflow-hidden");
+    expect(screen.getByTestId("otw-play-content-scroll").className).toContain("overflow-y-auto");
   });
 
   it("mounts the nested public experience only after the config gate opens", () => {

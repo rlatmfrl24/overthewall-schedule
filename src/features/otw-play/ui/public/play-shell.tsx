@@ -1,14 +1,15 @@
 import { SignInButton, useUser } from "@clerk/clerk-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Eye,
   LoaderCircle,
   Music2,
   RefreshCw,
+  Search,
   ShieldAlert,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { isAdminUser } from "@/app/admin";
 import { Button } from "@/shared/ui/button";
 import {
@@ -29,7 +30,7 @@ import {
 } from "../player/now-playing-panel";
 
 const tabs = [
-  { label: "홈", to: "/play" as const, search: undefined },
+  { label: "발견", to: "/play" as const, search: undefined },
   { label: "곡 검색", to: "/play/songs" as const, search: {} },
 ];
 
@@ -141,40 +142,86 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
 
   return (
     <OtwPlayPlayerProvider adminPreview>
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/20">
+      <div
+        data-testid="otw-play-app-frame"
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      >
         <header className="z-20 h-16 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex h-full items-center gap-4 px-3 sm:px-5 lg:px-7 xl:px-8">
-            <Link to="/play" className="flex items-center gap-2 font-semibold">
+          <div className="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 lg:gap-5 lg:px-6">
+            <Link to="/play" className="flex shrink-0 items-center gap-2 font-semibold">
               <Music2 className="size-5" /> OTW Play
             </Link>
-            {!config.data?.data.publicReadEnabled && (
-              <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
-                <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
-              </span>
-            )}
-            <nav aria-label="OTW Play 탐색" className="ml-auto flex min-w-0 gap-1 overflow-x-auto">
-              {tabs.map((tab) => (
-                <Link
-                  key={`${tab.label}:${JSON.stringify(tab.search)}`}
-                  to={tab.to}
-                  search={tab.search}
-                  activeOptions={{ exact: true, includeSearch: false }}
-                  activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
-                  inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
-                  className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {tab.label}
-                </Link>
-              ))}
-            </nav>
+            <PlayHeaderSearch />
+            <div className="flex min-w-0 items-center justify-end gap-2">
+              {!config.data?.data.publicReadEnabled && (
+                <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
+                  <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
+                </span>
+              )}
+              <nav aria-label="OTW Play 탐색" className="flex min-w-0 gap-1 overflow-x-auto">
+                {tabs.map((tab) => (
+                  <Link
+                    key={`${tab.label}:${JSON.stringify(tab.search)}`}
+                    to={tab.to}
+                    search={tab.search}
+                    activeOptions={{ exact: true, includeSearch: false }}
+                    activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
+                    inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
+                    className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {tab.label}
+                  </Link>
+                ))}
+              </nav>
+            </div>
           </div>
         </header>
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+          <main
+            data-testid="otw-play-content-scroll"
+            className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+          >
+            {children}
+          </main>
           <OtwPlayQueuePanel />
         </div>
         <OtwPlayPlaybackBar />
       </div>
     </OtwPlayPlayerProvider>
+  );
+}
+
+function PlayHeaderSearch() {
+  const [query, setQuery] = useState("");
+  const navigate = useNavigate();
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const q = query.trim();
+    void navigate({ to: "/play/songs", search: q ? { q } : {} });
+  };
+
+  return (
+    <form
+      role="search"
+      aria-label="OTW Play 빠른 검색"
+      onSubmit={submit}
+      className="mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
+    >
+      <Search className="size-4 shrink-0 text-muted-foreground" />
+      <label htmlFor="otw-play-header-search" className="sr-only">
+        곡, 원곡 가수, 참여자 검색
+      </label>
+      <input
+        id="otw-play-header-search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="곡, 원곡 가수, 참여자 검색"
+        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      />
+      <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행">
+        <Search />
+      </Button>
+    </form>
   );
 }

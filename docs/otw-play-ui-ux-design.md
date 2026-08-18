@@ -87,7 +87,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 | 경로 | 사용자 | 목적 | 주요 화면 |
 | --- | --- | --- | --- |
-| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡을 발견하고 시작 | Home |
+| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡을 발견하고 시작 | Discover |
 | `/play/discover` | 관리자 preview | 기존 링크 호환을 위해 `/play`로 redirect | Compatibility redirect |
 | `/play/songs` | 관리자 preview | 곡명 검색과 관계·멤버·그룹·참여 형태 필터 | Song search |
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
@@ -103,14 +103,14 @@ player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 p
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 
-공개 화면의 상위 탭은 `홈`, `곡 검색` 두 개만 둔다. Home은 기존 Discover의
-재발견 역할까지 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
+공개 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
+재발견 역할을 함께 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
 `/play/songs`의 `곡 관계` 필터로 구분한다. 저장 플레이리스트와 라이브러리 탭은
 MVP에 만들지 않는다.
 
 ```mermaid
 flowchart LR
-  entry["OTW Play 진입"] --> home["홈"]
+  entry["OTW Play 진입"] --> home["발견"]
   home --> catalog["곡 검색"]
   entry --> catalog
   home --> song["곡 상세"]
@@ -135,14 +135,15 @@ OTW Play는 기존 `PublicAppShell` 안에 `PlayShell`을 둔다. 기존 사이�
 
 - 기존 OTW 사이드바: 64px 또는 256px
 - Play 상단 바: 좌측 메뉴 상단과 같은 64px 높이 안에 제품명, 탐색 탭과 검색을 배치한다.
-- 중앙: 독립 스크롤 카탈로그, 최대 읽기 폭을 고정하지 않고 카드 수를 조절
-- 우측: 재생 여부와 무관하게 360px `PlayQueueRail`을 유지해 대기열 위치가 흔들리지 않게 한다.
-- 플레이어 iframe: 재생 의도 후 rail 상단에 16:9, 최소 200×200px로 표시한다.
-- 하단: 좌측 메뉴 하단과 같은 56px `PlaybackBar`가 현재 곡, previous/play/next,
-  repeat, shuffle과 queue 열기를 지속한다. 펼치기 토글은 bar 위로 현재 곡의
-  썸네일, 분류, 참여자, 채널, source 상태와 상세 링크를 확장한다.
+- 중앙: 독립 스크롤 카탈로그. 발견은 검색을 header에 두고 hero 아래 곡·멤버 영역을
+  같은 행으로 압축해 일반 데스크톱 높이에서 document scroll을 만들지 않는다.
+- 우측: 재생 여부와 무관하게 336px `PlayQueueRail`을 유지하되 순서·선택·삭제만
+  표시하고 YouTube iframe은 넣지 않는다.
+- 하단: 64px `PlaybackBar`가 현재 곡, previous/play/next, repeat, shuffle과 queue
+  열기를 지속한다. 펼치기 토글은 콘텐츠 위로 overlay하는 상세 panel에서 단일
+  16:9 iframe, 분류, 참여자, 채널, source 상태와 상세 링크를 표시한다.
 
-Home의 대표 카드는 자동 재생하거나 일정 시간마다 바뀌지 않는다. 사용자는 좌우
+발견의 대표 카드는 자동 재생하거나 일정 시간마다 바뀌지 않는다. 사용자는 좌우
 화살표, 앞·뒤 카드 클릭, indicator, 키보드 좌우 키, 마우스 drag 또는 가로 wheel로
 직접 전환한다. 전환해도 곡의 실제 재생·대기열 상태는 임의로 바꾸지 않는다.
 
@@ -156,7 +157,7 @@ Home의 대표 카드는 자동 재생하거나 일정 시간마다 바뀌지 �
 ### 5.3 모바일: 767px 이하
 
 - 기존 56px 모바일 헤더 아래에 `OTW Play` 제목과 검색 버튼 배치
-- 홈/곡 검색 탭은 가로 스크롤 가능한 sticky tab 사용
+- 발견/곡 검색 탭은 가로 스크롤 가능한 sticky tab 사용
 - 카드는 한 열, 곡 목록은 썸네일 72–88px의 밀도 높은 행 사용
 - 재생 시작 시 하단에서 16:9 player sheet를 열고 iframe 높이 200px 이상 확보
 - 플레이어를 compact bar로 접는 동작은 먼저 재생을 일시정지한다. 숨은 재생은
@@ -517,7 +518,7 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 
 ## 15. 화면별 수용 기준
 
-### Home
+### Discover
 
 - 대표곡, 현재 멤버와 최근 공개곡을 한 화면에서 재발견할 수 있다.
 - 현재 멤버 진입점에 오시마크가 표시된다.

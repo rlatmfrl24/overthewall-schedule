@@ -64,9 +64,9 @@ type PlayPlayerContextValue = {
   next: (ended?: boolean) => void;
   setRepeat: (repeat: OtwPlayQueueRepeatMode) => void;
   shuffle: () => void;
-  pauseAndCollapse: () => void;
+  closeQueue: () => void;
   pause: () => void;
-  expand: () => void;
+  openQueue: () => void;
   resume: () => void;
 };
 
@@ -340,7 +340,6 @@ export function OtwPlayPlayerProvider({
     const item = queueItemForTrack(track);
     register(track, { type: "play", item });
     setHasPlaybackIntent(true);
-    setPanelExpanded(true);
   }, [register]);
   const enqueue = useCallback((track: OtwPlayTrack) => {
     const item = queueItemForTrack(track);
@@ -371,7 +370,6 @@ export function OtwPlayPlayerProvider({
     select(index) {
       dispatch({ type: "select", index });
       setHasPlaybackIntent(true);
-      setPanelExpanded(true);
     },
     remove(itemId) {
       dispatch({ type: "remove", itemId });
@@ -400,21 +398,18 @@ export function OtwPlayPlayerProvider({
       });
       setAnnouncement("현재 항목을 제외한 대기열 순서를 섞었습니다.");
     },
-    pauseAndCollapse() {
-      playerRef.current?.pause();
-      setStatus("paused");
+    closeQueue() {
       setPanelExpanded(false);
     },
     pause() {
       playerRef.current?.pause();
       setStatus("paused");
     },
-    expand() {
+    openQueue() {
       setPanelExpanded(true);
     },
     resume() {
       setHasPlaybackIntent(true);
-      setPanelExpanded(true);
       playerRef.current?.play();
     },
   }), [

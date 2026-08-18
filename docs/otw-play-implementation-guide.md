@@ -719,16 +719,16 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 
 1. DEC-029와 participant/groupKey 하위 호환 contract
 2. `/play` nested route와 admin-auth 뒤의 config-gated PlayShell
-3. 기존 Home·Discover를 `/play` Home으로 통합하고 `/play/songs` 곡 검색의
+3. 기존 Home·Discover를 `/play` 발견으로 통합하고 `/play/songs` 곡 검색의
    URL-synced 검색·filter·정렬 제공
 4. song detail과 performance 직접 링크
 5. first-intent single iframe player provider
 6. queue reducer, repeat, shuffle, bounded unavailable skip
 7. versioned `sessionStorage` restore와 public performance 재검증
-8. 데스크톱 360px 플레이큐 rail과 하단 재생바, tablet/mobile queue sheet
+8. 데스크톱 336px 데이터 전용 플레이큐 rail과 하단 재생바, tablet/mobile queue sheet
 9. 모든 loading/empty/404/409/503/unavailable state
-10. 좌측 메뉴와 맞춘 64px Play header·56px compact 재생바, 현재 곡 상세 펼치기
-11. Home 대표 카드의 click·pointer drag·horizontal wheel·keyboard 수동 전환
+10. 64px Play header·compact 재생바, 중앙·queue 내부 스크롤, 현재 곡 상세 overlay
+11. 발견 대표 카드의 click·pointer drag·horizontal wheel·keyboard 수동 전환
 
 비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
 보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
@@ -756,7 +756,8 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - `origin` parameter와 autoplay-blocked event 처리
 - unavailable 두 항목 이상에서도 무한 skip 없음
 - repeat/next/previous/shuffle의 결정적 reducer test
-- 재생바 상세 펼침이 현재 track의 공개 metadata를 사용하고 iframe을 추가하지 않음
+- 우측 플레이큐에는 iframe이 없고 재생바 상세 펼침이 현재 track의 공개 metadata와
+  단일 iframe host를 소유하며, 접기 전에 pause함
 
 ### UI 검증
 
@@ -900,7 +901,7 @@ production 카탈로그는 migration fixture나 raw SQL로 넣지 않는다.
 
 ### 실제 검증 흐름
 
-- 익명: 홈 → 곡 검색 → member filter → 상세 → 재생 → queue
+- 익명: 발견 → 곡 검색 → member filter → 상세 → 재생 → queue
 - 회원: 로그인 → URL 입력 → 중복 확인 → 제출 → 내 제안
 - 관리자: 검토 → 승인 → event 확인
 - 익명 재조회: 새 revision에서 published item 확인
