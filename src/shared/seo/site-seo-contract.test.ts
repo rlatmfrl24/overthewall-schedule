@@ -75,6 +75,15 @@ describe("site SEO contract", () => {
     expect(resolveSiteSeo("/missing").robots).toBe("noindex,nofollow");
   });
 
+  it("publishes dedicated metadata for the rights notice", () => {
+    expect(resolveSiteSeo("/rights")).toMatchObject({
+      title: "저작권 및 권리 안내 | 오버더월",
+      robots: "index,follow",
+      sitemap: true,
+    });
+    expect(STATIC_SHELL_PATHS).toContain("/rights");
+  });
+
   it("generates a static shell for the OTW Play admin entry point", () => {
     expect(STATIC_SHELL_PATHS).toContain("/admin/otw-play");
     expect(resolveSiteSeo("/admin/otw-play").robots).toBe(
