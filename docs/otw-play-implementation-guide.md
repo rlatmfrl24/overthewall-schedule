@@ -717,7 +717,7 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 ### 구현 순서
 
 1. DEC-029와 participant/groupKey 하위 호환 contract
-2. `/play` nested route와 config-gated PlayShell
+2. `/play` nested route와 admin-auth 뒤의 config-gated PlayShell
 3. Discover와 Catalog, URL-synced 검색·filter·정렬
 4. song detail과 performance 직접 링크
 5. first-intent single iframe player provider
@@ -726,10 +726,13 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 8. 400px rail, tablet dock, mobile 16:9 sheet
 9. 모든 loading/empty/404/409/503/unavailable state
 
-config가 꺼져 있으면 `/play`는 준비 중 화면만 렌더링하고 catalog·facets·detail
-요청을 시작하지 않는다. 내비게이션은 `publicReadEnabled && navigationVisible`일
-때만 `OTW Play`를 표시하며 직접 route 진입은 항상 가능하다. 회원 제안 CTA는
-PR-7의 실제 route가 생기기 전까지 만들지 않는다.
+비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
+보고 config·catalog 요청을 시작하지 않는다. 관리자는 auth 확인 뒤 config를 읽고,
+config가 꺼져 있으면 준비 중 화면만 렌더링하며 catalog·facets·detail 요청을
+시작하지 않는다. 내비게이션은 관리자이면서
+`publicReadEnabled && navigationVisible`일 때만 `OTW Play`를 표시한다. 익명
+public GET 계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의
+실제 route가 생기기 전까지 만들지 않는다.
 
 Catalog query는 단일 `participant=<public entity slug>`를 추가하고 group participant
 DTO는 서버 생성 `groupKey`를 제공한다. 둘 다 기존 filter와 동일 published
@@ -753,13 +756,14 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - light/dark
 - 긴 한국어·일본어·영문 제목
 - current member 오시마크와 external neutral chip
+- 비로그인·비관리자에서 config·catalog 요청 0회와 관리자 전용 안내
 - 키보드만으로 검색, filter, 재생과 queue reorder
 - reduced motion, focus return, aria-live
 - card/thumbnail CLS와 lazy loading
 
 ### 종료 조건
 
-- 대표 사용자가 내비게이션에서 OTW Play를 열어 곡을 찾고 재생하며 다음 곡으로 이동한다.
+- 관리자가 내비게이션에서 OTW Play를 열어 곡을 찾고 재생하며 다음 곡으로 이동한다.
 - UI가 YouTube 정책을 우회하거나 숨은 재생에 의존하지 않는다.
 - 모바일에서 player를 접으면 재생이 일시정지한다.
 - session queue 복원은 public performance 재검증 뒤에만 표시되고 자동 재생하지 않는다.

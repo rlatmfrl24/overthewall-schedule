@@ -188,6 +188,16 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
       ogType: "website",
     });
   }
+  if (path === "/play" || path.startsWith("/play/")) {
+    return define({
+      path,
+      title: "OTW Play | 오버더월",
+      description: "오버더월 오리지널곡과 공식 커버 카탈로그 관리자 preview입니다.",
+      robots: "noindex,nofollow",
+      sitemap: false,
+      ogType: "website",
+    });
+  }
   if (/^\/profile\/[^/]+$/.test(path)) return buildProfilePlaceholderSeo(path);
   return buildNotFoundSiteSeo(path);
 };

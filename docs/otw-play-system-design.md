@@ -109,6 +109,11 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 - player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
   위에 overlay를 두지 않는다.
 
+운영 공개 전에는 `/play/*` 표현 계층 앞에 Clerk 관리자 gate를 둔다. auth가 아직
+load되지 않았거나 비로그인·비관리자이면 config query와 nested catalog UI를
+마운트하지 않는다. 이 preview gate는 익명 public GET의 장래 공개 계약을
+변경하지 않으며, 내비게이션은 관리자 권한과 두 catalog flag를 모두 요구한다.
+
 ### ADR-PLAY-005: MVP Cloudflare 구성 최소화
 
 상태: 채택

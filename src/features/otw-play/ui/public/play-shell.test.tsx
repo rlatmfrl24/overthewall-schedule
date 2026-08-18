@@ -5,11 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   useConfig: vi.fn(),
+  useUser: vi.fn(),
+  isAdminUser: vi.fn(),
   childMounted: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, ...props }: React.ComponentProps<"a">) => <a {...props}>{children}</a>,
+  Link: ({ children }: React.ComponentProps<"a">) => <a>{children}</a>,
+}));
+vi.mock("@clerk/clerk-react", () => ({
+  SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useUser: mocks.useUser,
+}));
+vi.mock("@/app/admin", () => ({
+  isAdminUser: mocks.isAdminUser,
 }));
 vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayConfig: mocks.useConfig,
@@ -29,8 +38,55 @@ function ChildCatalogRequest() {
 }
 
 describe("OtwPlayShell config gate", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.useUser.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: true,
+      user: { id: "admin-user" },
+    });
+    mocks.isAdminUser.mockReturnValue(true);
+  });
   afterEach(cleanup);
+
+  it("does not request config or mount catalog work before auth loads", () => {
+    mocks.useUser.mockReturnValue({
+      isLoaded: false,
+      isSignedIn: false,
+      user: null,
+    });
+
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+
+    expect(screen.getByText("관리자 권한 확인 중")).toBeTruthy();
+    expect(mocks.useConfig).not.toHaveBeenCalled();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+  });
+
+  it("requires login without requesting public catalog state", () => {
+    mocks.useUser.mockReturnValue({
+      isLoaded: true,
+      isSignedIn: false,
+      user: null,
+    });
+
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+
+    expect(screen.getByText("로그인이 필요합니다")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "로그인" })).toBeTruthy();
+    expect(mocks.useConfig).not.toHaveBeenCalled();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+  });
+
+  it("rejects signed-in non-admins without requesting catalog state", () => {
+    mocks.isAdminUser.mockReturnValue(false);
+
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+
+    expect(screen.getByText("접근 권한이 없습니다")).toBeTruthy();
+    expect(mocks.useConfig).not.toHaveBeenCalled();
+    expect(mocks.childMounted).not.toHaveBeenCalled();
+  });
 
   it("shows preparation state and mounts zero child catalog work while public read is off", () => {
     mocks.useConfig.mockReturnValue({

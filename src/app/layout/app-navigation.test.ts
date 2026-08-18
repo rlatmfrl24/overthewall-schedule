@@ -117,19 +117,27 @@ describe("app navigation", () => {
     expect(multiviewItem?.to).toBe("/multiview");
   });
 
-  it("shows OTW Play only when the public navigation gate is open", () => {
+  it("shows OTW Play only to admins when the navigation gate is open", () => {
     const hidden = getPublicNavigationSections({
       isAdmin: false,
       memberPosts: { visible: false, requiresAuth: false },
       otwPlayVisible: false,
     });
-    const visible = getPublicNavigationSections({
+    const nonAdmin = getPublicNavigationSections({
       isAdmin: false,
+      memberPosts: { visible: false, requiresAuth: false },
+      otwPlayVisible: true,
+    });
+    const visible = getPublicNavigationSections({
+      isAdmin: true,
       memberPosts: { visible: false, requiresAuth: false },
       otwPlayVisible: true,
     });
     expect(
       hidden.flatMap(({ items }) => items).some(({ id }) => id === "otw-play"),
+    ).toBe(false);
+    expect(
+      nonAdmin.flatMap(({ items }) => items).some(({ id }) => id === "otw-play"),
     ).toBe(false);
     expect(
       visible.flatMap(({ items }) => items).find(({ id }) => id === "otw-play")?.to,

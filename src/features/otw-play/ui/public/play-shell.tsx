@@ -1,7 +1,16 @@
+import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, LoaderCircle, Music2, RefreshCw } from "lucide-react";
+import { AlertTriangle, LoaderCircle, Music2, RefreshCw, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
+import { isAdminUser } from "@/app/admin";
 import { Button } from "@/shared/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/shared/ui/card";
 import { useOtwPlayConfig } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
 import { OtwPlayNowPlayingPanel } from "../player/now-playing-panel";
@@ -14,6 +23,74 @@ const tabs = [
 ];
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
+  const { isLoaded, isSignedIn, user } = useUser();
+
+  if (!isLoaded) {
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" /> 관리자 권한 확인 중
+        </div>
+      </main>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <OtwPlayAccessCard
+        title="로그인이 필요합니다"
+        description="현재 OTW Play 화면은 관리자만 이용할 수 있습니다."
+      >
+        <SignInButton>
+          <Button className="w-full rounded-full">로그인</Button>
+        </SignInButton>
+      </OtwPlayAccessCard>
+    );
+  }
+
+  if (!isAdminUser(user?.id)) {
+    return (
+      <OtwPlayAccessCard
+        title="접근 권한이 없습니다"
+        description="관리자 권한이 있는 계정으로 로그인해 주세요."
+      />
+    );
+  }
+
+  return <AuthorizedOtwPlayShell>{children}</AuthorizedOtwPlayShell>;
+}
+
+function OtwPlayAccessCard({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children?: ReactNode;
+}) {
+  return (
+    <main className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
+          <ShieldAlert className="mb-2 size-10 text-amber-500" />
+          <CardTitle className="text-xl">{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {children}
+          <Link to="/" className="w-full">
+            <Button variant="ghost" className="w-full rounded-full">
+              홈으로
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
   const config = useOtwPlayConfig();
 
   if (config.isPending) {

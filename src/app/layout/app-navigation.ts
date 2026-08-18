@@ -153,7 +153,7 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
-        ...(otwPlayVisible
+        ...(isAdmin && otwPlayVisible
           ? [
               {
                 id: "otw-play",
@@ -221,13 +221,14 @@ export function getPublicNavigationSections({
 
 export function usePublicNavigationSections() {
   const { isLoaded, user } = useUser();
+  const isAdmin = isLoaded && isAdminUser(user?.id);
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();
-  const otwPlayConfig = useOtwPlayConfig();
+  const otwPlayConfig = useOtwPlayConfig({ enabled: isAdmin });
 
   return getPublicNavigationSections({
-    isAdmin: isLoaded && isAdminUser(user?.id),
+    isAdmin,
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,

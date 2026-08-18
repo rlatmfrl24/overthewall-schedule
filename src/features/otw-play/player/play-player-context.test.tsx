@@ -196,6 +196,7 @@ describe("OtwPlayPlayerProvider", () => {
     render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     fireEvent.click(screen.getByRole("button", { name: "play" }));
     await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
     mocks.events.current?.onAutoplayBlocked?.();
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("blocked"));
   });

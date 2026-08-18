@@ -81,4 +81,16 @@ describe("site SEO contract", () => {
       "noindex,nofollow",
     );
   });
+
+  it("labels the admin-only OTW Play preview without indexing it", () => {
+    expect(resolveSiteSeo("/play")).toMatchObject({
+      title: "OTW Play | 오버더월",
+      robots: "noindex,nofollow",
+      sitemap: false,
+    });
+    expect(resolveSiteSeo("/play/songs/example").title).toBe(
+      "OTW Play | 오버더월",
+    );
+    expect(STATIC_SHELL_PATHS).not.toContain("/play");
+  });
 });
