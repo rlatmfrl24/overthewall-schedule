@@ -109,6 +109,12 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 - player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
   위에 overlay를 두지 않는다.
 
+DEC-031에 따라 이 provider를 소비하는 `PlayShell`은 route 콘텐츠와 별도로
+데스크톱 우측 `PlayQueueRail`과 하단 `PlaybackBar`를 소유한다. `/play` Home과
+`/play/discover` Discover 사이를 이동해도 queue와 player instance는 유지된다.
+iframe host는 queue rail/sheet 안에 하나만 두고, 하단 bar는 그 player의 상태와
+명령만 표시한다. 이 재배치는 API, schema, cache key와 운영 flag를 바꾸지 않는다.
+
 운영 공개 전에는 `/play/*` 표현 계층 앞에 Clerk 관리자 gate를 둔다. auth가 아직
 load되지 않았거나 비로그인·비관리자이면 config query와 nested catalog UI를
 마운트하지 않는다. 이 preview gate는 익명 public GET의 장래 공개 계약을

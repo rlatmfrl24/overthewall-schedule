@@ -87,7 +87,8 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 | 경로 | 사용자 | 목적 | 주요 화면 |
 | --- | --- | --- | --- |
-| `/play` | 관리자 preview | 큐레이션과 최근 공개곡 발견 | Discover |
+| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡으로 시작 | Home |
+| `/play/discover` | 관리자 preview | featured·곡·협업 영상 재발견 | Discover |
 | `/play/songs` | 관리자 preview | 검색·필터·정렬 기반 전체 카탈로그 | Catalog |
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
 | `/play/submit` | 로그인 회원 | 공식 커버곡 등록 제안 | Submission wizard |
@@ -102,13 +103,15 @@ player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 p
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 
-공개 화면의 상위 탭은 `발견`, `전체 곡`, `오리지널`, `커버`로 제한한다.
+공개 화면의 상위 탭은 `홈`, `발견`, `전체 곡`, `오리지널`, `커버`로 제한한다.
 오리지널과 커버는 별도 데이터 복제 화면이 아니라 `/play/songs`의 고정 필터
 진입점이다. 저장 플레이리스트와 라이브러리 탭은 MVP에 만들지 않는다.
 
 ```mermaid
 flowchart LR
-  entry["OTW Play 진입"] --> discover["발견"]
+  entry["OTW Play 진입"] --> home["홈"]
+  home --> discover["발견"]
+  home --> catalog
   entry --> catalog["전체 곡"]
   discover --> song["곡 상세"]
   catalog --> song
@@ -133,22 +136,21 @@ OTW Play는 기존 `PublicAppShell` 안에 `PlayShell`을 둔다. 기존 사이�
 - 기존 OTW 사이드바: 64px 또는 256px
 - Play 상단 바: 제품명, 탐색 탭, 확장 검색, 제안 버튼
 - 중앙: 독립 스크롤 카탈로그, 최대 읽기 폭을 고정하지 않고 카드 수를 조절
-- 우측: 재생 중일 때 400px `NowPlayingRail`, 미재생 시 중앙 영역에 반환
-- 플레이어 iframe: 16:9, 약 400×225px로 YouTube 최소 200×200px를 충족
-- 대기열: 우측 패널의 플레이어 아래에서 현재 곡과 다음 항목을 표시
+- 우측: 재생 여부와 무관하게 360px `PlayQueueRail`을 유지해 대기열 위치가 흔들리지 않게 한다.
+- 플레이어 iframe: 재생 의도 후 rail 상단에 16:9, 최소 200×200px로 표시한다.
+- 하단: `PlaybackBar`가 현재 곡, previous/play/next, repeat, shuffle과 queue 열기를 지속한다.
 
 ### 5.2 중간 화면: 768–1279px
 
 - 기존 사이트 사이드바는 현재 breakpoint 규칙 유지
 - 검색과 필터는 상단 바와 drawer로 분리
-- 우측 재생 패널 대신 콘텐츠 하단의 확장형 `PlayerDock` 사용
-- 재생 중 dock의 iframe은 항상 실제로 보이며 너비에 따라 16:9 유지
-- 대기열은 player 옆이 아니라 별도 sheet로 표시
+- 우측 rail 대신 하단 `PlaybackBar`를 사용하고 플레이큐는 별도 sheet로 표시한다.
+- 재생 중 sheet의 iframe은 항상 실제로 보이며 너비에 따라 16:9를 유지한다.
 
 ### 5.3 모바일: 767px 이하
 
 - 기존 56px 모바일 헤더 아래에 `OTW Play` 제목과 검색 버튼 배치
-- 발견/전체/오리지널/커버 탭은 가로 스크롤 가능한 sticky tab 사용
+- 홈/발견/전체/오리지널/커버 탭은 가로 스크롤 가능한 sticky tab 사용
 - 카드는 한 열, 곡 목록은 썸네일 72–88px의 밀도 높은 행 사용
 - 재생 시작 시 하단에서 16:9 player sheet를 열고 iframe 높이 200px 이상 확보
 - 플레이어를 compact bar로 접는 동작은 먼저 재생을 일시정지한다. 숨은 재생은

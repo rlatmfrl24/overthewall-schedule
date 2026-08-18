@@ -83,6 +83,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
 | DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 모바일 접기 전 pause, 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
 | DEC-030 | 현재 `/play/*` UI는 운영 공개 전 관리자 preview로 제한한다. | 확정 | 비로그인·비관리자는 config와 catalog 요청을 시작하지 않고 로그인 또는 권한 안내만 본다. 관리자는 Worker가 다시 인증한 전용 `no-store` preview 요청으로 공개 flag가 꺼진 상태에서도 실제 UI를 검증한다. 이 우회는 read-model revision 일치 조건을 유지하고 익명 public GET의 flag-off 계약을 바꾸지 않는다. 관리자 내비게이션은 preview config 확인 후 표시한다. |
+| DEC-031 | 공개 Play의 첫 화면과 탐색 화면을 분리하고 재생 조작은 셸에 지속한다. | 확정 | `/play`는 대표곡·멤버·최근 곡을 보여주는 Home, `/play/discover`는 featured·songs·videos 중심 Discover다. 데스크톱은 비어 있을 때도 우측 플레이큐와 하단 재생바의 자리를 유지하며, 모바일은 하단 재생바에서 플레이큐를 연다. 실제 catalog와 player 상태만 사용하고 저장 플레이리스트나 새 공개 API는 만들지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -603,6 +604,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-11 | PR-4 상한 fixture 성능 문제를 파생 participant sort key와 Unicode 2·3 code point 검색 gram으로 보완하고, 공개 read 활성 상태에서 read-model revision 불일치 시 config 이외 조회를 cache 전에 `503`으로 차단하도록 확정. 기존 flag-off `404`, API·DTO·cursor 계약, UI·원격 D1·배포 범위는 변경하지 않음 |
 | 2026-08-18 | DEC-029 공개 Play 경험 확정. `/play`, 조건부 `OTW Play` 내비게이션, Play-scoped 단일 player, 접기·이탈 cleanup, versioned session queue와 외부 참여자 exact filter를 채택하고 TBD-001·003·006·007·008을 해결 |
 | 2026-08-18 | DEC-030 운영 공개 전 `/play/*` UI를 관리자 preview로 제한. 비로그인·비관리자는 config/catalog 요청을 시작하지 않고, 인증된 관리자 preview만 flag-off catalog를 `no-store`로 읽으며 read-model revision과 익명 public GET 계약은 유지 |
+| 2026-08-18 | DEC-031 공개 Play 정보 구조 재배치. `/play` Home과 `/play/discover`를 분리하고 데스크톱 우측 플레이큐·하단 재생바, 모바일 하단 재생바·플레이큐 sheet를 PlayShell에 유지 |
 
 ## 19. 참고
 
