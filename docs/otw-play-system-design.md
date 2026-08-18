@@ -123,9 +123,11 @@ DEC-032·034의 layout chrome은 `PlayShell` 안에서 상단 64px와 compact �
 64px를 기준선에 맞춘다. 중앙 catalog와 우측 queue는 document scroll 대신 각자
 `overflow-y: auto`를 사용한다. 재생 상세 펼치기는 player 상태의 동일한 현재 track과
 공개 metadata 및 단일 iframe host를 렌더링하며 별도 player instance를 만들지 않는다.
-발견 대표 카드의 수동 carousel
+발견의 단일 full-width 대표 배너 carousel
 state는 표현 계층에만 존재하고 catalog 순서, cursor, queue와 player authority를
-변경하지 않는다.
+변경하지 않는다. 앞·뒤 card surface는 렌더링하지 않고 화살표·indicator·pointer
+drag·가로 wheel·키보드로 현재 배너만 교체한다. 최근 공개곡 projection은 추가
+read model 없이 기존 catalog response를 compact table 행으로 표현한다.
 
 운영 공개 전에는 `/play/*` 표현 계층 앞에 Clerk 관리자 gate를 둔다. auth가 아직
 load되지 않았거나 비로그인·비관리자이면 config query와 nested catalog UI를

@@ -728,7 +728,10 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 8. 데스크톱 336px 데이터 전용 플레이큐 rail과 하단 재생바, tablet/mobile queue sheet
 9. 모든 loading/empty/404/409/503/unavailable state
 10. 64px Play header·compact 재생바, 중앙·queue 내부 스크롤, 현재 곡 상세 overlay
-11. 발견 대표 카드의 click·pointer drag·horizontal wheel·keyboard 수동 전환
+11. 발견의 겹친 card surface를 단일 full-width 배너로 평면화하고
+    arrow·indicator·pointer drag·horizontal wheel·keyboard 수동 전환 유지
+12. 최근 공개곡을 compact table로 표시하고 좁은 폭에서 보조 열을 숨겨 table
+    horizontal scroll을 만들지 않음
 
 비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
 보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
@@ -768,9 +771,10 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - 비로그인·비관리자에서 config·catalog 요청 0회와 관리자 전용 안내
 - 키보드만으로 검색, filter, 재생과 queue reorder
 - reduced motion, focus return, aria-live
-- card/thumbnail CLS와 lazy loading
-- 상단 64px·하단 56px가 좌측 메뉴 기준선과 정렬됨
-- 대표 카드가 pointer·mouse·keyboard로 전환되고 자동 순환하지 않음
+- banner/thumbnail CLS와 lazy loading
+- 상단·하단 64px가 좌측 메뉴 기준선과 정렬됨
+- 대표 배너가 pointer·mouse·keyboard로 전환되고 자동 순환하지 않음
+- 최근 곡 table이 desktop center 폭을 넘지 않고 모바일에서는 보조 열을 숨김
 
 ### 종료 조건
 

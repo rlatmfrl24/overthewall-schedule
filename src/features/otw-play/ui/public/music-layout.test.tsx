@@ -128,7 +128,7 @@ describe("OTW Play discover layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
 
-    const carousel = screen.getByRole("region", { name: "추천 카드" });
+    const carousel = screen.getByRole("region", { name: "추천 배너" });
     fireEvent.wheel(carousel, { deltaX: 120, deltaY: 0 });
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     fireEvent.keyDown(carousel, { key: "ArrowLeft" });
@@ -136,6 +136,9 @@ describe("OTW Play discover layout", () => {
 
     expect(screen.getByRole("heading", { name: "멤버로 찾기" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "최근 공개된 곡" })).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "곡" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "작업" })).toBeTruthy();
   });
 
 });

@@ -55,18 +55,6 @@ export function OtwPlayHomePage() {
   const songs = pageItems(latest);
   const activeIndex = songs.length === 0 ? 0 : featuredIndex % songs.length;
   const featured = songs[activeIndex] ?? null;
-  const previousIndex = songs.length === 0
-    ? 0
-    : (activeIndex - 1 + songs.length) % songs.length;
-  const nextIndex = songs.length === 0 ? 0 : (activeIndex + 1) % songs.length;
-  const supporting = songs.length > 1
-    ? [
-        { side: "previous" as const, index: previousIndex, song: songs[previousIndex]! },
-        ...(songs.length > 2
-          ? [{ side: "next" as const, index: nextIndex, song: songs[nextIndex]! }]
-          : []),
-      ]
-    : [];
 
   const moveFeatured = (direction: -1 | 1) => {
     if (songs.length < 2) return;
@@ -104,13 +92,13 @@ export function OtwPlayHomePage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1320px] space-y-5 px-4 py-4 sm:px-5 lg:px-6 lg:py-5">
+    <div className="mx-auto flex min-h-full w-full max-w-[1320px] flex-col gap-4 px-4 py-4 sm:px-5 lg:px-6">
       {featured ? (
         <section
           aria-roledescription="carousel"
-          aria-label="추천 카드"
+          aria-label="추천 배너"
           tabIndex={0}
-          className="relative isolate mx-auto w-full max-w-5xl touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="relative isolate w-full touch-pan-y overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onPointerDown={handleHeroPointerDown}
           onPointerUp={handleHeroPointerUp}
           onPointerCancel={() => {
@@ -119,34 +107,18 @@ export function OtwPlayHomePage() {
           onWheel={handleHeroWheel}
           onKeyDown={handleHeroKeyDown}
         >
-          {supporting.map(({ song, side, index }) => (
-            <button
-              type="button"
-              key={`${side}:${song.id}`}
-              aria-label={side === "previous" ? "이전 추천곡 보기" : "다음 추천곡 보기"}
-              onClick={() => setFeaturedIndex(index)}
-              className={
-                side === "previous"
-                  ? "absolute inset-y-8 left-0 hidden w-[44%] -translate-x-4 -rotate-2 overflow-hidden rounded-2xl border bg-card opacity-55 shadow-lg transition hover:opacity-85 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:block"
-                  : "absolute inset-y-8 right-0 hidden w-[44%] translate-x-4 rotate-2 overflow-hidden rounded-2xl border bg-card opacity-55 shadow-lg transition hover:opacity-85 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:block"
-              }
-            >
-              <SongImage song={song} eager />
-            </button>
-          ))}
-
-          <article className="relative z-10 mx-auto w-full cursor-grab overflow-hidden rounded-2xl border bg-card shadow-xl active:cursor-grabbing md:w-[82%]">
-            <div className="relative h-[clamp(18rem,43vh,25rem)] min-h-[288px]">
+          <article className="relative cursor-grab active:cursor-grabbing">
+            <div className="relative min-h-[17rem] aspect-[12/5] max-h-[20rem]">
               <SongImage song={featured} eager />
-              <div className="absolute inset-0 bg-black/50" />
-              <div className="absolute inset-x-0 bottom-0 flex flex-col gap-3 p-5 text-white sm:p-7">
+              <div className="absolute inset-0 bg-black/55" />
+              <div className="absolute inset-x-0 bottom-0 flex max-w-3xl flex-col gap-3 p-5 text-white sm:p-7 lg:p-8">
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/75">
                     New on OTW Play
                   </p>
                   <h1
                     id="play-home-featured"
-                    className="max-w-2xl break-words text-3xl font-bold leading-tight sm:text-4xl"
+                    className="max-w-2xl break-words text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl"
                   >
                     {featured.title}
                   </h1>
@@ -182,18 +154,21 @@ export function OtwPlayHomePage() {
           </article>
 
           {songs.length > 1 ? (
-            <div className="relative z-20 mt-3 flex items-center justify-center gap-2">
+            <>
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="icon-sm"
-                className="rounded-full"
+                className="absolute left-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-background/85 shadow-sm"
                 aria-label="이전 추천곡"
                 onClick={() => moveFeatured(-1)}
               >
                 <ArrowLeft />
               </Button>
-              <div className="flex gap-1.5" aria-label={`${activeIndex + 1} / ${songs.length}`}>
+              <div
+                className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-2"
+                aria-label={`${activeIndex + 1} / ${songs.length}`}
+              >
                 {songs.map((song, index) => (
                   <button
                     type="button"
@@ -203,23 +178,23 @@ export function OtwPlayHomePage() {
                     onClick={() => setFeaturedIndex(index)}
                     className={
                       index === activeIndex
-                        ? "h-2 w-6 rounded-full bg-foreground transition-[width]"
-                        : "size-2 rounded-full bg-muted-foreground/35 hover:bg-muted-foreground"
+                        ? "h-1.5 w-5 rounded-full bg-white transition-[width]"
+                        : "size-1.5 rounded-full bg-white/45 hover:bg-white/75"
                     }
                   />
                 ))}
               </div>
               <Button
                 type="button"
-                variant="outline"
+                variant="secondary"
                 size="icon-sm"
-                className="rounded-full"
+                className="absolute right-3 top-1/2 z-20 -translate-y-1/2 rounded-full bg-background/85 shadow-sm"
                 aria-label="다음 추천곡"
                 onClick={() => moveFeatured(1)}
               >
                 <ArrowRight />
               </Button>
-            </div>
+            </>
           ) : null}
         </section>
       ) : (
@@ -231,9 +206,9 @@ export function OtwPlayHomePage() {
         </section>
       )}
 
-      <div className="grid min-h-0 gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(15rem,0.75fr)]">
         {songs.length > 1 ? (
-          <section aria-labelledby="play-home-latest" className="min-w-0 space-y-3">
+          <section aria-labelledby="play-home-latest" className="min-w-0">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -249,11 +224,7 @@ export function OtwPlayHomePage() {
                 </Link>
               </Button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              {songs.slice(1, 5).map((song) => (
-                <HomeSongCard key={song.id} song={song} />
-              ))}
-            </div>
+            <RecentSongTable songs={songs.slice(1, 6)} />
           </section>
         ) : null}
 
@@ -273,13 +244,13 @@ export function OtwPlayHomePage() {
               </Link>
             </Button>
           </div>
-          <div className="flex gap-4 overflow-x-auto overscroll-x-contain pb-2">
+          <div className="grid grid-cols-4 gap-x-3 gap-y-4 border-t pt-4 xl:grid-cols-3 2xl:grid-cols-4">
             {facets.data?.data.members.slice(0, 7).map((member) => (
               <Link
                 key={member.memberUid}
                 to="/play/songs"
                 search={{ member: String(member.memberUid) }}
-                className="group flex w-20 shrink-0 flex-col items-center gap-2 text-center"
+                className="group flex min-w-0 flex-col items-center gap-2 text-center"
                 aria-label={`${member.displayName} 곡 보기`}
               >
                 <img
@@ -287,7 +258,7 @@ export function OtwPlayHomePage() {
                   alt=""
                   width={80}
                   height={80}
-                  className="size-16 rounded-full border-2 border-background object-cover shadow-md ring-1 ring-border transition-transform group-hover:-translate-y-1 sm:size-20"
+                  className="size-12 rounded-full object-cover ring-1 ring-border transition-transform group-hover:-translate-y-1 sm:size-14"
                 />
                 <span className="line-clamp-1 w-full text-xs font-medium">
                   {member.displayName}
@@ -325,34 +296,69 @@ function SongImage({
   );
 }
 
-function HomeSongCard({ song }: { song: OtwPlayPublicSongSummaryDto }) {
-  const performance = song.representativePerformance;
+function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
   return (
-    <article className="flex min-w-0 gap-3 rounded-xl border bg-card p-2.5 shadow-sm">
-      <div className="aspect-square w-16 shrink-0 overflow-hidden rounded-lg bg-muted sm:w-20">
-        <SongImage song={song} />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium text-muted-foreground">
-            {relationLabel[performance.relation]}
-          </p>
-          <Link
-            to="/play/songs/$songSlug"
-            params={{ songSlug: song.slug }}
-            search={{ performance: undefined }}
-            className="line-clamp-2 text-sm font-semibold hover:underline"
-          >
-            {song.title}
-          </Link>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {performance.participants
-              .map(({ displayName }) => displayName)
-              .join(", ") || "참여자 정보 없음"}
-          </p>
-        </div>
-        <OtwPlayPerformanceActions song={song} performance={performance} compact />
-      </div>
-    </article>
+    <div className="mt-2 border-y">
+      <table className="w-full table-fixed text-left text-xs">
+        <thead className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+          <tr className="h-8 border-b">
+            <th scope="col" className="w-[34%] px-2 font-medium">곡</th>
+            <th scope="col" className="hidden w-[20%] px-2 font-medium sm:table-cell">참여자</th>
+            <th scope="col" className="hidden w-[14%] px-2 font-medium md:table-cell">구분</th>
+            <th scope="col" className="w-[14%] px-2 font-medium">공개일</th>
+            <th scope="col" className="w-[18%] px-1 text-right font-medium">작업</th>
+          </tr>
+        </thead>
+        <tbody>
+          {songs.map((song) => {
+            const performance = song.representativePerformance;
+            return (
+              <tr key={song.id} className="h-12 border-b last:border-b-0 hover:bg-muted/45">
+                <td className="px-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <div className="size-8 shrink-0 overflow-hidden bg-muted">
+                      <SongImage song={song} />
+                    </div>
+                    <Link
+                      to="/play/songs/$songSlug"
+                      params={{ songSlug: song.slug }}
+                      search={{ performance: undefined }}
+                      className="truncate font-semibold hover:underline"
+                    >
+                      {song.title}
+                    </Link>
+                  </div>
+                </td>
+                <td className="hidden truncate px-2 text-muted-foreground sm:table-cell">
+                  {performance.participants
+                    .map(({ displayName }) => displayName)
+                    .join(", ") || "정보 없음"}
+                </td>
+                <td className="hidden px-2 text-muted-foreground md:table-cell">
+                  {relationLabel[performance.relation]}
+                </td>
+                <td className="px-2 tabular-nums text-muted-foreground">
+                  {performance.releasedAt
+                    ? new Date(performance.releasedAt).toLocaleDateString("ko-KR", {
+                        month: "2-digit",
+                        day: "2-digit",
+                      })
+                    : "—"}
+                </td>
+                <td className="px-1">
+                  <OtwPlayPerformanceActions
+                    song={song}
+                    performance={performance}
+                    compact
+                    iconOnly
+                    className="justify-end gap-1"
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

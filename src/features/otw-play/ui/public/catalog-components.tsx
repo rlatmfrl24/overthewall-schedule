@@ -75,11 +75,13 @@ export function OtwPlayPerformanceActions({
   song,
   performance,
   compact = false,
+  iconOnly = false,
   className,
 }: {
   song: { id: string; slug: string; title: string };
   performance: OtwPlayPublicPerformanceSummaryDto | OtwPlayPublicPerformanceDetailDto;
   compact?: boolean;
+  iconOnly?: boolean;
   className?: string;
 }) {
   const player = useOtwPlayPlayer();
@@ -93,20 +95,22 @@ export function OtwPlayPerformanceActions({
     <div className={cn("flex flex-wrap gap-2", className)}>
       <Button
         type="button"
-        size={compact ? "sm" : "default"}
+        size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
         disabled={!track}
         onClick={() => track && player.play(track)}
+        aria-label={iconOnly ? `${song.title} 재생` : undefined}
       >
-        <Play /> 재생
+        <Play /> {iconOnly ? <span className="sr-only">재생</span> : "재생"}
       </Button>
       <Button
         type="button"
         variant="outline"
-        size={compact ? "sm" : "default"}
+        size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
         disabled={!track}
         onClick={() => track && player.enqueue(track)}
+        aria-label={iconOnly ? `${song.title} 마지막에 추가` : undefined}
       >
-        <ListPlus /> 마지막에 추가
+        <ListPlus /> {iconOnly ? <span className="sr-only">마지막에 추가</span> : "마지막에 추가"}
       </Button>
       {!compact && (
         <Button
