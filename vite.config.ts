@@ -7,23 +7,16 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import {
   getLocalDevServerConfig,
   resolveLocalD1PersistState,
+  rewriteLocalSpaRequest,
 } from "./scripts/local-dev-config.mjs";
-
-const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
 const spaDevRewrite = () => ({
   name: "otw-spa-dev-rewrite",
+  enforce: "pre" as const,
   apply: "serve" as const,
-  configureServer(server: { middlewares: { use: (handler: (request: { method?: string; url?: string; headers: { accept?: string } }, _response: unknown, next: () => void) => void) => void } }) {
+  configureServer(server: { middlewares: { use: (handler: (request: { method?: string; originalUrl?: string; url?: string; headers: { accept?: string } }, _response: unknown, next: () => void) => void) => void } }) {
     server.middlewares.use((request, _response, next) => {
-      const url = new URL(request.url ?? "/", "http://localhost");
-      if (
-        request.method === "GET" &&
-        request.headers.accept?.includes("text/html") &&
-        SPA_DEV_ROUTE.test(url.pathname)
-      ) {
-        request.url = `/${url.search}`;
-      }
+      rewriteLocalSpaRequest(request);
       next();
     });
   },

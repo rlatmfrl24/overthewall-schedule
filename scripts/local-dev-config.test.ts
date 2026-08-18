@@ -8,6 +8,7 @@ import {
   parseLocalDevPort,
   resolveLocalD1PersistState,
   resolveLocalDevPort,
+  rewriteLocalSpaRequest,
 } from "./local-dev-config.mjs";
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
@@ -39,6 +40,37 @@ describe("local development server config", () => {
         OTW_D1_PERSIST_TO: " C:/tmp/otw-play-pr6 ",
       }),
     ).toEqual({ path: "C:/tmp/otw-play-pr6" });
+  });
+
+  it("rewrites nested SPA requests for both Vite and the Worker proxy", () => {
+    const request = {
+      method: "GET",
+      url: "/play/songs/example?performance=performance-1",
+      originalUrl: "/play/songs/example?performance=performance-1",
+      headers: { accept: "text/html,application/xhtml+xml" },
+    };
+
+    expect(rewriteLocalSpaRequest(request)).toBe(true);
+    expect(request.url).toBe("/?performance=performance-1");
+    expect(request.originalUrl).toBe("/?performance=performance-1");
+  });
+
+  it("does not rewrite API or non-navigation requests", () => {
+    const apiRequest = {
+      method: "GET",
+      url: "/api/play/config",
+      originalUrl: "/api/play/config",
+      headers: { accept: "application/json" },
+    };
+    const postRequest = {
+      method: "POST",
+      url: "/play",
+      originalUrl: "/play",
+      headers: { accept: "text/html" },
+    };
+
+    expect(rewriteLocalSpaRequest(apiRequest)).toBe(false);
+    expect(rewriteLocalSpaRequest(postRequest)).toBe(false);
   });
 
   it.each(["abc", "5173.5", "1023", "65536"])(
