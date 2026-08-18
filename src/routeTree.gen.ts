@@ -24,6 +24,7 @@ import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as PlaySongsRouteImport } from './routes/play/songs'
+import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
@@ -112,6 +113,11 @@ const PlaySongsRoute = PlaySongsRouteImport.update({
   path: '/songs',
   getParentRoute: () => PlayRoute,
 } as any)
+const PlayDiscoverRoute = PlayDiscoverRouteImport.update({
+  id: '/discover',
+  path: '/discover',
+  getParentRoute: () => PlayRoute,
+} as any)
 const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
   id: '/youtube-cache',
   path: '/youtube-cache',
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/discover': typeof PlayDiscoverRoute
   '/play/songs': typeof PlaySongsRouteWithChildren
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
@@ -220,6 +227,7 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/discover': typeof PlayDiscoverRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
   '/play': typeof PlayIndexRoute
@@ -249,6 +257,7 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/discover': typeof PlayDiscoverRoute
   '/play/songs': typeof PlaySongsRouteWithChildren
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
@@ -280,6 +289,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/discover'
     | '/play/songs'
     | '/profile/$code'
     | '/admin/'
@@ -306,6 +316,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/discover'
     | '/profile/$code'
     | '/admin'
     | '/play'
@@ -334,6 +345,7 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/discover'
     | '/play/songs'
     | '/profile/$code'
     | '/admin/'
@@ -462,6 +474,13 @@ declare module '@tanstack/react-router' {
       path: '/songs'
       fullPath: '/play/songs'
       preLoaderRoute: typeof PlaySongsRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/discover': {
+      id: '/play/discover'
+      path: '/discover'
+      fullPath: '/play/discover'
+      preLoaderRoute: typeof PlayDiscoverRouteImport
       parentRoute: typeof PlayRoute
     }
     '/admin/youtube-cache': {
@@ -596,11 +615,13 @@ const PlaySongsRouteWithChildren = PlaySongsRoute._addFileChildren(
 )
 
 interface PlayRouteChildren {
+  PlayDiscoverRoute: typeof PlayDiscoverRoute
   PlaySongsRoute: typeof PlaySongsRouteWithChildren
   PlayIndexRoute: typeof PlayIndexRoute
 }
 
 const PlayRouteChildren: PlayRouteChildren = {
+  PlayDiscoverRoute: PlayDiscoverRoute,
   PlaySongsRoute: PlaySongsRouteWithChildren,
   PlayIndexRoute: PlayIndexRoute,
 }

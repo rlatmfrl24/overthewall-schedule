@@ -32,7 +32,8 @@ vi.mock("../../player/play-player-context", () => ({
   OtwPlayPlayerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("../player/now-playing-panel", () => ({
-  OtwPlayNowPlayingPanel: () => null,
+  OtwPlayQueuePanel: () => null,
+  OtwPlayPlaybackBar: () => null,
 }));
 
 import { OtwPlayShell } from "./play-shell";

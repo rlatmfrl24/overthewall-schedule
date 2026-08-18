@@ -23,10 +23,14 @@ import {
   useOtwPlayConfig,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
-import { OtwPlayNowPlayingPanel } from "../player/now-playing-panel";
+import {
+  OtwPlayPlaybackBar,
+  OtwPlayQueuePanel,
+} from "../player/now-playing-panel";
 
 const tabs = [
-  { label: "발견", to: "/play" as const, search: undefined },
+  { label: "홈", to: "/play" as const, search: undefined },
+  { label: "발견", to: "/play/discover" as const, search: undefined },
   { label: "전체 곡", to: "/play/songs" as const, search: {} },
   { label: "오리지널", to: "/play/songs" as const, search: { relation: "original" as const } },
   { label: "커버", to: "/play/songs" as const, search: { relation: "cover" as const } },
@@ -140,40 +144,39 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
 
   return (
     <OtwPlayPlayerProvider adminPreview>
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--otw-1)_10%,transparent),transparent_38%)]">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="z-20 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <div className="flex h-16 items-center gap-4 px-3 sm:px-5 lg:px-7 xl:px-8">
-              <Link to="/play" className="flex items-center gap-2 font-semibold">
-                <Music2 className="size-5" /> OTW Play
-              </Link>
-              {!config.data?.data.publicReadEnabled && (
-                <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
-                  <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
-                </span>
-              )}
-              <nav aria-label="OTW Play 탐색" className="ml-auto flex min-w-0 gap-1 overflow-x-auto">
-                {tabs.map((tab) => (
-                  <Link
-                    key={`${tab.label}:${JSON.stringify(tab.search)}`}
-                    to={tab.to}
-                    search={tab.search}
-                    activeOptions={{ exact: true, includeSearch: true }}
-                    activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
-                    inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
-                    className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {tab.label}
-                  </Link>
-                ))}
-              </nav>
-            </div>
-          </header>
-          <main className="min-h-0 flex-1 overflow-y-auto pb-24 xl:pb-0">
-            {children}
-          </main>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/20">
+        <header className="z-20 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex h-16 items-center gap-4 px-3 sm:px-5 lg:px-7 xl:px-8">
+            <Link to="/play" className="flex items-center gap-2 font-semibold">
+              <Music2 className="size-5" /> OTW Play
+            </Link>
+            {!config.data?.data.publicReadEnabled && (
+              <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
+                <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
+              </span>
+            )}
+            <nav aria-label="OTW Play 탐색" className="ml-auto flex min-w-0 gap-1 overflow-x-auto">
+              {tabs.map((tab) => (
+                <Link
+                  key={`${tab.label}:${JSON.stringify(tab.search)}`}
+                  to={tab.to}
+                  search={tab.search}
+                  activeOptions={{ exact: true, includeSearch: true }}
+                  activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
+                  inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
+                  className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+          <OtwPlayQueuePanel />
         </div>
-        <OtwPlayNowPlayingPanel />
+        <OtwPlayPlaybackBar />
       </div>
     </OtwPlayPlayerProvider>
   );

@@ -124,7 +124,7 @@ export function OtwPlayPlayerProvider({
   const [hasPlaybackIntent, setHasPlaybackIntent] = useState(false);
   const [playerReadyVersion, setPlayerReadyVersion] = useState(0);
   const [status, setStatus] = useState<PlayerStatus>("idle");
-  const [panelExpanded, setPanelExpanded] = useState(true);
+  const [panelExpanded, setPanelExpanded] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const playerRef = useRef<OtwPlayYouTubePlayer | null>(null);
   const playerPromiseRef = useRef<Promise<OtwPlayYouTubePlayer> | null>(null);

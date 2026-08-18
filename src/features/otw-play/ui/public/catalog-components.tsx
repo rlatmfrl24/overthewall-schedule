@@ -75,10 +75,12 @@ export function OtwPlayPerformanceActions({
   song,
   performance,
   compact = false,
+  className,
 }: {
   song: { id: string; slug: string; title: string };
   performance: OtwPlayPublicPerformanceSummaryDto | OtwPlayPublicPerformanceDetailDto;
   compact?: boolean;
+  className?: string;
 }) {
   const player = useOtwPlayPlayer();
   const source = performance.selectedSource;
@@ -88,7 +90,7 @@ export function OtwPlayPerformanceActions({
       : null;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className={cn("flex flex-wrap gap-2", className)}>
       <Button
         type="button"
         size={compact ? "sm" : "default"}
