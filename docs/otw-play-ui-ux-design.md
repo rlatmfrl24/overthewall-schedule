@@ -134,11 +134,17 @@ OTW Play는 기존 `PublicAppShell` 안에 `PlayShell`을 둔다. 기존 사이�
 ### 5.1 넓은 화면: 1280px 이상
 
 - 기존 OTW 사이드바: 64px 또는 256px
-- Play 상단 바: 제품명, 탐색 탭, 확장 검색, 제안 버튼
+- Play 상단 바: 좌측 메뉴 상단과 같은 64px 높이 안에 제품명, 탐색 탭과 검색을 배치한다.
 - 중앙: 독립 스크롤 카탈로그, 최대 읽기 폭을 고정하지 않고 카드 수를 조절
 - 우측: 재생 여부와 무관하게 360px `PlayQueueRail`을 유지해 대기열 위치가 흔들리지 않게 한다.
 - 플레이어 iframe: 재생 의도 후 rail 상단에 16:9, 최소 200×200px로 표시한다.
-- 하단: `PlaybackBar`가 현재 곡, previous/play/next, repeat, shuffle과 queue 열기를 지속한다.
+- 하단: 좌측 메뉴 하단과 같은 56px `PlaybackBar`가 현재 곡, previous/play/next,
+  repeat, shuffle과 queue 열기를 지속한다. 펼치기 토글은 bar 위로 현재 곡의
+  썸네일, 분류, 참여자, 채널, source 상태와 상세 링크를 확장한다.
+
+Home의 대표 카드는 자동 재생하거나 일정 시간마다 바뀌지 않는다. 사용자는 좌우
+화살표, 앞·뒤 카드 클릭, indicator, 키보드 좌우 키, 마우스 drag 또는 가로 wheel로
+직접 전환한다. 전환해도 곡의 실제 재생·대기열 상태는 임의로 바꾸지 않는다.
 
 ### 5.2 중간 화면: 768–1279px
 

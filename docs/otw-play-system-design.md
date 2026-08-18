@@ -115,6 +115,13 @@ DEC-031에 따라 이 provider를 소비하는 `PlayShell`은 route 콘텐츠와
 iframe host는 queue rail/sheet 안에 하나만 두고, 하단 bar는 그 player의 상태와
 명령만 표시한다. 이 재배치는 API, schema, cache key와 운영 flag를 바꾸지 않는다.
 
+DEC-032의 layout chrome은 `PlayShell` 안에서 상단 64px와 compact 재생바 56px를
+각각 기존 좌측 메뉴의 상·하단 기준선에 맞춘다. 재생 상세 펼치기는 player 상태의
+동일한 현재 track을 읽어 thumbnail과 공개 metadata만 렌더링하며 iframe host를
+복제하거나 별도 player instance를 만들지 않는다. Home 대표 카드의 수동 carousel
+state는 표현 계층에만 존재하고 catalog 순서, cursor, queue와 player authority를
+변경하지 않는다.
+
 운영 공개 전에는 `/play/*` 표현 계층 앞에 Clerk 관리자 gate를 둔다. auth가 아직
 load되지 않았거나 비로그인·비관리자이면 config query와 nested catalog UI를
 마운트하지 않는다. 이 preview gate는 익명 public GET의 장래 공개 계약을

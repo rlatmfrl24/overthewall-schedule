@@ -726,6 +726,8 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 7. versioned `sessionStorage` restore와 public performance 재검증
 8. 데스크톱 360px 플레이큐 rail과 하단 재생바, tablet/mobile queue sheet
 9. 모든 loading/empty/404/409/503/unavailable state
+10. 좌측 메뉴와 맞춘 64px Play header·56px compact 재생바, 현재 곡 상세 펼치기
+11. Home 대표 카드의 click·pointer drag·horizontal wheel·keyboard 수동 전환
 
 비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
 보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
@@ -753,6 +755,7 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - `origin` parameter와 autoplay-blocked event 처리
 - unavailable 두 항목 이상에서도 무한 skip 없음
 - repeat/next/previous/shuffle의 결정적 reducer test
+- 재생바 상세 펼침이 현재 track의 공개 metadata를 사용하고 iframe을 추가하지 않음
 
 ### UI 검증
 
@@ -764,6 +767,8 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - 키보드만으로 검색, filter, 재생과 queue reorder
 - reduced motion, focus return, aria-live
 - card/thumbnail CLS와 lazy loading
+- 상단 64px·하단 56px가 좌측 메뉴 기준선과 정렬됨
+- 대표 카드가 pointer·mouse·keyboard로 전환되고 자동 순환하지 않음
 
 ### 종료 조건
 

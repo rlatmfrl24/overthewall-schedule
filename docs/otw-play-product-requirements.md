@@ -84,6 +84,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 모바일 접기 전 pause, 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
 | DEC-030 | 현재 `/play/*` UI는 운영 공개 전 관리자 preview로 제한한다. | 확정 | 비로그인·비관리자는 config와 catalog 요청을 시작하지 않고 로그인 또는 권한 안내만 본다. 관리자는 Worker가 다시 인증한 전용 `no-store` preview 요청으로 공개 flag가 꺼진 상태에서도 실제 UI를 검증한다. 이 우회는 read-model revision 일치 조건을 유지하고 익명 public GET의 flag-off 계약을 바꾸지 않는다. 관리자 내비게이션은 preview config 확인 후 표시한다. |
 | DEC-031 | 공개 Play의 첫 화면과 탐색 화면을 분리하고 재생 조작은 셸에 지속한다. | 확정 | `/play`는 대표곡·멤버·최근 곡을 보여주는 Home, `/play/discover`는 featured·songs·videos 중심 Discover다. 데스크톱은 비어 있을 때도 우측 플레이큐와 하단 재생바의 자리를 유지하며, 모바일은 하단 재생바에서 플레이큐를 연다. 실제 catalog와 player 상태만 사용하고 저장 플레이리스트나 새 공개 API는 만들지 않는다. |
+| DEC-032 | Play의 상·하단 chrome은 기존 좌측 메뉴의 기준선에 맞추고, 대표 카드와 현재 곡 상세는 명시적 사용자 조작으로 확장한다. | 확정 | 상단 Play header는 좌측 메뉴 상단과 같은 64px, compact 재생바는 좌측 메뉴 하단과 같은 56px다. Home 대표 카드는 화살표·카드 클릭·키보드·마우스 drag·가로 wheel로 수동 전환하며 자동 순환하지 않는다. 재생바의 펼치기 토글은 두 번째 iframe을 만들지 않고 현재 곡·가창·참여자·채널·source metadata를 보여준다. |
 
 ## 4. 제품 원칙
 
@@ -605,6 +606,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-18 | DEC-029 공개 Play 경험 확정. `/play`, 조건부 `OTW Play` 내비게이션, Play-scoped 단일 player, 접기·이탈 cleanup, versioned session queue와 외부 참여자 exact filter를 채택하고 TBD-001·003·006·007·008을 해결 |
 | 2026-08-18 | DEC-030 운영 공개 전 `/play/*` UI를 관리자 preview로 제한. 비로그인·비관리자는 config/catalog 요청을 시작하지 않고, 인증된 관리자 preview만 flag-off catalog를 `no-store`로 읽으며 read-model revision과 익명 public GET 계약은 유지 |
 | 2026-08-18 | DEC-031 공개 Play 정보 구조 재배치. `/play` Home과 `/play/discover`를 분리하고 데스크톱 우측 플레이큐·하단 재생바, 모바일 하단 재생바·플레이큐 sheet를 PlayShell에 유지 |
+| 2026-08-18 | DEC-032 Play chrome 정렬 및 조작 보강. 상단 64px·하단 56px 기준을 좌측 메뉴와 맞추고, Home 대표 카드 수동 전환과 재생바의 현재 곡 상세 펼치기를 추가 |
 
 ## 19. 참고
 
