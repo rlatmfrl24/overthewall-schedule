@@ -35,7 +35,7 @@ export function OtwPlaySongDetailPage({
       return (
         <div className="mx-auto max-w-xl p-8 text-center">
           <h1 className="text-xl font-semibold">공개된 곡을 찾지 못했습니다</h1>
-          <Button asChild variant="outline" className="mt-4"><Link to="/play/songs">전체 곡으로</Link></Button>
+          <Button asChild variant="outline" className="mt-4"><Link to="/play/songs">곡 검색으로</Link></Button>
         </div>
       );
     }
@@ -51,7 +51,7 @@ export function OtwPlaySongDetailPage({
   return (
     <div className="mx-auto w-full max-w-screen-xl space-y-7 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
       <Button asChild variant="ghost" size="sm">
-        <Link to="/play/songs"><ArrowLeft /> 전체 곡</Link>
+        <Link to="/play/songs"><ArrowLeft /> 곡 검색</Link>
       </Button>
 
       <section className="grid gap-5 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[minmax(16rem,28rem)_1fr] md:p-6">

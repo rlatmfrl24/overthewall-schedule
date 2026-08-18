@@ -11,7 +11,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children }: React.ComponentProps<"a">) => <a>{children}</a>,
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -105,6 +107,12 @@ describe("OtwPlayShell config gate", () => {
     expect(screen.getByText("catalog child")).toBeTruthy();
     expect(mocks.childMounted).toHaveBeenCalledOnce();
     expect(mocks.useConfig).toHaveBeenCalledWith({ adminPreview: true });
+    expect(screen.getByRole("link", { name: "홈" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "발견" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "전체 곡" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "오리지널" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "커버" })).toBeNull();
   });
 
   it("mounts the nested public experience only after the config gate opens", () => {

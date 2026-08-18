@@ -62,7 +62,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
   return (
     <div className="mx-auto w-full max-w-screen-2xl space-y-5 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
       <div>
-        <h1 className="text-2xl font-semibold">전체 곡</h1>
+        <h1 className="text-2xl font-semibold">곡 검색</h1>
         <p className="text-sm text-muted-foreground">
           곡명, 별칭, 원곡 가수와 참여자로 공식 버전을 찾습니다.
         </p>

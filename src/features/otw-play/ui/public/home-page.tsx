@@ -275,8 +275,8 @@ export function OtwPlayHomePage() {
             </h2>
           </div>
           <Button asChild variant="ghost" size="sm">
-            <Link to="/play/discover">
-              발견으로 이동 <ArrowRight />
+            <Link to="/play/songs" search={{}}>
+              곡 검색 <ArrowRight />
             </Link>
           </Button>
         </div>
@@ -312,7 +312,7 @@ export function OtwPlayHomePage() {
             </h2>
             <Button asChild variant="outline" size="sm">
               <Link to="/play/songs" search={{}}>
-                전체 보기 <ArrowRight />
+                곡 검색 <ArrowRight />
               </Link>
             </Button>
           </div>

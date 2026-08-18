@@ -53,6 +53,7 @@ describe("OtwPlaySongDetailPage", () => {
       },
     });
     render(<OtwPlaySongDetailPage songSlug="song-1" highlightedPerformanceId="p2" />);
+    expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
     expect(screen.getByText("직접 링크로 선택됨")).toBeTruthy();
     expect(document.getElementById("performance-p2")?.className).toContain("ring-2");
     expect(document.getElementById("performance-p1")?.className).not.toContain("ring-2");

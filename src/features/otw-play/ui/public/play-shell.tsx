@@ -30,10 +30,7 @@ import {
 
 const tabs = [
   { label: "홈", to: "/play" as const, search: undefined },
-  { label: "발견", to: "/play/discover" as const, search: undefined },
-  { label: "전체 곡", to: "/play/songs" as const, search: {} },
-  { label: "오리지널", to: "/play/songs" as const, search: { relation: "original" as const } },
-  { label: "커버", to: "/play/songs" as const, search: { relation: "cover" as const } },
+  { label: "곡 검색", to: "/play/songs" as const, search: {} },
 ];
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
@@ -161,7 +158,7 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
                   to={tab.to}
                   search={tab.search}
-                  activeOptions={{ exact: true, includeSearch: true }}
+                  activeOptions={{ exact: true, includeSearch: false }}
                   activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
                   inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
                   className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"

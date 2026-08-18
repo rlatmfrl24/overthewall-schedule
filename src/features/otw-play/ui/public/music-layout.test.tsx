@@ -20,10 +20,6 @@ vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayCatalog: mocks.useCatalog,
   useOtwPlayFacets: mocks.useFacets,
 }));
-vi.mock("../../model/public-discover", () => ({
-  assembleOtwPlayCollaborationSongs: (groups: OtwPlayPublicSongSummaryDto[][]) =>
-    groups.flat().slice(0, 1),
-}));
 vi.mock("../../player/play-player-context", () => ({
   useOtwPlayPlayer: () => ({ play: vi.fn(), enqueue: vi.fn() }),
 }));
@@ -37,7 +33,6 @@ vi.mock("./catalog-components", () => ({
   relationLabel: { original: "오리지널", cover: "공식 커버" },
 }));
 
-import { OtwPlayDiscoverPage } from "./discover-page";
 import { OtwPlayHomePage } from "./home-page";
 
 const song: OtwPlayPublicSongSummaryDto = {
@@ -129,6 +124,7 @@ describe("OTW Play home and discover layouts", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
@@ -151,12 +147,4 @@ describe("OTW Play home and discover layouts", () => {
     });
   });
 
-  it("rearranges discover into featured, songs, videos, and members", () => {
-    render(<OtwPlayDiscoverPage />);
-
-    expect(screen.getByText("FEATURED")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "새로 등록된 곡" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "함께 부른 노래" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "멤버로 찾기" })).toBeTruthy();
-  });
 });

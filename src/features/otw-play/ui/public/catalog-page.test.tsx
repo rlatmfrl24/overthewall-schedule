@@ -47,6 +47,7 @@ describe("OtwPlayCatalogPage", () => {
   it("syncs search after 250ms but Enter applies immediately", () => {
     const onSearchChange = vi.fn();
     render(<OtwPlayCatalogPage search={{}} onSearchChange={onSearchChange} />);
+    expect(screen.getByRole("heading", { name: "곡 검색" })).toBeTruthy();
     const input = screen.getByLabelText("곡 검색");
     fireEvent.change(input, { target: { value: "  노래  " } });
     act(() => vi.advanceTimersByTime(249));

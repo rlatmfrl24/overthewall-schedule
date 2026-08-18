@@ -1,6 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { OtwPlayDiscoverPage } from "@/features/otw-play";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/play/discover")({
-  component: OtwPlayDiscoverPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/play", replace: true });
+  },
 });
