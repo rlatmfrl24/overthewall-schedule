@@ -21,6 +21,11 @@ vi.mock("@/app/admin", () => ({
   isAdminUser: mocks.isAdminUser,
 }));
 vi.mock("../../queries/use-public-catalog", () => ({
+  OtwPlayCatalogRequestProvider: ({
+    children,
+  }: {
+    children: React.ReactNode;
+  }) => <>{children}</>,
   useOtwPlayConfig: mocks.useConfig,
 }));
 vi.mock("../../player/play-player-context", () => ({
@@ -88,16 +93,17 @@ describe("OtwPlayShell config gate", () => {
     expect(mocks.childMounted).not.toHaveBeenCalled();
   });
 
-  it("shows preparation state and mounts zero child catalog work while public read is off", () => {
+  it("mounts the administrator preview while public read is off", () => {
     mocks.useConfig.mockReturnValue({
       isPending: false,
       isError: false,
       data: { data: { publicReadEnabled: false, navigationVisible: false } },
     });
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
-    expect(screen.getByText("OTW Play 준비 중")).toBeTruthy();
-    expect(screen.queryByText("catalog child")).toBeNull();
-    expect(mocks.childMounted).not.toHaveBeenCalled();
+    expect(screen.getByText("관리자 미리보기 · 공개 비활성")).toBeTruthy();
+    expect(screen.getByText("catalog child")).toBeTruthy();
+    expect(mocks.childMounted).toHaveBeenCalledOnce();
+    expect(mocks.useConfig).toHaveBeenCalledWith({ adminPreview: true });
   });
 
   it("mounts the nested public experience only after the config gate opens", () => {

@@ -8,6 +8,7 @@ export {
   serializeOtwPlayCatalogQuery,
 } from "./api/public";
 export {
+  OtwPlayCatalogRequestProvider,
   useOtwPlayCatalog,
   useOtwPlayConfig,
   useOtwPlayFacets,

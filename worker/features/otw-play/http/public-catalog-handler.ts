@@ -13,6 +13,8 @@ import type {
   OtwPlayPublicSongSummaryDto,
   OtwPlayPublicSourceDto,
 } from "@contracts/otw-play";
+import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
+import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import {
   PublicCatalogService,
@@ -374,9 +376,24 @@ const notFoundResponse = (requestId: string, request: Request) =>
     request,
   );
 
-const readContext = (request: Request): PublicCatalogReadContext => ({
+const readContext = (
+  request: Request,
+  allowDisabledRead: boolean,
+): PublicCatalogReadContext => ({
   allowSharedCache: !hasPrivateHeaders(request),
+  allowDisabledRead,
 });
+
+const withPrivateResponseHeaders = (response: Response) => {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  headers.set("Vary", "Authorization, Cookie");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
 
 const endpointName = (pathname: string) => {
   if (pathname === "/api/play/config") return "config";
@@ -431,8 +448,14 @@ export const createPublicCatalogHandler = (
   }
 
   try {
+    const adminPreviewRequested =
+      request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
+    if (adminPreviewRequested) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return withPrivateResponseHeaders(admin.response);
+    }
     const service = resolveService(env);
-    const context = readContext(request);
+    const context = readContext(request, adminPreviewRequested);
     const meta = await service.readPublicState();
 
     if (url.pathname === "/api/play/config") {
@@ -465,7 +488,9 @@ export const createPublicCatalogHandler = (
       );
     }
 
-    if (!meta.publicReadEnabled) return disabledResponse(requestId, request);
+    if (!meta.publicReadEnabled && !context.allowDisabledRead) {
+      return disabledResponse(requestId, request);
+    }
 
     if (url.pathname === "/api/play/catalog") {
       const query = parsePublicCatalogQuery(url.searchParams.entries());

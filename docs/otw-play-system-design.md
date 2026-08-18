@@ -220,6 +220,15 @@ performance에서 만족해야 한다. group participant DTO의 `groupKey`는 �
 발급한 opaque key이며 client는 생성하거나 해석하지 않는다. schema 변경 없이
 기존 participant/entity index와 canonical cursor·cache key를 사용한다.
 
+운영 공개 전 관리자 UI 검증은 같은 다섯 GET에
+`X-OTW-Play-Admin-Preview: 1`과 Clerk bearer를 함께 보낸다. HTTP layer는 content
+query와 meta read 전에 `requireAdminUser`로 토큰과 관리자 allowlist를 검증한다.
+인증된 preview만 `public_read_enabled=0`을 우회할 수 있으며, read-model revision
+불일치는 그대로 `503`이다. preview 응답은 항상 `Cache-Control: no-store`와
+`Vary: Authorization, Cookie`를 사용하고 Cache API를 읽거나 쓰지 않는다. header가
+없는 익명 GET은 DEC-019의 config 200과 나머지 flag-off 404 계약을 그대로 따른다.
+frontend query key도 `public`과 `admin-preview` audience를 분리한다.
+
 ## 3. 전체 시스템 구조
 
 ```mermaid

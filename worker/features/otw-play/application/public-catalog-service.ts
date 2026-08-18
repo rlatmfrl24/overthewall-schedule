@@ -36,6 +36,7 @@ const CACHE_TTL_SECONDS = {
 
 export interface PublicCatalogReadContext {
   allowSharedCache: boolean;
+  allowDisabledRead?: boolean;
 }
 
 export interface PublicCatalogConfigData {
@@ -114,8 +115,9 @@ const disabled = (meta: PublicCatalogMeta): PublicCatalogDisabledResult => ({
 
 const assertContentReadable = (
   meta: PublicCatalogMeta,
+  allowDisabledRead: boolean,
 ): PublicCatalogDisabledResult | null => {
-  if (!meta.publicReadEnabled) return disabled(meta);
+  if (!meta.publicReadEnabled && !allowDisabledRead) return disabled(meta);
   if (meta.readModelRevision !== meta.revision) {
     throw new PublicCatalogServiceError("read_model_stale");
   }
@@ -173,7 +175,10 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogReadResult<{ items: PublicCatalogSongSummary[] }>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    const unavailable = assertContentReadable(meta);
+    const unavailable = assertContentReadable(
+      meta,
+      context.allowDisabledRead === true,
+    );
     if (unavailable) return unavailable;
 
     const queryKey = canonicalizePublicCatalogQuery(query);
@@ -379,7 +384,10 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogReadResult<Data>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    const unavailable = assertContentReadable(meta);
+    const unavailable = assertContentReadable(
+      meta,
+      context.allowDisabledRead === true,
+    );
     if (unavailable) return unavailable;
     const key = this.cacheKey(meta, resource, identity);
     const cached = context.allowSharedCache
@@ -406,7 +414,10 @@ export class PublicCatalogService {
     preloadedMeta?: PublicCatalogMeta,
   ): Promise<PublicCatalogDetailResult<Data>> {
     const meta = await this.resolveMeta(preloadedMeta);
-    const unavailable = assertContentReadable(meta);
+    const unavailable = assertContentReadable(
+      meta,
+      context.allowDisabledRead === true,
+    );
     if (unavailable) return unavailable;
     const key = this.cacheKey(meta, resource, identity);
     const cached = context.allowSharedCache

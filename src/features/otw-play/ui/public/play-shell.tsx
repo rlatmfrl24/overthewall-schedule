@@ -1,6 +1,13 @@
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, LoaderCircle, Music2, RefreshCw, ShieldAlert } from "lucide-react";
+import {
+  AlertTriangle,
+  Eye,
+  LoaderCircle,
+  Music2,
+  RefreshCw,
+  ShieldAlert,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { isAdminUser } from "@/app/admin";
 import { Button } from "@/shared/ui/button";
@@ -11,7 +18,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
-import { useOtwPlayConfig } from "../../queries/use-public-catalog";
+import {
+  OtwPlayCatalogRequestProvider,
+  useOtwPlayConfig,
+} from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
 import { OtwPlayNowPlayingPanel } from "../player/now-playing-panel";
 
@@ -91,7 +101,15 @@ function OtwPlayAccessCard({
 }
 
 function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
-  const config = useOtwPlayConfig();
+  return (
+    <OtwPlayCatalogRequestProvider adminPreview>
+      <AdminPreviewOtwPlayShell>{children}</AdminPreviewOtwPlayShell>
+    </OtwPlayCatalogRequestProvider>
+  );
+}
+
+function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
+  const config = useOtwPlayConfig({ adminPreview: true });
 
   if (config.isPending) {
     return (
@@ -120,23 +138,8 @@ function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!config.data?.data.publicReadEnabled) {
-    return (
-      <main className="flex min-h-0 flex-1 items-center justify-center p-5">
-        <div className="max-w-lg rounded-2xl border bg-card p-7 text-center shadow-sm">
-          <Music2 className="mx-auto mb-4 size-10 text-muted-foreground" />
-          <h1 className="text-2xl font-semibold">OTW Play 준비 중</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            오버더월의 오리지널곡과 공식 커버를 안전하게 정리하고 있습니다.
-            공개 준비가 끝나면 이 주소에서 바로 만날 수 있습니다.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
   return (
-    <OtwPlayPlayerProvider>
+    <OtwPlayPlayerProvider adminPreview>
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--otw-1)_10%,transparent),transparent_38%)]">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <header className="z-20 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -144,6 +147,11 @@ function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
               <Link to="/play" className="flex items-center gap-2 font-semibold">
                 <Music2 className="size-5" /> OTW Play
               </Link>
+              {!config.data?.data.publicReadEnabled && (
+                <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 sm:inline-flex dark:text-amber-300">
+                  <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
+                </span>
+              )}
               <nav aria-label="OTW Play 탐색" className="ml-auto flex min-w-0 gap-1 overflow-x-auto">
                 {tabs.map((tab) => (
                   <Link

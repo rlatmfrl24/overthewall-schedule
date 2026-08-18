@@ -225,7 +225,10 @@ export function usePublicNavigationSections() {
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();
-  const otwPlayConfig = useOtwPlayConfig({ enabled: isAdmin });
+  const otwPlayConfig = useOtwPlayConfig({
+    enabled: isAdmin,
+    adminPreview: true,
+  });
 
   return getPublicNavigationSections({
     isAdmin,
@@ -234,10 +237,7 @@ export function usePublicNavigationSections() {
       cafeEnabled: cafePostsEnabled,
       cafeVisibility: cafePostsVisibility,
     }),
-    otwPlayVisible: Boolean(
-      otwPlayConfig.data?.data.publicReadEnabled &&
-        otwPlayConfig.data.data.navigationVisible,
-    ),
+    otwPlayVisible: Boolean(otwPlayConfig.data),
   });
 }
 

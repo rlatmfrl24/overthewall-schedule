@@ -193,6 +193,8 @@ export const OTW_PLAY_PUBLIC_ERROR_CODES = [
   "PLAY_INTERNAL_ERROR",
 ] as const;
 
+export const OTW_PLAY_ADMIN_PREVIEW_HEADER = "X-OTW-Play-Admin-Preview";
+
 export type OtwPlayPublicErrorCode =
   (typeof OTW_PLAY_PUBLIC_ERROR_CODES)[number];
 

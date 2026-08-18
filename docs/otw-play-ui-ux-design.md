@@ -44,7 +44,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | 항목 | 설계 기본값 | 변경 영향 |
 | --- | --- | --- |
 | 공개 경로 | `/play` | 내비게이션, SEO, 공유 URL, route contract |
-| 접근 권한 | 현재 카탈로그·재생 UI는 관리자 preview, 제안은 로그인, 검수는 관리자 | 운영 공개 전 UI auth gate. 익명 public API 계약은 유지 |
+| 접근 권한 | 현재 카탈로그·재생 UI는 관리자 preview, 제안은 로그인, 검수는 관리자 | 운영 공개 전 UI auth gate. 인증된 관리자는 공개 flag가 꺼져도 실제 UI를 보고, 화면에는 `관리자 미리보기 · 공개 비활성` 상태를 표시한다. 익명 public API 계약은 유지 |
 | 내비게이션 라벨 | `OTW Play` | `app-navigation.ts`와 모바일 메뉴 |
 | 플레이어 유지 범위 | `/play/*` 안에서만 유지, 다른 제품 영역 이동 시 정지 | nested layout과 player store |
 | 대기열 복원 | `sessionStorage`에 현재 세션만 복원 | 저장 플레이리스트와 명확히 분리 |
@@ -93,6 +93,12 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | `/play/submit` | 로그인 회원 | 공식 커버곡 등록 제안 | Submission wizard |
 | `/play/submissions` | 로그인 회원 | 자신의 제안 상태 확인 | My submissions |
 | `/admin/music` | 관리자 | 카탈로그 운영 개요 | Music operations |
+
+관리자 preview는 준비 중 화면의 대체 mock이 아니라 실제 공개 catalog DTO와
+player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 preview header를
+요구하고 `no-store`로 처리한다. 비로그인·비관리자는 nested catalog 요청을 전혀
+시작하지 않으며, 공개 flag가 꺼져 있다는 사실만으로 관리자 UI를 다시 준비 중
+화면으로 가리지 않는다.
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 

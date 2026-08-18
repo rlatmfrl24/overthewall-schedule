@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useOtwPlayCatalog,
+  OtwPlayCatalogRequestProvider,
   useOtwPlayConfig,
   useOtwPlayFacets,
   useOtwPlayPerformance,
@@ -29,7 +30,7 @@ const envelope = (data: unknown, nextCursor: string | null = null) => ({
   generatedAt: "2026-08-11T00:00:00.000Z",
 });
 
-const createWrapper = () => {
+const createWrapper = (adminPreview = false) => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -37,7 +38,14 @@ const createWrapper = () => {
   });
 
   return function Wrapper({ children }: PropsWithChildren) {
-    return createElement(QueryClientProvider, { client: queryClient }, children);
+    return createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        OtwPlayCatalogRequestProvider,
+        { adminPreview, children },
+      ),
+    );
   };
 };
 
@@ -66,22 +74,30 @@ describe("OTW Play public queries", () => {
       member: [1],
       relation: "cover",
     });
-    expect(apiMocks.fetchOtwPlayCatalog).toHaveBeenNthCalledWith(1, {
-      member: [1],
-      relation: "cover",
-      cursor: undefined,
-    });
+    expect(apiMocks.fetchOtwPlayCatalog).toHaveBeenNthCalledWith(
+      1,
+      {
+        member: [1],
+        relation: "cover",
+        cursor: undefined,
+      },
+      { adminPreview: false },
+    );
     expect(result.current.hasNextPage).toBe(true);
 
     await act(async () => {
       await result.current.fetchNextPage();
     });
 
-    expect(apiMocks.fetchOtwPlayCatalog).toHaveBeenNthCalledWith(2, {
-      member: [1],
-      relation: "cover",
-      cursor: "cursor-2",
-    });
+    expect(apiMocks.fetchOtwPlayCatalog).toHaveBeenNthCalledWith(
+      2,
+      {
+        member: [1],
+        relation: "cover",
+        cursor: "cursor-2",
+      },
+      { adminPreview: false },
+    );
     await waitFor(() => expect(result.current.hasNextPage).toBe(false));
   });
 
@@ -118,10 +134,34 @@ describe("OTW Play public queries", () => {
 
     expect(apiMocks.fetchOtwPlayConfig).toHaveBeenCalledOnce();
     expect(apiMocks.fetchOtwPlayFacets).toHaveBeenCalledOnce();
-    expect(apiMocks.fetchOtwPlaySong).toHaveBeenCalledWith("song-slug");
+    expect(apiMocks.fetchOtwPlayConfig).toHaveBeenCalledWith({
+      adminPreview: false,
+    });
+    expect(apiMocks.fetchOtwPlayFacets).toHaveBeenCalledWith({
+      adminPreview: false,
+    });
+    expect(apiMocks.fetchOtwPlaySong).toHaveBeenCalledWith("song-slug", {
+      adminPreview: false,
+    });
     expect(apiMocks.fetchOtwPlayPerformance).toHaveBeenCalledWith(
       "performance-1",
+      { adminPreview: false },
     );
+  });
+
+  it("관리자 미리보기 요청을 별도 query audience로 전달한다", async () => {
+    apiMocks.fetchOtwPlayConfig.mockResolvedValue(
+      envelope({ publicReadEnabled: false, navigationVisible: false }),
+    );
+
+    const { result } = renderHook(() => useOtwPlayConfig(), {
+      wrapper: createWrapper(true),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(apiMocks.fetchOtwPlayConfig).toHaveBeenCalledWith({
+      adminPreview: true,
+    });
   });
 
   it("빈 song slug와 performance ID는 request를 시작하지 않는다", () => {

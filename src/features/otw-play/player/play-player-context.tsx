@@ -105,7 +105,13 @@ const trackFromPerformance = (
   };
 };
 
-export function OtwPlayPlayerProvider({ children }: { children: ReactNode }) {
+export function OtwPlayPlayerProvider({
+  adminPreview = false,
+  children,
+}: {
+  adminPreview?: boolean;
+  children: ReactNode;
+}) {
   const [queue, dispatch] = useReducer(reduceOtwPlayQueue, undefined, initialQueue);
   const [tracks, setTracks] = useState<ReadonlyMap<string, OtwPlayTrack>>(
     () => new Map(),
@@ -149,7 +155,11 @@ export function OtwPlayPlayerProvider({ children }: { children: ReactNode }) {
     void Promise.all(
       pending.map(async (item) => {
         try {
-          const response = await fetchOtwPlayPerformance(item.performanceId);
+          const response = adminPreview
+            ? await fetchOtwPlayPerformance(item.performanceId, {
+                adminPreview: true,
+              })
+            : await fetchOtwPlayPerformance(item.performanceId);
           return [item, trackFromPerformance(item, response)] as const;
         } catch {
           return [item, null] as const;
@@ -175,7 +185,7 @@ export function OtwPlayPlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [queue.items, tracks, unavailableItemIds]);
+  }, [adminPreview, queue.items, tracks, unavailableItemIds]);
 
   useEffect(() => {
     if (!hostElement) return;

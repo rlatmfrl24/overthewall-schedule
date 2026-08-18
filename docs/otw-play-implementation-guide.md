@@ -727,12 +727,15 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 9. 모든 loading/empty/404/409/503/unavailable state
 
 비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
-보고 config·catalog 요청을 시작하지 않는다. 관리자는 auth 확인 뒤 config를 읽고,
-config가 꺼져 있으면 준비 중 화면만 렌더링하며 catalog·facets·detail 요청을
-시작하지 않는다. 내비게이션은 관리자이면서
-`publicReadEnabled && navigationVisible`일 때만 `OTW Play`를 표시한다. 익명
-public GET 계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의
-실제 route가 생기기 전까지 만들지 않는다.
+보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
+`auth: required`와 `X-OTW-Play-Admin-Preview: 1`로 config를 읽고, Worker의
+`requireAdminUser` 검증을 통과한 경우 공개 flag가 꺼져 있어도 catalog·facets·detail과
+player를 실제 공개 DTO로 검증한다. preview query key는 익명 public key와 분리하고
+응답은 `no-store`, Cache API bypass로 처리한다. read-model revision mismatch는
+preview에서도 `503`을 유지한다. 관리자 내비게이션은 preview config가 성공하면
+두 공개 flag와 무관하게 표시하되, 익명 public GET의 config 200/나머지 flag-off 404
+계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의 실제 route가
+생기기 전까지 만들지 않는다.
 
 Catalog query는 단일 `participant=<public entity slug>`를 추가하고 group participant
 DTO는 서버 생성 `groupKey`를 제공한다. 둘 다 기존 filter와 동일 published

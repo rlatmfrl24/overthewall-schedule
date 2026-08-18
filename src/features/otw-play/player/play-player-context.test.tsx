@@ -171,8 +171,12 @@ describe("OtwPlayPlayerProvider", () => {
       generatedAt: "2026-08-18T00:00:00.000Z",
     });
 
-    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
-    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledWith("performance-1"));
+    render(<OtwPlayPlayerProvider adminPreview><Consumer /></OtwPlayPlayerProvider>);
+    await waitFor(() =>
+      expect(mocks.fetchPerformance).toHaveBeenCalledWith("performance-1", {
+        adminPreview: true,
+      }),
+    );
     expect(mocks.createPlayer).not.toHaveBeenCalled();
     expect(mocks.controller.load).not.toHaveBeenCalled();
   });
