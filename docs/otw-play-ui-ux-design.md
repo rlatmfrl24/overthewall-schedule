@@ -87,9 +87,9 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 | 경로 | 사용자 | 목적 | 주요 화면 |
 | --- | --- | --- | --- |
-| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡으로 시작 | Home |
-| `/play/discover` | 관리자 preview | featured·곡·협업 영상 재발견 | Discover |
-| `/play/songs` | 관리자 preview | 검색·필터·정렬 기반 전체 카탈로그 | Catalog |
+| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡을 발견하고 시작 | Home |
+| `/play/discover` | 관리자 preview | 기존 링크 호환을 위해 `/play`로 redirect | Compatibility redirect |
+| `/play/songs` | 관리자 preview | 곡명 검색과 관계·멤버·그룹·참여 형태 필터 | Song search |
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
 | `/play/submit` | 로그인 회원 | 공식 커버곡 등록 제안 | Submission wizard |
 | `/play/submissions` | 로그인 회원 | 자신의 제안 상태 확인 | My submissions |
@@ -103,17 +103,17 @@ player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 p
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 
-공개 화면의 상위 탭은 `홈`, `발견`, `전체 곡`, `오리지널`, `커버`로 제한한다.
-오리지널과 커버는 별도 데이터 복제 화면이 아니라 `/play/songs`의 고정 필터
-진입점이다. 저장 플레이리스트와 라이브러리 탭은 MVP에 만들지 않는다.
+공개 화면의 상위 탭은 `홈`, `곡 검색` 두 개만 둔다. Home은 기존 Discover의
+재발견 역할까지 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
+`/play/songs`의 `곡 관계` 필터로 구분한다. 저장 플레이리스트와 라이브러리 탭은
+MVP에 만들지 않는다.
 
 ```mermaid
 flowchart LR
   entry["OTW Play 진입"] --> home["홈"]
-  home --> discover["발견"]
-  home --> catalog
-  entry --> catalog["전체 곡"]
-  discover --> song["곡 상세"]
+  home --> catalog["곡 검색"]
+  entry --> catalog
+  home --> song["곡 상세"]
   catalog --> song
   song --> player["공식 YouTube 재생"]
   song --> queue["세션 대기열"]
@@ -121,7 +121,7 @@ flowchart LR
   submit --> mine["내 제안 상태"]
   admin["관리자"] --> review["제안 검수"]
   review --> published["공개 카탈로그"]
-  published --> discover
+  published --> home
   published --> catalog
 ```
 
@@ -156,7 +156,7 @@ Home의 대표 카드는 자동 재생하거나 일정 시간마다 바뀌지 �
 ### 5.3 모바일: 767px 이하
 
 - 기존 56px 모바일 헤더 아래에 `OTW Play` 제목과 검색 버튼 배치
-- 홈/발견/전체/오리지널/커버 탭은 가로 스크롤 가능한 sticky tab 사용
+- 홈/곡 검색 탭은 가로 스크롤 가능한 sticky tab 사용
 - 카드는 한 열, 곡 목록은 썸네일 72–88px의 밀도 높은 행 사용
 - 재생 시작 시 하단에서 16:9 player sheet를 열고 iframe 높이 200px 이상 확보
 - 플레이어를 compact bar로 접는 동작은 먼저 재생을 일시정지한다. 숨은 재생은
@@ -517,15 +517,16 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 
 ## 15. 화면별 수용 기준
 
-### Discover
+### Home
 
-- 오리지널과 커버가 별도 섹션으로 구분된다.
+- 대표곡, 현재 멤버와 최근 공개곡을 한 화면에서 재발견할 수 있다.
 - 현재 멤버 진입점에 오시마크가 표시된다.
 - hero가 없어도 빈 큰 영역이 남지 않는다.
 
-### Catalog
+### 곡 검색
 
 - 검색·필터·정렬이 URL과 동기화된다.
+- 오리지널과 공식 커버를 `곡 관계` 필터에서 구분한다.
 - 멤버 ANY와 ALL 의미를 사용자가 구분할 수 있다.
 - 동일 곡은 한 결과로 묶이고 공식 버전 수를 확인할 수 있다.
 - exact total이 있는 것처럼 표시하지 않고 현재 로드 수와 다음 page 여부를 구분한다.

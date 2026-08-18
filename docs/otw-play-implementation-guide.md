@@ -704,7 +704,7 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 
 - `src/routes/play.tsx`
 - `src/routes/play/index.tsx`
-- `src/routes/play/discover.tsx`
+- `src/routes/play/discover.tsx` (기존 링크의 Home redirect)
 - `src/routes/play/songs/$songSlug.tsx`
 - `src/features/otw-play/model/*`
 - `src/features/otw-play/player/*`
@@ -719,7 +719,8 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 
 1. DEC-029와 participant/groupKey 하위 호환 contract
 2. `/play` nested route와 admin-auth 뒤의 config-gated PlayShell
-3. `/play` Home과 `/play/discover` Discover, Catalog, URL-synced 검색·filter·정렬
+3. 기존 Home·Discover를 `/play` Home으로 통합하고 `/play/songs` 곡 검색의
+   URL-synced 검색·filter·정렬 제공
 4. song detail과 performance 직접 링크
 5. first-intent single iframe player provider
 6. queue reducer, repeat, shuffle, bounded unavailable skip
@@ -899,7 +900,7 @@ production 카탈로그는 migration fixture나 raw SQL로 넣지 않는다.
 
 ### 실제 검증 흐름
 
-- 익명: 발견 → 검색 → member filter → 상세 → 재생 → queue
+- 익명: 홈 → 곡 검색 → member filter → 상세 → 재생 → queue
 - 회원: 로그인 → URL 입력 → 중복 확인 → 제출 → 내 제안
 - 관리자: 검토 → 승인 → event 확인
 - 익명 재조회: 새 revision에서 published item 확인
