@@ -14,6 +14,7 @@ import type {
   OtwPlayPublicPerformanceSummaryDto,
   OtwPlayPublicSourceDto,
 } from "@contracts/otw-play";
+import { ApiError } from "@/shared/api/client";
 import { fetchOtwPlayPerformance } from "../api/public";
 import {
   OTW_PLAY_QUEUE_STORAGE_KEY,
@@ -56,6 +57,7 @@ type PlayPlayerContextValue = {
   panelExpanded: boolean;
   announcement: string;
   unavailableItemIds: ReadonlySet<string>;
+  retryableItemIds: ReadonlySet<string>;
   trackForItem: (itemId: string) => OtwPlayTrack | null;
   setHostElement: (element: HTMLDivElement | null) => void;
   play: (track: OtwPlayTrack) => void;
@@ -63,6 +65,7 @@ type PlayPlayerContextValue = {
   playNext: (track: OtwPlayTrack) => void;
   select: (index: number) => void;
   remove: (itemId: string) => void;
+  retry: (itemId: string) => void;
   move: (itemId: string, direction: -1 | 1) => void;
   previous: () => void;
   next: (ended?: boolean) => void;
@@ -116,16 +119,21 @@ const trackFromPerformance = (
   item: OtwPlayQueueItem,
   response: Awaited<ReturnType<typeof fetchOtwPlayPerformance>>,
 ): OtwPlayTrack | null => {
-  const source = response.data.performance.sources.find(
-    ({ sourceId }) => sourceId === item.sourceId,
-  );
-  if (!source?.playable) return null;
+  const source =
+    response.data.performance.sources.find(
+      ({ sourceId, playable }) => sourceId === item.sourceId && playable,
+    ) ?? response.data.performance.sources.find(({ playable }) => playable);
+  if (!source) return null;
   return {
     song: response.data.song,
     performance: response.data.performance,
     source,
   };
 };
+
+const isAuthoritativelyUnavailable = (error: unknown) =>
+  error instanceof ApiError &&
+  (error.status === 404 || error.code === "PLAY_NOT_FOUND");
 
 export function OtwPlayPlayerProvider({
   adminPreview = false,
@@ -139,6 +147,9 @@ export function OtwPlayPlayerProvider({
     () => new Map(),
   );
   const [unavailableItemIds, setUnavailableItemIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [retryableItemIds, setRetryableItemIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
   const [hostElement, setHostElement] = useState<HTMLDivElement | null>(null);
@@ -159,14 +170,22 @@ export function OtwPlayPlayerProvider({
   const playerReadyRef = useRef(false);
   const volumeRef = useRef(volume);
   const mutedRef = useRef(muted);
-  const selectPlayableRef = useRef<(direction: -1 | 1, ended?: boolean) => void>(
-    () => undefined,
-  );
+  const selectPlayableRef = useRef<(
+    direction: -1 | 1,
+    ended?: boolean,
+    announceMissing?: boolean,
+  ) => void>(() => undefined);
   const playbackErrorRef = useRef<() => void>(() => undefined);
+  const currentItemRef = useRef<OtwPlayQueueItem | null>(null);
+  const currentTrackRef = useRef<OtwPlayTrack | null>(null);
+  const failedSourceIdsRef = useRef<Map<string, Set<string>>>(new Map());
+  const playbackErrorInFlightKeysRef = useRef<Set<string>>(new Set());
 
   const currentItem =
     queue.currentIndex === null ? null : queue.items[queue.currentIndex] ?? null;
   const currentTrack = currentItem ? tracks.get(currentItem.id) ?? null : null;
+  currentItemRef.current = currentItem;
+  currentTrackRef.current = currentTrack;
 
   const updatePlaybackProgress = useCallback(() => {
     if (!currentTrack) {
@@ -224,7 +243,10 @@ export function OtwPlayPlayerProvider({
 
   useEffect(() => {
     const pending = queue.items.filter(
-      ({ id }) => !tracks.has(id) && !unavailableItemIds.has(id),
+      ({ id }) =>
+        !tracks.has(id) &&
+        !unavailableItemIds.has(id) &&
+        !retryableItemIds.has(id),
     );
     if (pending.length === 0) return;
     let cancelled = false;
@@ -236,32 +258,67 @@ export function OtwPlayPlayerProvider({
                 adminPreview: true,
               })
             : await fetchOtwPlayPerformance(item.performanceId);
-          return [item, trackFromPerformance(item, response)] as const;
-        } catch {
-          return [item, null] as const;
+          const track = trackFromPerformance(item, response);
+          return {
+            item,
+            status: track ? "loaded" : "unavailable",
+            track,
+          } as const;
+        } catch (error) {
+          return {
+            item,
+            status: isAuthoritativelyUnavailable(error)
+              ? "unavailable"
+              : "retryable",
+            track: null,
+          } as const;
         }
       }),
     ).then((resolved) => {
       if (cancelled) return;
       setTracks((current) => {
         const next = new Map(current);
-        for (const [item, track] of resolved) {
+        for (const { item, track } of resolved) {
           if (track) next.set(item.id, track);
         }
         return next;
       });
       setUnavailableItemIds((current) => {
         const next = new Set(current);
-        for (const [item, track] of resolved) {
-          if (!track) next.add(item.id);
+        for (const { item, status } of resolved) {
+          if (status === "unavailable") next.add(item.id);
+          else next.delete(item.id);
         }
         return next;
       });
+      setRetryableItemIds((current) => {
+        const next = new Set(current);
+        for (const { item, status } of resolved) {
+          if (status === "retryable") next.add(item.id);
+          else next.delete(item.id);
+        }
+        return next;
+      });
+      for (const { item, track } of resolved) {
+        if (track && track.source.sourceId !== item.sourceId) {
+          dispatch({
+            type: "replace_source",
+            itemId: item.id,
+            sourceId: track.source.sourceId,
+          });
+        }
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [adminPreview, queue.items, tracks, unavailableItemIds]);
+  }, [
+    adminPreview,
+    queue.items,
+    retryableItemIds,
+    tracks,
+    unavailableItemIds,
+  ]);
 
   useEffect(() => {
     if (!hostElement) return;
@@ -278,7 +335,7 @@ export function OtwPlayPlayerProvider({
   }, [hostElement]);
 
   const selectPlayable = useCallback(
-    (direction: -1 | 1, ended = false) => {
+    (direction: -1 | 1, ended = false, announceMissing = true) => {
       const index = findNextPlayableQueueIndex(
         queue,
         direction,
@@ -286,8 +343,10 @@ export function OtwPlayPlayerProvider({
         { ended },
       );
       if (index === null) {
-        setStatus("idle");
-        setAnnouncement("재생 가능한 다음 항목이 없습니다.");
+        if (announceMissing) {
+          setStatus("idle");
+          setAnnouncement("재생 가능한 다음 항목이 없습니다.");
+        }
         return;
       }
       if (index === queue.currentIndex) {
@@ -309,42 +368,107 @@ export function OtwPlayPlayerProvider({
   );
   selectPlayableRef.current = selectPlayable;
 
-  const handlePlaybackError = useCallback(() => {
+  useEffect(() => {
+    if (currentItem && unavailableItemIds.has(currentItem.id)) {
+      selectPlayableRef.current(1, false, false);
+    }
+  }, [currentItem, unavailableItemIds]);
+
+  const handlePlaybackError = useCallback(async () => {
     if (!currentItem || !currentTrack) {
       setStatus("error");
       return;
     }
-    const sources =
-      "sources" in currentTrack.performance
-        ? currentTrack.performance.sources
-        : [currentTrack.source];
-    const alternative = sources.find(
-      ({ sourceId, playable }) =>
-        playable && sourceId !== currentTrack.source.sourceId,
+    const itemId = currentItem.id;
+    const failedSourceId = currentTrack.source.sourceId;
+    const errorKey = `${itemId}:${failedSourceId}`;
+    if (playbackErrorInFlightKeysRef.current.has(errorKey)) return;
+    playbackErrorInFlightKeysRef.current.add(errorKey);
+
+    const failedSourceIds = new Set(
+      failedSourceIdsRef.current.get(itemId) ?? [],
     );
-    if (alternative) {
-      setTracks((current) =>
-        new Map(current).set(currentItem.id, {
-          ...currentTrack,
-          source: alternative,
-        }),
+    failedSourceIds.add(failedSourceId);
+    failedSourceIdsRef.current.set(itemId, failedSourceIds);
+
+    try {
+      let hydratedTrack = currentTrack;
+      let sources =
+        "sources" in currentTrack.performance
+          ? currentTrack.performance.sources
+          : null;
+
+      if (!sources) {
+        try {
+          const response = adminPreview
+            ? await fetchOtwPlayPerformance(currentTrack.performance.id, {
+                adminPreview: true,
+              })
+            : await fetchOtwPlayPerformance(currentTrack.performance.id);
+          if (
+            currentItemRef.current?.id !== itemId ||
+            currentTrackRef.current?.source.sourceId !== failedSourceId
+          ) {
+            return;
+          }
+          sources = response.data.performance.sources;
+          hydratedTrack = {
+            song: response.data.song,
+            performance: response.data.performance,
+            source:
+              sources.find(({ sourceId }) => sourceId === failedSourceId) ??
+              currentTrack.source,
+          };
+        } catch (error) {
+          if (currentItemRef.current?.id !== itemId) return;
+          if (isAuthoritativelyUnavailable(error)) {
+            setUnavailableItemIds((current) =>
+              current.has(itemId) ? current : new Set(current).add(itemId),
+            );
+            setAnnouncement("이 가창은 더 이상 공개되어 있지 않습니다.");
+          } else {
+            setStatus("error");
+            setAnnouncement(
+              "공식 소스 목록을 다시 확인하지 못했습니다. 잠시 후 재생을 다시 시도하세요.",
+            );
+          }
+          return;
+        }
+      }
+
+      const alternative = sources.find(
+        ({ sourceId, playable }) =>
+          playable && !failedSourceIds.has(sourceId),
       );
-      dispatch({
-        type: "replace_source",
-        itemId: currentItem.id,
-        sourceId: alternative.sourceId,
-      });
-      loadedKeyRef.current = null;
-      setStatus("loading");
-      setAnnouncement("재생 오류로 다음 공식 소스를 사용합니다.");
-      return;
+      if (alternative) {
+        setTracks((current) =>
+          new Map(current).set(itemId, {
+            ...hydratedTrack,
+            source: alternative,
+          }),
+        );
+        dispatch({
+          type: "replace_source",
+          itemId,
+          sourceId: alternative.sourceId,
+        });
+        loadedKeyRef.current = null;
+        setStatus("loading");
+        setAnnouncement("재생 오류로 다음 공식 소스를 사용합니다.");
+        return;
+      }
+      setUnavailableItemIds((current) =>
+        current.has(itemId) ? current : new Set(current).add(itemId),
+      );
+      setStatus("error");
+      setAnnouncement("이 가창의 재생 가능한 공식 소스를 찾지 못했습니다.");
+    } finally {
+      playbackErrorInFlightKeysRef.current.delete(errorKey);
     }
-    setUnavailableItemIds((current) => new Set(current).add(currentItem.id));
-    setStatus("error");
-    setAnnouncement("이 가창의 재생 가능한 공식 소스를 찾지 못했습니다.");
-    selectPlayableRef.current(1);
-  }, [currentItem, currentTrack]);
-  playbackErrorRef.current = handlePlaybackError;
+  }, [adminPreview, currentItem, currentTrack]);
+  playbackErrorRef.current = () => {
+    void handlePlaybackError();
+  };
 
   useEffect(() => {
     if (!hasPlaybackIntent || !hostVisible || !hostElement || !currentTrack) return;
@@ -449,6 +573,19 @@ export function OtwPlayPlayerProvider({
     const item = "item" in action ? action.item : null;
     if (item) {
       setTracks((current) => new Map(current).set(item.id, track));
+      setUnavailableItemIds((current) => {
+        if (!current.has(item.id)) return current;
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+      setRetryableItemIds((current) => {
+        if (!current.has(item.id)) return current;
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+      failedSourceIdsRef.current.delete(item.id);
     }
     dispatch(action);
   }, []);
@@ -515,6 +652,7 @@ export function OtwPlayPlayerProvider({
     panelExpanded,
     announcement,
     unavailableItemIds,
+    retryableItemIds,
     trackForItem(itemId) {
       return tracks.get(itemId) ?? null;
     },
@@ -533,6 +671,28 @@ export function OtwPlayPlayerProvider({
         next.delete(itemId);
         return next;
       });
+      setUnavailableItemIds((current) => {
+        if (!current.has(itemId)) return current;
+        const next = new Set(current);
+        next.delete(itemId);
+        return next;
+      });
+      setRetryableItemIds((current) => {
+        if (!current.has(itemId)) return current;
+        const next = new Set(current);
+        next.delete(itemId);
+        return next;
+      });
+      failedSourceIdsRef.current.delete(itemId);
+    },
+    retry(itemId) {
+      setRetryableItemIds((current) => {
+        if (!current.has(itemId)) return current;
+        const next = new Set(current);
+        next.delete(itemId);
+        return next;
+      });
+      setAnnouncement("가창 정보를 다시 불러옵니다.");
     },
     move(itemId, direction) {
       dispatch({ type: "move", itemId, direction });
@@ -602,6 +762,7 @@ export function OtwPlayPlayerProvider({
     volume,
     muted,
     unavailableItemIds,
+    retryableItemIds,
     tracks,
   ]);
 

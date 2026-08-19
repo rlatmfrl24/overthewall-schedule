@@ -122,6 +122,13 @@ function Consumer() {
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.playNext(track)}>play next</button>
+      <button
+        type="button"
+        disabled={!player.currentItem}
+        onClick={() => player.currentItem && player.retry(player.currentItem.id)}
+      >
+        retry current
+      </button>
       <button type="button" onClick={() => player.setVolume(35)}>volume 35</button>
       <button type="button" onClick={player.toggleMuted}>toggle mute</button>
       <button type="button" onClick={() => player.seek(90)}>seek 90</button>
@@ -134,6 +141,8 @@ function Consumer() {
       </button>
       <span data-testid="status">{player.status}</span>
       <span data-testid="queue-size">{player.queue.items.length}</span>
+      <span data-testid="unavailable-size">{player.unavailableItemIds.size}</span>
+      <span data-testid="retryable-size">{player.retryableItemIds.size}</span>
       <span data-testid="announcement">{player.announcement}</span>
       <span data-testid="volume">{player.volume}</span>
       <span data-testid="muted">{String(player.muted)}</span>
@@ -222,6 +231,77 @@ describe("OtwPlayPlayerProvider", () => {
       videoId: "AAAAAAAAAAA",
       startSeconds: 0,
     }));
+
+    mocks.events.current?.onError?.(100);
+    await waitFor(() =>
+      expect(screen.getByTestId("unavailable-size").textContent).toBe("1"),
+    );
+    expect(mocks.controller.load).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("announcement").textContent).toContain(
+      "재생 가능한 공식 소스를 찾지 못했습니다",
+    );
+  });
+
+  it("hydrates detail sources before falling back from a catalog summary", async () => {
+    mocks.fetchPerformance.mockResolvedValue({
+      data: {
+        song: track.song,
+        performance: { ...track.performance, sources: [track.source, alternateSource] },
+      },
+      nextCursor: null,
+      catalogRevision: 1,
+      generatedAt: "2026-08-18T00:00:00.000Z",
+    });
+
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+
+    mocks.events.current?.onError?.(100);
+
+    await waitFor(() =>
+      expect(mocks.fetchPerformance).toHaveBeenCalledWith("performance-1"),
+    );
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenLastCalledWith({
+      videoId: "AAAAAAAAAAA",
+      startSeconds: 0,
+    }));
+  });
+
+  it("keeps transient restore failures retryable", async () => {
+    sessionStorage.setItem(
+      OTW_PLAY_QUEUE_STORAGE_KEY,
+      serializeOtwPlayQueue({
+        items: [{ id: "restored", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat: "off",
+        shuffled: false,
+      }),
+    );
+    mocks.fetchPerformance.mockRejectedValueOnce(new Error("temporary failure"));
+
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    await waitFor(() =>
+      expect(screen.getByTestId("retryable-size").textContent).toBe("1"),
+    );
+    expect(screen.getByTestId("unavailable-size").textContent).toBe("0");
+    expect(mocks.fetchPerformance).toHaveBeenCalledTimes(1);
+
+    mocks.fetchPerformance.mockResolvedValue({
+      data: {
+        song: track.song,
+        performance: { ...track.performance, sources: [track.source] },
+      },
+      nextCursor: null,
+      catalogRevision: 1,
+      generatedAt: "2026-08-18T00:00:00.000Z",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "retry current" }));
+
+    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByTestId("retryable-size").textContent).toBe("0"),
+    );
   });
 
   it("surfaces autoplay blocking until the user explicitly resumes", async () => {

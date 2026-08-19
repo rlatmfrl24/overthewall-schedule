@@ -2,7 +2,7 @@ export const LOCAL_DEV_HOST = "127.0.0.1";
 export const DEFAULT_LOCAL_DEV_PORT = 5173;
 
 const SPA_DEV_ROUTE =
-  /^\/(?:weekly|notice|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
+  /^\/(?:weekly|notice|rights|vods(?:\/.*)?|play(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
 
 const MIN_LOCAL_DEV_PORT = 1024;
 const MAX_LOCAL_DEV_PORT = 65535;

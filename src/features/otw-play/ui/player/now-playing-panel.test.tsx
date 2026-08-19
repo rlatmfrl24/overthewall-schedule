@@ -34,6 +34,7 @@ const actions = {
   select: vi.fn(),
   move: vi.fn(),
   remove: vi.fn(),
+  retry: vi.fn(),
 };
 
 const emptyPlayer = {
@@ -47,6 +48,7 @@ const emptyPlayer = {
   playbackDurationSeconds: 184,
   panelExpanded: false,
   unavailableItemIds: new Set<string>(),
+  retryableItemIds: new Set<string>(),
   announcement: "",
   trackForItem: vi.fn(),
   ...actions,
@@ -430,5 +432,31 @@ describe("OTW Play player and queue rail", () => {
     render(<OtwPlayPlayerQueuePanel />);
 
     expect(screen.getByText("대기열에 추가했습니다.").className).toContain("sr-only");
+  });
+
+  it("keeps a restored queue reachable and retryable when hydration fails", () => {
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: {
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat: "off",
+        shuffled: false,
+      },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      retryableItemIds: new Set(["item-1"]),
+    });
+
+    render(<OtwPlayPlayerQueuePanel />);
+
+    expect(
+      screen.getByRole("region", { name: "OTW Play 재생 플레이어" }).className,
+    ).toContain("fixed inset-0 flex flex-col");
+    expect(screen.getByText("가창 정보를 불러오지 못했습니다")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "가창 정보 다시 불러오기" })[0]);
+    expect(actions.retry).toHaveBeenCalledWith("item-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
+    expect(screen.getByRole("button", { name: "Now Playing 화면 열기" })).toBeTruthy();
   });
 });

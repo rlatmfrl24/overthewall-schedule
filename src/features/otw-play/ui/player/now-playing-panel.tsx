@@ -10,6 +10,7 @@ import {
   Play,
   Repeat,
   Repeat1,
+  RefreshCw,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -92,7 +93,11 @@ const useMediaQuery = (query: string) => {
 export function OtwPlayPlayerQueuePanel() {
   const player = useOtwPlayPlayer();
   const current = player.currentTrack;
+  const currentItem = player.currentItem;
   const currentItemId = player.currentItem?.id ?? null;
+  const currentLoadFailed = Boolean(
+    currentItem && player.retryableItemIds.has(currentItem.id),
+  );
   const previousCurrentItemIdRef = useRef<string | null>(null);
   const [mobilePresentation, setMobilePresentation] =
     useState<MobilePlayerPresentation>("launcher");
@@ -130,17 +135,17 @@ export function OtwPlayPlayerQueuePanel() {
   }, [isDesktopPlayerViewport, isPhonePlayerViewport, miniPlayerActive]);
 
   const closeMobilePlayer = () => {
-    if (isMiniPlayerViewport) {
+    if (isMiniPlayerViewport && current) {
       setMobilePresentation("mini");
       return;
     }
-    player.pause();
+    if (current) player.pause();
     setMobilePresentation("launcher");
   };
 
   const openPausedMobilePlayer = () => {
     setMobilePresentation("full");
-    window.requestAnimationFrame(player.resume);
+    if (current) window.requestAnimationFrame(player.resume);
   };
 
   const expandMiniPlayer = () => {
@@ -164,7 +169,7 @@ export function OtwPlayPlayerQueuePanel() {
         data-player-presentation={mobilePresentation}
         className={cn(
           "pointer-events-auto bg-background text-foreground",
-          current && mobilePlayerOpen ? "fixed inset-0 flex flex-col" : "hidden",
+          currentItem && mobilePlayerOpen ? "fixed inset-0 flex flex-col" : "hidden",
           miniPlayerActive &&
             "sm:fixed sm:bottom-3 sm:right-3 sm:flex sm:w-[216px] sm:flex-col sm:overflow-hidden sm:rounded-xl sm:border sm:bg-card sm:shadow-2xl xl:static xl:bottom-auto xl:right-auto xl:w-auto xl:rounded-none xl:border-0 xl:shadow-none",
           "xl:static xl:flex xl:shrink-0 xl:flex-col xl:border-b xl:bg-card",
@@ -413,6 +418,48 @@ export function OtwPlayPlayerQueuePanel() {
               <MobilePlayerQueue player={player} />
             </div>
           </>
+        ) : currentItem ? (
+          <>
+            <header className="flex h-14 shrink-0 items-center justify-between border-b px-3 xl:hidden">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="카탈로그로 돌아가기"
+                onClick={closeMobilePlayer}
+              >
+                <ArrowLeft />
+              </Button>
+              <span className="text-sm font-semibold">Now Playing</span>
+              <span className="size-8" aria-hidden="true" />
+            </header>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 xl:h-[200px] xl:flex-none xl:items-center xl:justify-center xl:overflow-hidden">
+              <div className="flex flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+                  <RefreshCw className={cn("size-5", !currentLoadFailed && "animate-spin")} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {currentLoadFailed
+                      ? "가창 정보를 불러오지 못했습니다"
+                      : "가창 정보를 불러오는 중입니다"}
+                  </p>
+                  {currentLoadFailed ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={() => player.retry(currentItem.id)}
+                    >
+                      <RefreshCw /> 다시 시도
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              <MobilePlayerQueue player={player} />
+            </div>
+          </>
         ) : (
           <div className="hidden h-[200px] flex-col items-center justify-center gap-3 bg-muted/30 px-6 text-center text-muted-foreground xl:flex">
             <div className="flex size-12 items-center justify-center rounded-full bg-muted">
@@ -428,21 +475,27 @@ export function OtwPlayPlayerQueuePanel() {
         )}
       </section>
 
-      {current && mobilePresentation === "launcher" ? (
+      {currentItem && mobilePresentation === "launcher" ? (
         <button
           type="button"
           className="pointer-events-auto fixed bottom-4 right-4 flex size-14 items-center justify-center overflow-hidden rounded-full border bg-background shadow-xl xl:hidden"
           aria-label="Now Playing 화면 열기"
           onClick={openPausedMobilePlayer}
         >
-          <OtwPlayThumbnail
-            source={current.source}
-            alt=""
-            width={112}
-            height={112}
-            className="h-full w-full object-cover opacity-70"
-          />
-          <Play className="absolute size-5 drop-shadow" />
+          {current ? (
+            <>
+              <OtwPlayThumbnail
+                source={current.source}
+                alt=""
+                width={112}
+                height={112}
+                className="h-full w-full object-cover opacity-70"
+              />
+              <Play className="absolute size-5 drop-shadow" />
+            </>
+          ) : (
+            <RefreshCw className="size-5" />
+          )}
         </button>
       ) : null}
 
@@ -606,6 +659,7 @@ function DesktopQueue({
           {player.queue.items.map((item, index) => {
             const track = player.trackForItem(item.id);
             const unavailable = player.unavailableItemIds.has(item.id);
+            const retryable = player.retryableItemIds.has(item.id);
             const current = index === player.queue.currentIndex;
             return (
               <li
@@ -620,7 +674,7 @@ function DesktopQueue({
                   type="button"
                   className="grid min-w-0 flex-1 grid-cols-[2rem_minmax(0,1fr)] items-center gap-2 text-left"
                   aria-current={current ? "true" : undefined}
-                  disabled={unavailable}
+                  disabled={unavailable || retryable}
                   onClick={() => player.select(index)}
                 >
                   <span className="flex size-8 items-center justify-center overflow-hidden rounded-md bg-muted text-xs font-semibold">
@@ -640,7 +694,11 @@ function DesktopQueue({
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium">
                       {track?.song.title ??
-                        (unavailable ? "사용할 수 없는 가창" : "불러오는 중")}
+                        (unavailable
+                          ? "사용할 수 없는 가창"
+                          : retryable
+                            ? "다시 불러오기 필요"
+                            : "불러오는 중")}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
                       {track?.performance.participants
@@ -649,6 +707,17 @@ function DesktopQueue({
                     </span>
                   </span>
                 </button>
+                {retryable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="가창 정보 다시 불러오기"
+                    onClick={() => player.retry(item.id)}
+                  >
+                    <RefreshCw />
+                  </Button>
+                ) : null}
                 <QueueItemActions player={player} itemId={item.id} index={index} />
               </li>
             );
@@ -736,6 +805,8 @@ function MobilePlayerQueue({
       <ol className="space-y-1 pb-4">
         {player.queue.items.map((item, index) => {
           const track = player.trackForItem(item.id);
+          const unavailable = player.unavailableItemIds.has(item.id);
+          const retryable = player.retryableItemIds.has(item.id);
           const current = index === player.queue.currentIndex;
           return (
             <li
@@ -749,10 +820,16 @@ function MobilePlayerQueue({
                 type="button"
                 className="min-w-0 flex-1 text-left"
                 aria-current={current ? "true" : undefined}
+                disabled={unavailable || retryable}
                 onClick={() => player.select(index)}
               >
                 <span className="block truncate text-sm font-medium">
-                  {track?.song.title ?? "불러오는 중"}
+                  {track?.song.title ??
+                    (unavailable
+                      ? "사용할 수 없는 가창"
+                      : retryable
+                        ? "다시 불러오기 필요"
+                        : "불러오는 중")}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {track?.performance.participants
@@ -760,6 +837,17 @@ function MobilePlayerQueue({
                     .join(", ") || item.performanceId}
                 </span>
               </button>
+              {retryable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="가창 정보 다시 불러오기"
+                  onClick={() => player.retry(item.id)}
+                >
+                  <RefreshCw />
+                </Button>
+              ) : null}
               <QueueItemActions player={player} itemId={item.id} index={index} />
             </li>
           );

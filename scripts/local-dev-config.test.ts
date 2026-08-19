@@ -55,6 +55,19 @@ describe("local development server config", () => {
     expect(request.originalUrl).toBe("/?performance=performance-1");
   });
 
+  it("rewrites the rights page for direct local navigation and refresh", () => {
+    const request = {
+      method: "GET",
+      url: "/rights",
+      originalUrl: "/rights",
+      headers: { accept: "text/html,application/xhtml+xml" },
+    };
+
+    expect(rewriteLocalSpaRequest(request)).toBe(true);
+    expect(request.url).toBe("/");
+    expect(request.originalUrl).toBe("/");
+  });
+
   it("does not rewrite API or non-navigation requests", () => {
     const apiRequest = {
       method: "GET",
