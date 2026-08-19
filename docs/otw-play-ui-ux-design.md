@@ -688,6 +688,12 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   action을 함께 보여준다. quota·일시 장애는 영상이 삭제된 것처럼 표시하지 않는다.
 - source가 재생 불가여도 곡·가창 metadata와 YouTube 외부 링크 또는 대체 source를
   유지한다. 수동 재검사는 authoritative readback 뒤에만 상태를 갱신한다.
+- `소스 상태` section 진입 시에만 운영 query를 시작한다. 최근 복구는 7일, 각 목록은
+  최대 50개이며 연결 곡·가창은 총 개수와 최대 5개 요약을 표시한다. loading, empty,
+  API 오류와 stale-write를 각각 구분한다.
+- 수동 점검이 외부 장애 때문에 `retry_scheduled`로 끝나면 현재 availability를 유지한
+  채 `외부 API 재시도 대기`와 다음 점검 시각을 표시한다. 성공 toast나 삭제 상태로
+  오인시키지 않으며 관리자 catalog와 source-health query를 함께 갱신한다.
 
 ### 19.3 PR-8C 공개 switch와 관측
 
