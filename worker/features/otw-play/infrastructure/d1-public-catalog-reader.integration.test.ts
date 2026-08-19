@@ -18,6 +18,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0050_parched_marvel_apes.sql",
   "0051_clear_mantis.sql",
   "0052_otw-play-public-read-model-backfill.sql",
+  "0053_red_talon.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -392,7 +393,9 @@ const seedVisibilityFixture = async () => {
 describe("D1PublicCatalogReader", () => {
   beforeEach(async () => {
     expect(
-      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(-7).map(
+      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(
+        -PUBLIC_MIGRATION_NAMES.length,
+      ).map(
         ({ name }) => name,
       ),
     ).toEqual(PUBLIC_MIGRATION_NAMES);
