@@ -6,6 +6,7 @@ export interface OtwPlayCatalogRouteSearch {
   memberMode?: "any" | "all";
   group?: string;
   participant?: string;
+  participantRole?: "vocal" | "featured_vocal" | "chorus" | "other";
   relation?: "original" | "cover";
   participation?: "solo" | "duet" | "unit" | "group" | "external_collab";
   originalArtist?: string;
@@ -33,6 +34,12 @@ export const validateOtwPlayCatalogRouteSearch = (
   memberMode: oneOf(search.memberMode, ["any", "all"]),
   group: readString(search.group),
   participant: readString(search.participant),
+  participantRole: oneOf(search.participantRole, [
+    "vocal",
+    "featured_vocal",
+    "chorus",
+    "other",
+  ]),
   relation: oneOf(search.relation, ["original", "cover"]),
   participation: oneOf(search.participation, [
     "solo",
@@ -62,6 +69,7 @@ export const catalogQueryFromRouteSearch = (
   memberMode: search.memberMode,
   group: search.group,
   participant: search.participant,
+  participantRole: search.participantRole,
   relation: search.relation,
   participation: search.participation,
   originalArtist: search.originalArtist,

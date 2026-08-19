@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { OtwPlayPublicParticipantDto } from "@contracts/otw-play";
-import { presentOtwPlayParticipants } from "./participant-presentation";
+import {
+  groupOtwPlayParticipantCredits,
+  presentOtwPlayParticipants,
+} from "./participant-presentation";
 
 const participant = (
   entityId: string,
@@ -17,21 +20,22 @@ const participant = (
 });
 
 describe("presentOtwPlayParticipants", () => {
-  it("promotes main vocalists and demotes supporting credits to a labeled summary", () => {
-    const result = presentOtwPlayParticipants([
+  it("promotes only main vocalists in compact presentation", () => {
+    const participants = [
       participant("chorus", "코러스", "chorus", 0),
       participant("lead", "메인", "vocal", 1),
       participant("featured", "서브", "featured_vocal", 2),
-    ]);
+    ];
+    const result = presentOtwPlayParticipants(participants);
 
     expect(result.primary.map(({ displayName }) => displayName)).toEqual(["메인"]);
-    expect(result.supporting.map(({ displayName }) => displayName)).toEqual([
-      "코러스",
-      "서브",
-    ]);
-    expect(result.supportingGroups.map(({ label, names }) => ({ label, names }))).toEqual([
-      { label: "서브 보컬", names: "서브" },
-      { label: "코러스", names: "코러스" },
+    expect(groupOtwPlayParticipantCredits(participants).map(({ label, participants: credits }) => ({
+      label,
+      names: credits.map(({ displayName }) => displayName),
+    }))).toEqual([
+      { label: "메인 보컬", names: ["메인"] },
+      { label: "피처링 보컬", names: ["서브"] },
+      { label: "코러스", names: ["코러스"] },
     ]);
   });
 
@@ -42,6 +46,5 @@ describe("presentOtwPlayParticipants", () => {
     ]);
 
     expect(result.primaryNames).toBe("첫 번째");
-    expect(result.supporting).toHaveLength(1);
   });
 });

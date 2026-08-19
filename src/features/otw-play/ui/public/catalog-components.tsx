@@ -14,8 +14,10 @@ import {
   type OtwPlayTrack,
 } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
-import { OtwPlaySupportingRoleChips } from "../participant-role-chips";
-import { presentOtwPlayParticipants } from "./participant-presentation";
+import {
+  groupOtwPlayParticipantCredits,
+  presentOtwPlayParticipants,
+} from "./participant-presentation";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const relationLabel = {
@@ -88,7 +90,43 @@ export function OtwPlayParticipantSummary({
           participant={participant}
         />
       ))}
-      <OtwPlaySupportingRoleChips participants={participants} />
+    </div>
+  );
+}
+
+export function OtwPlayParticipantCreditGroups({
+  participants,
+}: {
+  participants: OtwPlayPublicParticipantDto[];
+}) {
+  const groups = groupOtwPlayParticipantCredits(participants);
+
+  if (groups.length === 0) {
+    return <p className="text-sm text-muted-foreground">가창 credit 정보가 없습니다.</p>;
+  }
+
+  return (
+    <div className="space-y-2" aria-label="가창 credit">
+      {groups.map((group) => (
+        <div
+          key={group.role}
+          className="grid gap-1.5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-start"
+          role="group"
+          aria-label={group.label}
+        >
+          <span className="pt-1 text-xs font-semibold text-muted-foreground">
+            {group.label}
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {group.participants.map((participant) => (
+              <OtwPlayParticipantChip
+                key={`${participant.entityId}:${participant.creditOrder}`}
+                participant={participant}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

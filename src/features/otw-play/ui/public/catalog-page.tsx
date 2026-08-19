@@ -64,7 +64,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
       <div>
         <h1 className="text-2xl font-semibold">곡 검색</h1>
         <p className="text-sm text-muted-foreground">
-          곡명, 별칭, 원곡 가수와 참여자로 공식 버전을 찾습니다.
+          곡명, 별칭, 원곡 가수, 참여자와 가창 역할로 공식 버전을 찾습니다.
         </p>
       </div>
 
@@ -124,6 +124,17 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
               { value: "unit", label: "유닛" },
               { value: "group", label: "단체" },
               { value: "external_collab", label: "외부 협업" },
+            ]}
+          />
+          <FilterSelect
+            label="가창 역할"
+            value={search.participantRole ?? ""}
+            onChange={(value) => setField("participantRole", value as Props["search"]["participantRole"] || undefined)}
+            options={[
+              { value: "vocal", label: "메인 보컬" },
+              { value: "featured_vocal", label: "피처링 보컬" },
+              { value: "chorus", label: "코러스" },
+              { value: "other", label: "기타 참여" },
             ]}
           />
           <FilterSelect
@@ -323,6 +334,9 @@ const buildActiveFilters = (
       : null,
     participant: search.participant
       ? `외부 참여자 · ${search.participant.replaceAll("-", " ")}`
+      : null,
+    participantRole: search.participantRole
+      ? `가창 역할 · ${{ vocal: "메인 보컬", featured_vocal: "피처링 보컬", chorus: "코러스", other: "기타 참여" }[search.participantRole]}`
       : null,
     relation: search.relation === "original" ? "곡 관계 · 오리지널" : search.relation === "cover" ? "곡 관계 · 공식 커버" : null,
     participation: search.participation

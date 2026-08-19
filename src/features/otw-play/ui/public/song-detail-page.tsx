@@ -7,7 +7,7 @@ import { cn } from "@/shared/lib/utils";
 import { useOtwPlaySong } from "../../queries/use-public-catalog";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import {
-  OtwPlayParticipantSummary,
+  OtwPlayParticipantCreditGroups,
   OtwPlayPerformanceActions,
   relationLabel,
 } from "./catalog-components";
@@ -108,7 +108,7 @@ export function OtwPlaySongDetailPage({
                     {highlighted ? <Badge>직접 링크로 선택됨</Badge> : null}
                   </div>
                   <div className="mt-3">
-                    <OtwPlayParticipantSummary participants={performance.participants} />
+                    <OtwPlayParticipantCreditGroups participants={performance.participants} />
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">
                     {performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}

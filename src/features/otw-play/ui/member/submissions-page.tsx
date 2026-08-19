@@ -19,7 +19,7 @@ const labels: Record<OtwPlayMemberSubmissionStatus, string> = {
 };
 const roleLabels: Record<OtwPlayParticipantRole, string> = {
   vocal: "메인 보컬",
-  featured_vocal: "서브 보컬",
+  featured_vocal: "피처링 보컬",
   chorus: "코러스",
   other: "기타 참여",
 };

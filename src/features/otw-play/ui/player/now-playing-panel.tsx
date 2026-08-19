@@ -28,7 +28,6 @@ import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
-import { OtwPlaySupportingRoleChips } from "../participant-role-chips";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
 
 const repeatLabel = {
@@ -546,7 +545,6 @@ function ParticipantIdentity({
         <span className="sr-only">참여자: </span>
         {participantNames}
       </span>
-      <OtwPlaySupportingRoleChips participants={participants} className="shrink-0" />
     </div>
   );
 }
@@ -714,12 +712,6 @@ function DesktopQueue({
                     </span>
                   </span>
                 </button>
-                {track ? (
-                  <OtwPlaySupportingRoleChips
-                    participants={track.performance.participants}
-                    className="shrink-0"
-                  />
-                ) : null}
                 {retryable ? (
                   <Button
                     type="button"
@@ -850,12 +842,6 @@ function MobilePlayerQueue({
                     : item.performanceId}
                 </span>
               </button>
-              {track ? (
-                <OtwPlaySupportingRoleChips
-                  participants={track.performance.participants}
-                  className="shrink-0"
-                />
-              ) : null}
               {retryable ? (
                 <Button
                   type="button"

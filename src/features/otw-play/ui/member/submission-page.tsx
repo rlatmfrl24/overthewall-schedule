@@ -52,7 +52,7 @@ const PARTICIPANT_LIMIT = 30;
 const ORIGINAL_ARTIST_LIMIT = 20;
 const participantRoleLabel: Record<OtwPlayParticipantRole, string> = {
   vocal: "메인 보컬",
-  featured_vocal: "서브 보컬",
+  featured_vocal: "피처링 보컬",
   chorus: "코러스",
   other: "기타 참여",
 };

@@ -84,12 +84,13 @@ describe("OTW Play public catalog query", () => {
 
   it("canonicalizes a single external participant slug", () => {
     const query = parse(
-      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&relation=cover",
+      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&participantRole=chorus&relation=cover",
     );
 
     expect(query.participantSlug).toBe("외부-参加者");
+    expect(query.participantRole).toBe("chorus");
     expect(canonicalizePublicCatalogQuery(query)).toBe(
-      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&relation=cover",
+      "participant=%EC%99%B8%EB%B6%80-%E5%8F%82%E5%8A%A0%E8%80%85&participantRole=chorus&relation=cover",
     );
   });
 
@@ -104,6 +105,7 @@ describe("OTW Play public catalog query", () => {
     ["relation=broadcast", "invalid_relation", "relation"],
     ["participation=trio", "invalid_participation", "participation"],
     ["participant=bad%2Fslug", "invalid_participant", "participant"],
+    ["participantRole=producer", "invalid_participant_role", "participantRole"],
     [
       "participant=one&participant=two",
       "duplicate_parameter",

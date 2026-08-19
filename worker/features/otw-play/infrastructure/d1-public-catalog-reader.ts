@@ -351,9 +351,11 @@ const buildPerformanceFilters = (
         ON exact_participant_entity.id = exact_participant.entity_id
       WHERE exact_participant.performance_id = performance.id
         AND exact_participant_entity.slug = ?
+        ${query.participantRole === null ? "" : "AND exact_participant.participant_role = ?"}
         AND exact_participant_entity.archived_at IS NULL
     )`);
     binds.push(query.participantSlug);
+    if (query.participantRole !== null) binds.push(query.participantRole);
   }
   if (query.memberUids.length > 0) {
     const memberPlaceholders = placeholders(query.memberUids.length);
@@ -367,9 +369,12 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
+          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       ) = ?`);
-      binds.push(...query.memberUids, query.memberUids.length);
+      binds.push(...query.memberUids);
+      if (query.participantRole !== null) binds.push(query.participantRole);
+      binds.push(query.memberUids.length);
     } else {
       predicates.push(`EXISTS (
         SELECT 1
@@ -380,9 +385,11 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
+          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       )`);
       binds.push(...query.memberUids);
+      if (query.participantRole !== null) binds.push(query.participantRole);
     }
   }
   if (query.group?.entityId) {
@@ -393,10 +400,12 @@ const buildPerformanceFilters = (
         ON group_entity.id = group_participant.entity_id
       WHERE group_participant.performance_id = performance.id
         AND group_entity.id = ?
+        ${query.participantRole === null ? "" : "AND group_participant.participant_role = ?"}
         AND group_entity.entity_kind = 'group'
         AND group_entity.archived_at IS NULL
     )`);
     binds.push(query.group.entityId);
+    if (query.participantRole !== null) binds.push(query.participantRole);
   } else if (query.group?.unitName) {
     predicates.push(`EXISTS (
       SELECT 1
@@ -407,9 +416,25 @@ const buildPerformanceFilters = (
         ON unit_member.uid = unit_entity.member_uid
       WHERE unit_participant.performance_id = performance.id
         AND unit_member.unit_name = ?
+        ${query.participantRole === null ? "" : "AND unit_participant.participant_role = ?"}
         AND (unit_member.is_deprecated IS NULL OR unit_member.is_deprecated = 0)
     )`);
     binds.push(query.group.unitName);
+    if (query.participantRole !== null) binds.push(query.participantRole);
+  }
+  if (
+    query.participantRole !== null &&
+    query.participantSlug === null &&
+    query.memberUids.length === 0 &&
+    query.group === null
+  ) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM music_performance_participants AS role_participant
+      WHERE role_participant.performance_id = performance.id
+        AND role_participant.participant_role = ?
+    )`);
+    binds.push(query.participantRole);
   }
 
   return {

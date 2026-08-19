@@ -34,6 +34,7 @@ describe("OTW Play public API client", () => {
       member: [10, 2, 10],
       memberMode: "all",
       participant: "external-singer",
+      participantRole: "featured_vocal",
       sort: "title",
       limit: 60,
       cursor: "next/page",
@@ -44,6 +45,7 @@ describe("OTW Play public API client", () => {
     expect(params.get("q")).toBe("  Song  ");
     expect(params.get("memberMode")).toBe("all");
     expect(params.get("participant")).toBe("external-singer");
+    expect(params.get("participantRole")).toBe("featured_vocal");
     expect(params.get("sort")).toBe("title");
     expect(params.get("limit")).toBe("60");
     expect(params.get("cursor")).toBe("next/page");
@@ -54,6 +56,7 @@ describe("OTW Play public API client", () => {
       "member",
       "memberMode",
       "participant",
+      "participantRole",
       "q",
       "sort",
     ]);

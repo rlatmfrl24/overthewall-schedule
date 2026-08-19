@@ -39,6 +39,7 @@ const toReaderQuery = (query = ""): PublicCatalogReaderQuery => {
     groupKey: parsed.groupKey,
     group: parsed.group,
     participantSlug: parsed.participantSlug,
+    participantRole: parsed.participantRole,
     relation: parsed.relation,
     participation: parsed.participation,
     originalArtistSlug: parsed.originalArtistSlug,
@@ -251,6 +252,7 @@ const insertParticipant = (
   performanceId: string,
   entityId: string,
   order: number,
+  role: "vocal" | "featured_vocal" | "chorus" | "other" = "vocal",
 ) =>
   db
     .prepare(
@@ -258,11 +260,11 @@ const insertParticipant = (
          performance_id, entity_id, participant_role, credit_order,
          credit_name_snapshot
        )
-       SELECT ?, id, 'vocal', ?, display_name
+       SELECT ?, id, ?, ?, display_name
        FROM music_entities
        WHERE id = ?`,
     )
-    .bind(performanceId, order, entityId);
+    .bind(performanceId, role, order, entityId);
 
 const seedIdentityAndChannels = async () => {
   await db.batch([
@@ -662,8 +664,8 @@ describe("D1PublicCatalogReader", () => {
       }),
       insertParticipant("performance-split-a", "entity-current-a", 0),
       insertParticipant("performance-split-c", "entity-current-c", 0),
-      insertParticipant("performance-together", "entity-current-a", 0),
-      insertParticipant("performance-together", "entity-current-c", 1),
+      insertParticipant("performance-together", "entity-current-a", 0, "featured_vocal"),
+      insertParticipant("performance-together", "entity-current-c", 1, "chorus"),
       insertParticipant("performance-together", "entity-group", 2),
     ]);
     await rebuildReadModel();
@@ -685,6 +687,21 @@ describe("D1PublicCatalogReader", () => {
     expect(exactParticipant.items.map(({ id }) => id)).toEqual([
       "song-together",
     ]);
+
+    const standaloneRole = await reader.readCatalog(
+      toReaderQuery("participantRole=chorus"),
+    );
+    expect(standaloneRole.items.map(({ id }) => id)).toEqual(["song-together"]);
+
+    const sameCreditRole = await reader.readCatalog(
+      toReaderQuery("member=3&participantRole=chorus"),
+    );
+    expect(sameCreditRole.items.map(({ id }) => id)).toEqual(["song-together"]);
+
+    const roleOnDifferentCredit = await reader.readCatalog(
+      toReaderQuery("member=1&participantRole=chorus"),
+    );
+    expect(roleOnDifferentCredit.items).toEqual([]);
 
     const groupKey = encodeURIComponent(
       encodePublicCatalogGroupKey({ entityId: "entity-group", unitName: null }),

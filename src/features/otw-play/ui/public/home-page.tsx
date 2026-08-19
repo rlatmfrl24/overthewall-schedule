@@ -19,7 +19,6 @@ import {
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
-import { OtwPlaySupportingRoleChips } from "../participant-role-chips";
 import { presentOtwPlayParticipants } from "./participant-presentation";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
@@ -138,10 +137,6 @@ export function OtwPlayHomePage() {
                       {" · "}
                       {featuredParticipants?.primaryNames || "참여자 정보 없음"}
                     </span>
-                    <OtwPlaySupportingRoleChips
-                      participants={featured.representativePerformance.participants}
-                      inverse
-                    />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -350,14 +345,8 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
                   </div>
                 </td>
                 <td className="hidden px-2 text-muted-foreground sm:table-cell">
-                  <span className="flex min-w-0 items-center gap-1">
-                    <span className="truncate">
-                      {participants.primaryNames || "정보 없음"}
-                    </span>
-                    <OtwPlaySupportingRoleChips
-                      participants={performance.participants}
-                      className="shrink-0"
-                    />
+                  <span className="block truncate">
+                    {participants.primaryNames || "정보 없음"}
                   </span>
                 </td>
                 <td className="hidden px-2 text-muted-foreground md:table-cell">

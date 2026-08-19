@@ -186,7 +186,7 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "관리자가 정정한 곡명" },
     });
     fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
-    fireEvent.click(await screen.findByRole("option", { name: "서브 보컬" }));
+    fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
     fireEvent.click(screen.getByRole("checkbox"));
     expect(approveButton.disabled).toBe(false);
     fireEvent.click(approveButton);

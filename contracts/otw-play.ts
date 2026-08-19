@@ -214,6 +214,7 @@ export interface OtwPlayPublicCatalogQuery {
   memberMode?: OtwPlayMemberMode;
   group?: string;
   participant?: string;
+  participantRole?: OtwPlayParticipantRole;
   relation?: OtwPlayRelationType;
   participation?: OtwPlayParticipationType;
   originalArtist?: string;

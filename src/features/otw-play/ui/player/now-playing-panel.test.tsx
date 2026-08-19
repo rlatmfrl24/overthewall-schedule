@@ -260,11 +260,10 @@ describe("OTW Play player and queue rail", () => {
     expect(screen.getByTestId("otw-play-participants").textContent).toContain("참여 멤버");
     expect(screen.getByTestId("otw-play-participants").textContent).not.toContain("+1");
     expect(
-      within(screen.getByTestId("otw-play-participant-identity")).getByRole(
-        "button",
-        { name: "코러스: 코러스 멤버" },
+      within(screen.getByTestId("otw-play-participant-identity")).queryByText(
+        "코러스",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
     const publisherIdentity = screen.getByTestId("otw-play-publisher-identity");
     expect(publisherIdentity.className).toContain(
       "[@media_(min-width:1280px)_and_(max-height:719px)]:hidden",
