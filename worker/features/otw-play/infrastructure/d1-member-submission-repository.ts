@@ -27,6 +27,10 @@ type ProposalRow = {
   approved_song_id: string | null;
   approved_song_slug: string | null;
   approved_song_title: string | null;
+  approved_song_archived_at: number | null;
+  approved_song_merged_into_song_id: string | null;
+  approved_performance_publication_status: string | null;
+  approved_performance_release_type: string | null;
   public_read_enabled: number | null;
 };
 
@@ -68,6 +72,10 @@ const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   proposal.created_at, proposal.updated_at,
   song.id AS approved_song_id, song.slug AS approved_song_slug,
   song.title AS approved_song_title,
+  song.archived_at AS approved_song_archived_at,
+  song.merged_into_song_id AS approved_song_merged_into_song_id,
+  approved_performance.publication_status AS approved_performance_publication_status,
+  approved_performance.release_type AS approved_performance_release_type,
   meta.public_read_enabled
 FROM music_cover_proposals AS proposal
 LEFT JOIN music_performances AS approved_performance
@@ -168,7 +176,8 @@ export class D1MemberSubmissionRepository
           FROM members AS member
           LEFT JOIN music_entities AS entity
             ON entity.member_uid = member.uid AND entity.archived_at IS NULL
-          WHERE member.uid IN (${placeholders(memberUids.length)})`,
+          WHERE member.uid IN (${placeholders(memberUids.length)})
+            AND (member.is_deprecated IS NULL OR member.is_deprecated = 0)`,
         )
         .bind(...memberUids)
         .all<{ uid: number; name: string; entity_id: string | null }>();
@@ -253,7 +262,13 @@ export class D1MemberSubmissionRepository
               id: row.approved_song_id,
               slug: row.approved_song_slug,
               title: row.approved_song_title,
-              publicLinkAvailable: row.public_read_enabled === 1,
+              publicLinkAvailable:
+                row.public_read_enabled === 1 &&
+                row.approved_performance_publication_status === "published" &&
+                (row.approved_performance_release_type === "official_mv" ||
+                  row.approved_performance_release_type === "official_video") &&
+                row.approved_song_archived_at === null &&
+                row.approved_song_merged_into_song_id === null,
             }
           : null,
     }));

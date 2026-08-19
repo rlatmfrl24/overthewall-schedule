@@ -51,12 +51,14 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_cover_proposal_participants"),
     db.prepare("DELETE FROM music_cover_proposal_original_artists"),
     db.prepare("DELETE FROM music_cover_proposals"),
+    db.prepare("DELETE FROM music_performances WHERE id = 'approved-performance'"),
+    db.prepare("DELETE FROM music_songs WHERE id = 'approved-song'"),
     db.prepare("DELETE FROM music_media_sources"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_channels"),
-    db.prepare("DELETE FROM music_entities WHERE member_uid = 991"),
-    db.prepare("DELETE FROM member_links WHERE member_uid = 991"),
-    db.prepare("DELETE FROM members WHERE uid = 991"),
+    db.prepare("DELETE FROM music_entities WHERE member_uid IN (991, 992)"),
+    db.prepare("DELETE FROM member_links WHERE member_uid IN (991, 992)"),
+    db.prepare("DELETE FROM members WHERE uid IN (991, 992)"),
     db.prepare(
       `INSERT INTO members
        (uid, code, name, oshi_mark, youtube_channel_id, unit_name, is_deprecated)
@@ -154,6 +156,96 @@ describe("D1MemberSubmissionRepository", () => {
     await expect(create(repository, "member-a", "3")).rejects.toMatchObject({
       code: "rate_limited",
     });
+  });
+
+  it("rejects a deprecated member UID even when the caller bypasses the active-member UI", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    await db
+      .prepare(
+        `INSERT INTO members
+         (uid, code, name, oshi_mark, youtube_channel_id, unit_name, is_deprecated)
+         VALUES (992, 'former-submission-member', '전 소속 멤버', '', NULL, NULL, 1)`,
+      )
+      .run();
+
+    await expect(
+      create(repository, "member-a", "1", {
+        participants: [
+          { kind: "member", memberUid: 992, participantRole: "vocal" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
+  it("only exposes an approved song link while the linked catalog item is public", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const created = await create(repository, "member-a", "1");
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO music_songs (
+             id, slug, title, normalized_title, dedupe_key, is_otw_original,
+             original_release_precision, version, created_at, updated_at
+           ) VALUES ('approved-song', 'approved-song', '승인된 곡', '승인된 곡',
+             'approved-song-dedupe', 0, 'unknown', 0, ?, ?)`,
+        )
+        .bind(NOW, NOW),
+      db
+        .prepare(
+          `INSERT INTO music_performances (
+             id, song_id, dedupe_key, relation_type, release_type,
+             participation_type, publication_status, quality_status,
+             released_at, version, created_at, updated_at
+           ) VALUES ('approved-performance', 'approved-song',
+             'approved-performance-dedupe', 'cover', 'official_video', 'solo',
+             'published', 'ok', ?, 0, ?, ?)`,
+        )
+        .bind(NOW, NOW, NOW),
+      db
+        .prepare(
+          `UPDATE music_cover_proposals
+           SET status = 'approved', reviewed_by_user_id = 'admin', reviewed_at = ?,
+             approved_performance_id = 'approved-performance', version = version + 1,
+             updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(NOW + 100, NOW + 100, created.data.id),
+      db.prepare(
+        `UPDATE music_catalog_meta
+         SET public_read_enabled = 1, navigation_visible = 1, updated_at = ?
+         WHERE id = 1`,
+      ).bind(NOW),
+    ]);
+
+    expect((await repository.readMine("member-a", created.data.id)).approvedSong)
+      .toMatchObject({ publicLinkAvailable: true });
+
+    await db
+      .prepare(
+        `UPDATE music_performances SET publication_status = 'withdrawn',
+          version = version + 1, updated_at = ? WHERE id = 'approved-performance'`,
+      )
+      .bind(NOW + 1)
+      .run();
+    expect((await repository.readMine("member-a", created.data.id)).approvedSong)
+      .toMatchObject({ publicLinkAvailable: false });
+
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE music_performances SET publication_status = 'published',
+            version = version + 1, updated_at = ? WHERE id = 'approved-performance'`,
+        )
+        .bind(NOW + 2),
+      db
+        .prepare(
+          `UPDATE music_songs SET archived_at = ?, version = version + 1,
+            updated_at = ? WHERE id = 'approved-song'`,
+        )
+        .bind(NOW + 2, NOW + 2),
+    ]);
+    expect((await repository.readMine("member-a", created.data.id)).approvedSong)
+      .toMatchObject({ publicLinkAvailable: false });
   });
 
   it("rolls back the parent when a child insert fails", async () => {
