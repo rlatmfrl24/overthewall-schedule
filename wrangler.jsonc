@@ -46,6 +46,16 @@
       "remote": true,
     },
   ],
+  "ratelimits": [
+    {
+      "name": "OTW_PLAY_SUBMISSION_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 3,
+        "period": 60,
+      },
+    },
+  ],
   // 스케줄 자동 업데이트, X 수집, YouTube 캐시 예열을 위한 Cron Trigger
   // 실제 실행 주기는 DB settings 테이블에서 제어
   "triggers": {

@@ -51,6 +51,11 @@ export const MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 1;
 export const MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 10_000;
 export const LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY =
   "live_schedule_auto_fill_enabled";
+export const OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY =
+  "otw_play_submission_daily_limit";
+export const DEFAULT_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 5;
+export const MIN_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 1;
+export const MAX_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 100;
 
 export interface AdminSettingsDto {
   auto_update_enabled: BooleanSettingValue | null;
@@ -72,6 +77,7 @@ export interface AdminSettingsDto {
   youtube_warmup_official_enabled: BooleanSettingValue;
   youtube_warmup_kirinuki_enabled: BooleanSettingValue;
   youtube_warmup_last_run: string | null;
+  otw_play_submission_daily_limit: string;
 }
 
 export const SETTINGS_KEYS = [
@@ -93,6 +99,7 @@ export const SETTINGS_KEYS = [
   "youtube_warmup_official_enabled",
   "youtube_warmup_kirinuki_enabled",
   "youtube_warmup_last_run",
+  OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
   LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
 ] as const satisfies readonly (keyof AdminSettingsDto)[];
 
@@ -230,6 +237,25 @@ export const isYouTubeWarmupDailyQuotaUnitsValue = (value: unknown) => {
     parsed >= MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS &&
     parsed <= MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS
   );
+};
+
+export const isOtwPlaySubmissionDailyLimitValue = (value: unknown) => {
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return false;
+  const parsed = Number.parseInt(value, 10);
+  return (
+    Number.isSafeInteger(parsed) &&
+    parsed >= MIN_OTW_PLAY_SUBMISSION_DAILY_LIMIT &&
+    parsed <= MAX_OTW_PLAY_SUBMISSION_DAILY_LIMIT
+  );
+};
+
+export const normalizeOtwPlaySubmissionDailyLimit = (
+  value: string | number | null | undefined,
+) => {
+  const candidate = String(value ?? "");
+  return isOtwPlaySubmissionDailyLimitValue(candidate)
+    ? candidate
+    : String(DEFAULT_OTW_PLAY_SUBMISSION_DAILY_LIMIT);
 };
 
 export const normalizeYouTubeWarmupSettings = (
@@ -406,6 +432,12 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     key: "youtube_warmup_last_run",
     writable: false,
     normalize: passthroughNullable,
+  },
+  {
+    key: OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
+    writable: true,
+    normalize: normalizeOtwPlaySubmissionDailyLimit,
+    validate: isOtwPlaySubmissionDailyLimitValue,
   },
   {
     key: LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,

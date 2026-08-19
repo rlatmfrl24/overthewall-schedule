@@ -140,7 +140,8 @@ INSERT INTO settings (
   ('naver_cafe_posts_visibility', 'public'),
   ('x_collection_enabled', 'false'),
   ('x_collection_daily_budget_cents', '100'),
-  ('x_collection_interval_hours', '6');
+  ('x_collection_interval_hours', '6'),
+  ('otw_play_submission_daily_limit', '5');
 
 INSERT INTO naver_cafe_sources (
   id,

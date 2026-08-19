@@ -170,6 +170,8 @@ export const REQUIRED_D1_COLUMNS = {
 };
 
 export const MUSIC_CATALOG_META_SINGLETON_ID = 1;
+export const OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY =
+  "otw_play_submission_daily_limit";
 
 const CATALOG_META_INTEGER_FIELDS = [
   "id",
@@ -408,6 +410,37 @@ export const getMusicSearchGramStatsStatus = (rows) => {
     ok: isComplete,
     message: `expected_postings=${expectedPostingCount}, postings=${postingCount}, distinct_grams=${distinctGramCount}, stats=${statCount}, missing_postings=${missingPostingCount}, unexpected_postings=${unexpectedPostingCount}, missing_stats=${missingStatCount}, unexpected_stats=${unexpectedStatCount}, value_drift=${valueDriftCount}`,
   };
+};
+
+export const getOtwPlaySubmissionDailyLimitStatus = (rows) => {
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    return {
+      ok: false,
+      message: `expected exactly one OTW Play submission limit row, found ${Array.isArray(rows) ? rows.length : 0}`,
+    };
+  }
+
+  const value = rows[0]?.value;
+  if (
+    rows[0]?.value_type !== "text" ||
+    typeof value !== "string" ||
+    !/^\d+$/.test(value)
+  ) {
+    return {
+      ok: false,
+      message: "OTW Play submission daily limit must be integer text",
+    };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
+    return {
+      ok: false,
+      message: "OTW Play submission daily limit must be between 1 and 100",
+    };
+  }
+
+  return { ok: true, message: `daily limit=${parsed}` };
 };
 
 export const getMigrationListStatus = (output) => {

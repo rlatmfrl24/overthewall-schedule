@@ -71,6 +71,7 @@ const makeSettings = () => ({
   x_collection_daily_budget_cents: "100",
   x_collection_interval_hours: "2",
   x_collection_last_run: null,
+  otw_play_submission_daily_limit: "5",
 });
 
 const makePendingSchedule = (overrides = {}) => ({
@@ -212,6 +213,25 @@ describe("AutoUpdateSettingsManager", () => {
       expect.objectContaining({
         variant: "success",
         description: "라이브 자동 입력을 비활성화했습니다.",
+      }),
+    );
+  });
+
+  it("OTW Play 회원 제안 일일 제한을 저장한다", async () => {
+    render(createElement(AutoUpdateSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await waitFor(() => expect(fetchSettingsMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("tab", { name: "설정" }));
+
+    const input = screen.getByLabelText("회원 곡 제안/일");
+    fireEvent.change(input, { target: { value: "7" } });
+    fireEvent.blur(input);
+
+    await waitFor(() =>
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        otw_play_submission_daily_limit: "7",
       }),
     );
   });

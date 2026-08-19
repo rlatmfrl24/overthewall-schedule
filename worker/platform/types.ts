@@ -13,6 +13,7 @@ export interface Env {
   CLERK_ISSUER?: string;
   CLERK_JWT_AUDIENCE?: string;
   CLERK_ADMIN_IDS?: string;
+  OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   otw_db: D1Database;
   ASSET_BUCKET?: R2Bucket;
   ASSETS?: Fetcher;

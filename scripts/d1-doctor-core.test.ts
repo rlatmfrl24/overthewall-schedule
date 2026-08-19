@@ -81,6 +81,27 @@ describe("d1 doctor migration status", () => {
 });
 
 describe("d1 doctor schema coverage", () => {
+  it("validates the OTW Play submission limit as strict integer text", async () => {
+    const { getOtwPlaySubmissionDailyLimitStatus } = await loadDoctorCore();
+
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: "5", value_type: "text" },
+      ]),
+    ).toEqual({ ok: true, message: "daily limit=5" });
+    expect(getOtwPlaySubmissionDailyLimitStatus([]).ok).toBe(false);
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: "0", value_type: "text" },
+      ]).ok,
+    ).toBe(false);
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: 5, value_type: "integer" },
+      ]).ok,
+    ).toBe(false);
+  });
+
   it("checks every OTW Play catalog table", async () => {
     const { REQUIRED_D1_COLUMNS } = await loadDoctorCore();
 

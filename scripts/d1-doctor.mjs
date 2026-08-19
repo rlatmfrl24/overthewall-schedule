@@ -10,6 +10,7 @@ import {
   getMusicPublicReadModelMetaStatus,
   getMusicPublicSortKeyStatus,
   getMusicSearchGramStatsStatus,
+  getOtwPlaySubmissionDailyLimitStatus,
   getMigrationListStatus,
 } from "./d1-doctor-core.mjs";
 import {
@@ -417,6 +418,16 @@ const checkSearchGramStats = (scope) =>
     getMusicSearchGramStatsStatus,
   );
 
+const checkOtwPlaySubmissionDailyLimit = (scope) =>
+  runReadModelDiagnostic(
+    scope,
+    "OTW Play submission daily limit",
+    `SELECT value, typeof(value) AS value_type
+       FROM settings
+      WHERE key = 'otw_play_submission_daily_limit';`,
+    getOtwPlaySubmissionDailyLimitStatus,
+  );
+
 const hasRemoteD1Binding = () => {
   const configPath = join(rootDir, "wrangler.jsonc");
   if (!existsSync(configPath)) return false;
@@ -482,6 +493,7 @@ for (const scope of ["remote", "local"]) {
   failures += await checkPublicReadModelMeta(scope);
   failures += await checkPublicSortKeys(scope);
   failures += await checkSearchGramStats(scope);
+  failures += await checkOtwPlaySubmissionDailyLimit(scope);
 }
 
 if (failures > 0) {
