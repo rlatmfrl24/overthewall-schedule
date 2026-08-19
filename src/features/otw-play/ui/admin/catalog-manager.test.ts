@@ -187,6 +187,10 @@ describe("OtwPlayCatalogManager", () => {
     });
     fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
+    fireEvent.click(screen.getByLabelText("승인할 공개 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
+    fireEvent.click(screen.getByLabelText("승인할 참여 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "유닛" }));
     fireEvent.click(screen.getByRole("checkbox"));
     expect(approveButton.disabled).toBe(false);
     fireEvent.click(approveButton);
@@ -199,7 +203,8 @@ describe("OtwPlayCatalogManager", () => {
           expectedCatalogRevision: 7,
           singingCreditConfirmed: true,
           publish: true,
-          releaseType: "official_video",
+          releaseType: "official_mv",
+          participationType: "unit",
           song: expect.objectContaining({
             kind: "create",
             title: "관리자가 정정한 곡명",
@@ -211,6 +216,81 @@ describe("OtwPlayCatalogManager", () => {
       ),
     );
     expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
+  });
+
+  it("requires an explicit channel owner and preserves new group identities", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    preflightEntryMock.mockResolvedValueOnce({
+      catalogRevision: 7,
+      video: {
+        videoId: "dQw4w9WgXcQ",
+        title: "확인된 영상",
+        thumbnailUrl: null,
+        durationSeconds: 180,
+        publishedAt: 1,
+        availabilityStatus: "playable",
+        channelId: `UC${"U".repeat(22)}`,
+        channelTitle: "미등록 프로젝트 채널",
+      },
+      channel: {
+        state: "unknown",
+        catalogChannelId: null,
+        verificationStatus: null,
+        active: false,
+        channelRole: null,
+        memberUid: null,
+      },
+      duplicate: null,
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await screen.findByText("channel unknown");
+    const approveButton = screen.getByRole("button", { name: "확인 후 승인·게시" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
+    fireEvent.click(screen.getByLabelText("1번째 채널 소유 종류"));
+    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
+    fireEvent.change(screen.getByLabelText("1번째 채널 소유 이름"), {
+      target: { value: "프로젝트 팀" },
+    });
+    fireEvent.click(screen.getByLabelText("1번째 참여자 종류"));
+    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(false);
+    fireEvent.click(approveButton);
+
+    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledTimes(1));
+    expect(approveProposalMock).toHaveBeenCalledWith(
+      "proposal-1",
+      expect.objectContaining({
+        channel: {
+          kind: "confirm",
+          channelRole: "project_official",
+          owners: [
+            expect.objectContaining({
+              kind: "new_external",
+              displayName: "프로젝트 팀",
+              entityKind: "group",
+            }),
+          ],
+        },
+        participants: [
+          expect.objectContaining({
+            subject: expect.objectContaining({
+              kind: "new_external",
+              entityKind: "group",
+            }),
+          }),
+        ],
+      }),
+    );
     confirm.mockRestore();
   });
 
