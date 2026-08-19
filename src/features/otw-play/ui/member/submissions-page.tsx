@@ -18,6 +18,7 @@ const labels: Record<OtwPlayMemberSubmissionStatus, string> = {
   pending_review: "검토 대기",
   approved: "승인됨",
   rejected: "반려",
+  withdrawn: "철회됨",
 };
 const roleLabels: Record<OtwPlayParticipantRole, string> = {
   vocal: "메인 보컬",
@@ -46,6 +47,19 @@ export function OtwPlaySubmissionsPage() {
     return (
       <div className="flex min-h-80 items-center justify-center" aria-busy="true">
         <LoaderCircle className="mr-2 size-5 animate-spin" /> 내 제안을 불러오는 중
+      </div>
+    );
+  }
+
+  if (list.isError) {
+    return (
+      <div className="mx-auto flex min-h-96 w-full max-w-3xl flex-col items-start justify-center gap-4 p-4 sm:p-8">
+        <BackToPlayLink />
+        <section className="w-full rounded-2xl border border-destructive/30 bg-card p-8 text-center shadow-sm" role="alert">
+          <h1 className="text-xl font-bold">내 제안을 불러오지 못했습니다</h1>
+          <p className="mt-2 text-sm text-muted-foreground">잠시 후 다시 시도해 주세요.</p>
+          <Button className="mt-6" variant="outline" onClick={() => void list.refetch()}>다시 시도</Button>
+        </section>
       </div>
     );
   }

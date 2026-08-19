@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,6 +104,7 @@ const completeDetails = async () => {
 describe("OtwPlaySubmissionPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       value: vi.fn(),
@@ -127,6 +128,35 @@ describe("OtwPlaySubmissionPage", () => {
     expect((await screen.findAllByText(/검토 중인 영상/)).length).toBeGreaterThan(0);
     expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
     expect(screen.queryByLabelText("곡명 *")).toBeNull();
+  });
+
+  it("ignores a late preflight response after the URL changes", async () => {
+    let resolvePreflight!: (value: typeof preflight) => void;
+    mocks.preflight.mockReturnValueOnce(new Promise((resolve) => {
+      resolvePreflight = resolve;
+    }));
+    renderPage();
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), {
+      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /영상 확인/ }));
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), {
+      target: { value: "https://youtu.be/AAAAAAAAAAA" },
+    });
+    await act(async () => resolvePreflight(preflight));
+    expect(screen.queryByLabelText("곡명 *")).toBeNull();
+    expect(screen.getByDisplayValue("https://youtu.be/AAAAAAAAAAA")).toBeTruthy();
+  });
+
+  it("restores the draft and idempotency key after the wizard remounts", async () => {
+    const first = renderPage();
+    fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), {
+      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    await waitFor(() => expect(sessionStorage.getItem("otw-play:member-submission-draft:v1")).toContain("dQw4w9WgXcQ"));
+    first.unmount();
+    renderPage();
+    expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
   });
 
   it("searches candidates explicitly, prefills the snapshot, and clears the selection", async () => {

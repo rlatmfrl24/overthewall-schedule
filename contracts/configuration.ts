@@ -240,7 +240,7 @@ export const isYouTubeWarmupDailyQuotaUnitsValue = (value: unknown) => {
 };
 
 export const isOtwPlaySubmissionDailyLimitValue = (value: unknown) => {
-  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return false;
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return false;
   const parsed = Number.parseInt(value, 10);
   return (
     Number.isSafeInteger(parsed) &&

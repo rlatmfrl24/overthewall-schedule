@@ -50,6 +50,59 @@ import {
 const steps = ["영상 확인", "곡과 참여자", "검토·제출"] as const;
 const PARTICIPANT_LIMIT = 30;
 const ORIGINAL_ARTIST_LIMIT = 20;
+const SUBMISSION_DRAFT_KEY = "otw-play:member-submission-draft:v1";
+
+type SubmissionDraft = {
+  step: number;
+  clientRequestId: string;
+  youtubeUrl: string;
+  title: string;
+  songMode: "new" | "existing";
+  suggestedSongId: string | null;
+  originalArtists: string[];
+  memberUids: number[];
+  externalParticipants: string[];
+  memberRoles: Record<number, OtwPlayParticipantRole>;
+  externalRoles: Record<string, OtwPlayParticipantRole>;
+  note: string;
+  preflight: OtwPlaySubmissionPreflightDto | null;
+};
+
+const readSubmissionDraft = (): SubmissionDraft | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(SUBMISSION_DRAFT_KEY) ?? "null");
+    if (!value || typeof value !== "object") return null;
+    const draft = value as Partial<SubmissionDraft>;
+    if (
+      typeof draft.clientRequestId !== "string" ||
+      typeof draft.youtubeUrl !== "string" ||
+      typeof draft.title !== "string" ||
+      (draft.songMode !== "new" && draft.songMode !== "existing") ||
+      !Array.isArray(draft.originalArtists) ||
+      !Array.isArray(draft.memberUids) ||
+      !Array.isArray(draft.externalParticipants) ||
+      typeof draft.note !== "string"
+    ) return null;
+    return {
+      step: draft.step === 1 || draft.step === 2 ? draft.step : 0,
+      clientRequestId: draft.clientRequestId,
+      youtubeUrl: draft.youtubeUrl,
+      title: draft.title,
+      songMode: draft.songMode,
+      suggestedSongId: typeof draft.suggestedSongId === "string" ? draft.suggestedSongId : null,
+      originalArtists: draft.originalArtists.filter((item): item is string => typeof item === "string"),
+      memberUids: draft.memberUids.filter((item): item is number => Number.isSafeInteger(item) && item > 0),
+      externalParticipants: draft.externalParticipants.filter((item): item is string => typeof item === "string"),
+      memberRoles: draft.memberRoles ?? {},
+      externalRoles: draft.externalRoles ?? {},
+      note: draft.note,
+      preflight: draft.preflight ?? null,
+    };
+  } catch {
+    return null;
+  }
+};
 const participantRoleLabel: Record<OtwPlayParticipantRole, string> = {
   vocal: "메인 보컬",
   featured_vocal: "피처링 보컬",
@@ -312,19 +365,21 @@ function ParticipantRoleEditor({
 export function OtwPlaySubmissionPage() {
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [step, setStep] = useState(0);
-  const [clientRequestId, setClientRequestId] = useState(newClientRequestId);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [title, setTitle] = useState("");
-  const [songMode, setSongMode] = useState<"new" | "existing">("new");
-  const [suggestedSongId, setSuggestedSongId] = useState<string | null>(null);
-  const [originalArtists, setOriginalArtists] = useState<string[]>([]);
-  const [memberUids, setMemberUids] = useState<number[]>([]);
-  const [externalParticipants, setExternalParticipants] = useState<string[]>([]);
-  const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>({});
-  const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>({});
-  const [note, setNote] = useState("");
-  const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(null);
+  const initialDraft = useMemo(readSubmissionDraft, []);
+  const preflightRequestId = useRef(0);
+  const [step, setStep] = useState(initialDraft?.step ?? 0);
+  const [clientRequestId, setClientRequestId] = useState(initialDraft?.clientRequestId ?? newClientRequestId);
+  const [youtubeUrl, setYoutubeUrl] = useState(initialDraft?.youtubeUrl ?? "");
+  const [title, setTitle] = useState(initialDraft?.title ?? "");
+  const [songMode, setSongMode] = useState<"new" | "existing">(initialDraft?.songMode ?? "new");
+  const [suggestedSongId, setSuggestedSongId] = useState<string | null>(initialDraft?.suggestedSongId ?? null);
+  const [originalArtists, setOriginalArtists] = useState<string[]>(initialDraft?.originalArtists ?? []);
+  const [memberUids, setMemberUids] = useState<number[]>(initialDraft?.memberUids ?? []);
+  const [externalParticipants, setExternalParticipants] = useState<string[]>(initialDraft?.externalParticipants ?? []);
+  const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>(initialDraft?.memberRoles ?? {});
+  const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>(initialDraft?.externalRoles ?? {});
+  const [note, setNote] = useState(initialDraft?.note ?? "");
+  const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(initialDraft?.preflight ?? null);
   const [candidateSearchAttempted, setCandidateSearchAttempted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState<OtwPlayCreateSubmissionResponse | null>(null);
@@ -334,7 +389,8 @@ export function OtwPlaySubmissionPage() {
   const submitMutation = useMutation({
     mutationFn: createOtwPlaySubmission,
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.memberSubmissions() });
+      await queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "member"] });
+      sessionStorage.removeItem(SUBMISSION_DRAFT_KEY);
       setMessage(null);
       setSuccess(result);
     },
@@ -346,12 +402,23 @@ export function OtwPlaySubmissionPage() {
       setMessage(apiError?.code === "PLAY_SUBMISSION_DUPLICATE"
         ? "이미 카탈로그에 있거나 검토 중인 영상입니다."
         : apiError?.code === "PLAY_SUBMISSION_RATE_LIMITED"
-          ? "제안 횟수 제한에 도달했습니다. 잠시 후 다시 시도해 주세요."
+          ? apiError.fields?.scope === "daily"
+            ? "오늘의 곡 제안 한도에 도달했습니다. KST 자정 이후 다시 제안할 수 있습니다."
+            : "짧은 시간에 제안 요청이 많았습니다. 잠시 후 다시 시도해 주세요."
           : apiError?.message ?? "제안 제출에 실패했습니다.");
     },
   });
 
   useEffect(() => { headingRef.current?.focus(); }, [step]);
+  useEffect(() => {
+    if (success) return;
+    const draft: SubmissionDraft = {
+      step, clientRequestId, youtubeUrl, title, songMode, suggestedSongId,
+      originalArtists, memberUids, externalParticipants, memberRoles,
+      externalRoles, note, preflight,
+    };
+    sessionStorage.setItem(SUBMISSION_DRAFT_KEY, JSON.stringify(draft));
+  }, [clientRequestId, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
   const dirty = !success && Boolean(youtubeUrl || title || originalArtists.length || memberUids.length || externalParticipants.length || note);
   const shouldBlock = useCallback(
     () => dirty && !window.confirm("작성 중인 곡 제안이 있습니다. 이 페이지를 나가시겠습니까?"),
@@ -407,11 +474,13 @@ export function OtwPlaySubmissionPage() {
   const verifyVideo = async () => {
     setMessage(null);
     setCandidateSearchAttempted(false);
+    const requestId = ++preflightRequestId.current;
     const data = await preflightMutation.mutateAsync({ youtubeUrl }).catch((error: unknown) => {
+      if (requestId !== preflightRequestId.current) return null;
       setMessage(error instanceof ApiError ? error.message : "영상 확인에 실패했습니다.");
       return null;
     });
-    if (!data) return;
+    if (!data || requestId !== preflightRequestId.current) return;
     setPreflight(data);
     if (data.duplicate) {
       return;
@@ -421,11 +490,13 @@ export function OtwPlaySubmissionPage() {
   const searchSongCandidates = async () => {
     setMessage(null);
     setCandidateSearchAttempted(true);
+    const requestId = ++preflightRequestId.current;
     const data = await preflightMutation.mutateAsync({ youtubeUrl, title }).catch((error: unknown) => {
+      if (requestId !== preflightRequestId.current) return null;
       setMessage(error instanceof ApiError ? error.message : "기존 곡 검색에 실패했습니다.");
       return null;
     });
-    if (data) setPreflight(data);
+    if (data && requestId === preflightRequestId.current) setPreflight(data);
   };
   const selectCandidate = (candidate: OtwPlaySubmissionSongCandidateDto) => {
     setSongMode("existing");
@@ -436,6 +507,8 @@ export function OtwPlaySubmissionPage() {
   const useNewSong = () => { setSongMode("new"); setSuggestedSongId(null); };
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const resetForm = () => {
+    preflightRequestId.current += 1;
+    sessionStorage.removeItem(SUBMISSION_DRAFT_KEY);
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
     setSongMode("new"); setSuggestedSongId(null); setOriginalArtists([]); setMemberUids([]);
     setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
@@ -487,7 +560,7 @@ export function OtwPlaySubmissionPage() {
           <div className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="submission-youtube-url">YouTube 영상 URL</Label>
-              <Input id="submission-youtube-url" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setPreflight(null); setMessage(null); }} placeholder="https://www.youtube.com/watch?v=..." maxLength={500} aria-invalid={Boolean(message)} />
+              <Input id="submission-youtube-url" value={youtubeUrl} onChange={(event) => { preflightRequestId.current += 1; setYoutubeUrl(event.target.value); setPreflight(null); setMessage(null); }} placeholder="https://www.youtube.com/watch?v=..." maxLength={500} aria-invalid={Boolean(message)} />
               <p className="text-xs text-muted-foreground">OTW 멤버가 참여한 공식 커버 영상만 제안할 수 있습니다. 원본 URL은 확인 후 표준 주소로 정리됩니다.</p>
             </div>
             {preflight && !preflight.duplicate ? <VideoSummary preflight={preflight} /> : null}
@@ -514,7 +587,7 @@ export function OtwPlaySubmissionPage() {
               <div className="space-y-2">
                 <Label htmlFor="submission-title">곡명 *</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input id="submission-title" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={300} />
+                  <Input id="submission-title" value={title} onChange={(event) => { preflightRequestId.current += 1; setTitle(event.target.value); }} maxLength={300} />
                   <Button type="button" variant="outline" onClick={() => void searchSongCandidates()} disabled={!title.trim() || preflightMutation.isPending}>
                     {preflightMutation.isPending ? <LoaderCircle className="animate-spin" /> : <Search />} 기존 곡 찾기
                   </Button>

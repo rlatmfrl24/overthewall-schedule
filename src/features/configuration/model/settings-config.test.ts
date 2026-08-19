@@ -64,6 +64,7 @@ describe("settings policy", () => {
     expect(isOtwPlaySubmissionDailyLimitValue("100")).toBe(true);
     expect(isOtwPlaySubmissionDailyLimitValue("0")).toBe(false);
     expect(isOtwPlaySubmissionDailyLimitValue("101")).toBe(false);
+    expect(isOtwPlaySubmissionDailyLimitValue(" 5 ")).toBe(false);
     expect(normalizeOtwPlaySubmissionDailyLimit(null)).toBe("5");
   });
 

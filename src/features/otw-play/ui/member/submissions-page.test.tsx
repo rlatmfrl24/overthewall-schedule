@@ -69,6 +69,21 @@ describe("OtwPlaySubmissionsPage", () => {
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
+  it("shows a retryable error instead of the empty state when the list fails", () => {
+    const refetch = vi.fn();
+    mocks.list.mockReturnValue({
+      isPending: false,
+      isError: true,
+      data: undefined,
+      refetch,
+    });
+    render(<OtwPlaySubmissionsPage />);
+    expect(screen.getByRole("alert").textContent).toContain("불러오지 못했습니다");
+    expect(screen.queryByText("아직 제출한 제안이 없습니다")).toBeNull();
+    screen.getByRole("button", { name: "다시 시도" }).click();
+    expect(refetch).toHaveBeenCalledOnce();
+  });
+
   it("links an approved catalog entry from the administrator preview", () => {
     mocks.isAdminUser.mockReturnValue(true);
     mocks.list.mockReturnValue({
