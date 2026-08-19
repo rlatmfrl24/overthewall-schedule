@@ -2,9 +2,9 @@
 
 상태: Living Draft
 
-단계: PR-7.1 회원 제안 Play 통합·Wizard UX 보완 중
+단계: PR-8 운영 공개 준비
 
-최종 갱신일: 2026-08-19
+최종 갱신일: 2026-08-20
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -102,6 +102,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-047 | 가창 credit은 메인 보컬·피처링 보컬·코러스·기타 참여 역할을 제안부터 공개 조회까지 보존한다. | 부분 대체됨 | 회원 제출과 관리자 검수의 역할 보존은 유지한다. 공개 화면의 표시·검색 계층은 DEC-048이 대체한다. |
 | DEC-048 | 보조 가창 credit은 곡 상세에서만 전체 표시하고 검색에서는 독립 역할 조건으로 제공한다. | 확정 | 발견·곡 목록·Player·queue는 `vocal` 이름만 표시하며 tooltip이나 보조 역할 칩을 만들지 않는다. 곡 상세는 메인 보컬·피처링 보컬·코러스·기타 참여를 역할별로 펼쳐 표시한다. `participantRole` 필터는 선택한 멤버·외부 참여자·그룹 credit과 같은 published performance row에서 동시에 만족해야 한다. 필터가 없으면 기존 검색 의미를 유지하고, 메인 보컬이 없는 기존 데이터의 compact 표시는 credit order 첫 참여자를 사용한다. |
 | DEC-049 | 곡의 음악 분류는 가창 상태·형태와 분리된 확장형 다중 태그로 관리한다. | 확정 | `K-POP`, `J-POP`, `보컬로이드`를 빠른 입력값으로 제공하되 자유 태그를 허용한다. 공개 화면에서는 음악 분류를 1차 chip으로, 오리지널·공식 커버·공식 영상·솔로 등 performance metadata는 작은 보조 정보로 표시한다. `/play` 내부 탭 전환은 동일 player host를 유지한다. |
+| DEC-050 | 운영 공개는 public read와 navigation을 분리한 단계적 전환으로 수행한다. | 확정 | PR-8A 직접 경로·SEO, PR-8B source health, PR-8C 관측·운영 switch가 모두 검증된 뒤 `public_read_enabled=1`로 익명 직접 경로를 먼저 확인하고 마지막에 `navigation_visible=1`을 적용한다. 검색 색인과 sitemap 포함은 `navigation_visible=1`에서만 허용한다. 코드 병합이나 배포만으로 두 flag를 자동 활성화하지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -551,6 +552,9 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 10. 로그인 회원이 제출한 공식 커버곡은 `pending_review` 상태로 저장되고 공개 목록에 나타나지 않는다.
 11. 관리자가 회원 제안을 승인하면 검수된 정보가 공개 카탈로그에 나타난다.
 12. 관리자가 회원 제안을 거절하면 공개되지 않고 제출 및 검수 이력이 보존된다.
+13. `public_read_enabled=1`이면 `/play`와 published 곡 직접 URL은 익명 `200`과 self-canonical을 제공하되 `navigation_visible=0` canary에서는 `noindex`와 sitemap 제외를 유지한다. `navigation_visible=1`에서만 `/play`와 published 곡을 색인·sitemap에 포함하며, `/play/songs`, unknown·withdrawn 곡과 회원·관리자 전용 경로는 sitemap에 포함하지 않는다.
+14. source 점검 장애가 곡·가창 metadata를 삭제하지 않으며 quota·429와 확정된 재생 불가 상태를 구분한다.
+15. public read를 먼저 활성화해 익명 검색·상세·재생을 검증한 뒤에만 navigation을 노출할 수 있다.
 
 ## 15. 기존 프로젝트와의 관계
 
@@ -646,6 +650,8 @@ TBD-010은 DEC-044로, TBD-013·014는 DEC-045로 해결되었다. 공개 catalo
 | 2026-08-19 | DEC-047 가창 credit 역할. 회원 제안 역할 입력과 관리자 승인값 편집, 공개 표시의 메인 보컬 우선 기준을 확정 |
 | 2026-08-19 | DEC-048 공개 credit 계층 조정. 발견·목록·Player·queue는 메인 보컬만 표시하고 곡 상세는 역할별 전체 credit, 곡 검색은 독립 `participantRole` 조건을 제공하도록 확정 |
 | 2026-08-19 | DEC-049 곡 음악 분류와 표시 계층 확정. 확장형 song tag를 관리자 등록·수정과 공개 DTO에 추가하고 performance 분류는 보조 metadata로 낮추며 Play 탭 전환 중 단일 player를 유지 |
+| 2026-08-20 | PR-7.1 회원 제안·관리자 승인과 PR-7.2 곡 태그·player 지속성, 리뷰 보완 및 YouTube 재생 안정화를 완료하고 원격 migration 0053–0055 적용 뒤 PR-8 운영 공개 준비로 전환 |
+| 2026-08-20 | DEC-050 단계적 공개 확정. PR-8을 직접 경로·SEO, source health, 관측·운영 switch로 분리하고 public read 검증 뒤 navigation을 노출하도록 명시 |
 
 ## 19. 참고
 
