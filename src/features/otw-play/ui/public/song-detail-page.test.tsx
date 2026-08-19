@@ -11,7 +11,12 @@ vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlaySong: mocks.useSong,
 }));
 vi.mock("../../player/play-player-context", () => ({
-  useOtwPlayPlayer: () => ({ play: vi.fn(), enqueue: vi.fn(), playNext: vi.fn() }),
+  useOtwPlayPlayer: () => ({
+    play: vi.fn(),
+    enqueue: vi.fn(),
+    playNext: vi.fn(),
+    queue: { items: [] },
+  }),
 }));
 
 import { OtwPlaySongDetailPage } from "./song-detail-page";

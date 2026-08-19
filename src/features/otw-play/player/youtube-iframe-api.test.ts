@@ -16,6 +16,12 @@ describe("OTW Play YouTube IFrame adapter", () => {
         loadVideoById: vi.fn(),
         playVideo: vi.fn(),
         pauseVideo: vi.fn(),
+        getCurrentTime: vi.fn(() => 0),
+        getDuration: vi.fn(() => 0),
+        seekTo: vi.fn(),
+        setVolume: vi.fn(),
+        mute: vi.fn(),
+        unMute: vi.fn(),
         stopVideo: vi.fn(),
         destroy: vi.fn(),
       });
@@ -43,11 +49,19 @@ describe("OTW Play YouTube IFrame adapter", () => {
     expect(Player.mock.calls[0]?.[1]).toMatchObject({
       playerVars: {
         autoplay: 0,
-        controls: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
         playsinline: 1,
+        rel: 0,
         origin: "https://example.com",
       },
     });
+    const playerVars = Player.mock.calls[0]?.[1].playerVars;
+    expect(playerVars).not.toHaveProperty("cc_load_policy");
+    expect(playerVars).not.toHaveProperty("modestbranding");
+    expect(playerVars).not.toHaveProperty("showinfo");
     expect(ready).toHaveBeenCalledOnce();
   });
 
@@ -55,11 +69,23 @@ describe("OTW Play YouTube IFrame adapter", () => {
     const loadVideoById = vi.fn();
     const stopVideo = vi.fn();
     const destroy = vi.fn();
+    const setVolume = vi.fn();
+    const getCurrentTime = vi.fn(() => 42);
+    const getDuration = vi.fn(() => 180);
+    const seekTo = vi.fn();
+    const mute = vi.fn();
+    const unMute = vi.fn();
     const Player = vi.fn(function (this: Record<string, unknown>) {
       Object.assign(this, {
         loadVideoById,
         playVideo: vi.fn(),
         pauseVideo: vi.fn(),
+        getCurrentTime,
+        getDuration,
+        seekTo,
+        setVolume,
+        mute,
+        unMute,
         stopVideo,
         destroy,
       });
@@ -76,6 +102,16 @@ describe("OTW Play YouTube IFrame adapter", () => {
       videoId: "dQw4w9WgXcQ",
       startSeconds: 0,
     });
+    player.setVolume(120);
+    player.setMuted(true);
+    player.setMuted(false);
+    expect(setVolume).toHaveBeenCalledWith(100);
+    expect(mute).toHaveBeenCalledOnce();
+    expect(unMute).toHaveBeenCalledOnce();
+    expect(player.getCurrentTime()).toBe(42);
+    expect(player.getDuration()).toBe(180);
+    player.seekTo(65);
+    expect(seekTo).toHaveBeenCalledWith(65, true);
     player.destroy();
     player.destroy();
     expect(stopVideo).toHaveBeenCalledOnce();

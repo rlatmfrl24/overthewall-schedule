@@ -725,13 +725,23 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 5. first-intent single iframe player provider
 6. queue reducer, repeat, shuffle, bounded unavailable skip
 7. versioned `sessionStorage` restore와 public performance 재검증
-8. 데스크톱 336px 데이터 전용 플레이큐 rail과 하단 재생바, tablet/mobile queue sheet
+8. 데스크톱 우측 380px PlayerQueuePanel의 상단 player·하단 queue,
+   tablet/mobile 전체 화면 Now Playing
 9. 모든 loading/empty/404/409/503/unavailable state
-10. 64px Play header·compact 재생바, 중앙·queue 내부 스크롤, 현재 곡 상세 overlay
+10. 64px Play header, 중앙·queue 내부 스크롤, 데스크톱 356×200px iframe과
+    모바일 16:9 iframe을 공유하는 단일 player host
 11. 발견의 겹친 card surface를 단일 full-width 배너로 평면화하고
     arrow·indicator·pointer drag·horizontal wheel·keyboard 수동 전환 유지
 12. 최근 공개곡을 compact table로 표시하고 좁은 폭에서 보조 열을 숨겨 table
     horizontal scroll을 만들지 않음
+13. 곡명 아래 참여자 profile/name과 YouTube·곡 상세 action을 합친 identity row,
+    상태 문구 없는 단일 transport/control row, compact 게시 채널 출처와 실제 IFrame
+    위치를 읽는 seekable progress·진행/남은 시간
+14. 720px 미만 데스크톱 rail에서 참여자 identity는 한 줄로 유지하고 게시 채널 출처만
+    먼저 숨기는 compact metadata와 640px 미만 `현재 재생`·`플레이큐` 상세 전환.
+    단일 iframe과 YouTube·곡 상세 action은 계속 보이고 queue list만 남은 높이에서 독립 스크롤
+15. 640–1279px 전체 Now Playing의 카탈로그 복귀를 pause 없는 216px 우측 하단
+    miniplayer 전환으로 처리하고, 같은 200×200px iframe host와 재생 위치·볼륨을 유지
 
 비로그인·비관리자는 `/play/*` 직접 route에 도달하더라도 로그인 또는 권한 안내만
 보고 config·catalog 요청을 시작하지 않는다. 관리자는 frontend auth 확인 후
@@ -757,10 +767,36 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - 재생 중 iframe이 보이고 최소 200×200px 이상
 - YouTube UI, 광고, branding을 가리지 않음
 - `origin` parameter와 autoplay-blocked event 처리
+- `controls=0`, `fs=0`, `disablekb=1`, `iv_load_policy=3`, `rel=0` exact playerVars와
+  폐기된 `showinfo`·`modestbranding`, 강제 CC `cc_load_policy` 부재 검증
 - unavailable 두 항목 이상에서도 무한 skip 없음
 - repeat/next/previous/shuffle의 결정적 reducer test
-- 우측 플레이큐에는 iframe이 없고 재생바 상세 펼침이 현재 track의 공개 metadata와
-  단일 iframe host를 소유하며, 접기 전에 pause함
+- 우측 PlayerQueuePanel, 전체 Now Playing과 miniplayer가 한 개의 iframe host를
+  공유한다. 데스크톱 player는 queue 위에서 356×200px iframe을 유지하고 하단
+  PlaybackBar가 없다. 1280px 미만에서는 첫 재생에 전체 화면 Now Playing을 연다.
+  640–1279px 카탈로그 복귀는 pause 없이 200×200px visible miniplayer로 전환하고,
+  640px 미만에서만 pause 후 launcher를 표시한다. 전체 화면에서
+  previous/play/next, repeat·shuffle,
+  음소거·volume, queue 선택·삭제·재정렬과 시각 queue 안내 footer 부재를 테스트한다.
+- 같은 performance의 반복 enqueue는 항목을 늘리지 않고, 기존 play는 선택,
+  play-next는 이동하며 구 session duplicate도 복원 시 정리함
+- player는 `재생 중`·`재생 대기` 시각 문구를 렌더링하지 않고 previous/play/next,
+  repeat·shuffle·mute·volume을 같은 row에 렌더링한다. 참여자 profile/name과 YouTube·곡
+  상세 action은 같은 identity row에 배치한다. 게시 채널은 별도 compact source attribution이며
+  참여자 profile을 channel avatar로 재사용하지 않는다. progress range는 current time·remaining time을 갱신하고 seek를
+  IFrame API로 전달한다. segment source의 start/end clamp도 unit test로 검증한다.
+- 640px 미만 높이의 데스크톱 rail에서 `플레이큐`를 선택해도 iframe count는 1이고
+  pause·destroy가 호출되지 않는다. 현재 재생 상세는 숨고 queue list·재정렬·삭제가
+  viewport 안의 내부 scroll로 접근 가능해야 한다. 640–719px에서는 전환 없이 compact
+  player와 최소 144px queue가 함께 보여야 한다.
+- 720px 미만 rail에서 참여자 identity와 action은 한 줄로 표시되고 게시 채널 출처만 숨겨지며,
+  YouTube·곡 상세 action은 유지되어야 한다.
+- 640–1279px에서 전체 player를 닫으면 pause 없이 우측 하단 216px miniplayer가
+  표시되고 iframe은 정확히 하나이며 200×200px이어야 한다. full↔mini, queue 항목
+  변경과 다음 곡 전환은 host를 재마운트하거나 mini를 강제로 전체 화면으로 열지 않는다.
+  mini 확장은 자동 resume하지 않고 play/pause action만 재생 상태를 바꾼다.
+- mini 상태에서 폭이 640px 미만으로 줄면 전체 Now Playing이 다시 표시되고, 그 폭에서
+  카탈로그 복귀는 pause·launcher 동작을 유지한다.
 
 ### UI 검증
 
@@ -772,7 +808,12 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - 키보드만으로 검색, filter, 재생과 queue reorder
 - reduced motion, focus return, aria-live
 - banner/thumbnail CLS와 lazy loading
-- 상단·하단 64px가 좌측 메뉴 기준선과 정렬됨
+- 상단 64px와 데스크톱 우측 380px PlayerQueuePanel이 viewport를 침범하지 않고
+  중앙·queue 내부 스크롤을 유지함
+- 1440×600·1440×700에서 참여자 이름, iframe 200px, YouTube·곡 상세 action과 queue가
+  보이고 게시자 identity만 숨겨짐
+- 640×800에서 전체 player → 우측 하단 miniplayer → 전체 player 재확장 동안 iframe이
+  하나이며 카탈로그 복귀 pause와 자동 resume가 발생하지 않음
 - 대표 배너가 pointer·mouse·keyboard로 전환되고 자동 순환하지 않음
 - 최근 곡 table이 desktop center 폭을 넘지 않고 모바일에서는 보조 열을 숨김
 
@@ -780,7 +821,8 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 
 - 관리자가 내비게이션에서 OTW Play를 열어 곡을 찾고 재생하며 다음 곡으로 이동한다.
 - UI가 YouTube 정책을 우회하거나 숨은 재생에 의존하지 않는다.
-- 모바일에서 player를 접으면 재생이 일시정지한다.
+- 640–1279px Now Playing에서 카탈로그로 돌아가면 visible miniplayer로 재생을 유지하고,
+  640px 미만에서만 일시정지한 뒤 player를 다시 열 때 명시적으로 재개한다.
 - session queue 복원은 public performance 재검증 뒤에만 표시되고 자동 재생하지 않는다.
 - 운영 D1의 `public_read_enabled=0`, `navigation_visible=0`과 GATE-01~06은 그대로다.
 
@@ -992,7 +1034,7 @@ readback을 함께 기록한다.
 | 상태를 한 열에 혼합                     | 높음      | 공개 누출·잘못된 승인    | proposal/publication/quality/source 축 분리         |
 | 공개 GET에 bearer 자동 첨부             | 높음      | shared cache bypass      | `apiFetch auth: omit`와 header test                 |
 | 동시 승인                               | 중간      | 중복 catalog·불일치      | CAS, conditional insert, batch rollback integration |
-| YouTube iframe 숨은 재생                | 중간      | 정책 위반·나쁜 모바일 UX | Play-scoped visible player, 접을 때 pause           |
+| YouTube iframe 숨은 재생                | 중간      | 정책 위반·나쁜 모바일 UX | 단일 visible player, 640–1279px miniplayer, 640px 미만 복귀 pause |
 | D1 fan-out·offset                       | 중간      | 높은 rows read·지연      | keyset + bounded detail batch + query plan          |
 | current member 상태 cache               | 중간      | 전 소속 멤버 오표시      | member 상태 변경 시 revision 증가                   |
 | stale cache로 철회 콘텐츠 노출          | 낮음–중간 | 운영·권리 문제           | revision key, 오래된 LKG 자동 제공 금지             |

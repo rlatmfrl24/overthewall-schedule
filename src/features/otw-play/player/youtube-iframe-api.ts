@@ -23,6 +23,12 @@ interface YouTubePlayerInstance {
   loadVideoById(request: YouTubePlaybackRequest): void;
   playVideo(): void;
   pauseVideo(): void;
+  getCurrentTime(): number;
+  getDuration(): number;
+  seekTo(seconds: number, allowSeekAhead: boolean): void;
+  setVolume(volume: number): void;
+  mute(): void;
+  unMute(): void;
   stopVideo(): void;
   destroy(): void;
 }
@@ -35,8 +41,12 @@ interface YouTubePlayerNamespace {
       height: string;
       playerVars: {
         autoplay: 0;
-        controls: 1;
+        controls: 0;
+        disablekb: 1;
+        fs: 0;
+        iv_load_policy: 3;
         playsinline: 1;
+        rel: 0;
         origin: string;
       };
       events: {
@@ -100,6 +110,11 @@ export interface OtwPlayYouTubePlayer {
   load(request: YouTubePlaybackRequest): void;
   play(): void;
   pause(): void;
+  getCurrentTime(): number;
+  getDuration(): number;
+  seekTo(seconds: number): void;
+  setVolume(volume: number): void;
+  setMuted(muted: boolean): void;
   stop(): void;
   destroy(): void;
 }
@@ -115,8 +130,12 @@ export const createOtwPlayYouTubePlayer = async (
     height: "100%",
     playerVars: {
       autoplay: 0,
-      controls: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      iv_load_policy: 3,
       playsinline: 1,
+      rel: 0,
       origin,
     },
     events: {
@@ -138,6 +157,37 @@ export const createOtwPlayYouTubePlayer = async (
     },
     pause() {
       if (!destroyed) player.pauseVideo();
+    },
+    getCurrentTime() {
+      if (destroyed) return 0;
+      try {
+        const currentTime = player.getCurrentTime();
+        return Number.isFinite(currentTime) ? Math.max(0, currentTime) : 0;
+      } catch {
+        return 0;
+      }
+    },
+    getDuration() {
+      if (destroyed) return 0;
+      try {
+        const duration = player.getDuration();
+        return Number.isFinite(duration) ? Math.max(0, duration) : 0;
+      } catch {
+        return 0;
+      }
+    },
+    seekTo(seconds) {
+      if (!destroyed && Number.isFinite(seconds)) {
+        player.seekTo(Math.max(0, seconds), true);
+      }
+    },
+    setVolume(volume) {
+      if (!destroyed) player.setVolume(Math.min(100, Math.max(0, volume)));
+    },
+    setMuted(muted) {
+      if (destroyed) return;
+      if (muted) player.mute();
+      else player.unMute();
     },
     stop() {
       if (!destroyed) player.stopVideo();

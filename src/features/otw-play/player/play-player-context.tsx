@@ -49,6 +49,10 @@ type PlayPlayerContextValue = {
   currentItem: OtwPlayQueueItem | null;
   currentTrack: OtwPlayTrack | null;
   status: PlayerStatus;
+  volume: number;
+  muted: boolean;
+  playbackPositionSeconds: number;
+  playbackDurationSeconds: number;
   panelExpanded: boolean;
   announcement: string;
   unavailableItemIds: ReadonlySet<string>;
@@ -68,6 +72,9 @@ type PlayPlayerContextValue = {
   pause: () => void;
   openQueue: () => void;
   resume: () => void;
+  seek: (seconds: number) => void;
+  setVolume: (volume: number) => void;
+  toggleMuted: () => void;
 };
 
 const PlayPlayerContext = createContext<PlayPlayerContextValue | null>(null);
@@ -89,6 +96,21 @@ const queueItemForTrack = (track: OtwPlayTrack): OtwPlayQueueItem => ({
   performanceId: track.performance.id,
   sourceId: track.source.sourceId,
 });
+
+const playbackWindowForTrack = (
+  track: OtwPlayTrack,
+  playerDurationSeconds = 0,
+) => {
+  const startSeconds = track.source.startSeconds;
+  const fallbackEndSeconds = track.source.durationSeconds ?? startSeconds;
+  const endSeconds =
+    track.source.endSeconds ??
+    (playerDurationSeconds > 0 ? playerDurationSeconds : fallbackEndSeconds);
+  return {
+    startSeconds,
+    durationSeconds: Math.max(0, endSeconds - startSeconds),
+  };
+};
 
 const trackFromPerformance = (
   item: OtwPlayQueueItem,
@@ -124,12 +146,19 @@ export function OtwPlayPlayerProvider({
   const [hasPlaybackIntent, setHasPlaybackIntent] = useState(false);
   const [playerReadyVersion, setPlayerReadyVersion] = useState(0);
   const [status, setStatus] = useState<PlayerStatus>("idle");
+  const [volume, setVolumeState] = useState(100);
+  const [muted, setMuted] = useState(false);
+  const [playbackPositionSeconds, setPlaybackPositionSeconds] = useState(0);
+  const [playbackDurationSeconds, setPlaybackDurationSeconds] = useState(0);
   const [panelExpanded, setPanelExpanded] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const playerRef = useRef<OtwPlayYouTubePlayer | null>(null);
   const playerPromiseRef = useRef<Promise<OtwPlayYouTubePlayer> | null>(null);
+  const playerSessionRef = useRef(0);
   const loadedKeyRef = useRef<string | null>(null);
   const playerReadyRef = useRef(false);
+  const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
   const selectPlayableRef = useRef<(direction: -1 | 1, ended?: boolean) => void>(
     () => undefined,
   );
@@ -139,12 +168,59 @@ export function OtwPlayPlayerProvider({
     queue.currentIndex === null ? null : queue.items[queue.currentIndex] ?? null;
   const currentTrack = currentItem ? tracks.get(currentItem.id) ?? null : null;
 
+  const updatePlaybackProgress = useCallback(() => {
+    if (!currentTrack) {
+      setPlaybackPositionSeconds(0);
+      setPlaybackDurationSeconds(0);
+      return;
+    }
+    const player = playerRef.current;
+    const playbackWindow = playbackWindowForTrack(
+      currentTrack,
+      player?.getDuration() ?? 0,
+    );
+    const absolutePosition = player?.getCurrentTime() ?? playbackWindow.startSeconds;
+    setPlaybackDurationSeconds(playbackWindow.durationSeconds);
+    setPlaybackPositionSeconds(
+      Math.min(
+        playbackWindow.durationSeconds,
+        Math.max(0, absolutePosition - playbackWindow.startSeconds),
+      ),
+    );
+  }, [currentTrack]);
+
+  const seek = useCallback((seconds: number) => {
+    if (!currentTrack) return;
+    const playbackWindow = playbackWindowForTrack(
+      currentTrack,
+      playerRef.current?.getDuration() ?? 0,
+    );
+    const nextPosition = Math.min(
+      playbackWindow.durationSeconds,
+      Math.max(0, seconds),
+    );
+    playerRef.current?.seekTo(playbackWindow.startSeconds + nextPosition);
+    setPlaybackPositionSeconds(nextPosition);
+    setPlaybackDurationSeconds(playbackWindow.durationSeconds);
+  }, [currentTrack]);
+
   useEffect(() => {
     window.sessionStorage.setItem(
       OTW_PLAY_QUEUE_STORAGE_KEY,
       serializeOtwPlayQueue(queue),
     );
   }, [queue]);
+
+  useEffect(() => {
+    if (!currentTrack) {
+      setPlaybackPositionSeconds(0);
+      setPlaybackDurationSeconds(0);
+      return;
+    }
+    const playbackWindow = playbackWindowForTrack(currentTrack);
+    setPlaybackPositionSeconds(0);
+    setPlaybackDurationSeconds(playbackWindow.durationSeconds);
+  }, [currentItem?.id, currentTrack]);
 
   useEffect(() => {
     const pending = queue.items.filter(
@@ -274,29 +350,48 @@ export function OtwPlayPlayerProvider({
     if (!hasPlaybackIntent || !hostVisible || !hostElement || !currentTrack) return;
     if (playerRef.current || playerPromiseRef.current) return;
     setStatus("loading");
+    const playerSession = ++playerSessionRef.current;
     const pendingPlayer = createOtwPlayYouTubePlayer(hostElement, {
       onReady: () => {
+        if (playerSession !== playerSessionRef.current) return;
         playerReadyRef.current = true;
+        playerRef.current?.setVolume(volumeRef.current);
+        playerRef.current?.setMuted(mutedRef.current);
         setPlayerReadyVersion((version) => version + 1);
       },
       onStateChange: (nextState) => {
+        if (playerSession !== playerSessionRef.current) return;
         if (nextState === "playing") setStatus("playing");
         else if (nextState === "paused") setStatus("paused");
         else if (nextState === "buffering") setStatus("loading");
         else if (nextState === "ended") selectPlayableRef.current(1, true);
       },
-      onError: () => playbackErrorRef.current(),
-      onAutoplayBlocked: () => setStatus("blocked"),
+      onError: () => {
+        if (playerSession === playerSessionRef.current) {
+          playbackErrorRef.current();
+        }
+      },
+      onAutoplayBlocked: () => {
+        if (playerSession === playerSessionRef.current) setStatus("blocked");
+      },
     });
     playerPromiseRef.current = pendingPlayer;
     void pendingPlayer.then(
       (player) => {
+        if (playerSession !== playerSessionRef.current) {
+          player.stop();
+          player.destroy();
+          return;
+        }
         playerRef.current = player;
+        player.setVolume(volumeRef.current);
+        player.setMuted(mutedRef.current);
         if (playerReadyRef.current) {
           setPlayerReadyVersion((version) => version + 1);
         }
       },
       () => {
+        if (playerSession !== playerSessionRef.current) return;
         playerPromiseRef.current = null;
         setStatus("error");
       },
@@ -319,8 +414,30 @@ export function OtwPlayPlayerProvider({
     setAnnouncement(`${currentTrack.song.title} 재생을 시작합니다.`);
   }, [currentItem, currentTrack, playerReadyVersion]);
 
+  useEffect(() => {
+    updatePlaybackProgress();
+    if (status !== "playing") return;
+    const intervalId = window.setInterval(updatePlaybackProgress, 500);
+    return () => window.clearInterval(intervalId);
+  }, [playerReadyVersion, status, updatePlaybackProgress]);
+
+  useEffect(() => {
+    if (currentItem) return;
+    playerSessionRef.current += 1;
+    playerRef.current?.stop();
+    playerRef.current?.destroy();
+    playerRef.current = null;
+    playerPromiseRef.current = null;
+    playerReadyRef.current = false;
+    setPlayerReadyVersion(0);
+    loadedKeyRef.current = null;
+    setHasPlaybackIntent(false);
+    setStatus("idle");
+  }, [currentItem]);
+
   useEffect(
     () => () => {
+      playerSessionRef.current += 1;
       playerRef.current?.stop();
       playerRef.current?.destroy();
       playerRef.current = null;
@@ -337,26 +454,64 @@ export function OtwPlayPlayerProvider({
   }, []);
 
   const play = useCallback((track: OtwPlayTrack) => {
-    const item = queueItemForTrack(track);
+    const existingIndex = queue.items.findIndex(
+      ({ performanceId }) => performanceId === track.performance.id,
+    );
+    const existingItem =
+      existingIndex >= 0 ? queue.items[existingIndex] ?? null : null;
+    const item = existingItem
+      ? { ...existingItem, sourceId: track.source.sourceId }
+      : queueItemForTrack(track);
     register(track, { type: "play", item });
     setHasPlaybackIntent(true);
-  }, [register]);
+    if (existingItem) {
+      setAnnouncement(
+        existingIndex === queue.currentIndex
+          ? `${track.song.title}은(는) 현재 재생 중입니다.`
+          : `${track.song.title}은(는) 이미 플레이큐에 있어 해당 항목을 재생합니다.`,
+      );
+    }
+  }, [queue.currentIndex, queue.items, register]);
   const enqueue = useCallback((track: OtwPlayTrack) => {
+    const existingItem = queue.items.find(
+      ({ performanceId }) => performanceId === track.performance.id,
+    );
+    if (existingItem) {
+      setAnnouncement(`${track.song.title}은(는) 이미 플레이큐에 있습니다.`);
+      return;
+    }
     const item = queueItemForTrack(track);
     register(track, { type: "enqueue", item });
-    setAnnouncement(`${track.song.title}을(를) 대기열 마지막에 추가했습니다.`);
-  }, [register]);
+    setAnnouncement(`${track.song.title}을(를) 플레이큐 마지막에 추가했습니다.`);
+  }, [queue.items, register]);
   const playNext = useCallback((track: OtwPlayTrack) => {
-    const item = queueItemForTrack(track);
+    const existingIndex = queue.items.findIndex(
+      ({ performanceId }) => performanceId === track.performance.id,
+    );
+    const existingItem =
+      existingIndex >= 0 ? queue.items[existingIndex] ?? null : null;
+    const item = existingItem
+      ? { ...existingItem, sourceId: track.source.sourceId }
+      : queueItemForTrack(track);
     register(track, { type: "play_next", item });
-    setAnnouncement(`${track.song.title}을(를) 다음에 재생합니다.`);
-  }, [register]);
+    setAnnouncement(
+      existingItem
+        ? existingIndex === queue.currentIndex
+          ? `${track.song.title}은(는) 현재 재생 중이므로 중복 추가하지 않았습니다.`
+          : `${track.song.title}의 기존 항목을 다음 순서로 이동했습니다.`
+        : `${track.song.title}을(를) 다음에 재생합니다.`,
+    );
+  }, [queue.currentIndex, queue.items, register]);
 
   const value = useMemo<PlayPlayerContextValue>(() => ({
     queue,
     currentItem,
     currentTrack,
     status,
+    volume,
+    muted,
+    playbackPositionSeconds,
+    playbackDurationSeconds,
     panelExpanded,
     announcement,
     unavailableItemIds,
@@ -412,6 +567,24 @@ export function OtwPlayPlayerProvider({
       setHasPlaybackIntent(true);
       playerRef.current?.play();
     },
+    seek,
+    setVolume(nextVolume) {
+      const clamped = Math.round(Math.min(100, Math.max(0, nextVolume)));
+      volumeRef.current = clamped;
+      setVolumeState(clamped);
+      if (clamped > 0 && mutedRef.current) {
+        mutedRef.current = false;
+        setMuted(false);
+        playerRef.current?.setMuted(false);
+      }
+      playerRef.current?.setVolume(clamped);
+    },
+    toggleMuted() {
+      const nextMuted = !mutedRef.current;
+      mutedRef.current = nextMuted;
+      setMuted(nextMuted);
+      playerRef.current?.setMuted(nextMuted);
+    },
   }), [
     announcement,
     currentItem,
@@ -420,9 +593,14 @@ export function OtwPlayPlayerProvider({
     panelExpanded,
     play,
     playNext,
+    playbackDurationSeconds,
+    playbackPositionSeconds,
     queue,
     selectPlayable,
+    seek,
     status,
+    volume,
+    muted,
     unavailableItemIds,
     tracks,
   ]);

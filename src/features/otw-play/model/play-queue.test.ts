@@ -15,12 +15,27 @@ const item = (id: string, performanceId = id): OtwPlayQueueItem => ({
 });
 
 describe("OTW Play queue", () => {
-  it("keeps duplicate performances as distinct queue items", () => {
+  it("keeps one queue item per performance", () => {
     let state = createEmptyOtwPlayQueue();
     state = reduceOtwPlayQueue(state, { type: "enqueue", item: item("a", "p") });
     state = reduceOtwPlayQueue(state, { type: "enqueue", item: item("b", "p") });
-    expect(state.items.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(state.items.map(({ id }) => id)).toEqual(["a"]);
     expect(state.currentIndex).toBe(0);
+  });
+
+  it("selects an existing performance instead of inserting another play item", () => {
+    const initial = {
+      ...createEmptyOtwPlayQueue(),
+      items: [item("a"), item("b")],
+      currentIndex: 0,
+    };
+    const state = reduceOtwPlayQueue(initial, {
+      type: "play",
+      item: { ...item("incoming", "b"), sourceId: "alternate" },
+    });
+    expect(state.items.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(state.items[1]?.sourceId).toBe("alternate");
+    expect(state.currentIndex).toBe(1);
   });
 
   it("inserts play-next after the current item and preserves the current item", () => {
@@ -34,6 +49,21 @@ describe("OTW Play queue", () => {
       item: item("b"),
     });
     expect(state.items.map(({ id }) => id)).toEqual(["a", "b", "c"]);
+    expect(state.currentIndex).toBe(0);
+  });
+
+  it("moves an existing performance next without duplicating it", () => {
+    const initial = {
+      ...createEmptyOtwPlayQueue(),
+      items: [item("a"), item("b"), item("c")],
+      currentIndex: 1,
+    };
+    const state = reduceOtwPlayQueue(initial, {
+      type: "play_next",
+      item: { ...item("incoming", "a"), sourceId: "alternate" },
+    });
+    expect(state.items.map(({ id }) => id)).toEqual(["b", "a", "c"]);
+    expect(state.items[1]?.sourceId).toBe("alternate");
     expect(state.currentIndex).toBe(0);
   });
 
@@ -109,5 +139,19 @@ describe("OTW Play queue", () => {
         JSON.stringify({ ...JSON.parse(serializeOtwPlayQueue(state)), version: 2 }),
       ),
     ).toEqual(createEmptyOtwPlayQueue());
+  });
+
+  it("deduplicates legacy session items and preserves the current performance", () => {
+    const restored = restoreOtwPlayQueue(
+      JSON.stringify({
+        version: 1,
+        items: [item("a", "same"), item("b", "other"), item("c", "same")],
+        currentIndex: 2,
+        repeat: "off",
+        shuffled: false,
+      }),
+    );
+    expect(restored.items.map(({ id }) => id)).toEqual(["a", "b"]);
+    expect(restored.currentIndex).toBe(0);
   });
 });

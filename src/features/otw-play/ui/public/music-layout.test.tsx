@@ -19,7 +19,11 @@ vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayFacets: mocks.useFacets,
 }));
 vi.mock("../../player/play-player-context", () => ({
-  useOtwPlayPlayer: () => ({ play: vi.fn(), enqueue: vi.fn() }),
+  useOtwPlayPlayer: () => ({
+    play: vi.fn(),
+    enqueue: vi.fn(),
+    queue: { items: [] },
+  }),
 }));
 vi.mock("./catalog-components", () => ({
   OtwPlayPerformanceActions: ({ song }: { song: { title: string } }) => (
@@ -122,6 +126,13 @@ describe("OTW Play discover layout", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    const heroImageFrame = screen
+      .getByRole("heading", { name: "첫 번째 노래" })
+      .closest("article")
+      ?.querySelector("img")
+      ?.parentElement;
+    expect(heroImageFrame?.className).toContain("w-full");
+    expect(heroImageFrame?.className).not.toContain("max-h-[20rem]");
     expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
@@ -137,6 +148,8 @@ describe("OTW Play discover layout", () => {
     expect(screen.getByRole("heading", { name: "멤버로 찾기" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "최근 공개된 곡" })).toBeTruthy();
     expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "첫 번째 노래" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("columnheader", { name: "곡" })).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "작업" })).toBeTruthy();
   });

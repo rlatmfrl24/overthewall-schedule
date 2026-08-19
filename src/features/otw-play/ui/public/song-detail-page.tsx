@@ -12,6 +12,7 @@ import {
   relationLabel,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
+import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 
 export function OtwPlaySongDetailPage({
   songSlug,
@@ -56,13 +57,18 @@ export function OtwPlaySongDetailPage({
 
       <section className="grid gap-5 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[minmax(16rem,28rem)_1fr] md:p-6">
         <div className="aspect-video overflow-hidden rounded-xl bg-muted">
-          {heroPerformance?.selectedSource?.thumbnailUrl ? (
-            <img
-              src={heroPerformance.selectedSource.thumbnailUrl}
+          {heroPerformance?.selectedSource ? (
+            <OtwPlayThumbnail
+              source={heroPerformance.selectedSource}
               alt=""
               width={640}
               height={360}
               className="h-full w-full object-cover"
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  썸네일 없음
+                </div>
+              }
             />
           ) : <div className="flex h-full items-center justify-center text-sm text-muted-foreground">썸네일 없음</div>}
         </div>

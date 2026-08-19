@@ -27,7 +27,6 @@ export type OtwPlayQueueAction =
   | { type: "select"; index: number }
   | { type: "set_repeat"; repeat: OtwPlayQueueRepeatMode }
   | { type: "shuffle"; randomValues: readonly number[] }
-  | { type: "restore"; state: OtwPlayQueueState }
   | { type: "clear" };
 
 export const createEmptyOtwPlayQueue = (): OtwPlayQueueState => ({
@@ -58,11 +57,36 @@ const moveItem = (
   return next;
 };
 
+const findMatchingPerformanceIndex = (
+  items: readonly OtwPlayQueueItem[],
+  performanceId: string,
+) => items.findIndex((item) => item.performanceId === performanceId);
+
+const replaceQueuedSource = (
+  item: OtwPlayQueueItem,
+  incoming: OtwPlayQueueItem,
+): OtwPlayQueueItem => ({
+  ...item,
+  sourceId: incoming.sourceId,
+});
+
 export const reduceOtwPlayQueue = (
   state: OtwPlayQueueState,
   action: OtwPlayQueueAction,
 ): OtwPlayQueueState => {
   if (action.type === "play") {
+    const existingIndex = findMatchingPerformanceIndex(
+      state.items,
+      action.item.performanceId,
+    );
+    if (existingIndex >= 0) {
+      const items = [...state.items];
+      items[existingIndex] = replaceQueuedSource(
+        items[existingIndex]!,
+        action.item,
+      );
+      return { ...state, items, currentIndex: existingIndex };
+    }
     const insertionIndex =
       state.currentIndex === null ? state.items.length : state.currentIndex + 1;
     const items = [...state.items];
@@ -74,6 +98,11 @@ export const reduceOtwPlayQueue = (
     };
   }
   if (action.type === "enqueue") {
+    if (
+      findMatchingPerformanceIndex(state.items, action.item.performanceId) >= 0
+    ) {
+      return state;
+    }
     const items = [...state.items, action.item];
     return {
       ...state,
@@ -82,14 +111,42 @@ export const reduceOtwPlayQueue = (
     };
   }
   if (action.type === "play_next") {
-    const insertionIndex =
-      state.currentIndex === null ? 0 : state.currentIndex + 1;
-    const items = [...state.items];
-    items.splice(insertionIndex, 0, action.item);
+    const existingIndex = findMatchingPerformanceIndex(
+      state.items,
+      action.item.performanceId,
+    );
+    const currentItem =
+      state.currentIndex === null ? null : state.items[state.currentIndex] ?? null;
+    if (existingIndex >= 0 && state.items[existingIndex]?.id === currentItem?.id) {
+      const items = [...state.items];
+      items[existingIndex] = replaceQueuedSource(
+        items[existingIndex]!,
+        action.item,
+      );
+      return { ...state, items };
+    }
+
+    const existingItem =
+      existingIndex >= 0 ? state.items[existingIndex] ?? null : null;
+    const items =
+      existingIndex >= 0
+        ? state.items.filter((_, index) => index !== existingIndex)
+        : [...state.items];
+    const currentIndex = currentItem
+      ? items.findIndex(({ id }) => id === currentItem.id)
+      : null;
+    const insertionIndex = currentIndex === null ? 0 : currentIndex + 1;
+    items.splice(
+      insertionIndex,
+      0,
+      existingItem
+        ? replaceQueuedSource(existingItem, action.item)
+        : action.item,
+    );
     return {
       ...state,
       items,
-      currentIndex: clampCurrentIndex(items, state.currentIndex),
+      currentIndex: clampCurrentIndex(items, currentIndex),
     };
   }
   if (action.type === "remove") {
@@ -153,7 +210,6 @@ export const reduceOtwPlayQueue = (
     }
     return { ...state, items, shuffled: true };
   }
-  if (action.type === "restore") return action.state;
   return createEmptyOtwPlayQueue();
 };
 
@@ -229,9 +285,26 @@ export const restoreOtwPlayQueue = (raw: string | null): OtwPlayQueueState => {
     ) {
       return createEmptyOtwPlayQueue();
     }
+    const storedItems = value.items as OtwPlayQueueItem[];
+    const storedCurrentItem =
+      value.currentIndex === null
+        ? null
+        : storedItems[value.currentIndex as number] ?? null;
+    const seenPerformanceIds = new Set<string>();
+    const items = storedItems.filter((item) => {
+      if (seenPerformanceIds.has(item.performanceId)) return false;
+      seenPerformanceIds.add(item.performanceId);
+      return true;
+    });
+    const currentIndex = storedCurrentItem
+      ? items.findIndex(
+          ({ performanceId }) =>
+            performanceId === storedCurrentItem.performanceId,
+        )
+      : null;
     return {
-      items: value.items,
-      currentIndex: value.currentIndex as number | null,
+      items,
+      currentIndex: currentIndex === -1 ? null : currentIndex,
       repeat: value.repeat as OtwPlayQueueRepeatMode,
       shuffled: value.shuffled,
     };

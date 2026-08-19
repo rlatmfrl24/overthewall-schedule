@@ -18,6 +18,7 @@ import {
   relationLabel,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
+import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
   query.data?.pages.flatMap((page) => page.data.items) ?? [];
@@ -108,7 +109,7 @@ export function OtwPlayHomePage() {
           onKeyDown={handleHeroKeyDown}
         >
           <article className="relative cursor-grab active:cursor-grabbing">
-            <div className="relative min-h-[17rem] aspect-[12/5] max-h-[20rem]">
+            <div className="relative h-[clamp(17rem,30vw,20rem)] w-full">
               <SongImage song={featured} eager />
               <div className="absolute inset-0 bg-black/55" />
               <div className="absolute inset-x-0 bottom-0 flex max-w-3xl flex-col gap-3 p-5 text-white sm:p-7 lg:p-8">
@@ -224,7 +225,7 @@ export function OtwPlayHomePage() {
                 </Link>
               </Button>
             </div>
-            <RecentSongTable songs={songs.slice(1, 6)} />
+            <RecentSongTable songs={songs.slice(0, 5)} />
           </section>
         ) : null}
 
@@ -279,15 +280,20 @@ function SongImage({
   song: OtwPlayPublicSongSummaryDto;
   eager?: boolean;
 }) {
-  const thumbnail = song.representativePerformance.selectedSource?.thumbnailUrl;
-  return thumbnail ? (
-    <img
-      src={thumbnail}
+  const source = song.representativePerformance.selectedSource;
+  return source ? (
+    <OtwPlayThumbnail
+      source={source}
       alt=""
       width={960}
       height={540}
       loading={eager ? "eager" : "lazy"}
-      className="h-full w-full object-cover"
+      className="h-full w-full object-cover object-center"
+      fallback={
+        <div className="flex h-full w-full items-center justify-center bg-muted text-sm text-muted-foreground">
+          썸네일 없음
+        </div>
+      }
     />
   ) : (
     <div className="flex h-full w-full items-center justify-center bg-muted text-sm text-muted-foreground">

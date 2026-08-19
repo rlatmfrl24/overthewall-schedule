@@ -15,11 +15,19 @@ const mocks = vi.hoisted(() => ({
     load: vi.fn(),
     play: vi.fn(),
     pause: vi.fn(),
+    getCurrentTime: vi.fn(() => 65),
+    getDuration: vi.fn(() => 184),
+    seekTo: vi.fn(),
+    setVolume: vi.fn(),
+    setMuted: vi.fn(),
     stop: vi.fn(),
     destroy: vi.fn(),
   },
   events: { current: null as null | {
     onReady?: () => void;
+    onStateChange?: (
+      state: "unstarted" | "ended" | "playing" | "paused" | "buffering" | "cued",
+    ) => void;
     onError?: (code: number) => void;
     onAutoplayBlocked?: () => void;
   } },
@@ -112,7 +120,25 @@ function Consumer() {
       <div ref={player.setHostElement} data-testid="host" />
       <button type="button" onClick={() => player.play(track)}>play</button>
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
+      <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
+      <button type="button" onClick={() => player.playNext(track)}>play next</button>
+      <button type="button" onClick={() => player.setVolume(35)}>volume 35</button>
+      <button type="button" onClick={player.toggleMuted}>toggle mute</button>
+      <button type="button" onClick={() => player.seek(90)}>seek 90</button>
+      <button
+        type="button"
+        disabled={!player.currentItem}
+        onClick={() => player.currentItem && player.remove(player.currentItem.id)}
+      >
+        remove current
+      </button>
       <span data-testid="status">{player.status}</span>
+      <span data-testid="queue-size">{player.queue.items.length}</span>
+      <span data-testid="announcement">{player.announcement}</span>
+      <span data-testid="volume">{player.volume}</span>
+      <span data-testid="muted">{String(player.muted)}</span>
+      <span data-testid="position">{player.playbackPositionSeconds}</span>
+      <span data-testid="duration">{player.playbackDurationSeconds}</span>
     </div>
   );
 }
@@ -121,6 +147,8 @@ describe("OtwPlayPlayerProvider", () => {
   beforeEach(() => {
     sessionStorage.clear();
     vi.clearAllMocks();
+    mocks.controller.getCurrentTime.mockReturnValue(65);
+    mocks.controller.getDuration.mockReturnValue(184);
     vi.stubGlobal("IntersectionObserver", VisibleIntersectionObserver);
     mocks.createPlayer.mockImplementation(async (_element, events) => {
       mocks.events.current = events;
@@ -203,5 +231,63 @@ describe("OtwPlayPlayerProvider", () => {
     await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
     mocks.events.current?.onAutoplayBlocked?.();
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("blocked"));
+  });
+
+  it("does not duplicate a performance through queue actions", () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "enqueue" }));
+    fireEvent.click(screen.getByRole("button", { name: "enqueue" }));
+    fireEvent.click(screen.getByRole("button", { name: "play next" }));
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
+    expect(screen.getByTestId("announcement").textContent).toContain(
+      "현재 재생 중이므로 중복 추가하지 않았습니다",
+    );
+  });
+
+  it("applies volume and mute controls to the single YouTube player", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "volume 35" }));
+    expect(screen.getByTestId("volume").textContent).toBe("35");
+    expect(mocks.controller.setVolume).toHaveBeenLastCalledWith(35);
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle mute" }));
+    expect(screen.getByTestId("muted").textContent).toBe("true");
+    expect(mocks.controller.setMuted).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "volume 35" }));
+    expect(screen.getByTestId("muted").textContent).toBe("false");
+    expect(mocks.controller.setMuted).toHaveBeenLastCalledWith(false);
+  });
+
+  it("reports YouTube playback progress and seeks within the active source", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+
+    mocks.events.current?.onStateChange?.("playing");
+    await waitFor(() => expect(screen.getByTestId("position").textContent).toBe("65"));
+    expect(screen.getByTestId("duration").textContent).toBe("184");
+
+    mocks.controller.getCurrentTime.mockReturnValue(90);
+    fireEvent.click(screen.getByRole("button", { name: "seek 90" }));
+    expect(mocks.controller.seekTo).toHaveBeenCalledWith(90);
+    expect(screen.getByTestId("position").textContent).toBe("90");
+  });
+
+  it("stops playback when removing the final queue item", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "remove current" }));
+    await waitFor(() => expect(mocks.controller.stop).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("queue-size").textContent).toBe("0");
+    expect(screen.getByTestId("status").textContent).toBe("idle");
+    expect(mocks.controller.destroy).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.createPlayer).toHaveBeenCalledTimes(2));
   });
 });

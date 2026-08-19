@@ -24,10 +24,7 @@ import {
   useOtwPlayConfig,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
-import {
-  OtwPlayPlaybackBar,
-  OtwPlayQueuePanel,
-} from "../player/now-playing-panel";
+import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
 
 const tabs = [
   { label: "발견", to: "/play" as const, search: undefined },
@@ -183,9 +180,8 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
           >
             {children}
           </main>
-          <OtwPlayQueuePanel />
+          <OtwPlayPlayerQueuePanel />
         </div>
-        <OtwPlayPlaybackBar />
       </div>
     </OtwPlayPlayerProvider>
   );

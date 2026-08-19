@@ -81,13 +81,20 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-026 | 관리자 hard delete는 테스트·오입력 catalog를 정리하는 용도로 `draft`와 `withdrawn`에 허용한다. | 확정 | draft·withdrawn 가창은 개별 삭제할 수 있고, 곡은 연결된 가창에 `published`가 없을 때 함께 삭제할 수 있다. 현재 게시 중인 가창, 승인 proposal 참조와 merge 대상은 삭제하지 않으며 삭제 event와 revision은 남긴다. |
 | DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
 | DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
-| DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 모바일 접기 전 pause, 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
+| DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 카탈로그 복귀 동작은 DEC-041의 폭별 visible player 정책을 따르며 Play 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
 | DEC-030 | 현재 `/play/*` UI는 운영 공개 전 관리자 preview로 제한한다. | 확정 | 비로그인·비관리자는 config와 catalog 요청을 시작하지 않고 로그인 또는 권한 안내만 본다. 관리자는 Worker가 다시 인증한 전용 `no-store` preview 요청으로 공개 flag가 꺼진 상태에서도 실제 UI를 검증한다. 이 우회는 read-model revision 일치 조건을 유지하고 익명 public GET의 flag-off 계약을 바꾸지 않는다. 관리자 내비게이션은 preview config 확인 후 표시한다. |
 | DEC-031 | 공개 Play의 첫 화면과 탐색 화면을 분리하고 재생 조작은 셸에 지속한다. | 대체됨 | Home과 Discover의 기능 중복을 제거하는 DEC-033으로 정보 구조를 단순화한다. player 지속 범위는 유지한다. |
-| DEC-032 | Play의 상·하단 chrome은 기존 좌측 메뉴의 기준선에 맞추고, 대표 배너와 현재 곡 상세는 명시적 사용자 조작으로 확장한다. | 확정 | 상단 Play header와 compact 재생바는 각각 64px 기준선에 맞춘다. 대표 배너는 화살표·indicator·키보드·마우스 drag·가로 wheel로 수동 전환하며 자동 순환하지 않는다. 상세 player는 두 번째 iframe을 만들지 않는다. |
+| DEC-032 | Play 상단 chrome은 기존 좌측 메뉴의 기준선에 맞추고 대표 배너는 명시적 사용자 조작으로 전환한다. | 확정 | 상단 Play header는 64px 기준선에 맞춘다. 대표 배너는 화살표·indicator·키보드·마우스 drag·가로 wheel로 수동 전환하며 자동 순환하지 않는다. player chrome은 DEC-034·037을 따른다. |
 | DEC-033 | 공개 Play의 중복 탐색 진입점을 `발견`과 `곡 검색` 두 개로 통합한다. | 확정 | 발견은 기존 Home·Discover의 대표곡, 멤버와 최근 곡 탐색 역할을 함께 소유한다. `/play/discover`는 `/play`로 호환 redirect한다. `전체 곡`, `오리지널`, `커버` 상단 탭은 `곡 검색` 하나로 합치고 관계 구분은 `/play/songs`의 URL 동기화 필터로 제공한다. |
-| DEC-034 | Play는 한 viewport 안의 음악 앱 프레임을 사용하며 queue와 player를 분리한다. | 확정 | 상단 검색·발견·곡 검색, 중앙 독립 스크롤, 우측 336px 데이터 전용 플레이큐와 하단 64px 재생바를 사용한다. 단일 YouTube iframe은 우측 큐에 두지 않고 하단 재생바를 펼친 상세 panel에만 둔다. 상세를 접기 전에 pause하고 확장 panel은 콘텐츠 높이를 재배치하지 않고 위로 overlay한다. |
+| DEC-034 | Play는 한 viewport 안의 음악 앱 프레임을 사용하며 player와 queue를 하나의 우측 작업면에서 구분한다. | 확정 | 상단 검색·발견·곡 검색, 중앙 독립 스크롤과 우측 380px `PlayerQueuePanel`을 사용한다. 단일 YouTube iframe은 panel 상단에서 356×200px로 보이고 플레이큐는 그 아래 남은 높이를 독립 스크롤한다. 하단 재생바, player 접기·펼치기와 overlay 상세 panel은 만들지 않으며 player 영역에 재생·반복·셔플·볼륨과 상세 진입을 제공한다. |
 | DEC-035 | 발견은 반복 card surface보다 기준 이미지의 평면적인 music app 정보 밀도를 따른다. | 확정 | 대표곡은 겹친 카드가 아닌 하나의 넓은 배너로 표시하고, 최근 공개곡은 구분선 기반 table, 멤버 진입점은 compact grid로 배치한다. 데스크톱에서는 hero와 하단 탐색을 한 viewport 안에 우선 수용하고 table 자체의 불필요한 가로·세로 scroll을 만들지 않는다. |
+| DEC-036 | 세션 플레이큐는 같은 performance를 한 번만 보유한다. | 확정 | 이미 있는 항목의 `재생`은 그 항목을 선택하고, `다음에 재생`은 현재 항목 뒤로 이동시키며, `마지막에 추가`는 중복을 만들지 않고 이미 추가됨을 표시한다. 의도적인 반복은 queue duplicate가 아니라 repeat-one/all로 표현한다. |
+| DEC-037 | 1280px 미만 Play 재생 경험은 별도 전체 화면 `Now Playing`으로 제공한다. | 부분 대체됨 | 첫 재생 의도에서 단일 16:9 iframe, 곡·참여자 정보, previous/play/next, 반복·셔플·볼륨과 세션 플레이큐를 한 화면에 표시한다. 카탈로그 복귀 후 표현과 pause 경계는 DEC-041이 대체한다. 하단 재생바, 두 번째 iframe과 보이지 않는 재생은 허용하지 않는다. |
+| DEC-038 | 우측 player 정보 계층은 재생 조작, source attribution, 재생 진행 순으로 고정한다. | 부분 대체됨 | `재생 중`·`재생 대기` 상태 문구와 단일 control row, seekable progress 계약은 유지한다. 참여자·작업·게시 채널의 상세 계층은 DEC-042가 대체한다. |
+| DEC-039 | YouTube iframe chrome은 공식 player parameter가 허용하는 범위에서 최소화한다. | 확정 | OTW Play 자체 transport·progress를 사용하므로 native controls, fullscreen button, iframe keyboard control과 annotation을 끄고 related video는 같은 channel로 제한한다. 폐기된 `showinfo`·`modestbranding`이나 iframe을 덮는 overlay는 사용하지 않는다. CC 강제 비활성 parameter는 공식 지원되지 않으므로 `cc_load_policy=1`을 설정하지 않고 사용자 YouTube caption preference를 따른다. |
+| DEC-040 | 데스크톱 우측 player rail은 화면 높이에 따라 정보를 압축하되 iframe과 queue 조작 가능성을 함께 보존한다. | 확정 | 높이 720px 미만에서는 게시 채널 출처 행을 먼저 숨기고 참여자 identity와 이름은 한 줄 말줄임으로 유지한다. 참여자 옆 YouTube·곡 상세 action과 iframe 200px, queue 최소 144px은 보존한다. 높이 640px 미만은 단일 iframe을 계속 보인 채 `현재 재생`과 `플레이큐` 상세 영역을 전환하며, 전환은 pause·재마운트·두 번째 iframe을 만들지 않는다. rail과 queue는 `min-height: 0` 내부 스크롤 경계를 가진다. |
+| DEC-041 | 640–1279px에서 전체 `Now Playing`을 닫으면 같은 player를 우측 하단 visible miniplayer로 축소한다. | 확정 | miniplayer는 216px card 안에 200×200px 단일 iframe과 곡명·play/pause·전체 화면 확장 action을 제공한다. 카탈로그 복귀, full↔mini 전환과 queue 항목 변경은 pause·자동 resume·host 재마운트를 만들지 않는다. 폭이 640px 미만으로 줄어들면 전체 player를 다시 열어 숨은 재생을 막고, 그 폭에서 카탈로그 복귀는 기존처럼 pause 후 launcher를 표시한다. 1280px 이상 rail과 `/play` 이탈 stop·destroy는 유지한다. |
+| DEC-042 | player metadata는 곡명 다음에 참여자 identity와 곡 관련 action을 우선하고 게시 채널은 보조 출처로 분리한다. | 확정 | 현재 멤버는 권위 profile image와 이름, 외부 인물은 중립 person icon, 그룹은 group icon으로 표시한다. YouTube 외부 링크와 곡 상세 action은 참여자 이름 옆에 둔다. 게시 채널은 transport 아래에 YouTube icon·`게시 채널` label·channel 이름만 표시하며 참여자 profile image를 channel avatar처럼 재사용하지 않는다. 긴 참여자·channel 이름은 한 줄 말줄임과 title을 제공한다. |
 
 ## 4. 제품 원칙
 
@@ -338,7 +345,9 @@ source 관계는 `source_id`에서 `related_source_id`로 향하는 directed rel
 
 재생 대기열은 현재 감상 세션을 위한 기능이며 저장형 플레이리스트가 아니다.
 대기열은 versioned `sessionStorage`에 식별자와 순서·현재 index·repeat·shuffle만
-보존한다. 복원 항목은 공개 performance API로 다시 검증하며 자동 재생하지 않는다.
+보존한다. 같은 performance는 하나의 항목으로 유지하며 복원 시 기존 중복도 첫
+항목으로 정리한다. 복원 항목은 공개 performance API로 다시 검증하며 자동 재생하지
+않는다.
 
 MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 방송 가창 확장과
 함께 도입한다.
@@ -613,6 +622,16 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-18 | DEC-033 공개 Play 탐색 단순화. Home과 Discover를 `/play`로 통합하고, 전체 곡·오리지널·커버 진입점을 `/play/songs`의 `곡 검색`과 관계 필터로 통합 |
 | 2026-08-18 | DEC-034 음악 앱 프레임 재정리. `/play` 라벨을 `발견`으로 바꾸고 헤더 검색, 중앙·queue 내부 스크롤, iframe 없는 우측 플레이큐와 단일 iframe을 소유하는 하단 확장 player를 채택 |
 | 2026-08-18 | DEC-035 발견 밀도 보강. 겹친 hero card를 단일 full-width 배너로 평면화하고 최근 공개곡 card list를 compact table로 교체해 데스크톱 viewport 안의 탐색 밀도를 높임 |
+| 2026-08-18 | DEC-034·036 player/queue UX 보정. 재생은 상세 panel을 자동 확장하지 않고 정책 크기를 지킨 미니 player를 유지하며, 상세 접기 중에도 재생을 지속한다. 같은 performance의 queue duplicate는 방지하고 기존 항목 선택·이동과 repeat로 의도를 분리함 |
+| 2026-08-18 | DEC-034 player chrome 재보정. 접힌 상태의 미니 iframe과 플레이큐 하단 시각 안내를 제거하고 64px 재생바만 유지함. 재생바에 음소거·볼륨 slider를 추가하고, YouTube iframe은 펼친 상세에서만 표시하며 접을 때 pause하도록 정책 경계를 명확히 함 |
+| 2026-08-18 | DEC-034 재생 지속 우선순위 재확정. 첫 재생에서 상세 metadata는 자동 확장하지 않고 정책 크기의 미니 player만 표시하며, 상세 접기는 같은 iframe을 유지해 재생을 계속함. 최근 공개곡은 hero 포함 최신 5곡을 모두 표시함 |
+| 2026-08-18 | DEC-037 모바일·태블릿 player 재구성. 1024px 미만은 첫 재생 시 전체 화면 Now Playing에서 영상·재생 조작·볼륨·세션 queue를 제공하고 카탈로그 복귀 전에 pause함. 데스크톱은 접기·펼치기 없는 216px dock과 356×200px 단일 iframe으로 고정함 |
+| 2026-08-18 | DEC-034·037 player 배치 단순화. 데스크톱 하단 재생바를 제거하고 356×200px 단일 player를 우측 380px panel의 플레이큐 위에 배치함. 1280px 미만은 하단 bar 없이 전체 화면 Now Playing과 원형 재진입 버튼만 사용함 |
+| 2026-08-19 | DEC-038 우측 player 정보 계층 정리. 상태 문구를 제거하고 모든 재생 조작을 한 row로 통합했으며, 게시자 avatar·channel·곡 상세 row와 실제 재생 위치 기반 progress·진행/남은 시간을 추가함 |
+| 2026-08-19 | DEC-039 YouTube iframe chrome 최소화. 공식 parameter로 controls·fullscreen·keyboard·annotation을 끄고 related video를 같은 channel로 제한했으며, 지원되지 않는 CC 강제 해제나 overlay 가림은 사용하지 않음 |
+| 2026-08-19 | DEC-040 낮은 데스크톱 화면 대응. 640–719px에서는 player 정보를 압축해 queue 최소 높이를 보장하고, 640px 미만에서는 iframe을 계속 보인 채 현재 재생 정보와 플레이큐를 전환해 queue가 화면 밖으로 밀리지 않도록 함 |
+| 2026-08-19 | DEC-040·041 정보 우선순위와 태블릿 재생 지속 보완. 높이 720px 미만에서는 참여자를 유지하고 게시자 identity만 먼저 숨기며, 640–1279px 카탈로그 복귀는 같은 200×200px iframe의 우측 하단 miniplayer로 전환하도록 확정 |
+| 2026-08-19 | DEC-042 player identity 계층 보완. 참여자 profile/name과 YouTube·곡 상세 action을 한 행에 모으고, 게시 채널은 transport 아래의 작은 출처 표기로 낮춰 가창자와 업로드 주체를 분리 |
 
 ## 19. 참고
 

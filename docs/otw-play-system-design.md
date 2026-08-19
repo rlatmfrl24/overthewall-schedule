@@ -103,26 +103,62 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 
 - player script와 `YT.Player`는 첫 사용자 재생 의도 뒤에 한 번만 생성한다.
 - iframe이 절반 이상 보일 때만 `loadVideoById`를 호출한다.
-- 모바일 compact 전환은 먼저 pause하고 `/play` 이탈은 stop 뒤 destroy한다.
+- 640–1279px Now Playing에서 카탈로그로 돌아갈 때는 같은 iframe host를 visible
+  miniplayer로 축소하고, 640px 미만에서만 먼저 pause한다. `/play` 이탈은 stop 뒤
+  destroy한다.
 - queue는 versioned `sessionStorage` 식별자 상태만 저장하고 공개 performance
   API로 복원 유효성을 다시 확인한다. 복원 직후 자동 재생하지 않는다.
 - player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
   위에 overlay를 두지 않는다.
 
 DEC-031과 이를 단순화한 DEC-033·034에 따라 이 provider를 소비하는 `PlayShell`은
-route 콘텐츠와 별도로 데스크톱 우측 `PlayQueueRail`과 하단 `PlaybackBar`를
-소유한다. 상위 탐색은 `/play` 발견과 `/play/songs` 곡 검색만 제공하고,
+route 콘텐츠와 별도로 데스크톱 우측 `PlayerQueuePanel`을 소유한다. 상위 탐색은
+`/play` 발견과 `/play/songs` 곡 검색만 제공하고,
 `/play/discover`는 기존 링크를 `/play`로 redirect한다. 두 route 사이를 이동해도
 queue와 player instance는 유지된다.
-queue rail은 순서·선택·삭제·재정렬만 소유하며 iframe을 포함하지 않는다. iframe
-host는 하단 bar가 위로 펼치는 현재 재생 상세에 하나만 둔다. 상세 접기는 먼저
-pause하고 panel은 absolute overlay로 열려 중앙 콘텐츠·queue 높이를 다시 계산하지
-않는다. 이 재배치는 API, schema, cache key와 운영 flag를 바꾸지 않는다.
+`PlayerQueuePanel` 상단은 356×200px 단일 iframe과 현재 곡 정보,
+상태 문구 없는 단일 control row의 previous/play/next, repeat/shuffle, mute/volume을
+소유한다. 곡명 바로 아래 identity row는 참여자 profile/name과 YouTube/곡 상세 action을
+함께 제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은
+group icon을 사용한다. transport 아래에는 YouTube icon·`게시 채널` label·channel 이름만
+남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를 channel avatar로 재사용하지 않는다.
+player 정보 영역 하단의 semantic range는 IFrame API `getCurrentTime`/`getDuration`을
+주기적으로 읽어 진행/남은 시간을 표시하며 `seekTo`를 수행한다. segment source는
+`start_seconds`를 0점으로 환산하고 `end_seconds`가 있으면 그 구간 안으로 제한한다.
+권위 channel avatar URL이 없는 현재 wire contract에서는 연결된 current member profile을
+사용하고 나머지는 중립 fallback을 사용한다. 하단 queue 영역은
+순서·선택·삭제·재정렬만 제공하고 남은 높이를 독립 스크롤한다. 하단 PlaybackBar,
+접기·펼치기와 overlay 상세 panel은 없다. 이 재배치는 API, schema, cache key와
+운영 flag를 바꾸지 않는다.
 
-DEC-032·034의 layout chrome은 `PlayShell` 안에서 상단 64px와 compact 재생바
-64px를 기준선에 맞춘다. 중앙 catalog와 우측 queue는 document scroll 대신 각자
-`overflow-y: auto`를 사용한다. 재생 상세 펼치기는 player 상태의 동일한 현재 track과
-공개 metadata 및 단일 iframe host를 렌더링하며 별도 player instance를 만들지 않는다.
+우측 rail의 높이 적응은 DEC-040을 따른다. `PlayerQueuePanel` 자체는 남은 viewport의
+`height: 100%`, `min-height: 0`, `overflow: hidden` 경계를 가지며 queue list만 세로로
+스크롤한다. viewport 높이가 720px 미만이면 iframe 200px과 queue 최소 144px,
+참여자 옆 YouTube·곡 상세 action은 유지한다. 참여자 이름은 한 줄 말줄임으로 남기고
+게시 채널 출처 행만 먼저 숨기며 수직 여백을 줄인다. 높이 640px 미만에서는 iframe 아래에
+`현재 재생`·`플레이큐` 전환을 표시하고 두 상세 영역 중 하나만 남은 높이를 사용한다.
+이 전환은 표현 상태일 뿐 queue authority나 player state를 바꾸지 않으며, iframe host는
+DOM에 한 번만 유지되어 재생·진행 위치·볼륨이 끊기지 않는다.
+
+IFrame `playerVars`는 `controls=0`, `fs=0`, `disablekb=1`, `iv_load_policy=3`,
+`rel=0`을 사용한다. 이는 OTW Play의 외부 transport와 progress가 중복 native chrome을
+대체하기 위한 공식 parameter 조합이다. `showinfo`·`modestbranding`은 폐기되어 사용하지
+않고 iframe 위 overlay로 YouTube UI를 가리지 않는다. `cc_load_policy`는 `1`만 강제
+표시 의미가 공식화되어 있으므로 설정하지 않으며 caption 기본값은 사용자 preference를
+따른다.
+
+DEC-032·034·037·041의 layout chrome은 `PlayShell` 안에서 상단 64px와 데스크톱 우측
+380px `PlayerQueuePanel`을 사용한다. 중앙 catalog와 우측 queue는 document scroll
+대신 각자 `overflow-y: auto`를 사용한다. 1280px 미만에서는 첫 재생 의도 뒤 같은 단일
+iframe host를 전체 화면 `Now Playing`에 표시하고, 곡·참여자 정보와 재생 조작,
+0–100 volume, 세션 queue를 한 화면에서 제공한다. 640–1279px의 카탈로그 복귀는
+pause 없이 같은 host를 우측 하단 216px miniplayer로 축소한다. iframe은 200×200px로
+계속 보이고 아래 44–48px 영역에 곡명·play/pause·전체 화면 확장을 둔다. full↔mini와
+queue 항목 변경은 host를 재마운트하거나 현재 시간·볼륨을 초기화하지 않으며 확장은
+자동 resume하지 않는다. mini 상태에서 폭이 640px 미만이 되면 전체 Now Playing을
+다시 열고, 640px 미만의 카탈로그 복귀만 pause 후 launcher를 표시한다. 1280px 이상
+rail과 `/play` 이탈 stop·destroy는 기존대로다. 숨겨진 상태에서 재생하거나 두 host를
+동시에 렌더링하지 않는다. queue rail의 announcement는 screen reader용 live region으로만 유지한다.
 발견의 단일 full-width 대표 배너 carousel
 state는 표현 계층에만 존재하고 catalog 순서, cursor, queue와 player authority를
 변경하지 않는다. 앞·뒤 card surface는 렌더링하지 않고 화살표·indicator·pointer

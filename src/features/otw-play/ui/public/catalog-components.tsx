@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ListPlus, Play, StepForward } from "lucide-react";
+import { Check, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
@@ -13,6 +13,7 @@ import {
   useOtwPlayPlayer,
   type OtwPlayTrack,
 } from "../../player/play-player-context";
+import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const relationLabel = {
@@ -90,6 +91,9 @@ export function OtwPlayPerformanceActions({
     source?.playable
       ? { song, performance, source }
       : null;
+  const alreadyQueued = player.queue.items.some(
+    ({ performanceId }) => performanceId === performance.id,
+  );
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
@@ -106,11 +110,25 @@ export function OtwPlayPerformanceActions({
         type="button"
         variant="outline"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
-        disabled={!track}
+        disabled={!track || alreadyQueued}
         onClick={() => track && player.enqueue(track)}
-        aria-label={iconOnly ? `${song.title} 마지막에 추가` : undefined}
+        aria-label={
+          iconOnly
+            ? alreadyQueued
+              ? `${song.title} 플레이큐에 있음`
+              : `${song.title} 마지막에 추가`
+            : undefined
+        }
       >
-        <ListPlus /> {iconOnly ? <span className="sr-only">마지막에 추가</span> : "마지막에 추가"}
+        {alreadyQueued ? <Check /> : <ListPlus />} {iconOnly ? (
+          <span className="sr-only">
+            {alreadyQueued ? "플레이큐에 있음" : "마지막에 추가"}
+          </span>
+        ) : alreadyQueued ? (
+          "추가됨"
+        ) : (
+          "마지막에 추가"
+        )}
       </Button>
       {!compact && (
         <Button
@@ -134,7 +152,7 @@ export function OtwPlaySongRow({
   hero?: boolean;
 }) {
   const performance = song.representativePerformance;
-  const thumbnail = performance.selectedSource?.thumbnailUrl;
+  const source = performance.selectedSource;
   return (
     <article
       className={cn(
@@ -148,14 +166,19 @@ export function OtwPlaySongRow({
           hero ? "aspect-video min-h-[220px]" : "h-20 w-36 rounded-lg sm:h-24 sm:w-44",
         )}
       >
-        {thumbnail ? (
-          <img
-            src={thumbnail}
+        {source ? (
+          <OtwPlayThumbnail
+            source={source}
             alt=""
             width={480}
             height={270}
             loading={hero ? "eager" : "lazy"}
             className="h-full w-full object-cover"
+            fallback={
+              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                썸네일 없음
+              </div>
+            }
           />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>

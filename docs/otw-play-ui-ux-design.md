@@ -137,11 +137,19 @@ OTW Play는 기존 `PublicAppShell` 안에 `PlayShell`을 둔다. 기존 사이�
 - Play 상단 바: 좌측 메뉴 상단과 같은 64px 높이 안에 제품명, 탐색 탭과 검색을 배치한다.
 - 중앙: 독립 스크롤 카탈로그. 발견은 검색을 header에 두고 hero 아래 곡·멤버 영역을
   같은 행으로 압축해 일반 데스크톱 높이에서 document scroll을 만들지 않는다.
-- 우측: 재생 여부와 무관하게 336px `PlayQueueRail`을 유지하되 순서·선택·삭제만
-  표시하고 YouTube iframe은 넣지 않는다.
-- 하단: 64px `PlaybackBar`가 현재 곡, previous/play/next, repeat, shuffle과 queue
-  열기를 지속한다. 펼치기 토글은 콘텐츠 위로 overlay하는 상세 panel에서 단일
-  16:9 iframe, 분류, 참여자, 채널, source 상태와 상세 링크를 표시한다.
+- 우측: 380px `PlayerQueuePanel`을 유지한다. 상단에는 356×200px 단일 16:9
+  YouTube iframe과 곡·참여자를 배치한다. 곡명 아래에서 현재 멤버 profile·외부 person·group
+  icon과 참여자 이름을 보여주고 YouTube·곡 상세 action을 같은 identity row 오른쪽에 둔다.
+  상태 문구는 표시하지 않고 previous/play/next·repeat·shuffle·mute·volume을 한 control row에
+  둔다. 그 아래 게시 채널은 YouTube icon·label·channel 이름의 작은 출처 행으로 낮추고, 실제 재생 위치를
+  반영하는 seekable progress와 진행/남은 시간을 player 하단에 둔다. 플레이큐는 그 아래 남은 높이에서
+  순서·선택·삭제·재정렬을 독립 스크롤한다.
+- 하단 재생바, player 접기·펼치기와 콘텐츠 위 overlay는 만들지 않는다.
+- 높이 720px 미만에서는 게시 채널 출처 행과 여백을 먼저 줄이고,
+  참여자 identity와 이름은 한 줄 말줄임으로 유지한다. 참여자 옆 YouTube·곡 상세 action, iframe 200px과
+  플레이큐 최소 144px은 계속 제공한다. 높이 640px 미만에서는 iframe을 계속 보이게 둔 채 `현재 재생`과
+  `플레이큐` segmented control로 상세 영역을 전환한다. 플레이큐 선택 시 목록과
+  재정렬·삭제 버튼이 화면 안에서 스크롤 가능해야 하며 전환 때문에 재생이 멈추면 안 된다.
 
 발견의 대표곡은 겹친 card stack이 아닌 하나의 넓은 full-width 배너로 표시한다.
 자동 재생하거나 일정 시간마다 바뀌지 않으며 사용자는 좌우 화살표, indicator,
@@ -157,18 +165,25 @@ surface 없이 작은 원형 portrait grid로 유지한다.
 
 - 기존 사이트 사이드바는 현재 breakpoint 규칙 유지
 - 검색과 필터는 상단 바와 drawer로 분리
-- 우측 rail 대신 하단 `PlaybackBar`를 사용하고 플레이큐는 별도 sheet로 표시한다.
-- 재생 중 sheet의 iframe은 항상 실제로 보이며 너비에 따라 16:9를 유지한다.
+- 768–1279px에서는 첫 재생에 모바일과 같은 전체 화면 Now Playing을 사용한다.
+  카탈로그로 돌아가면 pause하지 않고 같은 iframe을 우측 하단 216px miniplayer의
+  200×200px 영상으로 축소한다. miniplayer footer는 곡명·play/pause·전체 화면 확장만
+  제공하며 queue 이동 때문에 다시 전체 화면을 강제로 열지 않는다.
 
 ### 5.3 모바일: 767px 이하
 
 - 기존 56px 모바일 헤더 아래에 `OTW Play` 제목과 검색 버튼 배치
 - 발견/곡 검색 탭은 가로 스크롤 가능한 sticky tab 사용
 - 대표 배너는 한 열, 최근 곡 table은 곡·공개일·작업을 우선하고 보조 열을 숨김
-- 재생 시작 시 하단에서 16:9 player sheet를 열고 iframe 높이 200px 이상 확보
-- 플레이어를 compact bar로 접는 동작은 먼저 재생을 일시정지한다. 숨은 재생은
-  허용하지 않는다.
-- 필터, 대기열과 곡 버전 목록은 각각 제목이 있는 bottom sheet로 제공한다.
+- 재생 시작 시 별도 전체 화면 `Now Playing`으로 전환하고 단일 16:9 iframe의
+  높이를 200px 이상 확보한다.
+- Now Playing 안에 곡·참여자 정보, previous/play/next, repeat·shuffle, 음소거·volume,
+  현재 세션 플레이큐와 키보드 재정렬을 함께 제공한다.
+- 640–767px에서는 카탈로그로 돌아갈 때 같은 visible miniplayer로 축소하고 재생을
+  유지한다. 640px 미만에서는 카탈로그 복귀 전에 pause하고 원형 Now Playing 진입
+  버튼에서 player를 다시 열어 명시적으로 재개한다. mini 상태에서 폭이 640px 미만으로
+  줄어들면 전체 Now Playing을 다시 열어 숨은 재생을 허용하지 않는다.
+- 필터와 곡 버전 목록은 각각 제목이 있는 bottom sheet로 제공한다.
 
 ## 6. 시각 언어
 
@@ -312,7 +327,28 @@ query로 보내며 별도 공개 프로필로 이동하지 않는다. 모든 참
 - iframe은 실제로 보이고 절반 이상 가시 영역에 있을 때만 scripted playback을 시작한다.
 - 재생 불가, 삭제, 비공개, embed 차단을 구분해 안내하고 다음 소스로 이동할 수
   있게 한다.
-- 앱의 이전/다음 버튼은 YouTube 조작부를 대체하지 않고 대기열 탐색을 담당한다.
+- 앱의 이전/다음 버튼은 IFrame API가 재생하는 단일 영상의 내부 chapter가 아니라
+  OTW Play 대기열 탐색을 담당한다. native controls는 `controls=0`으로 숨기되 iframe을
+  overlay로 가리지 않고 앱의 play/pause·volume·seek를 IFrame API에 직접 전달한다.
+- fullscreen·iframe keyboard·annotation은 각각 `fs=0`, `disablekb=1`,
+  `iv_load_policy=3`으로 최소화한다. CC 강제 해제는 공식 parameter가 없어
+  `cc_load_policy=1`을 설정하지 않고 사용자 YouTube preference를 따른다.
+- 데스크톱은 재생이 시작되면 우측 PlayerQueuePanel 상단에서 단일 iframe을
+  356×200px로 계속 보인다. 모바일·태블릿은 전체 화면 Now Playing에서 같은
+  iframe을 최소 200px 높이로 보인다. 640–1279px은 카탈로그 복귀 후에도 200×200px
+  miniplayer로 visible playback을 유지하고, 640px 미만만 복귀 전에 pause한다. 모든 레이아웃은
+  음소거 버튼과 키보드 조작 가능한 0–100 볼륨 slider를 제공한다. 플레이큐 상태
+  안내는 시각 footer가 아닌 `aria-live`로만 전달한다.
+- 참여자 identity row는 current member profile image, external person icon, group icon과
+  이름을 사용하고 오른쪽에 YouTube·곡 상세 action을 둔다. 게시 채널은 별도의 compact
+  source attribution row로 표시하며 권위 channel avatar URL이 없는 상태에서 참여자 이미지를
+  publisher avatar처럼 재사용하지 않는다.
+- player 하단 progress는 키보드 탐색 가능한 semantic range이며 실제 IFrame current time과
+  duration을 표시한다. 향후 동적 wave bar는 이 range의 동작·접근성 계약을 유지한 채
+  시각 표현만 교체한다.
+- 낮은 데스크톱 화면의 상세 전환은 iframe을 숨기는 접기 기능이 아니다. iframe은
+  최소 200px로 계속 노출하고 player 정보 또는 queue만 남은 높이를 사용하며,
+  선택 상태는 `aria-pressed`로 전달한다.
 
 ```mermaid
 stateDiagram-v2
@@ -322,7 +358,6 @@ stateDiagram-v2
   Loading --> Blocked: autoplay 또는 embed 차단
   Playing --> Paused: 사용자 일시정지
   Playing --> Ended: 영상 종료
-  Playing --> Paused: 모바일 player 접기
   Paused --> Playing: 사용자 재개
   Ended --> Loading: repeat-one 또는 다음 유효 항목
   Ended --> Idle: 대기열 종료
@@ -335,9 +370,9 @@ stateDiagram-v2
 대기열 항목은 `performanceId`, 선택한 `sourceId`와 당시 표시 snapshot만 가진다.
 곡 전체를 복제 저장하지 않고 현재 카탈로그를 다시 조회할 수 있어야 한다.
 
-- 재생 클릭: 현재 항목 교체 후 시작
-- 대기열에 추가: 마지막에 추가
-- 다음에 재생: 현재 항목 바로 뒤에 추가
+- 재생 클릭: 같은 performance가 있으면 그 항목을 선택하고, 없으면 현재 뒤에 추가해 시작
+- 대기열에 추가: 같은 performance가 없을 때만 마지막에 추가
+- 다음에 재생: 기존 항목이면 현재 바로 뒤로 이동하고, 없으면 새로 추가
 - drag reorder: 키보드 이동 명령도 함께 제공
 - repeat: `off`, `all`, `one`
 - shuffle: 현재 곡은 고정하고 남은 항목에 Fisher–Yates를 한 번 적용
@@ -348,6 +383,8 @@ stateDiagram-v2
 로그인 계정과 동기화하지 않으며 플레이리스트라는 이름을 사용하지 않는다.
 복원 시 각 performance를 공개 API로 재검증하고 재생 가능한 source를 다시 선택한다.
 복원은 player 생성이나 자동 재생을 유발하지 않는다.
+구 session에 같은 performance가 여러 번 남아 있으면 첫 항목만 유지하고 현재 index를
+해당 performance로 다시 맞춘다. 실제 반복 감상은 duplicate가 아니라 repeat를 쓴다.
 
 ## 10. 회원 공식 커버 제안
 
