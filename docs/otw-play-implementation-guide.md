@@ -909,7 +909,7 @@ PR-7.1 frontend 보완은 다음 순서로 수행한다.
 - legacy 역할 누락은 `vocal`로 정규화하고 unknown 역할은 400
 - 동일 idempotency key에서 역할이 달라지면 409 conflict
 - 관리자 편집값이 approval command에 반영되며 proposal snapshot은 변경되지 않음
-- 발견·곡 상세·Player·queue에서 `vocal` 우선 및 보조 credit `+N` 표시
+- 발견·곡 상세·Player·queue에서 `vocal` 이름만 우선 표시하고 보조 credit은 역할별 칩과 hover·focus 상세로 표시
 
 ### 종료 조건
 

@@ -708,7 +708,9 @@ DEC-047에 따라 회원 제출 payload는 참여자마다 같은 역할 값을 
 idempotency payload 비교에는 표시명뿐 아니라 역할도 포함한다. 관리자 승인은 proposal
 snapshot row를 UPDATE하지 않고 승인 command의 subject·credit·role을 편집해 catalog row에
 반영하므로 제출 원본과 최종 검수값을 함께 추적할 수 있다. 공개 reader는 전체 credit과
-role을 그대로 반환하고, presentation 계층이 `vocal`을 우선 표시한다.
+role을 그대로 반환하고, presentation 계층이 `vocal` 이름만 우선 표시한다. 나머지
+credit은 존재하는 역할별 칩으로 그룹화하고 hover·keyboard focus에서 그 역할의 참여자
+이름을 제공한다. 인원수만 나타내는 `+N` 표현은 사용하지 않는다.
 
 #### `music_catalog_events` exact schema
 
