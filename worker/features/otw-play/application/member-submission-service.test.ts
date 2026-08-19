@@ -6,6 +6,7 @@ const repository = () =>
   ({
     preflight: vi.fn(async () => ({ duplicate: null, songCandidates: [] })),
     create: vi.fn(),
+    findReplay: vi.fn(async () => null),
     listMine: vi.fn(async () => ({ items: [], hasMore: false })),
     readMine: vi.fn(),
   }) satisfies MemberSubmissionRepository;

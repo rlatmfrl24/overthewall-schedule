@@ -43,6 +43,11 @@ export interface MemberSubmissionRepository {
   create(
     command: CreateMemberSubmissionCommand,
   ): Promise<{ data: OtwPlayMemberSubmissionDto; idempotentReplay: boolean }>;
+  findReplay(
+    userId: string,
+    input: OtwPlayCreateSubmissionRequest,
+    canonicalUrl: string,
+  ): Promise<{ data: OtwPlayMemberSubmissionDto; idempotentReplay: true } | null>;
   listMine(
     userId: string,
     limit: number,

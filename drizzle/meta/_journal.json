@@ -379,6 +379,13 @@
       "when": 1787129646083,
       "tag": "0054_odd_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1787139782077,
+      "tag": "0055_tiresome_pride",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OtwPlayChannelVerificationStatus } from "@contracts/otw-play";
+import type {
+  OtwPlayChannelVerificationStatus,
+  OtwPlayProposalStatus,
+} from "@contracts/otw-play";
 import {
   AdminCatalogService,
   AdminCatalogServiceError,
@@ -878,6 +881,8 @@ describe("AdminCatalogService", () => {
     const proposal = {
       id: "proposal-1",
       version: 0,
+      status: "pending_review" as OtwPlayProposalStatus,
+      approvedPerformanceId: null as string | null,
       youtubeVideoId: "dQw4w9WgXcQ",
     };
     const channel = {
@@ -976,6 +981,21 @@ describe("AdminCatalogService", () => {
         detail: { performanceId: "performance-1" },
       }),
     );
+
+    readProposals.mockResolvedValueOnce([{
+      ...proposal,
+      status: "approved",
+      version: 1,
+      approvedPerformanceId: "performance-1",
+    }]);
+    readCatalog.mockResolvedValueOnce({ revision: 2, channels: [channel] });
+    await expect(
+      service.approveProposal("proposal-1", input, actor),
+    ).resolves.toMatchObject({
+      data: { status: "approved", approvedPerformanceId: "performance-1" },
+      catalogRevision: 2,
+    });
+    expect(approveProposal).toHaveBeenCalledOnce();
   });
 
   it("rejects invalid recheck identity and delegates proposal rejection", async () => {

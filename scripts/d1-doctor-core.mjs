@@ -127,6 +127,7 @@ export const REQUIRED_D1_COLUMNS = {
     "proposal_id",
     "credit_order",
     "resolved_entity_id",
+    "submitted_member_uid",
     "submitted_name_snapshot",
     "participant_role",
   ],
@@ -134,6 +135,7 @@ export const REQUIRED_D1_COLUMNS = {
     "proposal_id",
     "credit_order",
     "resolved_entity_id",
+    "submitted_member_uid",
     "submitted_name_snapshot",
   ],
   music_catalog_events: [

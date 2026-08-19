@@ -447,7 +447,7 @@ export interface OtwPlayCreateSubmissionRequest {
 
 export type OtwPlayMemberSubmissionStatus = Extract<
   OtwPlayProposalStatus,
-  "pending_review" | "approved" | "rejected"
+  "pending_review" | "approved" | "rejected" | "withdrawn"
 >;
 
 export interface OtwPlayMemberSubmissionDto {
@@ -620,12 +620,14 @@ export interface OtwPlayAdminProposalDto {
   participants: Array<{
     creditOrder: number;
     resolvedEntityId: string | null;
+    submittedMemberUid: number | null;
     submittedNameSnapshot: string;
     participantRole: OtwPlayParticipantRole;
   }>;
   originalArtists: Array<{
     creditOrder: number;
     resolvedEntityId: string | null;
+    submittedMemberUid: number | null;
     submittedNameSnapshot: string;
   }>;
 }

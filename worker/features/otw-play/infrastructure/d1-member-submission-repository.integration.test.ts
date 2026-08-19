@@ -51,6 +51,10 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_cover_proposal_participants"),
     db.prepare("DELETE FROM music_cover_proposal_original_artists"),
     db.prepare("DELETE FROM music_cover_proposals"),
+    db.prepare("DELETE FROM music_performances WHERE id LIKE 'submission-candidate-%'"),
+    db.prepare("DELETE FROM music_song_original_artists WHERE song_id LIKE 'submission-candidate-%'"),
+    db.prepare("DELETE FROM music_songs WHERE id LIKE 'submission-candidate-%'"),
+    db.prepare("DELETE FROM music_entities WHERE id LIKE 'submission-candidate-%'"),
     db.prepare("DELETE FROM music_performances WHERE id = 'approved-performance'"),
     db.prepare("DELETE FROM music_songs WHERE id = 'approved-song'"),
     db.prepare("DELETE FROM music_media_sources"),
@@ -82,12 +86,24 @@ describe("D1MemberSubmissionRepository", () => {
       participants: [{ displayName: "제안 멤버", participantRole: "chorus" }],
       originalArtists: [{ displayName: "원곡 가수 1" }],
     });
+    await expect(
+      db.prepare(
+        `SELECT submitted_member_uid FROM music_cover_proposal_participants
+         WHERE proposal_id = ? AND credit_order = 0`,
+      ).bind(first.data.id).first<{ submitted_member_uid: number | null }>(),
+    ).resolves.toMatchObject({ submitted_member_uid: 991 });
 
     const replay = await create(repository, "member-a", "1", {
       clientRequestId: input("1").clientRequestId,
     });
     expect(replay.idempotentReplay).toBe(true);
     expect(replay.data.id).toBe(first.data.id);
+
+    await db.prepare("UPDATE members SET name = '변경된 멤버명' WHERE uid = 991").run();
+    const renamedReplay = await create(repository, "member-a", "1", {
+      clientRequestId: input("1").clientRequestId,
+    });
+    expect(renamedReplay.idempotentReplay).toBe(true);
 
     await expect(
       create(repository, "member-a", "1", {
@@ -131,6 +147,69 @@ describe("D1MemberSubmissionRepository", () => {
     expect(result.duplicate).toBe("pending");
     expect(JSON.stringify(result)).not.toContain("member-a");
     expect(JSON.stringify(result)).not.toContain("proposal-member");
+  });
+
+  it("returns only published song candidates and preserves commas in artist names", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    await db.batch([
+      db.prepare(
+        `INSERT INTO music_entities (
+           id, entity_kind, display_name, normalized_name, slug,
+           version, created_at, updated_at
+         ) VALUES ('submission-candidate-artist', 'group', 'Earth, Wind & Fire',
+           'earth wind fire', 'earth-wind-fire', 0, ?, ?)`,
+      ).bind(NOW, NOW),
+      db.prepare(
+        `INSERT INTO music_songs (
+           id, slug, title, normalized_title, dedupe_key, is_otw_original,
+           original_release_precision, version, created_at, updated_at
+         ) VALUES
+           ('submission-candidate-published', 'candidate-published', 'Candidate Song',
+            'candidate song', 'candidate-published-key', 0, 'unknown', 0, ?, ?),
+           ('submission-candidate-draft', 'candidate-draft', 'Candidate Song Draft',
+            'candidate song draft', 'candidate-draft-key', 0, 'unknown', 0, ?, ?)`,
+      ).bind(NOW, NOW, NOW, NOW),
+      db.prepare(
+        `INSERT INTO music_song_original_artists (song_id, entity_id, credit_order, is_primary)
+         VALUES ('submission-candidate-published', 'submission-candidate-artist', 0, 1)`,
+      ),
+      db.prepare(
+        `INSERT INTO music_performances (
+           id, song_id, dedupe_key, relation_type, release_type,
+           participation_type, publication_status, quality_status,
+           version, created_at, updated_at
+         ) VALUES
+           ('submission-candidate-performance-published', 'submission-candidate-published',
+            'candidate-performance-published-key', 'cover', 'official_video', 'solo',
+            'published', 'ok', 0, ?, ?),
+           ('submission-candidate-performance-draft', 'submission-candidate-draft',
+            'candidate-performance-draft-key', 'cover', 'official_video', 'solo',
+            'draft', 'ok', 0, ?, ?)`,
+      ).bind(NOW, NOW, NOW, NOW),
+    ]);
+
+    const result = await repository.preflight("member-a", "ZZZZZZZZZZZ", "Candidate Song");
+    expect(result.songCandidates).toEqual([
+      expect.objectContaining({
+        id: "submission-candidate-published",
+        originalArtists: ["Earth, Wind & Fire"],
+      }),
+    ]);
+  });
+
+  it("keeps withdrawn proposals in member-owned history", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const created = await create(repository, "member-a", "1");
+    await db.prepare(
+      `UPDATE music_cover_proposals SET status = 'withdrawn', version = version + 1,
+       updated_at = ? WHERE id = ?`,
+    ).bind(NOW + 1, created.data.id).run();
+    await expect(repository.readMine("member-a", created.data.id)).resolves.toMatchObject({
+      status: "withdrawn",
+    });
+    await expect(repository.listMine("member-a", 20, null)).resolves.toMatchObject({
+      items: [expect.objectContaining({ status: "withdrawn" })],
+    });
   });
 
   it("enforces the KST daily limit across all stored statuses", async () => {
@@ -203,6 +282,27 @@ describe("D1MemberSubmissionRepository", () => {
         .bind(NOW, NOW, NOW),
       db
         .prepare(
+          `INSERT INTO music_channels (
+             id, provider, external_channel_id, display_name, channel_role,
+             verification_status, active, version, created_at, updated_at
+           ) VALUES ('approved-channel', 'youtube', 'UCaaaaaaaaaaaaaaaaaaaaaa',
+             '승인 채널', 'member_music', 'approved', 1, 0, ?, ?)`)
+        .bind(NOW, NOW),
+      db
+        .prepare(
+          `INSERT INTO music_media_sources (
+             id, provider, external_id, channel_id, availability_status,
+             version, created_at, updated_at
+           ) VALUES ('approved-source', 'youtube', 'AAAAAAAAAAA',
+             'approved-channel', 'playable', 0, ?, ?)`)
+        .bind(NOW, NOW),
+      db.prepare(
+        `INSERT INTO music_performance_sources (
+           performance_id, source_id, start_seconds, source_role, priority, is_primary
+         ) VALUES ('approved-performance', 'approved-source', 0, 'official', 0, 1)`,
+      ),
+      db
+        .prepare(
           `UPDATE music_cover_proposals
            SET status = 'approved', reviewed_by_user_id = 'admin', reviewed_at = ?,
              approved_performance_id = 'approved-performance', version = version + 1,
@@ -219,6 +319,11 @@ describe("D1MemberSubmissionRepository", () => {
 
     expect((await repository.readMine("member-a", created.data.id)).approvedSong)
       .toMatchObject({ publicLinkAvailable: true });
+
+    await db.prepare("UPDATE music_channels SET active = 0 WHERE id = 'approved-channel'").run();
+    expect((await repository.readMine("member-a", created.data.id)).approvedSong)
+      .toMatchObject({ publicLinkAvailable: false });
+    await db.prepare("UPDATE music_channels SET active = 1 WHERE id = 'approved-channel'").run();
 
     await db
       .prepare(

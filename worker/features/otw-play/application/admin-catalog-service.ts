@@ -658,11 +658,25 @@ export class AdminCatalogService {
         "Official cover acceptance policy GATE-01 is not resolved",
       );
     }
-    const proposal = (
-      await this.repository.readProposals("pending_review")
-    ).find((item) => item.id === id);
+    const proposal = (await this.repository.readProposals()).find(
+      (item) => item.id === id,
+    );
     if (!proposal) {
       throw new AdminCatalogServiceError("not_found", "Proposal not found");
+    }
+    if (
+      proposal.status === "approved" &&
+      proposal.approvedPerformanceId !== null &&
+      proposal.version === input.expectedVersion + 1
+    ) {
+      const catalog = await this.repository.readCatalog();
+      return { data: proposal, catalogRevision: catalog.revision };
+    }
+    if (proposal.status !== "pending_review") {
+      throw new AdminCatalogServiceError(
+        "stale_write",
+        "Proposal is no longer pending review",
+      );
     }
     if (proposal.version !== input.expectedVersion) {
       throw new AdminCatalogServiceError(

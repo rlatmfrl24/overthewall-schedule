@@ -31,6 +31,7 @@ type ProposalRow = {
   approved_song_merged_into_song_id: string | null;
   approved_performance_publication_status: string | null;
   approved_performance_release_type: string | null;
+  approved_performance_has_public_source: number;
   public_read_enabled: number | null;
 };
 
@@ -38,11 +39,13 @@ type ChildRow = {
   proposal_id: string;
   credit_order: number;
   submitted_name_snapshot: string;
+  submitted_member_uid: number | null;
   participant_role?: OtwPlayParticipantRole;
 };
 
 type ResolvedSubject = {
   resolvedEntityId: string | null;
+  submittedMemberUid: number | null;
   displayName: string;
 };
 
@@ -76,6 +79,14 @@ const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   song.merged_into_song_id AS approved_song_merged_into_song_id,
   approved_performance.publication_status AS approved_performance_publication_status,
   approved_performance.release_type AS approved_performance_release_type,
+  EXISTS (
+    SELECT 1 FROM music_performance_sources AS link
+    JOIN music_media_sources AS source ON source.id = link.source_id
+    JOIN music_channels AS channel ON channel.id = source.channel_id
+    WHERE link.performance_id = approved_performance.id
+      AND link.source_role IN ('official', 'alternate')
+      AND channel.verification_status = 'approved' AND channel.active = 1
+  ) AS approved_performance_has_public_source,
   meta.public_read_enabled
 FROM music_cover_proposals AS proposal
 LEFT JOIN music_performances AS approved_performance
@@ -122,17 +133,29 @@ export class D1MemberSubmissionRepository
     const candidateResult = await this.database
       .prepare(
         `SELECT song.id, song.title,
-          COALESCE(GROUP_CONCAT(DISTINCT artist.display_name), '') AS original_artists
+          COALESCE((
+            SELECT json_group_array(artist.display_name)
+            FROM music_song_original_artists AS artist_credit
+            JOIN music_entities AS artist ON artist.id = artist_credit.entity_id
+            WHERE artist_credit.song_id = song.id
+            ORDER BY artist_credit.credit_order
+          ), '[]') AS original_artists_json
         FROM music_songs AS song
-        LEFT JOIN music_song_aliases AS alias ON alias.song_id = song.id
-        LEFT JOIN music_song_original_artists AS credit ON credit.song_id = song.id
-        LEFT JOIN music_entities AS artist ON artist.id = credit.entity_id
         WHERE song.archived_at IS NULL AND song.merged_into_song_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM music_performances AS performance
+            WHERE performance.song_id = song.id
+              AND performance.publication_status = 'published'
+              AND performance.release_type IN ('official_mv', 'official_video')
+          )
           AND (
             song.normalized_title = ? OR song.normalized_title GLOB ?
-            OR alias.normalized_alias = ? OR alias.normalized_alias GLOB ?
+            OR EXISTS (
+              SELECT 1 FROM music_song_aliases AS alias
+              WHERE alias.song_id = song.id
+                AND (alias.normalized_alias = ? OR alias.normalized_alias GLOB ?)
+            )
           )
-        GROUP BY song.id, song.title, song.normalized_title
         ORDER BY CASE WHEN song.normalized_title = ? THEN 0 ELSE 1 END,
           song.normalized_title ASC, song.id ASC
         LIMIT 8`,
@@ -141,16 +164,23 @@ export class D1MemberSubmissionRepository
       .all<{
         id: string;
         title: string;
-        original_artists: string;
+        original_artists_json: string;
       }>();
     return {
       duplicate: duplicate?.duplicate_kind ?? null,
       songCandidates: resultsOf(candidateResult).map((row) => ({
         id: row.id,
         title: row.title,
-        originalArtists: row.original_artists
-          ? row.original_artists.split(",").filter(Boolean)
-          : [],
+        originalArtists: (() => {
+          try {
+            const value: unknown = JSON.parse(row.original_artists_json);
+            return Array.isArray(value)
+              ? value.filter((item): item is string => typeof item === "string")
+              : [];
+          } catch {
+            return [];
+          }
+        })(),
       })),
     };
   }
@@ -199,12 +229,14 @@ export class D1MemberSubmissionRepository
       if (subject.kind === "external") {
         return {
           resolvedEntityId: null,
+          submittedMemberUid: null,
           displayName: normalizeSnapshot(subject.displayName),
         };
       }
       const member = memberMap.get(subject.memberUid)!;
       return {
         resolvedEntityId: member.entity_id,
+        submittedMemberUid: subject.memberUid,
         displayName: member.name,
       };
     });
@@ -216,7 +248,7 @@ export class D1MemberSubmissionRepository
     const [participantResult, artistResult] = await this.database.batch([
       this.database
         .prepare(
-          `SELECT proposal_id, credit_order, submitted_name_snapshot,
+          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid,
              participant_role
            FROM music_cover_proposal_participants
            WHERE proposal_id IN (${placeholders(ids.length)})
@@ -225,7 +257,7 @@ export class D1MemberSubmissionRepository
         .bind(...ids),
       this.database
         .prepare(
-          `SELECT proposal_id, credit_order, submitted_name_snapshot
+          `SELECT proposal_id, credit_order, submitted_name_snapshot, submitted_member_uid
            FROM music_cover_proposal_original_artists
            WHERE proposal_id IN (${placeholders(ids.length)})
            ORDER BY proposal_id, credit_order`,
@@ -266,7 +298,8 @@ export class D1MemberSubmissionRepository
                 row.public_read_enabled === 1 &&
                 row.approved_performance_publication_status === "published" &&
                 (row.approved_performance_release_type === "official_mv" ||
-                  row.approved_performance_release_type === "official_video") &&
+                row.approved_performance_release_type === "official_video") &&
+                row.approved_performance_has_public_source === 1 &&
                 row.approved_song_archived_at === null &&
                 row.approved_song_merged_into_song_id === null,
             }
@@ -279,36 +312,64 @@ export class D1MemberSubmissionRepository
       .prepare(
         `${proposalSelect}
          WHERE proposal.submitted_by_user_id = ? AND proposal.idempotency_key = ?
-           AND proposal.status IN ('pending_review', 'approved', 'rejected')`,
+           AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
       )
       .bind(userId, key)
       .first<ProposalRow>();
     return row ? (await this.hydrate([row]))[0] ?? null : null;
   }
 
-  private samePayload(
+  private async samePayload(
     existing: OtwPlayMemberSubmissionDto,
     input: OtwPlayCreateSubmissionRequest,
     canonicalUrl: string,
     participants: ResolvedParticipant[],
     artists: ResolvedSubject[],
   ) {
+    const [participantResult, artistResult] = await this.database.batch([
+      this.database.prepare(
+        `SELECT submitted_member_uid, submitted_name_snapshot, participant_role
+         FROM music_cover_proposal_participants
+         WHERE proposal_id = ? ORDER BY credit_order`,
+      ).bind(existing.id),
+      this.database.prepare(
+        `SELECT submitted_member_uid, submitted_name_snapshot
+         FROM music_cover_proposal_original_artists
+         WHERE proposal_id = ? ORDER BY credit_order`,
+      ).bind(existing.id),
+    ]);
+    const storedParticipants = resultsOf(participantResult as D1Result<{
+      submitted_member_uid: number | null;
+      submitted_name_snapshot: string;
+      participant_role: OtwPlayParticipantRole;
+    }>);
+    const storedArtists = resultsOf(artistResult as D1Result<{
+      submitted_member_uid: number | null;
+      submitted_name_snapshot: string;
+    }>);
+    const subjectKey = (subject: ResolvedSubject) =>
+      subject.submittedMemberUid === null
+        ? `external:${normalizeSnapshot(subject.displayName)}`
+        : `member:${subject.submittedMemberUid}`;
     return (
       existing.youtubeUrl === canonicalUrl &&
       normalizeSnapshot(existing.title) === normalizeSnapshot(input.title) &&
       existing.suggestedSongId === (input.suggestedSongId ?? null) &&
       (existing.note ?? null) === (input.note?.trim() || null) &&
-      JSON.stringify(
-        existing.participants.map((item) => [
-          item.displayName,
-          item.participantRole,
-        ]),
-      ) ===
+      JSON.stringify(storedParticipants.map((item) => [
+        item.submitted_member_uid === null
+          ? `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
+          : `member:${Number(item.submitted_member_uid)}`,
+        item.participant_role,
+      ])) ===
         JSON.stringify(
-          participants.map((item) => [item.displayName, item.participantRole]),
+          participants.map((item) => [subjectKey(item), item.participantRole]),
         ) &&
-      JSON.stringify(existing.originalArtists.map((item) => item.displayName)) ===
-        JSON.stringify(artists.map((item) => item.displayName))
+      JSON.stringify(storedArtists.map((item) =>
+        item.submitted_member_uid === null
+          ? `external:${normalizeSnapshot(item.submitted_name_snapshot)}`
+          : `member:${Number(item.submitted_member_uid)}`,
+      )) === JSON.stringify(artists.map(subjectKey))
     );
   }
 
@@ -326,7 +387,7 @@ export class D1MemberSubmissionRepository
     );
     const existing = await this.readByIdempotency(userId, input.clientRequestId);
     if (existing) {
-      if (this.samePayload(existing, input, canonicalUrl, participants, artists)) {
+      if (await this.samePayload(existing, input, canonicalUrl, participants, artists)) {
         return { data: existing, idempotentReplay: true };
       }
       throw new MemberSubmissionRepositoryError(
@@ -420,7 +481,7 @@ export class D1MemberSubmissionRepository
         dayEnd,
         dailyLimit,
       );
-    const childGuard = `SELECT ?, ?, ?, ?, ? WHERE EXISTS (
+    const childGuard = `SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (
       SELECT 1 FROM music_cover_proposals WHERE id = ? AND submitted_by_user_id = ?
     )`;
     try {
@@ -431,13 +492,14 @@ export class D1MemberSubmissionRepository
             .prepare(
               `INSERT INTO music_cover_proposal_participants
                (proposal_id, credit_order, resolved_entity_id,
-                submitted_name_snapshot, participant_role)
+                submitted_member_uid, submitted_name_snapshot, participant_role)
                ${childGuard}`,
             )
             .bind(
               command.proposalId,
               index,
               participant.resolvedEntityId,
+              participant.submittedMemberUid,
               participant.displayName,
               participant.participantRole,
               command.proposalId,
@@ -448,8 +510,9 @@ export class D1MemberSubmissionRepository
           this.database
             .prepare(
               `INSERT INTO music_cover_proposal_original_artists
-               (proposal_id, credit_order, resolved_entity_id, submitted_name_snapshot)
-               SELECT ?, ?, ?, ? WHERE EXISTS (
+               (proposal_id, credit_order, resolved_entity_id,
+                submitted_member_uid, submitted_name_snapshot)
+               SELECT ?, ?, ?, ?, ? WHERE EXISTS (
                  SELECT 1 FROM music_cover_proposals WHERE id = ? AND submitted_by_user_id = ?
                )`,
             )
@@ -457,6 +520,7 @@ export class D1MemberSubmissionRepository
               command.proposalId,
               index,
               artist.resolvedEntityId,
+              artist.submittedMemberUid,
               artist.displayName,
               command.proposalId,
               userId,
@@ -466,7 +530,7 @@ export class D1MemberSubmissionRepository
     } catch (error) {
       const raced = await this.readByIdempotency(userId, input.clientRequestId);
       if (raced) {
-        if (this.samePayload(raced, input, canonicalUrl, participants, artists)) {
+        if (await this.samePayload(raced, input, canonicalUrl, participants, artists)) {
           return { data: raced, idempotentReplay: true };
         }
         throw new MemberSubmissionRepositoryError(
@@ -503,6 +567,32 @@ export class D1MemberSubmissionRepository
     }
   }
 
+  async findReplay(
+    userId: string,
+    input: OtwPlayCreateSubmissionRequest,
+    canonicalUrl: string,
+  ) {
+    const [resolvedParticipants, artists] = await Promise.all([
+      this.resolveSubjects(input.participants),
+      this.resolveSubjects(input.originalArtists),
+    ]);
+    const participants: ResolvedParticipant[] = resolvedParticipants.map(
+      (participant, index) => ({
+        ...participant,
+        participantRole: input.participants[index]?.participantRole ?? "vocal",
+      }),
+    );
+    const existing = await this.readByIdempotency(userId, input.clientRequestId);
+    if (!existing) return null;
+    if (await this.samePayload(existing, input, canonicalUrl, participants, artists)) {
+      return { data: existing, idempotentReplay: true as const };
+    }
+    throw new MemberSubmissionRepositoryError(
+      "idempotency_conflict",
+      "clientRequestId was already used for a different submission",
+    );
+  }
+
   async listMine(
     userId: string,
     limit: number,
@@ -514,7 +604,7 @@ export class D1MemberSubmissionRepository
     const statement = this.database.prepare(
       `${proposalSelect}
        WHERE proposal.submitted_by_user_id = ?
-         AND proposal.status IN ('pending_review', 'approved', 'rejected')
+         AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')
          ${cursorSql}
        ORDER BY proposal.created_at DESC, proposal.id DESC
        LIMIT ?`,
@@ -536,7 +626,7 @@ export class D1MemberSubmissionRepository
       .prepare(
         `${proposalSelect}
          WHERE proposal.id = ? AND proposal.submitted_by_user_id = ?
-           AND proposal.status IN ('pending_review', 'approved', 'rejected')`,
+           AND proposal.status IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
       )
       .bind(proposalId, userId)
       .first<ProposalRow>();

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 import type { MemberSubmissionService } from "../application/member-submission-service";
+import { MemberSubmissionRepositoryError } from "../application/ports/member-submission-repository";
 import { createMemberSubmissionHandler } from "./member-submission-handler";
 
 const authenticateRequestMock = vi.hoisted(() => vi.fn());
@@ -9,6 +10,13 @@ vi.mock("../../../platform/auth", () => ({
 }));
 
 const user = { id: "member-1", displayName: "Member", sessionId: null, claims: {} };
+const validSubmission = {
+  clientRequestId: "00000000-0000-4000-8000-000000000001",
+  youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+  title: "Cover",
+  originalArtists: [{ kind: "external", displayName: "Artist" }],
+  participants: [{ kind: "member", memberUid: 1, participantRole: "vocal" }],
+};
 
 describe("member submission handler", () => {
   beforeEach(() => {
@@ -35,11 +43,11 @@ describe("member submission handler", () => {
 
   it("fails closed when the edge limiter is missing", async () => {
     const response = await createMemberSubmissionHandler(
-      () => ({}) as MemberSubmissionService,
+      () => ({ findReplay: vi.fn(async () => null) }) as unknown as MemberSubmissionService,
     )(
       new Request("https://example.com/api/play/submissions", {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify(validSubmission),
       }),
       {} as Env,
     );
@@ -51,12 +59,13 @@ describe("member submission handler", () => {
 
   it("returns 429 before D1 when the edge limit is exhausted", async () => {
     const create = vi.fn();
+    const findReplay = vi.fn(async () => null);
     const response = await createMemberSubmissionHandler(
-      () => ({ create }) as unknown as MemberSubmissionService,
+      () => ({ create, findReplay }) as unknown as MemberSubmissionService,
     )(
       new Request("https://example.com/api/play/submissions", {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify(validSubmission),
       }),
       {
         OTW_PLAY_SUBMISSION_RATE_LIMITER: {
@@ -65,6 +74,50 @@ describe("member submission handler", () => {
       } as unknown as Env,
     );
     expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "PLAY_SUBMISSION_RATE_LIMITED", fields: { scope: "burst" } },
+    });
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("marks the authoritative D1 daily limit separately", async () => {
+    const response = await createMemberSubmissionHandler(
+      () => ({
+        findReplay: vi.fn(async () => null),
+        create: vi.fn(async () => {
+          throw new MemberSubmissionRepositoryError("rate_limited", "Daily limit reached");
+        }),
+      }) as unknown as MemberSubmissionService,
+    )(
+      new Request("https://example.com/api/play/submissions", {
+        method: "POST",
+        body: JSON.stringify(validSubmission),
+      }),
+      {
+        OTW_PLAY_SUBMISSION_RATE_LIMITER: {
+          limit: vi.fn(async () => ({ success: true })),
+        },
+      } as unknown as Env,
+    );
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { fields: { scope: "daily" } },
+    });
+  });
+
+  it("returns an idempotent replay without consuming the edge limiter", async () => {
+    const replay = { data: { id: "proposal-1" }, idempotentReplay: true as const };
+    const limit = vi.fn(async () => ({ success: false }));
+    const response = await createMemberSubmissionHandler(
+      () => ({ findReplay: vi.fn(async () => replay) }) as unknown as MemberSubmissionService,
+    )(
+      new Request("https://example.com/api/play/submissions", {
+        method: "POST",
+        body: JSON.stringify(validSubmission),
+      }),
+      { OTW_PLAY_SUBMISSION_RATE_LIMITER: { limit } } as unknown as Env,
+    );
+    expect(response.status).toBe(200);
+    expect(limit).not.toHaveBeenCalled();
   });
 });

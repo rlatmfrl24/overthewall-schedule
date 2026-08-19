@@ -134,6 +134,12 @@ describe("d1 doctor schema coverage", () => {
         "approved_performance_id",
       ]),
     );
+    expect(REQUIRED_D1_COLUMNS.music_cover_proposal_participants).toContain(
+      "submitted_member_uid",
+    );
+    expect(REQUIRED_D1_COLUMNS.music_cover_proposal_original_artists).toContain(
+      "submitted_member_uid",
+    );
     expect(REQUIRED_D1_COLUMNS.music_catalog_events).toEqual(
       expect.arrayContaining([
         "aggregate_type",

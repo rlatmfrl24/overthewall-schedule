@@ -659,11 +659,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       await this.database.batch([
         status ? statement.bind(status) : statement,
         this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id,
+          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
         submitted_name_snapshot, participant_role
         FROM music_cover_proposal_participants ORDER BY proposal_id, credit_order`),
         this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id,
+          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
         submitted_name_snapshot FROM music_cover_proposal_original_artists
         ORDER BY proposal_id, credit_order`),
       ]);
@@ -689,6 +689,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       proposal_id: string;
       credit_order: number;
       resolved_entity_id: string | null;
+      submitted_member_uid: number | null;
       submitted_name_snapshot: string;
       participant_role: OtwPlayAdminProposalDto["participants"][number]["participantRole"];
     };
@@ -721,12 +722,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       participants: (participantMap.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
         resolvedEntityId: item.resolved_entity_id,
+        submittedMemberUid: item.submitted_member_uid === null ? null : Number(item.submitted_member_uid),
         submittedNameSnapshot: item.submitted_name_snapshot,
         participantRole: item.participant_role,
       })),
       originalArtists: (artistMap.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
         resolvedEntityId: item.resolved_entity_id,
+        submittedMemberUid: item.submitted_member_uid === null ? null : Number(item.submitted_member_uid),
         submittedNameSnapshot: item.submitted_name_snapshot,
       })),
     }));

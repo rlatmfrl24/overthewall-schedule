@@ -20,6 +20,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0052_otw-play-public-read-model-backfill.sql",
   "0053_red_talon.sql",
   "0054_odd_storm.sql",
+  "0055_tiresome_pride.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {

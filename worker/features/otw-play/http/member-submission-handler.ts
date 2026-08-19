@@ -110,6 +110,18 @@ export const createMemberSubmissionHandler = (
       request.method === "POST" &&
       url.pathname === "/api/play/submissions"
     ) {
+      const parsed = await readBody(request, parseCreateSubmission);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_SUBMISSION_INVALID_REQUEST",
+          "Invalid submission",
+          parsed.fields,
+        );
+      }
+      const replay = await service.findReplay(auth.user.id, parsed.value);
+      if (replay) return responseJson(replay, 200);
       const limiter = env.OTW_PLAY_SUBMISSION_RATE_LIMITER;
       if (!limiter) {
         return errorResponse(
@@ -136,16 +148,7 @@ export const createMemberSubmissionHandler = (
           429,
           "PLAY_SUBMISSION_RATE_LIMITED",
           "Too many submission requests",
-        );
-      }
-      const parsed = await readBody(request, parseCreateSubmission);
-      if (!parsed.ok) {
-        return errorResponse(
-          requestId,
-          400,
-          "PLAY_SUBMISSION_INVALID_REQUEST",
-          "Invalid submission",
-          parsed.fields,
+          { scope: "burst" },
         );
       }
       const result = await service.create(auth.user.id, parsed.value);
@@ -228,7 +231,13 @@ export const createMemberSubmissionHandler = (
         invalid_request: [400, "PLAY_SUBMISSION_INVALID_REQUEST"],
       } as const;
       const [status, code] = mapping[error.code];
-      return errorResponse(requestId, status, code, error.message);
+      return errorResponse(
+        requestId,
+        status,
+        code,
+        error.message,
+        error.code === "rate_limited" ? { scope: "daily" } : undefined,
+      );
     }
     console.error("OTW Play member submission request failed", {
       path: url.pathname,

@@ -91,6 +91,21 @@ export class MemberSubmissionService {
     });
   }
 
+  findReplay(userId: string, input: OtwPlayCreateSubmissionRequest) {
+    const videoId = extractYouTubeVideoId(input.youtubeUrl);
+    if (!videoId) {
+      throw new MemberSubmissionServiceError(
+        "invalid_request",
+        "A valid YouTube URL is required",
+      );
+    }
+    return this.repository.findReplay(
+      userId,
+      input,
+      canonicalYouTubeUrl(videoId),
+    );
+  }
+
   async listMine(
     userId: string,
     limit: number,

@@ -1750,6 +1750,10 @@ export const musicCoverProposalParticipants = sqliteTable(
       () => musicEntities.id,
       { onDelete: "restrict" },
     ),
+    submitted_member_uid: integer("submitted_member_uid").references(
+      () => members.uid,
+      { onDelete: "set null" },
+    ),
     submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
     participant_role: text("participant_role")
       .$type<OtwPlayParticipantRole>()
@@ -1762,6 +1766,10 @@ export const musicCoverProposalParticipants = sqliteTable(
     }),
     index("idx_music_cover_proposal_participants_entity_proposal").on(
       table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    index("idx_music_cover_proposal_participants_member_proposal").on(
+      table.submitted_member_uid,
       table.proposal_id,
     ),
     check(
@@ -1795,6 +1803,10 @@ export const musicCoverProposalOriginalArtists = sqliteTable(
       () => musicEntities.id,
       { onDelete: "restrict" },
     ),
+    submitted_member_uid: integer("submitted_member_uid").references(
+      () => members.uid,
+      { onDelete: "set null" },
+    ),
     submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
   },
   (table) => [
@@ -1804,6 +1816,10 @@ export const musicCoverProposalOriginalArtists = sqliteTable(
     }),
     index("idx_music_cover_proposal_original_artists_entity_proposal").on(
       table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    index("idx_music_cover_proposal_original_artists_member_proposal").on(
+      table.submitted_member_uid,
       table.proposal_id,
     ),
     check(
