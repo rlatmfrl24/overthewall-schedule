@@ -87,7 +87,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 | 경로 | 사용자 | 목적 | 주요 화면 |
 | --- | --- | --- | --- |
-| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡을 발견하고 시작 | Discover |
+| `/play` | 관리자 preview·로그인 회원 | 관리자는 Discover, 회원은 새 제안·내 제안 landing | Role-aware Play home |
 | `/play/discover` | 관리자 preview | 기존 링크 호환을 위해 `/play`로 redirect | Compatibility redirect |
 | `/play/songs` | 관리자 preview | 곡명 검색과 관계·멤버·그룹·참여 형태 필터 | Song search |
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
@@ -621,6 +621,9 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 - 승인 또는 반려가 성공한 뒤 권위 있는 서버 상태를 다시 읽는다.
 - 동시 검수 시 한 요청만 상태 전환에 성공한다.
 - 관리자는 원 제안 snapshot을 보존하면서 승인에 반영할 곡, 원곡 가수, 참여자 identity·표시명·역할을 수정할 수 있다.
+- 관리자는 승인에 반영할 공식 MV·공식 영상과 솔로·듀엣·유닛·단체·외부 협업
+  분류를 명시적으로 선택한다. 미등록·재승인 채널은 첫 가창자를 소유자로 추정하지
+  않고 실제 소유 인물·그룹을 확인하며, 새 외부 identity의 인물·그룹 종류도 선택한다.
 - draft·withdrawn 가창과 published가 없는 곡은 명시적 확인 뒤 삭제할 수 있고, 현재 게시 중인 가창은 삭제 control로 제거할 수 없다.
 
 ## 16. 구현 시 금지사항

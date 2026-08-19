@@ -847,13 +847,16 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 
 ### 주요 touchpoint
 
-- `worker/features/otw-play/application/submit-cover-proposal.ts`
-- `worker/features/otw-play/application/approve-proposal.ts`
-- `worker/features/otw-play/infrastructure/d1-review-unit-of-work.ts`
-- `worker/features/otw-play/http/member-handler.ts`
-- `worker/features/otw-play/http/admin-handler.ts`
-- `src/features/otw-play/ui/submissions/*`
-- `src/features/otw-play/ui/admin/submission-review.tsx`
+- `worker/features/otw-play/application/member-submission-service.ts`
+- `worker/features/otw-play/application/admin-catalog-service.ts`
+- `worker/features/otw-play/infrastructure/d1-member-submission-repository.ts`
+- `worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts`
+- `worker/features/otw-play/http/member-submission-handler.ts`
+- `worker/features/otw-play/http/admin-catalog-handler.ts`
+- `src/features/otw-play/ui/member/*`
+- `src/features/otw-play/ui/admin/catalog-manager.tsx`
+- `src/routes/play/_member.tsx`
+- `src/routes/play/_catalog.tsx`
 - `src/routes/play/submit.tsx`
 - `src/routes/play/submissions.tsx`
 

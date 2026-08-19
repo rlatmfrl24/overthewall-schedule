@@ -292,6 +292,9 @@ frontend query key도 `public`과 `admin-preview` audience를 분리한다.
 - 전역 navigation은 역할별 별도 `곡 제안` 항목을 만들지 않고 `OTW Play` 하나만
   제공한다. 관리자는 `/play`, 로그인 비관리자는 공개 flag와 무관하게
   `/play/submit`으로 진입한다.
+- 로그인 비관리자가 member header나 `OTW Play로 돌아가기`를 통해 `/play`에
+  직접 도달하면 catalog shell 대신 새 제안과 내 제안으로 이어지는 member landing을
+  렌더링한다. 이 landing도 public config/catalog/player provider를 마운트하지 않는다.
 - 관리자 catalog shell과 member shell은 brand, 64px header, 반응형 간격과
   `곡 제안` dropdown을 같은 frontend component로 사용한다. dropdown은
   `/play/submit`과 `/play/submissions`만 연결한다.
