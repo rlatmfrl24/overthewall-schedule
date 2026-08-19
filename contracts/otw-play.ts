@@ -375,6 +375,103 @@ export interface OtwPlayPublicFacetsDto {
   originalArtists: OtwPlayPublicOriginalArtistFacetDto[];
 }
 
+export const OTW_PLAY_SUBMISSION_ERROR_CODES = [
+  "PLAY_SUBMISSION_INVALID_REQUEST",
+  "PLAY_SUBMISSION_AUTH_REQUIRED",
+  "PLAY_SUBMISSION_NOT_FOUND",
+  "PLAY_SUBMISSION_DUPLICATE",
+  "PLAY_SUBMISSION_IDEMPOTENCY_CONFLICT",
+  "PLAY_SUBMISSION_RATE_LIMITED",
+  "PLAY_SUBMISSION_UNAVAILABLE",
+] as const;
+
+export type OtwPlaySubmissionErrorCode =
+  (typeof OTW_PLAY_SUBMISSION_ERROR_CODES)[number];
+
+export interface OtwPlaySubmissionErrorResponse {
+  error: {
+    code: OtwPlaySubmissionErrorCode;
+    message: string;
+    fields?: Record<string, string>;
+    requestId: string;
+  };
+}
+
+export type OtwPlaySubmissionSubjectInput =
+  | { kind: "member"; memberUid: number }
+  | { kind: "external"; displayName: string };
+
+export interface OtwPlaySubmissionPreflightRequest {
+  youtubeUrl: string;
+  title?: string;
+}
+
+export interface OtwPlaySubmissionSongCandidateDto {
+  id: string;
+  title: string;
+  originalArtists: string[];
+}
+
+export interface OtwPlaySubmissionPreflightDto {
+  videoId: string;
+  canonicalUrl: string;
+  thumbnailUrl: string;
+  duplicate: "catalog" | "pending" | null;
+  songCandidates: OtwPlaySubmissionSongCandidateDto[];
+}
+
+export interface OtwPlayCreateSubmissionRequest {
+  clientRequestId: string;
+  youtubeUrl: string;
+  title: string;
+  suggestedSongId?: string | null;
+  originalArtists: OtwPlaySubmissionSubjectInput[];
+  participants: OtwPlaySubmissionSubjectInput[];
+  note?: string | null;
+}
+
+export type OtwPlayMemberSubmissionStatus = Extract<
+  OtwPlayProposalStatus,
+  "pending_review" | "approved" | "rejected"
+>;
+
+export interface OtwPlayMemberSubmissionDto {
+  id: string;
+  clientRequestId: string;
+  youtubeUrl: string;
+  youtubeVideoId: string;
+  title: string;
+  suggestedSongId: string | null;
+  note: string | null;
+  status: OtwPlayMemberSubmissionStatus;
+  createdAt: number;
+  updatedAt: number;
+  originalArtists: Array<{
+    creditOrder: number;
+    displayName: string;
+  }>;
+  participants: Array<{
+    creditOrder: number;
+    displayName: string;
+  }>;
+  approvedSong: {
+    id: string;
+    slug: string;
+    title: string;
+    publicLinkAvailable: boolean;
+  } | null;
+}
+
+export interface OtwPlayMemberSubmissionPageDto {
+  items: OtwPlayMemberSubmissionDto[];
+  nextCursor: string | null;
+}
+
+export interface OtwPlayCreateSubmissionResponse {
+  data: OtwPlayMemberSubmissionDto;
+  idempotentReplay: boolean;
+}
+
 export const OTW_PLAY_ADMIN_ERROR_CODES = [
   "PLAY_ADMIN_INVALID_REQUEST",
   "PLAY_ADMIN_NOT_FOUND",
@@ -717,11 +814,14 @@ export interface OtwPlayAdminRejectProposalRequest
 
 export interface OtwPlayAdminApproveProposalRequest
   extends OtwPlayAdminExpectedVersionRequest {
-  song: { existingSongId: string } | { create: OtwPlayAdminSongWriteInput };
-  performance: Omit<OtwPlayAdminPerformanceWriteInput, "songId" | "source"> & {
-    source: Omit<OtwPlayAdminPerformanceWriteInput["source"], "youtubeUrl">;
-  };
-  publish: boolean;
+  expectedCatalogRevision: number;
+  song: OtwPlayAdminCatalogSongDecision;
+  participants: OtwPlayAdminCatalogParticipantInput[];
+  channel: OtwPlayAdminCatalogChannelDecision;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  participationType: OtwPlayParticipationType;
+  singingCreditConfirmed: true;
+  publish: true;
 }
 
 export interface OtwPlayAdminCreateChannelRequest {

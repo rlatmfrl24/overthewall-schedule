@@ -833,27 +833,20 @@ describe("AdminCatalogService", () => {
         "proposal-1",
         {
           expectedVersion: 0,
-          song: { existingSongId: "song-1" },
-          performance: {
-            relationType: "cover",
-            releaseType: "official_video",
-            participationType: "solo",
-            qualityStatus: "ok",
-            releasedAt: null,
-            participants: [
-              {
-                entityId: "entity-1",
-                participantRole: "vocal",
-                creditOrder: 0,
-                creditNameSnapshot: "Singer",
-              },
-            ],
-            source: {
-              channelId: "channel-1",
-              startSeconds: 0,
-              sourceRole: "official",
+          expectedCatalogRevision: 1,
+          song: { kind: "existing", songId: "song-1" },
+          participants: [
+            {
+              subject: { kind: "entity", entityId: "entity-1" },
+              participantRole: "vocal",
+              creditOrder: 0,
+              creditNameSnapshot: "Singer",
             },
-          },
+          ],
+          channel: { kind: "existing", channelId: "channel-1" },
+          releaseType: "official_video",
+          participationType: "solo",
+          singingCreditConfirmed: true,
           publish: true,
         },
         actor,
@@ -866,28 +859,21 @@ describe("AdminCatalogService", () => {
   it("validates every proposal approval boundary before the atomic repository command", async () => {
     const input = {
       expectedVersion: 0,
-      song: { existingSongId: "song-1" },
-      performance: {
-        relationType: "cover" as const,
-        releaseType: "official_video" as const,
-        participationType: "solo" as const,
-        qualityStatus: "ok" as const,
-        releasedAt: null,
-        participants: [
-          {
-            entityId: "entity-1",
-            participantRole: "vocal" as const,
-            creditOrder: 0,
-            creditNameSnapshot: "Singer",
-          },
-        ],
-        source: {
-          channelId: "channel-1",
-          startSeconds: 0,
-          sourceRole: "official" as const,
+      expectedCatalogRevision: 1,
+      song: { kind: "existing" as const, songId: "song-1" },
+      participants: [
+        {
+          subject: { kind: "entity" as const, entityId: "entity-1" },
+          participantRole: "vocal" as const,
+          creditOrder: 0,
+          creditNameSnapshot: "Singer",
         },
-      },
-      publish: true,
+      ],
+      channel: { kind: "existing" as const, channelId: "channel-1" },
+      releaseType: "official_video" as const,
+      participationType: "solo" as const,
+      singingCreditConfirmed: true as const,
+      publish: true as const,
     };
     const proposal = {
       id: "proposal-1",
@@ -899,6 +885,7 @@ describe("AdminCatalogService", () => {
       externalChannelId: `UC${"A".repeat(22)}`,
       verificationStatus: "approved" as OtwPlayChannelVerificationStatus,
       active: true,
+      channelRole: "member_music" as const,
     };
     const video: OtwPlayYouTubeVideoMetadata = {
       videoId: proposal.youtubeVideoId,
@@ -911,7 +898,7 @@ describe("AdminCatalogService", () => {
       availabilityStatus: "playable",
     };
     const readProposals = vi.fn(async () => [proposal]);
-    const readCatalog = vi.fn(async () => ({ channels: [channel] }));
+    const readCatalog = vi.fn(async () => ({ revision: 1, channels: [channel] }));
     const approveProposal = vi.fn(async () => ({
       data: { approvedPerformanceId: "performance-1" },
       catalogRevision: 2,
@@ -943,12 +930,13 @@ describe("AdminCatalogService", () => {
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "stale_write" });
 
-    readCatalog.mockResolvedValueOnce({ channels: [] });
+    readCatalog.mockResolvedValueOnce({ revision: 1, channels: [] });
     await expect(
       service.approveProposal("proposal-1", input, actor),
     ).rejects.toMatchObject({ code: "validation_failed" });
 
     readCatalog.mockResolvedValueOnce({
+      revision: 1,
       channels: [{ ...channel, verificationStatus: "pending" }],
     });
     await expect(
@@ -956,6 +944,7 @@ describe("AdminCatalogService", () => {
     ).rejects.toMatchObject({ code: "validation_failed" });
 
     readCatalog.mockResolvedValueOnce({
+      revision: 1,
       channels: [{ ...channel, active: false }],
     });
     await expect(

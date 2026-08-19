@@ -1,7 +1,10 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
+import {
+  AdminCatalogRepositoryError,
+  type AdminApproveProposalCommand,
+} from "../application/ports/admin-catalog-repository";
 import { D1PublicCatalogReader } from "./d1-public-catalog-reader";
 import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 
@@ -1601,13 +1604,32 @@ describe("D1AdminCatalogRepository", () => {
         .bind(proposalId, artist.data.id),
     ]);
 
-    const result = await repository.approveProposal({
+    const revisionBeforeApproval = (await repository.readCatalog()).revision;
+    const publicReader = new D1PublicCatalogReader(db);
+    const publicQuery = {
+      normalizedQuery: null,
+      memberUids: [],
+      memberMode: "any" as const,
+      groupKey: null,
+      group: null,
+      participantSlug: null,
+      relation: null,
+      participation: null,
+      originalArtistSlug: null,
+      publishedFrom: null,
+      publishedTo: null,
+      sort: "recent" as const,
+      limit: 24,
+      cursor: null,
+    };
+    expect((await publicReader.readCatalog(publicQuery)).items).toEqual([]);
+    const approvalCommand = (): AdminApproveProposalCommand => ({
       proposalId,
       input: {
         expectedVersion: 0,
+        expectedCatalogRevision: revisionBeforeApproval,
         song: {
-          create: {
-            slug: "proposal-song",
+          kind: "create",
             title: "Proposal Song",
             isOtwOriginal: false,
             originalReleaseDate: null,
@@ -1615,33 +1637,24 @@ describe("D1AdminCatalogRepository", () => {
             aliases: [],
             originalArtists: [
               {
-                entityId: artist.data.id,
+                subject: { kind: "entity", entityId: artist.data.id },
                 creditOrder: 0,
                 isPrimary: true,
               },
             ],
-          },
         },
-        performance: {
-          relationType: "cover",
-          releaseType: "official_video",
-          participationType: "solo",
-          qualityStatus: "ok",
-          releasedAt: NOW,
-          participants: [
-            {
-              entityId: singer.data.id,
-              participantRole: "vocal",
-              creditOrder: 0,
-              creditNameSnapshot: "Proposal Singer",
-            },
-          ],
-          source: {
-            channelId: channel.data.id,
-            startSeconds: 0,
-            sourceRole: "official",
+        participants: [
+          {
+            subject: { kind: "entity", entityId: singer.data.id },
+            participantRole: "vocal",
+            creditOrder: 0,
+            creditNameSnapshot: "Proposal Singer",
           },
-        },
+        ],
+        channel: { kind: "existing", channelId: channel.data.id },
+        releaseType: "official_video",
+        participationType: "solo",
+        singingCreditConfirmed: true,
         publish: true,
       },
       video: {
@@ -1658,6 +1671,10 @@ describe("D1AdminCatalogRepository", () => {
       now: NOW + 2,
       ids: {
         lockToken: id("lock"),
+        entityIds: {},
+        entityEventIds: {},
+        channelId: id("channel"),
+        channelEventId: id("event"),
         songId: id("song"),
         performanceId: id("performance"),
         sourceId: id("source"),
@@ -1666,17 +1683,36 @@ describe("D1AdminCatalogRepository", () => {
         performanceEventId: id("event"),
       },
     });
+    const attempts = await Promise.allSettled([
+      repository.approveProposal(approvalCommand()),
+      repository.approveProposal(approvalCommand()),
+    ]);
+    const fulfilled = attempts.filter(
+      (attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof repository.approveProposal>>> =>
+        attempt.status === "fulfilled",
+    );
+    const rejected = attempts.filter(
+      (attempt): attempt is PromiseRejectedResult => attempt.status === "rejected",
+    );
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toBeInstanceOf(AdminCatalogRepositoryError);
+    const result = fulfilled[0]!.value;
     expect(result.data.status).toBe("approved");
     expect(result.data.approvedPerformanceId).toBeTruthy();
     expect(result.data.reviewedByUserId).toBe(actor.userId);
     const catalog = await repository.readCatalog();
     expect(catalog.revision).toBe(catalog.readModelRevision);
-    expect(catalog.songs.map((song) => song.slug)).toContain("proposal-song");
+    expect(catalog.revision).toBe(revisionBeforeApproval + 1);
+    expect(catalog.songs.map((song) => song.title)).toContain("Proposal Song");
     expect(
       catalog.performances.find(
         (performance) => performance.id === result.data.approvedPerformanceId,
       )?.publicationStatus,
     ).toBe("published");
+    expect(
+      (await publicReader.readCatalog(publicQuery)).items.map((item) => item.title),
+    ).toContain("Proposal Song");
     const eventTypes = await db
       .prepare(
         `SELECT event_type FROM music_catalog_events
@@ -1685,7 +1721,7 @@ describe("D1AdminCatalogRepository", () => {
       .bind(proposalId, result.data.approvedPerformanceId)
       .all<{ event_type: string }>();
     expect(eventTypes.results.map((event) => event.event_type)).toEqual([
-      "performance.created_from_proposal",
+      "performance.created_inline",
       "proposal.approved",
     ]);
   });

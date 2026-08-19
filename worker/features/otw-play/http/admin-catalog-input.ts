@@ -383,51 +383,36 @@ export const parseApproveProposal = (
   if (
     !version.ok ||
     !isObject(value) ||
-    !isObject(value.song) ||
-    !isObject(value.performance)
+    value.singingCreditConfirmed !== true ||
+    value.publish !== true
   ) {
     return fail({ body: "invalid_approval" });
   }
-  const existingSongId = nonEmptyString(value.song.existingSongId, 128);
-  const createSong = isObject(value.song.create)
-    ? parseSongCore(value.song.create)
-    : null;
-  if ((!existingSongId && !createSong) || (existingSongId && createSong)) {
-    return fail({ song: "choose_existing_or_create" });
-  }
-  const rawSource = isObject(value.performance.source)
-    ? value.performance.source
-    : null;
-  if (!rawSource) return fail({ performance: "invalid" });
-  const parsedPerformance = parsePerformanceCore({
-    ...value.performance,
-    songId: existingSongId ?? "new-song",
-    source: { ...rawSource, youtubeUrl: "https://youtu.be/dQw4w9WgXcQ" },
+  const parsed = parseCreateCatalogEntry({
+    expectedCatalogRevision: value.expectedCatalogRevision,
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    startSeconds: 0,
+    song: value.song,
+    participants: value.participants,
+    channel: value.channel,
+    relationType: "cover",
+    releaseType: value.releaseType,
+    participationType: value.participationType,
+    publicationTarget: "published",
   });
-  if (!parsedPerformance || typeof value.publish !== "boolean") {
-    return fail({ performance: "invalid" });
-  }
+  if (!parsed.ok) return fail(parsed.fields);
   return {
     ok: true,
     value: {
       expectedVersion: version.value.expectedVersion,
-      song: existingSongId ? { existingSongId } : { create: createSong! },
-      performance: {
-        relationType: parsedPerformance.relationType,
-        releaseType: parsedPerformance.releaseType,
-        participationType: parsedPerformance.participationType,
-        qualityStatus: parsedPerformance.qualityStatus,
-        releasedAt: parsedPerformance.releasedAt,
-        internalNote: parsedPerformance.internalNote,
-        participants: parsedPerformance.participants,
-        source: {
-          channelId: parsedPerformance.source.channelId,
-          startSeconds: parsedPerformance.source.startSeconds,
-          endSeconds: parsedPerformance.source.endSeconds,
-          sourceRole: parsedPerformance.source.sourceRole,
-        },
-      },
-      publish: value.publish,
+      expectedCatalogRevision: parsed.value.expectedCatalogRevision,
+      song: parsed.value.song,
+      participants: parsed.value.participants,
+      channel: parsed.value.channel,
+      releaseType: parsed.value.releaseType,
+      participationType: parsed.value.participationType,
+      singingCreditConfirmed: true,
+      publish: true,
     },
   };
 };

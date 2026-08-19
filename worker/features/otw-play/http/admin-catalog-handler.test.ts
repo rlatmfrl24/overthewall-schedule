@@ -304,7 +304,7 @@ describe("OTW Play admin catalog handler", () => {
     });
   });
 
-  it("maps unresolved GATE-01 approval to the fixed policy error", async () => {
+  it("preserves the legacy policy error mapping for a valid approval command", async () => {
     const approveProposal = vi.fn(async () => {
       throw new AdminCatalogServiceError(
         "policy_unresolved",
@@ -322,27 +322,20 @@ describe("OTW Play admin catalog handler", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             expectedVersion: 0,
-            song: { existingSongId: "song-1" },
-            performance: {
-              relationType: "cover",
-              releaseType: "official_video",
-              participationType: "solo",
-              qualityStatus: "ok",
-              releasedAt: null,
-              participants: [
-                {
-                  entityId: "entity-1",
-                  participantRole: "vocal",
-                  creditOrder: 0,
-                  creditNameSnapshot: "Singer",
-                },
-              ],
-              source: {
-                channelId: "channel-1",
-                startSeconds: 0,
-                sourceRole: "official",
+            expectedCatalogRevision: 1,
+            song: { kind: "existing", songId: "song-1" },
+            participants: [
+              {
+                subject: { kind: "entity", entityId: "entity-1" },
+                participantRole: "vocal",
+                creditOrder: 0,
+                creditNameSnapshot: "Singer",
               },
-            },
+            ],
+            channel: { kind: "existing", channelId: "channel-1" },
+            releaseType: "official_video",
+            participationType: "solo",
+            singingCreditConfirmed: true,
             publish: true,
           }),
         },

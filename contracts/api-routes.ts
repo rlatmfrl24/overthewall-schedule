@@ -95,6 +95,16 @@ export const apiRoutes = {
       (id: string) =>
         `/api/play/performances/${encodeURIComponent(id)}` as const,
     ),
+    submissions: {
+      preflight: staticRoute("/api/play/submissions/preflight"),
+      create: staticRoute("/api/play/submissions"),
+      mine: staticRoute("/api/play/submissions/mine"),
+      detail: dynamicRoute(
+        "/api/play/submissions/:id",
+        (id: string) =>
+          `/api/play/submissions/${encodeURIComponent(id)}` as const,
+      ),
+    },
     admin: {
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(

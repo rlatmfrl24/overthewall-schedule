@@ -72,6 +72,22 @@ const MEMBER_POLICY_GET = {
   cache: "visibility-dependent",
   successStatus: 200,
 } as const;
+const MEMBER_POLICY_NO_STORE_GET = {
+  method: "GET",
+  auth: "member-policy",
+  cache: "no-store",
+  successStatus: 200,
+} as const;
+const MEMBER_POLICY_NO_STORE_POST = {
+  method: "POST",
+  auth: "member-policy",
+  cache: "no-store",
+  successStatus: 200,
+} as const;
+const MEMBER_POLICY_NO_STORE_POST_CREATED = {
+  ...MEMBER_POLICY_NO_STORE_POST,
+  successStatus: 201,
+} as const;
 const PUBLIC_WRITE_POST = {
   method: "POST",
   auth: "public-write",
@@ -213,6 +229,30 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     owner: "otw-play",
     path: "/api/play/performances/:id",
     methods: [OTW_PLAY_DETAIL_GET],
+  },
+  {
+    id: "otw-play.submission.preflight",
+    owner: "otw-play",
+    path: "/api/play/submissions/preflight",
+    methods: [MEMBER_POLICY_NO_STORE_POST],
+  },
+  {
+    id: "otw-play.submission.create",
+    owner: "otw-play",
+    path: "/api/play/submissions",
+    methods: [MEMBER_POLICY_NO_STORE_POST_CREATED],
+  },
+  {
+    id: "otw-play.submission.mine",
+    owner: "otw-play",
+    path: "/api/play/submissions/mine",
+    methods: [MEMBER_POLICY_NO_STORE_GET],
+  },
+  {
+    id: "otw-play.submission.detail",
+    owner: "otw-play",
+    path: "/api/play/submissions/:id",
+    methods: [MEMBER_POLICY_NO_STORE_GET],
   },
   {
     id: "otw-play.admin.catalog",
