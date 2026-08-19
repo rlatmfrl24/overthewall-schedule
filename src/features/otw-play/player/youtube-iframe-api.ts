@@ -50,7 +50,7 @@ interface YouTubePlayerNamespace {
         origin: string;
       };
       events: {
-        onReady: () => void;
+        onReady: (event: { target: YouTubePlayerInstance }) => void;
         onStateChange: (event: { data: number }) => void;
         onError: (event: { data: number }) => void;
         onAutoplayBlocked: () => void;
@@ -125,26 +125,31 @@ export const createOtwPlayYouTubePlayer = async (
   origin = window.location.origin,
 ): Promise<OtwPlayYouTubePlayer> => {
   const yt = await loadYouTubeIframeApi();
-  const player = new yt.Player(element, {
-    width: "100%",
-    height: "100%",
-    playerVars: {
-      autoplay: 0,
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
-      iv_load_policy: 3,
-      playsinline: 1,
-      rel: 0,
-      origin,
-    },
-    events: {
-      onReady: () => events.onReady?.(),
-      onStateChange: ({ data }) =>
-        events.onStateChange?.(playerStateFromCode(data)),
-      onError: ({ data }) => events.onError?.(data),
-      onAutoplayBlocked: () => events.onAutoplayBlocked?.(),
-    },
+  const player = await new Promise<YouTubePlayerInstance>((resolve) => {
+    new yt.Player(element, {
+      width: "100%",
+      height: "100%",
+      playerVars: {
+        autoplay: 0,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
+        playsinline: 1,
+        rel: 0,
+        origin,
+      },
+      events: {
+        onReady: ({ target }) => {
+          events.onReady?.();
+          resolve(target);
+        },
+        onStateChange: ({ data }) =>
+          events.onStateChange?.(playerStateFromCode(data)),
+        onError: ({ data }) => events.onError?.(data),
+        onAutoplayBlocked: () => events.onAutoplayBlocked?.(),
+      },
+    });
   });
   let destroyed = false;
 

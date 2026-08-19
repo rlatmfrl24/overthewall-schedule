@@ -1,4 +1,4 @@
-export const LOCAL_DEV_HOST: "127.0.0.1";
+export const LOCAL_DEV_HOST: "localhost";
 export const DEFAULT_LOCAL_DEV_PORT: 5173;
 
 export function parseLocalDevPort(value: unknown, source?: string): number;

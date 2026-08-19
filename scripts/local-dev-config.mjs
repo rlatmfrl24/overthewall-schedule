@@ -1,4 +1,7 @@
-export const LOCAL_DEV_HOST = "127.0.0.1";
+// YouTube may apply embed permissions by the exact Referer hostname. Some
+// otherwise embeddable videos reject the loopback IP while allowing localhost,
+// so keep localhost as the canonical browser origin for local playback tests.
+export const LOCAL_DEV_HOST = "localhost";
 export const DEFAULT_LOCAL_DEV_PORT = 5173;
 
 const SPA_DEV_ROUTE =

@@ -232,13 +232,13 @@ describe("OtwPlayPlayerProvider", () => {
       startSeconds: 0,
     }));
 
-    mocks.events.current?.onError?.(100);
+    mocks.events.current?.onError?.(150);
     await waitFor(() =>
       expect(screen.getByTestId("unavailable-size").textContent).toBe("1"),
     );
     expect(mocks.controller.load).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("announcement").textContent).toContain(
-      "재생 가능한 공식 소스를 찾지 못했습니다",
+      "임베드 재생을 허용하지 않습니다",
     );
   });
 
