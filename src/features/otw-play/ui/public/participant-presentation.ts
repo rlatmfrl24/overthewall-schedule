@@ -7,6 +7,8 @@ export const otwPlayParticipantRoleLabel = {
   other: "기타 참여",
 } as const;
 
+const supportingRoleOrder = ["featured_vocal", "chorus", "other"] as const;
+
 export function presentOtwPlayParticipants(
   participants: OtwPlayPublicParticipantDto[],
 ) {
@@ -19,15 +21,27 @@ export function presentOtwPlayParticipants(
   const supporting = ordered.filter(
     ({ entityId }) => !primaryIds.has(entityId),
   );
+  const supportingGroups = supportingRoleOrder.flatMap((role) => {
+    const roleParticipants = supporting.filter(
+      (participant) => participant.role === role,
+    );
+    return roleParticipants.length > 0
+      ? [
+          {
+            role,
+            label: otwPlayParticipantRoleLabel[role],
+            participants: roleParticipants,
+            names: roleParticipants
+              .map(({ displayName }) => displayName)
+              .join(", "),
+          },
+        ]
+      : [];
+  });
   return {
     primary,
     supporting,
+    supportingGroups,
     primaryNames: primary.map(({ displayName }) => displayName).join(", "),
-    supportingNames: supporting
-      .map(
-        ({ displayName, role }) =>
-          `${displayName} (${otwPlayParticipantRoleLabel[role]})`,
-      )
-      .join(", "),
   };
 }

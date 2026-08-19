@@ -29,7 +29,10 @@ describe("presentOtwPlayParticipants", () => {
       "코러스",
       "서브",
     ]);
-    expect(result.supportingNames).toBe("코러스 (코러스), 서브 (서브 보컬)");
+    expect(result.supportingGroups.map(({ label, names }) => ({ label, names }))).toEqual([
+      { label: "서브 보컬", names: "서브" },
+      { label: "코러스", names: "코러스" },
+    ]);
   });
 
   it("keeps one deterministic visible participant when legacy data has no main vocal", () => {

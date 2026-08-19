@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OtwPlayPublicParticipantDto } from "@contracts/otw-play";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -24,7 +24,21 @@ const base = {
 };
 
 describe("OtwPlayParticipantChip", () => {
-  afterEach(cleanup);
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserver {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it.each([
     [
@@ -46,7 +60,7 @@ describe("OtwPlayParticipantChip", () => {
     );
   });
 
-  it("shows main vocals first and collapses supporting credits", () => {
+  it("shows main vocals first and exposes supporting credits by role", async () => {
     render(
       <OtwPlayParticipantSummary
         participants={[
@@ -59,6 +73,19 @@ describe("OtwPlayParticipantChip", () => {
 
     expect(screen.getByRole("link", { name: /메인 멤버/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /코러스 멤버/ })).toBeNull();
-    expect(screen.getByLabelText(/서브 참여자 2명/).textContent).toContain("+2");
+    expect(screen.queryByText("+2")).toBeNull();
+    const featured = screen.getByRole("button", {
+      name: "서브 보컬: 서브 멤버",
+    });
+    const chorus = screen.getByRole("button", {
+      name: "코러스: 코러스 멤버",
+    });
+    expect(featured.textContent).toBe("서브 보컬");
+    expect(chorus.textContent).toBe("코러스");
+
+    fireEvent.focus(chorus);
+    expect((await screen.findByRole("tooltip")).textContent).toContain(
+      "코러스 · 코러스 멤버",
+    );
   });
 });

@@ -19,6 +19,7 @@ import {
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import { OtwPlaySupportingRoleChips } from "../participant-role-chips";
 import { presentOtwPlayParticipants } from "./participant-presentation";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
@@ -129,22 +130,19 @@ export function OtwPlayHomePage() {
                   >
                     {featured.title}
                   </h1>
-                  <p
-                    className="mt-2 text-sm text-white/75"
-                    title={featuredParticipants?.supportingNames || undefined}
-                    aria-label={featuredParticipants
-                      ? `메인 보컬 ${featuredParticipants.primaryNames || "정보 없음"}${featuredParticipants.supportingNames ? `, 보조 참여 ${featuredParticipants.supportingNames}` : ""}`
-                      : undefined}
-                  >
-                    {relationLabel[
-                      featured.representativePerformance.relation
-                    ]}
-                    {" · "}
-                    {featuredParticipants?.primaryNames || "참여자 정보 없음"}
-                    {featuredParticipants?.supporting.length
-                      ? ` +${featuredParticipants.supporting.length}`
-                      : ""}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-white/75">
+                    <span>
+                      {relationLabel[
+                        featured.representativePerformance.relation
+                      ]}
+                      {" · "}
+                      {featuredParticipants?.primaryNames || "참여자 정보 없음"}
+                    </span>
+                    <OtwPlaySupportingRoleChips
+                      participants={featured.representativePerformance.participants}
+                      inverse
+                    />
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <OtwPlayPerformanceActions
@@ -351,12 +349,15 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
                     </Link>
                   </div>
                 </td>
-                <td className="hidden truncate px-2 text-muted-foreground sm:table-cell">
-                  <span title={participants.supportingNames || undefined}>
-                    {participants.primaryNames || "정보 없음"}
-                    {participants.supporting.length
-                      ? ` +${participants.supporting.length}`
-                      : ""}
+                <td className="hidden px-2 text-muted-foreground sm:table-cell">
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate">
+                      {participants.primaryNames || "정보 없음"}
+                    </span>
+                    <OtwPlaySupportingRoleChips
+                      participants={performance.participants}
+                      className="shrink-0"
+                    />
                   </span>
                 </td>
                 <td className="hidden px-2 text-muted-foreground md:table-cell">

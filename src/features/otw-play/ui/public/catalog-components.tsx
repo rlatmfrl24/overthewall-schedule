@@ -14,6 +14,7 @@ import {
   type OtwPlayTrack,
 } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import { OtwPlaySupportingRoleChips } from "../participant-role-chips";
 import { presentOtwPlayParticipants } from "./participant-presentation";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -87,16 +88,7 @@ export function OtwPlayParticipantSummary({
           participant={participant}
         />
       ))}
-      {presentation.supporting.length > 0 ? (
-        <Badge
-          variant="outline"
-          className="min-h-7 border-dashed text-[11px] font-normal text-muted-foreground"
-          title={presentation.supportingNames}
-          aria-label={`서브 참여자 ${presentation.supporting.length}명: ${presentation.supportingNames}`}
-        >
-          +{presentation.supporting.length} 서브
-        </Badge>
-      ) : null}
+      <OtwPlaySupportingRoleChips participants={participants} />
     </div>
   );
 }
