@@ -24,10 +24,9 @@ import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
-import { Route as PlaySubmitRouteImport } from './routes/play/submit'
-import { Route as PlaySubmissionsRouteImport } from './routes/play/submissions'
-import { Route as PlaySongsRouteImport } from './routes/play/songs'
 import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
+import { Route as PlayMemberRouteImport } from './routes/play/_member'
+import { Route as PlayCatalogRouteImport } from './routes/play/_catalog'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
@@ -38,8 +37,11 @@ import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-post
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
-import { Route as PlaySongsIndexRouteImport } from './routes/play/songs/index'
-import { Route as PlaySongsSongSlugRouteImport } from './routes/play/songs/$songSlug'
+import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
+import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
+import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/songs'
+import { Route as PlayCatalogSongsIndexRouteImport } from './routes/play/_catalog/songs/index'
+import { Route as PlayCatalogSongsSongSlugRouteImport } from './routes/play/_catalog/songs/$songSlug'
 
 const WeeklyRoute = WeeklyRouteImport.update({
   id: '/weekly',
@@ -116,24 +118,17 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlaySubmitRoute = PlaySubmitRouteImport.update({
-  id: '/submit',
-  path: '/submit',
-  getParentRoute: () => PlayRoute,
-} as any)
-const PlaySubmissionsRoute = PlaySubmissionsRouteImport.update({
-  id: '/submissions',
-  path: '/submissions',
-  getParentRoute: () => PlayRoute,
-} as any)
-const PlaySongsRoute = PlaySongsRouteImport.update({
-  id: '/songs',
-  path: '/songs',
-  getParentRoute: () => PlayRoute,
-} as any)
 const PlayDiscoverRoute = PlayDiscoverRouteImport.update({
   id: '/discover',
   path: '/discover',
+  getParentRoute: () => PlayRoute,
+} as any)
+const PlayMemberRoute = PlayMemberRouteImport.update({
+  id: '/_member',
+  getParentRoute: () => PlayRoute,
+} as any)
+const PlayCatalogRoute = PlayCatalogRouteImport.update({
+  id: '/_catalog',
   getParentRoute: () => PlayRoute,
 } as any)
 const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
@@ -186,16 +181,32 @@ const AdminDdaysRoute = AdminDdaysRouteImport.update({
   path: '/ddays',
   getParentRoute: () => AdminRoute,
 } as any)
-const PlaySongsIndexRoute = PlaySongsIndexRouteImport.update({
+const PlayMemberSubmitRoute = PlayMemberSubmitRouteImport.update({
+  id: '/submit',
+  path: '/submit',
+  getParentRoute: () => PlayMemberRoute,
+} as any)
+const PlayMemberSubmissionsRoute = PlayMemberSubmissionsRouteImport.update({
+  id: '/submissions',
+  path: '/submissions',
+  getParentRoute: () => PlayMemberRoute,
+} as any)
+const PlayCatalogSongsRoute = PlayCatalogSongsRouteImport.update({
+  id: '/songs',
+  path: '/songs',
+  getParentRoute: () => PlayCatalogRoute,
+} as any)
+const PlayCatalogSongsIndexRoute = PlayCatalogSongsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => PlaySongsRoute,
+  getParentRoute: () => PlayCatalogSongsRoute,
 } as any)
-const PlaySongsSongSlugRoute = PlaySongsSongSlugRouteImport.update({
-  id: '/$songSlug',
-  path: '/$songSlug',
-  getParentRoute: () => PlaySongsRoute,
-} as any)
+const PlayCatalogSongsSongSlugRoute =
+  PlayCatalogSongsSongSlugRouteImport.update({
+    id: '/$songSlug',
+    path: '/$songSlug',
+    getParentRoute: () => PlayCatalogSongsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -220,15 +231,15 @@ export interface FileRoutesByFullPath {
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/play/discover': typeof PlayDiscoverRoute
-  '/play/songs': typeof PlaySongsRouteWithChildren
-  '/play/submissions': typeof PlaySubmissionsRoute
-  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
-  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
-  '/play/songs/': typeof PlaySongsIndexRoute
+  '/play/songs': typeof PlayCatalogSongsRouteWithChildren
+  '/play/submissions': typeof PlayMemberSubmissionsRoute
+  '/play/submit': typeof PlayMemberSubmitRoute
+  '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/songs/': typeof PlayCatalogSongsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -249,15 +260,15 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play': typeof PlayIndexRoute
   '/play/discover': typeof PlayDiscoverRoute
-  '/play/submissions': typeof PlaySubmissionsRoute
-  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
-  '/play': typeof PlayIndexRoute
   '/vods': typeof VodsIndexRoute
-  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
-  '/play/songs': typeof PlaySongsIndexRoute
+  '/play/submissions': typeof PlayMemberSubmissionsRoute
+  '/play/submit': typeof PlayMemberSubmitRoute
+  '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/songs': typeof PlayCatalogSongsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -282,16 +293,18 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
+  '/play/_catalog': typeof PlayCatalogRouteWithChildren
+  '/play/_member': typeof PlayMemberRouteWithChildren
   '/play/discover': typeof PlayDiscoverRoute
-  '/play/songs': typeof PlaySongsRouteWithChildren
-  '/play/submissions': typeof PlaySubmissionsRoute
-  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
-  '/play/songs/$songSlug': typeof PlaySongsSongSlugRoute
-  '/play/songs/': typeof PlaySongsIndexRoute
+  '/play/_catalog/songs': typeof PlayCatalogSongsRouteWithChildren
+  '/play/_member/submissions': typeof PlayMemberSubmissionsRoute
+  '/play/_member/submit': typeof PlayMemberSubmitRoute
+  '/play/_catalog/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/_catalog/songs/': typeof PlayCatalogSongsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -318,13 +331,13 @@ export interface FileRouteTypes {
     | '/admin/snapshot'
     | '/admin/youtube-cache'
     | '/play/discover'
-    | '/play/songs'
-    | '/play/submissions'
-    | '/play/submit'
     | '/profile/$code'
     | '/admin/'
     | '/play/'
     | '/vods/'
+    | '/play/songs'
+    | '/play/submissions'
+    | '/play/submit'
     | '/play/songs/$songSlug'
     | '/play/songs/'
   fileRoutesByTo: FileRoutesByTo
@@ -347,13 +360,13 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play'
     | '/play/discover'
-    | '/play/submissions'
-    | '/play/submit'
     | '/profile/$code'
     | '/admin'
-    | '/play'
     | '/vods'
+    | '/play/submissions'
+    | '/play/submit'
     | '/play/songs/$songSlug'
     | '/play/songs'
   id:
@@ -379,16 +392,18 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
+    | '/play/_catalog'
+    | '/play/_member'
     | '/play/discover'
-    | '/play/songs'
-    | '/play/submissions'
-    | '/play/submit'
     | '/profile/$code'
     | '/admin/'
     | '/play/'
     | '/vods/'
-    | '/play/songs/$songSlug'
-    | '/play/songs/'
+    | '/play/_catalog/songs'
+    | '/play/_member/submissions'
+    | '/play/_member/submit'
+    | '/play/_catalog/songs/$songSlug'
+    | '/play/_catalog/songs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -513,32 +528,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/play/submit': {
-      id: '/play/submit'
-      path: '/submit'
-      fullPath: '/play/submit'
-      preLoaderRoute: typeof PlaySubmitRouteImport
-      parentRoute: typeof PlayRoute
-    }
-    '/play/submissions': {
-      id: '/play/submissions'
-      path: '/submissions'
-      fullPath: '/play/submissions'
-      preLoaderRoute: typeof PlaySubmissionsRouteImport
-      parentRoute: typeof PlayRoute
-    }
-    '/play/songs': {
-      id: '/play/songs'
-      path: '/songs'
-      fullPath: '/play/songs'
-      preLoaderRoute: typeof PlaySongsRouteImport
-      parentRoute: typeof PlayRoute
-    }
     '/play/discover': {
       id: '/play/discover'
       path: '/discover'
       fullPath: '/play/discover'
       preLoaderRoute: typeof PlayDiscoverRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/_member': {
+      id: '/play/_member'
+      path: ''
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayMemberRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/_catalog': {
+      id: '/play/_catalog'
+      path: ''
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayCatalogRouteImport
       parentRoute: typeof PlayRoute
     }
     '/admin/youtube-cache': {
@@ -611,19 +619,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDdaysRouteImport
       parentRoute: typeof AdminRoute
     }
-    '/play/songs/': {
-      id: '/play/songs/'
+    '/play/_member/submit': {
+      id: '/play/_member/submit'
+      path: '/submit'
+      fullPath: '/play/submit'
+      preLoaderRoute: typeof PlayMemberSubmitRouteImport
+      parentRoute: typeof PlayMemberRoute
+    }
+    '/play/_member/submissions': {
+      id: '/play/_member/submissions'
+      path: '/submissions'
+      fullPath: '/play/submissions'
+      preLoaderRoute: typeof PlayMemberSubmissionsRouteImport
+      parentRoute: typeof PlayMemberRoute
+    }
+    '/play/_catalog/songs': {
+      id: '/play/_catalog/songs'
+      path: '/songs'
+      fullPath: '/play/songs'
+      preLoaderRoute: typeof PlayCatalogSongsRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
+    '/play/_catalog/songs/': {
+      id: '/play/_catalog/songs/'
       path: '/'
       fullPath: '/play/songs/'
-      preLoaderRoute: typeof PlaySongsIndexRouteImport
-      parentRoute: typeof PlaySongsRoute
+      preLoaderRoute: typeof PlayCatalogSongsIndexRouteImport
+      parentRoute: typeof PlayCatalogSongsRoute
     }
-    '/play/songs/$songSlug': {
-      id: '/play/songs/$songSlug'
+    '/play/_catalog/songs/$songSlug': {
+      id: '/play/_catalog/songs/$songSlug'
       path: '/$songSlug'
       fullPath: '/play/songs/$songSlug'
-      preLoaderRoute: typeof PlaySongsSongSlugRouteImport
-      parentRoute: typeof PlaySongsRoute
+      preLoaderRoute: typeof PlayCatalogSongsSongSlugRouteImport
+      parentRoute: typeof PlayCatalogSongsRoute
     }
   }
 }
@@ -658,33 +687,56 @@ const AdminRouteChildren: AdminRouteChildren = {
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
-interface PlaySongsRouteChildren {
-  PlaySongsSongSlugRoute: typeof PlaySongsSongSlugRoute
-  PlaySongsIndexRoute: typeof PlaySongsIndexRoute
+interface PlayCatalogSongsRouteChildren {
+  PlayCatalogSongsSongSlugRoute: typeof PlayCatalogSongsSongSlugRoute
+  PlayCatalogSongsIndexRoute: typeof PlayCatalogSongsIndexRoute
 }
 
-const PlaySongsRouteChildren: PlaySongsRouteChildren = {
-  PlaySongsSongSlugRoute: PlaySongsSongSlugRoute,
-  PlaySongsIndexRoute: PlaySongsIndexRoute,
+const PlayCatalogSongsRouteChildren: PlayCatalogSongsRouteChildren = {
+  PlayCatalogSongsSongSlugRoute: PlayCatalogSongsSongSlugRoute,
+  PlayCatalogSongsIndexRoute: PlayCatalogSongsIndexRoute,
 }
 
-const PlaySongsRouteWithChildren = PlaySongsRoute._addFileChildren(
-  PlaySongsRouteChildren,
+const PlayCatalogSongsRouteWithChildren =
+  PlayCatalogSongsRoute._addFileChildren(PlayCatalogSongsRouteChildren)
+
+interface PlayCatalogRouteChildren {
+  PlayCatalogSongsRoute: typeof PlayCatalogSongsRouteWithChildren
+}
+
+const PlayCatalogRouteChildren: PlayCatalogRouteChildren = {
+  PlayCatalogSongsRoute: PlayCatalogSongsRouteWithChildren,
+}
+
+const PlayCatalogRouteWithChildren = PlayCatalogRoute._addFileChildren(
+  PlayCatalogRouteChildren,
+)
+
+interface PlayMemberRouteChildren {
+  PlayMemberSubmissionsRoute: typeof PlayMemberSubmissionsRoute
+  PlayMemberSubmitRoute: typeof PlayMemberSubmitRoute
+}
+
+const PlayMemberRouteChildren: PlayMemberRouteChildren = {
+  PlayMemberSubmissionsRoute: PlayMemberSubmissionsRoute,
+  PlayMemberSubmitRoute: PlayMemberSubmitRoute,
+}
+
+const PlayMemberRouteWithChildren = PlayMemberRoute._addFileChildren(
+  PlayMemberRouteChildren,
 )
 
 interface PlayRouteChildren {
+  PlayCatalogRoute: typeof PlayCatalogRouteWithChildren
+  PlayMemberRoute: typeof PlayMemberRouteWithChildren
   PlayDiscoverRoute: typeof PlayDiscoverRoute
-  PlaySongsRoute: typeof PlaySongsRouteWithChildren
-  PlaySubmissionsRoute: typeof PlaySubmissionsRoute
-  PlaySubmitRoute: typeof PlaySubmitRoute
   PlayIndexRoute: typeof PlayIndexRoute
 }
 
 const PlayRouteChildren: PlayRouteChildren = {
+  PlayCatalogRoute: PlayCatalogRouteWithChildren,
+  PlayMemberRoute: PlayMemberRouteWithChildren,
   PlayDiscoverRoute: PlayDiscoverRoute,
-  PlaySongsRoute: PlaySongsRouteWithChildren,
-  PlaySubmissionsRoute: PlaySubmissionsRoute,
-  PlaySubmitRoute: PlaySubmitRoute,
   PlayIndexRoute: PlayIndexRoute,
 }
 

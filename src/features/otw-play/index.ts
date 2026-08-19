@@ -27,6 +27,9 @@ export * from "./queries/use-admin-catalog";
 export { OtwPlayCatalogManager } from "./ui/admin/catalog-manager";
 export * from "./api/submissions";
 export * from "./queries/use-member-submissions";
-export { OtwPlayMemberShell } from "./ui/member/member-shell";
+export {
+  OtwPlayMemberHome,
+  OtwPlayMemberShell,
+} from "./ui/member/member-shell";
 export { OtwPlaySubmissionPage } from "./ui/member/submission-page";
 export { OtwPlaySubmissionsPage } from "./ui/member/submissions-page";

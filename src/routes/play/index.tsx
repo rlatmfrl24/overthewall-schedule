@@ -1,8 +1,27 @@
+import { useUser } from "@clerk/clerk-react";
 import { createFileRoute } from "@tanstack/react-router";
-import { OtwPlayHomePage } from "@/features/otw-play";
+import { isAdminUser } from "@/app/admin";
+import {
+  OtwPlayHomePage,
+  OtwPlayMemberHome,
+  OtwPlayMemberShell,
+  OtwPlayShell,
+} from "@/features/otw-play";
 
 export const Route = createFileRoute("/play/")({ component: RouteComponent });
 
 function RouteComponent() {
-  return <OtwPlayHomePage />;
+  const { isLoaded, isSignedIn, user } = useUser();
+  if (isLoaded && isSignedIn && !isAdminUser(user?.id)) {
+    return (
+      <OtwPlayMemberShell>
+        <OtwPlayMemberHome />
+      </OtwPlayMemberShell>
+    );
+  }
+  return (
+    <OtwPlayShell>
+      <OtwPlayHomePage />
+    </OtwPlayShell>
+  );
 }
