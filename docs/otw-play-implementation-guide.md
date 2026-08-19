@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-6 공개 UI·단일 player 구현 중, GATE-01 fail-closed 기준선
+상태: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 중
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -15,9 +15,10 @@
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-6 공개 Discover·Catalog·곡 상세, 기존 public API의 participant/groupKey 호환
-추가와 Play-scoped 단일 YouTube player다. DB migration, 관리자·회원 command,
-저장 플레이리스트, SEO, production flag 변경, 배포와 원격 적용은 포함하지 않는다.
+PR-6 공개 Discover·Catalog·곡 상세, participant/groupKey 호환과 Play-scoped 단일
+YouTube player까지 완료되었다. 현재 단계는 회원 제출, 내 제안과 관리자
+승인·published catalog 반영 E2E다. 저장 플레이리스트, SEO, production flag 변경,
+배포와 원격 적용은 포함하지 않는다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -53,18 +54,19 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 
 | ID      | 확인 항목                            | 필요 시점               | 기본 권장안                                      |
 | ------- | ------------------------------------ | ----------------------- | ------------------------------------------------ |
-| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 관리자 등록·승인 API 전 | 승인된 공식 채널 + 실제 가창 credit 확인         |
+| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 해결됨                  | DEC-044 `official_cover_v1`                      |
 | GATE-02 | 초기 입력 대상 곡·멤버               | 운영 데이터 입력 전     | 그룹별 대표 5–10곡으로 검증                      |
 | GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전     | 기록 보존, 현재 화면은 external 표시             |
 | GATE-04 | 회원 제안 수정·철회                  | 해당 command 구현 전    | pending_review에서만 허용                        |
-| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 내 제안 UI 전           | 코드별 안전한 메시지로 노출, 내부 세부 정보 제외 |
-| GATE-06 | 회원별 제출 제한                     | 제출 API 전             | 설정 가능한 일일 제한 + edge burst 제한          |
+| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
+| GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-PR-3 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 변경하지 않는다.
+GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로 PR-7에 회원
+수정·철회 command나 control을 만들지 않는다.
 
 ## 3. 전달 전략
 
@@ -832,6 +834,10 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 
 로그인 회원의 공식 커버 제안이 비공개 상태로 저장되고 관리자 승인 후만 공개된다.
 
+`/play` parent는 중립 Outlet으로 두고 catalog/player는 관리자 preview shell,
+`/play/submit`과 `/play/submissions`는 JWT member shell로 분리한다. 회원 route는
+public config·catalog·player query를 시작하지 않는다.
+
 ### 주요 touchpoint
 
 - `worker/features/otw-play/application/submit-cover-proposal.ts`
@@ -854,6 +860,11 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 6. YouTube 최신 metadata 검증
 7. CAS + conditional insert + publish/event/revision batch
 8. 승인·거절 authoritative readback
+
+회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
+권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
+보조하며 edge 실패가 D1 제한을 우회하지 않는다. 반려 DTO는 상태만 제공하고
+내부 review code·note·reviewer를 포함하지 않는다.
 
 ### 보안·무결성 테스트
 

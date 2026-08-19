@@ -2,9 +2,9 @@
 
 상태: Living Draft
 
-단계: PR-6 공개 Discover·Catalog·곡 상세와 단일 player 구현 중, proposal approve는 GATE-01 확정 대기
+단계: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 중
 
-최종 갱신일: 2026-08-18
+최종 갱신일: 2026-08-19
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -95,6 +95,9 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-040 | 데스크톱 우측 player rail은 화면 높이에 따라 정보를 압축하되 iframe과 queue 조작 가능성을 함께 보존한다. | 확정 | 높이 720px 미만에서는 게시 채널 출처 행을 먼저 숨기고 참여자 identity와 이름은 한 줄 말줄임으로 유지한다. 참여자 옆 YouTube·곡 상세 action과 iframe 200px, queue 최소 144px은 보존한다. 높이 640px 미만은 단일 iframe을 계속 보인 채 `현재 재생`과 `플레이큐` 상세 영역을 전환하며, 전환은 pause·재마운트·두 번째 iframe을 만들지 않는다. rail과 queue는 `min-height: 0` 내부 스크롤 경계를 가진다. |
 | DEC-041 | 640–1279px에서 전체 `Now Playing`을 닫으면 같은 player를 우측 하단 visible miniplayer로 축소한다. | 확정 | miniplayer는 216px card 안에 200×200px 단일 iframe과 곡명·play/pause·전체 화면 확장 action을 제공한다. 카탈로그 복귀, full↔mini 전환과 queue 항목 변경은 pause·자동 resume·host 재마운트를 만들지 않는다. 폭이 640px 미만으로 줄어들면 전체 player를 다시 열어 숨은 재생을 막고, 그 폭에서 카탈로그 복귀는 기존처럼 pause 후 launcher를 표시한다. 1280px 이상 rail과 `/play` 이탈 stop·destroy는 유지한다. |
 | DEC-042 | player metadata는 곡명 다음에 참여자 identity와 곡 관련 action을 우선하고 게시 채널은 보조 출처로 분리한다. | 확정 | 현재 멤버는 권위 profile image와 이름, 외부 인물은 중립 person icon, 그룹은 group icon으로 표시한다. YouTube 외부 링크와 곡 상세 action은 참여자 이름 옆에 둔다. 게시 채널은 transport 아래에 YouTube icon·`게시 채널` label·channel 이름만 표시하며 참여자 profile image를 channel avatar처럼 재사용하지 않는다. 긴 참여자·channel 이름은 한 줄 말줄임과 title을 제공한다. |
+| DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버만 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 제출 단계에서는 YouTube API를 호출하거나 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
+| DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
+| DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회는 GATE-04가 확정될 때까지 만들지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -572,11 +575,11 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | TBD-010 | 공식 커버곡으로 인정할 채널과 영상 기준 | 승인된 공식 채널과 실제 가창 참여 크레딧 기준 권장 |
 | TBD-011 | 전 소속 멤버의 과거 OTW 공식곡 포함 범위 | 현재 표시 정책과 별도로 카탈로그 보존 범위 결정 필요 |
 | TBD-012 | 회원이 승인 전 제안을 수정하거나 철회할 수 있는지 | `pending_review` 상태에서만 허용 권장 |
-| TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | 사이트 내 상태 표시를 MVP 기본값으로 권장 |
-| TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | 일일 제한과 동일 영상 중복 차단 검토 |
+| TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | DEC-045로 해결: 상태와 일반 문의 안내만 표시, 내부 code·note 비공개 |
+| TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | DEC-045로 해결: KST 일 5회, edge 60초당 3회, 동일 pending/catalog video 차단 |
 
-기존 TBD-002는 DEC-019로 해결되었다. TBD-001·003·006·007·008은 DEC-029로
-해결되었다. 공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태
+기존 TBD-002는 DEC-019로 해결되었다. TBD-001·003·006·007·008은 DEC-029로,
+TBD-013·014는 DEC-045로 해결되었다. 공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태
 변경은 관리자 권한을 사용한다.
 
 ## 17. 변경 관리
@@ -632,6 +635,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | 2026-08-19 | DEC-040 낮은 데스크톱 화면 대응. 640–719px에서는 player 정보를 압축해 queue 최소 높이를 보장하고, 640px 미만에서는 iframe을 계속 보인 채 현재 재생 정보와 플레이큐를 전환해 queue가 화면 밖으로 밀리지 않도록 함 |
 | 2026-08-19 | DEC-040·041 정보 우선순위와 태블릿 재생 지속 보완. 높이 720px 미만에서는 참여자를 유지하고 게시자 identity만 먼저 숨기며, 640–1279px 카탈로그 복귀는 같은 200×200px iframe의 우측 하단 miniplayer로 전환하도록 확정 |
 | 2026-08-19 | DEC-042 player identity 계층 보완. 참여자 profile/name과 YouTube·곡 상세 action을 한 행에 모으고, 게시 채널은 transport 아래의 작은 출처 표기로 낮춰 가창자와 업로드 주체를 분리 |
+| 2026-08-19 | DEC-043~045 회원 공식 커버 제안 E2E 확정. 회원 전용 private route, `official_cover_v1` 승인 정책, KST 일 5회·edge 분 3회 제한과 반려 상태만 공개하는 경계를 채택하고 GATE-01·05·06을 해결 |
 
 ## 19. 참고
 

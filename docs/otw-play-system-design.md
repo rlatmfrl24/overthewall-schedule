@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-6 공개 UI·단일 player 구현 기준선
+상태: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 기준선
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -659,9 +659,10 @@ expiry는 둘 다 NULL이거나 둘 다 존재해야 한다.
 | `withdrawn`      | NULL            | NULL          | NULL        | NULL                 |
 
 GATE-04가 확정되기 전에는 `withdrawn` 값을 schema에만 보존하고 회원 수정·철회
-command나 전이를 구현하지 않는다. GATE-05가 확정되기 전에는 result code를
-비공개 자유 텍스트로만 저장하며 회원 노출 vocabulary로 사용하지 않는다. DB
-열은 nullable로 유지하되 후속 reject command는 non-empty 사유 입력을 요구한다.
+command나 전이를 구현하지 않는다. GATE-05는 DEC-045로 해결되었으며 회원 DTO는
+`rejected` 상태와 일반 안내만 제공하고 `review_result_code`, `review_note`, reviewer와
+lock 정보를 노출하지 않는다. DB 열은 nullable로 유지하며 reject command는 관리자
+내부 기록을 위한 non-empty 사유 입력을 계속 요구한다.
 
 조회 index는 `(status, created_at, id)`, `(submitted_by_user_id, created_at DESC,
 id)`, `(reviewed_by_user_id, reviewed_at DESC, id) WHERE reviewed_by_user_id IS NOT
@@ -1101,10 +1102,13 @@ key, gram/stat, event와 catalog/read-model revision은 같은 D1 batch에서 �
 PR-5 관리자 고정 오류 code는 `PLAY_ADMIN_INVALID_REQUEST`,
 `PLAY_ADMIN_NOT_FOUND`, `PLAY_ADMIN_STALE_WRITE`,
 `PLAY_ADMIN_DUPLICATE_SOURCE`,
-`PLAY_ADMIN_VALIDATION_FAILED`, `PLAY_ADMIN_POLICY_UNRESOLVED`,
+`PLAY_ADMIN_VALIDATION_FAILED`,
 `PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE`, `PLAY_ADMIN_INTERNAL_ERROR`다.
-GATE-01 미확정 상태의 proposal approve만 policy-unresolved 409를 반환하며 draft
-catalog command와 제안 거절까지 함께 막지 않는다.
+proposal approve는 DEC-044의 `official_cover_v1` 정책을 적용한다. 승인·활성 상태의
+`otw_official|unit_official|member_music|member_main|project_official` channel, 최신
+YouTube video/channel·playable 일치와 `singingCreditConfirmed=true`를 모두 요구한다.
+하나라도 충족하지 않으면 proposal은 `pending_review`에 남고 catalog row·event·revision을
+생성하지 않는다.
 
 ### 8.4 오류 계약
 
@@ -1391,8 +1395,11 @@ command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cac
 1. Cloudflare rate limiting 또는 WAF: 짧은 burst 억제
 2. D1: 사용자별 일일 제출 수와 exact duplicate의 권위 검사
 
-일일 제한 숫자는 TBD-014가 확정될 때 setting으로 정하며 코드 상수로 고정하지
-않는다. edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 않는다.
+회원 제출은 `settings.otw_play_submission_daily_limit`의 권위값을 읽으며 초기값은
+DEC-045에 따라 `5`다. KST 자정 경계에서 모든 proposal 상태를 합산하고, 별도의
+Cloudflare Rate Limiting binding이 사용자 ID별 60초당 3회 burst를 제한한다. setting
+누락·손상, D1 또는 edge limiter 실패는 제한을 우회하지 않고 `503`으로 닫는다.
+edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 않는다.
 
 ## 13. 실패 처리
 

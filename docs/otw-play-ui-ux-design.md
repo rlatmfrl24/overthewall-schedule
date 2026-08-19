@@ -49,7 +49,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | 플레이어 유지 범위 | `/play/*` 안에서만 유지, 다른 제품 영역 이동 시 정지 | nested layout과 player store |
 | 대기열 복원 | `sessionStorage`에 현재 세션만 복원 | 저장 플레이리스트와 명확히 분리 |
 | 외부 참여자 | 검색·필터에는 포함, 별도 공개 프로필은 만들지 않음 | detail route 범위 |
-| 제안 수정·철회 | `pending_review`일 때만 허용하는 방향, 첫 출시 여부는 단계별 결정 | command와 감사 이력 |
+| 제안 수정·철회 | PR-7에서는 제공하지 않음 | GATE-04 확정 전 command와 control을 만들지 않음 |
 
 ## 3. 경험 원칙
 
@@ -396,7 +396,7 @@ stateDiagram-v2
 3. **검토 후 제출**: 입력한 곡·원곡 가수·참여자와 video ID·썸네일 확인,
    승인 전 비공개 및 관리자 검수 항목 안내, 제출
 
-회원 제출 시 YouTube Data API를 필수 호출하지 않는다. 캐시된 metadata가 있으면
+회원 제출 시 YouTube Data API를 호출하지 않는다. 캐시된 metadata가 있으면
 보조 정보로만 보여주고, 없더라도 유효한 video ID 형식과 D1 중복 검사를 통과하면
 제출할 수 있다. 실제 공개 상태, 공식 채널, 공개일과 embed 가능 여부는 관리자
 승인 단계에서 최신 metadata로 검증한다. 형식 오류, exact duplicate와 제출 제한은
@@ -410,11 +410,13 @@ stateDiagram-v2
 | --- | --- | --- |
 | `pending_review` | 검토 대기 | 관리자 확인 전이며 공개되지 않음 |
 | `approved` | 승인·게시됨 | 연결된 공개 곡으로 이동 |
-| `rejected` | 반려 | 공개되지 않으며 제공 가능한 사유 표시 |
-| `withdrawn` | 철회 | 본인이 검토 전에 철회한 경우에만 사용 |
+| `rejected` | 반려 | 공개되지 않으며 내부 사유 대신 일반 문의 안내 표시 |
+| `withdrawn` | 철회 | 기존 데이터만 표시하며 PR-7에는 철회 control 없음 |
 
-다른 회원의 제안 존재 여부나 내용은 노출하지 않는다. 중복 안내는 `이미 등록되어
-있음` 또는 `검토 중인 동일 영상이 있음` 정도로 제한한다.
+다른 회원의 제안 ID·제출자·내용은 노출하지 않는다. 중복 안내는 `이미 등록되어
+있음` 또는 `검토 중인 동일 영상이 있음` 정도로 제한한다. 로그인 비관리자에게는
+공개 Play flag와 무관하게 콘텐츠 메뉴의 `곡 제안` 진입점을 제공하고, member shell은
+catalog config·player 요청을 시작하지 않는다.
 
 ## 11. 관리자 UI
 
@@ -492,9 +494,10 @@ dialog, 현재 단계와 모든 입력값을 유지한다.
 
 PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
 접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative
-readback을 다시 표시하고 optimistic removal은 하지 않는다. GATE-01 미확정 상태에는
-검수 대기 제안과 YouTube 원본 링크를 계속 제공하되 승인 control은 사유를 표시한
-disabled 상태로 유지하고, 거절은 내부 사유 code가 있어야 실행한다.
+readback을 다시 표시하고 optimistic removal은 하지 않는다. PR-7에서는
+검수 대기 제안과 YouTube 원본 링크를 제공한다. 승인 control은 DEC-044의 승인·활성
+공식 채널, 최신 metadata, 곡·원곡 가수·참여자와 실제 가창 credit 확인이 모두 끝난
+뒤 활성화하고, 거절은 내부 사유 code가 있어야 실행한다.
 
 카탈로그의 draft·withdrawn 가창에는 `삭제`를 제공한다. 곡 단위 삭제는 연결된
 가창에 현재 published가 없을 때 활성화한다. 삭제 전 confirm dialog에는 되돌릴 수
