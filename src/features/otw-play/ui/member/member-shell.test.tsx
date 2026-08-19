@@ -40,7 +40,10 @@ describe("OtwPlayMemberShell", () => {
     render(<OtwPlayMemberShell><div>member content</div></OtwPlayMemberShell>);
 
     expect(screen.getByText("member content")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "제안하기" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "내 제안" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "OTW Play" }).getAttribute("href")).toBe("/play/submit");
+    expect(screen.getByRole("button", { name: "곡 제안 메뉴" })).toBeTruthy();
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByText("발견")).toBeNull();
+    expect(screen.queryByText("곡 검색")).toBeNull();
   });
 });

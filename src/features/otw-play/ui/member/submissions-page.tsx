@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { LoaderCircle } from "lucide-react";
+import { ListPlus, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import type { OtwPlayMemberSubmissionStatus } from "@contracts/otw-play";
 import { Badge } from "@/shared/ui/badge";
@@ -21,6 +21,31 @@ export function OtwPlaySubmissionsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const detail = useMyOtwPlaySubmission(selectedId);
 
+  if (list.isPending) {
+    return (
+      <div className="flex min-h-80 items-center justify-center" aria-busy="true">
+        <LoaderCircle className="mr-2 size-5 animate-spin" /> 내 제안을 불러오는 중
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="mx-auto flex min-h-96 w-full max-w-3xl items-center p-4 sm:p-8">
+        <section className="w-full rounded-2xl border bg-card p-8 text-center shadow-sm">
+          <ListPlus className="mx-auto size-10 text-muted-foreground" />
+          <h1 className="mt-4 text-2xl font-bold">아직 제출한 제안이 없습니다</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            OTW 멤버가 참여한 공식 커버 영상을 알고 있다면 첫 제안을 보내주세요.
+          </p>
+          <Button asChild className="mt-6">
+            <Link to="/play/submit">첫 곡 제안하기</Link>
+          </Button>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-5 p-4 py-8 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)] md:p-8">
       <section className="space-y-4">
@@ -28,12 +53,6 @@ export function OtwPlaySubmissionsPage() {
           <h1 className="text-2xl font-bold">내 곡 제안</h1>
           <p className="mt-1 text-sm text-muted-foreground">수정·철회 기능은 정책 확정 전까지 제공하지 않습니다.</p>
         </div>
-        {list.isPending ? <LoaderCircle className="animate-spin" /> : null}
-        {items.length === 0 && !list.isPending ? (
-          <div className="rounded-xl border bg-card p-7 text-center text-sm text-muted-foreground">
-            아직 제출한 제안이 없습니다.
-          </div>
-        ) : null}
         <div className="space-y-2">
           {items.map((item) => (
             <button

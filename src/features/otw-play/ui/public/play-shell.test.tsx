@@ -12,8 +12,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
-    <a href={to}>{children}</a>
+  Link: React.forwardRef<HTMLAnchorElement, { children: React.ReactNode; to: string } & React.AnchorHTMLAttributes<HTMLAnchorElement>>(
+    ({ children, to, ...props }, ref) => <a ref={ref} href={to} {...props}>{children}</a>,
   ),
   useNavigate: () => mocks.navigate,
 }));
@@ -110,6 +110,7 @@ describe("OtwPlayShell config gate", () => {
     expect(mocks.useConfig).toHaveBeenCalledWith({ adminPreview: true });
     expect(screen.getByRole("link", { name: "발견" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "곡 제안 메뉴" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "홈" })).toBeNull();
     expect(screen.queryByRole("link", { name: "전체 곡" })).toBeNull();
     expect(screen.queryByRole("link", { name: "오리지널" })).toBeNull();
@@ -126,6 +127,20 @@ describe("OtwPlayShell config gate", () => {
     });
     expect(screen.getByTestId("otw-play-app-frame").className).toContain("overflow-hidden");
     expect(screen.getByTestId("otw-play-content-scroll").className).toContain("overflow-y-auto");
+  });
+
+  it("opens the integrated contribution menu with keyboard navigation", async () => {
+    mocks.useConfig.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: { data: { publicReadEnabled: false, navigationVisible: false } },
+    });
+    render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
+
+    const trigger = screen.getByRole("button", { name: "곡 제안 메뉴" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    expect(await screen.findByRole("menuitem", { name: "새 곡 제안" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "내 제안" })).toBeTruthy();
   });
 
   it("mounts the nested public experience only after the config gate opens", () => {

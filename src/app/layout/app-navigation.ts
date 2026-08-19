@@ -8,7 +8,6 @@ import {
   MessageSquareText,
   MonitorPlay,
   Music2,
-  ListPlus,
   Shield,
   Video,
   type LucideIcon,
@@ -157,26 +156,15 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
-        ...(isAdmin && otwPlayVisible
+        ...((isAdmin && otwPlayVisible) || (!isAdmin && isSignedIn)
           ? [
               {
                 id: "otw-play",
                 label: "OTW Play",
                 icon: Music2,
                 group: "content" as const,
-                to: "/play" as const,
-              },
-            ]
-          : []),
-        ...(!isAdmin && isSignedIn
-          ? [
-              {
-                id: "otw-play-submit",
-                label: "곡 제안",
-                icon: ListPlus,
-                group: "content" as const,
-                to: "/play/submit" as const,
-                requiresAuth: true,
+                to: (isAdmin ? "/play" : "/play/submit") as InternalNavTo,
+                requiresAuth: !isAdmin || undefined,
               },
             ]
           : []),
@@ -263,6 +251,9 @@ export function isNavItemActive(pathname: string, item: NavItem) {
   const current = pathname.replace(/\/+$/, "") || "/";
   const target = item.to.replace(/\/+$/, "") || "/";
 
+  if (item.id === "otw-play") {
+    return current === "/play" || current.startsWith("/play/");
+  }
   if (target === "/") return current === "/";
   return current === target || current.startsWith(`${target}/`);
 }

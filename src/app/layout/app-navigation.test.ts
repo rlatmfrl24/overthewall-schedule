@@ -117,7 +117,7 @@ describe("app navigation", () => {
     expect(multiviewItem?.to).toBe("/multiview");
   });
 
-  it("shows OTW Play only to admins when the navigation gate is open", () => {
+  it("shows the catalog OTW Play entry only to admins when the navigation gate is open", () => {
     const hidden = getPublicNavigationSections({
       isAdmin: false,
       memberPosts: { visible: false, requiresAuth: false },
@@ -144,7 +144,7 @@ describe("app navigation", () => {
     ).toBe("/play");
   });
 
-  it("shows the member submission entry only to signed-in non-admin members", () => {
+  it("uses one OTW Play entry for signed-in members and admins", () => {
     const signedOut = getPublicNavigationSections({
       isAdmin: false,
       isSignedIn: false,
@@ -164,13 +164,28 @@ describe("app navigation", () => {
     const items = (sections: typeof member) =>
       sections.flatMap((section) => section.items);
 
-    expect(items(signedOut).some(({ id }) => id === "otw-play-submit")).toBe(false);
-    expect(items(member).find(({ id }) => id === "otw-play-submit")).toMatchObject({
+    expect(items(signedOut).some(({ id }) => id === "otw-play")).toBe(false);
+    expect(items(member).find(({ id }) => id === "otw-play")).toMatchObject({
+      label: "OTW Play",
       to: "/play/submit",
       requiresAuth: true,
     });
+    expect(items(member).some(({ id }) => id === "otw-play-submit")).toBe(false);
+    expect(items(admin).filter(({ id }) => id === "otw-play")).toHaveLength(1);
     expect(items(admin).some(({ id }) => id === "otw-play-submit")).toBe(false);
-    expect(items(admin).some(({ id }) => id === "otw-play")).toBe(true);
+    expect(items(admin).find(({ id }) => id === "otw-play")?.to).toBe("/play");
+  });
+
+  it("keeps the unified OTW Play item active across proposal routes", () => {
+    const member = getPublicNavigationSections({
+      isAdmin: false,
+      isSignedIn: true,
+      memberPosts: { visible: false, requiresAuth: false },
+    }).flatMap((section) => section.items).find(({ id }) => id === "otw-play");
+
+    expect(member).toBeDefined();
+    expect(isNavItemActive("/play/submit", member!)).toBe(true);
+    expect(isNavItemActive("/play/submissions", member!)).toBe(true);
   });
 
   it("matches nested route active states", () => {
