@@ -117,6 +117,8 @@ describe("OtwPlaySubmissionPage", () => {
   it("shows the canonical video preview and blocks a duplicate without losing the URL", async () => {
     mocks.preflight.mockResolvedValueOnce({ ...preflight, duplicate: "pending" });
     renderPage();
+    expect(screen.getByText("노래 영상 추가 제안")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "OTW Play로 돌아가기" }).getAttribute("href")).toBe("/play");
     fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });

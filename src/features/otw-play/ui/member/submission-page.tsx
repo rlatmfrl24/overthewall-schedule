@@ -444,7 +444,10 @@ export function OtwPlaySubmissionPage() {
 
   if (success) {
     return (
-      <div className="mx-auto flex w-full max-w-3xl items-center p-4 py-10 sm:p-8">
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-4 p-4 py-10 sm:p-8">
+        <Button asChild variant="ghost" size="sm" className="-ml-2">
+          <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+        </Button>
         <section className="w-full rounded-2xl border bg-card p-6 text-center shadow-sm sm:p-10">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
           <p className="mt-4 text-sm font-medium text-primary">곡 제안 접수 완료</p>
@@ -461,8 +464,11 @@ export function OtwPlaySubmissionPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-4 py-7 sm:p-8">
+      <Button asChild variant="ghost" size="sm" className="-ml-2">
+        <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+      </Button>
       <div>
-        <p className="text-sm font-medium text-primary">회원 공식 커버 제안</p>
+        <p className="text-sm font-medium text-primary">노래 영상 추가 제안</p>
         <h1 ref={headingRef} tabIndex={-1} className="mt-1 text-2xl font-bold outline-none">{steps[step]}</h1>
         <p className="mt-2 text-sm text-muted-foreground">공식 커버 영상만 접수하며, 제출 내용은 관리자 승인 전까지 비공개입니다.</p>
       </div>
