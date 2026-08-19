@@ -34,4 +34,28 @@ describe("OtwPlaySubmissionsPage", () => {
     expect(screen.getByRole("link", { name: "첫 곡 제안하기" }).getAttribute("href")).toBe("/play/submit");
     expect(screen.queryByText("목록에서 제안을 선택하세요.")).toBeNull();
   });
+
+  it("does not show detail loading before a proposal is selected", () => {
+    mocks.list.mockReturnValue({
+      isPending: false,
+      data: {
+        pages: [{
+          items: [{
+            id: "proposal-one",
+            title: "테스트 제안",
+            status: "pending_review",
+            createdAt: 1,
+          }],
+          nextCursor: null,
+        }],
+      },
+      hasNextPage: false,
+    });
+    mocks.detail.mockReturnValue({ isPending: true, data: null });
+
+    const { container } = render(<OtwPlaySubmissionsPage />);
+
+    expect(screen.getByText("목록에서 제안을 선택하세요.")).toBeTruthy();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
 });

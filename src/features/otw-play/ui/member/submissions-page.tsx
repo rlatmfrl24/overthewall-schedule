@@ -85,7 +85,7 @@ export function OtwPlaySubmissionsPage() {
 
       <aside className="rounded-2xl border bg-card p-5 md:sticky md:top-6 md:self-start">
         {!selectedId ? <p className="text-sm text-muted-foreground">목록에서 제안을 선택하세요.</p> : null}
-        {detail.isPending ? <LoaderCircle className="animate-spin" /> : null}
+        {selectedId && detail.isPending ? <LoaderCircle className="animate-spin" /> : null}
         {detail.data ? (
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
