@@ -54,6 +54,98 @@ export type SelectedSubject = {
   subject: OtwPlayAdminCatalogSubjectInput;
 };
 
+const RECOMMENDED_SONG_TAGS = ["K-POP", "J-POP", "보컬로이드"] as const;
+const SONG_TAG_WHITESPACE_PATTERN = /\s+/gu;
+const SONG_TAG_PUNCTUATION_PATTERN = /\p{P}+/gu;
+
+const songTagKey = (value: string) =>
+  value
+    .normalize("NFKC")
+    .trim()
+    .replace(SONG_TAG_WHITESPACE_PATTERN, " ")
+    .toLowerCase()
+    .replace(SONG_TAG_PUNCTUATION_PATTERN, " ")
+    .replace(SONG_TAG_WHITESPACE_PATTERN, " ")
+    .trim();
+
+export function SongTagPicker({
+  tags,
+  onChange,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const [value, setValue] = useState("");
+  const includesTag = (candidate: string) =>
+    tags.some((item) => songTagKey(item) === songTagKey(candidate));
+  const add = (raw: string) => {
+    const tag = raw.normalize("NFKC").trim();
+    const key = songTagKey(tag);
+    if (!tag || !key || tags.length >= 10) return;
+    if (includesTag(tag)) {
+      setValue("");
+      return;
+    }
+    onChange([...tags, tag]);
+    setValue("");
+  };
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="otw-play-song-tag">음악 분류</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {RECOMMENDED_SONG_TAGS.map((tag) => (
+          <Button
+            key={tag}
+            type="button"
+            size="sm"
+            variant={includesTag(tag) ? "secondary" : "outline"}
+            disabled={includesTag(tag)}
+            onClick={() => add(tag)}
+          >
+            {tag}
+          </Button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <Input
+          id="otw-play-song-tag"
+          value={value}
+          maxLength={40}
+          placeholder="직접 분류 입력"
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            add(value);
+          }}
+        />
+        <Button type="button" variant="outline" onClick={() => add(value)}>
+          추가
+        </Button>
+      </div>
+      {tags.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5" aria-label="선택한 음악 분류">
+          {tags.map((tag) => (
+            <Badge key={tag} className="gap-1">
+              {tag}
+              <button
+                type="button"
+                aria-label={`${tag} 제거`}
+                onClick={() => onChange(tags.filter((item) => item !== tag))}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        곡 자체의 장르·씬 분류입니다. 가창 형태와 별도로 최대 10개까지 입력할 수 있습니다.
+      </p>
+    </div>
+  );
+}
+
 const STEPS = ["영상 확인", "영상 유형", "참여자와 분류", "검토와 저장"];
 
 type VideoKind = "original" | "cover" | "karaoke";
@@ -335,6 +427,7 @@ export function CatalogEntryDialog({
   const [videoKind, setVideoKind] = useState<VideoKind | null>(null);
   const [coverOriginalTitle, setCoverOriginalTitle] = useState("");
   const [coverOriginalArtists, setCoverOriginalArtists] = useState<SelectedSubject[]>([]);
+  const [songTags, setSongTags] = useState<string[]>([]);
   const [participants, setParticipants] = useState<SelectedSubject[]>([]);
   const [channelOwners, setChannelOwners] = useState<SelectedSubject[]>([]);
   const [releaseType, setReleaseType] = useState<"official_mv" | "official_video">("official_video");
@@ -356,6 +449,7 @@ export function CatalogEntryDialog({
     setVideoKind(null);
     setCoverOriginalTitle("");
     setCoverOriginalArtists([]);
+    setSongTags([]);
     setParticipants([]);
     setChannelOwners([]);
     setReleaseType("official_video");
@@ -433,7 +527,7 @@ export function CatalogEntryDialog({
       song: songId
         ? { kind: "existing", songId }
         : videoKind === "original"
-          ? { kind: "from_video" }
+          ? songTags.length > 0 ? { kind: "from_video", tags: songTags } : { kind: "from_video" }
           : {
               kind: "create",
               title: coverOriginalTitle.trim(),
@@ -446,6 +540,7 @@ export function CatalogEntryDialog({
                 creditOrder: index,
                 isPrimary: index === 0,
               })),
+              ...(songTags.length > 0 ? { tags: songTags } : {}),
             },
       participants: participants.map((participant, index) => ({
         subject: participant.subject,
@@ -589,6 +684,11 @@ export function CatalogEntryDialog({
                     />
                   </div>
                 )}
+                {videoKind !== "karaoke" && !songId ? (
+                  <div className="rounded-xl border bg-card p-4">
+                    <SongTagPicker tags={songTags} onChange={setSongTags} />
+                  </div>
+                ) : null}
                 {videoKind === "karaoke" && (
                   <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
                     노래방송 등록은 이번 흐름에서 지원하지 않습니다. 다곡·타임스탬프 연결 기능이 준비될 때까지 이 영상은 저장되지 않습니다.
@@ -658,6 +758,7 @@ export function CatalogEntryDialog({
                   </div>
                   <div><div className="text-sm font-semibold">참여자</div><div className="flex flex-wrap gap-1">{participants.map((participant) => <Badge key={participant.key} variant="secondary">{participant.label}</Badge>)}</div></div>
                   <div><div className="text-sm font-semibold">분류</div><div className="text-sm text-muted-foreground">{videoKind === "original" ? "오리지널곡" : "공식 커버곡"} · {releaseType === "official_mv" ? "공식 MV" : "공식 영상"} · {participationLabels[participationType]}</div></div>
+                  {songTags.length > 0 ? <div className="flex flex-wrap gap-1">{songTags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div> : null}
                   <div className="rounded-md bg-muted p-3 text-sm">임시 저장은 공개되지 않습니다. 게시는 승인·활성 채널에서만 가능하며 확인 후 즉시 공개 상태가 됩니다.</div>
                 </div>
               </div>

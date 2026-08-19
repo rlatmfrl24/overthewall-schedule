@@ -210,6 +210,7 @@ const toSongSummary = (
     originalReleaseDate: song.originalReleaseDate,
     originalReleasePrecision: song.originalReleasePrecision,
     originalArtists: song.originalArtists.map(toCredit),
+    tags: song.tags,
     representativePerformance,
     performanceCount: song.publishedPerformanceCount,
     playable: representativePerformance.playable,
@@ -228,6 +229,7 @@ const toSongDetail = (
     originalReleaseDate: song.originalReleaseDate,
     originalReleasePrecision: song.originalReleasePrecision,
     originalArtists: song.originalArtists.map(toCredit),
+    tags: song.tags,
     performanceCount: performances.length,
     playable: performances.some(({ playable }) => playable),
     performances,
@@ -242,6 +244,7 @@ const toPerformanceResponse = (
     slug: toPublicSlug(detail.song.slug),
     title: detail.song.title,
     isOtwOriginal: detail.song.isOtwOriginal,
+    tags: detail.song.tags,
   },
   performance: toPerformanceDetail(detail.performance),
 });

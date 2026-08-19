@@ -46,7 +46,7 @@ import {
 } from "./play-player-context";
 
 const track = {
-  song: { id: "song-1", slug: "song-1", title: "Song One" },
+  song: { id: "song-1", slug: "song-1", title: "Song One", tags: ["K-POP"] },
   performance: {
     id: "performance-1",
     relation: "cover",

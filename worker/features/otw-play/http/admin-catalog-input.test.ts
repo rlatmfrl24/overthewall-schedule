@@ -30,6 +30,7 @@ describe("OTW Play admin input", () => {
         isOtwOriginal: false,
         originalReleaseDate: null,
         originalReleasePrecision: "unknown",
+        tags: ["K-POP", "보컬로이드"],
         aliases: [],
         originalArtists: [
           {
@@ -64,7 +65,7 @@ describe("OTW Play admin input", () => {
     expect(parseCreateCatalogEntry(command)).toMatchObject({
       ok: true,
       value: {
-        song: { kind: "create" },
+        song: { kind: "create", tags: ["K-POP", "보컬로이드"] },
         participants: [{ subject: { kind: "member", memberUid: 1 } }],
       },
     });
@@ -85,6 +86,12 @@ describe("OTW Play admin input", () => {
         ...command,
         song: { kind: "from_video" },
         relationType: "cover",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        song: { ...command.song, tags: ["K-POP", "k-pop"] },
       }),
     ).toMatchObject({ ok: false });
     expect(
@@ -183,13 +190,20 @@ describe("OTW Play admin input", () => {
         },
       ],
     };
-    expect(parseUpdateSong(input)).toMatchObject({
+    const parsed = parseUpdateSong(input);
+    expect(parsed).toMatchObject({
       ok: true,
       value: {
         originalArtists: [
           { subject: { kind: "new_external", displayName: "새 원곡 가수" } },
         ],
       },
+    });
+    if (!parsed.ok) throw new Error("Expected the song update to parse");
+    expect(parsed.value).not.toHaveProperty("tags");
+    expect(parseUpdateSong({ ...input, tags: [] })).toMatchObject({
+      ok: true,
+      value: { tags: [] },
     });
     expect(
       parseUpdateSong({

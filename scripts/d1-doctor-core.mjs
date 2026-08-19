@@ -35,6 +35,7 @@ export const REQUIRED_D1_COLUMNS = {
     "locale",
     "alias_kind",
   ],
+  music_song_tags: ["song_id", "tag_key", "display_name"],
   music_song_original_artists: [
     "song_id",
     "entity_id",

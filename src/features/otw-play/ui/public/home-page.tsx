@@ -15,7 +15,8 @@ import {
 } from "../../queries/use-public-catalog";
 import {
   OtwPlayPerformanceActions,
-  relationLabel,
+  OtwPlayPerformanceMetadata,
+  OtwPlaySongTags,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
@@ -99,7 +100,7 @@ export function OtwPlayHomePage() {
   };
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[1320px] flex-col gap-4 px-4 py-4 sm:px-5 lg:px-6">
+    <div className="mx-auto flex min-h-full w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-5 lg:px-6">
       {featured ? (
         <section
           aria-roledescription="carousel"
@@ -115,7 +116,7 @@ export function OtwPlayHomePage() {
           onKeyDown={handleHeroKeyDown}
         >
           <article className="relative cursor-grab active:cursor-grabbing">
-            <div className="relative h-[clamp(17rem,30vw,20rem)] w-full">
+            <div className="relative h-[clamp(19rem,32vw,30rem)] w-full">
               <SongImage song={featured} eager />
               <div className="absolute inset-0 bg-black/55" />
               <div className="absolute inset-x-0 bottom-0 flex max-w-3xl flex-col gap-3 p-5 text-white sm:p-7 lg:p-8">
@@ -123,20 +124,18 @@ export function OtwPlayHomePage() {
                   <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/75">
                     New on OTW Play
                   </p>
+                  <div className="mb-2"><OtwPlaySongTags tags={featured.tags} /></div>
                   <h1
                     id="play-home-featured"
                     className="max-w-2xl break-words text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl"
                   >
                     {featured.title}
                   </h1>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-white/75">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-white/75">
                     <span>
-                      {relationLabel[
-                        featured.representativePerformance.relation
-                      ]}
-                      {" · "}
                       {featuredParticipants?.primaryNames || "참여자 정보 없음"}
                     </span>
+                    <OtwPlayPerformanceMetadata performance={featured.representativePerformance} inverse />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -267,7 +266,7 @@ export function OtwPlayHomePage() {
                   height={80}
                   className="size-12 rounded-full object-cover ring-1 ring-border transition-transform group-hover:-translate-y-1 sm:size-14"
                 />
-                <span className="line-clamp-1 w-full text-xs font-medium">
+                <span className="line-clamp-2 min-h-8 w-full break-keep text-xs font-medium leading-4">
                   {member.displayName}
                 </span>
               </Link>
@@ -316,7 +315,7 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
           <tr className="h-8 border-b">
             <th scope="col" className="w-[34%] px-2 font-medium">곡</th>
             <th scope="col" className="hidden w-[20%] px-2 font-medium sm:table-cell">참여자</th>
-            <th scope="col" className="hidden w-[14%] px-2 font-medium md:table-cell">구분</th>
+            <th scope="col" className="hidden w-[18%] px-2 font-medium md:table-cell">음악 분류</th>
             <th scope="col" className="w-[14%] px-2 font-medium">공개일</th>
             <th scope="col" className="w-[18%] px-1 text-right font-medium">작업</th>
           </tr>
@@ -350,7 +349,7 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
                   </span>
                 </td>
                 <td className="hidden px-2 text-muted-foreground md:table-cell">
-                  {relationLabel[performance.relation]}
+                  <span className="block truncate">{song.tags.join(" · ") || "미분류"}</span>
                 </td>
                 <td className="px-2 tabular-nums text-muted-foreground">
                   {performance.releasedAt

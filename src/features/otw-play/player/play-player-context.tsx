@@ -38,6 +38,7 @@ export interface OtwPlayTrack {
     id: string;
     slug: string;
     title: string;
+    tags?: string[];
   };
   performance: OtwPlayPublicPerformanceSummaryDto | OtwPlayPublicPerformanceDetailDto;
   source: OtwPlayPublicSourceDto;

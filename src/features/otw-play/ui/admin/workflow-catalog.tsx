@@ -53,6 +53,7 @@ import {
   withdrawOtwPlayPerformance,
 } from "../../api/admin";
 import {
+  SongTagPicker,
   SubjectPicker,
   type SelectedSubject,
 } from "./catalog-entry-dialog";
@@ -208,7 +209,7 @@ export function WorkflowCatalog({
                       <TableCell><div className="font-semibold">{song.title}</div><Badge variant="outline" className="mt-1">{song.isOtwOriginal ? "오리지널" : "커버 원곡"}</Badge></TableCell>
                       <TableCell>{song.originalArtists.map((artist) => artist.displayName).join(", ")}</TableCell>
                       <TableCell>{performances.length}개</TableCell>
-                      <TableCell>-</TableCell>
+                      <TableCell><div className="flex flex-wrap gap-1">{(song.tags?.length ?? 0) > 0 ? song.tags.map((tag) => <Badge key={tag}>{tag}</Badge>) : <span className="text-muted-foreground">미분류</span>}</div></TableCell>
                       <TableCell><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
                     </TableRow>,
                   ];
@@ -242,6 +243,7 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
   const [title, setTitle] = useState("");
   const [original, setOriginal] = useState(false);
   const [artists, setArtists] = useState<SelectedSubject[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
   const membersQuery = useQuery({
     queryKey: queryKeys.members.active(),
     queryFn: fetchActiveMembers,
@@ -253,6 +255,7 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
     if (!song) return;
     setTitle(song.title);
     setOriginal(song.isOtwOriginal);
+    setTags(song.tags ?? []);
     setArtists(song.originalArtists.map((artist) => {
       const entity = catalog.entities.find((item) => item.id === artist.entityId);
       const memberUid = entity?.memberUid ?? null;
@@ -292,7 +295,7 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
     }));
   }, [membersQuery.data]);
   const open = song !== null;
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 identity를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })) })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 identity를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })), tags })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 type EditableParticipant = SelectedSubject & {

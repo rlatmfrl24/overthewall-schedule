@@ -151,6 +151,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_media_source_relations"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_song_original_artists"),
+    db.prepare("DELETE FROM music_song_tags"),
     db.prepare("DELETE FROM music_song_aliases"),
     db.prepare("DELETE FROM music_entity_aliases"),
     db.prepare("DELETE FROM music_performances"),
@@ -349,6 +350,7 @@ describe("D1AdminCatalogRepository", () => {
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           aliases: [],
+          tags: ["J-POP", "보컬로이드"],
           originalArtists: [
             {
               subject: {
@@ -404,6 +406,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(result.data.song).toMatchObject({
       title: "정식 원곡 제목",
       isOtwOriginal: false,
+      tags: ["J-POP", "보컬로이드"],
       originalArtists: [
         expect.objectContaining({
           entityId: "entity-cover-original-artist",
@@ -1317,6 +1320,7 @@ describe("D1AdminCatalogRepository", () => {
         isOtwOriginal: false,
         originalReleaseDate: "2020-05-03",
         originalReleasePrecision: "day",
+        tags: ["J-POP"],
         aliases: [],
         originalArtists: [
           {
@@ -1370,6 +1374,7 @@ describe("D1AdminCatalogRepository", () => {
       title: "Edited Song",
       originalReleaseDate: "2020-05-03",
       originalReleasePrecision: "day",
+      tags: ["J-POP"],
       originalArtists: [
         {
           entityId,

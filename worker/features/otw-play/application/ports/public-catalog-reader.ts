@@ -100,6 +100,7 @@ export interface PublicCatalogSongCore {
   originalReleaseDate: string | null;
   originalReleasePrecision: "year" | "month" | "day" | "unknown";
   originalArtists: PublicCatalogOriginalArtist[];
+  tags: string[];
 }
 
 export interface PublicCatalogSongSummary extends PublicCatalogSongCore {

@@ -32,6 +32,8 @@ vi.mock("./catalog-components", () => ({
   OtwPlayParticipantChip: ({ participant }: { participant: { displayName: string } }) => (
     <span>{participant.displayName}</span>
   ),
+  OtwPlaySongTags: ({ tags }: { tags: string[] }) => <span>{tags.join(", ")}</span>,
+  OtwPlayPerformanceMetadata: () => <span>가창 분류</span>,
   relationLabel: { original: "오리지널", cover: "공식 커버" },
 }));
 
@@ -47,6 +49,7 @@ const song: OtwPlayPublicSongSummaryDto = {
   originalArtists: [
     { entityId: "artist-1", slug: "artist", displayName: "원곡 가수", kind: "person" },
   ],
+  tags: ["K-POP"],
   representativePerformance: {
     id: "performance-1",
     relation: "cover",

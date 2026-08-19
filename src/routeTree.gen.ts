@@ -21,7 +21,6 @@ import { Route as CafeRouteImport } from './routes/cafe'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VodsIndexRouteImport } from './routes/vods/index'
-import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
 import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
@@ -37,6 +36,7 @@ import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-post
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
+import { Route as PlayCatalogIndexRouteImport } from './routes/play/_catalog/index'
 import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
 import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
 import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/songs'
@@ -102,11 +102,6 @@ const VodsIndexRoute = VodsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => VodsRoute,
-} as any)
-const PlayIndexRoute = PlayIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => PlayRoute,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
@@ -181,6 +176,11 @@ const AdminDdaysRoute = AdminDdaysRouteImport.update({
   path: '/ddays',
   getParentRoute: () => AdminRoute,
 } as any)
+const PlayCatalogIndexRoute = PlayCatalogIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PlayCatalogRoute,
+} as any)
 const PlayMemberSubmitRoute = PlayMemberSubmitRouteImport.update({
   id: '/submit',
   path: '/submit',
@@ -233,11 +233,11 @@ export interface FileRoutesByFullPath {
   '/play/discover': typeof PlayDiscoverRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
-  '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
   '/play/songs': typeof PlayCatalogSongsRouteWithChildren
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
+  '/play/': typeof PlayCatalogIndexRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
   '/play/songs/': typeof PlayCatalogSongsIndexRoute
 }
@@ -247,6 +247,7 @@ export interface FileRoutesByTo {
   '/feed': typeof FeedRoute
   '/multiview': typeof MultiviewRoute
   '/notice': typeof NoticeRoute
+  '/play': typeof PlayCatalogIndexRoute
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
@@ -260,7 +261,6 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
-  '/play': typeof PlayIndexRoute
   '/play/discover': typeof PlayDiscoverRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
@@ -298,11 +298,11 @@ export interface FileRoutesById {
   '/play/discover': typeof PlayDiscoverRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
-  '/play/': typeof PlayIndexRoute
   '/vods/': typeof VodsIndexRoute
   '/play/_catalog/songs': typeof PlayCatalogSongsRouteWithChildren
   '/play/_member/submissions': typeof PlayMemberSubmissionsRoute
   '/play/_member/submit': typeof PlayMemberSubmitRoute
+  '/play/_catalog/': typeof PlayCatalogIndexRoute
   '/play/_catalog/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
   '/play/_catalog/songs/': typeof PlayCatalogSongsIndexRoute
 }
@@ -333,11 +333,11 @@ export interface FileRouteTypes {
     | '/play/discover'
     | '/profile/$code'
     | '/admin/'
-    | '/play/'
     | '/vods/'
     | '/play/songs'
     | '/play/submissions'
     | '/play/submit'
+    | '/play/'
     | '/play/songs/$songSlug'
     | '/play/songs/'
   fileRoutesByTo: FileRoutesByTo
@@ -347,6 +347,7 @@ export interface FileRouteTypes {
     | '/feed'
     | '/multiview'
     | '/notice'
+    | '/play'
     | '/rights'
     | '/snapshot'
     | '/weekly'
@@ -360,7 +361,6 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
-    | '/play'
     | '/play/discover'
     | '/profile/$code'
     | '/admin'
@@ -397,11 +397,11 @@ export interface FileRouteTypes {
     | '/play/discover'
     | '/profile/$code'
     | '/admin/'
-    | '/play/'
     | '/vods/'
     | '/play/_catalog/songs'
     | '/play/_member/submissions'
     | '/play/_member/submit'
+    | '/play/_catalog/'
     | '/play/_catalog/songs/$songSlug'
     | '/play/_catalog/songs/'
   fileRoutesById: FileRoutesById
@@ -506,13 +506,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/vods/'
       preLoaderRoute: typeof VodsIndexRouteImport
       parentRoute: typeof VodsRoute
-    }
-    '/play/': {
-      id: '/play/'
-      path: '/'
-      fullPath: '/play/'
-      preLoaderRoute: typeof PlayIndexRouteImport
-      parentRoute: typeof PlayRoute
     }
     '/admin/': {
       id: '/admin/'
@@ -619,6 +612,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDdaysRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/play/_catalog/': {
+      id: '/play/_catalog/'
+      path: '/'
+      fullPath: '/play/'
+      preLoaderRoute: typeof PlayCatalogIndexRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
     '/play/_member/submit': {
       id: '/play/_member/submit'
       path: '/submit'
@@ -702,10 +702,12 @@ const PlayCatalogSongsRouteWithChildren =
 
 interface PlayCatalogRouteChildren {
   PlayCatalogSongsRoute: typeof PlayCatalogSongsRouteWithChildren
+  PlayCatalogIndexRoute: typeof PlayCatalogIndexRoute
 }
 
 const PlayCatalogRouteChildren: PlayCatalogRouteChildren = {
   PlayCatalogSongsRoute: PlayCatalogSongsRouteWithChildren,
+  PlayCatalogIndexRoute: PlayCatalogIndexRoute,
 }
 
 const PlayCatalogRouteWithChildren = PlayCatalogRoute._addFileChildren(
@@ -730,14 +732,12 @@ interface PlayRouteChildren {
   PlayCatalogRoute: typeof PlayCatalogRouteWithChildren
   PlayMemberRoute: typeof PlayMemberRouteWithChildren
   PlayDiscoverRoute: typeof PlayDiscoverRoute
-  PlayIndexRoute: typeof PlayIndexRoute
 }
 
 const PlayRouteChildren: PlayRouteChildren = {
   PlayCatalogRoute: PlayCatalogRouteWithChildren,
   PlayMemberRoute: PlayMemberRouteWithChildren,
   PlayDiscoverRoute: PlayDiscoverRoute,
-  PlayIndexRoute: PlayIndexRoute,
 }
 
 const PlayRouteWithChildren = PlayRoute._addFileChildren(PlayRouteChildren)

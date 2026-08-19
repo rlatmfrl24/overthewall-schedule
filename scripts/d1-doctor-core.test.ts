@@ -11,6 +11,7 @@ const MUSIC_TABLES = [
   "music_entity_aliases",
   "music_songs",
   "music_song_aliases",
+  "music_song_tags",
   "music_song_original_artists",
   "music_channels",
   "music_channel_entities",

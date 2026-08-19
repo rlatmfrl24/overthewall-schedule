@@ -23,35 +23,20 @@ import {
   Youtube,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
+import {
+  OtwPlayPerformanceMetadata,
+  OtwPlaySongTags,
+} from "../public/catalog-components";
 
 const repeatLabel = {
   off: "반복 꺼짐",
   all: "전체 반복",
   one: "한 곡 반복",
-} as const;
-
-const relationLabel = {
-  original: "오리지널",
-  cover: "공식 커버",
-} as const;
-
-const releaseTypeLabel = {
-  official_mv: "공식 MV",
-  official_video: "공식 영상",
-} as const;
-
-const participationLabel = {
-  solo: "솔로",
-  duet: "듀엣",
-  unit: "유닛",
-  group: "단체",
-  external_collab: "외부 협업",
 } as const;
 
 const formatPlaybackTime = (seconds: number) => {
@@ -293,21 +278,15 @@ export function OtwPlayPlayerQueuePanel() {
                   "[@media_(min-width:1280px)_and_(max-height:639px)]:!hidden",
               )}
             >
-              <div className="flex flex-wrap gap-2 [@media_(min-width:1280px)_and_(max-height:719px)]:hidden">
-                <Badge>{relationLabel[current.performance.relation]}</Badge>
-                <Badge variant="secondary">
-                  {releaseTypeLabel[current.performance.releaseType]}
-                </Badge>
-                <Badge variant="outline">
-                  {participationLabel[current.performance.participation]}
-                </Badge>
-              </div>
-              <h2 className="mt-3 break-words text-2xl font-bold leading-tight xl:line-clamp-2 xl:text-lg [@media_(min-width:1280px)_and_(max-height:719px)]:mt-0 [@media_(min-width:1280px)_and_(max-height:719px)]:line-clamp-1">
+              <h2
+                data-testid="otw-play-track-title"
+                className="break-words text-2xl font-bold leading-tight xl:line-clamp-2 xl:text-lg [@media_(min-width:1280px)_and_(max-height:719px)]:line-clamp-1"
+              >
                 {current.song.title}
               </h2>
               <div
                 data-testid="otw-play-identity-actions"
-                className="mt-2 flex min-w-0 items-center gap-2 [@media_(min-width:1280px)_and_(max-height:719px)]:mt-1"
+                className="mt-1.5 flex min-w-0 items-center gap-2 [@media_(min-width:1280px)_and_(max-height:719px)]:mt-1"
               >
                 <ParticipantIdentity track={current} />
                 <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -334,8 +313,24 @@ export function OtwPlayPlayerQueuePanel() {
               </div>
 
               <div
+                data-testid="otw-play-track-metadata"
+                className="mt-3 flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto border-t pt-2 [scrollbar-width:thin] [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
+                tabIndex={0}
+                role="region"
+                aria-label="곡 및 가창 분류"
+              >
+                <OtwPlaySongTags tags={current.song.tags} singleLine />
+                <OtwPlayPerformanceMetadata
+                  performance={current.performance}
+                  singleLine
+                />
+              </div>
+
+              <PlaybackProgress player={player} />
+
+              <div
                 data-testid="otw-play-transport-controls"
-                className="mt-4 flex items-center justify-center gap-1 xl:justify-between [@media_(min-width:1280px)_and_(max-height:719px)]:mt-1"
+                className="mt-1 flex items-center justify-center gap-1 xl:justify-between"
               >
                 <Button
                   type="button"
@@ -422,8 +417,6 @@ export function OtwPlayPlayerQueuePanel() {
               </div>
 
               <PublisherIdentity track={current} />
-
-              <PlaybackProgress player={player} />
 
               <MobilePlayerQueue player={player} />
             </div>
@@ -607,6 +600,7 @@ function PlaybackProgress({ player }: { player: OtwPlayPlayerContext }) {
 
   return (
     <div
+      data-testid="otw-play-playback-progress"
       className="mt-3 [@media_(min-width:1280px)_and_(max-height:719px)]:mt-1"
       data-progress-visual="linear"
     >

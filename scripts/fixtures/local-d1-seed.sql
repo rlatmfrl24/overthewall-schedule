@@ -11,6 +11,7 @@ DELETE FROM music_performance_participants;
 DELETE FROM music_media_source_relations;
 DELETE FROM music_channel_entities;
 DELETE FROM music_song_original_artists;
+DELETE FROM music_song_tags;
 DELETE FROM music_song_aliases;
 DELETE FROM music_entity_aliases;
 DELETE FROM music_performances;

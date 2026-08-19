@@ -62,6 +62,7 @@ type AliasRow = {
   locale: string | null;
   alias_kind: string | null;
 };
+type TagRow = { song_id: string; tag_key: string; display_name: string };
 type ArtistRow = {
   song_id: string;
   entity_id: string;
@@ -149,6 +150,25 @@ const generatedSlug = (displayName: string, id: string) => {
     .slice(0, 80);
   return `${base || "identity"}-${id.replace(/[^A-Za-z0-9]/gu, "").slice(0, 8).toLowerCase()}`;
 };
+
+const normalizedSongTags = (tags: readonly string[] | undefined) =>
+  (tags ?? []).map((displayName) => ({
+    displayName: displayName.trim(),
+    tagKey: normalizeOtwPlaySearchText(displayName),
+  }));
+
+const songTagStatements = (
+  database: D1Database,
+  songId: string,
+  tags: readonly string[] | undefined,
+) =>
+  normalizedSongTags(tags).map(({ displayName, tagKey }) =>
+    database
+      .prepare(
+        "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES (?, ?, ?)",
+      )
+      .bind(songId, tagKey, displayName),
+  );
 
 const projectionStatements = (
   database: D1Database,
@@ -329,6 +349,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       entitiesResult,
       songsResult,
       aliasesResult,
+      tagsResult,
       artistsResult,
       channelsResult,
       channelEntitiesResult,
@@ -350,6 +371,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(`SELECT song_id, alias, normalized_alias, locale, alias_kind
         FROM music_song_aliases ORDER BY song_id, normalized_alias`),
+      this.database.prepare(`SELECT song_id, tag_key, display_name
+        FROM music_song_tags ORDER BY song_id, tag_key`),
       this.database
         .prepare(`SELECT artist.song_id, artist.entity_id, entity.display_name,
         artist.credit_order, artist.is_primary
@@ -394,6 +417,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       resultsOf(aliasesResult as D1Result<AliasRow>),
       (row) => row.song_id,
     );
+    const tags = group(
+      resultsOf(tagsResult as D1Result<TagRow>),
+      (row) => row.song_id,
+    );
     const artists = group(
       resultsOf(artistsResult as D1Result<ArtistRow>),
       (row) => row.song_id,
@@ -434,6 +461,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         originalReleasePrecision: row.original_release_precision,
         archivedAt: row.archived_at,
         version: Number(row.version),
+        tags: (tags.get(row.id) ?? []).map((tag) => tag.display_name),
         aliases: (aliases.get(row.id) ?? []).map((alias) => ({
           alias: alias.alias,
           normalizedAlias: alias.normalized_alias,
@@ -941,6 +969,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             artist.isPrimary ? 1 : 0,
           ),
       ),
+      ...songTagStatements(this.database, ids.songId, input.tags),
       ...projectionStatements(this.database, ids.songId),
       this.database
         .prepare(
@@ -1172,6 +1201,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             artist.isPrimary ? 1 : 0,
           ),
       ),
+      ...(input.tags === undefined
+        ? []
+        : [
+            this.database
+              .prepare("DELETE FROM music_song_tags WHERE song_id = ?")
+              .bind(input.id),
+            ...songTagStatements(this.database, input.id, input.tags),
+          ]),
       ...projectionStatements(this.database, input.id),
       this.database
         .prepare(
@@ -1866,6 +1903,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
                         isPrimary: index === 0,
                       }))
                   : [],
+              tags: input.song.tags ?? [],
             }
           : input.song;
       const artists = songInput.originalArtists.map((item) => ({
@@ -1935,6 +1973,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
               artist.isPrimary ? 1 : 0,
             ),
         ),
+        ...songTagStatements(this.database, songId, songInput.tags),
         this.database
           .prepare(
             `INSERT INTO music_catalog_events

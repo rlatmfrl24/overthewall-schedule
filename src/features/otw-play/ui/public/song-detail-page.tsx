@@ -9,7 +9,8 @@ import { useOtwPlayPlayer } from "../../player/play-player-context";
 import {
   OtwPlayParticipantCreditGroups,
   OtwPlayPerformanceActions,
-  relationLabel,
+  OtwPlayPerformanceMetadata,
+  OtwPlaySongTags,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
@@ -75,7 +76,7 @@ export function OtwPlaySongDetailPage({
         <div className="flex flex-col justify-center gap-4">
           <div>
             <div className="mb-2 flex flex-wrap gap-2">
-              {song.isOtwOriginal ? <Badge>OTW 오리지널</Badge> : <Badge variant="secondary">공식 커버</Badge>}
+              <OtwPlaySongTags tags={song.tags} />
               <Badge variant="outline">공식 버전 {song.performanceCount}개</Badge>
             </div>
             <h1 className="text-2xl font-semibold sm:text-3xl">{song.title}</h1>
@@ -102,9 +103,8 @@ export function OtwPlaySongDetailPage({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">{relationLabel[performance.relation]}</Badge>
-                    <Badge variant="outline">{performance.releaseType === "official_mv" ? "공식 MV" : "공식 영상"}</Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <OtwPlayPerformanceMetadata performance={performance} />
                     {highlighted ? <Badge>직접 링크로 선택됨</Badge> : null}
                   </div>
                   <div className="mt-3">

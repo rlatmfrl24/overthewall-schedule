@@ -439,6 +439,7 @@ describe("OTW Play public catalog HTTP handler", () => {
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           originalArtists: [],
+          tags: ["K-POP"],
           publishedPerformanceCount: 1,
           representativePerformance: {
             id: "performance-1",

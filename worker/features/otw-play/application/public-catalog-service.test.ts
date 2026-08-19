@@ -55,6 +55,7 @@ const SONG_DETAIL: PublicCatalogSongDetail = {
   originalReleaseDate: null,
   originalReleasePrecision: "unknown",
   originalArtists: [],
+  tags: [],
   performances: [],
 };
 

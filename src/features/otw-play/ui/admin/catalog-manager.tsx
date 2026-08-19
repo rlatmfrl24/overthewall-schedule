@@ -65,7 +65,7 @@ import {
   useOtwPlayAdminCatalog,
   useOtwPlayAdminProposals,
 } from "../../queries/use-admin-catalog";
-import { CatalogEntryDialog } from "./catalog-entry-dialog";
+import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
 
 type Section = "catalog" | "review";
@@ -367,6 +367,7 @@ function ProposalSection({
     useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewSongId, setReviewSongId] = useState("__new");
+  const [reviewSongTags, setReviewSongTags] = useState<string[]>([]);
   const [reviewParticipants, setReviewParticipants] = useState<ReviewParticipant[]>([]);
   const [reviewArtists, setReviewArtists] = useState<ReviewIdentity[]>([]);
   const [reviewChannelOwners, setReviewChannelOwners] = useState<ReviewChannelOwner[]>([]);
@@ -388,6 +389,7 @@ function ProposalSection({
     if (!selected) {
       setReviewTitle("");
       setReviewSongId("__new");
+      setReviewSongTags([]);
       setReviewParticipants([]);
       setReviewArtists([]);
       setReviewChannelOwners([]);
@@ -396,6 +398,7 @@ function ProposalSection({
     }
     setReviewTitle(selected.submittedTitle);
     setReviewSongId(selected.suggestedSongId ?? "__new");
+    setReviewSongTags([]);
     setReviewParticipants(
       selected.participants.map((participant) => ({
         resolvedEntityId: participant.resolvedEntityId,
@@ -515,6 +518,7 @@ function ProposalSection({
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           aliases: [],
+          tags: reviewSongTags,
           originalArtists: reviewArtists.map((artist, index) => ({
             subject: proposalSubject(artist, `proposal-artist-${index}`),
             creditOrder: index,
@@ -805,6 +809,13 @@ function ProposalSection({
                         maxLength={300}
                       />
                     </Field>
+                    <SongTagPicker
+                      tags={reviewSongTags}
+                      onChange={(tags) => {
+                        setReviewSongTags(tags);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    />
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <Label>원곡 가수</Label>

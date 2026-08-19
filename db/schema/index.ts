@@ -1031,6 +1031,31 @@ export const musicSongs = sqliteTable(
 export type MusicSong = typeof musicSongs.$inferSelect;
 export type NewMusicSong = typeof musicSongs.$inferInsert;
 
+export const musicSongTags = sqliteTable(
+  "music_song_tags",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    tag_key: text("tag_key").notNull(),
+    display_name: text("display_name").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.tag_key],
+      name: "pk_music_song_tags",
+    }),
+    index("idx_music_song_tags_key_song").on(table.tag_key, table.song_id),
+    check(
+      "music_song_tags_required_text_check",
+      sql`length(trim(${table.tag_key})) BETWEEN 1 AND 80 AND length(trim(${table.display_name})) BETWEEN 1 AND 40`,
+    ),
+  ],
+);
+
+export type MusicSongTag = typeof musicSongTags.$inferSelect;
+export type NewMusicSongTag = typeof musicSongTags.$inferInsert;
+
 export const musicSongAliases = sqliteTable(
   "music_song_aliases",
   {

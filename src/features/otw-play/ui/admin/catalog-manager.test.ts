@@ -185,6 +185,14 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.change(screen.getByLabelText("곡명"), {
       target: { value: "관리자가 정정한 곡명" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "K-POP" }));
+    const songTagInput = screen.getByLabelText("음악 분류");
+    fireEvent.change(songTagInput, { target: { value: "K POP" } });
+    fireEvent.keyDown(songTagInput, { key: "Enter" });
+    expect(
+      within(screen.getByLabelText("선택한 음악 분류")).getAllByText("K-POP"),
+    ).toHaveLength(1);
+    expect(screen.queryByText("K POP")).toBeNull();
     fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
     fireEvent.click(screen.getByLabelText("승인할 공개 형태"));
@@ -208,6 +216,7 @@ describe("OtwPlayCatalogManager", () => {
           song: expect.objectContaining({
             kind: "create",
             title: "관리자가 정정한 곡명",
+            tags: ["K-POP"],
           }),
           participants: [
             expect.objectContaining({ participantRole: "featured_vocal" }),

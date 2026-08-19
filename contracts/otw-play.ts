@@ -327,6 +327,7 @@ export interface OtwPlayPublicSongSummaryDto {
   originalReleaseDate: string | null;
   originalReleasePrecision: OtwPlayDatePrecision;
   originalArtists: OtwPlayPublicCreditDto[];
+  tags: string[];
   representativePerformance: OtwPlayPublicPerformanceSummaryDto;
   performanceCount: number;
   playable: boolean;
@@ -347,6 +348,7 @@ export interface OtwPlayPublicPerformanceResponseDto {
     slug: string;
     title: string;
     isOtwOriginal: boolean;
+    tags: string[];
   };
   performance: OtwPlayPublicPerformanceDetailDto;
 }
@@ -529,6 +531,7 @@ export interface OtwPlayAdminSongDto {
   originalReleasePrecision: OtwPlayDatePrecision;
   archivedAt: number | null;
   version: number;
+  tags: string[];
   aliases: Array<{
     alias: string;
     normalizedAlias: string;
@@ -661,7 +664,7 @@ export interface OtwPlayAdminCatalogParticipantInput {
 
 export type OtwPlayAdminCatalogSongDecision =
   | { kind: "existing"; songId: string }
-  | { kind: "from_video" }
+  | { kind: "from_video"; tags?: string[] }
   | {
       kind: "create";
       title: string;
@@ -674,6 +677,7 @@ export type OtwPlayAdminCatalogSongDecision =
         aliasKind?: string | null;
       }>;
       originalArtists: OtwPlayAdminCatalogArtistInput[];
+      tags?: string[];
     };
 
 export type OtwPlayAdminCatalogChannelDecision =
@@ -771,6 +775,7 @@ export interface OtwPlayAdminSongWriteInput {
     aliasKind?: string | null;
   }>;
   originalArtists: OtwPlayAdminEntityReferenceInput[];
+  tags?: string[];
 }
 
 export type OtwPlayAdminCreateSongRequest = OtwPlayAdminSongWriteInput;

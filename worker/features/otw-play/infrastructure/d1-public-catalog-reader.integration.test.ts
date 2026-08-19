@@ -19,6 +19,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0051_clear_mantis.sql",
   "0052_otw-play-public-read-model-backfill.sql",
   "0053_red_talon.sql",
+  "0054_odd_storm.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -66,6 +67,7 @@ const cleanup = async () => {
     db.prepare("DELETE FROM music_media_source_relations"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_song_original_artists"),
+    db.prepare("DELETE FROM music_song_tags"),
     db.prepare("DELETE FROM music_song_aliases"),
     db.prepare("DELETE FROM music_entity_aliases"),
     db.prepare("DELETE FROM music_performances"),
@@ -538,6 +540,9 @@ describe("D1PublicCatalogReader", () => {
 
   it("projects only canonical published official catalog data and keeps unavailable metadata", async () => {
     await seedVisibilityFixture();
+    await db.prepare(
+      "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES ('song-visible', 'j pop', 'J-POP')",
+    ).run();
     const reader = new D1PublicCatalogReader(db);
     const page = await reader.readCatalog(toReaderQuery("limit=24"));
 
@@ -545,6 +550,7 @@ describe("D1PublicCatalogReader", () => {
       "song-visible",
       "song-no-source",
     ]);
+    expect(page.items[0]?.tags).toEqual(["J-POP"]);
     await expect(
       reader.readCatalog(toReaderQuery("q=rejected%20proposal%20secret")),
     ).resolves.toMatchObject({ items: [] });
@@ -687,7 +693,6 @@ describe("D1PublicCatalogReader", () => {
     expect(exactParticipant.items.map(({ id }) => id)).toEqual([
       "song-together",
     ]);
-
     const standaloneRole = await reader.readCatalog(
       toReaderQuery("participantRole=chorus"),
     );
