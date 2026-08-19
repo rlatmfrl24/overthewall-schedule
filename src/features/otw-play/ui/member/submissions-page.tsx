@@ -1,10 +1,12 @@
+import { useUser } from "@clerk/clerk-react";
 import { Link } from "@tanstack/react-router";
-import { ListPlus, LoaderCircle } from "lucide-react";
+import { ChevronLeft, ListPlus, LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import type {
   OtwPlayMemberSubmissionStatus,
   OtwPlayParticipantRole,
 } from "@contracts/otw-play";
+import { isAdminUser } from "@/app/admin";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
@@ -24,7 +26,17 @@ const roleLabels: Record<OtwPlayParticipantRole, string> = {
   other: "기타 참여",
 };
 
+function BackToPlayLink() {
+  return (
+    <Button asChild variant="ghost" size="sm" className="-ml-2">
+      <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
+    </Button>
+  );
+}
+
 export function OtwPlaySubmissionsPage() {
+  const { user } = useUser();
+  const isAdmin = isAdminUser(user?.id);
   const list = useMyOtwPlaySubmissions();
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -40,7 +52,8 @@ export function OtwPlaySubmissionsPage() {
 
   if (items.length === 0) {
     return (
-      <div className="mx-auto flex min-h-96 w-full max-w-3xl items-center p-4 sm:p-8">
+      <div className="mx-auto flex min-h-96 w-full max-w-3xl flex-col items-start justify-center gap-4 p-4 sm:p-8">
+        <BackToPlayLink />
         <section className="w-full rounded-2xl border bg-card p-8 text-center shadow-sm">
           <ListPlus className="mx-auto size-10 text-muted-foreground" />
           <h1 className="mt-4 text-2xl font-bold">아직 제출한 제안이 없습니다</h1>
@@ -57,6 +70,9 @@ export function OtwPlaySubmissionsPage() {
 
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-5 p-4 py-8 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)] md:p-8">
+      <div className="md:col-span-2">
+        <BackToPlayLink />
+      </div>
       <section className="space-y-4">
         <div>
           <h1 className="text-2xl font-bold">내 곡 제안</h1>
@@ -107,7 +123,22 @@ export function OtwPlaySubmissionsPage() {
                   <Button className="w-full">승인된 곡 보기</Button>
                 </Link>
               ) : (
-                <p className="rounded-lg bg-muted p-3 text-sm">승인되었습니다. 운영 공개 준비 중입니다.</p>
+                <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
+                  <p>승인되어 카탈로그에 반영되었습니다.</p>
+                  {isAdmin ? (
+                    <Link
+                      to="/play/songs/$songSlug"
+                      params={{ songSlug: detail.data.approvedSong.slug }}
+                      search={{ performance: undefined }}
+                    >
+                      <Button variant="outline" size="sm" className="w-full">
+                        관리자 미리보기에서 확인
+                      </Button>
+                    </Link>
+                  ) : (
+                    <p className="text-muted-foreground">현재 OTW Play는 관리자만 확인할 수 있습니다.</p>
+                  )}
+                </div>
               )
             ) : null}
           </div>
