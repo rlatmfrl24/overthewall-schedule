@@ -139,7 +139,12 @@ describe("OtwPlayShell config gate", () => {
 
     const trigger = screen.getByRole("button", { name: "곡 제안 메뉴" });
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    expect(await screen.findByRole("menuitem", { name: "새 곡 제안" })).toBeTruthy();
+    const createSubmissionItem = await screen.findByRole("menuitem", {
+      name: "새 곡 제안",
+    });
+    expect(
+      createSubmissionItem.closest('[data-slot="dropdown-menu-content"]')?.className,
+    ).toContain("z-[80]");
     expect(screen.getByRole("menuitem", { name: "내 제안" })).toBeTruthy();
   });
 

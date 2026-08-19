@@ -113,7 +113,7 @@ function SubmissionMenu({ active }: { active: boolean }) {
           <ChevronDown className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="z-[80] w-44">
         <DropdownMenuItem asChild>
           <Link
             to="/play/submit"
