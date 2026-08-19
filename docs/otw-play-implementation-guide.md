@@ -875,6 +875,9 @@ PR-7.1 frontend 보완은 다음 순서로 수행한다.
 5. chip 중복·상한, step focus와 오류 위치 복귀
 6. dirty route-leave 확인과 권위 성공 결과/명시적 reset
 7. 빈 내 제안 CTA와 불필요한 detail panel 제거
+8. 참여자별 가창 역할 입력과 member DTO 역할 readback
+9. 관리자 승인용 곡·원곡 가수·참여자·역할 편집
+10. 공개 Discover·목록·상세·Player의 메인 보컬 우선 presentation
 
 회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
 권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
@@ -903,6 +906,10 @@ PR-7.1 frontend 보완은 다음 순서로 수행한다.
 - duplicate 차단, 후보 선택·해제, member autocomplete, chip 중복·상한
 - 오류 후 step·입력·idempotency 유지와 작성 중 이탈 확인
 - 성공 결과 유지와 사용자가 선택한 뒤에만 빈 form/request ID 생성
+- legacy 역할 누락은 `vocal`로 정규화하고 unknown 역할은 400
+- 동일 idempotency key에서 역할이 달라지면 409 conflict
+- 관리자 편집값이 approval command에 반영되며 proposal snapshot은 변경되지 않음
+- 발견·곡 상세·Player·queue에서 `vocal` 우선 및 보조 credit `+N` 표시
 
 ### 종료 조건
 

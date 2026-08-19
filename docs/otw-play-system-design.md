@@ -703,6 +703,13 @@ INTEGER이고 `submitted_name_snapshot`은 non-empty다.
 `vocal`, `featured_vocal`, `chorus`, `other` CHECK를 재사용한다. resolved entity
 역조회 index를 두며 unresolved snapshot을 중복 이름만으로 병합하지 않는다.
 
+DEC-047에 따라 회원 제출 payload는 참여자마다 같은 역할 값을 선택적으로 받는다.
+이전 client가 역할을 보내지 않으면 `vocal`로 정규화해 하위 호환성을 유지한다.
+idempotency payload 비교에는 표시명뿐 아니라 역할도 포함한다. 관리자 승인은 proposal
+snapshot row를 UPDATE하지 않고 승인 command의 subject·credit·role을 편집해 catalog row에
+반영하므로 제출 원본과 최종 검수값을 함께 추적할 수 있다. 공개 reader는 전체 credit과
+role을 그대로 반환하고, presentation 계층이 `vocal`을 우선 표시한다.
+
 #### `music_catalog_events` exact schema
 
 - `id TEXT PRIMARY KEY`
