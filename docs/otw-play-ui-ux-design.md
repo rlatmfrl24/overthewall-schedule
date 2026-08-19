@@ -341,13 +341,15 @@ query로 보내며 별도 공개 프로필로 이동하지 않는다. 모든 참
   miniplayer로 visible playback을 유지하고, 640px 미만만 복귀 전에 pause한다. 모든 레이아웃은
   음소거 버튼과 키보드 조작 가능한 0–100 볼륨 slider를 제공한다. 플레이큐 상태
   안내는 시각 footer가 아닌 `aria-live`로만 전달한다.
-- 참여자 identity row는 current member profile image, external person icon, group icon과
-  이름을 사용하고 오른쪽에 YouTube·곡 상세 action을 둔다. 게시 채널은 별도의 compact
+- iframe 바로 아래에는 곡명과 메인 참여자 identity를 먼저 배치한다. identity row는 current
+  member profile image, external person icon, group icon과 이름을 사용하고 오른쪽에
+  YouTube·곡 상세 action을 둔다. 음악 분류와 가창 분류는 이 주 정보 아래의 보조 metadata
+  영역으로 내린다.
+- metadata 다음에는 키보드 탐색 가능한 semantic progress range와 transport control을 연속
+  배치한다. range는 실제 IFrame current time과 duration을 표시하고, 향후 동적 wave bar는
+  동작·접근성 계약을 유지한 채 시각 표현만 교체한다. 게시 채널은 transport 아래의 compact
   source attribution row로 표시하며 권위 channel avatar URL이 없는 상태에서 참여자 이미지를
   publisher avatar처럼 재사용하지 않는다.
-- player 하단 progress는 키보드 탐색 가능한 semantic range이며 실제 IFrame current time과
-  duration을 표시한다. 향후 동적 wave bar는 이 range의 동작·접근성 계약을 유지한 채
-  시각 표현만 교체한다.
 - 낮은 데스크톱 화면의 상세 전환은 iframe을 숨기는 접기 기능이 아니다. iframe은
   최소 200px로 계속 노출하고 player 정보 또는 queue만 남은 높이를 사용하며,
   선택 상태는 `aria-pressed`로 전달한다.
@@ -645,3 +647,11 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 3. `Design.md`에 공용으로 승격할 패턴만 반영한다.
 4. API·DB 의미가 바뀌면 `otw-play-system-design.md`를 함께 수정한다.
 5. 구현 순서와 검증 gate는 `otw-play-implementation-guide.md`에 반영한다.
+## 곡 분류 표시 계층
+
+- 곡 카드·hero·상세에서는 음악 태그를 제목에 가까운 1차 chip으로 표시한다. player에서는
+  빠른 곡 식별을 위해 곡명·메인 참여자를 먼저 표시하고 음악 태그를 바로 다음 metadata
+  영역에 배치한다.
+- `오리지널/공식 커버`, `공식 MV/공식 영상`, `솔로/듀엣/유닛/협업`은 가창을 설명하는 작은 보조 metadata 행으로 표시한다.
+- 관리자 등록·곡 수정에는 `K-POP`, `J-POP`, `보컬로이드` 빠른 선택과 자유 입력을 함께 제공한다.
+- 넓은 화면의 발견 hero는 최대 1600px container와 30rem 높이까지 확장한다. 멤버명은 두 줄까지 개행해 긴 이름을 자르지 않는다.

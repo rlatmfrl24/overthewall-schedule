@@ -736,9 +736,9 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
     arrow·indicator·pointer drag·horizontal wheel·keyboard 수동 전환 유지
 12. 최근 공개곡을 compact table로 표시하고 좁은 폭에서 보조 열을 숨겨 table
     horizontal scroll을 만들지 않음
-13. 곡명 아래 참여자 profile/name과 YouTube·곡 상세 action을 합친 identity row,
-    상태 문구 없는 단일 transport/control row, compact 게시 채널 출처와 실제 IFrame
-    위치를 읽는 seekable progress·진행/남은 시간
+13. iframe 아래 곡명·참여자 profile/name·YouTube·곡 상세 action을 먼저 표시하고,
+    음악/가창 분류 metadata 뒤에 실제 IFrame 위치를 읽는 seekable progress와 상태 문구 없는
+    단일 transport/control row를 연속 배치함. compact 게시 채널 출처는 transport 아래에 둠
 14. 720px 미만 데스크톱 rail에서 참여자 identity는 한 줄로 유지하고 게시 채널 출처만
     먼저 숨기는 compact metadata와 640px 미만 `현재 재생`·`플레이큐` 상세 전환.
     단일 iframe과 YouTube·곡 상세 action은 계속 보이고 queue list만 남은 높이에서 독립 스크롤
@@ -784,11 +784,12 @@ published performance를 찾는다. schema와 기존 공개 route 수는 변경�
   음소거·volume, queue 선택·삭제·재정렬과 시각 queue 안내 footer 부재를 테스트한다.
 - 같은 performance의 반복 enqueue는 항목을 늘리지 않고, 기존 play는 선택,
   play-next는 이동하며 구 session duplicate도 복원 시 정리함
-- player는 `재생 중`·`재생 대기` 시각 문구를 렌더링하지 않고 previous/play/next,
-  repeat·shuffle·mute·volume을 같은 row에 렌더링한다. 참여자 profile/name과 YouTube·곡
-  상세 action은 같은 identity row에 배치한다. 게시 채널은 별도 compact source attribution이며
-  참여자 profile을 channel avatar로 재사용하지 않는다. progress range는 current time·remaining time을 갱신하고 seek를
-  IFrame API로 전달한다. segment source의 start/end clamp도 unit test로 검증한다.
+- player는 iframe 뒤에 곡명, 참여자 profile/name과 YouTube·곡 상세 action, 음악/가창 분류,
+  progress, transport 순으로 렌더링한다. `재생 중`·`재생 대기` 시각 문구는 만들지 않고
+  previous/play/next, repeat·shuffle·mute·volume을 같은 row에 둔다. 게시 채널은 별도 compact
+  source attribution이며 참여자 profile을 channel avatar로 재사용하지 않는다. progress range는
+  current time·remaining time을 갱신하고 seek를 IFrame API로 전달한다. segment source의
+  start/end clamp도 unit test로 검증한다.
 - 640px 미만 높이의 데스크톱 rail에서 `플레이큐`를 선택해도 iframe count는 1이고
   pause·destroy가 호출되지 않는다. 현재 재생 상세는 숨고 queue list·재정렬·삭제가
   viewport 안의 내부 scroll로 접근 가능해야 한다. 640–719px에서는 전환 없이 compact
@@ -1113,3 +1114,9 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 4. 이 문서의 gate, PR slice, test와 rollout을 조정한다.
 5. 이미 migration이 배포된 경우 destructive rewrite보다 additive migration과
    호환 기간을 우선한다.
+## PR-7.2 후속 보완
+
+- `0054_*` additive migration으로 `music_song_tags`와 tag lookup index를 추가한다.
+- admin create/update/catalog-entry, public catalog/detail/performance DTO를 `tags`까지 end-to-end 연결한다.
+- `/play` index를 `_catalog` layout 아래로 이동해 발견↔곡 검색↔상세 이동 중 player provider와 iframe을 유지한다.
+- 공개 UI는 song tag와 performance metadata를 서로 다른 시각 계층으로 렌더링한다.

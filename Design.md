@@ -129,12 +129,12 @@
 - 곡 목록은 썸네일 16:9, 곡명, 원곡 가수, 대표 가창과 버전 수를 읽기 쉬운
   행으로 표시한다. 저장 playlist처럼 보이는 library affordance는 만들지 않는다.
 - 데스크톱은 우측 380px `PlayerQueuePanel` 하나를 사용한다. 단일 iframe은 panel
-  상단에 356×200px로 항상 보인다. 상태 문구 없이 previous/play/next, 반복·셔플·음소거·볼륨을
-  한 control row에 둔다. 곡명 아래에는 현재 멤버 profile·외부 person·group icon과 참여자
-  이름을 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 게시 채널은 transport 아래의
-  작은 YouTube source attribution으로 분리한다.
-  실제 IFrame 위치를 반영하는 seekable progress와 진행/남은 시간은 player 정보 영역
-  하단에 둔다. 플레이큐는 같은 panel의 남은 높이를 사용해
+  상단에 356×200px로 항상 보인다. iframe 아래에는 곡명과 현재 멤버 profile·외부 person·group
+  icon 및 참여자 이름을 먼저 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 음악/가창
+  분류는 그 아래 보조 metadata로 내린다. 실제 IFrame 위치를 반영하는 seekable progress와
+  진행/남은 시간 다음에 상태 문구 없는 previous/play/next, 반복·셔플·음소거·볼륨 control
+  row를 둔다. 게시 채널은 transport 아래의 작은 YouTube source attribution으로 분리한다.
+  플레이큐는 같은 panel의 남은 높이를 사용해
   player 아래에서 독립 스크롤한다. 하단 재생바, player 접기·펼치기와 overlay
   상세 panel은 만들지 않는다.
 - 데스크톱 viewport 높이가 720px 미만이면 게시 채널 출처와 여백을

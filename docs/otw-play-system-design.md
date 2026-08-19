@@ -117,13 +117,14 @@ route 콘텐츠와 별도로 데스크톱 우측 `PlayerQueuePanel`을 소유한
 `/play/discover`는 기존 링크를 `/play`로 redirect한다. 두 route 사이를 이동해도
 queue와 player instance는 유지된다.
 `PlayerQueuePanel` 상단은 356×200px 단일 iframe과 현재 곡 정보,
-상태 문구 없는 단일 control row의 previous/play/next, repeat/shuffle, mute/volume을
-소유한다. 곡명 바로 아래 identity row는 참여자 profile/name과 YouTube/곡 상세 action을
-함께 제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은
-group icon을 사용한다. transport 아래에는 YouTube icon·`게시 채널` label·channel 이름만
-남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를 channel avatar로 재사용하지 않는다.
-player 정보 영역 하단의 semantic range는 IFrame API `getCurrentTime`/`getDuration`을
-주기적으로 읽어 진행/남은 시간을 표시하며 `seekTo`를 수행한다. segment source는
+iframe 아래의 곡명과 identity row는 참여자 profile/name과 YouTube/곡 상세 action을 함께
+제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은 group
+icon을 사용한다. 음악 분류와 가창 분류는 identity 아래의 보조 metadata로 투영한다.
+그 다음 semantic range가 IFrame API `getCurrentTime`/`getDuration`을 주기적으로 읽어
+진행/남은 시간을 표시하며 `seekTo`를 수행하고, 상태 문구 없는 단일 control row가
+previous/play/next, repeat/shuffle, mute/volume을 소유한다. transport 아래에는 YouTube
+icon·`게시 채널` label·channel 이름만 남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를
+channel avatar로 재사용하지 않는다. segment source는
 `start_seconds`를 0점으로 환산하고 `end_seconds`가 있으면 그 구간 안으로 제한한다.
 권위 channel avatar URL이 없는 현재 wire contract에서는 연결된 current member profile을
 사용하고 나머지는 중립 fallback을 사용한다. 하단 queue 영역은
@@ -1523,3 +1524,8 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - Smart Placement: https://developers.cloudflare.com/workers/configuration/placement/
 - YouTube IFrame Player: https://developers.google.com/youtube/iframe_api_reference
 - YouTube required functionality: https://developers.google.com/youtube/terms/required-minimum-functionality
+## PR-7.2 곡 분류와 player 지속성
+
+DEC-049에 따라 `music_song_tags(song_id, tag_key, display_name)`를 곡 소유 child로 둔다. `tag_key`는 NFKC 기반 검색 정규화 결과이며 `(song_id, tag_key)`로 중복을 막는다. 관리자 song/create-entry command는 최대 10개·표시명 40자의 태그를 같은 D1 batch에 저장하고 public/admin read model은 `tags`를 반환한다. 태그 vocabulary는 DB enum으로 고정하지 않는다.
+
+`/play`의 발견 index와 곡 검색·상세는 같은 pathless catalog layout 아래에 두어 `OtwPlayPlayerProvider`와 단일 iframe host가 탭 이동으로 재마운트되지 않게 한다. member submission layout은 계속 분리되어 public catalog/player를 시작하지 않는다.
