@@ -401,6 +401,18 @@ export type OtwPlaySubmissionSubjectInput =
   | { kind: "member"; memberUid: number }
   | { kind: "external"; displayName: string };
 
+export type OtwPlaySubmissionParticipantInput =
+  | {
+      kind: "member";
+      memberUid: number;
+      participantRole?: OtwPlayParticipantRole;
+    }
+  | {
+      kind: "external";
+      displayName: string;
+      participantRole?: OtwPlayParticipantRole;
+    };
+
 export interface OtwPlaySubmissionPreflightRequest {
   youtubeUrl: string;
   title?: string;
@@ -426,7 +438,7 @@ export interface OtwPlayCreateSubmissionRequest {
   title: string;
   suggestedSongId?: string | null;
   originalArtists: OtwPlaySubmissionSubjectInput[];
-  participants: OtwPlaySubmissionSubjectInput[];
+  participants: OtwPlaySubmissionParticipantInput[];
   note?: string | null;
 }
 
@@ -453,6 +465,7 @@ export interface OtwPlayMemberSubmissionDto {
   participants: Array<{
     creditOrder: number;
     displayName: string;
+    participantRole: OtwPlayParticipantRole;
   }>;
   approvedSong: {
     id: string;

@@ -16,8 +16,27 @@ const valid = () => ({
 
 describe("member submission input", () => {
   it("accepts only the member submission snapshot contract", () => {
-    expect(parseCreateSubmission(valid()).ok).toBe(true);
+    const legacy = parseCreateSubmission(valid());
+    expect(legacy.ok && legacy.value.participants[0]?.participantRole).toBe("vocal");
+    const classified = parseCreateSubmission({
+      ...valid(),
+      participants: [
+        { kind: "member", memberUid: 1, participantRole: "chorus" },
+      ],
+    });
+    expect(classified.ok && classified.value.participants[0]?.participantRole).toBe("chorus");
     expect(parseSubmissionPreflight({ youtubeUrl: valid().youtubeUrl }).ok).toBe(true);
+  });
+
+  it("rejects unknown participant roles", () => {
+    expect(
+      parseCreateSubmission({
+        ...valid(),
+        participants: [
+          { kind: "member", memberUid: 1, participantRole: "producer" },
+        ],
+      }).ok,
+    ).toBe(false);
   });
 
   it("rejects actor, status, publication, and reviewer injection", () => {

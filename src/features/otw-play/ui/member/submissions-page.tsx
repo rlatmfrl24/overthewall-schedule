@@ -1,7 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { ListPlus, LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import type { OtwPlayMemberSubmissionStatus } from "@contracts/otw-play";
+import type {
+  OtwPlayMemberSubmissionStatus,
+  OtwPlayParticipantRole,
+} from "@contracts/otw-play";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
@@ -13,6 +16,12 @@ const labels: Record<OtwPlayMemberSubmissionStatus, string> = {
   pending_review: "검토 대기",
   approved: "승인됨",
   rejected: "반려",
+};
+const roleLabels: Record<OtwPlayParticipantRole, string> = {
+  vocal: "메인 보컬",
+  featured_vocal: "서브 보컬",
+  chorus: "코러스",
+  other: "기타 참여",
 };
 
 export function OtwPlaySubmissionsPage() {
@@ -85,7 +94,7 @@ export function OtwPlaySubmissionsPage() {
             </div>
             <dl className="space-y-3 text-sm">
               <div><dt className="text-muted-foreground">원곡 가수</dt><dd>{detail.data.originalArtists.map((item) => item.displayName).join(", ")}</dd></div>
-              <div><dt className="text-muted-foreground">참여자</dt><dd>{detail.data.participants.map((item) => item.displayName).join(", ")}</dd></div>
+              <div><dt className="text-muted-foreground">참여자</dt><dd>{detail.data.participants.map((item) => `${item.displayName} · ${roleLabels[item.participantRole]}`).join(", ")}</dd></div>
               {detail.data.note ? <div><dt className="text-muted-foreground">내 메모</dt><dd className="whitespace-pre-wrap">{detail.data.note}</dd></div> : null}
             </dl>
             {detail.data.approvedSong ? (

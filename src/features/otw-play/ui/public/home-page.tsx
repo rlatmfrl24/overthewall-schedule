@@ -19,6 +19,7 @@ import {
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import { presentOtwPlayParticipants } from "./participant-presentation";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
   query.data?.pages.flatMap((page) => page.data.items) ?? [];
@@ -56,6 +57,11 @@ export function OtwPlayHomePage() {
   const songs = pageItems(latest);
   const activeIndex = songs.length === 0 ? 0 : featuredIndex % songs.length;
   const featured = songs[activeIndex] ?? null;
+  const featuredParticipants = featured
+    ? presentOtwPlayParticipants(
+        featured.representativePerformance.participants,
+      )
+    : null;
 
   const moveFeatured = (direction: -1 | 1) => {
     if (songs.length < 2) return;
@@ -123,14 +129,21 @@ export function OtwPlayHomePage() {
                   >
                     {featured.title}
                   </h1>
-                  <p className="mt-2 text-sm text-white/75">
+                  <p
+                    className="mt-2 text-sm text-white/75"
+                    title={featuredParticipants?.supportingNames || undefined}
+                    aria-label={featuredParticipants
+                      ? `메인 보컬 ${featuredParticipants.primaryNames || "정보 없음"}${featuredParticipants.supportingNames ? `, 보조 참여 ${featuredParticipants.supportingNames}` : ""}`
+                      : undefined}
+                  >
                     {relationLabel[
                       featured.representativePerformance.relation
                     ]}
                     {" · "}
-                    {featured.representativePerformance.participants
-                      .map(({ displayName }) => displayName)
-                      .join(", ") || "참여자 정보 없음"}
+                    {featuredParticipants?.primaryNames || "참여자 정보 없음"}
+                    {featuredParticipants?.supporting.length
+                      ? ` +${featuredParticipants.supporting.length}`
+                      : ""}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -318,6 +331,9 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
         <tbody>
           {songs.map((song) => {
             const performance = song.representativePerformance;
+            const participants = presentOtwPlayParticipants(
+              performance.participants,
+            );
             return (
               <tr key={song.id} className="h-12 border-b last:border-b-0 hover:bg-muted/45">
                 <td className="px-2">
@@ -336,9 +352,12 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
                   </div>
                 </td>
                 <td className="hidden truncate px-2 text-muted-foreground sm:table-cell">
-                  {performance.participants
-                    .map(({ displayName }) => displayName)
-                    .join(", ") || "정보 없음"}
+                  <span title={participants.supportingNames || undefined}>
+                    {participants.primaryNames || "정보 없음"}
+                    {participants.supporting.length
+                      ? ` +${participants.supporting.length}`
+                      : ""}
+                  </span>
                 </td>
                 <td className="hidden px-2 text-muted-foreground md:table-cell">
                   {relationLabel[performance.relation]}

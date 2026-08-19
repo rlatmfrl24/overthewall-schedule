@@ -21,7 +21,7 @@ const input = (suffix: string): OtwPlayCreateSubmissionRequest => ({
   title: `회원 커버 ${suffix}`,
   suggestedSongId: null,
   originalArtists: [{ kind: "external", displayName: `원곡 가수 ${suffix}` }],
-  participants: [{ kind: "member", memberUid: 991 }],
+  participants: [{ kind: "member", memberUid: 991, participantRole: "chorus" }],
   note: null,
 });
 
@@ -77,7 +77,7 @@ describe("D1MemberSubmissionRepository", () => {
     expect(first.idempotentReplay).toBe(false);
     expect(first.data).toMatchObject({
       status: "pending_review",
-      participants: [{ displayName: "제안 멤버" }],
+      participants: [{ displayName: "제안 멤버", participantRole: "chorus" }],
       originalArtists: [{ displayName: "원곡 가수 1" }],
     });
 
@@ -86,6 +86,15 @@ describe("D1MemberSubmissionRepository", () => {
     });
     expect(replay.idempotentReplay).toBe(true);
     expect(replay.data.id).toBe(first.data.id);
+
+    await expect(
+      create(repository, "member-a", "1", {
+        clientRequestId: input("1").clientRequestId,
+        participants: [
+          { kind: "member", memberUid: 991, participantRole: "vocal" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "idempotency_conflict" });
 
     await expect(
       create(repository, "member-a", "1", {

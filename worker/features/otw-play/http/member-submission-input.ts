@@ -1,8 +1,10 @@
 import type {
   OtwPlayCreateSubmissionRequest,
+  OtwPlaySubmissionParticipantInput,
   OtwPlaySubmissionPreflightRequest,
   OtwPlaySubmissionSubjectInput,
 } from "@contracts/otw-play";
+import { OTW_PLAY_PARTICIPANT_ROLES } from "@contracts/otw-play";
 
 export type MemberSubmissionInputResult<T> =
   | { ok: true; value: T }
@@ -68,6 +70,54 @@ const parseSubjects = (
     : null;
 };
 
+const parseParticipant = (
+  value: unknown,
+): OtwPlaySubmissionParticipantInput | null => {
+  if (!isObject(value)) return null;
+  const participantRole =
+    value.participantRole === undefined
+      ? "vocal"
+      : OTW_PLAY_PARTICIPANT_ROLES.find(
+          (role) => role === value.participantRole,
+        );
+  if (!participantRole) return null;
+  if (
+    value.kind === "member" &&
+    hasExactKeys(value, ["kind", "memberUid", "participantRole"]) &&
+    Number.isSafeInteger(value.memberUid) &&
+    Number(value.memberUid) > 0
+  ) {
+    return {
+      kind: "member",
+      memberUid: Number(value.memberUid),
+      participantRole,
+    };
+  }
+  if (
+    value.kind === "external" &&
+    hasExactKeys(value, ["kind", "displayName", "participantRole"])
+  ) {
+    const displayName = text(value.displayName, 300);
+    return displayName
+      ? { kind: "external", displayName, participantRole }
+      : null;
+  }
+  return null;
+};
+
+const parseParticipants = (value: unknown) => {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 30) {
+    return null;
+  }
+  const parsed = value.map(parseParticipant);
+  return parsed.every(
+    (participant): participant is OtwPlaySubmissionParticipantInput =>
+      Boolean(participant),
+  )
+    ? parsed
+    : null;
+};
+
 export const parseSubmissionPreflight = (
   value: unknown,
 ): MemberSubmissionInputResult<OtwPlaySubmissionPreflightRequest> => {
@@ -105,7 +155,7 @@ export const parseCreateSubmission = (
   const suggestedSongId = optionalText(value.suggestedSongId, 128);
   const note = optionalText(value.note, 1_000);
   const originalArtists = parseSubjects(value.originalArtists, 1, 20);
-  const participants = parseSubjects(value.participants, 1, 30);
+  const participants = parseParticipants(value.participants);
   if (
     !clientRequestId ||
     !UUID_V4_PATTERN.test(clientRequestId) ||

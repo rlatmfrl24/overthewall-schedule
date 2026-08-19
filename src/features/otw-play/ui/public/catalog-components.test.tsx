@@ -10,7 +10,10 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
-import { OtwPlayParticipantChip } from "./catalog-components";
+import {
+  OtwPlayParticipantChip,
+  OtwPlayParticipantSummary,
+} from "./catalog-components";
 
 const base = {
   entityId: "entity-1",
@@ -41,5 +44,21 @@ describe("OtwPlayParticipantChip", () => {
     expect(screen.getByRole("link").getAttribute("data-search")).toBe(
       JSON.stringify(expectedSearch),
     );
+  });
+
+  it("shows main vocals first and collapses supporting credits", () => {
+    render(
+      <OtwPlayParticipantSummary
+        participants={[
+          { ...base, entityId: "chorus", slug: "chorus", displayName: "코러스 멤버", role: "chorus", kind: "external" },
+          { ...base, entityId: "main", slug: "main", displayName: "메인 멤버", role: "vocal", kind: "external", creditOrder: 1 },
+          { ...base, entityId: "sub", slug: "sub", displayName: "서브 멤버", role: "featured_vocal", kind: "external", creditOrder: 2 },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /메인 멤버/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /코러스 멤버/ })).toBeNull();
+    expect(screen.getByLabelText(/서브 참여자 2명/).textContent).toContain("+2");
   });
 });

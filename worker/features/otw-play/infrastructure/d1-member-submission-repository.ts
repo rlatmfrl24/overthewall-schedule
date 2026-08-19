@@ -2,6 +2,7 @@ import type {
   OtwPlayCreateSubmissionRequest,
   OtwPlayMemberSubmissionDto,
   OtwPlayMemberSubmissionStatus,
+  OtwPlayParticipantRole,
   OtwPlaySubmissionSubjectInput,
 } from "@contracts/otw-play";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
@@ -33,11 +34,16 @@ type ChildRow = {
   proposal_id: string;
   credit_order: number;
   submitted_name_snapshot: string;
+  participant_role?: OtwPlayParticipantRole;
 };
 
 type ResolvedSubject = {
   resolvedEntityId: string | null;
   displayName: string;
+};
+
+type ResolvedParticipant = ResolvedSubject & {
+  participantRole: OtwPlayParticipantRole;
 };
 
 const resultsOf = <T>(result: D1Result<T>): T[] =>
@@ -201,7 +207,8 @@ export class D1MemberSubmissionRepository
     const [participantResult, artistResult] = await this.database.batch([
       this.database
         .prepare(
-          `SELECT proposal_id, credit_order, submitted_name_snapshot
+          `SELECT proposal_id, credit_order, submitted_name_snapshot,
+             participant_role
            FROM music_cover_proposal_participants
            WHERE proposal_id IN (${placeholders(ids.length)})
            ORDER BY proposal_id, credit_order`,
@@ -234,6 +241,7 @@ export class D1MemberSubmissionRepository
       participants: (participants.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
         displayName: item.submitted_name_snapshot,
+        participantRole: item.participant_role ?? "vocal",
       })),
       originalArtists: (artists.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
@@ -267,7 +275,7 @@ export class D1MemberSubmissionRepository
     existing: OtwPlayMemberSubmissionDto,
     input: OtwPlayCreateSubmissionRequest,
     canonicalUrl: string,
-    participants: ResolvedSubject[],
+    participants: ResolvedParticipant[],
     artists: ResolvedSubject[],
   ) {
     return (
@@ -275,8 +283,15 @@ export class D1MemberSubmissionRepository
       normalizeSnapshot(existing.title) === normalizeSnapshot(input.title) &&
       existing.suggestedSongId === (input.suggestedSongId ?? null) &&
       (existing.note ?? null) === (input.note?.trim() || null) &&
-      JSON.stringify(existing.participants.map((item) => item.displayName)) ===
-        JSON.stringify(participants.map((item) => item.displayName)) &&
+      JSON.stringify(
+        existing.participants.map((item) => [
+          item.displayName,
+          item.participantRole,
+        ]),
+      ) ===
+        JSON.stringify(
+          participants.map((item) => [item.displayName, item.participantRole]),
+        ) &&
       JSON.stringify(existing.originalArtists.map((item) => item.displayName)) ===
         JSON.stringify(artists.map((item) => item.displayName))
     );
@@ -284,10 +299,16 @@ export class D1MemberSubmissionRepository
 
   async create(command: CreateMemberSubmissionCommand) {
     const { userId, input, canonicalUrl, videoId, now, dayStart, dayEnd } = command;
-    const [participants, artists] = await Promise.all([
+    const [resolvedParticipants, artists] = await Promise.all([
       this.resolveSubjects(input.participants),
       this.resolveSubjects(input.originalArtists),
     ]);
+    const participants: ResolvedParticipant[] = resolvedParticipants.map(
+      (participant, index) => ({
+        ...participant,
+        participantRole: input.participants[index]?.participantRole ?? "vocal",
+      }),
+    );
     const existing = await this.readByIdempotency(userId, input.clientRequestId);
     if (existing) {
       if (this.samePayload(existing, input, canonicalUrl, participants, artists)) {
@@ -403,7 +424,7 @@ export class D1MemberSubmissionRepository
               index,
               participant.resolvedEntityId,
               participant.displayName,
-              "vocal",
+              participant.participantRole,
               command.proposalId,
               userId,
             ),

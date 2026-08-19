@@ -28,6 +28,7 @@ import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import { presentOtwPlayParticipants } from "../public/participant-presentation";
 
 const repeatLabel = {
   off: "반복 꺼짐",
@@ -62,6 +63,17 @@ const formatPlaybackTime = (seconds: number) => {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
   }
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const participantSummaryText = (
+  participants: NonNullable<
+    OtwPlayPlayerContext["currentTrack"]
+  >["performance"]["participants"],
+) => {
+  const presentation = presentOtwPlayParticipants(participants);
+  return `${presentation.primaryNames || "참여자 정보 없음"}${
+    presentation.supporting.length ? ` +${presentation.supporting.length}` : ""
+  }`;
 };
 
 type OtwPlayPlayerContext = ReturnType<typeof useOtwPlayPlayer>;
@@ -513,21 +525,22 @@ function ParticipantIdentity({
   track: NonNullable<OtwPlayPlayerContext["currentTrack"]>;
 }) {
   const participants = track.performance.participants;
-  const participantNames = participants.map(({ displayName }) => displayName).join(", ");
+  const presentation = presentOtwPlayParticipants(participants);
+  const participantNames = participantSummaryText(participants);
 
   return (
     <div
       data-testid="otw-play-participant-identity"
       className="flex min-w-0 flex-1 items-center gap-2"
     >
-      {participants.length > 0 ? (
+      {presentation.primary.length > 0 ? (
         <span className="flex shrink-0 -space-x-2" aria-hidden="true">
-          {participants.slice(0, 3).map((participant) => (
+          {presentation.primary.slice(0, 3).map((participant) => (
             <ParticipantAvatar key={participant.entityId} participant={participant} />
           ))}
-          {participants.length > 3 ? (
+          {presentation.supporting.length > 0 ? (
             <span className="relative flex size-7 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-semibold text-muted-foreground">
-              +{participants.length - 3}
+              +{presentation.supporting.length}
             </span>
           ) : null}
         </span>
@@ -535,10 +548,13 @@ function ParticipantIdentity({
       <span
         data-testid="otw-play-participants"
         className="min-w-0 truncate text-sm font-medium text-foreground/85"
-        title={participantNames || "참여자 정보 없음"}
+        title={presentation.supportingNames || participantNames}
       >
         <span className="sr-only">참여자: </span>
-        {participantNames || "참여자 정보 없음"}
+        {participantNames}
+        {presentation.supportingNames ? (
+          <span className="sr-only">, 보조 참여: {presentation.supportingNames}</span>
+        ) : null}
       </span>
     </div>
   );
@@ -701,9 +717,9 @@ function DesktopQueue({
                             : "불러오는 중")}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {track?.performance.participants
-                        .map(({ displayName }) => displayName)
-                        .join(", ") || item.performanceId}
+                      {track
+                        ? participantSummaryText(track.performance.participants)
+                        : item.performanceId}
                     </span>
                   </span>
                 </button>
@@ -832,9 +848,9 @@ function MobilePlayerQueue({
                         : "불러오는 중")}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {track?.performance.participants
-                    .map(({ displayName }) => displayName)
-                    .join(", ") || item.performanceId}
+                  {track
+                    ? participantSummaryText(track.performance.participants)
+                    : item.performanceId}
                 </span>
               </button>
               {retryable ? (

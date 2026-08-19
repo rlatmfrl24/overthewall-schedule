@@ -22,9 +22,10 @@ import {
 } from "react";
 import type {
   OtwPlayCreateSubmissionResponse,
+  OtwPlayParticipantRole,
+  OtwPlaySubmissionParticipantInput,
   OtwPlaySubmissionPreflightDto,
   OtwPlaySubmissionSongCandidateDto,
-  OtwPlaySubmissionSubjectInput,
 } from "@contracts/otw-play";
 import { fetchActiveMembers, type Member } from "@/features/members";
 import { ApiError } from "@/shared/api/client";
@@ -33,6 +34,13 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { Textarea } from "@/shared/ui/textarea";
 import {
   createOtwPlaySubmission,
@@ -42,6 +50,12 @@ import {
 const steps = ["영상 확인", "곡과 참여자", "검토·제출"] as const;
 const PARTICIPANT_LIMIT = 30;
 const ORIGINAL_ARTIST_LIMIT = 20;
+const participantRoleLabel: Record<OtwPlayParticipantRole, string> = {
+  vocal: "메인 보컬",
+  featured_vocal: "서브 보컬",
+  chorus: "코러스",
+  other: "기타 참여",
+};
 const newClientRequestId = () => crypto.randomUUID();
 const normalizedText = (value: string) =>
   value.normalize("NFKC").trim().replace(/\s+/gu, " ");
@@ -253,6 +267,48 @@ function VideoSummary({ preflight }: { preflight: OtwPlaySubmissionPreflightDto 
   );
 }
 
+function ParticipantRoleEditor({
+  items,
+  onRoleChange,
+}: {
+  items: Array<{ key: string; label: string; role: OtwPlayParticipantRole }>;
+  onRoleChange: (key: string, role: OtwPlayParticipantRole) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2" aria-label="가창자 역할 분류">
+      <div>
+        <p className="text-sm font-medium">가창 역할</p>
+        <p className="text-xs text-muted-foreground">
+          메인 보컬은 발견 화면과 Player에 우선 표시됩니다.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.key} className="grid grid-cols-[minmax(0,1fr)_9rem] items-center gap-2 rounded-lg border bg-background p-2">
+            <span className="truncate text-sm font-medium">{item.label}</span>
+            <Select
+              value={item.role}
+              onValueChange={(value) =>
+                onRoleChange(item.key, value as OtwPlayParticipantRole)
+              }
+            >
+              <SelectTrigger aria-label={`${item.label} 가창 역할`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(participantRoleLabel).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function OtwPlaySubmissionPage() {
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -265,6 +321,8 @@ export function OtwPlaySubmissionPage() {
   const [originalArtists, setOriginalArtists] = useState<string[]>([]);
   const [memberUids, setMemberUids] = useState<number[]>([]);
   const [externalParticipants, setExternalParticipants] = useState<string[]>([]);
+  const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>({});
+  const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>({});
   const [note, setNote] = useState("");
   const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(null);
   const [candidateSearchAttempted, setCandidateSearchAttempted] = useState(false);
@@ -305,11 +363,46 @@ export function OtwPlaySubmissionPage() {
     () => (members.data ?? []).filter((member) => memberUids.includes(member.uid)),
     [memberUids, members.data],
   );
-  const participants = useMemo<OtwPlaySubmissionSubjectInput[]>(() => [
-    ...memberUids.map((memberUid) => ({ kind: "member" as const, memberUid })),
-    ...externalParticipants.map((displayName) => ({ kind: "external" as const, displayName })),
-  ], [externalParticipants, memberUids]);
+  const participants = useMemo<OtwPlaySubmissionParticipantInput[]>(() => [
+    ...memberUids.map((memberUid) => ({
+      kind: "member" as const,
+      memberUid,
+      participantRole: memberRoles[memberUid] ?? "vocal",
+    })),
+    ...externalParticipants.map((displayName) => ({
+      kind: "external" as const,
+      displayName,
+      participantRole: externalRoles[displayName] ?? "vocal",
+    })),
+  ], [externalParticipants, externalRoles, memberRoles, memberUids]);
   const participantCount = participants.length;
+  const participantRoleItems = useMemo(
+    () => [
+      ...selectedMembers.map((member) => ({
+        key: `member:${member.uid}`,
+        label: `${member.oshi_mark ? `${member.oshi_mark} ` : ""}${member.name}`,
+        role: memberRoles[member.uid] ?? "vocal",
+      })),
+      ...externalParticipants.map((displayName) => ({
+        key: `external:${displayName}`,
+        label: displayName,
+        role: externalRoles[displayName] ?? "vocal",
+      })),
+    ],
+    [externalParticipants, externalRoles, memberRoles, selectedMembers],
+  );
+  const changeParticipantRole = (
+    key: string,
+    role: OtwPlayParticipantRole,
+  ) => {
+    if (key.startsWith("member:")) {
+      const uid = Number(key.slice("member:".length));
+      setMemberRoles((current) => ({ ...current, [uid]: role }));
+      return;
+    }
+    const displayName = key.slice("external:".length);
+    setExternalRoles((current) => ({ ...current, [displayName]: role }));
+  };
 
   const verifyVideo = async () => {
     setMessage(null);
@@ -345,7 +438,7 @@ export function OtwPlaySubmissionPage() {
   const resetForm = () => {
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
     setSongMode("new"); setSuggestedSongId(null); setOriginalArtists([]); setMemberUids([]);
-    setExternalParticipants([]); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
+    setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
     setMessage(null); setSuccess(null);
   };
 
@@ -442,6 +535,7 @@ export function OtwPlaySubmissionPage() {
               <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm"><span>OTW 멤버와 외부 참여자를 함께 선택해 주세요.</span><span className="font-medium">{participantCount}/{PARTICIPANT_LIMIT}</span></div>
               <MemberAutocomplete members={members.data ?? []} selectedUids={memberUids} onChange={setMemberUids} maxReached={participantCount >= PARTICIPANT_LIMIT} />
               <ChipInput id="submission-external-participants" label="외부 참여자" values={externalParticipants} onChange={setExternalParticipants} placeholder="외부 인물 또는 그룹명" maxValues={Math.max(PARTICIPANT_LIMIT - memberUids.length, 0)} />
+              <ParticipantRoleEditor items={participantRoleItems} onRoleChange={changeParticipantRole} />
               {participantCount === 0 ? <p className="text-sm text-muted-foreground">가창 참여자를 1명 이상 선택해 주세요.</p> : null}
             </fieldset>
             <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row"><Button variant="ghost" onClick={() => setStep(0)}><ChevronLeft /> 이전</Button><Button disabled={!canReview} onClick={() => setStep(2)}>검토하기 <ChevronRight /></Button></div>
@@ -455,7 +549,7 @@ export function OtwPlaySubmissionPage() {
               <div className="flex flex-wrap items-center gap-2"><Badge>{songMode === "existing" ? "기존 곡 연결" : "새 곡"}</Badge><strong className="text-base">{title}</strong></div>
               <div className="mt-4 space-y-3">
                 <div><p className="mb-2 text-xs text-muted-foreground">원곡 가수</p><div className="flex flex-wrap gap-2">{originalArtists.map((artist) => <Badge key={artist} variant="outline">{artist}</Badge>)}</div></div>
-                <div><p className="mb-2 text-xs text-muted-foreground">참여자</p><div className="flex flex-wrap gap-2">{selectedMembers.map((member) => <Badge key={member.uid} variant="secondary">{member.oshi_mark} {member.name}</Badge>)}{externalParticipants.map((name) => <Badge key={name} variant="outline">{name}</Badge>)}</div></div>
+                <div><p className="mb-2 text-xs text-muted-foreground">참여자</p><div className="flex flex-wrap gap-2">{selectedMembers.map((member) => <Badge key={member.uid} variant="secondary">{member.oshi_mark} {member.name} · {participantRoleLabel[memberRoles[member.uid] ?? "vocal"]}</Badge>)}{externalParticipants.map((name) => <Badge key={name} variant="outline">{name} · {participantRoleLabel[externalRoles[name] ?? "vocal"]}</Badge>)}</div></div>
               </div>
             </div>
             <div className="space-y-2">

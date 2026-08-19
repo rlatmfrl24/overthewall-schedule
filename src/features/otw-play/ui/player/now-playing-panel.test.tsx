@@ -74,6 +74,14 @@ const track = {
         oshiMark: null,
         unitName: null,
       },
+      {
+        entityId: "entity-2",
+        slug: "supporting",
+        creditOrder: 1,
+        displayName: "코러스 멤버",
+        role: "chorus",
+        kind: "external",
+      },
     ],
   },
   source: {
@@ -249,6 +257,8 @@ describe("OTW Play player and queue rail", () => {
       "[@media_(min-width:1280px)_and_(max-height:719px)]:hidden",
     );
     expect(screen.getByTestId("otw-play-participants").className).toContain("truncate");
+    expect(screen.getByTestId("otw-play-participants").textContent).toContain("참여 멤버 +1");
+    expect(screen.getByTestId("otw-play-participants").getAttribute("title")).toContain("코러스 멤버 (코러스)");
     const publisherIdentity = screen.getByTestId("otw-play-publisher-identity");
     expect(publisherIdentity.className).toContain(
       "[@media_(min-width:1280px)_and_(max-height:719px)]:hidden",

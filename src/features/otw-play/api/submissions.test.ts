@@ -23,7 +23,9 @@ describe("OTW Play member submission API", () => {
       title: "Cover Song",
       suggestedSongId: null,
       originalArtists: [{ kind: "external" as const, displayName: "Artist" }],
-      participants: [{ kind: "member" as const, memberUid: 1 }],
+      participants: [
+        { kind: "member" as const, memberUid: 1, participantRole: "vocal" as const },
+      ],
       note: null,
     };
 

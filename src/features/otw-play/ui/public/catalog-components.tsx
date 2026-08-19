@@ -14,6 +14,7 @@ import {
   type OtwPlayTrack,
 } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import { presentOtwPlayParticipants } from "./participant-presentation";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const relationLabel = {
@@ -69,6 +70,34 @@ export function OtwPlayParticipantChip({
     >
       {participant.displayName}
     </Link>
+  );
+}
+
+export function OtwPlayParticipantSummary({
+  participants,
+}: {
+  participants: OtwPlayPublicParticipantDto[];
+}) {
+  const presentation = presentOtwPlayParticipants(participants);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {presentation.primary.map((participant) => (
+        <OtwPlayParticipantChip
+          key={`${participant.entityId}:${participant.creditOrder}`}
+          participant={participant}
+        />
+      ))}
+      {presentation.supporting.length > 0 ? (
+        <Badge
+          variant="outline"
+          className="min-h-7 border-dashed text-[11px] font-normal text-muted-foreground"
+          title={presentation.supportingNames}
+          aria-label={`서브 참여자 ${presentation.supporting.length}명: ${presentation.supportingNames}`}
+        >
+          +{presentation.supporting.length} 서브
+        </Badge>
+      ) : null}
+    </div>
   );
 }
 
@@ -204,11 +233,7 @@ export function OtwPlaySongRow({
             원곡 가수 {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {performance.participants.map((participant) => (
-            <OtwPlayParticipantChip key={`${participant.entityId}:${participant.creditOrder}`} participant={participant} />
-          ))}
-        </div>
+        <OtwPlayParticipantSummary participants={performance.participants} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{participationLabel[performance.participation]}</span>
           <span>{performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}</span>

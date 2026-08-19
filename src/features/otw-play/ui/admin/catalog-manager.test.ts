@@ -182,6 +182,11 @@ describe("OtwPlayCatalogManager", () => {
       youtubeUrl: proposal.submittedUrl,
       startSeconds: 0,
     }));
+    fireEvent.change(screen.getByLabelText("곡명"), {
+      target: { value: "관리자가 정정한 곡명" },
+    });
+    fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "서브 보컬" }));
     fireEvent.click(screen.getByRole("checkbox"));
     expect(approveButton.disabled).toBe(false);
     fireEvent.click(approveButton);
@@ -195,6 +200,13 @@ describe("OtwPlayCatalogManager", () => {
           singingCreditConfirmed: true,
           publish: true,
           releaseType: "official_video",
+          song: expect.objectContaining({
+            kind: "create",
+            title: "관리자가 정정한 곡명",
+          }),
+          participants: [
+            expect.objectContaining({ participantRole: "featured_vocal" }),
+          ],
         }),
       ),
     );

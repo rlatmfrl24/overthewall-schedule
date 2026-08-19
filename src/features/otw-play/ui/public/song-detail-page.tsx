@@ -7,7 +7,7 @@ import { cn } from "@/shared/lib/utils";
 import { useOtwPlaySong } from "../../queries/use-public-catalog";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import {
-  OtwPlayParticipantChip,
+  OtwPlayParticipantSummary,
   OtwPlayPerformanceActions,
   relationLabel,
 } from "./catalog-components";
@@ -107,10 +107,8 @@ export function OtwPlaySongDetailPage({
                     <Badge variant="outline">{performance.releaseType === "official_mv" ? "공식 MV" : "공식 영상"}</Badge>
                     {highlighted ? <Badge>직접 링크로 선택됨</Badge> : null}
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {performance.participants.map((participant) => (
-                      <OtwPlayParticipantChip key={`${participant.entityId}:${participant.creditOrder}`} participant={participant} />
-                    ))}
+                  <div className="mt-3">
+                    <OtwPlayParticipantSummary participants={performance.participants} />
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">
                     {performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}

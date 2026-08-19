@@ -65,7 +65,7 @@ const submission = {
   createdAt: 1,
   updatedAt: 1,
   originalArtists: [{ creditOrder: 0, displayName: "원곡 가수" }],
-  participants: [{ creditOrder: 0, displayName: "멤버 한명" }],
+  participants: [{ creditOrder: 0, displayName: "멤버 한명", participantRole: "vocal" }],
   approvedSong: null,
 } as const;
 
@@ -104,6 +104,10 @@ const completeDetails = async () => {
 describe("OtwPlaySubmissionPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
     mocks.members.mockResolvedValue([member]);
     mocks.preflight.mockResolvedValue(preflight);
     mocks.create.mockRejectedValue(new Error("network failed"));
@@ -159,6 +163,29 @@ describe("OtwPlaySubmissionPage", () => {
     expect(await screen.findByRole("option", { name: /멤버 한명/ })).toBeTruthy();
     fireEvent.keyDown(memberInput, { key: "Enter" });
     expect(screen.getByLabelText("선택한 OTW 멤버").textContent).toContain("멤버 한명");
+  });
+
+  it("submits the selected singing role for each participant", async () => {
+    renderPage();
+    await verifyVideo();
+    fireEvent.change(screen.getByLabelText("곡명 *"), { target: { value: "테스트 커버" } });
+    const artistInput = screen.getByLabelText("원곡 가수 *");
+    fireEvent.change(artistInput, { target: { value: "원곡 가수" } });
+    fireEvent.keyDown(artistInput, { key: "Enter" });
+    const memberInput = screen.getByLabelText("OTW 참여 멤버");
+    fireEvent.change(memberInput, { target: { value: "member-one" } });
+    fireEvent.keyDown(memberInput, { key: "Enter" });
+
+    fireEvent.click(await screen.findByLabelText("🎵 멤버 한명 가창 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "코러스" }));
+    fireEvent.click(screen.getByRole("button", { name: /검토하기/ }));
+    expect(await screen.findByText(/멤버 한명 · 코러스/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0]?.[0].participants).toEqual([
+      { kind: "member", memberUid: 1, participantRole: "chorus" },
+    ]);
   });
 
   it("keeps wizard values and the idempotency key after a submit failure", async () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminChannelDto,
@@ -9,6 +9,7 @@ import type {
   OtwPlayAdminCatalogEntryPreflightDto,
   OtwPlayAdminCatalogSongDecision,
   OtwPlayAdminCatalogSubjectInput,
+  OtwPlayParticipantRole,
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
@@ -37,8 +38,10 @@ import { useToast } from "@/shared/ui/toast";
 import {
   Loader2,
   Pencil,
+  Plus,
   RefreshCw,
   Settings2,
+  Trash2,
   Video,
 } from "lucide-react";
 import {
@@ -84,6 +87,13 @@ const channelVerificationLabels = {
   approved: "승인됨",
   revoked: "철회됨",
 } as const;
+
+const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
+  vocal: "메인 보컬",
+  featured_vocal: "서브 보컬",
+  chorus: "코러스",
+  other: "기타 참여",
+};
 
 const Field = ({
   label,
@@ -322,10 +332,47 @@ function ProposalSection({
   const [savingLocal, setSavingLocal] = useState(false);
   const [channelRole, setChannelRole] =
     useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewSongId, setReviewSongId] = useState("__new");
+  const [reviewParticipants, setReviewParticipants] = useState<Array<{
+    resolvedEntityId: string | null;
+    submittedNameSnapshot: string;
+    participantRole: OtwPlayParticipantRole;
+  }>>([]);
+  const [reviewArtists, setReviewArtists] = useState<Array<{
+    resolvedEntityId: string | null;
+    submittedNameSnapshot: string;
+  }>>([]);
   const selected =
     proposals.find((proposal) => proposal.id === selectedId) ??
     proposals[0] ??
     null;
+
+  useEffect(() => {
+    if (!selected) {
+      setReviewTitle("");
+      setReviewSongId("__new");
+      setReviewParticipants([]);
+      setReviewArtists([]);
+      return;
+    }
+    setReviewTitle(selected.submittedTitle);
+    setReviewSongId(selected.suggestedSongId ?? "__new");
+    setReviewParticipants(
+      selected.participants.map((participant) => ({
+        resolvedEntityId: participant.resolvedEntityId,
+        submittedNameSnapshot: participant.submittedNameSnapshot,
+        participantRole: participant.participantRole,
+      })),
+    );
+    setReviewArtists(
+      selected.originalArtists.map((artist) => ({
+        resolvedEntityId: artist.resolvedEntityId,
+        submittedNameSnapshot: artist.submittedNameSnapshot,
+      })),
+    );
+    setSingingCreditConfirmed(false);
+  }, [selected]);
   const proposalSubject = (
     value: { resolvedEntityId: string | null; submittedNameSnapshot: string },
     clientKey: string,
@@ -355,10 +402,10 @@ function ProposalSection({
   };
   const approveSelected = async () => {
     if (!selected || !approvalPreflight || !singingCreditConfirmed) return;
-    const participantSubjects = selected.participants.map((participant, index) => ({
+    const participantSubjects = reviewParticipants.map((participant, index) => ({
       subject: proposalSubject(participant, `proposal-participant-${index}`),
       participantRole: participant.participantRole,
-      creditOrder: participant.creditOrder,
+      creditOrder: index,
       creditNameSnapshot: participant.submittedNameSnapshot,
     }));
     const owner = participantSubjects[0]?.subject;
@@ -377,21 +424,21 @@ function ProposalSection({
               channelRole: approvalPreflight.channel.channelRole,
             }
           : { kind: "confirm", channelRole, owners: [owner] };
-    const existingSong = selected.suggestedSongId
-      ? catalog.songs.find((song) => song.id === selected.suggestedSongId)
+    const existingSong = reviewSongId !== "__new"
+      ? catalog.songs.find((song) => song.id === reviewSongId)
       : null;
     const song: OtwPlayAdminCatalogSongDecision = existingSong
       ? { kind: "existing", songId: existingSong.id }
       : {
           kind: "create",
-          title: selected.submittedTitle,
+          title: reviewTitle.trim(),
           isOtwOriginal: false,
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           aliases: [],
-          originalArtists: selected.originalArtists.map((artist, index) => ({
+          originalArtists: reviewArtists.map((artist, index) => ({
             subject: proposalSubject(artist, `proposal-artist-${index}`),
-            creditOrder: artist.creditOrder,
+            creditOrder: index,
             isPrimary: index === 0,
           })),
         };
@@ -492,6 +539,146 @@ function ProposalSection({
                   </Select>
                 </Field>
               ) : null}
+              <div className="space-y-4 rounded-lg border bg-background p-3">
+                <div>
+                  <p className="font-semibold">승인 내용 편집</p>
+                  <p className="text-xs text-muted-foreground">
+                    원 제안 snapshot은 보존하고, 아래 값으로 catalog에 반영합니다.
+                  </p>
+                </div>
+                <Field label="연결할 곡">
+                  <Select
+                    value={reviewSongId}
+                    onValueChange={(value) => {
+                      setReviewSongId(value);
+                      const song = catalog.songs.find((item) => item.id === value);
+                      if (song) setReviewTitle(song.title);
+                      setSingingCreditConfirmed(false);
+                    }}
+                  >
+                    <SelectTrigger aria-label="승인할 곡 선택"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__new">새 곡 생성</SelectItem>
+                      {catalog.songs.map((song) => (
+                        <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                {reviewSongId === "__new" ? (
+                  <>
+                    <Field label="곡명" htmlFor="proposal-review-title">
+                      <Input
+                        id="proposal-review-title"
+                        value={reviewTitle}
+                        onChange={(event) => {
+                          setReviewTitle(event.target.value);
+                          setSingingCreditConfirmed(false);
+                        }}
+                        maxLength={300}
+                      />
+                    </Field>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>원곡 가수</Label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setReviewArtists((items) => [
+                            ...items,
+                            { resolvedEntityId: null, submittedNameSnapshot: "" },
+                          ])}
+                        ><Plus /> 가수 추가</Button>
+                      </div>
+                      {reviewArtists.map((artist, index) => (
+                        <div key={`artist-${index}`} className="grid gap-2 sm:grid-cols-[11rem_minmax(0,1fr)_2.25rem]">
+                          <Select
+                            value={artist.resolvedEntityId ? `entity:${artist.resolvedEntityId}` : "external"}
+                            onValueChange={(value) => {
+                              const entityId = value.startsWith("entity:") ? value.slice(7) : null;
+                              const entity = catalog.entities.find((item) => item.id === entityId);
+                              setReviewArtists((items) => items.map((item, itemIndex) => itemIndex === index
+                                ? { resolvedEntityId: entityId, submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot }
+                                : item));
+                            }}
+                          >
+                            <SelectTrigger aria-label={`${index + 1}번째 원곡 가수 identity`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="external">외부 identity</SelectItem>
+                              {catalog.entities.map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            aria-label={`${index + 1}번째 원곡 가수명`}
+                            value={artist.submittedNameSnapshot}
+                            onChange={(event) => setReviewArtists((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, submittedNameSnapshot: event.target.value } : item))}
+                            maxLength={300}
+                          />
+                          <Button type="button" size="icon-sm" variant="ghost" aria-label={`${index + 1}번째 원곡 가수 삭제`} onClick={() => setReviewArtists((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></Button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>가창 참여자와 역할</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReviewParticipants((items) => [
+                        ...items,
+                        { resolvedEntityId: null, submittedNameSnapshot: "", participantRole: "vocal" },
+                      ])}
+                    ><Plus /> 참여자 추가</Button>
+                  </div>
+                  {reviewParticipants.map((participant, index) => (
+                    <div key={`participant-${index}`} className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)_9rem_2.25rem]">
+                      <Select
+                        value={participant.resolvedEntityId ? `entity:${participant.resolvedEntityId}` : "external"}
+                        onValueChange={(value) => {
+                          const entityId = value.startsWith("entity:") ? value.slice(7) : null;
+                          const entity = catalog.entities.find((item) => item.id === entityId);
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index
+                            ? { ...item, resolvedEntityId: entityId, submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot }
+                            : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${index + 1}번째 참여자 identity`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="external">외부 identity</SelectItem>
+                          {catalog.entities.map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        aria-label={`${index + 1}번째 참여자명`}
+                        value={participant.submittedNameSnapshot}
+                        onChange={(event) => {
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, submittedNameSnapshot: event.target.value } : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                        maxLength={300}
+                      />
+                      <Select
+                        value={participant.participantRole}
+                        onValueChange={(value) => {
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, participantRole: value as OtwPlayParticipantRole } : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${participant.submittedNameSnapshot || `${index + 1}번째 참여자`} 가창 역할`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(participantRoleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`${index + 1}번째 참여자 삭제`} onClick={() => { setReviewParticipants((items) => items.filter((_, itemIndex) => itemIndex !== index)); setSingingCreditConfirmed(false); }}><Trash2 /></Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <label className="flex items-start gap-2 rounded-lg border bg-background p-3">
                 <Checkbox
                   checked={singingCreditConfirmed}
@@ -505,6 +692,11 @@ function ProposalSection({
                   !approvalPreflight ||
                   Boolean(approvalPreflight.duplicate) ||
                   ["pending", "inactive", "revoked"].includes(approvalPreflight.channel.state) ||
+                  !reviewTitle.trim() ||
+                  (reviewSongId === "__new" && (reviewArtists.length === 0 || reviewArtists.some((artist) => !artist.submittedNameSnapshot.trim()))) ||
+                  reviewParticipants.length === 0 ||
+                  reviewParticipants.some((participant) => !participant.submittedNameSnapshot.trim()) ||
+                  !reviewParticipants.some((participant) => participant.participantRole !== "other") ||
                   !singingCreditConfirmed ||
                   saving !== null
                 }
