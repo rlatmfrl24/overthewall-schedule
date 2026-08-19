@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { FIXED_SITE_PATHS, SITE_ORIGIN } from "../contracts/site-seo";
+import {
+  FIXED_SITE_PATHS,
+  SITE_ORIGIN,
+  STATIC_SHELL_PATHS,
+} from "../contracts/site-seo";
 
 const readPolicyLines = async (path: string): Promise<Set<string>> => {
   const content = await readFile(path, "utf8");
@@ -20,6 +24,11 @@ describe("Cloudflare SEO asset routing", () => {
     expect(config).toContain('"not_found_handling": "404-page"');
     expect(config).toContain('"!/profile/*.webp"');
     expect(config).toContain('"!/profile/signatures/*"');
+    expect(config).toContain('"/play"');
+    expect(config).toContain('"/play/*"');
+    expect(STATIC_SHELL_PATHS.some((path) => path.startsWith("/play"))).toBe(
+      false,
+    );
   });
 
   it("permanently redirects non-canonical public route variants", async () => {

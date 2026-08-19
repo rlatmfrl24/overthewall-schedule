@@ -50,6 +50,11 @@ export {
 } from "./domain/public-group-key";
 export { selectPublicPlaybackSource } from "./domain/public-source-selection";
 export { PublicCatalogService } from "./application/public-catalog-service";
+export type {
+  PublicCatalogSeoReader,
+  PublicCatalogSeoState,
+  PublicCatalogSongSeoProjection,
+} from "./application/ports/public-catalog-seo-reader";
 export {
   CloudflarePublicCatalogCache,
   createPublicCatalogEtag,

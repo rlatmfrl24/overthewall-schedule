@@ -14,6 +14,10 @@ import type {
   PublicCatalogSongSummary,
   PublicCatalogSource,
 } from "../application/ports/public-catalog-reader";
+import type {
+  PublicCatalogSeoReader,
+  PublicCatalogSongSeoProjection,
+} from "../application/ports/public-catalog-seo-reader";
 import {
   type PublicCatalogCursorPosition,
   type PublicCatalogSearchPhase,
@@ -1633,7 +1637,9 @@ const positionFromCandidate = (
   };
 };
 
-export class D1PublicCatalogReader implements PublicCatalogReader {
+export class D1PublicCatalogReader
+  implements PublicCatalogReader, PublicCatalogSeoReader
+{
   private readonly db: D1Database;
   private diagnostics: D1PublicCatalogReadDiagnostics = {
     statements: 0,
@@ -1680,6 +1686,74 @@ export class D1PublicCatalogReader implements PublicCatalogReader {
       publicReadEnabled: Boolean(row.public_read_enabled),
       navigationVisible: Boolean(row.navigation_visible),
       updatedAt: Number(row.updated_at),
+    };
+  }
+
+  readSeoState(): Promise<PublicCatalogMeta> {
+    return this.readMeta();
+  }
+
+  async listPublishedSeoSongSlugs(): Promise<string[]> {
+    this.resetDiagnostics();
+    const rows = await this.all<{ slug: string }>(`
+      SELECT song.slug
+      FROM music_songs AS song
+      WHERE ${PUBLIC_SONG_PREDICATE}
+        AND EXISTS (
+          SELECT 1
+          FROM music_performances AS performance
+          WHERE performance.song_id = song.id
+            AND ${PUBLIC_PERFORMANCE_PREDICATE}
+        )
+      ORDER BY song.slug ASC, song.id ASC
+      LIMIT 5001`);
+    return rows.map(({ slug }) => slug);
+  }
+
+  async readPublishedSongSeoBySlug(
+    slug: string,
+  ): Promise<PublicCatalogSongSeoProjection | null> {
+    this.resetDiagnostics();
+    const rows = await this.all<
+      Pick<SongRow, "song_id" | "slug" | "title"> &
+        Pick<PerformanceRow, "performance_id">
+    >(
+      `
+        SELECT song.id AS song_id,
+               song.slug,
+               song.title,
+               performance.id AS performance_id
+        FROM music_songs AS song
+        JOIN music_performances AS performance
+          ON performance.song_id = song.id
+        WHERE song.slug = ?
+          AND ${PUBLIC_SONG_PREDICATE}
+          AND ${PUBLIC_PERFORMANCE_PREDICATE}
+        ORDER BY ${PUBLIC_PERFORMANCE_ORDER}
+        LIMIT 1`,
+      [slug],
+    );
+    const row = rows[0];
+    if (!row) return null;
+
+    const [artistRows, participantRows, sourceRows] = await this.batchAll([
+      artistQueryForSongIds([row.song_id]),
+      participantQueryForPerformanceIds([row.performance_id]),
+      sourceQueryForPerformanceIds([row.performance_id]),
+    ]);
+    const selection = selectPublicPlaybackSource(
+      (sourceRows as SourceRow[]).map(mapSource),
+    );
+    return {
+      slug: row.slug,
+      title: row.title,
+      originalArtistNames: (artistRows as ArtistRow[]).map(
+        ({ display_name }) => display_name,
+      ),
+      mainVocalNames: (participantRows as ParticipantRow[])
+        .filter(({ participant_role }) => participant_role === "vocal")
+        .map(({ credit_name_snapshot }) => credit_name_snapshot),
+      thumbnailUrl: selection.playbackSource?.thumbnailUrl ?? null,
     };
   }
 

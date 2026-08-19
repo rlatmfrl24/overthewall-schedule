@@ -1,6 +1,7 @@
 import {
   buildFeedSiteSeo,
   buildNotFoundSiteSeo,
+  buildPlayPrivateSiteSeo,
   type SiteSeoMetadata,
 } from "@contracts/site-seo";
 import type { Env } from "../../../platform/types";
@@ -8,8 +9,11 @@ import type { SiteSeoService } from "../application/site-seo-service";
 
 const XML_HEADERS = {
   "Content-Type": "application/xml; charset=utf-8",
-  "Cache-Control": "public, max-age=300, s-maxage=900",
+  "Cache-Control": "public, max-age=60, s-maxage=300",
 } as const;
+
+const REDIRECT_CACHE = "public, max-age=3600";
+const PLAY_INDEX_CACHE = "public, max-age=60, s-maxage=60";
 
 const escapeXml = (value: string): string =>
   value
@@ -108,7 +112,14 @@ const toHeadResponse = (request: Request, response: Response): Response =>
     : response;
 
 const methodNotAllowed = () =>
-  new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  new Response(null, {
+    status: 405,
+    headers: {
+      Allow: "GET, HEAD",
+      "Cache-Control": "no-store",
+      "X-Robots-Tag": "noindex,nofollow",
+    },
+  });
 
 const unavailable = (request: Request) =>
   toHeadResponse(
@@ -119,35 +130,114 @@ const unavailable = (request: Request) =>
         "Content-Type": "text/plain; charset=utf-8",
         "Retry-After": "300",
         "Cache-Control": "no-store",
-        "X-Robots-Tag": "noindex, nofollow",
+        "X-Robots-Tag": "noindex,nofollow",
       },
     }),
   );
+
+type PlayRoute =
+  | { kind: "home"; canonicalPath: "/play"; trailing: boolean }
+  | { kind: "songs"; canonicalPath: "/play/songs"; trailing: boolean }
+  | { kind: "song"; canonicalPath: string; trailing: boolean; rawSlug: string }
+  | {
+      kind: "private";
+      canonicalPath: "/play/submit" | "/play/submissions";
+      trailing: boolean;
+    }
+  | { kind: "discover"; canonicalPath: "/play"; trailing: boolean }
+  | { kind: "not-found"; canonicalPath: string; trailing: boolean };
+
+const classifyPlayRoute = (pathname: string): PlayRoute | null => {
+  if (pathname !== "/play" && !pathname.startsWith("/play/")) return null;
+  const canonicalPath = pathname.replace(/\/+$/, "") || "/";
+  const trailing = canonicalPath !== pathname;
+  if (canonicalPath === "/play") {
+    return { kind: "home", canonicalPath: "/play", trailing };
+  }
+  if (canonicalPath === "/play/songs") {
+    return { kind: "songs", canonicalPath: "/play/songs", trailing };
+  }
+  if (canonicalPath === "/play/submit" || canonicalPath === "/play/submissions") {
+    return { kind: "private", canonicalPath, trailing };
+  }
+  if (canonicalPath === "/play/discover") {
+    return { kind: "discover", canonicalPath: "/play", trailing };
+  }
+  const songMatch = canonicalPath.match(/^\/play\/songs\/([^/]+)$/);
+  if (songMatch) {
+    return {
+      kind: "song",
+      canonicalPath,
+      trailing,
+      rawSlug: songMatch[1] ?? "",
+    };
+  }
+  return { kind: "not-found", canonicalPath, trailing };
+};
+
+const isValidPlaySongSlug = (slug: string): boolean => {
+  const length = Array.from(slug).length;
+  return (
+    length > 0 &&
+    length <= 128 &&
+    slug === slug.trim() &&
+    slug !== "." &&
+    slug !== ".." &&
+    !/[\p{Cc}\p{Cs}\\/?#%]/u.test(slug)
+  );
+};
+
+const redirect = (url: URL, pathname: string, preserveSearch: boolean) => {
+  const location = new URL(url);
+  location.pathname = pathname;
+  if (!preserveSearch) location.search = "";
+  location.hash = "";
+  return new Response(null, {
+    status: 301,
+    headers: { Location: location.toString(), "Cache-Control": REDIRECT_CACHE },
+  });
+};
+
+const rewritePlayHtml = (
+  asset: Response,
+  metadata: SiteSeoMetadata,
+  status = 200,
+): Response => {
+  const response = rewriteHtml(asset, metadata, status);
+  if (status === 200 && metadata.robots === "index,follow") {
+    response.headers.set("Cache-Control", PLAY_INDEX_CACHE);
+  } else {
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("X-Robots-Tag", metadata.robots);
+  }
+  return response;
+};
 
 export const createSiteSeoHandler = (
   getService: (env: Env) => SiteSeoService,
 ) => async (request: Request, env: Env): Promise<Response | null> => {
   const url = new URL(request.url);
   const profileMatch = url.pathname.match(/^\/profile\/([^/]+)\/?$/);
+  const playRoute = classifyPlayRoute(url.pathname);
   const recognized =
     url.pathname === "/feed" ||
     url.pathname === "/feed/" ||
     url.pathname === "/sitemap.xml" ||
+    playRoute !== null ||
     profileMatch !== null;
   if (!recognized) return null;
   if (request.method !== "GET" && request.method !== "HEAD") {
     return methodNotAllowed();
   }
 
+  if (playRoute?.kind === "discover") {
+    return redirect(url, "/play", true);
+  }
+  if (playRoute?.trailing && playRoute.kind !== "not-found") {
+    return redirect(url, playRoute.canonicalPath, true);
+  }
   if (url.pathname === "/feed/" || (profileMatch && url.pathname.endsWith("/"))) {
-    const location = new URL(url);
-    location.pathname = url.pathname.replace(/\/+$/, "");
-    location.search = "";
-    location.hash = "";
-    return new Response(null, {
-      status: 301,
-      headers: { Location: location.toString(), "Cache-Control": "public, max-age=3600" },
-    });
+    return redirect(url, url.pathname.replace(/\/+$/, ""), false);
   }
 
   const service = getService(env);
@@ -175,7 +265,67 @@ export const createSiteSeoHandler = (
     const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
     const response = rewriteHtml(asset, metadata);
     response.headers.set("Cache-Control", "no-store");
+    if (metadata.robots !== "index,follow") {
+      response.headers.set("X-Robots-Tag", metadata.robots);
+    }
     return toHeadResponse(request, response);
+  }
+
+  if (playRoute) {
+    try {
+      if (playRoute.kind === "not-found") {
+        const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
+        return toHeadResponse(
+          request,
+          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+        );
+      }
+      if (playRoute.kind === "private") {
+        const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
+        return toHeadResponse(
+          request,
+          rewritePlayHtml(asset, buildPlayPrivateSiteSeo(playRoute.canonicalPath)),
+        );
+      }
+
+      let metadata: SiteSeoMetadata | null;
+      if (playRoute.kind === "home") {
+        metadata = await service.readPlayHome();
+      } else if (playRoute.kind === "songs") {
+        metadata = await service.readPlaySongs();
+      } else {
+        let slug = "";
+        try {
+          slug = decodeURIComponent(playRoute.rawSlug);
+        } catch {
+          // Malformed percent encoding is a route-level 404.
+        }
+        if (!isValidPlaySongSlug(slug)) {
+          const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
+          return toHeadResponse(
+            request,
+            rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+          );
+        }
+        metadata = await service.findPlaySong(slug);
+      }
+
+      if (!metadata) {
+        const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
+        return toHeadResponse(
+          request,
+          rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
+        );
+      }
+      const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
+      return toHeadResponse(request, rewritePlayHtml(asset, metadata));
+    } catch (error) {
+      console.error("[seo] failed to render OTW Play", {
+        path: url.pathname,
+        error,
+      });
+      return unavailable(request);
+    }
   }
 
   let code: string;
@@ -190,13 +340,14 @@ export const createSiteSeoHandler = (
       const asset = await env.ASSETS!.fetch(assetRequest(request, "/404.html"));
       const response = rewriteHtml(asset, buildNotFoundSiteSeo(url.pathname), 404);
       response.headers.set("Cache-Control", "no-store");
+      response.headers.set("X-Robots-Tag", "noindex,nofollow");
       return toHeadResponse(request, response);
     }
     const metadata = service.buildProfileMetadata(member);
     if (member.code !== code) {
       return new Response(null, {
         status: 301,
-        headers: { Location: metadata.canonical, "Cache-Control": "public, max-age=3600" },
+        headers: { Location: metadata.canonical, "Cache-Control": REDIRECT_CACHE },
       });
     }
     const asset = await env.ASSETS!.fetch(assetRequest(request, "/"));
