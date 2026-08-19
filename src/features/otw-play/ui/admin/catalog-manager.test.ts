@@ -24,6 +24,7 @@ const deleteSongMock = vi.hoisted(() => vi.fn());
 const deletePerformanceMock = vi.hoisted(() => vi.fn());
 const fetchMembersMock = vi.hoisted(() => vi.fn());
 const rejectProposalMock = vi.hoisted(() => vi.fn());
+const approveProposalMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", async (importOriginal) => {
@@ -40,6 +41,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     deleteOtwPlaySong: deleteSongMock,
     deleteOtwPlayPerformance: deletePerformanceMock,
     rejectOtwPlayProposal: rejectProposalMock,
+    approveOtwPlayProposal: approveProposalMock,
   };
 });
 
@@ -106,6 +108,15 @@ describe("OtwPlayCatalogManager", () => {
       data: { ...proposal, status: "rejected", version: 3 },
       catalogRevision: 7,
     });
+    approveProposalMock.mockResolvedValue({
+      data: {
+        ...proposal,
+        status: "approved",
+        version: 3,
+        approvedPerformanceId: "performance-approved",
+      },
+      catalogRevision: 8,
+    });
     updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     updatePerformanceMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
@@ -150,7 +161,8 @@ describe("OtwPlayCatalogManager", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps proposal approval closed while showing the no-cookie review player", async () => {
+  it("requires metadata and singing-credit confirmation before approving a proposal", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),
     });
@@ -160,11 +172,34 @@ describe("OtwPlayCatalogManager", () => {
     expect(player.getAttribute("src")).toBe(
       "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
     );
-    expect(
-      (screen.getByRole("button", { name: "승인" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(screen.getByText(/GATE-01이 확정될 때까지/)).toBeTruthy();
+    const approveButton = screen.getByRole("button", {
+      name: "확인 후 승인·게시",
+    }) as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledWith({
+      youtubeUrl: proposal.submittedUrl,
+      startSeconds: 0,
+    }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(false);
+    fireEvent.click(approveButton);
+
+    await waitFor(() =>
+      expect(approveProposalMock).toHaveBeenCalledWith(
+        "proposal-1",
+        expect.objectContaining({
+          expectedVersion: 2,
+          expectedCatalogRevision: 7,
+          singingCreditConfirmed: true,
+          publish: true,
+          releaseType: "official_video",
+        }),
+      ),
+    );
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
   });
 
   it("rejects with an internal reason and then refetches authoritative state", async () => {

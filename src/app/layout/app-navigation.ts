@@ -8,6 +8,7 @@ import {
   MessageSquareText,
   MonitorPlay,
   Music2,
+  ListPlus,
   Shield,
   Video,
   type LucideIcon,
@@ -27,6 +28,7 @@ export type InternalNavTo =
   | "/weekly"
   | "/vods"
   | "/play"
+  | "/play/submit"
   | "/multiview"
   | "/feed"
   | "/notice"
@@ -61,6 +63,7 @@ type MemberPostsNavState = {
 
 type PublicNavigationOptions = {
   isAdmin: boolean;
+  isSignedIn?: boolean;
   memberPosts: MemberPostsNavState;
   otwPlayVisible?: boolean;
 };
@@ -111,6 +114,7 @@ export function resolveMemberPostsNavState({
 
 export function getPublicNavigationSections({
   isAdmin,
+  isSignedIn = false,
   memberPosts,
   otwPlayVisible = false,
 }: PublicNavigationOptions): NavSection[] {
@@ -161,6 +165,18 @@ export function getPublicNavigationSections({
                 icon: Music2,
                 group: "content" as const,
                 to: "/play" as const,
+              },
+            ]
+          : []),
+        ...(!isAdmin && isSignedIn
+          ? [
+              {
+                id: "otw-play-submit",
+                label: "곡 제안",
+                icon: ListPlus,
+                group: "content" as const,
+                to: "/play/submit" as const,
+                requiresAuth: true,
               },
             ]
           : []),
@@ -220,7 +236,7 @@ export function getPublicNavigationSections({
 }
 
 export function usePublicNavigationSections() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const isAdmin = isLoaded && isAdminUser(user?.id);
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
@@ -232,6 +248,7 @@ export function usePublicNavigationSections() {
 
   return getPublicNavigationSections({
     isAdmin,
+    isSignedIn: Boolean(isLoaded && isSignedIn),
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,

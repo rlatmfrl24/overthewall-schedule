@@ -4,6 +4,11 @@ import type {
   OtwPlayAdminChannelDto,
   OtwPlayAdminEntityDto,
   OtwPlayChannelRole,
+  OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogChannelDecision,
+  OtwPlayAdminCatalogEntryPreflightDto,
+  OtwPlayAdminCatalogSongDecision,
+  OtwPlayAdminCatalogSubjectInput,
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
@@ -44,6 +49,8 @@ import {
 } from "@/shared/ui/sheet";
 import {
   createOtwPlayChannel,
+  approveOtwPlayProposal,
+  preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   updateOtwPlayChannel,
   updateOtwPlayEntity,
@@ -238,6 +245,7 @@ export function OtwPlayCatalogManager() {
 
       {section === "review" && (
         <ProposalSection
+          catalog={catalog}
           proposals={proposalsQuery.data ?? []}
           loading={proposalsQuery.isLoading}
           saving={effectiveSaving}
@@ -292,11 +300,13 @@ export function OtwPlayCatalogManager() {
 }
 
 function ProposalSection({
+  catalog,
   proposals,
   loading,
   saving,
   run,
 }: {
+  catalog: OtwPlayAdminCatalogDto;
   proposals: ReturnType<typeof useOtwPlayAdminProposals>["data"] extends infer T
     ? NonNullable<T>
     : never;
@@ -306,10 +316,107 @@ function ProposalSection({
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [approvalPreflight, setApprovalPreflight] =
+    useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
+  const [singingCreditConfirmed, setSingingCreditConfirmed] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
+  const [channelRole, setChannelRole] =
+    useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
   const selected =
     proposals.find((proposal) => proposal.id === selectedId) ??
     proposals[0] ??
     null;
+  const proposalSubject = (
+    value: { resolvedEntityId: string | null; submittedNameSnapshot: string },
+    clientKey: string,
+  ): OtwPlayAdminCatalogSubjectInput =>
+    value.resolvedEntityId
+      ? { kind: "entity", entityId: value.resolvedEntityId }
+      : {
+          kind: "new_external",
+          clientKey,
+          displayName: value.submittedNameSnapshot,
+          entityKind: "person",
+        };
+
+  const verifySelected = async () => {
+    if (!selected) return;
+    setSavingLocal(true);
+    try {
+      setApprovalPreflight(
+        await preflightOtwPlayCatalogEntry({
+          youtubeUrl: selected.submittedUrl,
+          startSeconds: 0,
+        }),
+      );
+    } finally {
+      setSavingLocal(false);
+    }
+  };
+  const approveSelected = async () => {
+    if (!selected || !approvalPreflight || !singingCreditConfirmed) return;
+    const participantSubjects = selected.participants.map((participant, index) => ({
+      subject: proposalSubject(participant, `proposal-participant-${index}`),
+      participantRole: participant.participantRole,
+      creditOrder: participant.creditOrder,
+      creditNameSnapshot: participant.submittedNameSnapshot,
+    }));
+    const owner = participantSubjects[0]?.subject;
+    if (!owner) return;
+    const channel: OtwPlayAdminCatalogChannelDecision =
+      approvalPreflight.channel.state === "approved" &&
+      approvalPreflight.channel.catalogChannelId
+        ? { kind: "existing", channelId: approvalPreflight.channel.catalogChannelId }
+        : approvalPreflight.channel.state === "recognized_member" &&
+            approvalPreflight.channel.memberUid &&
+            (approvalPreflight.channel.channelRole === "member_music" ||
+              approvalPreflight.channel.channelRole === "member_main")
+          ? {
+              kind: "recognized_member",
+              memberUid: approvalPreflight.channel.memberUid,
+              channelRole: approvalPreflight.channel.channelRole,
+            }
+          : { kind: "confirm", channelRole, owners: [owner] };
+    const existingSong = selected.suggestedSongId
+      ? catalog.songs.find((song) => song.id === selected.suggestedSongId)
+      : null;
+    const song: OtwPlayAdminCatalogSongDecision = existingSong
+      ? { kind: "existing", songId: existingSong.id }
+      : {
+          kind: "create",
+          title: selected.submittedTitle,
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [],
+          originalArtists: selected.originalArtists.map((artist, index) => ({
+            subject: proposalSubject(artist, `proposal-artist-${index}`),
+            creditOrder: artist.creditOrder,
+            isPrimary: index === 0,
+          })),
+        };
+    if (!window.confirm("최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?")) return;
+    await run("제안 승인", () =>
+      approveOtwPlayProposal(selected.id, {
+        expectedVersion: selected.version,
+        expectedCatalogRevision: approvalPreflight.catalogRevision,
+        song,
+        participants: participantSubjects,
+        channel,
+        releaseType: "official_video",
+        participationType:
+          participantSubjects.length === 1
+            ? "solo"
+            : participantSubjects.length === 2
+              ? "duet"
+              : "external_collab",
+        singingCreditConfirmed: true,
+        publish: true,
+      }),
+    );
+    setApprovalPreflight(null);
+    setSingingCreditConfirmed(false);
+  };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
   return (
     <Card>
@@ -318,8 +425,7 @@ function ProposalSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          GATE-01이 확정될 때까지 승인은 잠겨 있습니다. 영상·채널·중복·크레딧
-          검수와 거절 기록은 계속할 수 있습니다.
+          최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
         </p>
         {selected && (
           <div className="grid gap-4 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
@@ -355,6 +461,57 @@ function ProposalSection({
                   {selected.submittedNote}
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={savingLocal || saving !== null}
+                  onClick={() => void verifySelected()}
+                >
+                  {savingLocal ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                  영상·채널 확인
+                </Button>
+                {approvalPreflight ? (
+                  <Badge variant={approvalPreflight.channel.state === "revoked" ? "destructive" : "secondary"}>
+                    channel {approvalPreflight.channel.state}
+                  </Badge>
+                ) : null}
+              </div>
+              {approvalPreflight && !["approved", "recognized_member"].includes(approvalPreflight.channel.state) ? (
+                <Field label="공식 채널 역할">
+                  <Select value={channelRole} onValueChange={(value) => setChannelRole(value as typeof channelRole)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="otw_official">OTW 공식</SelectItem>
+                      <SelectItem value="unit_official">유닛 공식</SelectItem>
+                      <SelectItem value="member_music">멤버 노래 채널</SelectItem>
+                      <SelectItem value="member_main">멤버 메인 채널</SelectItem>
+                      <SelectItem value="project_official">승인 프로젝트</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              ) : null}
+              <label className="flex items-start gap-2 rounded-lg border bg-background p-3">
+                <Checkbox
+                  checked={singingCreditConfirmed}
+                  onCheckedChange={(checked) => setSingingCreditConfirmed(checked === true)}
+                />
+                <span>영상의 실제 가창자와 입력된 참여자 credit이 일치함을 확인했습니다.</span>
+              </label>
+              <Button
+                size="sm"
+                disabled={
+                  !approvalPreflight ||
+                  Boolean(approvalPreflight.duplicate) ||
+                  ["pending", "inactive", "revoked"].includes(approvalPreflight.channel.state) ||
+                  !singingCreditConfirmed ||
+                  saving !== null
+                }
+                onClick={() => void approveSelected()}
+              >
+                확인 후 승인·게시
+              </Button>
             </div>
           </div>
         )}
@@ -386,7 +543,11 @@ function ProposalSection({
                       <button
                         type="button"
                         className="font-medium text-left hover:underline"
-                        onClick={() => setSelectedId(proposal.id)}
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                          setApprovalPreflight(null);
+                          setSingingCreditConfirmed(false);
+                        }}
                       >
                         {proposal.submittedTitle}
                       </button>
@@ -423,8 +584,16 @@ function ProposalSection({
                       />
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Button size="sm" disabled title="GATE-01 확정 후 활성화">
-                        승인
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                          setApprovalPreflight(null);
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        검수
                       </Button>
                       <Button
                         size="sm"

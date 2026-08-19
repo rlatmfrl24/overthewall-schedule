@@ -24,6 +24,8 @@ import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as PlayIndexRouteImport } from './routes/play/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as PlaySubmitRouteImport } from './routes/play/submit'
+import { Route as PlaySubmissionsRouteImport } from './routes/play/submissions'
 import { Route as PlaySongsRouteImport } from './routes/play/songs'
 import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
@@ -113,6 +115,16 @@ const ProfileCodeRoute = ProfileCodeRouteImport.update({
   id: '/profile/$code',
   path: '/profile/$code',
   getParentRoute: () => rootRouteImport,
+} as any)
+const PlaySubmitRoute = PlaySubmitRouteImport.update({
+  id: '/submit',
+  path: '/submit',
+  getParentRoute: () => PlayRoute,
+} as any)
+const PlaySubmissionsRoute = PlaySubmissionsRouteImport.update({
+  id: '/submissions',
+  path: '/submissions',
+  getParentRoute: () => PlayRoute,
 } as any)
 const PlaySongsRoute = PlaySongsRouteImport.update({
   id: '/songs',
@@ -209,6 +221,8 @@ export interface FileRoutesByFullPath {
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/play/discover': typeof PlayDiscoverRoute
   '/play/songs': typeof PlaySongsRouteWithChildren
+  '/play/submissions': typeof PlaySubmissionsRoute
+  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/play/': typeof PlayIndexRoute
@@ -236,6 +250,8 @@ export interface FileRoutesByTo {
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/play/discover': typeof PlayDiscoverRoute
+  '/play/submissions': typeof PlaySubmissionsRoute
+  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
   '/play': typeof PlayIndexRoute
@@ -268,6 +284,8 @@ export interface FileRoutesById {
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
   '/play/discover': typeof PlayDiscoverRoute
   '/play/songs': typeof PlaySongsRouteWithChildren
+  '/play/submissions': typeof PlaySubmissionsRoute
+  '/play/submit': typeof PlaySubmitRoute
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/play/': typeof PlayIndexRoute
@@ -301,6 +319,8 @@ export interface FileRouteTypes {
     | '/admin/youtube-cache'
     | '/play/discover'
     | '/play/songs'
+    | '/play/submissions'
+    | '/play/submit'
     | '/profile/$code'
     | '/admin/'
     | '/play/'
@@ -328,6 +348,8 @@ export interface FileRouteTypes {
     | '/admin/snapshot'
     | '/admin/youtube-cache'
     | '/play/discover'
+    | '/play/submissions'
+    | '/play/submit'
     | '/profile/$code'
     | '/admin'
     | '/play'
@@ -359,6 +381,8 @@ export interface FileRouteTypes {
     | '/admin/youtube-cache'
     | '/play/discover'
     | '/play/songs'
+    | '/play/submissions'
+    | '/play/submit'
     | '/profile/$code'
     | '/admin/'
     | '/play/'
@@ -488,6 +512,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile/$code'
       preLoaderRoute: typeof ProfileCodeRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/play/submit': {
+      id: '/play/submit'
+      path: '/submit'
+      fullPath: '/play/submit'
+      preLoaderRoute: typeof PlaySubmitRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/submissions': {
+      id: '/play/submissions'
+      path: '/submissions'
+      fullPath: '/play/submissions'
+      preLoaderRoute: typeof PlaySubmissionsRouteImport
+      parentRoute: typeof PlayRoute
     }
     '/play/songs': {
       id: '/play/songs'
@@ -637,12 +675,16 @@ const PlaySongsRouteWithChildren = PlaySongsRoute._addFileChildren(
 interface PlayRouteChildren {
   PlayDiscoverRoute: typeof PlayDiscoverRoute
   PlaySongsRoute: typeof PlaySongsRouteWithChildren
+  PlaySubmissionsRoute: typeof PlaySubmissionsRoute
+  PlaySubmitRoute: typeof PlaySubmitRoute
   PlayIndexRoute: typeof PlayIndexRoute
 }
 
 const PlayRouteChildren: PlayRouteChildren = {
   PlayDiscoverRoute: PlayDiscoverRoute,
   PlaySongsRoute: PlaySongsRouteWithChildren,
+  PlaySubmissionsRoute: PlaySubmissionsRoute,
+  PlaySubmitRoute: PlaySubmitRoute,
   PlayIndexRoute: PlayIndexRoute,
 }
 

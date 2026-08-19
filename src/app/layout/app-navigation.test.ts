@@ -144,6 +144,35 @@ describe("app navigation", () => {
     ).toBe("/play");
   });
 
+  it("shows the member submission entry only to signed-in non-admin members", () => {
+    const signedOut = getPublicNavigationSections({
+      isAdmin: false,
+      isSignedIn: false,
+      memberPosts: { visible: false, requiresAuth: false },
+    });
+    const member = getPublicNavigationSections({
+      isAdmin: false,
+      isSignedIn: true,
+      memberPosts: { visible: false, requiresAuth: false },
+    });
+    const admin = getPublicNavigationSections({
+      isAdmin: true,
+      isSignedIn: true,
+      memberPosts: { visible: false, requiresAuth: false },
+      otwPlayVisible: true,
+    });
+    const items = (sections: typeof member) =>
+      sections.flatMap((section) => section.items);
+
+    expect(items(signedOut).some(({ id }) => id === "otw-play-submit")).toBe(false);
+    expect(items(member).find(({ id }) => id === "otw-play-submit")).toMatchObject({
+      to: "/play/submit",
+      requiresAuth: true,
+    });
+    expect(items(admin).some(({ id }) => id === "otw-play-submit")).toBe(false);
+    expect(items(admin).some(({ id }) => id === "otw-play")).toBe(true);
+  });
+
   it("matches nested route active states", () => {
     const sections = getPublicNavigationSections({
       isAdmin: true,
