@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminChannelDto,
@@ -115,7 +115,9 @@ const participationTypeLabels: Record<OtwPlayParticipationType, string> = {
 };
 
 type ReviewIdentity = {
+  rowKey: string;
   resolvedEntityId: string | null;
+  submittedMemberUid: number | null;
   submittedNameSnapshot: string;
   entityKind: Extract<OtwPlayEntityKind, "person" | "group">;
 };
@@ -125,7 +127,7 @@ type ReviewParticipant = ReviewIdentity & {
 };
 
 type ReviewChannelOwner = ReviewIdentity & {
-  source: "custom" | `participant:${number}` | `artist:${number}`;
+  source: "custom" | `participant:${string}` | `artist:${string}`;
 };
 
 const Field = ({
@@ -361,6 +363,7 @@ function ProposalSection({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [approvalPreflight, setApprovalPreflight] =
     useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
+  const approvalPreflightRequestId = useRef(0);
   const [singingCreditConfirmed, setSingingCreditConfirmed] = useState(false);
   const [savingLocal, setSavingLocal] = useState(false);
   const [channelRole, setChannelRole] =
@@ -380,12 +383,15 @@ function ProposalSection({
     proposals.find((proposal) => proposal.id === selectedId) ??
     proposals[0] ??
     null;
+  const selectedProposalIdRef = useRef<string | null>(selected?.id ?? null);
   const channelNeedsConfirmation = Boolean(
     approvalPreflight &&
       ["unknown", "pending", "inactive"].includes(approvalPreflight.channel.state),
   );
 
   useEffect(() => {
+    selectedProposalIdRef.current = selected?.id ?? null;
+    approvalPreflightRequestId.current += 1;
     if (!selected) {
       setReviewTitle("");
       setReviewSongId("__new");
@@ -401,7 +407,9 @@ function ProposalSection({
     setReviewSongTags([]);
     setReviewParticipants(
       selected.participants.map((participant) => ({
+        rowKey: `proposal-participant-${participant.creditOrder}`,
         resolvedEntityId: participant.resolvedEntityId,
+        submittedMemberUid: participant.submittedMemberUid,
         submittedNameSnapshot: participant.submittedNameSnapshot,
         participantRole: participant.participantRole,
         entityKind:
@@ -413,7 +421,9 @@ function ProposalSection({
     );
     setReviewArtists(
       selected.originalArtists.map((artist) => ({
+        rowKey: `proposal-artist-${artist.creditOrder}`,
         resolvedEntityId: artist.resolvedEntityId,
+        submittedMemberUid: artist.submittedMemberUid,
         submittedNameSnapshot: artist.submittedNameSnapshot,
         entityKind:
           catalog.entities.find((entity) => entity.id === artist.resolvedEntityId)
@@ -438,7 +448,9 @@ function ProposalSection({
     value: ReviewIdentity,
     clientKey: string,
   ): OtwPlayAdminCatalogSubjectInput =>
-    value.resolvedEntityId
+    typeof value.submittedMemberUid === "number"
+      ? { kind: "member", memberUid: value.submittedMemberUid }
+      : value.resolvedEntityId
       ? { kind: "entity", entityId: value.resolvedEntityId }
       : {
           kind: "new_external",
@@ -448,17 +460,17 @@ function ProposalSection({
         };
   const channelOwnerSubject = (owner: ReviewChannelOwner, index: number) => {
     if (owner.source.startsWith("participant:")) {
-      const participantIndex = Number(owner.source.slice("participant:".length));
-      const participant = reviewParticipants[participantIndex];
+      const participantKey = owner.source.slice("participant:".length);
+      const participant = reviewParticipants.find((item) => item.rowKey === participantKey);
       if (participant) {
-        return proposalSubject(participant, `proposal-participant-${participantIndex}`);
+        return proposalSubject(participant, participant.rowKey);
       }
     }
     if (owner.source.startsWith("artist:")) {
-      const artistIndex = Number(owner.source.slice("artist:".length));
-      const artist = reviewArtists[artistIndex];
+      const artistKey = owner.source.slice("artist:".length);
+      const artist = reviewArtists.find((item) => item.rowKey === artistKey);
       if (artist) {
-        return proposalSubject(artist, `proposal-artist-${artistIndex}`);
+        return proposalSubject(artist, artist.rowKey);
       }
     }
     return proposalSubject(owner, `proposal-channel-owner-${index}`);
@@ -466,16 +478,20 @@ function ProposalSection({
 
   const verifySelected = async () => {
     if (!selected) return;
+    const selectedProposalId = selected.id;
+    const requestId = ++approvalPreflightRequestId.current;
     setSavingLocal(true);
     try {
-      setApprovalPreflight(
-        await preflightOtwPlayCatalogEntry({
+      const result = await preflightOtwPlayCatalogEntry({
           youtubeUrl: selected.submittedUrl,
           startSeconds: 0,
-        }),
-      );
+        });
+      if (
+        requestId === approvalPreflightRequestId.current &&
+        selectedProposalIdRef.current === selectedProposalId
+      ) setApprovalPreflight(result);
     } finally {
-      setSavingLocal(false);
+      if (requestId === approvalPreflightRequestId.current) setSavingLocal(false);
     }
   };
   const approveSelected = async () => {
@@ -638,7 +654,9 @@ function ProposalSection({
                         setReviewChannelOwners((items) => [
                           ...items,
                           {
+                            rowKey: crypto.randomUUID(),
                             resolvedEntityId: null,
+                            submittedMemberUid: null,
                             submittedNameSnapshot: "",
                             entityKind: "person",
                             source: "custom",
@@ -652,7 +670,7 @@ function ProposalSection({
                   </div>
                   {reviewChannelOwners.map((owner, index) => (
                     <div
-                      key={`channel-owner-${index}`}
+                      key={owner.rowKey}
                       className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]"
                     >
                       <Select
@@ -665,24 +683,24 @@ function ProposalSection({
                         }
                         onValueChange={(value) => {
                           if (value.startsWith("participant:")) {
-                            const participantIndex = Number(value.slice("participant:".length));
-                            const participant = reviewParticipants[participantIndex];
+                            const participantKey = value.slice("participant:".length);
+                            const participant = reviewParticipants.find((item) => item.rowKey === participantKey);
                             if (!participant) return;
                             setReviewChannelOwners((items) => items.map((item, itemIndex) =>
                               itemIndex === index
-                                ? { ...participant, source: value as ReviewChannelOwner["source"] }
+                                ? { ...participant, rowKey: item.rowKey, source: value as ReviewChannelOwner["source"] }
                                 : item,
                             ));
                             setSingingCreditConfirmed(false);
                             return;
                           }
                           if (value.startsWith("artist:")) {
-                            const artistIndex = Number(value.slice("artist:".length));
-                            const artist = reviewArtists[artistIndex];
+                            const artistKey = value.slice("artist:".length);
+                            const artist = reviewArtists.find((item) => item.rowKey === artistKey);
                             if (!artist) return;
                             setReviewChannelOwners((items) => items.map((item, itemIndex) =>
                               itemIndex === index
-                                ? { ...artist, source: value as ReviewChannelOwner["source"] }
+                                ? { ...artist, rowKey: item.rowKey, source: value as ReviewChannelOwner["source"] }
                                 : item,
                             ));
                             setSingingCreditConfirmed(false);
@@ -710,16 +728,16 @@ function ProposalSection({
                         <SelectContent>
                           <SelectItem value="external">새 identity</SelectItem>
                           {reviewParticipants.map((participant, participantIndex) => (
-                            <SelectItem key={`participant:${participantIndex}`} value={`participant:${participantIndex}`}>
+                            <SelectItem key={`participant:${participant.rowKey}`} value={`participant:${participant.rowKey}`}>
                               가창자 · {participant.submittedNameSnapshot || `${participantIndex + 1}번째 참여자`}
                             </SelectItem>
                           ))}
                           {reviewArtists.map((artist, artistIndex) => (
-                            <SelectItem key={`artist:${artistIndex}`} value={`artist:${artistIndex}`}>
+                            <SelectItem key={`artist:${artist.rowKey}`} value={`artist:${artist.rowKey}`}>
                               원곡 가수 · {artist.submittedNameSnapshot || `${artistIndex + 1}번째 가수`}
                             </SelectItem>
                           ))}
-                          {catalog.entities.map((entity) => (
+                          {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => (
                             <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>
                           ))}
                         </SelectContent>
@@ -790,7 +808,7 @@ function ProposalSection({
                     <SelectTrigger aria-label="승인할 곡 선택"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__new">새 곡 생성</SelectItem>
-                      {catalog.songs.map((song) => (
+                      {catalog.songs.filter((song) => song.archivedAt === null).map((song) => (
                         <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>
                       ))}
                     </SelectContent>
@@ -826,7 +844,9 @@ function ProposalSection({
                           onClick={() => setReviewArtists((items) => [
                             ...items,
                             {
+                              rowKey: crypto.randomUUID(),
                               resolvedEntityId: null,
+                              submittedMemberUid: null,
                               submittedNameSnapshot: "",
                               entityKind: "person",
                             },
@@ -834,7 +854,7 @@ function ProposalSection({
                         ><Plus /> 가수 추가</Button>
                       </div>
                       {reviewArtists.map((artist, index) => (
-                        <div key={`artist-${index}`} className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]">
+                        <div key={artist.rowKey} className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]">
                           <Select
                             value={artist.resolvedEntityId ? `entity:${artist.resolvedEntityId}` : "external"}
                             onValueChange={(value) => {
@@ -844,6 +864,7 @@ function ProposalSection({
                                 ? {
                                     ...item,
                                     resolvedEntityId: entityId,
+                                    submittedMemberUid: null,
                                     submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot,
                                     entityKind: entity
                                       ? entity.entityKind === "group" ? "group" : "person"
@@ -855,7 +876,7 @@ function ProposalSection({
                             <SelectTrigger aria-label={`${index + 1}번째 원곡 가수 identity`}><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="external">외부 identity</SelectItem>
-                              {catalog.entities.map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                              {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
                             </SelectContent>
                           </Select>
                           <Select
@@ -896,7 +917,9 @@ function ProposalSection({
                       onClick={() => setReviewParticipants((items) => [
                         ...items,
                         {
+                          rowKey: crypto.randomUUID(),
                           resolvedEntityId: null,
+                          submittedMemberUid: null,
                           submittedNameSnapshot: "",
                           entityKind: "person",
                           participantRole: "vocal",
@@ -905,7 +928,7 @@ function ProposalSection({
                     ><Plus /> 참여자 추가</Button>
                   </div>
                   {reviewParticipants.map((participant, index) => (
-                    <div key={`participant-${index}`} className="grid gap-2 sm:grid-cols-[10rem_7rem_minmax(0,1fr)_9rem_2.25rem]">
+                    <div key={participant.rowKey} className="grid gap-2 sm:grid-cols-[10rem_7rem_minmax(0,1fr)_9rem_2.25rem]">
                       <Select
                         value={participant.resolvedEntityId ? `entity:${participant.resolvedEntityId}` : "external"}
                         onValueChange={(value) => {
@@ -915,6 +938,7 @@ function ProposalSection({
                             ? {
                                 ...item,
                                 resolvedEntityId: entityId,
+                                submittedMemberUid: null,
                                 submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot,
                                 entityKind: entity
                                   ? entity.entityKind === "group" ? "group" : "person"
@@ -927,7 +951,7 @@ function ProposalSection({
                         <SelectTrigger aria-label={`${index + 1}번째 참여자 identity`}><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="external">외부 identity</SelectItem>
-                          {catalog.entities.map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                          {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
                         </SelectContent>
                       </Select>
                       <Select
