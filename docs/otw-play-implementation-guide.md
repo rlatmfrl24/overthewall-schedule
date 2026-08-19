@@ -756,9 +756,11 @@ preview에서도 `503`을 유지한다. 관리자 내비게이션은 preview con
 계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의 실제 route가
 생기기 전까지 만들지 않는다.
 
-Catalog query는 단일 `participant=<public entity slug>`를 추가하고 group participant
-DTO는 서버 생성 `groupKey`를 제공한다. 둘 다 기존 filter와 동일 published
-performance에서 만족하고 schema와 기존 공개 route 수는 변경하지 않는다.
+Catalog query는 단일 `participant=<public entity slug>`와
+`participantRole=vocal|featured_vocal|chorus|other`를 제공하고 group participant DTO는
+서버 생성 `groupKey`를 제공한다. identity와 role을 함께 선택하면 같은 participant
+credit row에서 둘 다 만족해야 한다. role만 선택하면 그 역할 credit이 있는 동일
+published performance를 찾는다. schema와 기존 공개 route 수는 변경하지 않는다.
 
 ### 플레이어 검증
 
@@ -909,7 +911,9 @@ PR-7.1 frontend 보완은 다음 순서로 수행한다.
 - legacy 역할 누락은 `vocal`로 정규화하고 unknown 역할은 400
 - 동일 idempotency key에서 역할이 달라지면 409 conflict
 - 관리자 편집값이 approval command에 반영되며 proposal snapshot은 변경되지 않음
-- 발견·곡 상세·Player·queue에서 `vocal` 이름만 우선 표시하고 보조 credit은 역할별 칩과 hover·focus 상세로 표시
+- 발견·곡 목록·Player·queue에는 `vocal` 이름만 표시하고 보조 역할 tooltip·칩이 없음
+- 곡 상세에는 메인 보컬·피처링 보컬·코러스·기타 참여 credit이 역할별로 모두 표시됨
+- `participantRole` canonical query·cursor identity와 member·participant·group 동일-credit 필터 의미 검증
 
 ### 종료 조건
 

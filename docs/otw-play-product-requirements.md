@@ -99,7 +99,8 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
 | DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회는 GATE-04가 확정될 때까지 만들지 않는다. |
 | DEC-046 | 회원 공식 커버 제안 진입점은 별도 제품 메뉴가 아니라 OTW Play 경험 안에 통합한다. | 확정 | 전역 콘텐츠 메뉴는 역할과 관계없이 `OTW Play` 하나만 사용한다. 관리자 catalog header의 `발견`·`곡 검색` 옆과 회원 제안 shell에 `곡 제안` 메뉴를 두고 `새 곡 제안`·`내 제안`으로 이동한다. 회원 route는 같은 brand frame을 공유하지만 public config·catalog·player를 마운트하지 않는다. |
-| DEC-047 | 가창 credit은 메인 보컬·서브 보컬·코러스·기타 참여 역할을 제안부터 공개 표시까지 보존한다. | 확정 | 회원은 참여자별 역할을 제출하고 관리자는 원 snapshot을 보존한 채 승인 catalog 반영값을 수정할 수 있다. 발견·곡 목록·Player는 `vocal` 이름만 우선 표시하고, 나머지는 존재하는 역할별 보조 칩으로 제공한다. 칩의 hover·keyboard focus에는 해당 역할의 참여자 이름을 표시한다. 메인 보컬이 없는 기존 데이터는 credit order 첫 참여자를 결정적으로 표시한다. |
+| DEC-047 | 가창 credit은 메인 보컬·피처링 보컬·코러스·기타 참여 역할을 제안부터 공개 조회까지 보존한다. | 부분 대체됨 | 회원 제출과 관리자 검수의 역할 보존은 유지한다. 공개 화면의 표시·검색 계층은 DEC-048이 대체한다. |
+| DEC-048 | 보조 가창 credit은 곡 상세에서만 전체 표시하고 검색에서는 독립 역할 조건으로 제공한다. | 확정 | 발견·곡 목록·Player·queue는 `vocal` 이름만 표시하며 tooltip이나 보조 역할 칩을 만들지 않는다. 곡 상세는 메인 보컬·피처링 보컬·코러스·기타 참여를 역할별로 펼쳐 표시한다. `participantRole` 필터는 선택한 멤버·외부 참여자·그룹 credit과 같은 published performance row에서 동시에 만족해야 한다. 필터가 없으면 기존 검색 의미를 유지하고, 메인 보컬이 없는 기존 데이터의 compact 표시는 credit order 첫 참여자를 사용한다. |
 
 ## 4. 제품 원칙
 
@@ -642,7 +643,8 @@ TBD-013·014는 DEC-045로 해결되었다. 공개 catalog API는 익명이고 �
 | 2026-08-19 | DEC-042 player identity 계층 보완. 참여자 profile/name과 YouTube·곡 상세 action을 한 행에 모으고, 게시 채널은 transport 아래의 작은 출처 표기로 낮춰 가창자와 업로드 주체를 분리 |
 | 2026-08-19 | DEC-043~045 회원 공식 커버 제안 E2E 확정. 회원 전용 private route, `official_cover_v1` 승인 정책, KST 일 5회·edge 분 3회 제한과 반려 상태만 공개하는 경계를 채택하고 GATE-01·05·06을 해결 |
 | 2026-08-19 | DEC-046 회원 제안 진입 통합. 전역 `곡 제안` 메뉴를 `OTW Play` 하나로 합치고 shared Play header의 `새 곡 제안`·`내 제안` 메뉴, 입력 보존형 wizard와 권위 성공 결과를 채택 |
-| 2026-08-19 | DEC-047 가창 credit 역할. 회원 제안 역할 입력, 관리자 승인값 편집, 공개 화면의 메인 보컬 우선·서브 credit 축약 표시를 확정 |
+| 2026-08-19 | DEC-047 가창 credit 역할. 회원 제안 역할 입력과 관리자 승인값 편집, 공개 표시의 메인 보컬 우선 기준을 확정 |
+| 2026-08-19 | DEC-048 공개 credit 계층 조정. 발견·목록·Player·queue는 메인 보컬만 표시하고 곡 상세는 역할별 전체 credit, 곡 검색은 독립 `participantRole` 조건을 제공하도록 확정 |
 
 ## 19. 참고
 

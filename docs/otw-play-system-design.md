@@ -708,9 +708,9 @@ DEC-047에 따라 회원 제출 payload는 참여자마다 같은 역할 값을 
 idempotency payload 비교에는 표시명뿐 아니라 역할도 포함한다. 관리자 승인은 proposal
 snapshot row를 UPDATE하지 않고 승인 command의 subject·credit·role을 편집해 catalog row에
 반영하므로 제출 원본과 최종 검수값을 함께 추적할 수 있다. 공개 reader는 전체 credit과
-role을 그대로 반환하고, presentation 계층이 `vocal` 이름만 우선 표시한다. 나머지
-credit은 존재하는 역할별 칩으로 그룹화하고 hover·keyboard focus에서 그 역할의 참여자
-이름을 제공한다. 인원수만 나타내는 `+N` 표현은 사용하지 않는다.
+role을 그대로 반환한다. DEC-048에 따라 compact presentation은 `vocal`만 표시하고
+보조 credit tooltip·칩을 만들지 않는다. 곡 상세는 `vocal`, `featured_vocal`, `chorus`,
+`other`를 역할별로 펼쳐 표시한다.
 
 #### `music_catalog_events` exact schema
 
@@ -997,6 +997,8 @@ q
 member=1&member=2
 memberMode=any|all
 group
+participant
+participantRole=vocal|featured_vocal|chorus|other
 relation=original|cover
 participation=solo|duet|unit|group|external_collab
 originalArtist
@@ -1012,6 +1014,10 @@ limit
 - q는 trim 전 Unicode code point 기준 최대 80자
 - 날짜는 ISO day 형식
 - member는 numeric `members.uid`, originalArtist는 public entity slug다.
+- participant는 public entity slug이며 participantRole은 독립 single-value enum이다.
+- participantRole만 지정하면 해당 역할 credit이 있는 published performance를 찾는다.
+  member·participant·group과 함께 지정하면 각각 선택된 participant row 자체가 그 역할을
+  가져야 하며, 다른 participant의 역할로 조건을 대신 만족할 수 없다.
 - group은 facets가 발급한 versioned opaque key만 허용한다. opaque payload kind는
   `entity` 또는 `unit`이며 API 소비자가 직접 생성하지 않는다.
 - public song/entity slug는 trim된 Unicode 단일 segment이며 최대 128 code point다.
