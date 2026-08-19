@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "@contracts/api-routes";
+import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import {
   fetchOtwPlayCatalog,
   fetchOtwPlayConfig,
@@ -32,6 +33,7 @@ describe("OTW Play public API client", () => {
       q: "  Song  ",
       member: [10, 2, 10],
       memberMode: "all",
+      participant: "external-singer",
       sort: "title",
       limit: 60,
       cursor: "next/page",
@@ -41,6 +43,7 @@ describe("OTW Play public API client", () => {
     expect(params.getAll("member")).toEqual(["2", "10"]);
     expect(params.get("q")).toBe("  Song  ");
     expect(params.get("memberMode")).toBe("all");
+    expect(params.get("participant")).toBe("external-singer");
     expect(params.get("sort")).toBe("title");
     expect(params.get("limit")).toBe("60");
     expect(params.get("cursor")).toBe("next/page");
@@ -50,6 +53,7 @@ describe("OTW Play public API client", () => {
       "member",
       "member",
       "memberMode",
+      "participant",
       "q",
       "sort",
     ]);
@@ -114,5 +118,21 @@ describe("OTW Play public API client", () => {
       "/api/play/performances/performance-id",
       { auth: "omit" },
     );
+  });
+
+  it("관리자 미리보기는 required auth와 전용 header를 사용한다", async () => {
+    const preview = { adminPreview: true };
+    await fetchOtwPlayConfig(preview);
+    await fetchOtwPlayCatalog({}, preview);
+    await fetchOtwPlayFacets(preview);
+    await fetchOtwPlaySong("song", preview);
+    await fetchOtwPlayPerformance("performance", preview);
+
+    for (const call of apiFetchMock.mock.calls) {
+      expect(call[1]).toEqual({
+        auth: "required",
+        headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" },
+      });
+    }
   });
 });

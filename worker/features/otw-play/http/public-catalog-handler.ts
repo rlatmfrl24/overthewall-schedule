@@ -13,6 +13,8 @@ import type {
   OtwPlayPublicSongSummaryDto,
   OtwPlayPublicSourceDto,
 } from "@contracts/otw-play";
+import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
+import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import {
   PublicCatalogService,
@@ -32,6 +34,7 @@ import type {
   PublicCatalogSource,
 } from "../application/ports/public-catalog-reader";
 import { PublicCatalogCursorError } from "../domain/public-catalog-cursor";
+import { encodePublicCatalogGroupKey } from "../domain/public-group-key";
 import {
   canonicalizePublicCatalogQuery,
   isValidPublicCatalogSlug,
@@ -105,10 +108,17 @@ const toParticipant = (
       unitName: participant.member.unitName,
     };
   }
-  return {
-    ...base,
-    kind: participant.kind,
-  };
+  if (participant.kind === "group") {
+    return {
+      ...base,
+      kind: "group",
+      groupKey: encodePublicCatalogGroupKey({
+        entityId: participant.id,
+        unitName: null,
+      }),
+    };
+  }
+  return { ...base, kind: "external" };
 };
 
 const toSource = (
@@ -366,9 +376,24 @@ const notFoundResponse = (requestId: string, request: Request) =>
     request,
   );
 
-const readContext = (request: Request): PublicCatalogReadContext => ({
+const readContext = (
+  request: Request,
+  allowDisabledRead: boolean,
+): PublicCatalogReadContext => ({
   allowSharedCache: !hasPrivateHeaders(request),
+  allowDisabledRead,
 });
+
+const withPrivateResponseHeaders = (response: Response) => {
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "no-store");
+  headers.set("Vary", "Authorization, Cookie");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
 
 const endpointName = (pathname: string) => {
   if (pathname === "/api/play/config") return "config";
@@ -423,8 +448,14 @@ export const createPublicCatalogHandler = (
   }
 
   try {
+    const adminPreviewRequested =
+      request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
+    if (adminPreviewRequested) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return withPrivateResponseHeaders(admin.response);
+    }
     const service = resolveService(env);
-    const context = readContext(request);
+    const context = readContext(request, adminPreviewRequested);
     const meta = await service.readPublicState();
 
     if (url.pathname === "/api/play/config") {
@@ -457,7 +488,9 @@ export const createPublicCatalogHandler = (
       );
     }
 
-    if (!meta.publicReadEnabled) return disabledResponse(requestId, request);
+    if (!meta.publicReadEnabled && !context.allowDisabledRead) {
+      return disabledResponse(requestId, request);
+    }
 
     if (url.pathname === "/api/play/catalog") {
       const query = parsePublicCatalogQuery(url.searchParams.entries());

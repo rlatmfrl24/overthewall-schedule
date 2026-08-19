@@ -10,6 +10,8 @@ const RootComponent = () => {
   const isSnapshotRoute = location.pathname.startsWith("/snapshot");
   const isProfileRoute = location.pathname.startsWith("/profile/");
   const isMultiviewRoute = location.pathname.startsWith("/multiview");
+  const isPlayRoute =
+    location.pathname === "/play" || location.pathname.startsWith("/play/");
   const chromeMode = getAppChromeMode(location.pathname);
 
   let content;
@@ -37,7 +39,7 @@ const RootComponent = () => {
     content = (
       <PublicAppShell>
         <Outlet />
-        {!isMultiviewRoute && <Footer />}
+        {!isMultiviewRoute && !isPlayRoute && <Footer />}
       </PublicAppShell>
     );
   }

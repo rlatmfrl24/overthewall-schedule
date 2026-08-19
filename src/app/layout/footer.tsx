@@ -1,4 +1,6 @@
+import { Link } from "@tanstack/react-router";
 import { Github, Mail } from "lucide-react";
+import { getSiteCopyrightNotice } from "@/shared/lib/site-rights";
 
 const footerLinkClassName =
   "inline-flex h-5 items-center gap-1.5 text-xs leading-none text-muted-foreground transition-colors hover:text-foreground sm:text-sm";
@@ -35,9 +37,13 @@ export const Footer = () => {
             <Mail className={footerIconClassName} />
             <span>문의하기</span>
           </a>
-          <p className="text-[10px] sm:text-xs text-muted-foreground/60">
-            &copy; {new Date().getFullYear()} All rights reserved.
-          </p>
+          <Link
+            to="/rights"
+            className="inline-flex h-5 items-center text-[10px] leading-none text-muted-foreground/60 transition-colors hover:text-foreground sm:text-xs"
+            aria-label="저작권 및 권리 안내"
+          >
+            {getSiteCopyrightNotice()}
+          </Link>
         </div>
       </div>
     </footer>

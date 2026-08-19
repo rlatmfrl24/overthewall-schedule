@@ -7,12 +7,14 @@ import {
   Megaphone,
   MessageSquareText,
   MonitorPlay,
+  Music2,
   Shield,
   Video,
   type LucideIcon,
 } from "lucide-react";
 import { useNaverCafePostsConfig } from "@/features/naver-cafe";
 import { useXPostsConfig } from "@/features/x-posts";
+import { useOtwPlayConfig } from "@/features/otw-play";
 import { isAdminUser } from "@/app/admin";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
@@ -24,6 +26,7 @@ export type InternalNavTo =
   | "/"
   | "/weekly"
   | "/vods"
+  | "/play"
   | "/multiview"
   | "/feed"
   | "/notice"
@@ -59,6 +62,7 @@ type MemberPostsNavState = {
 type PublicNavigationOptions = {
   isAdmin: boolean;
   memberPosts: MemberPostsNavState;
+  otwPlayVisible?: boolean;
 };
 
 const FAN_CAFE_URL = "https://cafe.naver.com/otwoffical";
@@ -108,6 +112,7 @@ export function resolveMemberPostsNavState({
 export function getPublicNavigationSections({
   isAdmin,
   memberPosts,
+  otwPlayVisible = false,
 }: PublicNavigationOptions): NavSection[] {
   const sections: NavSection[] = [
     {
@@ -148,6 +153,17 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
+        ...(isAdmin && otwPlayVisible
+          ? [
+              {
+                id: "otw-play",
+                label: "OTW Play",
+                icon: Music2,
+                group: "content" as const,
+                to: "/play" as const,
+              },
+            ]
+          : []),
         ...(memberPosts.visible
           ? [
               {
@@ -205,17 +221,23 @@ export function getPublicNavigationSections({
 
 export function usePublicNavigationSections() {
   const { isLoaded, user } = useUser();
+  const isAdmin = isLoaded && isAdminUser(user?.id);
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();
+  const otwPlayConfig = useOtwPlayConfig({
+    enabled: isAdmin,
+    adminPreview: true,
+  });
 
   return getPublicNavigationSections({
-    isAdmin: isLoaded && isAdminUser(user?.id),
+    isAdmin,
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,
       cafeVisibility: cafePostsVisibility,
     }),
+    otwPlayVisible: Boolean(otwPlayConfig.data),
   });
 }
 

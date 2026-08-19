@@ -83,6 +83,15 @@ export const FIXED_SITE_SEO = {
     sitemap: true,
     ogType: "website",
   }),
+  "/rights": define({
+    path: "/rights",
+    title: "저작권 및 권리 안내 | 오버더월",
+    description:
+      "OTW Schedule의 비공식 팬 운영 범위, 사이트 자체 제작물과 제3자 콘텐츠의 권리 구분 및 권리 요청 절차를 안내합니다.",
+    robots: "index,follow",
+    sitemap: true,
+    ogType: "website",
+  }),
 } as const satisfies Record<string, SiteSeoMetadata>;
 
 export const FIXED_SITE_PATHS = Object.keys(FIXED_SITE_SEO);
@@ -183,6 +192,16 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
       path,
       title: "오버더월 관리자",
       description: "오버더월 관리자 화면입니다.",
+      robots: "noindex,nofollow",
+      sitemap: false,
+      ogType: "website",
+    });
+  }
+  if (path === "/play" || path.startsWith("/play/")) {
+    return define({
+      path,
+      title: "OTW Play | 오버더월",
+      description: "오버더월 오리지널곡과 공식 커버 카탈로그 관리자 preview입니다.",
       robots: "noindex,nofollow",
       sitemap: false,
       ogType: "website",

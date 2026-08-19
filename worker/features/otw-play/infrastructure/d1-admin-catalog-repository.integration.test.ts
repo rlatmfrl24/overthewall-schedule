@@ -727,6 +727,7 @@ describe("D1AdminCatalogRepository", () => {
       memberMode: "any",
       groupKey: null,
       group: null,
+      participantSlug: null,
       relation: null,
       participation: null,
       originalArtistSlug: null,

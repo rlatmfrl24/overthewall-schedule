@@ -41,6 +41,7 @@ const ALLOWED_PARAMETERS = new Set([
   "member",
   "memberMode",
   "group",
+  "participant",
   "relation",
   "participation",
   "originalArtist",
@@ -77,6 +78,7 @@ export type PublicCatalogQueryErrorReason =
   | "invalid_member"
   | "member_mode_without_members"
   | "invalid_group"
+  | "invalid_participant"
   | "invalid_relation"
   | "invalid_participation"
   | "invalid_original_artist"
@@ -104,6 +106,7 @@ export interface PublicCatalogQuery {
   memberMode: PublicCatalogMemberMode;
   groupKey: string | null;
   group: PublicCatalogGroupSelector | null;
+  participantSlug: string | null;
   relation: PublicCatalogRelation | null;
   participation: PublicCatalogParticipationType | null;
   originalArtistSlug: string | null;
@@ -216,6 +219,18 @@ export const parsePublicCatalogQuery = (
   }
 
   const rawRelation = readSingleton(values, "relation");
+
+  const rawParticipant = readSingleton(values, "participant");
+  if (
+    rawParticipant !== null &&
+    !isValidPublicCatalogSlug(rawParticipant)
+  ) {
+    throw new PublicCatalogQueryError(
+      "invalid_participant",
+      "participant",
+    );
+  }
+
   if (
     rawRelation !== null &&
     !isOneOf(PUBLIC_CATALOG_RELATIONS, rawRelation)
@@ -292,6 +307,7 @@ export const parsePublicCatalogQuery = (
     memberMode,
     groupKey,
     group,
+    participantSlug: rawParticipant,
     relation: rawRelation,
     participation: rawParticipation,
     originalArtistSlug: rawOriginalArtist,
@@ -318,6 +334,9 @@ export const canonicalizePublicCatalogQuery = (
     appendCanonical(output, "memberMode", "all");
   }
   if (query.groupKey !== null) appendCanonical(output, "group", query.groupKey);
+  if (query.participantSlug !== null) {
+    appendCanonical(output, "participant", query.participantSlug);
+  }
   if (query.relation !== null) {
     appendCanonical(output, "relation", query.relation);
   }

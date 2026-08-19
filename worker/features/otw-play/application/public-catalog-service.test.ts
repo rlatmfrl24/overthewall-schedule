@@ -226,6 +226,30 @@ describe("OTW Play public catalog service", () => {
     expect(reader.readPerformanceById).not.toHaveBeenCalled();
   });
 
+  it("allows an authenticated preview context while keeping disabled reads out of shared cache", async () => {
+    const previewMeta = {
+      ...META_OFF,
+      readModelRevision: META_OFF.revision,
+    };
+    const reader = makeReader(previewMeta);
+    const cache = makeCache();
+    const service = new PublicCatalogService(reader, cache);
+
+    await expect(
+      service.readFacets({
+        allowSharedCache: false,
+        allowDisabledRead: true,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      cacheStatus: "bypass",
+      document: { data: EMPTY_FACETS },
+    });
+    expect(reader.readFacets).toHaveBeenCalledOnce();
+    expect(cache.read).not.toHaveBeenCalled();
+    expect(cache.write).not.toHaveBeenCalled();
+  });
+
   it("rejects a stale read model before shared cache or content reads", async () => {
     const reader = makeReader({ ...META_ON, readModelRevision: 11 });
     const cache = makeCache();

@@ -8,6 +8,7 @@ import type {
   OtwPlayPublicPerformanceResponseDto,
   OtwPlayPublicSongDetailDto,
 } from "@contracts/otw-play";
+import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
 const DEFAULT_CATALOG_LIMIT = 24;
@@ -63,6 +64,7 @@ export function serializeOtwPlayCatalogQuery(
     params.set("memberMode", query.memberMode);
   }
   appendOptional(params, "group", query.group);
+  appendOptional(params, "participant", query.participant);
   appendOptional(params, "relation", query.relation);
   appendOptional(params, "participation", query.participation);
   appendOptional(params, "originalArtist", query.originalArtist);
@@ -94,32 +96,65 @@ export function getOtwPlayCatalogQueryKey(
   );
 }
 
-const publicGet = <T>(path: string) =>
-  apiFetch<OtwPlayPublicEnvelope<T>>(path, { auth: "omit" });
+export type OtwPlayPublicRequestOptions = {
+  adminPreview?: boolean;
+};
 
-export function fetchOtwPlayConfig() {
-  return publicGet<OtwPlayPublicConfigDto>(apiRoutes.otwPlay.config.build());
+const publicGet = <T>(
+  path: string,
+  options: OtwPlayPublicRequestOptions = {},
+) =>
+  apiFetch<OtwPlayPublicEnvelope<T>>(
+    path,
+    options.adminPreview
+      ? {
+          auth: "required",
+          headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" },
+        }
+      : { auth: "omit" },
+  );
+
+export function fetchOtwPlayConfig(options: OtwPlayPublicRequestOptions = {}) {
+  return publicGet<OtwPlayPublicConfigDto>(
+    apiRoutes.otwPlay.config.build(),
+    options,
+  );
 }
 
-export function fetchOtwPlayCatalog(query: OtwPlayPublicCatalogQuery = {}) {
+export function fetchOtwPlayCatalog(
+  query: OtwPlayPublicCatalogQuery = {},
+  options: OtwPlayPublicRequestOptions = {},
+) {
   const search = serializeOtwPlayCatalogQuery(query);
   return publicGet<OtwPlayPublicCatalogDto>(
     withRouteSearch(apiRoutes.otwPlay.catalog.build(), search),
+    options,
   );
 }
 
-export function fetchOtwPlayFacets() {
-  return publicGet<OtwPlayPublicFacetsDto>(apiRoutes.otwPlay.facets.build());
+export function fetchOtwPlayFacets(options: OtwPlayPublicRequestOptions = {}) {
+  return publicGet<OtwPlayPublicFacetsDto>(
+    apiRoutes.otwPlay.facets.build(),
+    options,
+  );
 }
 
-export function fetchOtwPlaySong(slug: string) {
+export function fetchOtwPlaySong(
+  slug: string,
+  options: OtwPlayPublicRequestOptions = {},
+) {
   return publicGet<OtwPlayPublicSongDetailDto>(
     apiRoutes.otwPlay.song.build(slug),
+    options,
   );
 }
 
-export function fetchOtwPlayPerformance(id: string) {
+export function fetchOtwPlayPerformance(
+  id: string,
+  options: OtwPlayPublicRequestOptions = {},
+) {
   return publicGet<OtwPlayPublicPerformanceResponseDto>(
     apiRoutes.otwPlay.performance.build(id),
+    options,
   );
 }

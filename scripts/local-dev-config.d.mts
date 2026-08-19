@@ -15,3 +15,12 @@ export function getLocalDevServerConfig(
 export function getLocalDevOrigin(
   environment?: Record<string, string | undefined>,
 ): string;
+export function resolveLocalD1PersistState(
+  environment?: Record<string, string | undefined>,
+): true | { path: string };
+export function rewriteLocalSpaRequest(request: {
+  method?: string;
+  originalUrl?: string;
+  url?: string;
+  headers: { accept?: string };
+}): boolean;

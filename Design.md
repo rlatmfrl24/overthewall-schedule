@@ -113,6 +113,48 @@
 - iframe의 `fullscreen` 권한은 사용자의 직접 조작을 위한 것이며, 확장 프로그램,
   쿠키 브리지, 키보드 이벤트 주입으로 화면 모드를 자동 변경하지 않는다.
 
+### OTW Play
+
+- 현재 `/play/*` UI는 운영 공개 전 관리자 preview다. 비로그인·비관리자는
+  config·catalog 요청 없이 로그인 또는 권한 안내만 보고, 익명 public GET 계약은
+  장래 공개 전환을 위해 유지한다.
+- `/play/*`는 `PublicAppShell` 안에서 남은 viewport를 사용하고 사이트 푸터를
+  숨긴다. 제품 내부에 두 번째 고정 사이드바를 만들지 않는다.
+- 상단 탐색은 `발견`, `곡 검색` 두 항목으로 제한한다. 오리지널과 커버 구분은
+  곡 검색 화면의 관계 필터에서 제공하며 모바일에서는 같은 두 항목을 가로
+  스크롤 가능한 sticky tab으로 제공한다.
+- 발견은 겹친 card stack 대신 하나의 넓은 대표 배너를 사용하고, 최근 공개곡은
+  반복 card가 아닌 구분선 기반 compact table로 표시한다. 데스크톱에서는 hero,
+  최근 곡과 멤버 진입점을 한 viewport 안에 우선 수용한다.
+- 곡 목록은 썸네일 16:9, 곡명, 원곡 가수, 대표 가창과 버전 수를 읽기 쉬운
+  행으로 표시한다. 저장 playlist처럼 보이는 library affordance는 만들지 않는다.
+- 데스크톱은 우측 380px `PlayerQueuePanel` 하나를 사용한다. 단일 iframe은 panel
+  상단에 356×200px로 항상 보인다. 상태 문구 없이 previous/play/next, 반복·셔플·음소거·볼륨을
+  한 control row에 둔다. 곡명 아래에는 현재 멤버 profile·외부 person·group icon과 참여자
+  이름을 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 게시 채널은 transport 아래의
+  작은 YouTube source attribution으로 분리한다.
+  실제 IFrame 위치를 반영하는 seekable progress와 진행/남은 시간은 player 정보 영역
+  하단에 둔다. 플레이큐는 같은 panel의 남은 높이를 사용해
+  player 아래에서 독립 스크롤한다. 하단 재생바, player 접기·펼치기와 overlay
+  상세 panel은 만들지 않는다.
+- 데스크톱 viewport 높이가 720px 미만이면 게시 채널 출처와 여백을
+  먼저 줄이되 참여자 identity·이름과 YouTube·곡 상세 action은 한 줄로 유지한다.
+  iframe 200px과 플레이큐 최소 144px을 보존한다. 높이 640px 미만에서는 단일 356×200px iframe을
+  계속 보인 채 `현재 재생`과 `플레이큐` 상세 영역을 명시적으로 전환한다. 전환은
+  재생을 멈추거나 iframe을 재생성하지 않으며 rail 바깥 document scroll 대신
+  queue 내부 scroll을 사용한다.
+- 1280px 미만에서는 재생 의도 직후 별도 전체 화면 `Now Playing`으로 전환한다.
+  16:9 iframe, 곡·참여자 정보, 재생 조작, 볼륨과 세션 플레이큐를 한 화면에서
+  제공한다. 640–1279px에서 카탈로그로 돌아가면 같은 iframe을 200×200px로 유지하는
+  우측 하단 216px miniplayer로 축소하며 pause하지 않는다. miniplayer는 곡명,
+  play/pause와 전체 화면 확장만 제공하고 queue 이동에도 전체 화면을 강제로 열지 않는다.
+  640px 미만에서만 복귀 전에 pause하고 launcher에서 player를 다시 열어 재개한다.
+  iframe을 복제하거나 숨긴 상태로 재생하지 않는다.
+  중앙과 queue는 document 대신 각자 내부 스크롤한다.
+- 현재 멤버는 오시마크와 작은 member accent를 사용하고 외부·전 소속은 중립
+  칩, 그룹은 보조 라벨을 사용한다. 색상만으로 종류를 구분하지 않는다.
+- config가 꺼진 준비 중 상태와 catalog 동기화 `503`을 빈 결과와 구분한다.
+
 ### 프로필과 스냅샷
 
 - 프로필과 스냅샷은 앱 크롬을 숨기는 특수 화면이다.

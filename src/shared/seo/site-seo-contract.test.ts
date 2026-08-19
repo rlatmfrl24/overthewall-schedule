@@ -75,10 +75,31 @@ describe("site SEO contract", () => {
     expect(resolveSiteSeo("/missing").robots).toBe("noindex,nofollow");
   });
 
+  it("publishes dedicated metadata for the rights notice", () => {
+    expect(resolveSiteSeo("/rights")).toMatchObject({
+      title: "저작권 및 권리 안내 | 오버더월",
+      robots: "index,follow",
+      sitemap: true,
+    });
+    expect(STATIC_SHELL_PATHS).toContain("/rights");
+  });
+
   it("generates a static shell for the OTW Play admin entry point", () => {
     expect(STATIC_SHELL_PATHS).toContain("/admin/otw-play");
     expect(resolveSiteSeo("/admin/otw-play").robots).toBe(
       "noindex,nofollow",
     );
+  });
+
+  it("labels the admin-only OTW Play preview without indexing it", () => {
+    expect(resolveSiteSeo("/play")).toMatchObject({
+      title: "OTW Play | 오버더월",
+      robots: "noindex,nofollow",
+      sitemap: false,
+    });
+    expect(resolveSiteSeo("/play/songs/example").title).toBe(
+      "OTW Play | 오버더월",
+    );
+    expect(STATIC_SHELL_PATHS).not.toContain("/play");
   });
 });

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import type { Env } from "../../../platform/types";
 import type {
   PublicCatalogCache,
@@ -11,6 +12,14 @@ import type {
 } from "../application/ports/public-catalog-reader";
 import { PublicCatalogService } from "../application/public-catalog-service";
 import { encodePublicCatalogCursor } from "../domain/public-catalog-cursor";
+const authMocks = vi.hoisted(() => ({
+  requireAdminUser: vi.fn(),
+}));
+
+vi.mock("../../../platform/auth", () => ({
+  requireAdminUser: authMocks.requireAdminUser,
+}));
+
 import { createPublicCatalogHandler } from "./public-catalog-handler";
 
 const env = {} as Env;
@@ -91,6 +100,13 @@ const request = (path: string, init?: RequestInit) =>
   new Request(`https://example.com${path}`, init);
 
 describe("OTW Play public catalog HTTP handler", () => {
+  beforeEach(() => {
+    authMocks.requireAdminUser.mockReset();
+    authMocks.requireAdminUser.mockResolvedValue({
+      ok: true,
+      user: { id: "admin-user" },
+    });
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -346,5 +362,122 @@ describe("OTW Play public catalog HTTP handler", () => {
     expect(await response.json()).toMatchObject({
       error: { code: "PLAY_INTERNAL_ERROR" },
     });
+  });
+
+  it("serves disabled catalog only after authenticating an admin preview", async () => {
+    const reader = makeReader({
+      meta: {
+        publicReadEnabled: false,
+        navigationVisible: false,
+        readModelRevision: 7,
+      },
+    });
+    const readCatalog = vi.spyOn(reader, "readCatalog");
+    const cache = new MemoryCache();
+    const { handler } = makeHandler(reader, cache);
+    const response = await handler(
+      request("/api/play/catalog", {
+        headers: {
+          Authorization: "Bearer admin-token",
+          [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1",
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      data: { items: [] },
+      catalogRevision: 7,
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization, Cookie");
+    expect(authMocks.requireAdminUser).toHaveBeenCalledOnce();
+    expect(readCatalog).toHaveBeenCalledOnce();
+    expect(cache.reads).toBe(0);
+    expect(cache.writes).toBe(0);
+  });
+
+  it("rejects a non-admin preview before meta or content reads", async () => {
+    authMocks.requireAdminUser.mockResolvedValueOnce({
+      ok: false,
+      response: new Response("Admin permission required", { status: 403 }),
+    });
+    const reader = makeReader({ meta: { publicReadEnabled: false } });
+    const readMeta = vi.spyOn(reader, "readMeta");
+    const readCatalog = vi.spyOn(reader, "readCatalog");
+    const { handler } = makeHandler(reader);
+
+    const response = await handler(
+      request("/api/play/catalog", {
+        headers: {
+          Authorization: "Bearer member-token",
+          [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1",
+        },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization, Cookie");
+    expect(readMeta).not.toHaveBeenCalled();
+    expect(readCatalog).not.toHaveBeenCalled();
+  });
+
+  it("projects an opaque server-issued group key for group participants", async () => {
+    const reader = makeReader();
+    reader.readCatalog = async () => ({
+      items: [
+        {
+          id: "song-1",
+          slug: "song-1",
+          title: "Group Song",
+          normalizedTitle: "group song",
+          isOtwOriginal: true,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          originalArtists: [],
+          publishedPerformanceCount: 1,
+          representativePerformance: {
+            id: "performance-1",
+            relation: "original",
+            releaseType: "official_video",
+            participation: "group",
+            releasedAt: null,
+            participants: [
+              {
+                id: "entity-group",
+                slug: "otw-unit",
+                displayName: "OTW Unit",
+                entityKind: "group",
+                creditName: "OTW Unit",
+                participantRole: "vocal",
+                creditOrder: 0,
+                kind: "group",
+                member: null,
+              },
+            ],
+            sources: [],
+            primarySourceId: null,
+            playbackSourceId: null,
+            playable: false,
+            fallbackReason: "missing_primary",
+          },
+        },
+      ],
+      nextPosition: null,
+    });
+    const { handler } = makeHandler(reader);
+
+    const response = await handler(request("/api/play/catalog"), env);
+    const body = await response.json<{
+      data: { items: Array<{ representativePerformance: { participants: Array<{ groupKey?: string }> } }> };
+    }>();
+
+    expect(response.status).toBe(200);
+    expect(
+      body.data.items[0]?.representativePerformance.participants[0]?.groupKey,
+    ).toMatch(/^g1_/);
   });
 });

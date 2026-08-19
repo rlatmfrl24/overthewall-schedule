@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-5.1 workflow-first 관리자 등록 및 atomic projection 실행 기준선
+상태: PR-6 공개 UI·단일 player 구현 기준선
 
-기준일: 2026-08-12
+기준일: 2026-08-18
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -94,12 +94,81 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 
 ### ADR-PLAY-004: 단일 Play-scoped player
 
-상태: 채택할 구현 기본값
+상태: 채택
 
 `/play` 중첩 route가 player provider와 단일 YouTube iframe을 소유한다. Play
 내부 탐색에서는 재생 문맥을 유지하고 다른 사이트 영역으로 이동하면 player를
 정리한다. 이는 저장 플레이리스트 없이도 음악 앱의 연속성을 제공하면서 숨은
 재생 금지 정책을 지킨다.
+
+- player script와 `YT.Player`는 첫 사용자 재생 의도 뒤에 한 번만 생성한다.
+- iframe이 절반 이상 보일 때만 `loadVideoById`를 호출한다.
+- 640–1279px Now Playing에서 카탈로그로 돌아갈 때는 같은 iframe host를 visible
+  miniplayer로 축소하고, 640px 미만에서만 먼저 pause한다. `/play` 이탈은 stop 뒤
+  destroy한다.
+- queue는 versioned `sessionStorage` 식별자 상태만 저장하고 공개 performance
+  API로 복원 유효성을 다시 확인한다. 복원 직후 자동 재생하지 않는다.
+- player iframe은 16:9와 최소 200×200px를 보장하고 YouTube UI·광고·브랜딩
+  위에 overlay를 두지 않는다.
+
+DEC-031과 이를 단순화한 DEC-033·034에 따라 이 provider를 소비하는 `PlayShell`은
+route 콘텐츠와 별도로 데스크톱 우측 `PlayerQueuePanel`을 소유한다. 상위 탐색은
+`/play` 발견과 `/play/songs` 곡 검색만 제공하고,
+`/play/discover`는 기존 링크를 `/play`로 redirect한다. 두 route 사이를 이동해도
+queue와 player instance는 유지된다.
+`PlayerQueuePanel` 상단은 356×200px 단일 iframe과 현재 곡 정보,
+상태 문구 없는 단일 control row의 previous/play/next, repeat/shuffle, mute/volume을
+소유한다. 곡명 바로 아래 identity row는 참여자 profile/name과 YouTube/곡 상세 action을
+함께 제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은
+group icon을 사용한다. transport 아래에는 YouTube icon·`게시 채널` label·channel 이름만
+남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를 channel avatar로 재사용하지 않는다.
+player 정보 영역 하단의 semantic range는 IFrame API `getCurrentTime`/`getDuration`을
+주기적으로 읽어 진행/남은 시간을 표시하며 `seekTo`를 수행한다. segment source는
+`start_seconds`를 0점으로 환산하고 `end_seconds`가 있으면 그 구간 안으로 제한한다.
+권위 channel avatar URL이 없는 현재 wire contract에서는 연결된 current member profile을
+사용하고 나머지는 중립 fallback을 사용한다. 하단 queue 영역은
+순서·선택·삭제·재정렬만 제공하고 남은 높이를 독립 스크롤한다. 하단 PlaybackBar,
+접기·펼치기와 overlay 상세 panel은 없다. 이 재배치는 API, schema, cache key와
+운영 flag를 바꾸지 않는다.
+
+우측 rail의 높이 적응은 DEC-040을 따른다. `PlayerQueuePanel` 자체는 남은 viewport의
+`height: 100%`, `min-height: 0`, `overflow: hidden` 경계를 가지며 queue list만 세로로
+스크롤한다. viewport 높이가 720px 미만이면 iframe 200px과 queue 최소 144px,
+참여자 옆 YouTube·곡 상세 action은 유지한다. 참여자 이름은 한 줄 말줄임으로 남기고
+게시 채널 출처 행만 먼저 숨기며 수직 여백을 줄인다. 높이 640px 미만에서는 iframe 아래에
+`현재 재생`·`플레이큐` 전환을 표시하고 두 상세 영역 중 하나만 남은 높이를 사용한다.
+이 전환은 표현 상태일 뿐 queue authority나 player state를 바꾸지 않으며, iframe host는
+DOM에 한 번만 유지되어 재생·진행 위치·볼륨이 끊기지 않는다.
+
+IFrame `playerVars`는 `controls=0`, `fs=0`, `disablekb=1`, `iv_load_policy=3`,
+`rel=0`을 사용한다. 이는 OTW Play의 외부 transport와 progress가 중복 native chrome을
+대체하기 위한 공식 parameter 조합이다. `showinfo`·`modestbranding`은 폐기되어 사용하지
+않고 iframe 위 overlay로 YouTube UI를 가리지 않는다. `cc_load_policy`는 `1`만 강제
+표시 의미가 공식화되어 있으므로 설정하지 않으며 caption 기본값은 사용자 preference를
+따른다.
+
+DEC-032·034·037·041의 layout chrome은 `PlayShell` 안에서 상단 64px와 데스크톱 우측
+380px `PlayerQueuePanel`을 사용한다. 중앙 catalog와 우측 queue는 document scroll
+대신 각자 `overflow-y: auto`를 사용한다. 1280px 미만에서는 첫 재생 의도 뒤 같은 단일
+iframe host를 전체 화면 `Now Playing`에 표시하고, 곡·참여자 정보와 재생 조작,
+0–100 volume, 세션 queue를 한 화면에서 제공한다. 640–1279px의 카탈로그 복귀는
+pause 없이 같은 host를 우측 하단 216px miniplayer로 축소한다. iframe은 200×200px로
+계속 보이고 아래 44–48px 영역에 곡명·play/pause·전체 화면 확장을 둔다. full↔mini와
+queue 항목 변경은 host를 재마운트하거나 현재 시간·볼륨을 초기화하지 않으며 확장은
+자동 resume하지 않는다. mini 상태에서 폭이 640px 미만이 되면 전체 Now Playing을
+다시 열고, 640px 미만의 카탈로그 복귀만 pause 후 launcher를 표시한다. 1280px 이상
+rail과 `/play` 이탈 stop·destroy는 기존대로다. 숨겨진 상태에서 재생하거나 두 host를
+동시에 렌더링하지 않는다. queue rail의 announcement는 screen reader용 live region으로만 유지한다.
+발견의 단일 full-width 대표 배너 carousel
+state는 표현 계층에만 존재하고 catalog 순서, cursor, queue와 player authority를
+변경하지 않는다. 앞·뒤 card surface는 렌더링하지 않고 화살표·indicator·pointer
+drag·가로 wheel·키보드로 현재 배너만 교체한다. 최근 공개곡 projection은 추가
+read model 없이 기존 catalog response를 compact table 행으로 표현한다.
+
+운영 공개 전에는 `/play/*` 표현 계층 앞에 Clerk 관리자 gate를 둔다. auth가 아직
+load되지 않았거나 비로그인·비관리자이면 config query와 nested catalog UI를
+마운트하지 않는다. 이 preview gate는 익명 public GET의 장래 공개 계약을
+변경하지 않으며, 내비게이션은 관리자 권한과 두 catalog flag를 모두 요구한다.
 
 ### ADR-PLAY-005: MVP Cloudflare 구성 최소화
 
@@ -200,6 +269,21 @@ production content, 배포 설정과 원격 D1 적용은 포함하지 않는다.
   sort key, gram/stat과 두 revision을 같은 D1 batch에서 원자적으로 갱신한다.
 - PR-4는 public read만 구현한다. 관리자 command, 회원 proposal API, frontend
   route·UI·player, production content, 배포와 원격 D1 적용은 포함하지 않는다.
+
+PR-6은 기존 공개 read에 하위 호환 필드 두 개만 더한다. catalog의 단일
+`participant` parameter는 public entity slug를 받아 다른 filter와 같은 published
+performance에서 만족해야 한다. group participant DTO의 `groupKey`는 서버가
+발급한 opaque key이며 client는 생성하거나 해석하지 않는다. schema 변경 없이
+기존 participant/entity index와 canonical cursor·cache key를 사용한다.
+
+운영 공개 전 관리자 UI 검증은 같은 다섯 GET에
+`X-OTW-Play-Admin-Preview: 1`과 Clerk bearer를 함께 보낸다. HTTP layer는 content
+query와 meta read 전에 `requireAdminUser`로 토큰과 관리자 allowlist를 검증한다.
+인증된 preview만 `public_read_enabled=0`을 우회할 수 있으며, read-model revision
+불일치는 그대로 `503`이다. preview 응답은 항상 `Cache-Control: no-store`와
+`Vary: Authorization, Cookie`를 사용하고 Cache API를 읽거나 쓰지 않는다. header가
+없는 익명 GET은 DEC-019의 config 200과 나머지 flag-off 404 계약을 그대로 따른다.
+frontend query key도 `public`과 `admin-preview` audience를 분리한다.
 
 ## 3. 전체 시스템 구조
 

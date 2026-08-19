@@ -4,23 +4,19 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { getLocalDevServerConfig } from "./scripts/local-dev-config.mjs";
-
-const SPA_DEV_ROUTE = /^\/(?:weekly|notice|vods(?:\/.*)?|multiview|feed|snapshot|cafe|profile\/[^/]+|admin(?:\/.*)?)\/?$/;
+import {
+  getLocalDevServerConfig,
+  resolveLocalD1PersistState,
+  rewriteLocalSpaRequest,
+} from "./scripts/local-dev-config.mjs";
 
 const spaDevRewrite = () => ({
   name: "otw-spa-dev-rewrite",
+  enforce: "pre" as const,
   apply: "serve" as const,
-  configureServer(server: { middlewares: { use: (handler: (request: { method?: string; url?: string; headers: { accept?: string } }, _response: unknown, next: () => void) => void) => void } }) {
+  configureServer(server: { middlewares: { use: (handler: (request: { method?: string; originalUrl?: string; url?: string; headers: { accept?: string } }, _response: unknown, next: () => void) => void) => void } }) {
     server.middlewares.use((request, _response, next) => {
-      const url = new URL(request.url ?? "/", "http://localhost");
-      if (
-        request.method === "GET" &&
-        request.headers.accept?.includes("text/html") &&
-        SPA_DEV_ROUTE.test(url.pathname)
-      ) {
-        request.url = `/${url.search}`;
-      }
+      rewriteLocalSpaRequest(request);
       next();
     });
   },
@@ -38,6 +34,7 @@ export default defineConfig({
     react(),
     cloudflare({
       configPath: "./wrangler.jsonc",
+      persistState: resolveLocalD1PersistState(),
     }),
     tailwindcss(),
   ],
