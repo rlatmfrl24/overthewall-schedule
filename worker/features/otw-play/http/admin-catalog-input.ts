@@ -23,6 +23,7 @@ import {
   type OtwPlayAdminUpdatePerformanceRequest,
   type OtwPlayAdminUpdateSongRequest,
 } from "@contracts/otw-play";
+import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 
 type JsonObject = Record<string, unknown>;
 export type AdminInputResult<T> =
@@ -122,6 +123,7 @@ const parseSongCore = (value: JsonObject) => {
   );
   const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
   const artists = parseEntityReferences(value.originalArtists, "artist");
+  const tags = parseSongTags(value.tags);
   const aliases =
     Array.isArray(value.aliases) && value.aliases.length <= 50
       ? value.aliases.map((raw) => {
@@ -146,6 +148,7 @@ const parseSongCore = (value: JsonObject) => {
     !originalReleasePrecision ||
     !dateIsValid ||
     !artists ||
+    !tags ||
     artists.filter((artist) => artist.isPrimary).length !== 1 ||
     !aliases ||
     aliases.some((alias) => alias === null)
@@ -161,7 +164,19 @@ const parseSongCore = (value: JsonObject) => {
       (alias): alias is NonNullable<typeof alias> => alias !== null,
     ),
     originalArtists: artists,
+    tags,
   } satisfies OtwPlayAdminCreateSongRequest;
+};
+
+const parseSongTags = (value: unknown): string[] | null => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 10) return null;
+  const tags = value.map((item) => nonEmptyString(item, 40));
+  if (tags.some((item) => item === null)) return null;
+  const normalized = tags.map((item) => normalizeOtwPlaySearchText(item!));
+  return normalized.every(Boolean) && new Set(normalized).size === tags.length
+    ? (tags as string[])
+    : null;
 };
 
 export const parseCreateSong = (
@@ -383,51 +398,36 @@ export const parseApproveProposal = (
   if (
     !version.ok ||
     !isObject(value) ||
-    !isObject(value.song) ||
-    !isObject(value.performance)
+    value.singingCreditConfirmed !== true ||
+    value.publish !== true
   ) {
     return fail({ body: "invalid_approval" });
   }
-  const existingSongId = nonEmptyString(value.song.existingSongId, 128);
-  const createSong = isObject(value.song.create)
-    ? parseSongCore(value.song.create)
-    : null;
-  if ((!existingSongId && !createSong) || (existingSongId && createSong)) {
-    return fail({ song: "choose_existing_or_create" });
-  }
-  const rawSource = isObject(value.performance.source)
-    ? value.performance.source
-    : null;
-  if (!rawSource) return fail({ performance: "invalid" });
-  const parsedPerformance = parsePerformanceCore({
-    ...value.performance,
-    songId: existingSongId ?? "new-song",
-    source: { ...rawSource, youtubeUrl: "https://youtu.be/dQw4w9WgXcQ" },
+  const parsed = parseCreateCatalogEntry({
+    expectedCatalogRevision: value.expectedCatalogRevision,
+    youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+    startSeconds: 0,
+    song: value.song,
+    participants: value.participants,
+    channel: value.channel,
+    relationType: "cover",
+    releaseType: value.releaseType,
+    participationType: value.participationType,
+    publicationTarget: "published",
   });
-  if (!parsedPerformance || typeof value.publish !== "boolean") {
-    return fail({ performance: "invalid" });
-  }
+  if (!parsed.ok) return fail(parsed.fields);
   return {
     ok: true,
     value: {
       expectedVersion: version.value.expectedVersion,
-      song: existingSongId ? { existingSongId } : { create: createSong! },
-      performance: {
-        relationType: parsedPerformance.relationType,
-        releaseType: parsedPerformance.releaseType,
-        participationType: parsedPerformance.participationType,
-        qualityStatus: parsedPerformance.qualityStatus,
-        releasedAt: parsedPerformance.releasedAt,
-        internalNote: parsedPerformance.internalNote,
-        participants: parsedPerformance.participants,
-        source: {
-          channelId: parsedPerformance.source.channelId,
-          startSeconds: parsedPerformance.source.startSeconds,
-          endSeconds: parsedPerformance.source.endSeconds,
-          sourceRole: parsedPerformance.source.sourceRole,
-        },
-      },
-      publish: value.publish,
+      expectedCatalogRevision: parsed.value.expectedCatalogRevision,
+      song: parsed.value.song,
+      participants: parsed.value.participants,
+      channel: parsed.value.channel,
+      releaseType: parsed.value.releaseType,
+      participationType: parsed.value.participationType,
+      singingCreditConfirmed: true,
+      publish: true,
     },
   };
 };
@@ -489,6 +489,8 @@ export const parseUpdateSong = (
     OTW_PLAY_DATE_PRECISIONS,
   );
   const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
+  const tags =
+    value.tags === undefined ? undefined : parseSongTags(value.tags);
   const aliases =
     Array.isArray(value.aliases) && value.aliases.length <= 50
       ? value.aliases.map((raw) => {
@@ -530,6 +532,7 @@ export const parseUpdateSong = (
     expectedVersion === null ||
     !slug ||
     !title ||
+    tags === null ||
     typeof value.isOtwOriginal !== "boolean" ||
     !originalReleasePrecision ||
     !validDate ||
@@ -561,6 +564,7 @@ export const parseUpdateSong = (
       originalArtists: parsedArtists.sort(
         (left, right) => left.creditOrder - right.creditOrder,
       ),
+      ...(tags === undefined ? {} : { tags }),
     },
   };
 };
@@ -743,7 +747,8 @@ export const parseCreateCatalogEntry = (
     const songId = nonEmptyString(value.song.songId, 128);
     if (songId) song = { kind: "existing", songId };
   } else if (value.song.kind === "from_video") {
-    song = { kind: "from_video" };
+    const tags = parseSongTags(value.song.tags);
+    if (tags) song = tags.length > 0 ? { kind: "from_video", tags } : { kind: "from_video" };
   } else if (value.song.kind === "create") {
     const title = nonEmptyString(value.song.title, 300);
     const precision = inValues(
@@ -751,6 +756,7 @@ export const parseCreateCatalogEntry = (
       OTW_PLAY_DATE_PRECISIONS,
     );
     const releaseDate = nullableString(value.song.originalReleaseDate, 10);
+    const tags = parseSongTags(value.song.tags);
     const aliases = Array.isArray(value.song.aliases) && value.song.aliases.length <= 50
       ? value.song.aliases.map((raw) => {
           if (!isObject(raw)) return null;
@@ -780,6 +786,7 @@ export const parseCreateCatalogEntry = (
         : releaseDate !== null;
     if (
       title &&
+      tags &&
       typeof value.song.isOtwOriginal === "boolean" &&
       precision &&
       validDate &&
@@ -799,6 +806,7 @@ export const parseCreateCatalogEntry = (
         originalReleasePrecision: precision,
         aliases: aliases.filter((item): item is NonNullable<typeof item> => item !== null),
         originalArtists: artists.filter((item): item is NonNullable<typeof item> => item !== null),
+        tags,
       };
     }
   }

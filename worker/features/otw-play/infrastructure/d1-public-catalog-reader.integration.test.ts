@@ -18,6 +18,9 @@ const PUBLIC_MIGRATION_NAMES = [
   "0050_parched_marvel_apes.sql",
   "0051_clear_mantis.sql",
   "0052_otw-play-public-read-model-backfill.sql",
+  "0053_red_talon.sql",
+  "0054_odd_storm.sql",
+  "0055_tiresome_pride.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -38,6 +41,7 @@ const toReaderQuery = (query = ""): PublicCatalogReaderQuery => {
     groupKey: parsed.groupKey,
     group: parsed.group,
     participantSlug: parsed.participantSlug,
+    participantRole: parsed.participantRole,
     relation: parsed.relation,
     participation: parsed.participation,
     originalArtistSlug: parsed.originalArtistSlug,
@@ -64,6 +68,7 @@ const cleanup = async () => {
     db.prepare("DELETE FROM music_media_source_relations"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_song_original_artists"),
+    db.prepare("DELETE FROM music_song_tags"),
     db.prepare("DELETE FROM music_song_aliases"),
     db.prepare("DELETE FROM music_entity_aliases"),
     db.prepare("DELETE FROM music_performances"),
@@ -250,6 +255,7 @@ const insertParticipant = (
   performanceId: string,
   entityId: string,
   order: number,
+  role: "vocal" | "featured_vocal" | "chorus" | "other" = "vocal",
 ) =>
   db
     .prepare(
@@ -257,11 +263,11 @@ const insertParticipant = (
          performance_id, entity_id, participant_role, credit_order,
          credit_name_snapshot
        )
-       SELECT ?, id, 'vocal', ?, display_name
+       SELECT ?, id, ?, ?, display_name
        FROM music_entities
        WHERE id = ?`,
     )
-    .bind(performanceId, order, entityId);
+    .bind(performanceId, role, order, entityId);
 
 const seedIdentityAndChannels = async () => {
   await db.batch([
@@ -392,7 +398,9 @@ const seedVisibilityFixture = async () => {
 describe("D1PublicCatalogReader", () => {
   beforeEach(async () => {
     expect(
-      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(-7).map(
+      testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS.slice(
+        -PUBLIC_MIGRATION_NAMES.length,
+      ).map(
         ({ name }) => name,
       ),
     ).toEqual(PUBLIC_MIGRATION_NAMES);
@@ -533,6 +541,9 @@ describe("D1PublicCatalogReader", () => {
 
   it("projects only canonical published official catalog data and keeps unavailable metadata", async () => {
     await seedVisibilityFixture();
+    await db.prepare(
+      "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES ('song-visible', 'j pop', 'J-POP')",
+    ).run();
     const reader = new D1PublicCatalogReader(db);
     const page = await reader.readCatalog(toReaderQuery("limit=24"));
 
@@ -540,6 +551,7 @@ describe("D1PublicCatalogReader", () => {
       "song-visible",
       "song-no-source",
     ]);
+    expect(page.items[0]?.tags).toEqual(["J-POP"]);
     await expect(
       reader.readCatalog(toReaderQuery("q=rejected%20proposal%20secret")),
     ).resolves.toMatchObject({ items: [] });
@@ -659,8 +671,8 @@ describe("D1PublicCatalogReader", () => {
       }),
       insertParticipant("performance-split-a", "entity-current-a", 0),
       insertParticipant("performance-split-c", "entity-current-c", 0),
-      insertParticipant("performance-together", "entity-current-a", 0),
-      insertParticipant("performance-together", "entity-current-c", 1),
+      insertParticipant("performance-together", "entity-current-a", 0, "featured_vocal"),
+      insertParticipant("performance-together", "entity-current-c", 1, "chorus"),
       insertParticipant("performance-together", "entity-group", 2),
     ]);
     await rebuildReadModel();
@@ -682,6 +694,20 @@ describe("D1PublicCatalogReader", () => {
     expect(exactParticipant.items.map(({ id }) => id)).toEqual([
       "song-together",
     ]);
+    const standaloneRole = await reader.readCatalog(
+      toReaderQuery("participantRole=chorus"),
+    );
+    expect(standaloneRole.items.map(({ id }) => id)).toEqual(["song-together"]);
+
+    const sameCreditRole = await reader.readCatalog(
+      toReaderQuery("member=3&participantRole=chorus"),
+    );
+    expect(sameCreditRole.items.map(({ id }) => id)).toEqual(["song-together"]);
+
+    const roleOnDifferentCredit = await reader.readCatalog(
+      toReaderQuery("member=1&participantRole=chorus"),
+    );
+    expect(roleOnDifferentCredit.items).toEqual([]);
 
     const groupKey = encodeURIComponent(
       encodePublicCatalogGroupKey({ entityId: "entity-group", unitName: null }),

@@ -11,6 +11,7 @@ const MUSIC_TABLES = [
   "music_entity_aliases",
   "music_songs",
   "music_song_aliases",
+  "music_song_tags",
   "music_song_original_artists",
   "music_channels",
   "music_channel_entities",
@@ -81,6 +82,27 @@ describe("d1 doctor migration status", () => {
 });
 
 describe("d1 doctor schema coverage", () => {
+  it("validates the OTW Play submission limit as strict integer text", async () => {
+    const { getOtwPlaySubmissionDailyLimitStatus } = await loadDoctorCore();
+
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: "5", value_type: "text" },
+      ]),
+    ).toEqual({ ok: true, message: "daily limit=5" });
+    expect(getOtwPlaySubmissionDailyLimitStatus([]).ok).toBe(false);
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: "0", value_type: "text" },
+      ]).ok,
+    ).toBe(false);
+    expect(
+      getOtwPlaySubmissionDailyLimitStatus([
+        { value: 5, value_type: "integer" },
+      ]).ok,
+    ).toBe(false);
+  });
+
   it("checks every OTW Play catalog table", async () => {
     const { REQUIRED_D1_COLUMNS } = await loadDoctorCore();
 
@@ -111,6 +133,12 @@ describe("d1 doctor schema coverage", () => {
         "version",
         "approved_performance_id",
       ]),
+    );
+    expect(REQUIRED_D1_COLUMNS.music_cover_proposal_participants).toContain(
+      "submitted_member_uid",
+    );
+    expect(REQUIRED_D1_COLUMNS.music_cover_proposal_original_artists).toContain(
+      "submitted_member_uid",
     );
     expect(REQUIRED_D1_COLUMNS.music_catalog_events).toEqual(
       expect.arrayContaining([

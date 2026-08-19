@@ -13,6 +13,7 @@ describe("OTW Play catalog route search", () => {
       memberMode: "all",
       group: "g1_opaque",
       participant: "외부-가창자",
+      participantRole: "chorus",
       relation: "cover",
       unknown: "ignored",
     });
@@ -22,6 +23,7 @@ describe("OTW Play catalog route search", () => {
       memberMode: "all",
       group: "g1_opaque",
       participant: "외부-가창자",
+      participantRole: "chorus",
       relation: "cover",
     });
   });

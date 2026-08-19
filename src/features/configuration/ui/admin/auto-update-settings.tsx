@@ -17,6 +17,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
 import { Switch } from "@/shared/ui/switch";
+import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
 import { Checkbox } from "@/shared/ui/checkbox";
 import {
@@ -61,6 +62,7 @@ import {
   AUTO_UPDATE_INTERVAL_HOURS,
   isAutoUpdateIntervalHours,
   normalizeAutoUpdateIntervalHours,
+  isOtwPlaySubmissionDailyLimitValue,
 } from "../../model/settings-config";
 import { roundTimeToNearestScheduleHalfHour } from "@/features/schedules";
 import { cn } from "@/shared/lib/utils";
@@ -510,6 +512,8 @@ export function AutoUpdateSettingsManager() {
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [lastRunResult, setLastRunResult] =
     useState<AutoUpdateRunResult | null>(null);
+  const [submissionDailyLimitDraft, setSubmissionDailyLimitDraft] =
+    useState("5");
 
   const settingsQuery = useQuery({
     queryKey: queryKeys.settings.detail(),
@@ -529,6 +533,14 @@ export function AutoUpdateSettingsManager() {
     : EMPTY_PENDING_SCHEDULES;
   const isFetching = settingsQuery.isFetching;
   const isLoadingPending = pendingQuery.isFetching;
+
+  useEffect(() => {
+    if (settings?.otw_play_submission_daily_limit) {
+      setSubmissionDailyLimitDraft(
+        settings.otw_play_submission_daily_limit,
+      );
+    }
+  }, [settings?.otw_play_submission_daily_limit]);
 
   const loadSettings = useCallback(async () => {
     await settingsQuery.refetch();
@@ -667,6 +679,47 @@ export function AutoUpdateSettingsManager() {
       toast({
         variant: "error",
         description: "검색 범위 변경에 실패했습니다.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSubmissionDailyLimitSave = async () => {
+    if (!settings) return;
+    if (!isOtwPlaySubmissionDailyLimitValue(submissionDailyLimitDraft)) {
+      setSubmissionDailyLimitDraft(settings.otw_play_submission_daily_limit);
+      toast({
+        variant: "error",
+        description: "회원 제안 일일 제한은 1~100 사이여야 합니다.",
+      });
+      return;
+    }
+    if (
+      submissionDailyLimitDraft ===
+      settings.otw_play_submission_daily_limit
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        otw_play_submission_daily_limit: submissionDailyLimitDraft,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
+      toast({
+        variant: "success",
+        description: `회원 제안 일일 제한을 ${submissionDailyLimitDraft}회로 변경했습니다.`,
+      });
+    } catch (error) {
+      console.error("Failed to update OTW Play submission daily limit:", error);
+      setSubmissionDailyLimitDraft(settings.otw_play_submission_daily_limit);
+      toast({
+        variant: "error",
+        description: "회원 제안 일일 제한 변경에 실패했습니다.",
       });
     } finally {
       setIsSaving(false);
@@ -1256,6 +1309,33 @@ export function AutoUpdateSettingsManager() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="flex h-full min-h-12 items-center gap-2 rounded-md bg-muted/35 px-3 py-2 md:col-span-2 xl:col-span-1">
+              <Label
+                htmlFor="otw-play-submission-daily-limit"
+                className="whitespace-nowrap text-sm font-medium"
+              >
+                회원 곡 제안/일
+              </Label>
+              <Input
+                id="otw-play-submission-daily-limit"
+                type="number"
+                min={1}
+                max={100}
+                value={submissionDailyLimitDraft}
+                onChange={(event) =>
+                  setSubmissionDailyLimitDraft(event.target.value)
+                }
+                onBlur={() => void handleSubmissionDailyLimitSave()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                disabled={isSaving}
+                className="h-8 w-24"
+              />
             </div>
           </div>
           ) : null}

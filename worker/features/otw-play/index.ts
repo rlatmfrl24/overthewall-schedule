@@ -61,3 +61,6 @@ export { D1AdminCatalogRepository } from "./infrastructure/d1-admin-catalog-repo
 export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
 export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";
 export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
+export { MemberSubmissionService } from "./application/member-submission-service";
+export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
+export { createMemberSubmissionHandler } from "./http/member-submission-handler";

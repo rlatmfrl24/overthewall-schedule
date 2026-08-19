@@ -36,6 +36,9 @@ import {
   DrizzleAdminCatalogAudit,
   PublicCatalogService,
   YouTubeOtwPlayMetadataReader,
+  MemberSubmissionService,
+  D1MemberSubmissionRepository,
+  createMemberSubmissionHandler,
 } from "../features/otw-play";
 import {
   collectNaverCafePostsForSources,
@@ -181,7 +184,14 @@ const handleOtwPlayAdminCatalog = createAdminCatalogHandler(
       new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
       new DrizzleAdminCatalogAudit(getDb(env)),
       () => crypto.randomUUID(),
-      false,
+      true,
+    ),
+);
+const handleOtwPlayMemberSubmissions = createMemberSubmissionHandler(
+  (env) =>
+    new MemberSubmissionService(
+      new D1MemberSubmissionRepository(env.otw_db),
+      () => crypto.randomUUID(),
     ),
 );
 const handleNotices = createHandleNotices(
@@ -443,6 +453,42 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.submission.preflight",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.preflight.pattern,
+    methods: methods(
+      post({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.submission.create",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.create.pattern,
+    methods: methods(
+      post({ auth: "member-policy", cache: "no-store", successStatus: 201 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.submission.mine",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.mine.pattern,
+    methods: methods(
+      get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.submission.detail",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.detail.pattern,
+    methods: methods(
+      get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
   },
   {
     id: "otw-play.admin.catalog",

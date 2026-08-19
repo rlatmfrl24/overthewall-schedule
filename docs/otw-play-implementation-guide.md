@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-6 공개 UI·단일 player 구현 중, GATE-01 fail-closed 기준선
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 보완 중
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -15,9 +15,10 @@
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-6 공개 Discover·Catalog·곡 상세, 기존 public API의 participant/groupKey 호환
-추가와 Play-scoped 단일 YouTube player다. DB migration, 관리자·회원 command,
-저장 플레이리스트, SEO, production flag 변경, 배포와 원격 적용은 포함하지 않는다.
+PR-6 공개 Discover·Catalog·곡 상세, participant/groupKey 호환과 Play-scoped 단일
+YouTube player까지 완료되었다. 현재 단계는 회원 제출, 내 제안과 관리자
+승인·published catalog 반영 E2E다. 저장 플레이리스트, SEO, production flag 변경,
+배포와 원격 적용은 포함하지 않는다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -53,18 +54,19 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 
 | ID      | 확인 항목                            | 필요 시점               | 기본 권장안                                      |
 | ------- | ------------------------------------ | ----------------------- | ------------------------------------------------ |
-| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 관리자 등록·승인 API 전 | 승인된 공식 채널 + 실제 가창 credit 확인         |
+| GATE-01 | 공식 커버 인정 기준과 허용 채널      | 해결됨                  | DEC-044 `official_cover_v1`                      |
 | GATE-02 | 초기 입력 대상 곡·멤버               | 운영 데이터 입력 전     | 그룹별 대표 5–10곡으로 검증                      |
 | GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전     | 기록 보존, 현재 화면은 external 표시             |
 | GATE-04 | 회원 제안 수정·철회                  | 해당 command 구현 전    | pending_review에서만 허용                        |
-| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 내 제안 UI 전           | 코드별 안전한 메시지로 노출, 내부 세부 정보 제외 |
-| GATE-06 | 회원별 제출 제한                     | 제출 API 전             | 설정 가능한 일일 제한 + edge burst 제한          |
+| GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
+| GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-PR-3 schema 결정은 GATE-01~06의 상태, 숫자 또는 운영 권장안을 변경하지 않는다.
+GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로 PR-7에 회원
+수정·철회 command나 control을 만들지 않는다.
 
 ## 3. 전달 전략
 
@@ -734,9 +736,9 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
     arrow·indicator·pointer drag·horizontal wheel·keyboard 수동 전환 유지
 12. 최근 공개곡을 compact table로 표시하고 좁은 폭에서 보조 열을 숨겨 table
     horizontal scroll을 만들지 않음
-13. 곡명 아래 참여자 profile/name과 YouTube·곡 상세 action을 합친 identity row,
-    상태 문구 없는 단일 transport/control row, compact 게시 채널 출처와 실제 IFrame
-    위치를 읽는 seekable progress·진행/남은 시간
+13. iframe 아래 곡명·참여자 profile/name·YouTube·곡 상세 action을 먼저 표시하고,
+    음악/가창 분류 metadata 뒤에 실제 IFrame 위치를 읽는 seekable progress와 상태 문구 없는
+    단일 transport/control row를 연속 배치함. compact 게시 채널 출처는 transport 아래에 둠
 14. 720px 미만 데스크톱 rail에서 참여자 identity는 한 줄로 유지하고 게시 채널 출처만
     먼저 숨기는 compact metadata와 640px 미만 `현재 재생`·`플레이큐` 상세 전환.
     단일 iframe과 YouTube·곡 상세 action은 계속 보이고 queue list만 남은 높이에서 독립 스크롤
@@ -754,9 +756,11 @@ preview에서도 `503`을 유지한다. 관리자 내비게이션은 preview con
 계약은 향후 운영 공개 전환을 위해 유지한다. 회원 제안 CTA는 PR-7의 실제 route가
 생기기 전까지 만들지 않는다.
 
-Catalog query는 단일 `participant=<public entity slug>`를 추가하고 group participant
-DTO는 서버 생성 `groupKey`를 제공한다. 둘 다 기존 filter와 동일 published
-performance에서 만족하고 schema와 기존 공개 route 수는 변경하지 않는다.
+Catalog query는 단일 `participant=<public entity slug>`와
+`participantRole=vocal|featured_vocal|chorus|other`를 제공하고 group participant DTO는
+서버 생성 `groupKey`를 제공한다. identity와 role을 함께 선택하면 같은 participant
+credit row에서 둘 다 만족해야 한다. role만 선택하면 그 역할 credit이 있는 동일
+published performance를 찾는다. schema와 기존 공개 route 수는 변경하지 않는다.
 
 ### 플레이어 검증
 
@@ -780,11 +784,12 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
   음소거·volume, queue 선택·삭제·재정렬과 시각 queue 안내 footer 부재를 테스트한다.
 - 같은 performance의 반복 enqueue는 항목을 늘리지 않고, 기존 play는 선택,
   play-next는 이동하며 구 session duplicate도 복원 시 정리함
-- player는 `재생 중`·`재생 대기` 시각 문구를 렌더링하지 않고 previous/play/next,
-  repeat·shuffle·mute·volume을 같은 row에 렌더링한다. 참여자 profile/name과 YouTube·곡
-  상세 action은 같은 identity row에 배치한다. 게시 채널은 별도 compact source attribution이며
-  참여자 profile을 channel avatar로 재사용하지 않는다. progress range는 current time·remaining time을 갱신하고 seek를
-  IFrame API로 전달한다. segment source의 start/end clamp도 unit test로 검증한다.
+- player는 iframe 뒤에 곡명, 참여자 profile/name과 YouTube·곡 상세 action, 음악/가창 분류,
+  progress, transport 순으로 렌더링한다. `재생 중`·`재생 대기` 시각 문구는 만들지 않고
+  previous/play/next, repeat·shuffle·mute·volume을 같은 row에 둔다. 게시 채널은 별도 compact
+  source attribution이며 참여자 profile을 channel avatar로 재사용하지 않는다. progress range는
+  current time·remaining time을 갱신하고 seek를 IFrame API로 전달한다. segment source의
+  start/end clamp도 unit test로 검증한다.
 - 640px 미만 높이의 데스크톱 rail에서 `플레이큐`를 선택해도 iframe count는 1이고
   pause·destroy가 호출되지 않는다. 현재 재생 상세는 숨고 queue list·재정렬·삭제가
   viewport 안의 내부 scroll로 접근 가능해야 한다. 640–719px에서는 전환 없이 compact
@@ -832,15 +837,27 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 
 로그인 회원의 공식 커버 제안이 비공개 상태로 저장되고 관리자 승인 후만 공개된다.
 
+`/play` parent는 중립 Outlet으로 두고 catalog/player는 관리자 preview shell,
+`/play/submit`과 `/play/submissions`는 JWT member shell로 분리한다. 회원 route는
+public config·catalog·player query를 시작하지 않는다.
+
+DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전역 sidebar에는
+별도 `곡 제안` 항목을 만들지 않고 `OTW Play`만 둔다. 관리자 catalog의 `발견`·`곡 검색`
+옆과 member shell에는 `곡 제안` dropdown을 표시해 기존 두 member route로 이동한다.
+공통 chrome 추출 과정에서 member shell에 catalog/player provider를 올리지 않는다.
+
 ### 주요 touchpoint
 
-- `worker/features/otw-play/application/submit-cover-proposal.ts`
-- `worker/features/otw-play/application/approve-proposal.ts`
-- `worker/features/otw-play/infrastructure/d1-review-unit-of-work.ts`
-- `worker/features/otw-play/http/member-handler.ts`
-- `worker/features/otw-play/http/admin-handler.ts`
-- `src/features/otw-play/ui/submissions/*`
-- `src/features/otw-play/ui/admin/submission-review.tsx`
+- `worker/features/otw-play/application/member-submission-service.ts`
+- `worker/features/otw-play/application/admin-catalog-service.ts`
+- `worker/features/otw-play/infrastructure/d1-member-submission-repository.ts`
+- `worker/features/otw-play/infrastructure/d1-admin-catalog-repository.ts`
+- `worker/features/otw-play/http/member-submission-handler.ts`
+- `worker/features/otw-play/http/admin-catalog-handler.ts`
+- `src/features/otw-play/ui/member/*`
+- `src/features/otw-play/ui/admin/catalog-manager.tsx`
+- `src/routes/play/_member.tsx`
+- `src/routes/play/_catalog.tsx`
 - `src/routes/play/submit.tsx`
 - `src/routes/play/submissions.tsx`
 
@@ -854,6 +871,24 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 6. YouTube 최신 metadata 검증
 7. CAS + conditional insert + publish/event/revision batch
 8. 승인·거절 authoritative readback
+
+PR-7.1 frontend 보완은 다음 순서로 수행한다.
+
+1. 공통 Play frame/header와 단일 global navigation entry
+2. thumbnail/canonical identity가 보이는 영상 preflight
+3. 명시적 새 곡/기존 곡 mode와 on-demand 후보 검색
+4. keyboard member autocomplete와 explicit-add snapshot chip
+5. chip 중복·상한, step focus와 오류 위치 복귀
+6. dirty route-leave 확인과 권위 성공 결과/명시적 reset
+7. 빈 내 제안 CTA와 불필요한 detail panel 제거
+8. 참여자별 가창 역할 입력과 member DTO 역할 readback
+9. 관리자 승인용 곡·원곡 가수·참여자·역할 편집
+10. 공개 Discover·목록·상세·Player의 메인 보컬 우선 presentation
+
+회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
+권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
+보조하며 edge 실패가 D1 제한을 우회하지 않는다. 반려 DTO는 상태만 제공하고
+내부 review code·note·reviewer를 포함하지 않는다.
 
 ### 보안·무결성 테스트
 
@@ -871,6 +906,18 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 - 승인 전 공개 API 누출 0건
 - 승인 후 published item과 proposal link readback
 - 거절 후 공개 0건, event와 회원 상태 보존
+- 역할별 global navigation에 `OTW Play` 한 항목만 존재
+- header dropdown의 keyboard 이동과 두 member route active state
+- member route의 public config·catalog·player 요청 0회
+- duplicate 차단, 후보 선택·해제, member autocomplete, chip 중복·상한
+- 오류 후 step·입력·idempotency 유지와 작성 중 이탈 확인
+- 성공 결과 유지와 사용자가 선택한 뒤에만 빈 form/request ID 생성
+- legacy 역할 누락은 `vocal`로 정규화하고 unknown 역할은 400
+- 동일 idempotency key에서 역할이 달라지면 409 conflict
+- 관리자 편집값이 approval command에 반영되며 proposal snapshot은 변경되지 않음
+- 발견·곡 목록·Player·queue에는 `vocal` 이름만 표시하고 보조 역할 tooltip·칩이 없음
+- 곡 상세에는 메인 보컬·피처링 보컬·코러스·기타 참여 credit이 역할별로 모두 표시됨
+- `participantRole` canonical query·cursor identity와 member·participant·group 동일-credit 필터 의미 검증
 
 ### 종료 조건
 
@@ -1067,3 +1114,9 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 4. 이 문서의 gate, PR slice, test와 rollout을 조정한다.
 5. 이미 migration이 배포된 경우 destructive rewrite보다 additive migration과
    호환 기간을 우선한다.
+## PR-7.2 후속 보완
+
+- `0054_*` additive migration으로 `music_song_tags`와 tag lookup index를 추가한다.
+- admin create/update/catalog-entry, public catalog/detail/performance DTO를 `tags`까지 end-to-end 연결한다.
+- `/play` index를 `_catalog` layout 아래로 이동해 발견↔곡 검색↔상세 이동 중 player provider와 iframe을 유지한다.
+- 공개 UI는 song tag와 performance metadata를 서로 다른 시각 계층으로 렌더링한다.

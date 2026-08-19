@@ -62,6 +62,7 @@ type AliasRow = {
   locale: string | null;
   alias_kind: string | null;
 };
+type TagRow = { song_id: string; tag_key: string; display_name: string };
 type ArtistRow = {
   song_id: string;
   entity_id: string;
@@ -149,6 +150,25 @@ const generatedSlug = (displayName: string, id: string) => {
     .slice(0, 80);
   return `${base || "identity"}-${id.replace(/[^A-Za-z0-9]/gu, "").slice(0, 8).toLowerCase()}`;
 };
+
+const normalizedSongTags = (tags: readonly string[] | undefined) =>
+  (tags ?? []).map((displayName) => ({
+    displayName: displayName.trim(),
+    tagKey: normalizeOtwPlaySearchText(displayName),
+  }));
+
+const songTagStatements = (
+  database: D1Database,
+  songId: string,
+  tags: readonly string[] | undefined,
+) =>
+  normalizedSongTags(tags).map(({ displayName, tagKey }) =>
+    database
+      .prepare(
+        "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES (?, ?, ?)",
+      )
+      .bind(songId, tagKey, displayName),
+  );
 
 const projectionStatements = (
   database: D1Database,
@@ -329,6 +349,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       entitiesResult,
       songsResult,
       aliasesResult,
+      tagsResult,
       artistsResult,
       channelsResult,
       channelEntitiesResult,
@@ -350,6 +371,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(`SELECT song_id, alias, normalized_alias, locale, alias_kind
         FROM music_song_aliases ORDER BY song_id, normalized_alias`),
+      this.database.prepare(`SELECT song_id, tag_key, display_name
+        FROM music_song_tags ORDER BY song_id, tag_key`),
       this.database
         .prepare(`SELECT artist.song_id, artist.entity_id, entity.display_name,
         artist.credit_order, artist.is_primary
@@ -394,6 +417,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       resultsOf(aliasesResult as D1Result<AliasRow>),
       (row) => row.song_id,
     );
+    const tags = group(
+      resultsOf(tagsResult as D1Result<TagRow>),
+      (row) => row.song_id,
+    );
     const artists = group(
       resultsOf(artistsResult as D1Result<ArtistRow>),
       (row) => row.song_id,
@@ -434,6 +461,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         originalReleasePrecision: row.original_release_precision,
         archivedAt: row.archived_at,
         version: Number(row.version),
+        tags: (tags.get(row.id) ?? []).map((tag) => tag.display_name),
         aliases: (aliases.get(row.id) ?? []).map((alias) => ({
           alias: alias.alias,
           normalizedAlias: alias.normalized_alias,
@@ -631,11 +659,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       await this.database.batch([
         status ? statement.bind(status) : statement,
         this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id,
+          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
         submitted_name_snapshot, participant_role
         FROM music_cover_proposal_participants ORDER BY proposal_id, credit_order`),
         this.database
-          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id,
+          .prepare(`SELECT proposal_id, credit_order, resolved_entity_id, submitted_member_uid,
         submitted_name_snapshot FROM music_cover_proposal_original_artists
         ORDER BY proposal_id, credit_order`),
       ]);
@@ -661,6 +689,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       proposal_id: string;
       credit_order: number;
       resolved_entity_id: string | null;
+      submitted_member_uid: number | null;
       submitted_name_snapshot: string;
       participant_role: OtwPlayAdminProposalDto["participants"][number]["participantRole"];
     };
@@ -693,12 +722,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       participants: (participantMap.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
         resolvedEntityId: item.resolved_entity_id,
+        submittedMemberUid: item.submitted_member_uid === null ? null : Number(item.submitted_member_uid),
         submittedNameSnapshot: item.submitted_name_snapshot,
         participantRole: item.participant_role,
       })),
       originalArtists: (artistMap.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
         resolvedEntityId: item.resolved_entity_id,
+        submittedMemberUid: item.submitted_member_uid === null ? null : Number(item.submitted_member_uid),
         submittedNameSnapshot: item.submitted_name_snapshot,
       })),
     }));
@@ -941,6 +972,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             artist.isPrimary ? 1 : 0,
           ),
       ),
+      ...songTagStatements(this.database, ids.songId, input.tags),
       ...projectionStatements(this.database, ids.songId),
       this.database
         .prepare(
@@ -1172,6 +1204,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             artist.isPrimary ? 1 : 0,
           ),
       ),
+      ...(input.tags === undefined
+        ? []
+        : [
+            this.database
+              .prepare("DELETE FROM music_song_tags WHERE song_id = ?")
+              .bind(input.id),
+            ...songTagStatements(this.database, input.id, input.tags),
+          ]),
       ...projectionStatements(this.database, input.id),
       this.database
         .prepare(
@@ -1449,7 +1489,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   async createCatalogEntry(command: AdminCreateCatalogEntryCommand) {
-    const { input, video, actor, now, ids } = command;
+    const { input, video, actor, now, ids, proposalApproval } = command;
     const meta = await this.readRevision();
     if (Number(meta.revision) !== input.expectedCatalogRevision) {
       throw new AdminCatalogRepositoryError(
@@ -1458,6 +1498,21 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
     const catalog = await this.readCatalog();
+    if (proposalApproval) {
+      const proposal = await this.database
+        .prepare(
+          `SELECT id FROM music_cover_proposals
+           WHERE id = ? AND status = 'pending_review' AND version = ?`,
+        )
+        .bind(proposalApproval.proposalId, proposalApproval.expectedVersion)
+        .first<{ id: string }>();
+      if (!proposal) {
+        throw new AdminCatalogRepositoryError(
+          "stale_write",
+          "Proposal changed during review",
+        );
+      }
+    }
     const duplicate = await this.database
       .prepare(
         `SELECT performance.song_id, link.performance_id
@@ -1480,7 +1535,26 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       );
     }
 
-    const statements: D1PreparedStatement[] = [];
+    const statements: D1PreparedStatement[] = proposalApproval
+      ? [
+          this.database
+            .prepare(
+              `UPDATE music_cover_proposals
+               SET review_lock_token = ?, review_lock_expires_at = ?, updated_at = ?
+               WHERE id = ? AND status = 'pending_review' AND version = ?
+                 AND (review_lock_token IS NULL OR review_lock_expires_at < ?)`,
+            )
+            .bind(
+              proposalApproval.lockToken,
+              now + 300_000,
+              now,
+              proposalApproval.proposalId,
+              proposalApproval.expectedVersion,
+              now,
+            ),
+          versionGuard(this.database),
+        ]
+      : [];
     const createdEntityIds: string[] = [];
     const resolved = new Map<string, { id: string; displayName: string }>();
     const allSubjects = [
@@ -1832,6 +1906,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
                         isPrimary: index === 0,
                       }))
                   : [],
+              tags: input.song.tags ?? [],
             }
           : input.song;
       const artists = songInput.originalArtists.map((item) => ({
@@ -1901,6 +1976,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
               artist.isPrimary ? 1 : 0,
             ),
         ),
+        ...songTagStatements(this.database, songId, songInput.tags),
         this.database
           .prepare(
             `INSERT INTO music_catalog_events
@@ -2025,6 +2101,44 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
         ),
     );
+
+    if (proposalApproval) {
+      statements.push(
+        this.database
+          .prepare(
+            `UPDATE music_cover_proposals
+             SET status = 'approved', reviewed_by_user_id = ?, reviewed_at = ?,
+               approved_performance_id = ?, review_lock_token = NULL,
+               review_lock_expires_at = NULL, version = version + 1, updated_at = ?
+             WHERE id = ? AND status = 'pending_review' AND version = ?
+               AND review_lock_token = ?`,
+          )
+          .bind(
+            actor.userId,
+            now,
+            ids.performanceId,
+            now,
+            proposalApproval.proposalId,
+            proposalApproval.expectedVersion,
+            proposalApproval.lockToken,
+          ),
+        versionGuard(this.database),
+        this.database
+          .prepare(
+            `INSERT INTO music_catalog_events
+             (id, aggregate_type, aggregate_id, event_type, actor_kind,
+              actor_user_id, after_json, created_at)
+             VALUES (?, 'proposal', ?, 'proposal.approved', 'admin', ?, ?, ?)`,
+          )
+          .bind(
+            proposalApproval.proposalEventId,
+            proposalApproval.proposalId,
+            actor.userId,
+            eventJson({ performanceId: ids.performanceId }),
+            now,
+          ),
+      );
+    }
 
     try {
       await this.executeCatalogBatch(
@@ -2945,257 +3059,47 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
 
   async approveProposal(command: AdminApproveProposalCommand) {
     const { proposalId, input, video, actor, now, ids } = command;
-    const meta = await this.readRevision();
-    const songId =
-      "existingSongId" in input.song ? input.song.existingSongId : ids.songId;
-    if ("existingSongId" in input.song) {
-      const song = await this.database
-        .prepare(
-          "SELECT id FROM music_songs WHERE id = ? AND archived_at IS NULL",
-        )
-        .bind(songId)
-        .first<{ id: string }>();
-      if (!song)
-        throw new AdminCatalogRepositoryError("not_found", "Song not found");
-    }
-    if (
-      input.publish &&
-      !input.performance.participants.some(
-        (item) =>
-          item.participantRole === "vocal" ||
-          item.participantRole === "featured_vocal" ||
-          item.participantRole === "chorus",
-      )
-    ) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "Approved cover requires an actual singing credit",
-      );
-    }
-    const existingSource = await this.database
-      .prepare(
-        `SELECT id FROM music_media_sources
-      WHERE provider = 'youtube' AND external_id = ?`,
-      )
-      .bind(video.videoId)
-      .first<{ id: string }>();
-    const sourceId = existingSource?.id ?? ids.sourceId;
-    const performanceDedupeKey = createPerformanceDedupeKeyMaterial({
-      songId,
-      sourceId,
-      startSeconds: input.performance.source.startSeconds,
+    const catalogResult = await this.createCatalogEntry({
+      input: {
+        expectedCatalogRevision: input.expectedCatalogRevision,
+        youtubeUrl: `https://www.youtube.com/watch?v=${video.videoId}`,
+        startSeconds: 0,
+        song: input.song,
+        participants: input.participants,
+        channel: input.channel,
+        relationType: "cover",
+        releaseType: input.releaseType,
+        participationType: input.participationType,
+        publicationTarget: "published",
+        internalNote: null,
+      },
+      video,
+      actor,
+      now,
+      ids: {
+        entityIds: ids.entityIds,
+        entityEventIds: ids.entityEventIds,
+        channelId: ids.channelId,
+        channelEventId: ids.channelEventId,
+        songId: ids.songId,
+        songEventId: ids.songEventId,
+        performanceId: ids.performanceId,
+        performanceEventId: ids.performanceEventId,
+        sourceId: ids.sourceId,
+      },
+      proposalApproval: {
+        proposalId,
+        expectedVersion: input.expectedVersion,
+        lockToken: ids.lockToken,
+        proposalEventId: ids.proposalEventId,
+      },
     });
-    const statements: D1PreparedStatement[] = [
-      this.database
-        .prepare(
-          `UPDATE music_cover_proposals
-        SET review_lock_token = ?, review_lock_expires_at = ?, updated_at = ?
-        WHERE id = ? AND status = 'pending_review' AND version = ?
-          AND (review_lock_token IS NULL OR review_lock_expires_at < ?)`,
-        )
-        .bind(
-          ids.lockToken,
-          now + 300_000,
-          now,
-          proposalId,
-          input.expectedVersion,
-          now,
-        ),
-      versionGuard(this.database),
-    ];
-    if ("create" in input.song) {
-      const song = input.song.create;
-      statements.push(
-        this.database
-          .prepare(
-            `INSERT INTO music_songs (
-          id, slug, title, normalized_title, dedupe_key, is_otw_original,
-          original_release_date, original_release_precision, version, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          )
-          .bind(
-            songId,
-            song.slug.trim(),
-            song.title.trim(),
-            normalizeOtwPlaySearchText(song.title),
-            createSongDedupeKeyMaterial({
-              title: song.title,
-              originalArtistIds: song.originalArtists.map(
-                (item) => item.entityId,
-              ),
-            }),
-            song.isOtwOriginal ? 1 : 0,
-            song.originalReleaseDate,
-            song.originalReleasePrecision,
-            now,
-            now,
-          ),
-        ...song.aliases.map((alias) =>
-          this.database
-            .prepare(
-              `INSERT INTO music_song_aliases
-          (song_id, alias, normalized_alias, locale, alias_kind) VALUES (?, ?, ?, ?, ?)`,
-            )
-            .bind(
-              songId,
-              alias.alias.trim(),
-              normalizeOtwPlaySearchText(alias.alias),
-              alias.locale?.trim() || null,
-              alias.aliasKind?.trim() || null,
-            ),
-        ),
-        ...song.originalArtists.map((artist) =>
-          this.database
-            .prepare(
-              `INSERT INTO music_song_original_artists
-          (song_id, entity_id, credit_order, is_primary) VALUES (?, ?, ?, ?)`,
-            )
-            .bind(
-              songId,
-              artist.entityId,
-              artist.creditOrder,
-              artist.isPrimary ? 1 : 0,
-            ),
-        ),
-      );
-    }
-    statements.push(
-      ...(existingSource
-        ? []
-        : [
-            this.sourceInsert(
-              sourceId,
-              video,
-              input.performance.source.channelId,
-              now,
-            ),
-          ]),
-      this.database
-        .prepare(
-          `INSERT INTO music_performances (
-        id, song_id, dedupe_key, relation_type, release_type, participation_type,
-        publication_status, quality_status, released_at, internal_note, version,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        )
-        .bind(
-          ids.performanceId,
-          songId,
-          performanceDedupeKey,
-          input.performance.relationType,
-          input.performance.releaseType,
-          input.performance.participationType,
-          input.publish ? "published" : "draft",
-          input.performance.qualityStatus,
-          input.performance.releasedAt,
-          input.performance.internalNote?.trim() || null,
-          now,
-          now,
-        ),
-      ...input.performance.participants.map((participant) =>
-        this.database
-          .prepare(
-            `INSERT INTO music_performance_participants (
-          performance_id, entity_id, participant_role, credit_order, credit_name_snapshot
-        ) VALUES (?, ?, ?, ?, ?)`,
-          )
-          .bind(
-            ids.performanceId,
-            participant.entityId,
-            participant.participantRole ?? "vocal",
-            participant.creditOrder,
-            participant.creditNameSnapshot?.trim() || participant.entityId,
-          ),
-      ),
-      this.database
-        .prepare(
-          `INSERT INTO music_performance_sources (
-        performance_id, source_id, start_seconds, end_seconds, source_role,
-        priority, is_primary
-      ) VALUES (?, ?, ?, ?, ?, 0, 1)`,
-        )
-        .bind(
-          ids.performanceId,
-          sourceId,
-          input.performance.source.startSeconds,
-          input.performance.source.endSeconds ?? null,
-          input.performance.source.sourceRole,
-        ),
-      ...projectionStatements(this.database, songId),
-      this.database
-        .prepare(
-          `UPDATE music_cover_proposals SET status = 'approved',
-        reviewed_by_user_id = ?, reviewed_at = ?, approved_performance_id = ?,
-        review_lock_token = NULL, review_lock_expires_at = NULL,
-        version = version + 1, updated_at = ?
-        WHERE id = ? AND status = 'pending_review' AND version = ?
-          AND review_lock_token = ?`,
-        )
-        .bind(
-          actor.userId,
-          now,
-          ids.performanceId,
-          now,
-          proposalId,
-          input.expectedVersion,
-          ids.lockToken,
-        ),
-      versionGuard(this.database),
-    );
-    if ("create" in input.song) {
-      statements.push(
-        this.database
-          .prepare(
-            `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'song', ?, 'song.created_from_proposal', 'admin', ?, ?, ?)`,
-          )
-          .bind(
-            ids.songEventId,
-            songId,
-            actor.userId,
-            eventJson({ proposalId }),
-            now,
-          ),
-      );
-    }
-    statements.push(
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'performance', ?, 'performance.created_from_proposal', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          ids.performanceEventId,
-          ids.performanceId,
-          actor.userId,
-          eventJson({
-            proposalId,
-            publicationStatus: input.publish ? "published" : "draft",
-          }),
-          now,
-        ),
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'proposal', ?, 'proposal.approved', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          ids.proposalEventId,
-          proposalId,
-          actor.userId,
-          eventJson({ performanceId: ids.performanceId }),
-          now,
-        ),
-    );
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
     const proposal = (await this.readProposals()).find(
       (item) => item.id === proposalId,
     );
-    if (!proposal)
+    if (!proposal) {
       throw new AdminCatalogRepositoryError("not_found", "Proposal not found");
-    return { data: proposal, catalogRevision: Number(meta.revision) + 1 };
+    }
+    return { data: proposal, catalogRevision: catalogResult.catalogRevision };
   }
 }

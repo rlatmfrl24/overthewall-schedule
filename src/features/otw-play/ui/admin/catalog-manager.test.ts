@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -24,6 +25,7 @@ const deleteSongMock = vi.hoisted(() => vi.fn());
 const deletePerformanceMock = vi.hoisted(() => vi.fn());
 const fetchMembersMock = vi.hoisted(() => vi.fn());
 const rejectProposalMock = vi.hoisted(() => vi.fn());
+const approveProposalMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", async (importOriginal) => {
@@ -40,6 +42,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     deleteOtwPlaySong: deleteSongMock,
     deleteOtwPlayPerformance: deletePerformanceMock,
     rejectOtwPlayProposal: rejectProposalMock,
+    approveOtwPlayProposal: approveProposalMock,
   };
 });
 
@@ -81,6 +84,7 @@ const proposal = {
     {
       creditOrder: 0,
       resolvedEntityId: null,
+      submittedMemberUid: null,
       submittedNameSnapshot: "참여자",
       participantRole: "vocal" as const,
     },
@@ -89,6 +93,7 @@ const proposal = {
     {
       creditOrder: 0,
       resolvedEntityId: null,
+      submittedMemberUid: null,
       submittedNameSnapshot: "원곡 가수",
     },
   ],
@@ -105,6 +110,15 @@ describe("OtwPlayCatalogManager", () => {
     rejectProposalMock.mockResolvedValue({
       data: { ...proposal, status: "rejected", version: 3 },
       catalogRevision: 7,
+    });
+    approveProposalMock.mockResolvedValue({
+      data: {
+        ...proposal,
+        status: "approved",
+        version: 3,
+        approvedPerformanceId: "performance-approved",
+      },
+      catalogRevision: 8,
     });
     updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
@@ -150,7 +164,8 @@ describe("OtwPlayCatalogManager", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps proposal approval closed while showing the no-cookie review player", async () => {
+  it("requires metadata and singing-credit confirmation before approving a proposal", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),
     });
@@ -160,11 +175,276 @@ describe("OtwPlayCatalogManager", () => {
     expect(player.getAttribute("src")).toBe(
       "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
     );
+    const approveButton = screen.getByRole("button", {
+      name: "확인 후 승인·게시",
+    }) as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledWith({
+      youtubeUrl: proposal.submittedUrl,
+      startSeconds: 0,
+    }));
+    fireEvent.change(screen.getByLabelText("곡명"), {
+      target: { value: "관리자가 정정한 곡명" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "K-POP" }));
+    const songTagInput = screen.getByLabelText("음악 분류");
+    fireEvent.change(songTagInput, { target: { value: "K POP" } });
+    fireEvent.keyDown(songTagInput, { key: "Enter" });
     expect(
-      (screen.getByRole("button", { name: "승인" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(screen.getByText(/GATE-01이 확정될 때까지/)).toBeTruthy();
+      within(screen.getByLabelText("선택한 음악 분류")).getAllByText("K-POP"),
+    ).toHaveLength(1);
+    expect(screen.queryByText("K POP")).toBeNull();
+    fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
+    fireEvent.click(screen.getByLabelText("승인할 공개 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "공식 MV" }));
+    fireEvent.click(screen.getByLabelText("승인할 참여 형태"));
+    fireEvent.click(await screen.findByRole("option", { name: "유닛" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(false);
+    fireEvent.click(approveButton);
+
+    await waitFor(() =>
+      expect(approveProposalMock).toHaveBeenCalledWith(
+        "proposal-1",
+        expect.objectContaining({
+          expectedVersion: 2,
+          expectedCatalogRevision: 7,
+          singingCreditConfirmed: true,
+          publish: true,
+          releaseType: "official_mv",
+          participationType: "unit",
+          song: expect.objectContaining({
+            kind: "create",
+            title: "관리자가 정정한 곡명",
+            tags: ["K-POP"],
+          }),
+          participants: [
+            expect.objectContaining({ participantRole: "featured_vocal" }),
+          ],
+        }),
+      ),
+    );
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockRestore();
+  });
+
+  it("requires an explicit channel owner and preserves new group identities", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    preflightEntryMock.mockResolvedValueOnce({
+      catalogRevision: 7,
+      video: {
+        videoId: "dQw4w9WgXcQ",
+        title: "확인된 영상",
+        thumbnailUrl: null,
+        durationSeconds: 180,
+        publishedAt: 1,
+        availabilityStatus: "playable",
+        channelId: `UC${"U".repeat(22)}`,
+        channelTitle: "미등록 프로젝트 채널",
+      },
+      channel: {
+        state: "unknown",
+        catalogChannelId: null,
+        verificationStatus: null,
+        active: false,
+        channelRole: null,
+        memberUid: null,
+      },
+      duplicate: null,
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await screen.findByText("channel unknown");
+    const approveButton = screen.getByRole("button", { name: "확인 후 승인·게시" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
+    fireEvent.click(screen.getByLabelText("1번째 채널 소유 종류"));
+    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
+    fireEvent.change(screen.getByLabelText("1번째 채널 소유 이름"), {
+      target: { value: "프로젝트 팀" },
+    });
+    fireEvent.click(screen.getByLabelText("1번째 참여자 종류"));
+    fireEvent.click(await screen.findByRole("option", { name: "그룹" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(approveButton.disabled).toBe(false);
+    fireEvent.click(approveButton);
+
+    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledTimes(1));
+    expect(approveProposalMock).toHaveBeenCalledWith(
+      "proposal-1",
+      expect.objectContaining({
+        channel: {
+          kind: "confirm",
+          channelRole: "project_official",
+          owners: [
+            expect.objectContaining({
+              kind: "new_external",
+              displayName: "프로젝트 팀",
+              entityKind: "group",
+            }),
+          ],
+        },
+        participants: [
+          expect.objectContaining({
+            subject: expect.objectContaining({
+              kind: "new_external",
+              entityKind: "group",
+            }),
+          }),
+        ],
+      }),
+    );
+    confirm.mockRestore();
+  });
+
+  it("discards a late preflight response after switching proposals", async () => {
+    let resolvePreflight!: (value: Awaited<ReturnType<typeof preflightEntryMock>>) => void;
+    preflightEntryMock.mockReturnValueOnce(new Promise((resolve) => {
+      resolvePreflight = resolve;
+    }));
+    fetchProposalsMock.mockResolvedValueOnce([
+      proposal,
+      { ...proposal, id: "proposal-2", submittedTitle: "두 번째 제안" },
+    ]);
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "두 번째 제안" }));
+    await act(async () => resolvePreflight({
+      catalogRevision: 7,
+      video: {
+        videoId: "dQw4w9WgXcQ", title: "늦은 응답", thumbnailUrl: null,
+        durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable",
+        channelId: `UC${"L".repeat(22)}`, channelTitle: "늦은 채널",
+      },
+      channel: {
+        state: "unknown", catalogChannelId: null, verificationStatus: null,
+        active: false, channelRole: null, memberUid: null,
+      },
+      duplicate: null,
+    }));
+    expect(screen.getAllByText("두 번째 제안").length).toBeGreaterThan(0);
+    expect(screen.queryByText("channel unknown")).toBeNull();
+  });
+
+  it("keeps a selected channel owner stable when an earlier participant is removed", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fetchProposalsMock.mockResolvedValueOnce([{
+      ...proposal,
+      participants: [
+        { ...proposal.participants[0], creditOrder: 0, submittedNameSnapshot: "보컬 A" },
+        { ...proposal.participants[0], creditOrder: 1, submittedNameSnapshot: "보컬 B" },
+      ],
+    }]);
+    preflightEntryMock.mockResolvedValueOnce({
+      catalogRevision: 7,
+      video: {
+        videoId: "dQw4w9WgXcQ", title: "확인된 영상", thumbnailUrl: null,
+        durationSeconds: 180, publishedAt: 1, availabilityStatus: "playable",
+        channelId: `UC${"S".repeat(22)}`, channelTitle: "미등록 채널",
+      },
+      channel: {
+        state: "unknown", catalogChannelId: null, verificationStatus: null,
+        active: false, channelRole: null, memberUid: null,
+      },
+      duplicate: null,
+    });
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await screen.findByText("channel unknown");
+    fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
+    fireEvent.click(screen.getByLabelText("1번째 채널 소유 identity"));
+    fireEvent.click(await screen.findByRole("option", { name: "가창자 · 보컬 B" }));
+    fireEvent.click(screen.getByRole("button", { name: "1번째 참여자 삭제" }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
+    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith(
+      "proposal-1",
+      expect.objectContaining({
+        channel: expect.objectContaining({
+          owners: [expect.objectContaining({ displayName: "보컬 B" })],
+        }),
+      }),
+    ));
+    confirm.mockRestore();
+  });
+
+  it("omits archived songs and identities from approval selectors", async () => {
+    fetchCatalogMock.mockResolvedValueOnce({
+      ...catalog,
+      songs: [
+        {
+          id: "song-active", slug: "song-active", title: "활성 곡",
+          normalizedTitle: "활성 곡", isOtwOriginal: false,
+          originalReleaseDate: null, originalReleasePrecision: "unknown",
+          archivedAt: null, version: 0, tags: [], aliases: [], originalArtists: [],
+        },
+        {
+          id: "song-archived", slug: "song-archived", title: "보관 곡",
+          normalizedTitle: "보관 곡", isOtwOriginal: false,
+          originalReleaseDate: null, originalReleasePrecision: "unknown",
+          archivedAt: 1, version: 0, tags: [], aliases: [], originalArtists: [],
+        },
+      ],
+      entities: [
+        {
+          id: "entity-active", memberUid: null, displayName: "활성 인물",
+          normalizedName: "활성 인물", slug: "entity-active", entityKind: "person",
+          archivedAt: null, version: 0,
+        },
+        {
+          id: "entity-archived", memberUid: null, displayName: "보관 인물",
+          normalizedName: "보관 인물", slug: "entity-archived", entityKind: "person",
+          archivedAt: 1, version: 0,
+        },
+      ],
+    });
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByLabelText("승인할 곡 선택"));
+    expect(await screen.findByRole("option", { name: "활성 곡" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "보관 곡" })).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByLabelText("1번째 원곡 가수 identity"));
+    expect(await screen.findByRole("option", { name: "활성 인물" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "보관 인물" })).toBeNull();
+  });
+
+  it("preserves an unresolved submitted member UID during approval", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fetchProposalsMock.mockResolvedValueOnce([{
+      ...proposal,
+      participants: [{
+        ...proposal.participants[0],
+        submittedMemberUid: 1,
+        resolvedEntityId: null,
+      }],
+    }]);
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
+    await waitFor(() => expect(preflightEntryMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "확인 후 승인·게시" }));
+    await waitFor(() => expect(approveProposalMock).toHaveBeenCalledWith(
+      "proposal-1",
+      expect.objectContaining({
+        participants: [expect.objectContaining({
+          subject: { kind: "member", memberUid: 1 },
+        })],
+      }),
+    ));
+    confirm.mockRestore();
   });
 
   it("rejects with an internal reason and then refetches authoritative state", async () => {

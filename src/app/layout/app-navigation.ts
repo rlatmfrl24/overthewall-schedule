@@ -27,6 +27,7 @@ export type InternalNavTo =
   | "/weekly"
   | "/vods"
   | "/play"
+  | "/play/submit"
   | "/multiview"
   | "/feed"
   | "/notice"
@@ -61,6 +62,7 @@ type MemberPostsNavState = {
 
 type PublicNavigationOptions = {
   isAdmin: boolean;
+  isSignedIn?: boolean;
   memberPosts: MemberPostsNavState;
   otwPlayVisible?: boolean;
 };
@@ -111,6 +113,7 @@ export function resolveMemberPostsNavState({
 
 export function getPublicNavigationSections({
   isAdmin,
+  isSignedIn = false,
   memberPosts,
   otwPlayVisible = false,
 }: PublicNavigationOptions): NavSection[] {
@@ -153,14 +156,15 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
-        ...(isAdmin && otwPlayVisible
+        ...((isAdmin && otwPlayVisible) || (!isAdmin && isSignedIn)
           ? [
               {
                 id: "otw-play",
                 label: "OTW Play",
                 icon: Music2,
                 group: "content" as const,
-                to: "/play" as const,
+                to: (isAdmin ? "/play" : "/play/submit") as InternalNavTo,
+                requiresAuth: !isAdmin || undefined,
               },
             ]
           : []),
@@ -220,7 +224,7 @@ export function getPublicNavigationSections({
 }
 
 export function usePublicNavigationSections() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
   const isAdmin = isLoaded && isAdminUser(user?.id);
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
@@ -232,6 +236,7 @@ export function usePublicNavigationSections() {
 
   return getPublicNavigationSections({
     isAdmin,
+    isSignedIn: Boolean(isLoaded && isSignedIn),
     memberPosts: resolveMemberPostsNavState({
       xVisibility: xPostsVisibility,
       cafeEnabled: cafePostsEnabled,
@@ -246,6 +251,9 @@ export function isNavItemActive(pathname: string, item: NavItem) {
   const current = pathname.replace(/\/+$/, "") || "/";
   const target = item.to.replace(/\/+$/, "") || "/";
 
+  if (item.id === "otw-play") {
+    return current === "/play" || current.startsWith("/play/");
+  }
   if (target === "/") return current === "/";
   return current === target || current.startsWith(`${target}/`);
 }

@@ -1031,6 +1031,31 @@ export const musicSongs = sqliteTable(
 export type MusicSong = typeof musicSongs.$inferSelect;
 export type NewMusicSong = typeof musicSongs.$inferInsert;
 
+export const musicSongTags = sqliteTable(
+  "music_song_tags",
+  {
+    song_id: text("song_id")
+      .notNull()
+      .references(() => musicSongs.id, { onDelete: "cascade" }),
+    tag_key: text("tag_key").notNull(),
+    display_name: text("display_name").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.song_id, table.tag_key],
+      name: "pk_music_song_tags",
+    }),
+    index("idx_music_song_tags_key_song").on(table.tag_key, table.song_id),
+    check(
+      "music_song_tags_required_text_check",
+      sql`length(trim(${table.tag_key})) BETWEEN 1 AND 80 AND length(trim(${table.display_name})) BETWEEN 1 AND 40`,
+    ),
+  ],
+);
+
+export type MusicSongTag = typeof musicSongTags.$inferSelect;
+export type NewMusicSongTag = typeof musicSongTags.$inferInsert;
+
 export const musicSongAliases = sqliteTable(
   "music_song_aliases",
   {
@@ -1725,6 +1750,10 @@ export const musicCoverProposalParticipants = sqliteTable(
       () => musicEntities.id,
       { onDelete: "restrict" },
     ),
+    submitted_member_uid: integer("submitted_member_uid").references(
+      () => members.uid,
+      { onDelete: "set null" },
+    ),
     submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
     participant_role: text("participant_role")
       .$type<OtwPlayParticipantRole>()
@@ -1737,6 +1766,10 @@ export const musicCoverProposalParticipants = sqliteTable(
     }),
     index("idx_music_cover_proposal_participants_entity_proposal").on(
       table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    index("idx_music_cover_proposal_participants_member_proposal").on(
+      table.submitted_member_uid,
       table.proposal_id,
     ),
     check(
@@ -1770,6 +1803,10 @@ export const musicCoverProposalOriginalArtists = sqliteTable(
       () => musicEntities.id,
       { onDelete: "restrict" },
     ),
+    submitted_member_uid: integer("submitted_member_uid").references(
+      () => members.uid,
+      { onDelete: "set null" },
+    ),
     submitted_name_snapshot: text("submitted_name_snapshot").notNull(),
   },
   (table) => [
@@ -1779,6 +1816,10 @@ export const musicCoverProposalOriginalArtists = sqliteTable(
     }),
     index("idx_music_cover_proposal_original_artists_entity_proposal").on(
       table.resolved_entity_id,
+      table.proposal_id,
+    ),
+    index("idx_music_cover_proposal_original_artists_member_proposal").on(
+      table.submitted_member_uid,
       table.proposal_id,
     ),
     check(

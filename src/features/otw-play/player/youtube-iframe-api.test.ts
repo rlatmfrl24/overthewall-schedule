@@ -25,7 +25,7 @@ describe("OTW Play YouTube IFrame adapter", () => {
         stopVideo: vi.fn(),
         destroy: vi.fn(),
       });
-      options.events.onReady();
+      options.events.onReady({ target: this });
     });
     const { loadYouTubeIframeApi, createOtwPlayYouTubePlayer } = await import(
       "./youtube-iframe-api"
@@ -75,7 +75,8 @@ describe("OTW Play YouTube IFrame adapter", () => {
     const seekTo = vi.fn();
     const mute = vi.fn();
     const unMute = vi.fn();
-    const Player = vi.fn(function (this: Record<string, unknown>) {
+    let signalReady: (() => void) | null = null;
+    const Player = vi.fn(function (this: Record<string, unknown>, _element, options) {
       Object.assign(this, {
         loadVideoById,
         playVideo: vi.fn(),
@@ -89,13 +90,24 @@ describe("OTW Play YouTube IFrame adapter", () => {
         stopVideo,
         destroy,
       });
+      signalReady = () => options.events.onReady({ target: this });
     });
     window.YT = { Player } as unknown as NonNullable<typeof window.YT>;
     const { createOtwPlayYouTubePlayer } = await import("./youtube-iframe-api");
 
-    const player = await createOtwPlayYouTubePlayer(
+    const pendingPlayer = createOtwPlayYouTubePlayer(
       document.getElementById("player")!,
     );
+    let ready = false;
+    void pendingPlayer.then(() => {
+      ready = true;
+    });
+    await Promise.resolve();
+    expect(ready).toBe(false);
+    expect(signalReady).not.toBeNull();
+    (signalReady as unknown as () => void)();
+    const player = await pendingPlayer;
+    expect(ready).toBe(true);
     expect(loadVideoById).not.toHaveBeenCalled();
     player.load({ videoId: "dQw4w9WgXcQ", startSeconds: 0 });
     expect(loadVideoById).toHaveBeenCalledWith({

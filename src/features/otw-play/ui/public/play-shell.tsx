@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Eye,
   LoaderCircle,
-  Music2,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -24,12 +23,8 @@ import {
   useOtwPlayConfig,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
+import { OtwPlayFrame } from "../play-frame";
 import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
-
-const tabs = [
-  { label: "발견", to: "/play" as const, search: undefined },
-  { label: "곡 검색", to: "/play/songs" as const, search: {} },
-];
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -139,40 +134,17 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
 
   return (
     <OtwPlayPlayerProvider adminPreview>
-      <div
-        data-testid="otw-play-app-frame"
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      <OtwPlayFrame
+        search={<PlayHeaderSearch />}
+        status={
+          !config.data?.data.publicReadEnabled ? (
+            <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
+              <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
+            </span>
+          ) : undefined
+        }
+        showCatalogTabs
       >
-        <header className="z-20 h-16 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 lg:gap-5 lg:px-6">
-            <Link to="/play" className="flex shrink-0 items-center gap-2 font-semibold">
-              <Music2 className="size-5" /> OTW Play
-            </Link>
-            <PlayHeaderSearch />
-            <div className="flex min-w-0 items-center justify-end gap-2">
-              {!config.data?.data.publicReadEnabled && (
-                <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
-                  <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
-                </span>
-              )}
-              <nav aria-label="OTW Play 탐색" className="flex min-w-0 gap-1 overflow-x-auto">
-                {tabs.map((tab) => (
-                  <Link
-                    key={`${tab.label}:${JSON.stringify(tab.search)}`}
-                    to={tab.to}
-                    search={tab.search}
-                    activeOptions={{ exact: true, includeSearch: false }}
-                    activeProps={{ "aria-current": "page", className: "bg-foreground text-background" }}
-                    inactiveProps={{ className: "text-muted-foreground hover:bg-accent hover:text-accent-foreground" }}
-                    className="inline-flex h-9 shrink-0 items-center rounded-full px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {tab.label}
-                  </Link>
-                ))}
-              </nav>
-            </div>
-          </div>
-        </header>
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main
             data-testid="otw-play-content-scroll"
@@ -182,7 +154,7 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
           </main>
           <OtwPlayPlayerQueuePanel />
         </div>
-      </div>
+      </OtwPlayFrame>
     </OtwPlayPlayerProvider>
   );
 }

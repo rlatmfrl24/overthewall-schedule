@@ -23,6 +23,7 @@ import type {
   OtwPlayAdminUpdateEntityRequest,
   OtwPlayAdminUpdatePerformanceRequest,
   OtwPlayAdminUpdateSongRequest,
+  OtwPlayAdminApproveProposalRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
@@ -161,5 +162,14 @@ export const rejectOtwPlayProposal = (
 ) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>>(
     apiRoutes.otwPlay.admin.rejectSubmission.build(id),
+    { method: "POST", json },
+  );
+
+export const approveOtwPlayProposal = (
+  id: string,
+  json: OtwPlayAdminApproveProposalRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminProposalDto>>(
+    apiRoutes.otwPlay.admin.approveSubmission.build(id),
     { method: "POST", json },
   );

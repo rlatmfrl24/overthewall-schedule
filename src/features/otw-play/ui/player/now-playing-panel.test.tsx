@@ -55,7 +55,23 @@ const emptyPlayer = {
 };
 
 const track = {
-  song: { id: "song-1", slug: "song", title: "재생 중인 노래" },
+  song: {
+    id: "song-1",
+    slug: "song",
+    title: "재생 중인 노래",
+    tags: [
+      "J-POP",
+      "보컬로이드",
+      "애니송",
+      "록",
+      "발라드",
+      "일렉트로닉",
+      "댄스",
+      "팝",
+      "재즈",
+      "어쿠스틱",
+    ],
+  },
   performance: {
     id: "performance-1",
     relation: "cover",
@@ -73,6 +89,14 @@ const track = {
         code: "member",
         oshiMark: null,
         unitName: null,
+      },
+      {
+        entityId: "entity-2",
+        slug: "supporting",
+        creditOrder: 1,
+        displayName: "코러스 멤버",
+        role: "chorus",
+        kind: "external",
       },
     ],
   },
@@ -228,14 +252,41 @@ describe("OTW Play player and queue rail", () => {
         .queryByLabelText("YouTube 영상 플레이어"),
     ).toBeNull();
     expect(screen.getByRole("heading", { name: "재생 중인 노래" })).toBeTruthy();
+    const title = screen.getByTestId("otw-play-track-title");
+    const identityActions = screen.getByTestId("otw-play-identity-actions");
+    const metadata = screen.getByTestId("otw-play-track-metadata");
+    const progress = screen.getByTestId("otw-play-playback-progress");
+    const transportControls = screen.getByTestId("otw-play-transport-controls");
+    expect(title.compareDocumentPosition(identityActions)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(identityActions.compareDocumentPosition(metadata)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(metadata.compareDocumentPosition(progress)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(progress.compareDocumentPosition(transportControls)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(within(metadata).getByText("J-POP")).toBeTruthy();
+    expect(within(metadata).getByText("어쿠스틱")).toBeTruthy();
+    expect(within(metadata).getByText("공식 커버")).toBeTruthy();
+    expect(metadata.className).toContain("flex-nowrap");
+    expect(metadata.className).toContain("overflow-x-auto");
+    expect(metadata.className).not.toContain("overflow-hidden");
+    expect(
+      within(metadata).getByLabelText("음악 분류").className,
+    ).toContain("flex-nowrap");
+    expect(
+      within(metadata).getByLabelText("가창 분류").className,
+    ).toContain("flex-nowrap");
     expect(screen.getByText("OTW 공식 채널")).toBeTruthy();
     expect(screen.queryByText("재생 대기")).toBeNull();
     expect(screen.queryByText("재생 중")).toBeNull();
-    const transportControls = screen.getByTestId("otw-play-transport-controls");
     expect(within(transportControls).getByRole("button", { name: "이전 항목" })).toBeTruthy();
     expect(within(transportControls).getByRole("button", { name: /반복 꺼짐/ })).toBeTruthy();
     expect(within(transportControls).getByRole("button", { name: "음소거" })).toBeTruthy();
-    const identityActions = screen.getByTestId("otw-play-identity-actions");
     expect(
       within(identityActions).getByRole("link", { name: "YouTube에서 열기" }),
     ).toBeTruthy();
@@ -249,6 +300,13 @@ describe("OTW Play player and queue rail", () => {
       "[@media_(min-width:1280px)_and_(max-height:719px)]:hidden",
     );
     expect(screen.getByTestId("otw-play-participants").className).toContain("truncate");
+    expect(screen.getByTestId("otw-play-participants").textContent).toContain("참여 멤버");
+    expect(screen.getByTestId("otw-play-participants").textContent).not.toContain("+1");
+    expect(
+      within(screen.getByTestId("otw-play-participant-identity")).queryByText(
+        "코러스",
+      ),
+    ).toBeNull();
     const publisherIdentity = screen.getByTestId("otw-play-publisher-identity");
     expect(publisherIdentity.className).toContain(
       "[@media_(min-width:1280px)_and_(max-height:719px)]:hidden",

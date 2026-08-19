@@ -14,6 +14,10 @@ import {
   type OtwPlayTrack,
 } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
+import {
+  groupOtwPlayParticipantCredits,
+  presentOtwPlayParticipants,
+} from "./participant-presentation";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const relationLabel = {
@@ -28,6 +32,63 @@ const participationLabel = {
   group: "단체",
   external_collab: "외부 협업",
 } as const;
+
+const releaseTypeLabel = {
+  official_mv: "공식 MV",
+  official_video: "공식 영상",
+} as const;
+
+export function OtwPlaySongTags({
+  tags = [],
+  singleLine = false,
+}: {
+  tags?: readonly string[];
+  singleLine?: boolean;
+}) {
+  if (tags.length === 0) return null;
+  return (
+    <div
+      className={cn(
+        "flex gap-1.5",
+        singleLine ? "shrink-0 flex-nowrap whitespace-nowrap" : "flex-wrap",
+      )}
+      aria-label="음악 분류"
+    >
+      {tags.map((tag) => (
+        <Badge key={tag} className={cn(singleLine && "shrink-0 whitespace-nowrap")}>
+          {tag}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+export function OtwPlayPerformanceMetadata({
+  performance,
+  inverse = false,
+  singleLine = false,
+}: {
+  performance: Pick<OtwPlayPublicPerformanceSummaryDto, "relation" | "releaseType" | "participation">;
+  inverse?: boolean;
+  singleLine?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-x-2 gap-y-1 text-[11px]",
+        singleLine ? "shrink-0 flex-nowrap whitespace-nowrap" : "flex-wrap",
+        inverse ? "text-white/70" : "text-muted-foreground",
+      )}
+      aria-label="가창 분류"
+    >
+      <span>{relationLabel[performance.relation]}</span>
+      <span aria-hidden="true">·</span>
+      <span>{releaseTypeLabel[performance.releaseType]}</span>
+      <span aria-hidden="true">·</span>
+      <span>{participationLabel[performance.participation]}</span>
+    </div>
+  );
+}
 
 export function OtwPlayParticipantChip({
   participant,
@@ -72,6 +133,61 @@ export function OtwPlayParticipantChip({
   );
 }
 
+export function OtwPlayParticipantSummary({
+  participants,
+}: {
+  participants: OtwPlayPublicParticipantDto[];
+}) {
+  const presentation = presentOtwPlayParticipants(participants);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {presentation.primary.map((participant) => (
+        <OtwPlayParticipantChip
+          key={`${participant.entityId}:${participant.creditOrder}`}
+          participant={participant}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function OtwPlayParticipantCreditGroups({
+  participants,
+}: {
+  participants: OtwPlayPublicParticipantDto[];
+}) {
+  const groups = groupOtwPlayParticipantCredits(participants);
+
+  if (groups.length === 0) {
+    return <p className="text-sm text-muted-foreground">가창 credit 정보가 없습니다.</p>;
+  }
+
+  return (
+    <div className="space-y-2" aria-label="가창 credit">
+      {groups.map((group) => (
+        <div
+          key={group.role}
+          className="grid gap-1.5 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-start"
+          role="group"
+          aria-label={group.label}
+        >
+          <span className="pt-1 text-xs font-semibold text-muted-foreground">
+            {group.label}
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {group.participants.map((participant) => (
+              <OtwPlayParticipantChip
+                key={`${participant.entityId}:${participant.creditOrder}`}
+                participant={participant}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function OtwPlayPerformanceActions({
   song,
   performance,
@@ -79,7 +195,7 @@ export function OtwPlayPerformanceActions({
   iconOnly = false,
   className,
 }: {
-  song: { id: string; slug: string; title: string };
+  song: { id: string; slug: string; title: string; tags?: string[] };
   performance: OtwPlayPublicPerformanceSummaryDto | OtwPlayPublicPerformanceDetailDto;
   compact?: boolean;
   iconOnly?: boolean;
@@ -187,7 +303,7 @@ export function OtwPlaySongRow({
       <div className={cn("min-w-0 flex-1", hero ? "flex flex-col justify-center gap-4 p-5 sm:p-7" : "space-y-2")}>
         <div>
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{relationLabel[performance.relation]}</Badge>
+            <OtwPlaySongTags tags={song.tags} />
             <span className="text-xs text-muted-foreground">
               공식 버전 {song.performanceCount}개
             </span>
@@ -204,13 +320,9 @@ export function OtwPlaySongRow({
             원곡 가수 {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {performance.participants.map((participant) => (
-            <OtwPlayParticipantChip key={`${participant.entityId}:${participant.creditOrder}`} participant={participant} />
-          ))}
-        </div>
+        <OtwPlayParticipantSummary participants={performance.participants} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>{participationLabel[performance.participation]}</span>
+          <OtwPlayPerformanceMetadata performance={performance} />
           <span>{performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}</span>
           {!song.playable ? <span className="text-amber-600 dark:text-amber-400">현재 재생 불가</span> : null}
         </div>

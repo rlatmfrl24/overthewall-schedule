@@ -1,9 +1,18 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   OtwPlayAdminChannelDto,
   OtwPlayAdminEntityDto,
   OtwPlayChannelRole,
+  OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogChannelDecision,
+  OtwPlayAdminCatalogEntryPreflightDto,
+  OtwPlayAdminCatalogSongDecision,
+  OtwPlayAdminCatalogSubjectInput,
+  OtwPlayEntityKind,
+  OtwPlayParticipantRole,
+  OtwPlayParticipationType,
+  OtwPlayReleaseType,
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
@@ -32,8 +41,10 @@ import { useToast } from "@/shared/ui/toast";
 import {
   Loader2,
   Pencil,
+  Plus,
   RefreshCw,
   Settings2,
+  Trash2,
   Video,
 } from "lucide-react";
 import {
@@ -44,6 +55,8 @@ import {
 } from "@/shared/ui/sheet";
 import {
   createOtwPlayChannel,
+  approveOtwPlayProposal,
+  preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   updateOtwPlayChannel,
   updateOtwPlayEntity,
@@ -52,7 +65,7 @@ import {
   useOtwPlayAdminCatalog,
   useOtwPlayAdminProposals,
 } from "../../queries/use-admin-catalog";
-import { CatalogEntryDialog } from "./catalog-entry-dialog";
+import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
 
 type Section = "catalog" | "review";
@@ -77,6 +90,45 @@ const channelVerificationLabels = {
   approved: "승인됨",
   revoked: "철회됨",
 } as const;
+
+const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
+  vocal: "메인 보컬",
+  featured_vocal: "피처링 보컬",
+  chorus: "코러스",
+  other: "기타 참여",
+};
+
+const releaseTypeLabels: Record<
+  Extract<OtwPlayReleaseType, "official_mv" | "official_video">,
+  string
+> = {
+  official_mv: "공식 MV",
+  official_video: "공식 영상",
+};
+
+const participationTypeLabels: Record<OtwPlayParticipationType, string> = {
+  solo: "솔로",
+  duet: "듀엣",
+  unit: "유닛",
+  group: "단체",
+  external_collab: "외부 협업",
+};
+
+type ReviewIdentity = {
+  rowKey: string;
+  resolvedEntityId: string | null;
+  submittedMemberUid: number | null;
+  submittedNameSnapshot: string;
+  entityKind: Extract<OtwPlayEntityKind, "person" | "group">;
+};
+
+type ReviewParticipant = ReviewIdentity & {
+  participantRole: OtwPlayParticipantRole;
+};
+
+type ReviewChannelOwner = ReviewIdentity & {
+  source: "custom" | `participant:${string}` | `artist:${string}`;
+};
 
 const Field = ({
   label,
@@ -238,6 +290,7 @@ export function OtwPlayCatalogManager() {
 
       {section === "review" && (
         <ProposalSection
+          catalog={catalog}
           proposals={proposalsQuery.data ?? []}
           loading={proposalsQuery.isLoading}
           saving={effectiveSaving}
@@ -292,11 +345,13 @@ export function OtwPlayCatalogManager() {
 }
 
 function ProposalSection({
+  catalog,
   proposals,
   loading,
   saving,
   run,
 }: {
+  catalog: OtwPlayAdminCatalogDto;
   proposals: ReturnType<typeof useOtwPlayAdminProposals>["data"] extends infer T
     ? NonNullable<T>
     : never;
@@ -306,10 +361,203 @@ function ProposalSection({
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [approvalPreflight, setApprovalPreflight] =
+    useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
+  const approvalPreflightRequestId = useRef(0);
+  const [singingCreditConfirmed, setSingingCreditConfirmed] = useState(false);
+  const [savingLocal, setSavingLocal] = useState(false);
+  const [channelRole, setChannelRole] =
+    useState<Extract<OtwPlayChannelRole, "otw_official" | "unit_official" | "member_music" | "member_main" | "project_official">>("project_official");
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewSongId, setReviewSongId] = useState("__new");
+  const [reviewSongTags, setReviewSongTags] = useState<string[]>([]);
+  const [reviewParticipants, setReviewParticipants] = useState<ReviewParticipant[]>([]);
+  const [reviewArtists, setReviewArtists] = useState<ReviewIdentity[]>([]);
+  const [reviewChannelOwners, setReviewChannelOwners] = useState<ReviewChannelOwner[]>([]);
+  const [reviewReleaseType, setReviewReleaseType] = useState<
+    Extract<OtwPlayReleaseType, "official_mv" | "official_video">
+  >("official_video");
+  const [reviewParticipationType, setReviewParticipationType] =
+    useState<OtwPlayParticipationType>("solo");
   const selected =
     proposals.find((proposal) => proposal.id === selectedId) ??
     proposals[0] ??
     null;
+  const selectedProposalIdRef = useRef<string | null>(selected?.id ?? null);
+  const channelNeedsConfirmation = Boolean(
+    approvalPreflight &&
+      ["unknown", "pending", "inactive"].includes(approvalPreflight.channel.state),
+  );
+
+  useEffect(() => {
+    selectedProposalIdRef.current = selected?.id ?? null;
+    approvalPreflightRequestId.current += 1;
+    if (!selected) {
+      setReviewTitle("");
+      setReviewSongId("__new");
+      setReviewSongTags([]);
+      setReviewParticipants([]);
+      setReviewArtists([]);
+      setReviewChannelOwners([]);
+      setApprovalPreflight(null);
+      return;
+    }
+    setReviewTitle(selected.submittedTitle);
+    setReviewSongId(selected.suggestedSongId ?? "__new");
+    setReviewSongTags([]);
+    setReviewParticipants(
+      selected.participants.map((participant) => ({
+        rowKey: `proposal-participant-${participant.creditOrder}`,
+        resolvedEntityId: participant.resolvedEntityId,
+        submittedMemberUid: participant.submittedMemberUid,
+        submittedNameSnapshot: participant.submittedNameSnapshot,
+        participantRole: participant.participantRole,
+        entityKind:
+          catalog.entities.find((entity) => entity.id === participant.resolvedEntityId)
+            ?.entityKind === "group"
+            ? "group"
+            : "person",
+      })),
+    );
+    setReviewArtists(
+      selected.originalArtists.map((artist) => ({
+        rowKey: `proposal-artist-${artist.creditOrder}`,
+        resolvedEntityId: artist.resolvedEntityId,
+        submittedMemberUid: artist.submittedMemberUid,
+        submittedNameSnapshot: artist.submittedNameSnapshot,
+        entityKind:
+          catalog.entities.find((entity) => entity.id === artist.resolvedEntityId)
+            ?.entityKind === "group"
+            ? "group"
+            : "person",
+      })),
+    );
+    setReviewChannelOwners([]);
+    setReviewReleaseType("official_video");
+    setReviewParticipationType(
+      selected.participants.length === 1
+        ? "solo"
+        : selected.participants.length === 2
+          ? "duet"
+          : "external_collab",
+    );
+    setApprovalPreflight(null);
+    setSingingCreditConfirmed(false);
+  }, [catalog.entities, selected]);
+  const proposalSubject = (
+    value: ReviewIdentity,
+    clientKey: string,
+  ): OtwPlayAdminCatalogSubjectInput =>
+    typeof value.submittedMemberUid === "number"
+      ? { kind: "member", memberUid: value.submittedMemberUid }
+      : value.resolvedEntityId
+      ? { kind: "entity", entityId: value.resolvedEntityId }
+      : {
+          kind: "new_external",
+          clientKey,
+          displayName: value.submittedNameSnapshot,
+          entityKind: value.entityKind,
+        };
+  const channelOwnerSubject = (owner: ReviewChannelOwner, index: number) => {
+    if (owner.source.startsWith("participant:")) {
+      const participantKey = owner.source.slice("participant:".length);
+      const participant = reviewParticipants.find((item) => item.rowKey === participantKey);
+      if (participant) {
+        return proposalSubject(participant, participant.rowKey);
+      }
+    }
+    if (owner.source.startsWith("artist:")) {
+      const artistKey = owner.source.slice("artist:".length);
+      const artist = reviewArtists.find((item) => item.rowKey === artistKey);
+      if (artist) {
+        return proposalSubject(artist, artist.rowKey);
+      }
+    }
+    return proposalSubject(owner, `proposal-channel-owner-${index}`);
+  };
+
+  const verifySelected = async () => {
+    if (!selected) return;
+    const selectedProposalId = selected.id;
+    const requestId = ++approvalPreflightRequestId.current;
+    setSavingLocal(true);
+    try {
+      const result = await preflightOtwPlayCatalogEntry({
+          youtubeUrl: selected.submittedUrl,
+          startSeconds: 0,
+        });
+      if (
+        requestId === approvalPreflightRequestId.current &&
+        selectedProposalIdRef.current === selectedProposalId
+      ) setApprovalPreflight(result);
+    } finally {
+      if (requestId === approvalPreflightRequestId.current) setSavingLocal(false);
+    }
+  };
+  const approveSelected = async () => {
+    if (!selected || !approvalPreflight || !singingCreditConfirmed) return;
+    if (channelNeedsConfirmation && reviewChannelOwners.length === 0) return;
+    const participantSubjects = reviewParticipants.map((participant, index) => ({
+      subject: proposalSubject(participant, `proposal-participant-${index}`),
+      participantRole: participant.participantRole,
+      creditOrder: index,
+      creditNameSnapshot: participant.submittedNameSnapshot,
+    }));
+    if (participantSubjects.length === 0) return;
+    const channel: OtwPlayAdminCatalogChannelDecision =
+      approvalPreflight.channel.state === "approved" &&
+      approvalPreflight.channel.catalogChannelId
+        ? { kind: "existing", channelId: approvalPreflight.channel.catalogChannelId }
+        : approvalPreflight.channel.state === "recognized_member" &&
+            approvalPreflight.channel.memberUid &&
+            (approvalPreflight.channel.channelRole === "member_music" ||
+              approvalPreflight.channel.channelRole === "member_main")
+          ? {
+              kind: "recognized_member",
+              memberUid: approvalPreflight.channel.memberUid,
+              channelRole: approvalPreflight.channel.channelRole,
+            }
+          : {
+              kind: "confirm",
+              channelRole,
+              owners: reviewChannelOwners.map(channelOwnerSubject),
+            };
+    const existingSong = reviewSongId !== "__new"
+      ? catalog.songs.find((song) => song.id === reviewSongId)
+      : null;
+    const song: OtwPlayAdminCatalogSongDecision = existingSong
+      ? { kind: "existing", songId: existingSong.id }
+      : {
+          kind: "create",
+          title: reviewTitle.trim(),
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [],
+          tags: reviewSongTags,
+          originalArtists: reviewArtists.map((artist, index) => ({
+            subject: proposalSubject(artist, `proposal-artist-${index}`),
+            creditOrder: index,
+            isPrimary: index === 0,
+          })),
+        };
+    if (!window.confirm("최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?")) return;
+    await run("제안 승인", () =>
+      approveOtwPlayProposal(selected.id, {
+        expectedVersion: selected.version,
+        expectedCatalogRevision: approvalPreflight.catalogRevision,
+        song,
+        participants: participantSubjects,
+        channel,
+        releaseType: reviewReleaseType,
+        participationType: reviewParticipationType,
+        singingCreditConfirmed: true,
+        publish: true,
+      }),
+    );
+    setApprovalPreflight(null);
+    setSingingCreditConfirmed(false);
+  };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
   return (
     <Card>
@@ -318,8 +566,7 @@ function ProposalSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          GATE-01이 확정될 때까지 승인은 잠겨 있습니다. 영상·채널·중복·크레딧
-          검수와 거절 기록은 계속할 수 있습니다.
+          최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
         </p>
         {selected && (
           <div className="grid gap-4 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
@@ -355,6 +602,462 @@ function ProposalSection({
                   {selected.submittedNote}
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={savingLocal || saving !== null}
+                  onClick={() => void verifySelected()}
+                >
+                  {savingLocal ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                  영상·채널 확인
+                </Button>
+                {approvalPreflight ? (
+                  <Badge variant={approvalPreflight.channel.state === "revoked" ? "destructive" : "secondary"}>
+                    channel {approvalPreflight.channel.state}
+                  </Badge>
+                ) : null}
+              </div>
+              {approvalPreflight && channelNeedsConfirmation ? (
+                <div className="space-y-3 rounded-lg border bg-background p-3">
+                  <Field label="공식 채널 역할">
+                    <Select
+                      value={channelRole}
+                      onValueChange={(value) => {
+                        setChannelRole(value as typeof channelRole);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="otw_official">OTW 공식</SelectItem>
+                        <SelectItem value="unit_official">유닛 공식</SelectItem>
+                        <SelectItem value="member_music">멤버 노래 채널</SelectItem>
+                        <SelectItem value="member_main">멤버 메인 채널</SelectItem>
+                        <SelectItem value="project_official">승인 프로젝트</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <Label>채널 소유 주체</Label>
+                      <p className="text-xs text-muted-foreground">
+                        첫 가창자를 자동 소유자로 간주하지 않고 실제 소유 인물·그룹을 확인합니다.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setReviewChannelOwners((items) => [
+                          ...items,
+                          {
+                            rowKey: crypto.randomUUID(),
+                            resolvedEntityId: null,
+                            submittedMemberUid: null,
+                            submittedNameSnapshot: "",
+                            entityKind: "person",
+                            source: "custom",
+                          },
+                        ]);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    >
+                      <Plus /> 소유자 추가
+                    </Button>
+                  </div>
+                  {reviewChannelOwners.map((owner, index) => (
+                    <div
+                      key={owner.rowKey}
+                      className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]"
+                    >
+                      <Select
+                        value={
+                          owner.source !== "custom"
+                            ? owner.source
+                            : owner.resolvedEntityId
+                              ? `entity:${owner.resolvedEntityId}`
+                              : "external"
+                        }
+                        onValueChange={(value) => {
+                          if (value.startsWith("participant:")) {
+                            const participantKey = value.slice("participant:".length);
+                            const participant = reviewParticipants.find((item) => item.rowKey === participantKey);
+                            if (!participant) return;
+                            setReviewChannelOwners((items) => items.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...participant, rowKey: item.rowKey, source: value as ReviewChannelOwner["source"] }
+                                : item,
+                            ));
+                            setSingingCreditConfirmed(false);
+                            return;
+                          }
+                          if (value.startsWith("artist:")) {
+                            const artistKey = value.slice("artist:".length);
+                            const artist = reviewArtists.find((item) => item.rowKey === artistKey);
+                            if (!artist) return;
+                            setReviewChannelOwners((items) => items.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...artist, rowKey: item.rowKey, source: value as ReviewChannelOwner["source"] }
+                                : item,
+                            ));
+                            setSingingCreditConfirmed(false);
+                            return;
+                          }
+                          const entityId = value.startsWith("entity:") ? value.slice(7) : null;
+                          const entity = catalog.entities.find((item) => item.id === entityId);
+                          setReviewChannelOwners((items) => items.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  source: "custom",
+                                  resolvedEntityId: entityId,
+                                  submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot,
+                                  entityKind: entity
+                                    ? entity.entityKind === "group" ? "group" : "person"
+                                    : item.entityKind,
+                                }
+                              : item,
+                          ));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${index + 1}번째 채널 소유 identity`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="external">새 identity</SelectItem>
+                          {reviewParticipants.map((participant, participantIndex) => (
+                            <SelectItem key={`participant:${participant.rowKey}`} value={`participant:${participant.rowKey}`}>
+                              가창자 · {participant.submittedNameSnapshot || `${participantIndex + 1}번째 참여자`}
+                            </SelectItem>
+                          ))}
+                          {reviewArtists.map((artist, artistIndex) => (
+                            <SelectItem key={`artist:${artist.rowKey}`} value={`artist:${artist.rowKey}`}>
+                              원곡 가수 · {artist.submittedNameSnapshot || `${artistIndex + 1}번째 가수`}
+                            </SelectItem>
+                          ))}
+                          {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => (
+                            <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={owner.entityKind}
+                        disabled={owner.source !== "custom" || Boolean(owner.resolvedEntityId)}
+                        onValueChange={(value) => {
+                          setReviewChannelOwners((items) => items.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, entityKind: value as ReviewIdentity["entityKind"] }
+                              : item,
+                          ));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${index + 1}번째 채널 소유 종류`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="person">인물</SelectItem>
+                          <SelectItem value="group">그룹</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        aria-label={`${index + 1}번째 채널 소유 이름`}
+                        value={owner.submittedNameSnapshot}
+                        disabled={owner.source !== "custom" || Boolean(owner.resolvedEntityId)}
+                        onChange={(event) => {
+                          setReviewChannelOwners((items) => items.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? { ...item, submittedNameSnapshot: event.target.value }
+                              : item,
+                          ));
+                          setSingingCreditConfirmed(false);
+                        }}
+                        maxLength={300}
+                      />
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`${index + 1}번째 채널 소유자 삭제`}
+                        onClick={() => {
+                          setReviewChannelOwners((items) => items.filter((_, itemIndex) => itemIndex !== index));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      ><Trash2 /></Button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="space-y-4 rounded-lg border bg-background p-3">
+                <div>
+                  <p className="font-semibold">승인 내용 편집</p>
+                  <p className="text-xs text-muted-foreground">
+                    원 제안 snapshot은 보존하고, 아래 값으로 catalog에 반영합니다.
+                  </p>
+                </div>
+                <Field label="연결할 곡">
+                  <Select
+                    value={reviewSongId}
+                    onValueChange={(value) => {
+                      setReviewSongId(value);
+                      const song = catalog.songs.find((item) => item.id === value);
+                      if (song) setReviewTitle(song.title);
+                      setSingingCreditConfirmed(false);
+                    }}
+                  >
+                    <SelectTrigger aria-label="승인할 곡 선택"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__new">새 곡 생성</SelectItem>
+                      {catalog.songs.filter((song) => song.archivedAt === null).map((song) => (
+                        <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                {reviewSongId === "__new" ? (
+                  <>
+                    <Field label="곡명" htmlFor="proposal-review-title">
+                      <Input
+                        id="proposal-review-title"
+                        value={reviewTitle}
+                        onChange={(event) => {
+                          setReviewTitle(event.target.value);
+                          setSingingCreditConfirmed(false);
+                        }}
+                        maxLength={300}
+                      />
+                    </Field>
+                    <SongTagPicker
+                      tags={reviewSongTags}
+                      onChange={(tags) => {
+                        setReviewSongTags(tags);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    />
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>원곡 가수</Label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setReviewArtists((items) => [
+                            ...items,
+                            {
+                              rowKey: crypto.randomUUID(),
+                              resolvedEntityId: null,
+                              submittedMemberUid: null,
+                              submittedNameSnapshot: "",
+                              entityKind: "person",
+                            },
+                          ])}
+                        ><Plus /> 가수 추가</Button>
+                      </div>
+                      {reviewArtists.map((artist, index) => (
+                        <div key={artist.rowKey} className="grid gap-2 sm:grid-cols-[11rem_7rem_minmax(0,1fr)_2.25rem]">
+                          <Select
+                            value={artist.resolvedEntityId ? `entity:${artist.resolvedEntityId}` : "external"}
+                            onValueChange={(value) => {
+                              const entityId = value.startsWith("entity:") ? value.slice(7) : null;
+                              const entity = catalog.entities.find((item) => item.id === entityId);
+                              setReviewArtists((items) => items.map((item, itemIndex) => itemIndex === index
+                                ? {
+                                    ...item,
+                                    resolvedEntityId: entityId,
+                                    submittedMemberUid: null,
+                                    submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot,
+                                    entityKind: entity
+                                      ? entity.entityKind === "group" ? "group" : "person"
+                                      : item.entityKind,
+                                  }
+                                : item));
+                            }}
+                          >
+                            <SelectTrigger aria-label={`${index + 1}번째 원곡 가수 identity`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="external">외부 identity</SelectItem>
+                              {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={artist.entityKind}
+                            disabled={Boolean(artist.resolvedEntityId)}
+                            onValueChange={(value) => setReviewArtists((items) => items.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, entityKind: value as ReviewIdentity["entityKind"] }
+                                : item,
+                            ))}
+                          >
+                            <SelectTrigger aria-label={`${index + 1}번째 원곡 가수 종류`}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="person">인물</SelectItem>
+                              <SelectItem value="group">그룹</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Input
+                            aria-label={`${index + 1}번째 원곡 가수명`}
+                            value={artist.submittedNameSnapshot}
+                            disabled={Boolean(artist.resolvedEntityId)}
+                            onChange={(event) => setReviewArtists((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, submittedNameSnapshot: event.target.value } : item))}
+                            maxLength={300}
+                          />
+                          <Button type="button" size="icon-sm" variant="ghost" aria-label={`${index + 1}번째 원곡 가수 삭제`} onClick={() => setReviewArtists((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></Button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label>가창 참여자와 역할</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReviewParticipants((items) => [
+                        ...items,
+                        {
+                          rowKey: crypto.randomUUID(),
+                          resolvedEntityId: null,
+                          submittedMemberUid: null,
+                          submittedNameSnapshot: "",
+                          entityKind: "person",
+                          participantRole: "vocal",
+                        },
+                      ])}
+                    ><Plus /> 참여자 추가</Button>
+                  </div>
+                  {reviewParticipants.map((participant, index) => (
+                    <div key={participant.rowKey} className="grid gap-2 sm:grid-cols-[10rem_7rem_minmax(0,1fr)_9rem_2.25rem]">
+                      <Select
+                        value={participant.resolvedEntityId ? `entity:${participant.resolvedEntityId}` : "external"}
+                        onValueChange={(value) => {
+                          const entityId = value.startsWith("entity:") ? value.slice(7) : null;
+                          const entity = catalog.entities.find((item) => item.id === entityId);
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index
+                            ? {
+                                ...item,
+                                resolvedEntityId: entityId,
+                                submittedMemberUid: null,
+                                submittedNameSnapshot: entity?.displayName ?? item.submittedNameSnapshot,
+                                entityKind: entity
+                                  ? entity.entityKind === "group" ? "group" : "person"
+                                  : item.entityKind,
+                              }
+                            : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${index + 1}번째 참여자 identity`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="external">외부 identity</SelectItem>
+                          {catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <SelectItem key={entity.id} value={`entity:${entity.id}`}>{entity.displayName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={participant.entityKind}
+                        disabled={Boolean(participant.resolvedEntityId)}
+                        onValueChange={(value) => {
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index
+                            ? { ...item, entityKind: value as ReviewIdentity["entityKind"] }
+                            : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${index + 1}번째 참여자 종류`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="person">인물</SelectItem>
+                          <SelectItem value="group">그룹</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        aria-label={`${index + 1}번째 참여자명`}
+                        value={participant.submittedNameSnapshot}
+                        onChange={(event) => {
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, submittedNameSnapshot: event.target.value } : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                        maxLength={300}
+                      />
+                      <Select
+                        value={participant.participantRole}
+                        onValueChange={(value) => {
+                          setReviewParticipants((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, participantRole: value as OtwPlayParticipantRole } : item));
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        <SelectTrigger aria-label={`${participant.submittedNameSnapshot || `${index + 1}번째 참여자`} 가창 역할`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(participantRoleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`${index + 1}번째 참여자 삭제`} onClick={() => { setReviewParticipants((items) => items.filter((_, itemIndex) => itemIndex !== index)); setSingingCreditConfirmed(false); }}><Trash2 /></Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="공개 형태">
+                    <Select
+                      value={reviewReleaseType}
+                      onValueChange={(value) => {
+                        setReviewReleaseType(value as typeof reviewReleaseType);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    >
+                      <SelectTrigger aria-label="승인할 공개 형태"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(releaseTypeLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="참여 형태">
+                    <Select
+                      value={reviewParticipationType}
+                      onValueChange={(value) => {
+                        setReviewParticipationType(value as OtwPlayParticipationType);
+                        setSingingCreditConfirmed(false);
+                      }}
+                    >
+                      <SelectTrigger aria-label="승인할 참여 형태"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(participationTypeLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </div>
+              <label className="flex items-start gap-2 rounded-lg border bg-background p-3">
+                <Checkbox
+                  checked={singingCreditConfirmed}
+                  onCheckedChange={(checked) => setSingingCreditConfirmed(checked === true)}
+                />
+                <span>영상의 실제 가창자와 입력된 참여자 credit이 일치함을 확인했습니다.</span>
+              </label>
+              <Button
+                size="sm"
+                disabled={
+                  !approvalPreflight ||
+                  Boolean(approvalPreflight.duplicate) ||
+                  approvalPreflight.channel.state === "revoked" ||
+                  (channelNeedsConfirmation &&
+                    (reviewChannelOwners.length === 0 ||
+                      reviewChannelOwners.some((owner) => !owner.submittedNameSnapshot.trim()))) ||
+                  !reviewTitle.trim() ||
+                  (reviewSongId === "__new" && (reviewArtists.length === 0 || reviewArtists.some((artist) => !artist.submittedNameSnapshot.trim()))) ||
+                  reviewParticipants.length === 0 ||
+                  reviewParticipants.some((participant) => !participant.submittedNameSnapshot.trim()) ||
+                  !reviewParticipants.some((participant) => participant.participantRole !== "other") ||
+                  !singingCreditConfirmed ||
+                  saving !== null
+                }
+                onClick={() => void approveSelected()}
+              >
+                확인 후 승인·게시
+              </Button>
             </div>
           </div>
         )}
@@ -386,7 +1089,11 @@ function ProposalSection({
                       <button
                         type="button"
                         className="font-medium text-left hover:underline"
-                        onClick={() => setSelectedId(proposal.id)}
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                          setApprovalPreflight(null);
+                          setSingingCreditConfirmed(false);
+                        }}
                       >
                         {proposal.submittedTitle}
                       </button>
@@ -423,8 +1130,16 @@ function ProposalSection({
                       />
                     </TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Button size="sm" disabled title="GATE-01 확정 후 활성화">
-                        승인
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                          setApprovalPreflight(null);
+                          setSingingCreditConfirmed(false);
+                        }}
+                      >
+                        검수
                       </Button>
                       <Button
                         size="sm"

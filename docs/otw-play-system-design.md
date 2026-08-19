@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-6 공개 UI·단일 player 구현 기준선
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -117,13 +117,14 @@ route 콘텐츠와 별도로 데스크톱 우측 `PlayerQueuePanel`을 소유한
 `/play/discover`는 기존 링크를 `/play`로 redirect한다. 두 route 사이를 이동해도
 queue와 player instance는 유지된다.
 `PlayerQueuePanel` 상단은 356×200px 단일 iframe과 현재 곡 정보,
-상태 문구 없는 단일 control row의 previous/play/next, repeat/shuffle, mute/volume을
-소유한다. 곡명 바로 아래 identity row는 참여자 profile/name과 YouTube/곡 상세 action을
-함께 제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은
-group icon을 사용한다. transport 아래에는 YouTube icon·`게시 채널` label·channel 이름만
-남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를 channel avatar로 재사용하지 않는다.
-player 정보 영역 하단의 semantic range는 IFrame API `getCurrentTime`/`getDuration`을
-주기적으로 읽어 진행/남은 시간을 표시하며 `seekTo`를 수행한다. segment source는
+iframe 아래의 곡명과 identity row는 참여자 profile/name과 YouTube/곡 상세 action을 함께
+제공한다. current member는 `/profile/{code}.webp`, external은 person icon, group은 group
+icon을 사용한다. 음악 분류와 가창 분류는 identity 아래의 보조 metadata로 투영한다.
+그 다음 semantic range가 IFrame API `getCurrentTime`/`getDuration`을 주기적으로 읽어
+진행/남은 시간을 표시하며 `seekTo`를 수행하고, 상태 문구 없는 단일 control row가
+previous/play/next, repeat/shuffle, mute/volume을 소유한다. transport 아래에는 YouTube
+icon·`게시 채널` label·channel 이름만 남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를
+channel avatar로 재사용하지 않는다. segment source는
 `start_seconds`를 0점으로 환산하고 `end_seconds`가 있으면 그 구간 안으로 제한한다.
 권위 channel avatar URL이 없는 현재 wire contract에서는 연결된 current member profile을
 사용하고 나머지는 중립 fallback을 사용한다. 하단 queue 영역은
@@ -284,6 +285,33 @@ query와 meta read 전에 `requireAdminUser`로 토큰과 관리자 allowlist를
 `Vary: Authorization, Cookie`를 사용하고 Cache API를 읽거나 쓰지 않는다. header가
 없는 익명 GET은 DEC-019의 config 200과 나머지 flag-off 404 계약을 그대로 따른다.
 frontend query key도 `public`과 `admin-preview` audience를 분리한다.
+
+### ADR-PLAY-009: 회원 제안은 Play chrome을 공유하고 data boundary는 분리
+
+상태: 채택
+
+- 전역 navigation은 역할별 별도 `곡 제안` 항목을 만들지 않고 `OTW Play` 하나만
+  제공한다. 관리자는 `/play`, 로그인 비관리자는 공개 flag와 무관하게
+  `/play/submit`으로 진입한다.
+- 로그인 비관리자가 member header나 `OTW Play로 돌아가기`를 통해 `/play`에
+  직접 도달하면 catalog shell 대신 새 제안과 내 제안으로 이어지는 member landing을
+  렌더링한다. 이 landing도 public config/catalog/player provider를 마운트하지 않는다.
+- 관리자 catalog shell과 member shell은 brand, 64px header, 반응형 간격과
+  `곡 제안` dropdown을 같은 frontend component로 사용한다. dropdown은
+  `/play/submit`과 `/play/submissions`만 연결한다.
+- chrome 공유는 data-provider 공유를 뜻하지 않는다. member route는 기존처럼
+  `OtwPlayCatalogRequestProvider`, public config/catalog query와 player provider를
+  마운트하지 않으며 비로그인 CTA도 같은 frame 안에서 렌더링한다.
+- wizard는 server preflight가 반환한 thumbnail·canonical URL·video ID를 표시하고,
+  기존 곡 검색은 명시적 요청에서만 수행한다. 현재 멤버는 members authority를
+  이름·code·unit으로 검색하며 원곡 가수·외부 참여자는 명시적 add action으로만
+  snapshot chip을 만든다.
+- API 오류는 입력, 현재 step과 `clientRequestId`를 유지한다. 작성 중 route 이탈은
+  확인을 요구하고 성공 시 create response를 권위 결과로 유지한다. 새 request ID와
+  빈 form은 사용자가 `다른 곡 제안`을 선택할 때만 생성한다.
+
+이 결정은 Worker/API, DB, 인증·제한·승인 정책, 공개 flag와 cache contract를
+변경하지 않는다.
 
 ## 3. 전체 시스템 구조
 
@@ -659,9 +687,10 @@ expiry는 둘 다 NULL이거나 둘 다 존재해야 한다.
 | `withdrawn`      | NULL            | NULL          | NULL        | NULL                 |
 
 GATE-04가 확정되기 전에는 `withdrawn` 값을 schema에만 보존하고 회원 수정·철회
-command나 전이를 구현하지 않는다. GATE-05가 확정되기 전에는 result code를
-비공개 자유 텍스트로만 저장하며 회원 노출 vocabulary로 사용하지 않는다. DB
-열은 nullable로 유지하되 후속 reject command는 non-empty 사유 입력을 요구한다.
+command나 전이를 구현하지 않는다. GATE-05는 DEC-045로 해결되었으며 회원 DTO는
+`rejected` 상태와 일반 안내만 제공하고 `review_result_code`, `review_note`, reviewer와
+lock 정보를 노출하지 않는다. DB 열은 nullable로 유지하며 reject command는 관리자
+내부 기록을 위한 non-empty 사유 입력을 계속 요구한다.
 
 조회 index는 `(status, created_at, id)`, `(submitted_by_user_id, created_at DESC,
 id)`, `(reviewed_by_user_id, reviewed_at DESC, id) WHERE reviewed_by_user_id IS NOT
@@ -677,6 +706,15 @@ INTEGER이고 `submitted_name_snapshot`은 non-empty다.
 `music_cover_proposal_participants`만 `participant_role`을 가지며 기존
 `vocal`, `featured_vocal`, `chorus`, `other` CHECK를 재사용한다. resolved entity
 역조회 index를 두며 unresolved snapshot을 중복 이름만으로 병합하지 않는다.
+
+DEC-047에 따라 회원 제출 payload는 참여자마다 같은 역할 값을 선택적으로 받는다.
+이전 client가 역할을 보내지 않으면 `vocal`로 정규화해 하위 호환성을 유지한다.
+idempotency payload 비교에는 표시명뿐 아니라 역할도 포함한다. 관리자 승인은 proposal
+snapshot row를 UPDATE하지 않고 승인 command의 subject·credit·role을 편집해 catalog row에
+반영하므로 제출 원본과 최종 검수값을 함께 추적할 수 있다. 공개 reader는 전체 credit과
+role을 그대로 반환한다. DEC-048에 따라 compact presentation은 `vocal`만 표시하고
+보조 credit tooltip·칩을 만들지 않는다. 곡 상세는 `vocal`, `featured_vocal`, `chorus`,
+`other`를 역할별로 펼쳐 표시한다.
 
 #### `music_catalog_events` exact schema
 
@@ -963,6 +1001,8 @@ q
 member=1&member=2
 memberMode=any|all
 group
+participant
+participantRole=vocal|featured_vocal|chorus|other
 relation=original|cover
 participation=solo|duet|unit|group|external_collab
 originalArtist
@@ -978,6 +1018,10 @@ limit
 - q는 trim 전 Unicode code point 기준 최대 80자
 - 날짜는 ISO day 형식
 - member는 numeric `members.uid`, originalArtist는 public entity slug다.
+- participant는 public entity slug이며 participantRole은 독립 single-value enum이다.
+- participantRole만 지정하면 해당 역할 credit이 있는 published performance를 찾는다.
+  member·participant·group과 함께 지정하면 각각 선택된 participant row 자체가 그 역할을
+  가져야 하며, 다른 participant의 역할로 조건을 대신 만족할 수 없다.
 - group은 facets가 발급한 versioned opaque key만 허용한다. opaque payload kind는
   `entity` 또는 `unit`이며 API 소비자가 직접 생성하지 않는다.
 - public song/entity slug는 trim된 Unicode 단일 segment이며 최대 128 code point다.
@@ -1101,10 +1145,13 @@ key, gram/stat, event와 catalog/read-model revision은 같은 D1 batch에서 �
 PR-5 관리자 고정 오류 code는 `PLAY_ADMIN_INVALID_REQUEST`,
 `PLAY_ADMIN_NOT_FOUND`, `PLAY_ADMIN_STALE_WRITE`,
 `PLAY_ADMIN_DUPLICATE_SOURCE`,
-`PLAY_ADMIN_VALIDATION_FAILED`, `PLAY_ADMIN_POLICY_UNRESOLVED`,
+`PLAY_ADMIN_VALIDATION_FAILED`,
 `PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE`, `PLAY_ADMIN_INTERNAL_ERROR`다.
-GATE-01 미확정 상태의 proposal approve만 policy-unresolved 409를 반환하며 draft
-catalog command와 제안 거절까지 함께 막지 않는다.
+proposal approve는 DEC-044의 `official_cover_v1` 정책을 적용한다. 승인·활성 상태의
+`otw_official|unit_official|member_music|member_main|project_official` channel, 최신
+YouTube video/channel·playable 일치와 `singingCreditConfirmed=true`를 모두 요구한다.
+하나라도 충족하지 않으면 proposal은 `pending_review`에 남고 catalog row·event·revision을
+생성하지 않는다.
 
 ### 8.4 오류 계약
 
@@ -1391,8 +1438,11 @@ command도 catalog revision을 증가시켜 전 소속 멤버 chip이 오래 cac
 1. Cloudflare rate limiting 또는 WAF: 짧은 burst 억제
 2. D1: 사용자별 일일 제출 수와 exact duplicate의 권위 검사
 
-일일 제한 숫자는 TBD-014가 확정될 때 setting으로 정하며 코드 상수로 고정하지
-않는다. edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 않는다.
+회원 제출은 `settings.otw_play_submission_daily_limit`의 권위값을 읽으며 초기값은
+DEC-045에 따라 `5`다. KST 자정 경계에서 모든 proposal 상태를 합산하고, 별도의
+Cloudflare Rate Limiting binding이 사용자 ID별 60초당 3회 burst를 제한한다. setting
+누락·손상, D1 또는 edge limiter 실패는 제한을 우회하지 않고 `503`으로 닫는다.
+edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 않는다.
 
 ## 13. 실패 처리
 
@@ -1474,3 +1524,8 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - Smart Placement: https://developers.cloudflare.com/workers/configuration/placement/
 - YouTube IFrame Player: https://developers.google.com/youtube/iframe_api_reference
 - YouTube required functionality: https://developers.google.com/youtube/terms/required-minimum-functionality
+## PR-7.2 곡 분류와 player 지속성
+
+DEC-049에 따라 `music_song_tags(song_id, tag_key, display_name)`를 곡 소유 child로 둔다. `tag_key`는 NFKC 기반 검색 정규화 결과이며 `(song_id, tag_key)`로 중복을 막는다. 관리자 song/create-entry command는 최대 10개·표시명 40자의 태그를 같은 D1 batch에 저장하고 public/admin read model은 `tags`를 반환한다. 태그 vocabulary는 DB enum으로 고정하지 않는다.
+
+`/play`의 발견 index와 곡 검색·상세는 같은 pathless catalog layout 아래에 두어 `OtwPlayPlayerProvider`와 단일 iframe host가 탭 이동으로 재마운트되지 않게 한다. member submission layout은 계속 분리되어 public catalog/player를 시작하지 않는다.

@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-6 공개 Discover·Catalog·곡 상세와 단일 player 구현 기준선
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -49,7 +49,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | 플레이어 유지 범위 | `/play/*` 안에서만 유지, 다른 제품 영역 이동 시 정지 | nested layout과 player store |
 | 대기열 복원 | `sessionStorage`에 현재 세션만 복원 | 저장 플레이리스트와 명확히 분리 |
 | 외부 참여자 | 검색·필터에는 포함, 별도 공개 프로필은 만들지 않음 | detail route 범위 |
-| 제안 수정·철회 | `pending_review`일 때만 허용하는 방향, 첫 출시 여부는 단계별 결정 | command와 감사 이력 |
+| 제안 수정·철회 | PR-7에서는 제공하지 않음 | GATE-04 확정 전 command와 control을 만들지 않음 |
 
 ## 3. 경험 원칙
 
@@ -87,7 +87,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 
 | 경로 | 사용자 | 목적 | 주요 화면 |
 | --- | --- | --- | --- |
-| `/play` | 관리자 preview | 대표곡·멤버·최근 공개곡을 발견하고 시작 | Discover |
+| `/play` | 관리자 preview·로그인 회원 | 관리자는 Discover, 회원은 새 제안·내 제안 landing | Role-aware Play home |
 | `/play/discover` | 관리자 preview | 기존 링크 호환을 위해 `/play`로 redirect | Compatibility redirect |
 | `/play/songs` | 관리자 preview | 곡명 검색과 관계·멤버·그룹·참여 형태 필터 | Song search |
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
@@ -103,10 +103,12 @@ player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 p
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 
-공개 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
+catalog 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
 재발견 역할을 함께 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
 `/play/songs`의 `곡 관계` 필터로 구분한다. 저장 플레이리스트와 라이브러리 탭은
-MVP에 만들지 않는다.
+MVP에 만들지 않는다. 두 탭 옆에는 primary `곡 제안` dropdown을 두며 `새 곡 제안`과
+`내 제안`을 제공한다. member shell도 같은 OTW Play brand/header를 사용하되 catalog
+탭·검색·player는 렌더링하지 않는다.
 
 ```mermaid
 flowchart LR
@@ -339,13 +341,15 @@ query로 보내며 별도 공개 프로필로 이동하지 않는다. 모든 참
   miniplayer로 visible playback을 유지하고, 640px 미만만 복귀 전에 pause한다. 모든 레이아웃은
   음소거 버튼과 키보드 조작 가능한 0–100 볼륨 slider를 제공한다. 플레이큐 상태
   안내는 시각 footer가 아닌 `aria-live`로만 전달한다.
-- 참여자 identity row는 current member profile image, external person icon, group icon과
-  이름을 사용하고 오른쪽에 YouTube·곡 상세 action을 둔다. 게시 채널은 별도의 compact
+- iframe 바로 아래에는 곡명과 메인 참여자 identity를 먼저 배치한다. identity row는 current
+  member profile image, external person icon, group icon과 이름을 사용하고 오른쪽에
+  YouTube·곡 상세 action을 둔다. 음악 분류와 가창 분류는 이 주 정보 아래의 보조 metadata
+  영역으로 내린다.
+- metadata 다음에는 키보드 탐색 가능한 semantic progress range와 transport control을 연속
+  배치한다. range는 실제 IFrame current time과 duration을 표시하고, 향후 동적 wave bar는
+  동작·접근성 계약을 유지한 채 시각 표현만 교체한다. 게시 채널은 transport 아래의 compact
   source attribution row로 표시하며 권위 channel avatar URL이 없는 상태에서 참여자 이미지를
   publisher avatar처럼 재사용하지 않는다.
-- player 하단 progress는 키보드 탐색 가능한 semantic range이며 실제 IFrame current time과
-  duration을 표시한다. 향후 동적 wave bar는 이 range의 동작·접근성 계약을 유지한 채
-  시각 표현만 교체한다.
 - 낮은 데스크톱 화면의 상세 전환은 iframe을 숨기는 접기 기능이 아니다. iframe은
   최소 200px로 계속 노출하고 player 정보 또는 queue만 남은 높이를 사용하며,
   선택 상태는 `aria-pressed`로 전달한다.
@@ -396,11 +400,27 @@ stateDiagram-v2
 3. **검토 후 제출**: 입력한 곡·원곡 가수·참여자와 video ID·썸네일 확인,
    승인 전 비공개 및 관리자 검수 항목 안내, 제출
 
-회원 제출 시 YouTube Data API를 필수 호출하지 않는다. 캐시된 metadata가 있으면
+각 단계 이동 시 해당 step 제목으로 focus를 옮기며 stepper는 완료·현재·미완료를
+시각과 `aria-current`로 함께 구분한다. 영상 확인 성공 후 썸네일, canonical URL과
+video ID를 다음 단계에서도 유지한다. duplicate는 URL 입력을 지우지 않은 채 다음
+단계를 막는다.
+
+곡 연결은 `새 곡으로 제안`과 `기존 곡 연결`을 명시적으로 선택한다. 기존 곡 검색은
+버튼을 눌렀을 때만 실행하고 loading·빈 결과·선택 해제를 제공한다. 후보 선택은 곡명과
+원곡 가수 snapshot을 기본값으로 채운다. 현재 멤버는 이름·code·unit을 keyboard로
+검색·선택하고, 원곡 가수와 외부 참여자는 Enter 또는 `추가`로만 chip을 생성한다.
+blur는 값을 확정하지 않으며 중복과 1–20/1–30 상한을 즉시 안내한다.
+
+회원 제출 시 YouTube Data API를 호출하지 않는다. 캐시된 metadata가 있으면
 보조 정보로만 보여주고, 없더라도 유효한 video ID 형식과 D1 중복 검사를 통과하면
 제출할 수 있다. 실제 공개 상태, 공식 채널, 공개일과 embed 가능 여부는 관리자
 승인 단계에서 최신 metadata로 검증한다. 형식 오류, exact duplicate와 제출 제한은
 구체적인 이유를 표시하고 입력을 보존한다.
+
+최종 화면은 thumbnail, 새 곡/기존 곡 구분, 원곡 가수와 참여자 chip, 메모 글자 수와
+비공개 안내를 한 번에 검토한다. 오류는 원인이 있는 step으로 focus를 되돌리되 입력과
+`clientRequestId`를 유지한다. 작성 중 route 이탈은 확인한다. 성공하면 form을 즉시
+비우지 않고 권위 제출 결과와 `내 제안에서 확인`, `다른 곡 제안` action을 표시한다.
 
 ### 10.2 내 제안
 
@@ -410,11 +430,14 @@ stateDiagram-v2
 | --- | --- | --- |
 | `pending_review` | 검토 대기 | 관리자 확인 전이며 공개되지 않음 |
 | `approved` | 승인·게시됨 | 연결된 공개 곡으로 이동 |
-| `rejected` | 반려 | 공개되지 않으며 제공 가능한 사유 표시 |
-| `withdrawn` | 철회 | 본인이 검토 전에 철회한 경우에만 사용 |
+| `rejected` | 반려 | 공개되지 않으며 내부 사유 대신 일반 문의 안내 표시 |
+| `withdrawn` | 철회 | 기존 데이터만 표시하며 PR-7에는 철회 control 없음 |
 
-다른 회원의 제안 존재 여부나 내용은 노출하지 않는다. 중복 안내는 `이미 등록되어
-있음` 또는 `검토 중인 동일 영상이 있음` 정도로 제한한다.
+다른 회원의 제안 ID·제출자·내용은 노출하지 않는다. 중복 안내는 `이미 등록되어
+있음` 또는 `검토 중인 동일 영상이 있음` 정도로 제한한다. 로그인 비관리자에게는
+공개 Play flag와 무관하게 콘텐츠 메뉴의 단일 `OTW Play` 진입점을 제공하고,
+member shell은 catalog config·player 요청을 시작하지 않는다. 제안이 없으면 상세
+panel을 숨기고 `첫 곡 제안하기` CTA만 제공한다.
 
 ## 11. 관리자 UI
 
@@ -492,9 +515,10 @@ dialog, 현재 단계와 모든 입력값을 유지한다.
 
 PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
 접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative
-readback을 다시 표시하고 optimistic removal은 하지 않는다. GATE-01 미확정 상태에는
-검수 대기 제안과 YouTube 원본 링크를 계속 제공하되 승인 control은 사유를 표시한
-disabled 상태로 유지하고, 거절은 내부 사유 code가 있어야 실행한다.
+readback을 다시 표시하고 optimistic removal은 하지 않는다. PR-7에서는
+검수 대기 제안과 YouTube 원본 링크를 제공한다. 승인 control은 DEC-044의 승인·활성
+공식 채널, 최신 metadata, 곡·원곡 가수·참여자와 실제 가창 credit 확인이 모두 끝난
+뒤 활성화하고, 거절은 내부 사유 code가 있어야 실행한다.
 
 카탈로그의 draft·withdrawn 가창에는 `삭제`를 제공한다. 곡 단위 삭제는 연결된
 가창에 현재 published가 없을 때 활성화한다. 삭제 전 confirm dialog에는 되돌릴 수
@@ -566,12 +590,14 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 - 대표곡, 현재 멤버와 최근 공개곡을 한 화면에서 재발견할 수 있다.
 - 현재 멤버 진입점에 오시마크가 표시된다.
 - hero가 없어도 빈 큰 영역이 남지 않는다.
+- 가창자는 메인 보컬 이름만 표시한다. 피처링 보컬·코러스·기타 참여 tooltip이나 보조 칩은 발견에서 표시하지 않고 곡 상세의 역할별 credit 영역에서만 확인한다.
 
 ### 곡 검색
 
 - 검색·필터·정렬이 URL과 동기화된다.
 - 오리지널과 공식 커버를 `곡 관계` 필터에서 구분한다.
 - 멤버 ANY와 ALL 의미를 사용자가 구분할 수 있다.
+- `가창 역할`은 참여자 identity와 분리된 필터로 제공하고 메인 보컬·피처링 보컬·코러스·기타 참여를 명시적으로 선택할 수 있다.
 - 동일 곡은 한 결과로 묶이고 공식 버전 수를 확인할 수 있다.
 - exact total이 있는 것처럼 표시하지 않고 현재 로드 수와 다음 page 여부를 구분한다.
 
@@ -581,12 +607,14 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 - 재생 중 iframe은 화면에 보이고 최소 크기를 충족한다.
 - next, previous, repeat, shuffle와 queue reorder가 키보드로 가능하다.
 - unavailable 소스가 무한 재시도되지 않는다.
+- Now Playing과 queue는 메인 보컬 이름·avatar만 표시한다. 보조 가창 credit은 재생 조작을 방해하지 않도록 이 화면에 중복 표시하지 않고 곡 상세에서 확인한다.
 
 ### Submission
 
 - 비로그인 사용자는 로그인 후 기존 입력으로 돌아올 수 있다.
 - 승인 전 제안은 공개 검색·상세·재생 API에서 보이지 않는다.
 - 제출자는 자신의 상태만 볼 수 있다.
+- 회원은 선택한 멤버와 외부 참여자마다 메인 보컬·피처링 보컬·코러스·기타 참여 역할을 지정하고 최종 검토 화면에서 확인한다.
 
 ### Admin review
 
@@ -594,6 +622,10 @@ navigation, player를 생성하지 않는다. 원격 D1 적용과 배포도 하�
 - 노래방송은 현재 등록 대상이 아님을 분명히 표시하고 draft나 published row를 만들지 않는다.
 - 승인 또는 반려가 성공한 뒤 권위 있는 서버 상태를 다시 읽는다.
 - 동시 검수 시 한 요청만 상태 전환에 성공한다.
+- 관리자는 원 제안 snapshot을 보존하면서 승인에 반영할 곡, 원곡 가수, 참여자 identity·표시명·역할을 수정할 수 있다.
+- 관리자는 승인에 반영할 공식 MV·공식 영상과 솔로·듀엣·유닛·단체·외부 협업
+  분류를 명시적으로 선택한다. 미등록·재승인 채널은 첫 가창자를 소유자로 추정하지
+  않고 실제 소유 인물·그룹을 확인하며, 새 외부 identity의 인물·그룹 종류도 선택한다.
 - draft·withdrawn 가창과 published가 없는 곡은 명시적 확인 뒤 삭제할 수 있고, 현재 게시 중인 가창은 삭제 control로 제거할 수 없다.
 
 ## 16. 구현 시 금지사항
@@ -615,3 +647,11 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 3. `Design.md`에 공용으로 승격할 패턴만 반영한다.
 4. API·DB 의미가 바뀌면 `otw-play-system-design.md`를 함께 수정한다.
 5. 구현 순서와 검증 gate는 `otw-play-implementation-guide.md`에 반영한다.
+## 곡 분류 표시 계층
+
+- 곡 카드·hero·상세에서는 음악 태그를 제목에 가까운 1차 chip으로 표시한다. player에서는
+  빠른 곡 식별을 위해 곡명·메인 참여자를 먼저 표시하고 음악 태그를 바로 다음 metadata
+  영역에 배치한다.
+- `오리지널/공식 커버`, `공식 MV/공식 영상`, `솔로/듀엣/유닛/협업`은 가창을 설명하는 작은 보조 metadata 행으로 표시한다.
+- 관리자 등록·곡 수정에는 `K-POP`, `J-POP`, `보컬로이드` 빠른 선택과 자유 입력을 함께 제공한다.
+- 넓은 화면의 발견 hero는 최대 1600px container와 30rem 높이까지 확장한다. 멤버명은 두 줄까지 개행해 긴 이름을 자르지 않는다.

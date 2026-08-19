@@ -96,6 +96,10 @@ export interface AdminApproveProposalCommand {
   now: number;
   ids: {
     lockToken: string;
+    entityIds: Record<string, string>;
+    entityEventIds: Record<string, string>;
+    channelId: string;
+    channelEventId: string;
     songId: string;
     performanceId: string;
     sourceId: string;
@@ -120,6 +124,12 @@ export interface AdminCreateCatalogEntryCommand {
     performanceId: string;
     performanceEventId: string;
     sourceId: string;
+  };
+  proposalApproval?: {
+    proposalId: string;
+    expectedVersion: number;
+    lockToken: string;
+    proposalEventId: string;
   };
 }
 

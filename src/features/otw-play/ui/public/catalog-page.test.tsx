@@ -70,4 +70,22 @@ describe("OtwPlayCatalogPage", () => {
       true,
     );
   });
+
+  it("keeps participant identity and vocal role as separate URL filters", () => {
+    const onSearchChange = vi.fn();
+    render(
+      <OtwPlayCatalogPage
+        search={{ participant: "external-singer" }}
+        onSearchChange={onSearchChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("가창 역할"), {
+      target: { value: "chorus" },
+    });
+    expect(onSearchChange).toHaveBeenCalledWith(
+      { participant: "external-singer", participantRole: "chorus" },
+      true,
+    );
+  });
 });

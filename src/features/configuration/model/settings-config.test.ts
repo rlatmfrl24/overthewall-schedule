@@ -10,6 +10,8 @@ import {
   parseAutoUpdateIntervalHours,
   parseXCollectionIntervalHours,
   isXCollectionIntervalHours,
+  isOtwPlaySubmissionDailyLimitValue,
+  normalizeOtwPlaySubmissionDailyLimit,
 } from "./settings-config";
 
 describe("auto update interval helpers", () => {
@@ -57,6 +59,15 @@ describe("auto update interval helpers", () => {
 });
 
 describe("settings policy", () => {
+  it("OTW Play 회원 제안 일일 제한을 1~100 범위로 검증한다", () => {
+    expect(isOtwPlaySubmissionDailyLimitValue("1")).toBe(true);
+    expect(isOtwPlaySubmissionDailyLimitValue("100")).toBe(true);
+    expect(isOtwPlaySubmissionDailyLimitValue("0")).toBe(false);
+    expect(isOtwPlaySubmissionDailyLimitValue("101")).toBe(false);
+    expect(isOtwPlaySubmissionDailyLimitValue(" 5 ")).toBe(false);
+    expect(normalizeOtwPlaySubmissionDailyLimit(null)).toBe("5");
+  });
+
   it("저장값을 관리자 설정 DTO 기본값으로 정규화한다", () => {
     const { settings } = normalizeAdminSettings({
       auto_update_enabled: "invalid",
@@ -73,6 +84,7 @@ describe("settings policy", () => {
       youtube_warmup_enabled: "true",
       youtube_warmup_interval_hours: "1",
       youtube_warmup_daily_quota_units: "10000",
+      otw_play_submission_daily_limit: "5",
     });
   });
 
@@ -101,6 +113,14 @@ describe("settings policy", () => {
     ).toEqual({
       ok: false,
       error: "Invalid youtube_warmup_daily_quota_units",
+    });
+    expect(
+      parseSettingsUpdatePayload({
+        otw_play_submission_daily_limit: "101",
+      }),
+    ).toEqual({
+      ok: false,
+      error: "Invalid otw_play_submission_daily_limit",
     });
   });
 });

@@ -38,6 +38,7 @@ export interface OtwPlayTrack {
     id: string;
     slug: string;
     title: string;
+    tags?: string[];
   };
   performance: OtwPlayPublicPerformanceSummaryDto | OtwPlayPublicPerformanceDetailDto;
   source: OtwPlayPublicSourceDto;
@@ -175,7 +176,7 @@ export function OtwPlayPlayerProvider({
     ended?: boolean,
     announceMissing?: boolean,
   ) => void>(() => undefined);
-  const playbackErrorRef = useRef<() => void>(() => undefined);
+  const playbackErrorRef = useRef<(code?: number) => void>(() => undefined);
   const currentItemRef = useRef<OtwPlayQueueItem | null>(null);
   const currentTrackRef = useRef<OtwPlayTrack | null>(null);
   const failedSourceIdsRef = useRef<Map<string, Set<string>>>(new Map());
@@ -374,7 +375,7 @@ export function OtwPlayPlayerProvider({
     }
   }, [currentItem, unavailableItemIds]);
 
-  const handlePlaybackError = useCallback(async () => {
+  const handlePlaybackError = useCallback(async (errorCode?: number) => {
     if (!currentItem || !currentTrack) {
       setStatus("error");
       return;
@@ -461,13 +462,17 @@ export function OtwPlayPlayerProvider({
         current.has(itemId) ? current : new Set(current).add(itemId),
       );
       setStatus("error");
-      setAnnouncement("이 가창의 재생 가능한 공식 소스를 찾지 못했습니다.");
+      setAnnouncement(
+        errorCode === 101 || errorCode === 150
+          ? "YouTube가 이 영상의 임베드 재생을 허용하지 않습니다. YouTube에서 열어 주세요."
+          : "이 가창의 재생 가능한 공식 소스를 찾지 못했습니다.",
+      );
     } finally {
       playbackErrorInFlightKeysRef.current.delete(errorKey);
     }
   }, [adminPreview, currentItem, currentTrack]);
-  playbackErrorRef.current = () => {
-    void handlePlaybackError();
+  playbackErrorRef.current = (code) => {
+    void handlePlaybackError(code);
   };
 
   useEffect(() => {
@@ -479,9 +484,12 @@ export function OtwPlayPlayerProvider({
       onReady: () => {
         if (playerSession !== playerSessionRef.current) return;
         playerReadyRef.current = true;
-        playerRef.current?.setVolume(volumeRef.current);
-        playerRef.current?.setMuted(mutedRef.current);
-        setPlayerReadyVersion((version) => version + 1);
+        const readyPlayer = playerRef.current;
+        if (readyPlayer) {
+          readyPlayer.setVolume(volumeRef.current);
+          readyPlayer.setMuted(mutedRef.current);
+          setPlayerReadyVersion((version) => version + 1);
+        }
       },
       onStateChange: (nextState) => {
         if (playerSession !== playerSessionRef.current) return;
@@ -490,9 +498,9 @@ export function OtwPlayPlayerProvider({
         else if (nextState === "buffering") setStatus("loading");
         else if (nextState === "ended") selectPlayableRef.current(1, true);
       },
-      onError: () => {
+      onError: (code) => {
         if (playerSession === playerSessionRef.current) {
-          playbackErrorRef.current();
+          playbackErrorRef.current(code);
         }
       },
       onAutoplayBlocked: () => {

@@ -11,6 +11,7 @@ DELETE FROM music_performance_participants;
 DELETE FROM music_media_source_relations;
 DELETE FROM music_channel_entities;
 DELETE FROM music_song_original_artists;
+DELETE FROM music_song_tags;
 DELETE FROM music_song_aliases;
 DELETE FROM music_entity_aliases;
 DELETE FROM music_performances;
@@ -140,7 +141,8 @@ INSERT INTO settings (
   ('naver_cafe_posts_visibility', 'public'),
   ('x_collection_enabled', 'false'),
   ('x_collection_daily_budget_cents', '100'),
-  ('x_collection_interval_hours', '6');
+  ('x_collection_interval_hours', '6'),
+  ('otw_play_submission_daily_limit', '5');
 
 INSERT INTO naver_cafe_sources (
   id,

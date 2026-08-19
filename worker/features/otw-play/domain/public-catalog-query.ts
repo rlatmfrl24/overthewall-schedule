@@ -36,12 +36,22 @@ export const PUBLIC_CATALOG_PARTICIPATION_TYPES = [
 export type PublicCatalogParticipationType =
   (typeof PUBLIC_CATALOG_PARTICIPATION_TYPES)[number];
 
+export const PUBLIC_CATALOG_PARTICIPANT_ROLES = [
+  "vocal",
+  "featured_vocal",
+  "chorus",
+  "other",
+] as const;
+export type PublicCatalogParticipantRole =
+  (typeof PUBLIC_CATALOG_PARTICIPANT_ROLES)[number];
+
 const ALLOWED_PARAMETERS = new Set([
   "q",
   "member",
   "memberMode",
   "group",
   "participant",
+  "participantRole",
   "relation",
   "participation",
   "originalArtist",
@@ -79,6 +89,7 @@ export type PublicCatalogQueryErrorReason =
   | "member_mode_without_members"
   | "invalid_group"
   | "invalid_participant"
+  | "invalid_participant_role"
   | "invalid_relation"
   | "invalid_participation"
   | "invalid_original_artist"
@@ -107,6 +118,7 @@ export interface PublicCatalogQuery {
   groupKey: string | null;
   group: PublicCatalogGroupSelector | null;
   participantSlug: string | null;
+  participantRole: PublicCatalogParticipantRole | null;
   relation: PublicCatalogRelation | null;
   participation: PublicCatalogParticipationType | null;
   originalArtistSlug: string | null;
@@ -231,6 +243,17 @@ export const parsePublicCatalogQuery = (
     );
   }
 
+  const rawParticipantRole = readSingleton(values, "participantRole");
+  if (
+    rawParticipantRole !== null &&
+    !isOneOf(PUBLIC_CATALOG_PARTICIPANT_ROLES, rawParticipantRole)
+  ) {
+    throw new PublicCatalogQueryError(
+      "invalid_participant_role",
+      "participantRole",
+    );
+  }
+
   if (
     rawRelation !== null &&
     !isOneOf(PUBLIC_CATALOG_RELATIONS, rawRelation)
@@ -308,6 +331,7 @@ export const parsePublicCatalogQuery = (
     groupKey,
     group,
     participantSlug: rawParticipant,
+    participantRole: rawParticipantRole,
     relation: rawRelation,
     participation: rawParticipation,
     originalArtistSlug: rawOriginalArtist,
@@ -336,6 +360,9 @@ export const canonicalizePublicCatalogQuery = (
   if (query.groupKey !== null) appendCanonical(output, "group", query.groupKey);
   if (query.participantSlug !== null) {
     appendCanonical(output, "participant", query.participantSlug);
+  }
+  if (query.participantRole !== null) {
+    appendCanonical(output, "participantRole", query.participantRole);
   }
   if (query.relation !== null) {
     appendCanonical(output, "relation", query.relation);

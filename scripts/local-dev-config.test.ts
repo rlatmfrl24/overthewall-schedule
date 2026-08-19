@@ -18,11 +18,11 @@ describe("local development server config", () => {
     expect(DEFAULT_LOCAL_DEV_PORT).toBe(5173);
     expect(resolveLocalDevPort({})).toBe(5173);
     expect(getLocalDevServerConfig({})).toEqual({
-      host: "127.0.0.1",
+      host: "localhost",
       port: 5173,
       strictPort: true,
     });
-    expect(getLocalDevOrigin({})).toBe("http://127.0.0.1:5173");
+    expect(getLocalDevOrigin({})).toBe("http://localhost:5173");
   });
 
   it("applies OTW_DEV_PORT consistently", () => {
@@ -30,7 +30,7 @@ describe("local development server config", () => {
 
     expect(resolveLocalDevPort(environment)).toBe(5180);
     expect(getLocalDevServerConfig(environment).port).toBe(5180);
-    expect(getLocalDevOrigin(environment)).toBe("http://127.0.0.1:5180");
+    expect(getLocalDevOrigin(environment)).toBe("http://localhost:5180");
   });
 
   it("uses an isolated D1 state only when explicitly configured", () => {

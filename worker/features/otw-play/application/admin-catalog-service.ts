@@ -651,17 +651,32 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     validateVersion(input.expectedVersion);
+    validateVersion(input.expectedCatalogRevision);
     if (!this.officialCoverPolicyEnabled) {
       throw new AdminCatalogServiceError(
         "policy_unresolved",
         "Official cover acceptance policy GATE-01 is not resolved",
       );
     }
-    const proposal = (
-      await this.repository.readProposals("pending_review")
-    ).find((item) => item.id === id);
+    const proposal = (await this.repository.readProposals()).find(
+      (item) => item.id === id,
+    );
     if (!proposal) {
       throw new AdminCatalogServiceError("not_found", "Proposal not found");
+    }
+    if (
+      proposal.status === "approved" &&
+      proposal.approvedPerformanceId !== null &&
+      proposal.version === input.expectedVersion + 1
+    ) {
+      const catalog = await this.repository.readCatalog();
+      return { data: proposal, catalogRevision: catalog.revision };
+    }
+    if (proposal.status !== "pending_review") {
+      throw new AdminCatalogServiceError(
+        "stale_write",
+        "Proposal is no longer pending review",
+      );
     }
     if (proposal.version !== input.expectedVersion) {
       throw new AdminCatalogServiceError(
@@ -670,22 +685,82 @@ export class AdminCatalogService {
       );
     }
     const catalog = await this.repository.readCatalog();
-    const channel = catalog.channels.find(
-      (item) => item.id === input.performance.source.channelId,
-    );
+    if (catalog.revision !== input.expectedCatalogRevision) {
+      throw new AdminCatalogServiceError(
+        "stale_write",
+        "Catalog changed during proposal review",
+      );
+    }
+    if (
+      !input.singingCreditConfirmed ||
+      !input.publish ||
+      !input.participants.some((item) =>
+        ["vocal", "featured_vocal", "chorus"].includes(item.participantRole),
+      )
+    ) {
+      throw new AdminCatalogServiceError(
+        "validation_failed",
+        "Approval requires a confirmed actual singing credit",
+      );
+    }
+    if (input.channel.kind === "pending") {
+      throw new AdminCatalogServiceError(
+        "validation_failed",
+        "Publishing requires an approved active official channel",
+      );
+    }
+    const allowedRoles = new Set([
+      "otw_official",
+      "unit_official",
+      "member_music",
+      "member_main",
+      "project_official",
+    ]);
+    const channelDecision = input.channel;
+    const selectedChannel =
+      channelDecision.kind === "existing"
+        ? catalog.channels.find((item) => item.id === channelDecision.channelId)
+        : null;
+    const selectedRole =
+      channelDecision.kind === "existing"
+        ? selectedChannel?.channelRole
+        : channelDecision.channelRole;
     const video = await this.youtube.readVideo(proposal.youtubeVideoId);
     if (
-      !channel ||
-      channel.verificationStatus !== "approved" ||
-      !channel.active ||
       !video ||
       video.videoId !== proposal.youtubeVideoId ||
-      video.channelId !== channel.externalChannelId
+      video.availabilityStatus !== "playable" ||
+      !selectedRole ||
+      !allowedRoles.has(selectedRole) ||
+      (channelDecision.kind === "existing" &&
+        (!selectedChannel ||
+          selectedChannel.verificationStatus !== "approved" ||
+          !selectedChannel.active ||
+          video.channelId !== selectedChannel.externalChannelId))
     ) {
       throw new AdminCatalogServiceError(
         "validation_failed",
         "Proposal video must belong to an approved active official channel",
       );
+    }
+    const subjects = [
+      ...input.participants.map((item) => item.subject),
+      ...(input.song.kind === "create"
+        ? input.song.originalArtists.map((item) => item.subject)
+        : []),
+      ...(input.channel.kind === "confirm"
+        ? input.channel.owners
+        : input.channel.kind === "recognized_member"
+          ? [{ kind: "member" as const, memberUid: input.channel.memberUid }]
+          : []),
+    ];
+    const entityIds: Record<string, string> = {};
+    const entityEventIds: Record<string, string> = {};
+    for (const subject of subjects) {
+      const key = subjectKey(subject);
+      if (!key || entityIds[key]) continue;
+      entityIds[key] = this.createId();
+      entityEventIds[key] = this.createId();
     }
     const result = await this.repository.approveProposal({
       proposalId: id,
@@ -695,6 +770,10 @@ export class AdminCatalogService {
       now: this.clock(),
       ids: {
         lockToken: this.createId(),
+        entityIds,
+        entityEventIds,
+        channelId: this.createId(),
+        channelEventId: this.createId(),
         songId: this.createId(),
         performanceId: this.createId(),
         sourceId: this.createId(),

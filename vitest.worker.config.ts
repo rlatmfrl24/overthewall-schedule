@@ -17,11 +17,16 @@ const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
   "0050_parched_marvel_apes.sql",
   "0051_clear_mantis.sql",
   "0052_otw-play-public-read-model-backfill.sql",
+  "0053_red_talon.sql",
+  "0054_odd_storm.sql",
+  "0055_tiresome_pride.sql",
 ] as const;
 const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual minimal prerequisite: 0046 adds an FK to members(uid).
   "0000_flaky_spyke.sql",
   "0009_condemned_maximus.sql",
+  // Actual authority table for the migration-owned daily submission limit.
+  "0011_cold_maximus.sql",
   // Actual authority table used to recognize enabled member YouTube links.
   "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,

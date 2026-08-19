@@ -20,6 +20,7 @@ const MUSIC_DELETE_ORDER = [
   "music_media_source_relations",
   "music_channel_entities",
   "music_song_original_artists",
+  "music_song_tags",
   "music_song_aliases",
   "music_entity_aliases",
   "music_performances",

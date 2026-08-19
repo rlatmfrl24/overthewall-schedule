@@ -180,6 +180,7 @@ describe("OTW Play public catalog HTTP handler", () => {
     "/api/play/catalog?unknown=1",
     "/api/play/catalog?limit=61",
     "/api/play/catalog?sort=recent&sort=title",
+    "/api/play/catalog?participantRole=producer",
     `/api/play/catalog?${Array.from({ length: 11 }, (_, index) => `member=${index + 1}`).join("&")}`,
     "/api/play/catalog?q=%20%20%20",
     "/api/play/config?extra=1",
@@ -438,6 +439,7 @@ describe("OTW Play public catalog HTTP handler", () => {
           originalReleaseDate: null,
           originalReleasePrecision: "unknown",
           originalArtists: [],
+          tags: ["K-POP"],
           publishedPerformanceCount: 1,
           representativePerformance: {
             id: "performance-1",

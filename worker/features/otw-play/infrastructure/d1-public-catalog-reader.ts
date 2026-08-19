@@ -66,6 +66,7 @@ type ArtistRow = {
   is_primary: number;
   credit_order: number;
 };
+type TagRow = { song_id: string; display_name: string };
 
 type ParticipantRow = {
   performance_id: string;
@@ -108,6 +109,7 @@ type CatalogHydrationRow = {
   song_id: string;
   performance_id: string;
   artists_json: string;
+  tags_json: string;
   participants_json: string;
   sources_json: string;
 };
@@ -351,9 +353,11 @@ const buildPerformanceFilters = (
         ON exact_participant_entity.id = exact_participant.entity_id
       WHERE exact_participant.performance_id = performance.id
         AND exact_participant_entity.slug = ?
+        ${query.participantRole === null ? "" : "AND exact_participant.participant_role = ?"}
         AND exact_participant_entity.archived_at IS NULL
     )`);
     binds.push(query.participantSlug);
+    if (query.participantRole !== null) binds.push(query.participantRole);
   }
   if (query.memberUids.length > 0) {
     const memberPlaceholders = placeholders(query.memberUids.length);
@@ -367,9 +371,12 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
+          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       ) = ?`);
-      binds.push(...query.memberUids, query.memberUids.length);
+      binds.push(...query.memberUids);
+      if (query.participantRole !== null) binds.push(query.participantRole);
+      binds.push(query.memberUids.length);
     } else {
       predicates.push(`EXISTS (
         SELECT 1
@@ -380,9 +387,11 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
+          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       )`);
       binds.push(...query.memberUids);
+      if (query.participantRole !== null) binds.push(query.participantRole);
     }
   }
   if (query.group?.entityId) {
@@ -393,10 +402,12 @@ const buildPerformanceFilters = (
         ON group_entity.id = group_participant.entity_id
       WHERE group_participant.performance_id = performance.id
         AND group_entity.id = ?
+        ${query.participantRole === null ? "" : "AND group_participant.participant_role = ?"}
         AND group_entity.entity_kind = 'group'
         AND group_entity.archived_at IS NULL
     )`);
     binds.push(query.group.entityId);
+    if (query.participantRole !== null) binds.push(query.participantRole);
   } else if (query.group?.unitName) {
     predicates.push(`EXISTS (
       SELECT 1
@@ -407,9 +418,25 @@ const buildPerformanceFilters = (
         ON unit_member.uid = unit_entity.member_uid
       WHERE unit_participant.performance_id = performance.id
         AND unit_member.unit_name = ?
+        ${query.participantRole === null ? "" : "AND unit_participant.participant_role = ?"}
         AND (unit_member.is_deprecated IS NULL OR unit_member.is_deprecated = 0)
     )`);
     binds.push(query.group.unitName);
+    if (query.participantRole !== null) binds.push(query.participantRole);
+  }
+  if (
+    query.participantRole !== null &&
+    query.participantSlug === null &&
+    query.memberUids.length === 0 &&
+    query.group === null
+  ) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM music_performance_participants AS role_participant
+      WHERE role_participant.performance_id = performance.id
+        AND role_participant.participant_role = ?
+    )`);
+    binds.push(query.participantRole);
   }
 
   return {
@@ -1230,6 +1257,13 @@ const artistQueryForSongIds = (songIds: readonly string[]): BatchQuery => ({
   binds: [...songIds],
 });
 
+const tagQueryForSongIds = (songIds: readonly string[]): BatchQuery => ({
+  sql: `SELECT song_id, display_name FROM music_song_tags
+    WHERE song_id IN (${placeholders(songIds.length)})
+    ORDER BY song_id, tag_key`,
+  binds: [...songIds],
+});
+
 const participantQueryForPerformanceIds = (
   performanceIds: readonly string[],
 ): BatchQuery => ({
@@ -1327,6 +1361,18 @@ const catalogHydrationQuery = (
           ORDER BY original_artist.credit_order, entity.id
         ) AS artist_row
       ), '[]') AS artists_json,
+      COALESCE((
+        SELECT json_group_array(json_object(
+          'song_id', requested.song_id,
+          'display_name', tag_row.display_name
+        ))
+        FROM (
+          SELECT display_name
+          FROM music_song_tags
+          WHERE song_id = requested.song_id
+          ORDER BY tag_key
+        ) AS tag_row
+      ), '[]') AS tags_json,
       COALESCE((
         SELECT json_group_array(json_object(
           'performance_id', participant_row.performance_id,
@@ -1547,6 +1593,7 @@ const mapPerformance = (
 const mapSongCore = (
   row: SongRow,
   artistRows: readonly ArtistRow[],
+  tagRows: readonly TagRow[] = [],
 ): PublicCatalogSongCore => ({
   id: row.song_id,
   slug: row.slug,
@@ -1556,6 +1603,7 @@ const mapSongCore = (
   originalReleaseDate: row.original_release_date,
   originalReleasePrecision: row.original_release_precision,
   originalArtists: artistRows.map(mapArtist),
+  tags: tagRows.map((tag) => tag.display_name),
 });
 
 const positionFromCandidate = (
@@ -1852,9 +1900,10 @@ export class D1PublicCatalogReader implements PublicCatalogReader {
     const song = songRows[0];
     if (!song) return null;
 
-    const [artistRows, performanceRows, participantRows, sourceRows] =
+    const [artistRows, tagRows, performanceRows, participantRows, sourceRows] =
       await this.batchAll([
         artistQueryForSongIds([song.song_id]),
+        tagQueryForSongIds([song.song_id]),
         {
           sql: `
             SELECT
@@ -1903,7 +1952,7 @@ export class D1PublicCatalogReader implements PublicCatalogReader {
       (row) => row.performance_id,
     );
     return {
-      ...mapSongCore(song, artistRows as ArtistRow[]),
+      ...mapSongCore(song, artistRows as ArtistRow[], tagRows as TagRow[]),
       performances: (performanceRows as PerformanceRow[]).map((performance) =>
         mapPerformance(
           performance,
@@ -1943,13 +1992,14 @@ export class D1PublicCatalogReader implements PublicCatalogReader {
     const row = rows[0];
     if (!row) return null;
 
-    const [artistRows, participantRows, sourceRows] = await this.batchAll([
+    const [artistRows, tagRows, participantRows, sourceRows] = await this.batchAll([
       artistQueryForSongIds([row.song_id]),
+      tagQueryForSongIds([row.song_id]),
       participantQueryForPerformanceIds([performanceId]),
       sourceQueryForPerformanceIds([performanceId]),
     ]);
     return {
-      song: mapSongCore(row, artistRows as ArtistRow[]),
+      song: mapSongCore(row, artistRows as ArtistRow[], tagRows as TagRow[]),
       performance: mapPerformance(
         row,
         participantRows as ParticipantRow[],
@@ -2129,6 +2179,10 @@ export class D1PublicCatalogReader implements PublicCatalogReader {
           hydrationByPerformance.get(row.performance_id)?.artists_json ??
             "[]",
           "artist",
+        ),
+        parseHydrationRows<TagRow>(
+          hydrationByPerformance.get(row.performance_id)?.tags_json ?? "[]",
+          "tag",
         ),
       ),
       publishedPerformanceCount: Number(row.published_performance_count),
