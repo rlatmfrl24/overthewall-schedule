@@ -1,6 +1,6 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 중
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 보완 중
 
 기준일: 2026-08-19
 
@@ -838,6 +838,11 @@ performance에서 만족하고 schema와 기존 공개 route 수는 변경하지
 `/play/submit`과 `/play/submissions`는 JWT member shell로 분리한다. 회원 route는
 public config·catalog·player query를 시작하지 않는다.
 
+DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전역 sidebar에는
+별도 `곡 제안` 항목을 만들지 않고 `OTW Play`만 둔다. 관리자 catalog의 `발견`·`곡 검색`
+옆과 member shell에는 `곡 제안` dropdown을 표시해 기존 두 member route로 이동한다.
+공통 chrome 추출 과정에서 member shell에 catalog/player provider를 올리지 않는다.
+
 ### 주요 touchpoint
 
 - `worker/features/otw-play/application/submit-cover-proposal.ts`
@@ -861,6 +866,16 @@ public config·catalog·player query를 시작하지 않는다.
 7. CAS + conditional insert + publish/event/revision batch
 8. 승인·거절 authoritative readback
 
+PR-7.1 frontend 보완은 다음 순서로 수행한다.
+
+1. 공통 Play frame/header와 단일 global navigation entry
+2. thumbnail/canonical identity가 보이는 영상 preflight
+3. 명시적 새 곡/기존 곡 mode와 on-demand 후보 검색
+4. keyboard member autocomplete와 explicit-add snapshot chip
+5. chip 중복·상한, step focus와 오류 위치 복귀
+6. dirty route-leave 확인과 권위 성공 결과/명시적 reset
+7. 빈 내 제안 CTA와 불필요한 detail panel 제거
+
 회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
 권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
 보조하며 edge 실패가 D1 제한을 우회하지 않는다. 반려 DTO는 상태만 제공하고
@@ -882,6 +897,12 @@ public config·catalog·player query를 시작하지 않는다.
 - 승인 전 공개 API 누출 0건
 - 승인 후 published item과 proposal link readback
 - 거절 후 공개 0건, event와 회원 상태 보존
+- 역할별 global navigation에 `OTW Play` 한 항목만 존재
+- header dropdown의 keyboard 이동과 두 member route active state
+- member route의 public config·catalog·player 요청 0회
+- duplicate 차단, 후보 선택·해제, member autocomplete, chip 중복·상한
+- 오류 후 step·입력·idempotency 유지와 작성 중 이탈 확인
+- 성공 결과 유지와 사용자가 선택한 뒤에만 빈 form/request ID 생성
 
 ### 종료 조건
 

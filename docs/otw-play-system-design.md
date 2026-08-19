@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 기준선
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
 
 기준일: 2026-08-19
 
@@ -284,6 +284,30 @@ query와 meta read 전에 `requireAdminUser`로 토큰과 관리자 allowlist를
 `Vary: Authorization, Cookie`를 사용하고 Cache API를 읽거나 쓰지 않는다. header가
 없는 익명 GET은 DEC-019의 config 200과 나머지 flag-off 404 계약을 그대로 따른다.
 frontend query key도 `public`과 `admin-preview` audience를 분리한다.
+
+### ADR-PLAY-009: 회원 제안은 Play chrome을 공유하고 data boundary는 분리
+
+상태: 채택
+
+- 전역 navigation은 역할별 별도 `곡 제안` 항목을 만들지 않고 `OTW Play` 하나만
+  제공한다. 관리자는 `/play`, 로그인 비관리자는 공개 flag와 무관하게
+  `/play/submit`으로 진입한다.
+- 관리자 catalog shell과 member shell은 brand, 64px header, 반응형 간격과
+  `곡 제안` dropdown을 같은 frontend component로 사용한다. dropdown은
+  `/play/submit`과 `/play/submissions`만 연결한다.
+- chrome 공유는 data-provider 공유를 뜻하지 않는다. member route는 기존처럼
+  `OtwPlayCatalogRequestProvider`, public config/catalog query와 player provider를
+  마운트하지 않으며 비로그인 CTA도 같은 frame 안에서 렌더링한다.
+- wizard는 server preflight가 반환한 thumbnail·canonical URL·video ID를 표시하고,
+  기존 곡 검색은 명시적 요청에서만 수행한다. 현재 멤버는 members authority를
+  이름·code·unit으로 검색하며 원곡 가수·외부 참여자는 명시적 add action으로만
+  snapshot chip을 만든다.
+- API 오류는 입력, 현재 step과 `clientRequestId`를 유지한다. 작성 중 route 이탈은
+  확인을 요구하고 성공 시 create response를 권위 결과로 유지한다. 새 request ID와
+  빈 form은 사용자가 `다른 곡 제안`을 선택할 때만 생성한다.
+
+이 결정은 Worker/API, DB, 인증·제한·승인 정책, 공개 flag와 cache contract를
+변경하지 않는다.
 
 ## 3. 전체 시스템 구조
 

@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-6 공개 Discover·Catalog·곡 상세와 단일 player 구현 기준선
+상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
 
-기준일: 2026-08-18
+기준일: 2026-08-19
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -103,10 +103,12 @@ player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 p
 | `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
 | `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
 
-공개 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
+catalog 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
 재발견 역할을 함께 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
 `/play/songs`의 `곡 관계` 필터로 구분한다. 저장 플레이리스트와 라이브러리 탭은
-MVP에 만들지 않는다.
+MVP에 만들지 않는다. 두 탭 옆에는 primary `곡 제안` dropdown을 두며 `새 곡 제안`과
+`내 제안`을 제공한다. member shell도 같은 OTW Play brand/header를 사용하되 catalog
+탭·검색·player는 렌더링하지 않는다.
 
 ```mermaid
 flowchart LR
@@ -396,11 +398,27 @@ stateDiagram-v2
 3. **검토 후 제출**: 입력한 곡·원곡 가수·참여자와 video ID·썸네일 확인,
    승인 전 비공개 및 관리자 검수 항목 안내, 제출
 
+각 단계 이동 시 해당 step 제목으로 focus를 옮기며 stepper는 완료·현재·미완료를
+시각과 `aria-current`로 함께 구분한다. 영상 확인 성공 후 썸네일, canonical URL과
+video ID를 다음 단계에서도 유지한다. duplicate는 URL 입력을 지우지 않은 채 다음
+단계를 막는다.
+
+곡 연결은 `새 곡으로 제안`과 `기존 곡 연결`을 명시적으로 선택한다. 기존 곡 검색은
+버튼을 눌렀을 때만 실행하고 loading·빈 결과·선택 해제를 제공한다. 후보 선택은 곡명과
+원곡 가수 snapshot을 기본값으로 채운다. 현재 멤버는 이름·code·unit을 keyboard로
+검색·선택하고, 원곡 가수와 외부 참여자는 Enter 또는 `추가`로만 chip을 생성한다.
+blur는 값을 확정하지 않으며 중복과 1–20/1–30 상한을 즉시 안내한다.
+
 회원 제출 시 YouTube Data API를 호출하지 않는다. 캐시된 metadata가 있으면
 보조 정보로만 보여주고, 없더라도 유효한 video ID 형식과 D1 중복 검사를 통과하면
 제출할 수 있다. 실제 공개 상태, 공식 채널, 공개일과 embed 가능 여부는 관리자
 승인 단계에서 최신 metadata로 검증한다. 형식 오류, exact duplicate와 제출 제한은
 구체적인 이유를 표시하고 입력을 보존한다.
+
+최종 화면은 thumbnail, 새 곡/기존 곡 구분, 원곡 가수와 참여자 chip, 메모 글자 수와
+비공개 안내를 한 번에 검토한다. 오류는 원인이 있는 step으로 focus를 되돌리되 입력과
+`clientRequestId`를 유지한다. 작성 중 route 이탈은 확인한다. 성공하면 form을 즉시
+비우지 않고 권위 제출 결과와 `내 제안에서 확인`, `다른 곡 제안` action을 표시한다.
 
 ### 10.2 내 제안
 
@@ -415,8 +433,9 @@ stateDiagram-v2
 
 다른 회원의 제안 ID·제출자·내용은 노출하지 않는다. 중복 안내는 `이미 등록되어
 있음` 또는 `검토 중인 동일 영상이 있음` 정도로 제한한다. 로그인 비관리자에게는
-공개 Play flag와 무관하게 콘텐츠 메뉴의 `곡 제안` 진입점을 제공하고, member shell은
-catalog config·player 요청을 시작하지 않는다.
+공개 Play flag와 무관하게 콘텐츠 메뉴의 단일 `OTW Play` 진입점을 제공하고,
+member shell은 catalog config·player 요청을 시작하지 않는다. 제안이 없으면 상세
+panel을 숨기고 `첫 곡 제안하기` CTA만 제공한다.
 
 ## 11. 관리자 UI
 

@@ -2,7 +2,7 @@
 
 상태: Living Draft
 
-단계: PR-7 회원 공식 커버 제안·관리자 승인 E2E 구현 중
+단계: PR-7.1 회원 제안 Play 통합·Wizard UX 보완 중
 
 최종 갱신일: 2026-08-19
 
@@ -98,6 +98,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버만 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 제출 단계에서는 YouTube API를 호출하거나 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
 | DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
 | DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회는 GATE-04가 확정될 때까지 만들지 않는다. |
+| DEC-046 | 회원 공식 커버 제안 진입점은 별도 제품 메뉴가 아니라 OTW Play 경험 안에 통합한다. | 확정 | 전역 콘텐츠 메뉴는 역할과 관계없이 `OTW Play` 하나만 사용한다. 관리자 catalog header의 `발견`·`곡 검색` 옆과 회원 제안 shell에 `곡 제안` 메뉴를 두고 `새 곡 제안`·`내 제안`으로 이동한다. 회원 route는 같은 brand frame을 공유하지만 public config·catalog·player를 마운트하지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -369,6 +370,9 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 - FR-034: 회원은 자신의 제안 상태를 확인할 수 있어야 한다.
 - FR-035: 회원은 승인 상태나 공개 상태를 직접 변경할 수 없어야 한다.
 - FR-036: 제출 전에 동일 YouTube 영상 또는 유사한 기존 곡이 있음을 안내할 수 있어야 한다.
+- FR-037: 회원은 OTW Play 상단의 곡 제안 메뉴에서 새 제안과 내 제안으로 이동할 수 있어야 한다.
+- FR-038: 제출 wizard는 확인한 영상, 곡 연결 방식, 참여자와 제출 snapshot을 단계별로 명확히 보여주고 오류 후에도 입력·단계·idempotency key를 유지해야 한다.
+- FR-039: 작성 중 route 이탈은 입력 손실을 확인하고, 성공 후에는 권위 제출 결과와 다음 행동을 보여준 뒤 사용자가 명시적으로 새 양식을 시작해야 한다.
 
 회원 제안 대상은 공식 커버곡으로 제한한다. 오리지널곡 등록은 현재 MVP에서
 관리자 전용이다.
@@ -636,6 +640,7 @@ TBD-013·014는 DEC-045로 해결되었다. 공개 catalog API는 익명이고 �
 | 2026-08-19 | DEC-040·041 정보 우선순위와 태블릿 재생 지속 보완. 높이 720px 미만에서는 참여자를 유지하고 게시자 identity만 먼저 숨기며, 640–1279px 카탈로그 복귀는 같은 200×200px iframe의 우측 하단 miniplayer로 전환하도록 확정 |
 | 2026-08-19 | DEC-042 player identity 계층 보완. 참여자 profile/name과 YouTube·곡 상세 action을 한 행에 모으고, 게시 채널은 transport 아래의 작은 출처 표기로 낮춰 가창자와 업로드 주체를 분리 |
 | 2026-08-19 | DEC-043~045 회원 공식 커버 제안 E2E 확정. 회원 전용 private route, `official_cover_v1` 승인 정책, KST 일 5회·edge 분 3회 제한과 반려 상태만 공개하는 경계를 채택하고 GATE-01·05·06을 해결 |
+| 2026-08-19 | DEC-046 회원 제안 진입 통합. 전역 `곡 제안` 메뉴를 `OTW Play` 하나로 합치고 shared Play header의 `새 곡 제안`·`내 제안` 메뉴, 입력 보존형 wizard와 권위 성공 결과를 채택 |
 
 ## 19. 참고
 
