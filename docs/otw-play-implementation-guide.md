@@ -966,7 +966,8 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 PR-8은 실패와 rollback 경계가 다른 세 PR로 나눈다.
 
 1. PR-8A가 직접 경로와 SEO 공개 경계를 먼저 고정한다.
-2. PR-8B와 PR-8C는 PR-8A 뒤에서 독립적으로 진행할 수 있다.
+2. PR-8B를 PR-8A 뒤에 적용하고, source-health 전이를 직접 계측하는 PR-8C를
+   PR-8B head 위에 stack한다.
 3. 세 PR 모두 코드 merge와 배포만 수행하며 운영 flag는 `0/0`으로 유지한다.
 4. 초기 데이터 승인과 실제 E2E 뒤 별도 운영 단계에서 public read, navigation
    순서로 활성화한다.
@@ -1097,14 +1098,27 @@ public read와 navigation을 순서·감사·rollback이 보장된 경로로 제
 
 1. 설계된 `play.*` structured event와 공통 field를 HTTP/application/repository
    경계에서 중복 없이 기록한다.
-2. public catalog cache hit/miss, duration, D1 rows read/written과 오류 code를 관측한다.
-3. 관리자 release command의 method/path, request/response/error DTO를 계약에 정의한다.
-4. 권장 `PATCH /api/play/admin/release`를 `requireAdminUser`, `no-store`, conditional
-   update, audit와 authoritative readback으로 end-to-end 연결한다.
-5. navigation-on/public-off를 `400`, stale expected state를 `409`, 권한 없음을 기존
-   admin auth contract로 거부한다.
-6. 관리자 UI에서 public read와 navigation을 별도 confirm 단계로 제공하고 성공 뒤
-   config query를 다시 읽는다.
+2. Workers Logs에는 개별 진단을, Analytics Engine binding `OTW_PLAY_ANALYTICS`와
+   dataset `otw_play_events`에는 모든 datapoint를 기록한다. 성공 public read custom
+   log만 request ID 기반 결정적 10% sampling하고 mutation, source 전이, release와
+   `4xx/5xx`는 전부 남긴다.
+3. public catalog의 cache hit/miss/bypass, duration과 실제 D1 result metadata의
+   rows read/written을 요청 단위로 합산한다. query string과 사용자 원문은 기록하지
+   않는다.
+4. `GET /api/play/admin/observability`는 비민감 Worker variable
+   `CLOUDFLARE_ACCOUNT_ID`와 조회 secret `OTW_PLAY_ANALYTICS_READ_TOKEN`으로 서버
+   `FORMAT JSON`이 명시된 고정 summary·route·event `SELECT`를 공유 5초 timeout 안에 병렬 실행해
+   24시간 summary·route breakdown·domain event count를 반환한다. 미설정·외부 장애는
+   HTTP 200 partial DTO로 격리한다.
+5. `GET /api/play/admin/release`와 `PATCH /api/play/admin/release`의
+   request/response/error DTO를 계약에 정의하고 `requireAdminUser`, `no-store`, 정확한
+   method manifest를 적용한다.
+6. release PATCH의 conditional audit insert, CAS update와 authoritative readback을
+   하나의 D1 batch로 처리한다. navigation-on/public-off와 no-op은 `400`, stale expected
+   state는 `409`, revision mismatch 공개 활성화는 `422`로 거부한다.
+7. 관리자 UI에서 public read와 navigation을 별도 confirm 단계로 제공하고 성공·409
+   뒤 release/config를 다시 읽는다. observability partial 상태는 release control을
+   비활성화하지 않는다.
 
 #### 권장 사항
 
@@ -1114,6 +1128,8 @@ public read와 navigation을 순서·감사·rollback이 보장된 경로로 제
   데이터와 직접 URL 검증이 완료된 별도 운영 이벤트다.
 - 로그 sampling은 성공 read에만 제한적으로 적용하고 mutation, source 전이,
   4xx/5xx와 flag 변경 event는 누락하지 않는다.
+- 요청별 metrics를 D1에 쓰거나 Analytics SQL·원격 오류 본문·개별 request log를
+  관리자에게 노출하지 않는다. Analytics 집계는 `_sample_interval`을 반영한다.
 
 #### 완료 조건
 

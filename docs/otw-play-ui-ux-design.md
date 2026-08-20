@@ -697,10 +697,20 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 
 ### 19.3 PR-8C 공개 switch와 관측
 
+- 관리자 catalog에 `운영·공개` section을 추가하고 진입할 때만 observability,
+  release와 source-health query를 시작한다. 최근 24시간 요청·오류율·cache·p95·D1
+  비용을 summary로, route별 값은 desktop table과 mobile card로 표시한다.
+- Analytics가 미설정이거나 일시 장애여도 `미설정`·`집계 일시 중단` partial 상태와
+  안전한 안내만 표시한다. 이 상태는 release 조회와 control을 차단하지 않는다.
 - 관리자 UI는 `공개 API`, `내비게이션 노출`을 별도 단계로 표시한다. 내비게이션은
   공개 API가 활성이고 직접 URL 검증이 끝난 뒤에만 켤 수 있다.
 - flag 변경 전 현재 값, 영향 범위, rollback 동작을 confirm하고 성공 뒤 서버가
   반환한 config를 다시 표시한다. optimistic toggle과 배포 시 자동 활성화는 금지한다.
+- 각 transition dialog는 해당 confirmation checkbox를 요구하며 닫힌 뒤 focus를 원래
+  action으로 복귀시킨다. `409`는 최신 authoritative 상태 재조회 안내를 표시하고,
+  revision 불일치는 해결 전 공개 활성 action을 비활성화한다.
+- domain event 요약과 `소스 상태` 진입점을 함께 제공하되 raw SQL, 개별 request log,
+  token, Cloudflare 오류 본문과 관리자 신원은 화면에 노출하지 않는다.
 - 운영 화면은 cache hit/miss, 오류율, source 점검 결과와 최근 flag 변경 actor·시각을
   확인할 수 있어야 한다. 원문 검색어, 회원 note와 credential은 표시하지 않는다.
 
