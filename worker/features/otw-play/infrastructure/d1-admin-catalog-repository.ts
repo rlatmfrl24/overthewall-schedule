@@ -20,6 +20,7 @@ import {
   createVideoBackedSongDedupeKeyMaterial,
 } from "../domain/duplicate-policy";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
+import { getNextSourceCheckAt } from "../domain/source-health-policy";
 import {
   AdminCatalogRepositoryError,
   type AdminCatalogActor,
@@ -113,6 +114,7 @@ type SourceRow = {
   provider_published_at: number | null;
   availability_status: OtwPlayAdminPerformanceDto["sources"][number]["source"]["availabilityStatus"];
   last_checked_at: number | null;
+  next_check_at: number | null;
   version: number;
   start_seconds: number;
   end_seconds: number | null;
@@ -399,7 +401,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database.prepare(`SELECT link.performance_id, source.id AS source_id,
         source.provider, source.external_id, source.channel_id, source.title,
         source.thumbnail_url, source.duration_seconds, source.provider_published_at,
-        source.availability_status, source.last_checked_at, source.version,
+        source.availability_status, source.last_checked_at, source.next_check_at,
+        source.version,
         link.start_seconds, link.end_seconds, link.source_role, link.priority,
         link.is_primary
         FROM music_performance_sources AS link
@@ -522,6 +525,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             providerPublishedAt: source.provider_published_at,
             availabilityStatus: source.availability_status,
             lastCheckedAt: source.last_checked_at,
+            nextCheckAt: source.next_check_at,
             version: Number(source.version),
           },
           startSeconds: Number(source.start_seconds),
@@ -1382,8 +1386,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .prepare(
         `INSERT INTO music_media_sources (
       id, provider, external_id, channel_id, title, thumbnail_url, duration_seconds,
-      provider_published_at, availability_status, last_checked_at, version, created_at, updated_at
-    ) VALUES (?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      provider_published_at, availability_status, last_checked_at, next_check_at,
+      version, created_at, updated_at
+    ) VALUES (?, 'youtube', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
       .bind(
         sourceId,
@@ -1395,6 +1400,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         video.publishedAt,
         video.availabilityStatus,
         now,
+        getNextSourceCheckAt(video.availabilityStatus, now),
         now,
         now,
       );
@@ -2011,7 +2017,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           .prepare(
             `UPDATE music_media_sources SET channel_id = ?, title = ?, thumbnail_url = ?,
             duration_seconds = ?, provider_published_at = ?, availability_status = ?,
-            last_checked_at = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+            last_checked_at = ?, next_check_at = ?, version = version + 1,
+            updated_at = ? WHERE id = ?`,
           )
           .bind(
             channelId,
@@ -2021,6 +2028,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             video.publishedAt,
             video.availabilityStatus,
             now,
+            getNextSourceCheckAt(video.availabilityStatus, now),
             now,
             sourceId,
           ),
@@ -2459,7 +2467,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
               .prepare(
                 `UPDATE music_media_sources SET channel_id = ?, title = ?, thumbnail_url = ?,
                 duration_seconds = ?, provider_published_at = ?, availability_status = ?,
-                last_checked_at = ?, version = version + 1, updated_at = ? WHERE id = ?`,
+                last_checked_at = ?, next_check_at = ?, version = version + 1,
+                updated_at = ? WHERE id = ?`,
               )
               .bind(
                 input.source.channelId,
@@ -2469,6 +2478,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
                 video.publishedAt,
                 video.availabilityStatus,
                 now,
+                getNextSourceCheckAt(video.availabilityStatus, now),
                 now,
                 sourceId,
               ),
@@ -2924,87 +2934,6 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ];
     await this.executeCatalogBatch(statements, Number(meta.revision), now);
     return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
-  }
-
-  async recheckSource(
-    sourceId: string,
-    expectedVersion: number,
-    video: AdminCreatePerformanceCommand["video"],
-    actor: AdminCatalogActor,
-    eventId: string,
-    now: number,
-  ) {
-    const meta = await this.readRevision();
-    const current = await this.database
-      .prepare(
-        `SELECT source.external_id,
-        source.channel_id, channel.external_channel_id
-      FROM music_media_sources AS source
-      JOIN music_channels AS channel ON channel.id = source.channel_id
-      WHERE source.id = ?`,
-      )
-      .bind(sourceId)
-      .first<{
-        external_id: string;
-        channel_id: string;
-        external_channel_id: string;
-      }>();
-    if (!current)
-      throw new AdminCatalogRepositoryError("not_found", "Source not found");
-    if (
-      current.external_id !== video.videoId ||
-      current.external_channel_id !== video.channelId
-    ) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "YouTube source identity changed during recheck",
-      );
-    }
-    const statements = [
-      this.database
-        .prepare(
-          `UPDATE music_media_sources SET title = ?, thumbnail_url = ?,
-        duration_seconds = ?, provider_published_at = ?, availability_status = ?,
-        last_checked_at = ?, version = version + 1, updated_at = ?
-        WHERE id = ? AND version = ?`,
-        )
-        .bind(
-          video.title,
-          video.thumbnailUrl,
-          video.durationSeconds,
-          video.publishedAt,
-          video.availabilityStatus,
-          now,
-          now,
-          sourceId,
-          expectedVersion,
-        ),
-      versionGuard(this.database),
-      this.database
-        .prepare(
-          `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'source', ?, 'source.rechecked', 'admin', ?, ?, ?)`,
-        )
-        .bind(
-          eventId,
-          sourceId,
-          actor.userId,
-          eventJson({ availabilityStatus: video.availabilityStatus }),
-          now,
-        ),
-    ];
-    await this.executeCatalogBatch(statements, Number(meta.revision), now);
-    const catalog = await this.readCatalog();
-    const source = catalog.performances
-      .flatMap((performance) => performance.sources.map((item) => item.source))
-      .find((item) => item.id === sourceId);
-    if (!source)
-      throw new AdminCatalogRepositoryError(
-        "not_found",
-        "Source is not linked",
-      );
-    return { data: source, catalogRevision: catalog.revision };
   }
 
   async rejectProposal(

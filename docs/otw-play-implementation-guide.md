@@ -1037,7 +1037,9 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
 
 #### 주요 작업
 
-1. `next_check_at <= now` source를 안정 정렬로 최대 50개 읽는 repository port를 만든다.
+1. `next_check_at <= now` source를 안정 정렬로 최대 50개 claim하고 30분 lease를 두는
+   repository port를 만든다. 겹친 Cron과 수동 재검사는 source version CAS로 늦은
+   결과를 버린다.
 2. 기존 관리자 수동 재확인과 Cron이 같은 metadata 판정 use case를 사용하게 한다.
 3. deleted/private/embed-disabled/region-blocked/unavailable 전이와 playable 복구를
    명시적으로 구분한다.
@@ -1046,6 +1048,9 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
 5. 공개 source 선택이 바뀌는 경우 source, event, catalog/read-model revision을
    같은 D1 batch로 갱신한다.
 6. 관리자 작업면에 재확인 필요·재생 불가·최근 복구 목록과 수동 재검사를 제공한다.
+7. `music_media_sources(next_check_at, id)`와
+   `music_catalog_events(event_type, created_at DESC, id)` index를 추가하고 기존 NULL
+   `next_check_at`은 `COALESCE(last_checked_at, created_at)`으로 backfill한다.
 
 #### 권장 사항
 
@@ -1055,6 +1060,14 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
   transient 실패 횟수만으로 영구 unavailable을 만들지 않는다.
 - 한 source 실패가 나머지 source 점검을 중단하지 않게 하되, D1·credential처럼
   공유 dependency 실패는 명확한 task 실패로 관측한다.
+- provider 판정은 `KR` 기준의 명시적 YouTube signal만 사용한다. 반환 item 누락은
+  `unavailable`이며 private/deleted를 추정하지 않는다. 다음 점검은 playable 24시간,
+  private/unavailable 6시간, embed-disabled/region-blocked 24시간, deleted 7일이다.
+- retryable 장애는 timeout·network·`5xx`·invalid response 30분, `429`는 유효한
+  `Retry-After` 또는 1시간, quota는 24시간으로 고정한다. 수동 재검사는 상태 보존과
+  다음 재시각이 저장되면 HTTP 200의 `retry_scheduled` 결과를 반환한다.
+- 관리자 source-health 응답은 최근 복구 7일, 목록별 최대 50개와 총계를 사용하며
+  연결 곡·가창은 총 개수와 안정 정렬된 최대 5개 요약을 반환한다.
 
 #### 완료 조건
 

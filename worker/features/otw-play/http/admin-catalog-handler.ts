@@ -7,6 +7,11 @@ import {
   AdminCatalogServiceError,
 } from "../application/admin-catalog-service";
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
+import { SourceHealthRepositoryError } from "../application/ports/source-health-repository";
+import {
+  SourceHealthService,
+  SourceHealthServiceError,
+} from "../application/source-health-service";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import {
   parseCatalogEntryPreflight,
@@ -29,6 +34,7 @@ import {
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 export type ResolveAdminCatalogService = (env: Env) => AdminCatalogService;
+export type ResolveSourceHealthService = (env: Env) => SourceHealthService;
 
 const responseJson = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: NO_STORE_HEADERS });
@@ -86,7 +92,10 @@ const adminActor = (
 };
 
 export const createAdminCatalogHandler =
-  (resolveService: ResolveAdminCatalogService) =>
+  (
+    resolveService: ResolveAdminCatalogService,
+    resolveSourceHealthService?: ResolveSourceHealthService,
+  ) =>
   async (request: Request, env: Env): Promise<Response> => {
     const requestId = requestIdFor(request);
     const url = new URL(request.url);
@@ -97,6 +106,7 @@ export const createAdminCatalogHandler =
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
     const service = resolveService(env);
+    const sourceHealthService = resolveSourceHealthService?.(env);
     const actor = adminActor(request, admin.user);
 
     try {
@@ -140,6 +150,19 @@ export const createAdminCatalogHandler =
         request.method === "GET"
       ) {
         return responseJson({ data: await service.readCatalog() });
+      }
+
+      if (url.pathname === "/api/play/admin/source-health") {
+        if (request.method !== "GET") {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: { ...NO_STORE_HEADERS, Allow: "GET" },
+          });
+        }
+        if (!sourceHealthService) {
+          throw new Error("Source health service is not configured");
+        }
+        return responseJson({ data: await sourceHealthService.readDashboard() });
       }
 
       if (
@@ -384,8 +407,14 @@ export const createAdminCatalogHandler =
             "Invalid source recheck",
             parsed.fields,
           );
+        if (!sourceHealthService) {
+          throw new Error("Source health service is not configured");
+        }
         return responseJson(
-          await service.recheckSource(recheckId, parsed.value, actor),
+          await sourceHealthService.recheckSource(
+            recheckId,
+            parsed.value,
+          ),
         );
       }
 
@@ -429,6 +458,36 @@ export const createAdminCatalogHandler =
 
       return new Response(null, { status: 404 });
     } catch (error) {
+      if (error instanceof SourceHealthServiceError) {
+        const mapping = {
+          invalid_request: [400, "PLAY_ADMIN_INVALID_REQUEST"],
+          not_found: [404, "PLAY_ADMIN_NOT_FOUND"],
+          stale_write: [409, "PLAY_ADMIN_STALE_WRITE"],
+          validation_failed: [422, "PLAY_ADMIN_VALIDATION_FAILED"],
+          external_service_unavailable: [
+            503,
+            "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+          ],
+        } as const;
+        const [status, code] = mapping[error.code];
+        return errorResponse(
+          requestId,
+          status,
+          code,
+          error.message,
+          error.fields,
+        );
+      }
+      if (error instanceof SourceHealthRepositoryError) {
+        return errorResponse(
+          requestId,
+          error.code === "not_found" ? 404 : 503,
+          error.code === "not_found"
+            ? "PLAY_ADMIN_NOT_FOUND"
+            : "PLAY_ADMIN_INTERNAL_ERROR",
+          error.message,
+        );
+      }
       if (error instanceof AdminCatalogServiceError) {
         const mapping = {
           invalid_request: [400, "PLAY_ADMIN_INVALID_REQUEST"],

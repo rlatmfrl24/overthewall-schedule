@@ -15,7 +15,6 @@ import type {
   OtwPlayAdminProposalDto,
   OtwPlayAdminRejectProposalRequest,
   OtwPlayAdminSongDto,
-  OtwPlayAdminSourceDto,
   OtwPlayAdminUpdateChannelRequest,
   OtwPlayAdminUpdateEntityRequest,
   OtwPlayAdminUpdatePerformanceRequest,
@@ -222,14 +221,6 @@ export interface AdminCatalogRepository {
     eventId: string,
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
-  recheckSource(
-    sourceId: string,
-    expectedVersion: number,
-    video: VerifiedYouTubeVideo,
-    actor: AdminCatalogActor,
-    eventId: string,
-    now: number,
-  ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto>>;
   rejectProposal(
     proposalId: string,
     input: OtwPlayAdminRejectProposalRequest,

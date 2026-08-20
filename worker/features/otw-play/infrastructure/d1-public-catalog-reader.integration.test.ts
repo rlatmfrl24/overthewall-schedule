@@ -21,6 +21,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0053_red_talon.sql",
   "0054_odd_storm.sql",
   "0055_tiresome_pride.sql",
+  "0056_moaning_killmonger.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {

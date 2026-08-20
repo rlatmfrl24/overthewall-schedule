@@ -1568,19 +1568,30 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - `worker/app/scheduled.ts`는 OTW Play application use case를 독립 scheduled task로
   호출한다. Cron이 관리자 HTTP handler나 raw SQL을 직접 호출하지 않는다.
 - repository는 `next_check_at <= now`인 source를 `next_check_at`, `id` 순으로 최대
-  50개 읽는다. 한 실행이 상한을 넘거나 offset pagination을 사용하지 않는다.
+  50개 claim하고 `next_check_at`을 30분 lease 시각으로 옮긴다. 한 실행이 상한을
+  넘거나 offset pagination을 사용하지 않으며 source version CAS로 겹친 Cron과 수동
+  재검사의 늦은 결과를 버린다.
 - 관리자 수동 `source 재확인`과 Cron은 같은 YouTube metadata reader, 상태 판정,
   repository command를 공유한다. public GET에서는 YouTube API를 호출하지 않는다.
 - 삭제·비공개·embed 차단·지역 제한처럼 확정 가능한 응답만 source availability를
   전이한다. quota, `429`, timeout과 upstream `5xx`는 기존 availability를 유지하고
   `next_check_at`과 구조화된 retryable error event만 갱신한다.
+- YouTube가 반환한 `uploadStatus`, `privacyStatus`, `embeddable`,
+  `regionRestriction`만 상태 근거로 사용한다. 지역 판정은 `KR` 기준이며 item이
+  누락되면 private/deleted를 추정하지 않고 `unavailable`로 보수 판정한다. 판정
+  우선순위는 deleted, private, region-blocked, embed-disabled, playable/unavailable이다.
+- 성공 뒤 다음 점검은 playable 24시간, private/unavailable 6시간,
+  embed-disabled/region-blocked 24시간, deleted 7일이다. timeout·network·upstream
+  `5xx`·invalid response는 30분, `429`는 `Retry-After` 또는 1시간, quota는 24시간
+  뒤 재시도하며 `Retry-After`는 15분~24시간으로 제한한다.
 - source 전이가 공개 대표 source 또는 fallback 결과를 바꾸면 source update,
   catalog event, catalog/read-model revision을 하나의 repository-owned D1 batch로
   반영한다. 곡·가창·감사 metadata는 삭제하지 않는다.
 - 운영 UI는 재확인 필요·재생 불가 source 수, 마지막 점검 시각, 다음 점검 시각과
-  수동 재검사 진입점을 제공한다. 새 schema는 현재 `availability_status`,
-  `last_checked_at`, `next_check_at`, event detail로 요구사항을 충족할 수 없는 경우에만
-  additive migration으로 검토한다.
+  수동 재검사 진입점을 제공한다. 최근 복구는 7일 안의 source별 최신 recovery로
+  정의하고 각 목록은 총계와 최대 50개를 반환한다. 새 table·column은 추가하지 않고
+  due source와 recovery event 조회용 additive index 및 기존 NULL `next_check_at`
+  backfill만 migration에 포함한다.
 
 ### 18.3 PR-8C — 관측과 운영 공개 switch
 

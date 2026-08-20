@@ -6,6 +6,7 @@ import {
 } from "../application/admin-catalog-service";
 import { AdminCatalogRepositoryError } from "../application/ports/admin-catalog-repository";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
+import type { SourceHealthService } from "../application/source-health-service";
 import { createAdminCatalogHandler } from "./admin-catalog-handler";
 
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
@@ -47,6 +48,84 @@ describe("OTW Play admin catalog handler", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(requireAdminUserMock).toHaveBeenCalledOnce();
     expect(readCatalog).toHaveBeenCalledOnce();
+  });
+
+  it("serves the lazy source-health dashboard with admin no-store semantics", async () => {
+    const readDashboard = vi.fn(async () => ({
+      generatedAt: 123,
+      recentRecoveryWindowDays: 7 as const,
+      listLimit: 50 as const,
+      counts: { due: 0, unplayable: 0, recentlyRecovered: 0 },
+      due: [],
+      unplayable: [],
+      recentlyRecovered: [],
+    }));
+    const handler = createAdminCatalogHandler(
+      () => ({}) as AdminCatalogService,
+      () => ({ readDashboard }) as unknown as SourceHealthService,
+    );
+    const response = await handler(
+      new Request("https://example.com/api/play/admin/source-health"),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toMatchObject({
+      data: { generatedAt: 123, counts: { due: 0 } },
+    });
+    expect(readDashboard).toHaveBeenCalledOnce();
+
+    const wrongMethod = await handler(
+      new Request("https://example.com/api/play/admin/source-health", {
+        method: "POST",
+      }),
+      env,
+    );
+    expect(wrongMethod.status).toBe(405);
+    expect(wrongMethod.headers.get("Allow")).toBe("GET");
+    expect(wrongMethod.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("returns retry-scheduled source rechecks as a successful authority response", async () => {
+    const recheckSource = vi.fn(async () => ({
+      data: {
+        id: "source-1",
+        availabilityStatus: "playable",
+        nextCheckAt: 456,
+      },
+      catalogRevision: 2,
+      check: {
+        status: "retry_scheduled",
+        currentAvailability: "playable",
+        retryCode: "timeout",
+        nextCheckAt: 456,
+      },
+    }));
+    const handler = createAdminCatalogHandler(
+      () => ({}) as AdminCatalogService,
+      () => ({ recheckSource }) as unknown as SourceHealthService,
+    );
+    const response = await handler(
+      new Request("https://example.com/api/play/admin/sources/source-1/recheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedVersion: 3,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          channelId: "channel-1",
+        }),
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toMatchObject({
+      check: { status: "retry_scheduled", retryCode: "timeout" },
+    });
+    expect(recheckSource).toHaveBeenCalledWith(
+      "source-1",
+      expect.objectContaining({ expectedVersion: 3 }),
+    );
   });
 
   it("preserves 401 and 403 guard responses without resolving a service", async () => {

@@ -568,84 +568,6 @@ describe("AdminCatalogService", () => {
     expect(repository.deletePerformance).not.toHaveBeenCalled();
   });
 
-  it("marks a missing YouTube item unavailable while preserving stored identity", async () => {
-    const recheckSource = vi.fn(async () => ({
-      data: { id: "source-1" },
-      catalogRevision: 2,
-    }));
-    const repository = {
-      readCatalog: vi.fn(async () => ({
-        revision: 1,
-        readModelRevision: 1,
-        entities: [],
-        songs: [],
-        channels: [
-          {
-            id: "channel-1",
-            provider: "youtube",
-            externalChannelId: `UC${"A".repeat(22)}`,
-            displayName: "Official",
-            channelRole: "member_music",
-            verificationStatus: "approved",
-            active: true,
-            entityIds: [],
-            version: 0,
-          },
-        ],
-        performances: [
-          {
-            sources: [
-              {
-                source: {
-                  id: "source-1",
-                  externalId: "dQw4w9WgXcQ",
-                  channelId: "channel-1",
-                  title: "Stored title",
-                  thumbnailUrl: null,
-                  durationSeconds: 180,
-                  providerPublishedAt: null,
-                },
-              },
-            ],
-          },
-        ],
-      })),
-      recheckSource,
-    } as unknown as AdminCatalogRepository;
-    const service = new AdminCatalogService(
-      repository,
-      { readChannel: vi.fn(), readVideo: vi.fn(async () => null) },
-      { record: vi.fn() },
-      () => "event-1",
-      false,
-      () => 123,
-    );
-
-    await service.recheckSource(
-      "source-1",
-      {
-        expectedVersion: 0,
-        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-        channelId: "channel-1",
-      },
-      actor,
-    );
-
-    expect(recheckSource).toHaveBeenCalledWith(
-      "source-1",
-      0,
-      expect.objectContaining({
-        videoId: "dQw4w9WgXcQ",
-        channelId: `UC${"A".repeat(22)}`,
-        title: "Stored title",
-        availabilityStatus: "unavailable",
-      }),
-      actor,
-      "event-1",
-      123,
-    );
-  });
-
   it("creates a verified performance and rejects missing or mismatched metadata", async () => {
     const createPerformance = vi.fn(async () => ({
       data: { id: "performance-1" },
@@ -737,85 +659,6 @@ describe("AdminCatalogService", () => {
         actor,
       ),
     ).rejects.toMatchObject({ code: "invalid_request" });
-  });
-
-  it("rejects remote source identity drift during recheck", async () => {
-    const externalChannelId = `UC${"A".repeat(22)}`;
-    const readVideo = vi.fn<
-      (videoId: string) => Promise<OtwPlayYouTubeVideoMetadata | null>
-    >();
-    const recheckSource = vi.fn();
-    const repository = {
-      readCatalog: vi.fn(async () => ({
-        channels: [
-          {
-            id: "channel-1",
-            externalChannelId,
-            displayName: "Official",
-          },
-        ],
-        performances: [
-          {
-            sources: [
-              {
-                source: {
-                  id: "source-1",
-                  externalId: "dQw4w9WgXcQ",
-                  channelId: "channel-1",
-                  title: "Stored title",
-                  thumbnailUrl: null,
-                  durationSeconds: 180,
-                  providerPublishedAt: null,
-                },
-              },
-            ],
-          },
-        ],
-      })),
-      recheckSource,
-    } as unknown as AdminCatalogRepository;
-    const service = new AdminCatalogService(
-      repository,
-      { readChannel: vi.fn(), readVideo },
-      { record: vi.fn() },
-      () => "event-1",
-      false,
-      () => 123,
-    );
-    const input = {
-      expectedVersion: 0,
-      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-      channelId: "channel-1",
-    };
-
-    readVideo.mockResolvedValueOnce({
-      videoId: "aaaaaaaaaaa",
-      channelId: externalChannelId,
-      channelTitle: "Official",
-      title: "Remote title",
-      thumbnailUrl: null,
-      durationSeconds: 180,
-      publishedAt: null,
-      availabilityStatus: "playable",
-    });
-    await expect(
-      service.recheckSource("source-1", input, actor),
-    ).rejects.toMatchObject({ code: "validation_failed" });
-
-    readVideo.mockResolvedValueOnce({
-      videoId: "dQw4w9WgXcQ",
-      channelId: `UC${"B".repeat(22)}`,
-      channelTitle: "Wrong channel",
-      title: "Remote title",
-      thumbnailUrl: null,
-      durationSeconds: 180,
-      publishedAt: null,
-      availabilityStatus: "playable",
-    });
-    await expect(
-      service.recheckSource("source-1", input, actor),
-    ).rejects.toMatchObject({ code: "validation_failed" });
-    expect(recheckSource).not.toHaveBeenCalled();
   });
 
   it("keeps proposal approval fail-closed until policy resolution", async () => {
@@ -998,18 +841,12 @@ describe("AdminCatalogService", () => {
     expect(approveProposal).toHaveBeenCalledOnce();
   });
 
-  it("rejects invalid recheck identity and delegates proposal rejection", async () => {
+  it("delegates proposal rejection", async () => {
     const rejectProposal = vi.fn(async () => ({
       data: { id: "proposal-1" },
       catalogRevision: 2,
     }));
-    const recheckSource = vi.fn();
     const repository = {
-      readCatalog: vi.fn(async () => ({
-        channels: [],
-        performances: [],
-      })),
-      recheckSource,
       rejectProposal,
     } as unknown as AdminCatalogRepository;
     const service = new AdminCatalogService(
@@ -1020,30 +857,6 @@ describe("AdminCatalogService", () => {
       false,
       () => 123,
     );
-
-    await expect(
-      service.recheckSource(
-        "source-1",
-        {
-          expectedVersion: 0,
-          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
-          channelId: "channel-1",
-        },
-        actor,
-      ),
-    ).rejects.toMatchObject({ code: "validation_failed" });
-    await expect(
-      service.recheckSource(
-        "source-1",
-        {
-          expectedVersion: 0,
-          youtubeUrl: "https://example.com/not-youtube",
-          channelId: "channel-1",
-        },
-        actor,
-      ),
-    ).rejects.toMatchObject({ code: "invalid_request" });
-    expect(recheckSource).not.toHaveBeenCalled();
 
     await expect(
       service.rejectProposal(

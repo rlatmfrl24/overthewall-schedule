@@ -15,6 +15,7 @@ import type {
   OtwPlayReleaseType,
 } from "@contracts/otw-play";
 import { AdminSectionHeader } from "@/app/admin";
+import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -64,15 +65,18 @@ import {
 import {
   useOtwPlayAdminCatalog,
   useOtwPlayAdminProposals,
+  useOtwPlayAdminSourceHealth,
 } from "../../queries/use-admin-catalog";
 import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
+import { SourceHealthSection } from "./source-health-section";
 
-type Section = "catalog" | "review";
+type Section = "catalog" | "review" | "source-health";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
   { value: "review", label: "제안 검수" },
+  { value: "source-health", label: "소스 상태" },
 ];
 
 const channelRoleLabels: Record<OtwPlayChannelRole, string> = {
@@ -156,6 +160,9 @@ export function OtwPlayCatalogManager() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [section, setSection] = useState<Section>("catalog");
+  const sourceHealthQuery = useOtwPlayAdminSourceHealth(
+    section === "source-health",
+  );
   const [saving, setSaving] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
@@ -170,22 +177,44 @@ export function OtwPlayCatalogManager() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminProposals("pending_review"),
       }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.adminSourceHealth(),
+      }),
       queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.all }),
     ]);
   };
   const run = async (label: string, task: () => Promise<unknown>) => {
     setSaving(label);
     try {
-      await task();
+      const result = await task();
       await refresh();
-      toast({
-        variant: "success",
-        description: `${label} 작업을 완료했습니다.`,
-      });
+      const check = (
+        result as { check?: { status?: string; retryCode?: string } } | null
+      )?.check;
+      if (check?.status === "retry_scheduled") {
+        toast({
+          variant: "info",
+          description: `외부 API 재시도 대기 상태로 저장했습니다 (${check.retryCode ?? "unknown"}).`,
+        });
+      } else {
+        toast({
+          variant: "success",
+          description: `${label.startsWith("source:") ? "source 재검사" : label} 작업을 완료했습니다.`,
+        });
+      }
       return true;
     } catch (error) {
       console.error("OTW Play admin command failed", error);
-      toast({ variant: "error", description: `${label} 작업에 실패했습니다.` });
+      toast({
+        variant: "error",
+        description:
+          error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE"
+            ? "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다."
+            : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`,
+      });
+      if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
+        await refresh();
+      }
       return false;
     } finally {
       setSaving(null);
@@ -306,6 +335,17 @@ export function OtwPlayCatalogManager() {
             setPreselectedSongId(songId);
             setRegistrationOpen(true);
           }}
+        />
+      )}
+      {section === "source-health" && (
+        <SourceHealthSection
+          data={sourceHealthQuery.data}
+          loading={sourceHealthQuery.isLoading}
+          fetching={sourceHealthQuery.isFetching}
+          error={sourceHealthQuery.error}
+          saving={saving}
+          run={run}
+          refetch={sourceHealthQuery.refetch}
         />
       )}
 

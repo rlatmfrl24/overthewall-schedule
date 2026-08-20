@@ -6,9 +6,11 @@ import {
   deleteOtwPlaySong,
   fetchOtwPlayAdminCatalog,
   fetchOtwPlayAdminProposals,
+  fetchOtwPlayAdminSourceHealth,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
+  recheckOtwPlaySource,
 } from "./admin";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
@@ -22,8 +24,13 @@ describe("OTW Play admin API", () => {
 
   it("always uses required authentication", async () => {
     await fetchOtwPlayAdminCatalog();
+    await fetchOtwPlayAdminSourceHealth();
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/catalog",
+      { auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/source-health",
       { auth: "required" },
     );
   });
@@ -119,6 +126,11 @@ describe("OTW Play admin API", () => {
       expectedVersion: 4,
     });
     await deleteOtwPlaySong("song / draft", { expectedVersion: 5 });
+    await recheckOtwPlaySource("source / one", {
+      expectedVersion: 6,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      channelId: "channel-1",
+    });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/play/admin/performances/performance%20%2F%20one/publish",
@@ -142,6 +154,19 @@ describe("OTW Play admin API", () => {
       4,
       "/api/play/admin/songs/song%20%2F%20draft",
       { method: "DELETE", json: { expectedVersion: 5 }, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/play/admin/sources/source%20%2F%20one/recheck",
+      {
+        method: "POST",
+        json: {
+          expectedVersion: 6,
+          youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+          channelId: "channel-1",
+        },
+        auth: "required",
+      },
     );
   });
 });

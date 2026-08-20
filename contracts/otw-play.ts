@@ -569,8 +569,83 @@ export interface OtwPlayAdminSourceDto {
   providerPublishedAt: number | null;
   availabilityStatus: OtwPlaySourceAvailabilityStatus;
   lastCheckedAt: number | null;
+  nextCheckAt: number | null;
   version: number;
 }
+
+export const OTW_PLAY_SOURCE_HEALTH_RETRY_CODES = [
+  "timeout",
+  "network",
+  "upstream_5xx",
+  "invalid_response",
+  "rate_limited",
+  "quota_exceeded",
+] as const;
+
+export type OtwPlaySourceHealthRetryCode =
+  (typeof OTW_PLAY_SOURCE_HEALTH_RETRY_CODES)[number];
+
+export type OtwPlaySourceHealthEventType =
+  | "source.unavailable"
+  | "source.recovered"
+  | "source.availability_changed"
+  | "source.checked"
+  | "source.retry_scheduled";
+
+export interface OtwPlayAdminSourceHealthItemDto {
+  source: OtwPlayAdminSourceDto;
+  channel: {
+    id: string;
+    externalChannelId: string;
+    displayName: string;
+  };
+  linkedPerformanceCount: number;
+  links: Array<{
+    songId: string;
+    songTitle: string;
+    performanceId: string;
+    publicationStatus: OtwPlayPublicationStatus;
+  }>;
+  lastEvent: {
+    type: OtwPlaySourceHealthEventType;
+    at: number;
+    retryCode: OtwPlaySourceHealthRetryCode | null;
+  } | null;
+  recoveredAt: number | null;
+}
+
+export interface OtwPlayAdminSourceHealthDto {
+  generatedAt: number;
+  recentRecoveryWindowDays: 7;
+  listLimit: 50;
+  counts: {
+    due: number;
+    unplayable: number;
+    recentlyRecovered: number;
+  };
+  due: OtwPlayAdminSourceHealthItemDto[];
+  unplayable: OtwPlayAdminSourceHealthItemDto[];
+  recentlyRecovered: OtwPlayAdminSourceHealthItemDto[];
+}
+
+export type OtwPlayAdminSourceRecheckResponse =
+  OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto> & {
+    check:
+      | {
+          status: "checked";
+          previousAvailability: OtwPlaySourceAvailabilityStatus;
+          currentAvailability: OtwPlaySourceAvailabilityStatus;
+          changed: boolean;
+          checkedAt: number;
+          nextCheckAt: number;
+        }
+      | {
+          status: "retry_scheduled";
+          currentAvailability: OtwPlaySourceAvailabilityStatus;
+          retryCode: OtwPlaySourceHealthRetryCode;
+          nextCheckAt: number;
+        };
+  };
 
 export interface OtwPlayAdminPerformanceDto {
   id: string;
