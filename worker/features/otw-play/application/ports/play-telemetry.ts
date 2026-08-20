@@ -16,6 +16,7 @@ export const PLAY_TELEMETRY_EVENTS = [
 
 export type PlayTelemetryEventName = (typeof PLAY_TELEMETRY_EVENTS)[number];
 export type PlayTelemetryCacheStatus = "hit" | "miss" | "bypass" | null;
+export type PlayTelemetryRecordKind = "domain" | "request";
 export type PlayTelemetryTrigger =
   | "GET"
   | "HEAD"
@@ -27,6 +28,7 @@ export type PlayTelemetryTrigger =
 
 export interface PlayTelemetryEvent {
   schemaVersion: 1;
+  recordKind: PlayTelemetryRecordKind;
   event: PlayTelemetryEventName;
   occurredAt: string;
   requestId: string;
@@ -55,11 +57,16 @@ export class NoopPlayTelemetryWriter implements PlayTelemetryWriter {
 }
 
 export const createPlayTelemetryEvent = (
-  value: Omit<PlayTelemetryEvent, "schemaVersion" | "occurredAt"> & {
+  value: Omit<
+    PlayTelemetryEvent,
+    "schemaVersion" | "occurredAt" | "recordKind"
+  > & {
     occurredAt?: string;
+    recordKind?: PlayTelemetryRecordKind;
   },
 ): PlayTelemetryEvent => ({
   schemaVersion: 1,
   occurredAt: value.occurredAt ?? new Date().toISOString(),
   ...value,
+  recordKind: value.recordKind ?? "domain",
 });

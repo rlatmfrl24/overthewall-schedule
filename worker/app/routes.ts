@@ -192,12 +192,15 @@ const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
   createPublicCatalogEtag,
   resolvePlayTelemetry,
 );
-const handleOtwPlayObservability = createPlayObservabilityHandler(
-  (env) =>
-    new CloudflarePlayObservabilityReader(
-      env.CLOUDFLARE_ACCOUNT_ID,
-      env.OTW_PLAY_ANALYTICS_READ_TOKEN,
-    ),
+const handleOtwPlayObservability = withPlayOperationsTelemetry(
+  createPlayObservabilityHandler(
+    (env) =>
+      new CloudflarePlayObservabilityReader(
+        env.CLOUDFLARE_ACCOUNT_ID,
+        env.OTW_PLAY_ANALYTICS_READ_TOKEN,
+      ),
+  ),
+  resolvePlayTelemetry,
 );
 const handleOtwPlayRelease = createReleaseHandler(
   (env) => new ReleaseService(new D1ReleaseRepository(env.otw_db)),

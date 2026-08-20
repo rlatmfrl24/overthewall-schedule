@@ -35,7 +35,7 @@ describe("OTW Play operations telemetry wrapper", () => {
     expect(JSON.stringify(written)).not.toContain("?note=");
   });
 
-  it("does not duplicate a proposal event for an idempotent replay", async () => {
+  it("counts an idempotent replay as a request without duplicating the proposal event", async () => {
     const write = vi.fn();
     const handler = withPlayOperationsTelemetry(
       async () =>
@@ -46,7 +46,59 @@ describe("OTW Play operations telemetry wrapper", () => {
       new Request("https://example.com/api/play/submissions", { method: "POST" }),
       env,
     );
-    expect(write).not.toHaveBeenCalled();
+    expect(write).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({
+      event: "play.catalog.read",
+      recordKind: "request",
+    }));
+    expect(write).not.toHaveBeenCalledWith(expect.objectContaining({
+      event: "play.proposal.submitted",
+    }));
+  });
+
+  it("records successful reads and unchanged source checks as request-only datapoints", async () => {
+    const write = vi.fn();
+    const read = withPlayOperationsTelemetry(
+      async () => Response.json({ data: [] }),
+      () => ({ write }),
+    );
+    await read(
+      new Request("https://example.com/api/play/admin/source-health"),
+      env,
+    );
+
+    const unchanged = withPlayOperationsTelemetry(
+      async () => Response.json({
+        data: { id: "source-1" },
+        catalogRevision: 1,
+        check: {
+          status: "checked",
+          previousAvailability: "playable",
+          currentAvailability: "playable",
+          changed: false,
+          checkedAt: 1,
+          nextCheckAt: 2,
+        },
+      }),
+      () => ({ write }),
+    );
+    await unchanged(
+      new Request(
+        "https://example.com/api/play/admin/sources/source-1/recheck",
+        { method: "POST" },
+      ),
+      env,
+    );
+
+    expect(write).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      event: "play.catalog.read",
+      recordKind: "request",
+    }));
+    expect(write).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      event: "play.catalog.updated",
+      recordKind: "request",
+      resourceId: "source-1",
+    }));
   });
 
   it("classifies conflicts and successful retry scheduling as critical events", async () => {

@@ -85,6 +85,7 @@ describe("scheduled OTW Play source-health entry", () => {
       recovered: 1,
       retryScheduled: 0,
       staleSkipped: 0,
+      failed: 0,
     });
     expect(fetcher).toHaveBeenCalledOnce();
     const requestUrl = new URL(String(fetcher.mock.calls[0]?.[0]));

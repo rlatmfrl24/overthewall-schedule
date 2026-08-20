@@ -59,7 +59,7 @@ export const OTW_PLAY_OBSERVABILITY_SQL = {
     0 AS d1_rows_written_known,
     sum(_sample_interval) AS event_count
   FROM otw_play_events
-  WHERE timestamp >= NOW() - INTERVAL '24' HOUR
+  WHERE timestamp >= NOW() - INTERVAL '24' HOUR AND blob11 != 'request'
   GROUP BY blob1
   FORMAT JSON`,
 } as const;

@@ -89,6 +89,9 @@ describe("Cloudflare OTW Play observability reader", () => {
       expect(init?.body).not.toContain("UNION");
       expect(JSON.stringify(init)).not.toContain("query=");
     }
+    expect(String(fetcher.mock.calls[2]?.[1]?.body)).toContain(
+      "blob11 != 'request'",
+    );
     expect(OTW_PLAY_OBSERVABILITY_SQL.summary).toContain(
       "quantileExactWeighted(0.95)",
     );

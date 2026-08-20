@@ -44,6 +44,7 @@ describe("Cloudflare OTW Play telemetry", () => {
       "",
       "request-1",
       "ray-1",
+      "domain",
     ]);
     expect(point.doubles).toEqual([200, 12, -1, -1, 1]);
   });

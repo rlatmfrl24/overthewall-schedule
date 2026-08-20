@@ -1486,7 +1486,9 @@ Analytics Engine에 기록하고, 성공한 public read의 custom log에만 requ
 결정적 10% sampling을 적용한다. mutation, source 전이, release와 `4xx/5xx`는
 sampling하지 않는다. cache hit/miss/bypass는 `play.catalog.read.cacheStatus`로만
 기록한다. Analytics 집계는 `_sample_interval`을 반영하며 요청별 지표를 D1에
-저장하지 않는다.
+저장하지 않는다. 모든 비-scheduled 요청은 정확히 한 datapoint를 남긴다. domain
+전이가 없는 성공은 기존 event 이름과 `recordKind=request`를 함께 사용하고 event
+집계에서는 제외해 요청 수·오류율 분모와 domain event count를 분리한다.
 
 token, authorization/cookie, IP, 검색 원문·query string, proposal note, 관리자 이름과
 YouTube credential은 두 backend에 전달하지 않는다. actor 신원은 기존 D1 admin
@@ -1600,7 +1602,9 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   뒤 재시도하며 `Retry-After`는 15분~24시간으로 제한한다.
 - source 전이가 공개 대표 source 또는 fallback 결과를 바꾸면 source update,
   catalog event, catalog/read-model revision을 하나의 repository-owned D1 batch로
-  반영한다. 곡·가창·감사 metadata는 삭제하지 않는다.
+  반영한다. public-impact predicate도 같은 batch에서 평가하므로 동시 publish가
+  먼저 반영되면 revision CAS와 source update가 함께 rollback된다. 곡·가창·감사
+  metadata는 삭제하지 않는다.
 - 운영 UI는 재확인 필요·재생 불가 source 수, 마지막 점검 시각, 다음 점검 시각과
   수동 재검사 진입점을 제공한다. 최근 복구는 7일 안의 source별 최신 recovery로
   정의하고 각 목록은 총계와 최대 50개를 반환한다. 새 table·column은 추가하지 않고
@@ -1613,7 +1617,8 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - HTTP/application/infrastructure 경계에서 고정된 `play.*` event를 중복 없이 기록한다.
   공통 필드는 schema version, 발생 시각, request ID, CF-Ray, route ID,
   method/trigger, status, duration, cache status, D1 rows read/written, 비민감 resource
-  ID·transition·error code다.
+  ID·transition·error code와 `domain|request` record kind다. 모든 비-scheduled 요청은
+  정확히 한 datapoint를 가지며 request-only datapoint는 domain event count에서 제외한다.
 - Workers Logs는 개별 진단, Analytics Engine binding `OTW_PLAY_ANALYTICS`와 dataset
   `otw_play_events`는 24시간 집계와 관리자 화면을 소유한다. 조회에는 비민감 Worker
   variable `CLOUDFLARE_ACCOUNT_ID`와 secret `OTW_PLAY_ANALYTICS_READ_TOKEN`을

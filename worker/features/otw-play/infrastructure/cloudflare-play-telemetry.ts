@@ -19,6 +19,7 @@ const stableHash = (value: string) => {
 
 export const shouldWritePlayCustomLog = (event: PlayTelemetryEvent) =>
   event.event !== "play.catalog.read" ||
+  !event.routeId.startsWith("otw-play.public.") ||
   event.status >= 400 ||
   stableHash(event.requestId) % 10 === 0;
 
@@ -35,6 +36,7 @@ export const toPlayAnalyticsDataPoint = (event: PlayTelemetryEvent) => ({
     safeSlot(event.transition),
     safeSlot(event.requestId),
     safeSlot(event.cfRay),
+    event.recordKind,
   ],
   doubles: [
     event.status,
@@ -62,6 +64,7 @@ export class CloudflarePlayTelemetryWriter implements PlayTelemetryWriter {
     if (!shouldWritePlayCustomLog(event)) return;
     const log = {
       schemaVersion: event.schemaVersion,
+      recordKind: event.recordKind,
       event: event.event,
       occurredAt: event.occurredAt,
       requestId: event.requestId,

@@ -48,9 +48,10 @@ describe("OTW Play release handler", () => {
       },
       recentChanges: [],
     }));
+    const write = vi.fn();
     const handler = createReleaseHandler(
       () => ({ read }) as unknown as ReleaseService,
-      () => ({ write: vi.fn() }),
+      () => ({ write }),
     );
     const response = await handler(
       new Request("https://example.com/api/play/admin/release"),
@@ -62,6 +63,12 @@ describe("OTW Play release handler", () => {
       data: { publicReadEnabled: false },
       recentChanges: [],
     });
+    expect(write).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({
+      event: "play.catalog.read",
+      recordKind: "request",
+      routeId: "otw-play.admin.release",
+    }));
   });
 
   it("applies PATCH with the authenticated actor and emits safe release telemetry", async () => {

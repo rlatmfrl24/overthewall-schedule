@@ -50,12 +50,14 @@ export const createReleaseHandler = (
       errorCode?: string;
       rowsRead?: number | null;
       rowsWritten?: number | null;
+      recordKind?: "domain" | "request";
     } = {},
   ) => {
     try {
       resolveTelemetry(env).write(
         createPlayTelemetryEvent({
           event,
+          recordKind: options.recordKind,
           requestId,
           cfRay: request.headers.get("CF-Ray")?.trim() || null,
           routeId: "otw-play.admin.release",
@@ -113,7 +115,9 @@ export const createReleaseHandler = (
   const service = resolveService(env);
   try {
     if (request.method === "GET") {
-      return responseJson(await service.read());
+      const response = responseJson(await service.read());
+      record("play.catalog.read", response.status, { recordKind: "request" });
+      return response;
     }
     let parsed: ReturnType<typeof parseReleaseRequest>;
     try {

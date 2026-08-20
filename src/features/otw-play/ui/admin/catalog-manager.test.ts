@@ -316,6 +316,22 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
   });
 
+  it("keeps the operations and rollback path reachable when catalog loading fails", async () => {
+    fetchCatalogMock.mockRejectedValueOnce(new Error("catalog unavailable"));
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "관리자 카탈로그를 불러오지 못했습니다",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "운영·공개 권위" }),
+    ).toBeTruthy();
+    expect(fetchReleaseMock).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
+  });
+
   it("refreshes release, observability, and source health after an audited switch", async () => {
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
     await screen.findByText("OTW Play 카탈로그");
@@ -699,8 +715,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("button", { name: "고급 관리" }));
+    fireEvent.click(await screen.findByRole("button", { name: "고급 관리" }));
     fireEvent.click(screen.getByRole("button", { name: "외부 인물 수정" }));
     const nameInput = screen.getByLabelText(
       "외부 identity 표시명",
@@ -724,8 +739,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("button", { name: "고급 관리" }));
+    fireEvent.click(await screen.findByRole("button", { name: "고급 관리" }));
 
     expect(screen.getByText("채널 수동 등록")).toBeTruthy();
     expect(screen.getByText(/예외 보정용/)).toBeTruthy();
@@ -1200,7 +1214,7 @@ describe("OtwPlayCatalogManager", () => {
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),
     });
-    await screen.findByText("OTW Play 카탈로그");
+    await screen.findByRole("button", { name: "새 영상 등록" });
     expect(screen.getByRole("button", { name: "카탈로그" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "제안 검수" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "곡" })).toBeNull();

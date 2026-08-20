@@ -1047,7 +1047,8 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
 4. quota·`429`·timeout·upstream `5xx`에서는 기존 availability를 보존하고 backoff된
    `next_check_at`과 retryable event만 기록한다.
 5. 공개 source 선택이 바뀌는 경우 source, event, catalog/read-model revision을
-   같은 D1 batch로 갱신한다.
+   같은 D1 batch로 갱신한다. public-impact predicate도 그 batch 안에서 다시 평가해
+   동시 publish가 끼어들면 source 변경 전체를 stale rollback한다.
 6. 관리자 작업면에 재확인 필요·재생 불가·최근 복구 목록과 수동 재검사를 제공한다.
 7. `music_media_sources(next_check_at, id)`와
    `music_catalog_events(event_type, created_at DESC, id)` index를 추가하고 기존 NULL
@@ -1060,7 +1061,9 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
 - retry interval은 quota 예산과 source 상태별 정책 상수로 정의하고 테스트한다.
   transient 실패 횟수만으로 영구 unavailable을 만들지 않는다.
 - 한 source 실패가 나머지 source 점검을 중단하지 않게 하되, D1·credential처럼
-  공유 dependency 실패는 명확한 task 실패로 관측한다.
+  공유 dependency 실패는 명확한 task 실패로 관측한다. source 단위 저장 실패는
+  `failed` count와 안전한 `play.request.failed` telemetry를 남기고 다음 source로
+  진행한다.
 - provider 판정은 `KR` 기준의 명시적 YouTube signal만 사용한다. 반환 item 누락은
   `unavailable`이며 private/deleted를 추정하지 않는다. 다음 점검은 playable 24시간,
   private/unavailable 6시간, embed-disabled/region-blocked 24시간, deleted 7일이다.
@@ -1097,7 +1100,9 @@ public read와 navigation을 순서·감사·rollback이 보장된 경로로 제
 #### 주요 작업
 
 1. 설계된 `play.*` structured event와 공통 field를 HTTP/application/repository
-   경계에서 중복 없이 기록한다.
+   경계에서 중복 없이 기록한다. 모든 비-scheduled 요청은 정확히 한 datapoint를
+   남기며, domain 전이가 없는 성공은 `recordKind=request`로 표시해 요청 분모에는
+   포함하고 domain event count에서는 제외한다.
 2. Workers Logs에는 개별 진단을, Analytics Engine binding `OTW_PLAY_ANALYTICS`와
    dataset `otw_play_events`에는 모든 datapoint를 기록한다. 성공 public read custom
    log만 request ID 기반 결정적 10% sampling하고 mutation, source 전이, release와
@@ -1117,8 +1122,8 @@ public read와 navigation을 순서·감사·rollback이 보장된 경로로 제
    하나의 D1 batch로 처리한다. navigation-on/public-off와 no-op은 `400`, stale expected
    state는 `409`, revision mismatch 공개 활성화는 `422`로 거부한다.
 7. 관리자 UI에서 public read와 navigation을 별도 confirm 단계로 제공하고 성공·409
-   뒤 release/config를 다시 읽는다. observability partial 상태는 release control을
-   비활성화하지 않는다.
+   뒤 release/config를 다시 읽는다. observability partial 상태나 전체 catalog 조회
+   실패는 release control을 비활성화하거나 rollback 진입을 막지 않는다.
 
 #### 권장 사항
 

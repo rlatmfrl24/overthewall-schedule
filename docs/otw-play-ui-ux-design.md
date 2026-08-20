@@ -702,6 +702,9 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   비용을 summary로, route별 값은 desktop table과 mobile card로 표시한다.
 - Analytics가 미설정이거나 일시 장애여도 `미설정`·`집계 일시 중단` partial 상태와
   안전한 안내만 표시한다. 이 상태는 release 조회와 control을 차단하지 않는다.
+- 전체 관리자 catalog 조회가 실패해도 section navigation과 `운영·공개`는 유지한다.
+  release endpoint가 정상인 동안 공개 상태 readback과 rollback control은 계속
+  접근 가능해야 하며 catalog 오류는 catalog·제안 작업면에만 국한한다.
 - 관리자 UI는 `공개 API`, `내비게이션 노출`을 별도 단계로 표시한다. 내비게이션은
   공개 API가 활성이고 직접 URL 검증이 끝난 뒤에만 켤 수 있다.
 - flag 변경 전 현재 값, 영향 범위, rollback 동작을 confirm하고 성공 뒤 서버가

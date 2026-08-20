@@ -13,6 +13,7 @@ type SelectedTelemetry = {
   event: PlayTelemetryEventName;
   transition?: string;
   errorCode?: string;
+  recordKind?: "domain" | "request";
 };
 
 const decodeResourceId = (pathname: string) => {
@@ -57,7 +58,7 @@ const sourceTransitionEvent = (
     };
   }
   if (response.check?.status !== "checked" || !response.check.changed) {
-    return null;
+    return { event: "play.catalog.updated", recordKind: "request" };
   }
   const previous = response.check.previousAvailability;
   const current = response.check.currentAvailability;
@@ -67,17 +68,22 @@ const sourceTransitionEvent = (
   if (previous !== "playable" && current === "playable") {
     return { event: "play.source.recovered", transition: `${previous}:${current}` };
   }
-  return null;
+  return {
+    event: "play.catalog.updated",
+    transition: `${previous}:${current}`,
+  };
 };
 
 const successEvent = async (
   request: Request,
   response: Response,
-): Promise<{ event: PlayTelemetryEventName; transition?: string } | null> => {
+): Promise<SelectedTelemetry> => {
   const { pathname } = new URL(request.url);
   if (request.method === "POST" && pathname === "/api/play/submissions") {
     const body = await readSafeResponse(response);
-    if (body?.idempotentReplay === true) return null;
+    if (body?.idempotentReplay === true) {
+      return { event: "play.catalog.read", recordKind: "request" };
+    }
     return { event: "play.proposal.submitted" };
   }
   if (/\/submissions\/[^/]+\/approve$/u.test(pathname)) {
@@ -96,15 +102,24 @@ const successEvent = async (
     };
   }
   if (/\/sources\/[^/]+\/recheck$/u.test(pathname)) {
-    return sourceTransitionEvent(await readSafeResponse(response));
+    return sourceTransitionEvent(await readSafeResponse(response)) ?? {
+      event: "play.catalog.updated",
+      recordKind: "request",
+    };
   }
   if (
     pathname.startsWith("/api/play/admin/") &&
-    ["POST", "PUT", "DELETE"].includes(request.method)
+    ["POST", "PUT", "PATCH", "DELETE"].includes(request.method)
   ) {
     return { event: "play.catalog.updated" };
   }
-  return null;
+  return {
+    event:
+      request.method === "GET" || request.method === "HEAD"
+        ? "play.catalog.read"
+        : "play.catalog.updated",
+    recordKind: "request",
+  };
 };
 
 const failureEvent = async (
@@ -141,15 +156,15 @@ export const withPlayOperationsTelemetry = (
   const cfRay = request.headers.get("CF-Ray")?.trim() || null;
   try {
     const response = await handler(request, env);
-    const selected: SelectedTelemetry | null =
+    const selected: SelectedTelemetry =
       response.status >= 400
         ? await failureEvent(request, response)
         : await successEvent(request, response);
-    if (selected) {
-      try {
-        resolveTelemetry(env).write(
-          createPlayTelemetryEvent({
+    try {
+      resolveTelemetry(env).write(
+        createPlayTelemetryEvent({
             event: selected.event,
+            recordKind: selected.recordKind,
             requestId,
             cfRay,
             routeId: routeId(new URL(request.url).pathname),
@@ -167,11 +182,10 @@ export const withPlayOperationsTelemetry = (
               ? { transition: selected.transition }
               : {}),
             ...(selected.errorCode ? { errorCode: selected.errorCode } : {}),
-          }),
-        );
-      } catch {
-        // Telemetry cannot replace an authoritative application response.
-      }
+        }),
+      );
+    } catch {
+      // Telemetry cannot replace an authoritative application response.
     }
     return response;
   } catch (error) {

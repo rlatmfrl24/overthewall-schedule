@@ -14,9 +14,11 @@ import {
 } from "../domain/source-health-policy";
 import type {
   SourceHealthActor,
+  SourceHealthMutationResult,
   SourceHealthRepository,
   SourceHealthTarget,
 } from "./ports/source-health-repository";
+import { SourceHealthRepositoryError } from "./ports/source-health-repository";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeBatchMetadataReader,
@@ -58,6 +60,7 @@ export interface ScheduledSourceHealthResult {
   recovered: number;
   retryScheduled: number;
   staleSkipped: number;
+  failed: number;
 }
 
 const isRetryCode = (value: string): value is OtwPlaySourceHealthRetryCode =>
@@ -73,6 +76,9 @@ const validateObservationIdentity = (
   (!observation.video ||
     (observation.video.videoId === target.externalId &&
       observation.video.channelId === target.externalChannelId));
+
+const isSharedRepositoryFailure = (error: unknown) =>
+  error instanceof SourceHealthRepositoryError && error.code === "unavailable";
 
 export class SourceHealthService {
   private readonly repository: SourceHealthRepository;
@@ -255,6 +261,7 @@ export class SourceHealthService {
       recovered: 0,
       retryScheduled: 0,
       staleSkipped: 0,
+      failed: 0,
     };
     if (targets.length === 0) return result;
     const actor = { kind: "system" } as const;
@@ -281,7 +288,21 @@ export class SourceHealthService {
         throw error;
       }
       for (const target of targets) {
-        const mutation = await this.scheduleRetry(target, actor, error, now);
+        let mutation: SourceHealthMutationResult;
+        try {
+          mutation = await this.scheduleRetry(target, actor, error, now);
+        } catch (sourceError) {
+          if (isSharedRepositoryFailure(sourceError)) throw sourceError;
+          result.failed += 1;
+          this.recordScheduledTelemetry(
+            "play.request.failed",
+            target.id,
+            this.clock(),
+            startedAt,
+            { errorCode: "source_health_source_failed", status: 500 },
+          );
+          continue;
+        }
         if (mutation.kind === "stale") {
           result.staleSkipped += 1;
           this.recordScheduledTelemetry(
@@ -313,14 +334,28 @@ export class SourceHealthService {
         result.staleSkipped += 1;
         continue;
       }
-      const mutation = await this.repository.applyObservation({
-        target,
-        observation,
-        actor,
-        eventId: this.createId(),
-        checkedAt: now,
-        nextCheckAt: getNextSourceCheckAt(observation.availabilityStatus, now),
-      });
+      let mutation: SourceHealthMutationResult;
+      try {
+        mutation = await this.repository.applyObservation({
+          target,
+          observation,
+          actor,
+          eventId: this.createId(),
+          checkedAt: now,
+          nextCheckAt: getNextSourceCheckAt(observation.availabilityStatus, now),
+        });
+      } catch (sourceError) {
+        if (isSharedRepositoryFailure(sourceError)) throw sourceError;
+        result.failed += 1;
+        this.recordScheduledTelemetry(
+          "play.request.failed",
+          target.id,
+          this.clock(),
+          startedAt,
+          { errorCode: "source_health_source_failed", status: 500 },
+        );
+        continue;
+      }
       if (mutation.kind === "stale") {
         result.staleSkipped += 1;
         this.recordScheduledTelemetry(

@@ -248,30 +248,10 @@ export function OtwPlayCatalogManager() {
     }
   };
 
-  if (catalogQuery.isLoading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-7 w-7 animate-spin" />
-      </div>
-    );
-  }
-  if (!catalog) {
-    return (
-      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-sm">
-        OTW Play 관리자 카탈로그를 불러오지 못했습니다.
-        <Button
-          className="ml-3"
-          variant="outline"
-          size="sm"
-          onClick={() => void catalogQuery.refetch()}
-        >
-          다시 시도
-        </Button>
-      </div>
-    );
-  }
-
-  const readModelReady = catalog.revision === catalog.readModelRevision;
+  const catalogSection = section === "catalog" || section === "review";
+  const readModelReady = catalog
+    ? catalog.revision === catalog.readModelRevision
+    : false;
   const effectiveSaving = readModelReady ? saving : "read-model-unavailable";
 
   return (
@@ -279,21 +259,25 @@ export function OtwPlayCatalogManager() {
       <AdminSectionHeader
         title="OTW Play 카탈로그"
         description="YouTube 영상 하나를 확인해 곡, 가창, 참여자와 공식 채널을 한 흐름에서 등록합니다."
-        count={catalog.songs.length}
+        count={catalog?.songs.length}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                setPreselectedSongId(null);
-                setRegistrationOpen(true);
-              }}
-            >
-              <Video className="h-4 w-4" /> 새 영상 등록
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setAdvancedOpen(true)}>
-              <Settings2 className="h-4 w-4" /> 고급 관리
-            </Button>
+            {catalog && (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setPreselectedSongId(null);
+                    setRegistrationOpen(true);
+                  }}
+                >
+                  <Video className="h-4 w-4" /> 새 영상 등록
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setAdvancedOpen(true)}>
+                  <Settings2 className="h-4 w-4" /> 고급 관리
+                </Button>
+              </>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -306,10 +290,12 @@ export function OtwPlayCatalogManager() {
           </div>
         }
       />
-      <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-        <Badge variant="secondary">곡 {catalog.songs.length}</Badge>
-        <Badge variant="secondary">가창 {catalog.performances.length}</Badge>
-      </div>
+      {catalog && (
+        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
+          <Badge variant="secondary">곡 {catalog.songs.length}</Badge>
+          <Badge variant="secondary">가창 {catalog.performances.length}</Badge>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
         {SECTIONS.map((item) => (
           <Button
@@ -321,20 +307,18 @@ export function OtwPlayCatalogManager() {
             {item.label}
           </Button>
         ))}
-        <div className="ml-auto flex gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline">catalog r{catalog.revision}</Badge>
-          <Badge
-            variant={
-              catalog.revision === catalog.readModelRevision
-                ? "secondary"
-                : "destructive"
-            }
-          >
-            read model r{catalog.readModelRevision}
-          </Badge>
-        </div>
+        {catalog && (
+          <div className="ml-auto flex gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">catalog r{catalog.revision}</Badge>
+            <Badge
+              variant={readModelReady ? "secondary" : "destructive"}
+            >
+              read model r{catalog.readModelRevision}
+            </Badge>
+          </div>
+        )}
       </div>
-      {!readModelReady && (
+      {catalog && !readModelReady && (
         <div
           role="alert"
           className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
@@ -344,7 +328,23 @@ export function OtwPlayCatalogManager() {
         </div>
       )}
 
-      {section === "review" && (
+      {catalogSection && catalogQuery.isLoading && (
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-7 w-7 animate-spin" />
+        </div>
+      )}
+      {catalogSection && !catalogQuery.isLoading && !catalog && (
+        <div
+          role="alert"
+          className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-sm"
+        >
+          OTW Play 관리자 카탈로그를 불러오지 못했습니다. 카탈로그 작업은
+          복구 후 다시 시도해 주세요. 운영·공개와 소스 상태는 위 메뉴에서
+          독립적으로 확인할 수 있습니다.
+        </div>
+      )}
+
+      {section === "review" && catalog && (
         <ProposalSection
           catalog={catalog}
           proposals={proposalsQuery.data ?? []}
@@ -353,7 +353,7 @@ export function OtwPlayCatalogManager() {
           run={run}
         />
       )}
-      {section === "catalog" && (
+      {section === "catalog" && catalog && (
         <WorkflowCatalog
           catalog={catalog}
           saving={effectiveSaving}
@@ -391,37 +391,41 @@ export function OtwPlayCatalogManager() {
         />
       )}
 
-      <CatalogEntryDialog
-        open={registrationOpen}
-        onOpenChange={setRegistrationOpen}
-        catalog={catalog}
-        preselectedSongId={preselectedSongId}
-        onSaved={refresh}
-      />
-      <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
-          <div className="border-b bg-background p-6 pr-12">
-            <SheetTitle className="text-lg">고급 관리</SheetTitle>
-            <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
-              일상 등록에서 자동 처리하지 못한 채널 상태와 외부 인물·그룹만
-              수정합니다. 현재 멤버 정보는 members가 권위입니다.
-            </SheetDescription>
-          </div>
-          <div className="space-y-6 p-4 pb-10 sm:p-6">
-            <ChannelSection
-              items={catalog.channels}
-              entities={catalog.entities}
-              saving={effectiveSaving}
-              run={run}
-            />
-            <EntitySection
-              items={catalog.entities.filter((item) => item.memberUid === null)}
-              saving={effectiveSaving}
-              run={run}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
+      {catalog && (
+        <>
+          <CatalogEntryDialog
+            open={registrationOpen}
+            onOpenChange={setRegistrationOpen}
+            catalog={catalog}
+            preselectedSongId={preselectedSongId}
+            onSaved={refresh}
+          />
+          <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
+            <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
+              <div className="border-b bg-background p-6 pr-12">
+                <SheetTitle className="text-lg">고급 관리</SheetTitle>
+                <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
+                  일상 등록에서 자동 처리하지 못한 채널 상태와 외부 인물·그룹만
+                  수정합니다. 현재 멤버 정보는 members가 권위입니다.
+                </SheetDescription>
+              </div>
+              <div className="space-y-6 p-4 pb-10 sm:p-6">
+                <ChannelSection
+                  items={catalog.channels}
+                  entities={catalog.entities}
+                  saving={effectiveSaving}
+                  run={run}
+                />
+                <EntitySection
+                  items={catalog.entities.filter((item) => item.memberUid === null)}
+                  saving={effectiveSaving}
+                  run={run}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
     </div>
   );
 }
