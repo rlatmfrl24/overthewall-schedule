@@ -627,6 +627,58 @@ describe("D1PublicCatalogReader", () => {
     });
   });
 
+  it("projects bounded canonical SEO slugs and playable representative metadata", async () => {
+    await seedVisibilityFixture();
+    const reader = new D1PublicCatalogReader(db);
+
+    await expect(reader.listPublishedSeoSongSlugs()).resolves.toEqual([
+      "song-no-source-slug",
+      "song-visible-slug",
+    ]);
+    expect(reader.getLastReadDiagnostics()).toMatchObject({
+      statements: 1,
+      bindParameters: 0,
+      usesOffset: false,
+    });
+
+    await expect(
+      reader.readPublishedSongSeoBySlug("song-visible-slug"),
+    ).resolves.toEqual({
+      slug: "song-visible-slug",
+      title: "Visible Song",
+      originalArtistNames: ["Original Artist"],
+      mainVocalNames: ["Current A", "Former B", "OTW Unit"],
+      thumbnailUrl: "https://i.example/fallback.jpg",
+    });
+    await expect(
+      reader.readPublishedSongSeoBySlug("song-no-source-slug"),
+    ).resolves.toMatchObject({
+      slug: "song-no-source-slug",
+      thumbnailUrl: null,
+    });
+    for (const slug of [
+      "song-draft-slug",
+      "song-withdrawn-slug",
+      "song-archived-slug",
+      "song-merged-slug",
+      "song-broadcast-slug",
+    ]) {
+      await expect(reader.readPublishedSongSeoBySlug(slug)).resolves.toBeNull();
+    }
+
+    await db
+      .prepare(
+        "UPDATE music_media_sources SET availability_status = 'unavailable' WHERE id = 'source-fallback'",
+      )
+      .run();
+    await expect(
+      reader.readPublishedSongSeoBySlug("song-visible-slug"),
+    ).resolves.toMatchObject({
+      slug: "song-visible-slug",
+      thumbnailUrl: null,
+    });
+  });
+
   it("chooses the lowest performance ID when public release timestamps tie", async () => {
     await db.batch([
       ...insertSong("song-tie", "Tie Song"),

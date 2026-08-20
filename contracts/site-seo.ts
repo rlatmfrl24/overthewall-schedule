@@ -134,6 +134,88 @@ export const buildFeedSiteSeo = (isPublic: boolean): SiteSeoMetadata =>
 const normalizeDescription = (value: string | null | undefined): string =>
   [...(value ?? "").replace(/\s+/g, " ").trim()].slice(0, 155).join("");
 
+const PLAY_DESCRIPTION =
+  "오버더월 오리지널곡과 공식 커버곡을 탐색하고 공식 YouTube 영상으로 연속 재생하세요.";
+
+export interface PlaySongSeoProjection {
+  slug: string;
+  title: string;
+  originalArtistNames: readonly string[];
+  mainVocalNames: readonly string[];
+  thumbnailUrl: string | null;
+}
+
+export const buildPlayHomeSiteSeo = (robots: SiteRobots): SiteSeoMetadata =>
+  define({
+    path: "/play",
+    title: "OTW Play | 오버더월",
+    description: PLAY_DESCRIPTION,
+    robots,
+    sitemap: robots === "index,follow",
+    ogType: "website",
+  });
+
+export const buildPlaySongsSiteSeo = (robots: SiteRobots): SiteSeoMetadata =>
+  define({
+    path: "/play/songs",
+    title: "곡 검색 | OTW Play",
+    description: PLAY_DESCRIPTION,
+    robots,
+    sitemap: false,
+    ogType: "website",
+  });
+
+export const buildPlaySongSiteSeo = (
+  song: PlaySongSeoProjection,
+  robots: SiteRobots,
+): SiteSeoMetadata => {
+  const artist = song.originalArtistNames.join(", ");
+  const vocals = song.mainVocalNames.join(", ");
+  const description = normalizeDescription(
+    [
+      artist ? `원곡 가수 ${artist}` : null,
+      `곡 ${song.title}`,
+      vocals ? `메인 보컬 ${vocals}` : null,
+      "공식 YouTube 영상으로 감상하세요.",
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join(" · "),
+  );
+  return define({
+    path: `/play/songs/${encodeURIComponent(song.slug)}`,
+    title: `${song.title} | OTW Play`,
+    description,
+    robots,
+    sitemap: robots === "index,follow",
+    ogType: "website",
+    ...(song.thumbnailUrl
+      ? { image: new URL(song.thumbnailUrl, SITE_ORIGIN).toString() }
+      : {}),
+  });
+};
+
+export const buildPlaySongPlaceholderSeo = (
+  path: string,
+): SiteSeoMetadata =>
+  define({
+    path,
+    title: "OTW Play | 오버더월",
+    description: PLAY_DESCRIPTION,
+    robots: "noindex,nofollow",
+    sitemap: false,
+    ogType: "website",
+  });
+
+export const buildPlayPrivateSiteSeo = (path: string): SiteSeoMetadata =>
+  define({
+    path,
+    title: "OTW Play | 오버더월",
+    description: "OTW Play 회원 전용 화면입니다.",
+    robots: "noindex,nofollow",
+    sitemap: false,
+    ogType: "website",
+  });
+
 export const buildProfileSiteSeo = (
   member: Pick<MemberProfileDto, "code" | "name" | "introduction" | "profileImages">,
 ): SiteSeoMetadata => {
@@ -198,14 +280,17 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
     });
   }
   if (path === "/play" || path.startsWith("/play/")) {
-    return define({
-      path,
-      title: "OTW Play | 오버더월",
-      description: "오버더월 오리지널곡과 공식 커버 카탈로그 관리자 preview입니다.",
-      robots: "noindex,nofollow",
-      sitemap: false,
-      ogType: "website",
-    });
+    if (path === "/play") return buildPlayHomeSiteSeo("noindex,nofollow");
+    if (path === "/play/songs") {
+      return buildPlaySongsSiteSeo("noindex,nofollow");
+    }
+    if (path === "/play/submit" || path === "/play/submissions") {
+      return buildPlayPrivateSiteSeo(path);
+    }
+    if (/^\/play\/songs\/[^/]+$/.test(path)) {
+      return buildPlaySongPlaceholderSeo(path);
+    }
+    return buildNotFoundSiteSeo(path);
   }
   if (/^\/profile\/[^/]+$/.test(path)) return buildProfilePlaceholderSeo(path);
   return buildNotFoundSiteSeo(path);

@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
+상태: PR-8 운영 공개 설계 기준선
 
-기준일: 2026-08-19
+기준일: 2026-08-20
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -1524,8 +1524,88 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - Smart Placement: https://developers.cloudflare.com/workers/configuration/placement/
 - YouTube IFrame Player: https://developers.google.com/youtube/iframe_api_reference
 - YouTube required functionality: https://developers.google.com/youtube/terms/required-minimum-functionality
-## PR-7.2 곡 분류와 player 지속성
+
+## 17. 완료된 PR-7.2 곡 분류와 player 지속성
 
 DEC-049에 따라 `music_song_tags(song_id, tag_key, display_name)`를 곡 소유 child로 둔다. `tag_key`는 NFKC 기반 검색 정규화 결과이며 `(song_id, tag_key)`로 중복을 막는다. 관리자 song/create-entry command는 최대 10개·표시명 40자의 태그를 같은 D1 batch에 저장하고 public/admin read model은 `tags`를 반환한다. 태그 vocabulary는 DB enum으로 고정하지 않는다.
 
 `/play`의 발견 index와 곡 검색·상세는 같은 pathless catalog layout 아래에 두어 `OtwPlayPlayerProvider`와 단일 iframe host가 탭 이동으로 재마운트되지 않게 한다. member submission layout은 계속 분리되어 public catalog/player를 시작하지 않는다.
+
+위 설계는 migration `0054_*`, public/admin DTO와 UI에 반영되었고 PR-7의
+회원 제안·승인 흐름 및 후속 안정화와 함께 완료되었다. PR-8은 이 구조를 다시
+설계하지 않고 운영 공개에 필요한 외부 진입·source freshness·운영 제어만 추가한다.
+
+## 18. PR-8 운영 공개 설계 경계
+
+PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR-8B, PR-8C로
+나눈다. 세 slice는 기존 public/member/admin DTO와 상태 축을 유지하며, 구현만
+병합되었다는 이유로 `public_read_enabled` 또는 `navigation_visible`을 변경하지 않는다.
+
+### 18.1 PR-8A — 직접 경로와 SEO
+
+- `/play`와 `/play/songs/{slug}` 직접 요청은 Worker SEO/asset 경계를 통해 앱 HTML과
+  route별 metadata를 반환한다. client-side navigation 성공을 직접 요청 검증으로
+  대체하지 않는다.
+- metadata와 sitemap의 동적 곡 목록은 OTW Play public reader를 사용하며
+  canonical `published` song만 읽는다. proposal, draft, rejected, withdrawn과 관리자
+  preview 결과를 SEO projection에 전달하지 않는다.
+- public read가 비활성인 동안 Play HTML은 `noindex,nofollow`이며 sitemap에서
+  제외한다. public read가 활성이고 navigation이 숨겨진 canary에서는 `/play`,
+  `/play/songs`, published song을 `noindex,follow`로 제공하되 sitemap에서 제외한다.
+  `navigation_visible=1`에서만 `/play`와 published song이 `index,follow`와 sitemap
+  대상이 된다. `/play/songs`는 모든 공개 상태에서 `noindex,follow`이며 sitemap에
+  포함하지 않는다.
+- sitemap용 OTW Play projection은 canonical published slug만 안정 정렬해 읽고
+  `lastmod`를 추가하지 않는다.
+- unknown·withdrawn slug는 앱 shell `200`으로 숨기지 않고 서버 직접 요청에서
+  `404`를 반환한다. member route와 `/admin/otw-play`는 계속 `noindex`다.
+- 권장 구현은 `contracts/site-seo.ts`의 정적 placeholder를 published song을 읽는
+  SEO application port로 교체하되, 기존 feed/profile SEO 실패 격리와 `ASSETS`
+  fallback 계약을 보존하는 것이다.
+
+### 18.2 PR-8B — source health와 예약 재검사
+
+- `worker/app/scheduled.ts`는 OTW Play application use case를 독립 scheduled task로
+  호출한다. Cron이 관리자 HTTP handler나 raw SQL을 직접 호출하지 않는다.
+- repository는 `next_check_at <= now`인 source를 `next_check_at`, `id` 순으로 최대
+  50개 읽는다. 한 실행이 상한을 넘거나 offset pagination을 사용하지 않는다.
+- 관리자 수동 `source 재확인`과 Cron은 같은 YouTube metadata reader, 상태 판정,
+  repository command를 공유한다. public GET에서는 YouTube API를 호출하지 않는다.
+- 삭제·비공개·embed 차단·지역 제한처럼 확정 가능한 응답만 source availability를
+  전이한다. quota, `429`, timeout과 upstream `5xx`는 기존 availability를 유지하고
+  `next_check_at`과 구조화된 retryable error event만 갱신한다.
+- source 전이가 공개 대표 source 또는 fallback 결과를 바꾸면 source update,
+  catalog event, catalog/read-model revision을 하나의 repository-owned D1 batch로
+  반영한다. 곡·가창·감사 metadata는 삭제하지 않는다.
+- 운영 UI는 재확인 필요·재생 불가 source 수, 마지막 점검 시각, 다음 점검 시각과
+  수동 재검사 진입점을 제공한다. 새 schema는 현재 `availability_status`,
+  `last_checked_at`, `next_check_at`, event detail로 요구사항을 충족할 수 없는 경우에만
+  additive migration으로 검토한다.
+
+### 18.3 PR-8C — 관측과 운영 공개 switch
+
+- HTTP/application/infrastructure 경계에서 `play.catalog.read`, cache hit/miss,
+  proposal submitted/approved/rejected, source unavailable/recovered,
+  YouTube verify failure와 concurrent conflict를 구조화 event로 기록한다.
+- 공통 필드는 `requestId`, `cfRay`, route ID, status, duration, cache status,
+  D1 rows read/written과 비민감 resource ID다. token, note, 검색 원문과 YouTube API
+  credential은 기록하지 않는다.
+- 운영 switch는 `requireAdminUser`, `no-store`, 명시적 request/response DTO,
+  conditional update와 전역 admin audit을 갖는 OTW Play 관리자 command로 소유한다.
+  권장 계약은 `PATCH /api/play/admin/release` 하나에서 기대한 현재 flag와 목표 flag를
+  함께 받아 stale 변경을 `409`로 거부하고 authoritative config를 반환하는 방식이다.
+- `navigation_visible=1`은 `public_read_enabled=1`일 때만 허용한다. public read를
+  끄는 command는 navigation도 같은 D1 write에서 끄며, navigation만 먼저 켜는
+  상태는 DB와 application 모두 거부한다.
+- 관리자 UI는 두 flag를 별도 단계로 표시하고 public read 활성화 전 직접 URL
+  검증, rollback 영향과 navigation 노출을 confirm한다. PR-8C 병합·배포 시 기본
+  동작은 flag `0/0` 유지다.
+
+### 18.4 의존성과 권장 전달 순서
+
+1. PR-8A로 익명 진입·canonical·sitemap 경계를 먼저 고정한다.
+2. PR-8B와 PR-8C는 PR-8A contract 뒤에서 독립 PR로 진행할 수 있다.
+3. 세 PR의 실제 흐름과 운영 readback이 모두 통과한 뒤 초기 catalog 범위를
+   승인하고 `public_read_enabled=1`을 적용한다.
+4. 익명 검색·상세·player와 회원 제안·관리자 승인을 다시 검증한 뒤 마지막으로
+   `navigation_visible=1`을 적용한다.

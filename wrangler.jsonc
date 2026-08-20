@@ -16,6 +16,8 @@
       "/r2-assets/*",
       "/feed",
       "/feed/",
+      "/play",
+      "/play/*",
       "/profile/*",
       "!/profile/*.webp",
       "!/profile/signatures/*",

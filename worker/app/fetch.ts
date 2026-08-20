@@ -8,12 +8,14 @@ import {
   type SiteSeoReader,
 } from "../features/seo";
 import { DrizzleSettingsRepository } from "../features/configuration";
+import { D1PublicCatalogReader } from "../features/otw-play";
 import { getDb } from "../platform/db";
 
 const createSiteSeoService = (env: Env) => {
   const db = getDb(env);
   const members = new D1MemberReader(db, env.ASSET_BUCKET);
   const settings = new DrizzleSettingsRepository(db);
+  const play = new D1PublicCatalogReader(env.otw_db);
   const reader: SiteSeoReader = {
     async readFeedState() {
       const stored = await settings.read([
@@ -33,6 +35,15 @@ const createSiteSeoService = (env: Env) => {
     },
     findActiveProfileByCode(code) {
       return members.findProfileByCode(code);
+    },
+    readPlayState() {
+      return play.readSeoState();
+    },
+    listPublishedPlaySongSlugs() {
+      return play.listPublishedSeoSongSlugs();
+    },
+    findPublishedPlaySongBySlug(slug) {
+      return play.readPublishedSongSeoBySlug(slug);
     },
   };
   return new SiteSeoService(reader);

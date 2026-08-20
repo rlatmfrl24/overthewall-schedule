@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-7.1 회원 제안 Play 통합·Wizard UX 구현 기준선
+상태: PR-8 운영 공개 UI/UX 기준선
 
-기준일: 2026-08-19
+기준일: 2026-08-20
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -647,7 +647,8 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 3. `Design.md`에 공용으로 승격할 패턴만 반영한다.
 4. API·DB 의미가 바뀌면 `otw-play-system-design.md`를 함께 수정한다.
 5. 구현 순서와 검증 gate는 `otw-play-implementation-guide.md`에 반영한다.
-## 곡 분류 표시 계층
+
+## 18. 완료된 곡 분류 표시 계층
 
 - 곡 카드·hero·상세에서는 음악 태그를 제목에 가까운 1차 chip으로 표시한다. player에서는
   빠른 곡 식별을 위해 곡명·메인 참여자를 먼저 표시하고 음악 태그를 바로 다음 metadata
@@ -655,3 +656,53 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `오리지널/공식 커버`, `공식 MV/공식 영상`, `솔로/듀엣/유닛/협업`은 가창을 설명하는 작은 보조 metadata 행으로 표시한다.
 - 관리자 등록·곡 수정에는 `K-POP`, `J-POP`, `보컬로이드` 빠른 선택과 자유 입력을 함께 제공한다.
 - 넓은 화면의 발견 hero는 최대 1600px container와 30rem 높이까지 확장한다. 멤버명은 두 줄까지 개행해 긴 이름을 자르지 않는다.
+
+위 계층과 `/play` 내부 player 지속성은 PR-7.2에서 완료되었다. PR-8은 공개
+화면의 정보 구조를 다시 바꾸지 않고 직접 진입, 운영 상태와 단계적 공개 경험을
+보완한다.
+
+## 19. PR-8 공개·운영 UI/UX
+
+### 19.1 PR-8A 직접 진입과 검색 노출
+
+- 공개 활성 전 `/play` 직접 진입은 준비 중 또는 관리자 preview 접근 경계를
+  유지하고 `noindex,nofollow`로 제공한다. public read가 활성이고 navigation이
+  숨겨진 canary에서는 익명 Discover 화면을 새로고침·공유 URL에서도 복원하되
+  `noindex,follow`와 sitemap 제외를 유지한다. `navigation_visible=1`에서만 `/play`와
+  published 곡 상세를 색인·sitemap에 포함한다.
+- `/play/songs`는 public read 활성 뒤에도 항상 `noindex,follow`이고 sitemap에는
+  포함하지 않는다. sitemap의 곡 항목은 canonical slug만 사용하며 `lastmod`를
+  추가하지 않는다.
+- published 곡 상세는 제목, 원곡 가수, 메인 참여자와 공식 영상 의미가 드러나는
+  고유 title·description·canonical을 제공한다. proposal note, 제출자, 내부 검수
+  상태와 관리자 preview 문구는 metadata에 포함하지 않는다.
+- unknown·withdrawn 곡 직접 URL은 명확한 404를 반환하며 다른 곡의 shell이나
+  stale metadata를 성공 화면처럼 보여주지 않는다.
+
+### 19.2 PR-8B source health 운영 화면
+
+- 관리자 OTW Play 작업면에 `재확인 필요`, `재생 불가`, `최근 복구` source 수와
+  source 점검 진입점을 제공한다. 과장된 dashboard보다 조치가 필요한 목록을 먼저
+  표시한다.
+- source 행은 availability, 마지막·다음 점검 시각, 곡·가창·채널과 수동 재검사
+  action을 함께 보여준다. quota·일시 장애는 영상이 삭제된 것처럼 표시하지 않는다.
+- source가 재생 불가여도 곡·가창 metadata와 YouTube 외부 링크 또는 대체 source를
+  유지한다. 수동 재검사는 authoritative readback 뒤에만 상태를 갱신한다.
+
+### 19.3 PR-8C 공개 switch와 관측
+
+- 관리자 UI는 `공개 API`, `내비게이션 노출`을 별도 단계로 표시한다. 내비게이션은
+  공개 API가 활성이고 직접 URL 검증이 끝난 뒤에만 켤 수 있다.
+- flag 변경 전 현재 값, 영향 범위, rollback 동작을 confirm하고 성공 뒤 서버가
+  반환한 config를 다시 표시한다. optimistic toggle과 배포 시 자동 활성화는 금지한다.
+- 운영 화면은 cache hit/miss, 오류율, source 점검 결과와 최근 flag 변경 actor·시각을
+  확인할 수 있어야 한다. 원문 검색어, 회원 note와 credential은 표시하지 않는다.
+
+### 19.4 PR-8 UI 완료 조건
+
+- `/play`와 published 곡 직접 URL이 내부 navigation과 같은 화면으로 복원된다.
+- navigation 공개 전 route는 검색 색인에서 제외되고, navigation 공개 뒤에도
+  `/play`와 published 곡 상세만 sitemap/index 대상이 된다.
+- source health에서 조치 대상과 retryable 장애를 구분해 접근할 수 있다.
+- public read `on`/navigation `off` 상태에서 익명 직접 URL을 검증할 수 있고,
+  navigation을 켜기 전 별도 확인 단계가 존재한다.

@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-7.1 회원 제안 Play 통합·Wizard UX 보완 중
+상태: PR-8A 직접 경로·SEO 착수 준비
 
-기준일: 2026-08-19
+기준일: 2026-08-20
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -14,11 +14,11 @@
 ## 1. 문서 목적
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
-테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. 현재 단계는
-PR-6 공개 Discover·Catalog·곡 상세, participant/groupKey 호환과 Play-scoped 단일
-YouTube player까지 완료되었다. 현재 단계는 회원 제출, 내 제안과 관리자
-승인·published catalog 반영 E2E다. 저장 플레이리스트, SEO, production flag 변경,
-배포와 원격 적용은 포함하지 않는다.
+테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-7,
+PR-7.1 회원 제출·내 제안·관리자 승인 E2E와 PR-7.2 곡 태그·player 지속성은
+완료되었다. 현재 단계는 PR-8A 직접 경로·SEO, PR-8B source health,
+PR-8C 관측·운영 switch를 구현하고 운영 카탈로그와 단계적 공개를 검증하는 것이다.
+저장 플레이리스트와 방송 가창·키리누키는 계속 후속 범위다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -31,6 +31,24 @@ flowchart LR
   discover --> player["보이는 YouTube player"]
   player --> queue["세션 대기열"]
 ```
+
+### 1.1 현재 권위 상태
+
+2026-08-20 기준 현재 상태는 다음과 같다.
+
+- PR #69가 merge commit `49cca11`로 병합되어 PR-7.1·7.2와 후속 안정화가
+  `master`에 포함되었다.
+- 원격 D1에는 migration 0053–0055가 적용되어 pending migration이 없다.
+- 원격 catalog는 song 1개, published performance 1개, source 1개이며
+  catalog revision은 `1`이다.
+- 운영 config는 `public_read_enabled=0`, `navigation_visible=0`이다.
+- 운영 `/play`와 `/play/songs/{slug}` 직접 요청은 아직 `404`이고 sitemap에는
+  OTW Play가 포함되지 않는다.
+- 관리자 수동 source 재확인은 존재하지만 scheduled source health와 설계된
+  OTW Play structured event·운영 switch command는 아직 없다.
+
+위 snapshot은 PR-8 착수 판단을 위한 기준이며 구현 중 변할 수 있다. 각 PR은
+merge 시점의 원격 readback을 다시 기록한다.
 
 ## 2. 구현 착수 gate
 
@@ -65,8 +83,8 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로 PR-7에 회원
-수정·철회 command나 control을 만들지 않는다.
+GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로 완료된 PR-7에도
+회원 수정·철회 command나 control이 없으며 PR-8에서도 추가하지 않는다.
 
 ## 3. 전달 전략
 
@@ -85,16 +103,18 @@ GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로
 
 ### 3.2 권장 PR 흐름
 
-| PR   | 결과                                              | 원격 영향                                                             |
-| ---- | ------------------------------------------------- | --------------------------------------------------------------------- |
-| PR-1 | 공유 계약, 순수 domain과 공개 index               | 없음                                                                  |
-| PR-2 | catalog foundation schema와 migration             | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
-| PR-3 | proposal·event·search/meta schema와 migration     | additive D1 artifact, 이번 PR에서는 원격 미적용·release 단계에서 적용 |
-| PR-4 | 공개 catalog query/API/cache                      | 숨겨진 API                                                            |
-| PR-5 | 관리자 catalog command와 UI                       | 관리자 전용                                                           |
-| PR-6 | 공개 Discover/Catalog/Detail과 player             | feature flag 뒤                                                       |
-| PR-7 | 회원 제출·내 제안·관리자 승인 E2E                 | 로그인/관리자 전용                                                    |
-| PR-8 | SEO, source health, observability, release switch | 단계적 공개                                                           |
+| PR    | 결과                                           | 상태      | 원격 영향                                      |
+| ----- | ---------------------------------------------- | --------- | ---------------------------------------------- |
+| PR-1  | 공유 계약, 순수 domain과 공개 index            | 완료      | 없음                                           |
+| PR-2  | catalog foundation schema와 migration          | 완료      | additive migration 적용됨                      |
+| PR-3  | proposal·event·search/meta schema와 migration  | 완료      | additive migration 적용됨                      |
+| PR-4  | 공개 catalog query/API/cache                   | 완료      | 숨겨진 API                                     |
+| PR-5  | 관리자 catalog command와 UI                    | 완료      | 관리자 전용                                    |
+| PR-6  | 공개 Discover/Catalog/Detail과 player          | 완료      | feature flag 뒤                                |
+| PR-7  | 회원 제출·내 제안·관리자 승인 E2E              | 완료      | 로그인/관리자 전용                             |
+| PR-8A | 직접 경로, dynamic metadata와 sitemap          | 다음 작업 | navigation 공개 전에는 noindex·sitemap 제외    |
+| PR-8B | scheduled source health와 운영 UI              | 대기      | source 상태·event·revision만 조건부 변경        |
+| PR-8C | structured observability와 release switch      | 대기      | 배포 후에도 flag `0/0`, 별도 승인 시 단계 변경 |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -872,7 +892,7 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 7. CAS + conditional insert + publish/event/revision batch
 8. 승인·거절 authoritative readback
 
-PR-7.1 frontend 보완은 다음 순서로 수행한다.
+완료된 PR-7.1 frontend 보완은 다음 순서로 수행했다.
 
 1. 공통 Play frame/header와 단일 global navigation entry
 2. thumbnail/canonical identity가 보이는 영상 preflight
@@ -925,41 +945,170 @@ PR-7.1 frontend 보완은 다음 순서로 수행한다.
 - 관리자 승인 시 제출값과 최종 검수값을 모두 추적할 수 있다.
 - 수정·철회가 미결정이면 UI와 API에 죽은 control을 만들지 않는다.
 
+### 완료 상태
+
+- 회원 제출·내 제안·관리자 승인·거절과 published catalog readback이 구현되었다.
+- private query cache, idempotent retry, stale preflight, channel ownership과 공개 link
+  판정에 대한 review finding을 모두 보완했다.
+- PR-7.2의 song tag와 pathless catalog layout, YouTube `onReady` player 안정화까지
+  PR #69에 포함되었다.
+- migration 0053–0055가 원격 D1에 적용되었고 public/navigation flag는 `0/0`을
+  유지한다.
+
 ## 12. 8단계 — SEO, source health와 운영 준비
 
 ### 결과
 
 직접 링크, sitemap, source 점검, 관측과 단계적 공개가 운영 가능하다.
 
-### 주요 touchpoint
+### 전달 원칙
+
+PR-8은 실패와 rollback 경계가 다른 세 PR로 나눈다.
+
+1. PR-8A가 직접 경로와 SEO 공개 경계를 먼저 고정한다.
+2. PR-8B와 PR-8C는 PR-8A 뒤에서 독립적으로 진행할 수 있다.
+3. 세 PR 모두 코드 merge와 배포만 수행하며 운영 flag는 `0/0`으로 유지한다.
+4. 초기 데이터 승인과 실제 E2E 뒤 별도 운영 단계에서 public read, navigation
+   순서로 활성화한다.
+
+### 12.1 PR-8A — 직접 경로와 SEO
+
+#### 결과
+
+새로고침·공유·crawler 직접 요청에서 `/play`와 published 곡이 올바른 status,
+metadata와 canonical을 반환하며 비공개 데이터가 색인되지 않는다.
+
+#### 주요 touchpoint
 
 - `contracts/site-seo.ts`
 - `worker/features/seo/*`
 - `worker/app/fetch.ts`
+- `worker/features/otw-play/application/ports/public-catalog-reader.ts`
+- `worker/features/otw-play/infrastructure/d1-public-catalog-reader.ts`
+- `worker/app/routes.ts`
+
+#### 주요 작업
+
+1. `/play`와 `/play/songs/{slug}` 직접 요청의 asset/SEO 처리 경계를 고정한다.
+2. published song slug·표시 metadata를 읽는 bounded SEO port를 추가한다.
+3. public read가 꺼져 있으면 Play route를 `noindex,nofollow`, sitemap 제외로 유지한다.
+4. public read가 켜지고 navigation이 숨겨진 canary에서는 catalog route를
+   `noindex,follow`와 sitemap 제외로 유지한다. `navigation_visible=1`에서만 `/play`와
+   published song을 `index,follow` 및 sitemap에 포함한다.
+5. `/play/songs`는 public read가 켜져 있어도 항상 `noindex,follow`이며 sitemap에는
+   포함하지 않는다.
+6. unknown·withdrawn slug는 `404`, member/admin route는 계속 `noindex`로 처리한다.
+7. 기존 feed/profile SEO 실패가 Play query 실패와 서로 불완전 sitemap을 만들지
+   않도록 전체 sitemap 생성을 retryable `503`으로 닫는다.
+
+#### 권장 사항
+
+- 기존 `contracts/site-seo.ts`의 모든 `/play/*` preview placeholder를 그대로 확장하지
+  말고 static route policy와 D1-backed song metadata 조합을 분리한다.
+- sitemap query는 canonical published slug만 bounded read하고 stable sort한다. 기존
+  XML과 동일하게 `lastmod`를 추가하지 않으며 public catalog detail DTO 전체를
+  fan-out하지 않는다.
+- 최초 PR에서는 JSON-LD나 확장 schema보다 status, robots, canonical, sitemap의
+  누출 방지와 직접 경로 복원을 우선한다.
+
+#### 완료 조건
+
+- `/play`, `/play/songs/{publishedSlug}` 직접 요청 `200`과 self-canonical
+- unknown·withdrawn slug `404`, sitemap 미포함
+- flag-off/member/admin route `noindex`, proposal·review 정보 HTML/metadata 누출 0건
+- 기존 `/`, feed, profile sitemap·metadata 회귀 없음
+- browser 내부 이동뿐 아니라 production-like direct request로 검증
+
+### 12.2 PR-8B — scheduled source health
+
+#### 결과
+
+재검사 시각이 지난 YouTube source를 bounded Cron으로 확인하고 확정 장애와
+retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 수 있다.
+
+#### 주요 touchpoint
+
+- `worker/features/otw-play/application/*source-health*`
+- `worker/features/otw-play/application/ports/*`
+- `worker/features/otw-play/infrastructure/youtube-metadata-reader.ts`
+- `worker/features/otw-play/infrastructure/d1-*source*`
 - `worker/app/scheduled.ts`
-- `worker/platform/types.ts`
-- `wrangler.jsonc`
-- 운영 dashboard 또는 기존 operations UI
+- `src/features/otw-play/ui/admin/*`
 
-### 작업
+#### 주요 작업
 
-- `/play`와 `/play/*`의 직접 요청 처리
-- published song만 sitemap과 metadata에 포함
-- draft/proposal/rejected route는 index 대상에서 제외
-- source `next_check_at` 기반 최대 50개 묶음 재검사
-- YouTube quota/429에서 상태를 잘못 unavailable로 바꾸지 않는 retry
-- structured logs와 필요 sampling의 tracing
-- catalog cache hit와 D1 rows-read 관측
-- `public_read_enabled`, `navigation_visible` 운영 switch
+1. `next_check_at <= now` source를 안정 정렬로 최대 50개 읽는 repository port를 만든다.
+2. 기존 관리자 수동 재확인과 Cron이 같은 metadata 판정 use case를 사용하게 한다.
+3. deleted/private/embed-disabled/region-blocked/unavailable 전이와 playable 복구를
+   명시적으로 구분한다.
+4. quota·`429`·timeout·upstream `5xx`에서는 기존 availability를 보존하고 backoff된
+   `next_check_at`과 retryable event만 기록한다.
+5. 공개 source 선택이 바뀌는 경우 source, event, catalog/read-model revision을
+   같은 D1 batch로 갱신한다.
+6. 관리자 작업면에 재확인 필요·재생 불가·최근 복구 목록과 수동 재검사를 제공한다.
 
-### 필수 검증
+#### 권장 사항
 
-- `/play`, `/play/songs/{slug}` 직접 요청 200과 self-canonical
-- unknown/withdrawn slug 404, sitemap 미포함
-- 공개 페이지 HTML/metadata가 proposal 정보를 포함하지 않음
-- Cron 한 번에 상한 수보다 많은 source를 조회하지 않음
-- source 삭제 후 metadata 보존과 player fallback
-- cache hit/miss, query rows와 error event를 운영에서 확인 가능
+- 새 table이나 Queue를 기본 선택하지 않는다. 현재 source 시간 필드와 catalog event로
+  요구사항을 충족하지 못한다는 증거가 있을 때만 additive schema를 제안한다.
+- retry interval은 quota 예산과 source 상태별 정책 상수로 정의하고 테스트한다.
+  transient 실패 횟수만으로 영구 unavailable을 만들지 않는다.
+- 한 source 실패가 나머지 source 점검을 중단하지 않게 하되, D1·credential처럼
+  공유 dependency 실패는 명확한 task 실패로 관측한다.
+
+#### 완료 조건
+
+- 한 Cron 실행의 YouTube 대상과 D1 source read가 50개 이하
+- 동일 source 반복 실행의 멱등성, cursor/정렬 중복·누락 없음
+- quota·429에서 availability 불변, retry 시각·event readback
+- 삭제 source 이후 곡·가창 metadata 보존과 player fallback/skip
+- 관리자 수동 재검사와 Cron의 상태 판정 결과 일치
+
+### 12.3 PR-8C — observability와 release switch
+
+#### 결과
+
+OTW Play의 읽기·승인·source 상태와 cache/D1 비용을 운영에서 확인하고, 관리자가
+public read와 navigation을 순서·감사·rollback이 보장된 경로로 제어할 수 있다.
+
+#### 주요 touchpoint
+
+- `contracts/api-routes.ts`, `contracts/otw-play.ts`
+- `worker/features/otw-play/http/*`
+- `worker/features/otw-play/application/*`
+- `worker/features/otw-play/infrastructure/*`
+- `worker/app/routes.ts`, `worker/platform/http-helpers.ts`
+- `src/features/otw-play/api/*`, `queries/*`, `ui/admin/*`
+
+#### 주요 작업
+
+1. 설계된 `play.*` structured event와 공통 field를 HTTP/application/repository
+   경계에서 중복 없이 기록한다.
+2. public catalog cache hit/miss, duration, D1 rows read/written과 오류 code를 관측한다.
+3. 관리자 release command의 method/path, request/response/error DTO를 계약에 정의한다.
+4. 권장 `PATCH /api/play/admin/release`를 `requireAdminUser`, `no-store`, conditional
+   update, audit와 authoritative readback으로 end-to-end 연결한다.
+5. navigation-on/public-off를 `400`, stale expected state를 `409`, 권한 없음을 기존
+   admin auth contract로 거부한다.
+6. 관리자 UI에서 public read와 navigation을 별도 confirm 단계로 제공하고 성공 뒤
+   config query를 다시 읽는다.
+
+#### 권장 사항
+
+- flag 변경을 Wrangler/D1 raw command만으로 운영하는 숨은 경로로 남기지 않는다.
+  긴급 rollback도 같은 application command를 사용해야 audit와 불변식이 유지된다.
+- PR-8C merge, migration, 배포는 flag를 자동 변경하지 않는다. switch 실행은 초기
+  데이터와 직접 URL 검증이 완료된 별도 운영 이벤트다.
+- 로그 sampling은 성공 read에만 제한적으로 적용하고 mutation, source 전이,
+  4xx/5xx와 flag 변경 event는 누락하지 않는다.
+
+#### 완료 조건
+
+- cache hit/miss, rows read, duration과 error event를 배포 환경에서 확인 가능
+- 민감값이 구조화 로그와 관리자 UI에 남지 않음
+- flag `0/0 → 1/0 → 1/1` 및 rollback `1/1 → 0/0`의 audit/readback 통과
+- 동시·stale 변경 한 요청만 성공하고 invalid flag 조합 저장 0건
+- frontend API client, query, UI와 Worker contract 테스트 및 architecture gate 통과
 
 ## 13. 운영 데이터 입력
 
@@ -1114,9 +1263,18 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 4. 이 문서의 gate, PR slice, test와 rollout을 조정한다.
 5. 이미 migration이 배포된 경우 destructive rewrite보다 additive migration과
    호환 기간을 우선한다.
-## PR-7.2 후속 보완
 
-- `0054_*` additive migration으로 `music_song_tags`와 tag lookup index를 추가한다.
-- admin create/update/catalog-entry, public catalog/detail/performance DTO를 `tags`까지 end-to-end 연결한다.
+## 21. 완료된 PR-7.2 보완
+
+- `0054_*` additive migration으로 `music_song_tags`와 tag lookup index를 추가했다.
+- admin create/update/catalog-entry, public catalog/detail/performance DTO를 `tags`까지 end-to-end 연결했다.
 - `/play` index를 `_catalog` layout 아래로 이동해 발견↔곡 검색↔상세 이동 중 player provider와 iframe을 유지한다.
 - 공개 UI는 song tag와 performance metadata를 서로 다른 시각 계층으로 렌더링한다.
+
+## 22. 2026-08-20 문서 정리 기록
+
+- PR-7.1·7.2와 리뷰 보완, YouTube playback fix, 원격 migration 0053–0055를
+  완료 상태로 반영했다.
+- PR-8을 PR-8A 직접 경로·SEO, PR-8B source health, PR-8C observability·release
+  switch로 나누고 각 범위, 비범위, touchpoint, 권장 사항과 완료 조건을 정의했다.
+- 초기 운영 데이터 범위는 GATE-02·03 결정 전이며 공개 flag는 `0/0`을 유지한다.
