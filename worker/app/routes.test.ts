@@ -22,6 +22,12 @@ const ADMIN_PUT = {
   cache: "no-store",
   successStatus: 200,
 } as const;
+const ADMIN_PATCH = {
+  method: "PATCH",
+  auth: "admin",
+  cache: "no-store",
+  successStatus: 200,
+} as const;
 const ADMIN_DELETE = {
   method: "DELETE",
   auth: "admin",
@@ -343,6 +349,18 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     owner: "otw-play",
     path: "/api/play/admin/source-health",
     methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.observability",
+    owner: "otw-play",
+    path: "/api/play/admin/observability",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.release",
+    owner: "otw-play",
+    path: "/api/play/admin/release",
+    methods: [ADMIN_GET, ADMIN_PATCH],
   },
   {
     id: "otw-play.admin.source.recheck",

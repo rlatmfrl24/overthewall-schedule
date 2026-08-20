@@ -4,6 +4,7 @@ export type WorkerHttpMethod =
   | "GET"
   | "HEAD"
   | "POST"
+  | "PATCH"
   | "PUT"
   | "DELETE";
 

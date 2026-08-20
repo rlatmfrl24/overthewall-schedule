@@ -7,6 +7,7 @@ import type {
   PublicCatalogPerformance,
   PublicCatalogPerformanceDetail,
   PublicCatalogReader,
+  PublicCatalogReadDiagnostics,
   PublicCatalogReaderPage,
   PublicCatalogReaderQuery,
   PublicCatalogSongCore,
@@ -129,14 +130,6 @@ type ContainsSearchPlan = {
 };
 
 const CONTAINS_DENSE_SONG_THRESHOLD = 256;
-
-export interface D1PublicCatalogReadDiagnostics {
-  statements: number;
-  bindParameters: number;
-  rowsRead: number;
-  statementRowsRead: readonly number[];
-  usesOffset: boolean;
-}
 
 const PUBLIC_PERFORMANCE_PREDICATE = `
   performance.publication_status = 'published'
@@ -1641,20 +1634,31 @@ export class D1PublicCatalogReader
   implements PublicCatalogReader, PublicCatalogSeoReader
 {
   private readonly db: D1Database;
-  private diagnostics: D1PublicCatalogReadDiagnostics = {
+  private diagnostics: PublicCatalogReadDiagnostics = {
     statements: 0,
     bindParameters: 0,
     rowsRead: 0,
     statementRowsRead: [],
     usesOffset: false,
   };
+  private observationDiagnostics: PublicCatalogReadDiagnostics | null = null;
 
   constructor(db: D1Database) {
     this.db = db;
   }
 
-  getLastReadDiagnostics(): Readonly<D1PublicCatalogReadDiagnostics> {
+  getLastReadDiagnostics(): Readonly<PublicCatalogReadDiagnostics> {
     return { ...this.diagnostics };
+  }
+
+  beginReadObservation() {
+    this.observationDiagnostics = this.emptyDiagnostics();
+  }
+
+  getReadObservation(): Readonly<PublicCatalogReadDiagnostics> | null {
+    return this.observationDiagnostics
+      ? { ...this.observationDiagnostics }
+      : null;
   }
 
   async readMeta(): Promise<PublicCatalogMeta> {
@@ -2276,7 +2280,11 @@ export class D1PublicCatalogReader
   }
 
   private resetDiagnostics() {
-    this.diagnostics = {
+    this.diagnostics = this.emptyDiagnostics();
+  }
+
+  private emptyDiagnostics(): PublicCatalogReadDiagnostics {
+    return {
       statements: 0,
       bindParameters: 0,
       rowsRead: 0,
@@ -2296,6 +2304,18 @@ export class D1PublicCatalogReader
       ...this.diagnostics.statementRowsRead,
       0,
     ];
+    if (this.observationDiagnostics) {
+      this.observationDiagnostics.statements += 1;
+      this.observationDiagnostics.bindParameters = Math.max(
+        this.observationDiagnostics.bindParameters,
+        binds.length,
+      );
+      this.observationDiagnostics.usesOffset ||= /\boffset\b/i.test(sql);
+      this.observationDiagnostics.statementRowsRead = [
+        ...this.observationDiagnostics.statementRowsRead,
+        0,
+      ];
+    }
     const statement = this.db.prepare(sql);
     return binds.length > 0 ? statement.bind(...binds) : statement;
   }
@@ -2307,6 +2327,18 @@ export class D1PublicCatalogReader
     const statementRowsRead = [...this.diagnostics.statementRowsRead];
     statementRowsRead[statementIndex] = rowsRead;
     this.diagnostics.statementRowsRead = statementRowsRead;
+    if (this.observationDiagnostics) {
+      this.observationDiagnostics.rowsRead += rowsRead;
+      const observationRows = [
+        ...this.observationDiagnostics.statementRowsRead,
+      ];
+      const observationIndex =
+        this.observationDiagnostics.statements -
+        this.diagnostics.statements +
+        statementIndex;
+      observationRows[observationIndex] = rowsRead;
+      this.observationDiagnostics.statementRowsRead = observationRows;
+    }
   }
 
   private async all<Row extends Record<string, unknown>>(

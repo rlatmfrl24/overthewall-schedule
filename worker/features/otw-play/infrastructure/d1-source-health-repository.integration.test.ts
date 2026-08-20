@@ -36,7 +36,10 @@ const insertSource = (
   VALUES (?, 'youtube', ?, 'channel-1', 'Stored title', NULL, 180, 0, ?, 10, ?, 0, 0, 10)`)
   .bind(id, externalId, status, nextCheckAt);
 
-const insertPublishedLink = (sourceId: string) => [
+const insertPerformanceLink = (
+  sourceId: string,
+  publicationStatus: "draft" | "published" = "published",
+) => [
   db.prepare(`INSERT INTO music_songs
     (id, slug, title, normalized_title, dedupe_key, is_otw_original,
      original_release_date, original_release_precision, archived_at,
@@ -48,12 +51,17 @@ const insertPublishedLink = (sourceId: string) => [
      publication_status, quality_status, released_at, internal_note,
      version, created_at, updated_at)
     VALUES ('performance-1', 'song-1', 'performance:1', 'original',
-      'official_video', 'solo', 'published', 'ok', 0, NULL, 0, 0, 0)`),
+      'official_video', 'solo', ?, 'ok', 0, NULL, 0, 0, 0)`).bind(
+    publicationStatus,
+  ),
   db.prepare(`INSERT INTO music_performance_sources
     (performance_id, source_id, start_seconds, end_seconds,
      source_role, priority, is_primary)
     VALUES ('performance-1', ?, 0, NULL, 'official', 0, 1)`).bind(sourceId),
 ];
+
+const insertPublishedLink = (sourceId: string) =>
+  insertPerformanceLink(sourceId, "published");
 
 const playableObservation = (externalId: string) => ({
   videoId: externalId,
@@ -263,6 +271,66 @@ describe("D1SourceHealthRepository", () => {
     })).resolves.toEqual({ kind: "stale" });
     await expect(db.prepare(`SELECT COUNT(*) AS count FROM music_catalog_events
       WHERE id = 'event-stale'`).first()).resolves.toMatchObject({ count: 0 });
+  });
+
+  it("rolls back when a draft source becomes public immediately before the health batch", async () => {
+    await db.batch([
+      insertChannel(),
+      insertSource("source-1", "dQw4w9WgXcQ"),
+      ...insertPerformanceLink("source-1", "draft"),
+    ]);
+    let published = false;
+    const racingDb = new Proxy(db, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!published) {
+              published = true;
+              await db.batch([
+                db.prepare(`UPDATE music_performances
+                  SET publication_status = 'published', version = version + 1
+                  WHERE id = 'performance-1' AND publication_status = 'draft'`),
+                db.prepare(`UPDATE music_catalog_meta
+                  SET revision = revision + 1, updated_at = ? WHERE id = 1`)
+                  .bind(NOW - 1),
+                db.prepare(`UPDATE music_public_read_model_meta
+                  SET revision = revision + 1, updated_at = ? WHERE id = 1`)
+                  .bind(NOW - 1),
+              ]);
+            }
+            return db.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1Database;
+    const repository = new D1SourceHealthRepository(racingDb);
+    const target = await repository.readTarget("source-1");
+
+    await expect(repository.applyObservation({
+      target: target!,
+      observation: {
+        videoId: "dQw4w9WgXcQ",
+        availabilityStatus: "deleted",
+        video: null,
+      },
+      actor: { kind: "system" },
+      eventId: "event-racing-publish",
+      checkedAt: NOW,
+      nextCheckAt: NOW + 7 * 24 * 60 * 60_000,
+    })).resolves.toEqual({ kind: "stale" });
+    await expect(db.prepare(`SELECT availability_status, version
+      FROM music_media_sources WHERE id = 'source-1'`).first()).resolves.toEqual({
+      availability_status: "playable",
+      version: 0,
+    });
+    await expect(db.prepare(`SELECT revision FROM music_catalog_meta WHERE id = 1`)
+      .first()).resolves.toEqual({ revision: 1 });
+    await expect(db.prepare(`SELECT revision FROM music_public_read_model_meta WHERE id = 1`)
+      .first()).resolves.toEqual({ revision: 1 });
+    await expect(db.prepare(`SELECT COUNT(*) AS count FROM music_catalog_events
+      WHERE id = 'event-racing-publish'`).first()).resolves.toEqual({ count: 0 });
   });
 
   it("rolls back a source mutation when its capability event cannot be written", async () => {

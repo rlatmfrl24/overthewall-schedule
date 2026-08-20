@@ -628,6 +628,26 @@ describe("D1PublicCatalogReader", () => {
     });
   });
 
+  it("accumulates metadata and content D1 costs in one request observation", async () => {
+    const reader = new D1PublicCatalogReader(db);
+    reader.beginReadObservation();
+    await reader.readMeta();
+    await reader.readFacets();
+
+    const lastOperation = reader.getLastReadDiagnostics();
+    const observation = reader.getReadObservation();
+    expect(lastOperation.statements).toBe(4);
+    expect(observation).toMatchObject({
+      statements: 5,
+      bindParameters: 0,
+      usesOffset: false,
+    });
+    expect(observation?.statementRowsRead).toHaveLength(5);
+    expect(observation?.rowsRead).toBeGreaterThanOrEqual(
+      lastOperation.rowsRead,
+    );
+  });
+
   it("projects bounded canonical SEO slugs and playable representative metadata", async () => {
     await seedVisibilityFixture();
     const reader = new D1PublicCatalogReader(db);

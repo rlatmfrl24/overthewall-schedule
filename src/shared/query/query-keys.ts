@@ -22,6 +22,10 @@ export const queryKeys = {
     adminCatalog: () => [...queryKeys.otwPlay.all, "admin", "catalog"] as const,
     adminSourceHealth: () =>
       [...queryKeys.otwPlay.all, "admin", "source-health"] as const,
+    adminObservability: () =>
+      [...queryKeys.otwPlay.all, "admin", "observability"] as const,
+    adminRelease: () =>
+      [...queryKeys.otwPlay.all, "admin", "release"] as const,
     adminProposals: (status: string) =>
       [...queryKeys.otwPlay.all, "admin", "proposals", status] as const,
     memberSubmissions: (userId: string) =>

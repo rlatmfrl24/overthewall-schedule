@@ -1464,12 +1464,13 @@ edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 �
 구조화 이벤트:
 
 - `play.catalog.read`
-- `play.catalog.cache_hit`, `cache_miss`
 - `play.proposal.submitted`, `approved`, `rejected`
 - `play.catalog.published`, `withdrawn`, `updated`
 - `play.source.unavailable`, `recovered`
 - `play.youtube.verify_failed`
 - `play.concurrent_write_conflict`
+- `play.release.updated`
+- `play.request.failed`
 
 공통 필드:
 
@@ -1478,6 +1479,21 @@ edge rate limit은 분산 환경에서 일일 권위 카운터로 사용하지 �
 - D1 rows read/written
 - resource ID, 상태 전이
 - 사용자 원문을 제외한 error code
+
+Workers Logs는 개별 진단, Analytics Engine `OTW_PLAY_ANALYTICS` dataset
+`otw_play_events`는 고정 24시간 집계와 관리자 화면을 소유한다. 모든 event는
+Analytics Engine에 기록하고, 성공한 public read의 custom log에만 request ID 기반
+결정적 10% sampling을 적용한다. mutation, source 전이, release와 `4xx/5xx`는
+sampling하지 않는다. cache hit/miss/bypass는 `play.catalog.read.cacheStatus`로만
+기록한다. Analytics 집계는 `_sample_interval`을 반영하며 요청별 지표를 D1에
+저장하지 않는다. 모든 비-scheduled 요청은 정확히 한 datapoint를 남긴다. domain
+전이가 없는 성공은 기존 event 이름과 `recordKind=request`를 함께 사용하고 event
+집계에서는 제외해 요청 수·오류율 분모와 domain event count를 분리한다.
+
+token, authorization/cookie, IP, 검색 원문·query string, proposal note, 관리자 이름과
+YouTube credential은 두 backend에 전달하지 않는다. actor 신원은 기존 D1 admin
+audit에만 남긴다. D1 비용은 실제 result metadata의 `rows_read`, `rows_written`을
+합산하고 metadata가 없는 operation은 추정하지 않고 `null`을 기록한다.
 
 초기 목표:
 
@@ -1586,7 +1602,9 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   뒤 재시도하며 `Retry-After`는 15분~24시간으로 제한한다.
 - source 전이가 공개 대표 source 또는 fallback 결과를 바꾸면 source update,
   catalog event, catalog/read-model revision을 하나의 repository-owned D1 batch로
-  반영한다. 곡·가창·감사 metadata는 삭제하지 않는다.
+  반영한다. public-impact predicate도 같은 batch에서 평가하므로 동시 publish가
+  먼저 반영되면 revision CAS와 source update가 함께 rollback된다. 곡·가창·감사
+  metadata는 삭제하지 않는다.
 - 운영 UI는 재확인 필요·재생 불가 source 수, 마지막 점검 시각, 다음 점검 시각과
   수동 재검사 진입점을 제공한다. 최근 복구는 7일 안의 source별 최신 recovery로
   정의하고 각 목록은 총계와 최대 50개를 반환한다. 새 table·column은 추가하지 않고
@@ -1595,16 +1613,25 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 
 ### 18.3 PR-8C — 관측과 운영 공개 switch
 
-- HTTP/application/infrastructure 경계에서 `play.catalog.read`, cache hit/miss,
-  proposal submitted/approved/rejected, source unavailable/recovered,
-  YouTube verify failure와 concurrent conflict를 구조화 event로 기록한다.
-- 공통 필드는 `requestId`, `cfRay`, route ID, status, duration, cache status,
-  D1 rows read/written과 비민감 resource ID다. token, note, 검색 원문과 YouTube API
-  credential은 기록하지 않는다.
+- PR-8C는 PR-8B source-health 전이를 직접 계측하므로 PR-8B 위에 stack한다.
+- HTTP/application/infrastructure 경계에서 고정된 `play.*` event를 중복 없이 기록한다.
+  공통 필드는 schema version, 발생 시각, request ID, CF-Ray, route ID,
+  method/trigger, status, duration, cache status, D1 rows read/written, 비민감 resource
+  ID·transition·error code와 `domain|request` record kind다. 모든 비-scheduled 요청은
+  정확히 한 datapoint를 가지며 request-only datapoint는 domain event count에서 제외한다.
+- Workers Logs는 개별 진단, Analytics Engine binding `OTW_PLAY_ANALYTICS`와 dataset
+  `otw_play_events`는 24시간 집계와 관리자 화면을 소유한다. 조회에는 비민감 Worker
+  variable `CLOUDFLARE_ACCOUNT_ID`와 secret `OTW_PLAY_ANALYTICS_READ_TOKEN`을
+  사용한다. Analytics Engine SQL이 `UNION`을 지원하지 않으므로 고정 summary·route·
+  event `SELECT` 세 개를 `FORMAT JSON`으로 공유 5초 timeout 안에 병렬 실행한다. read token 미설정·
+  외부 장애는 release 제어와 분리된 HTTP 200 partial 상태로 반환한다.
 - 운영 switch는 `requireAdminUser`, `no-store`, 명시적 request/response DTO,
-  conditional update와 전역 admin audit을 갖는 OTW Play 관리자 command로 소유한다.
-  권장 계약은 `PATCH /api/play/admin/release` 하나에서 기대한 현재 flag와 목표 flag를
-  함께 받아 stale 변경을 `409`로 거부하고 authoritative config를 반환하는 방식이다.
+  conditional audit insert, CAS update와 authoritative readback을 한 D1 batch로 처리하는
+  OTW Play 관리자 command로 소유한다. `GET /api/play/admin/release`는 현재 flag,
+  revision readiness와 최근 release audit 최대 20개를 반환한다.
+- `PATCH /api/play/admin/release`는 기대한 두 flag와 `updatedAt`, 목표 두 flag,
+  transition별 confirmation을 받는다. stale 변경은 `409`, revision 불일치 상태의 공개
+  활성화는 `422`이며 flag 변경 자체는 catalog/read-model revision을 증가시키지 않는다.
 - `navigation_visible=1`은 `public_read_enabled=1`일 때만 허용한다. public read를
   끄는 command는 navigation도 같은 D1 write에서 끄며, navigation만 먼저 켜는
   상태는 DB와 application 모두 거부한다.
@@ -1615,7 +1642,8 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 ### 18.4 의존성과 권장 전달 순서
 
 1. PR-8A로 익명 진입·canonical·sitemap 경계를 먼저 고정한다.
-2. PR-8B와 PR-8C는 PR-8A contract 뒤에서 독립 PR로 진행할 수 있다.
+2. PR-8B로 source-health command와 운영 readback을 고정한 뒤 PR-8C를 그 head 위에
+   stack해 source 전이까지 동일 telemetry로 계측한다.
 3. 세 PR의 실제 흐름과 운영 readback이 모두 통과한 뒤 초기 catalog 범위를
    승인하고 `public_read_enabled=1`을 적용한다.
 4. 익명 검색·상세·player와 회원 제안·관리자 승인을 다시 검증한 뒤 마지막으로

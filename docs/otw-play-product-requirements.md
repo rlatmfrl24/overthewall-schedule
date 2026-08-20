@@ -103,6 +103,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-048 | 보조 가창 credit은 곡 상세에서만 전체 표시하고 검색에서는 독립 역할 조건으로 제공한다. | 확정 | 발견·곡 목록·Player·queue는 `vocal` 이름만 표시하며 tooltip이나 보조 역할 칩을 만들지 않는다. 곡 상세는 메인 보컬·피처링 보컬·코러스·기타 참여를 역할별로 펼쳐 표시한다. `participantRole` 필터는 선택한 멤버·외부 참여자·그룹 credit과 같은 published performance row에서 동시에 만족해야 한다. 필터가 없으면 기존 검색 의미를 유지하고, 메인 보컬이 없는 기존 데이터의 compact 표시는 credit order 첫 참여자를 사용한다. |
 | DEC-049 | 곡의 음악 분류는 가창 상태·형태와 분리된 확장형 다중 태그로 관리한다. | 확정 | `K-POP`, `J-POP`, `보컬로이드`를 빠른 입력값으로 제공하되 자유 태그를 허용한다. 공개 화면에서는 음악 분류를 1차 chip으로, 오리지널·공식 커버·공식 영상·솔로 등 performance metadata는 작은 보조 정보로 표시한다. `/play` 내부 탭 전환은 동일 player host를 유지한다. |
 | DEC-050 | 운영 공개는 public read와 navigation을 분리한 단계적 전환으로 수행한다. | 확정 | PR-8A 직접 경로·SEO, PR-8B source health, PR-8C 관측·운영 switch가 모두 검증된 뒤 `public_read_enabled=1`로 익명 직접 경로를 먼저 확인하고 마지막에 `navigation_visible=1`을 적용한다. 검색 색인과 sitemap 포함은 `navigation_visible=1`에서만 허용한다. 코드 병합이나 배포만으로 두 flag를 자동 활성화하지 않는다. |
+| DEC-051 | PR-8C 관측과 공개 switch는 PR-8B source-health 위에 stack하고 운영 관측 backend를 분리한다. | 확정 | Workers Logs는 개별 진단, Analytics Engine `otw_play_events`는 24시간 집계와 관리자 화면을 담당한다. 요청별 지표는 D1에 저장하지 않으며, 모든 공개·rollback 전환은 감사 가능한 단일 관리자 command만 사용한다. |
 
 ## 4. 제품 원칙
 
@@ -652,6 +653,7 @@ TBD-010은 DEC-044로, TBD-013·014는 DEC-045로 해결되었다. 공개 catalo
 | 2026-08-19 | DEC-049 곡 음악 분류와 표시 계층 확정. 확장형 song tag를 관리자 등록·수정과 공개 DTO에 추가하고 performance 분류는 보조 metadata로 낮추며 Play 탭 전환 중 단일 player를 유지 |
 | 2026-08-20 | PR-7.1 회원 제안·관리자 승인과 PR-7.2 곡 태그·player 지속성, 리뷰 보완 및 YouTube 재생 안정화를 완료하고 원격 migration 0053–0055 적용 뒤 PR-8 운영 공개 준비로 전환 |
 | 2026-08-20 | DEC-050 단계적 공개 확정. PR-8을 직접 경로·SEO, source health, 관측·운영 switch로 분리하고 public read 검증 뒤 navigation을 노출하도록 명시 |
+| 2026-08-20 | DEC-051 PR-8C 전달·관측 경계 확정. source-health 계측을 위해 PR-8B 위에 stack하고 Workers Logs와 Analytics Engine을 개별 진단·24시간 집계로 분리하며 공개 전환을 단일 감사 command로 제한 |
 
 ## 19. 참고
 

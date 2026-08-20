@@ -159,3 +159,10 @@ export interface PublicCatalogReader {
     performanceId: string,
   ): Promise<PublicCatalogPerformanceDetail | null>;
 }
+export interface PublicCatalogReadDiagnostics {
+  statements: number;
+  bindParameters: number;
+  rowsRead: number;
+  statementRowsRead: readonly number[];
+  usesOffset: boolean;
+}

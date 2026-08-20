@@ -8,6 +8,7 @@ import { settings } from "@db/schema";
 import { inArray } from "drizzle-orm";
 import { runScheduledNaverCafeCollection } from "../features/naver-cafe";
 import {
+  CloudflarePlayTelemetryWriter,
   D1SourceHealthRepository,
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
@@ -46,6 +47,9 @@ export const checkScheduledOtwPlaySources = async (env: Env) => {
   const result = await new SourceHealthService(
     new D1SourceHealthRepository(env.otw_db),
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    () => crypto.randomUUID(),
+    Date.now,
+    new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS),
   ).runScheduled();
   console.log("[scheduled] OTW Play source health completed", result);
   return result;

@@ -96,7 +96,7 @@ const handleApiRouteError = (request: Request, error: unknown) => {
   console.error("[api] request failed", {
     method: request.method,
     path: url.pathname,
-    search: url.search,
+    ...(url.pathname.startsWith("/api/play/") ? {} : { search: url.search }),
     error: details,
   });
 

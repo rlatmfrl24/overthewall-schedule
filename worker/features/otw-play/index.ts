@@ -71,3 +71,26 @@ export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
 export { MemberSubmissionService } from "./application/member-submission-service";
 export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
 export { createMemberSubmissionHandler } from "./http/member-submission-handler";
+export type {
+  PlayTelemetryEvent,
+  PlayTelemetryEventName,
+  PlayTelemetryWriter,
+} from "./application/ports/play-telemetry";
+export {
+  createPlayTelemetryEvent,
+  NoopPlayTelemetryWriter,
+} from "./application/ports/play-telemetry";
+export {
+  CloudflarePlayTelemetryWriter,
+  shouldWritePlayCustomLog,
+  toPlayAnalyticsDataPoint,
+} from "./infrastructure/cloudflare-play-telemetry";
+export {
+  CloudflarePlayObservabilityReader,
+  OTW_PLAY_OBSERVABILITY_SQL,
+} from "./infrastructure/cloudflare-play-observability-reader";
+export { createPlayObservabilityHandler } from "./http/observability-handler";
+export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
+export { ReleaseService } from "./application/release-service";
+export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
+export { createReleaseHandler } from "./http/release-handler";

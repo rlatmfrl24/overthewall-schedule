@@ -482,4 +482,59 @@ describe("OTW Play public catalog HTTP handler", () => {
       body.data.items[0]?.representativePerformance.participants[0]?.groupKey,
     ).toMatch(/^g1_/);
   });
+
+  it("emits one catalog event with cache status and request-scoped D1 diagnostics", async () => {
+    const reader = makeReader();
+    const cache = new MemoryCache();
+    const service = new PublicCatalogService(
+      reader,
+      cache,
+      () => 1_786_000_000_000,
+    );
+    const write = vi.fn();
+    let rowsRead = 7;
+    const handler = createPublicCatalogHandler(
+      () => ({
+        service,
+        beginReadObservation: vi.fn(),
+        readDiagnostics: () => ({
+          statements: 2,
+          bindParameters: 1,
+          rowsRead,
+          statementRowsRead: [1, rowsRead - 1],
+          usesOffset: false,
+        }),
+      }),
+      async () => 'W/"catalog-etag"',
+      () => ({ write }),
+    );
+
+    const first = await handler(
+      request("/api/play/catalog", { headers: { "CF-Ray": "ray-1" } }),
+      env,
+    );
+    expect(first.status).toBe(200);
+    expect(write).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: "play.catalog.read",
+        requestId: "ray-1",
+        cacheStatus: "miss",
+        d1RowsRead: 7,
+        d1RowsWritten: null,
+      }),
+    );
+
+    rowsRead = 1;
+    await handler(
+      request("/api/play/catalog", { headers: { "CF-Ray": "ray-2" } }),
+      env,
+    );
+    expect(write).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cacheStatus: "hit",
+        d1RowsRead: 1,
+      }),
+    );
+    expect(write).toHaveBeenCalledTimes(2);
+  });
 });

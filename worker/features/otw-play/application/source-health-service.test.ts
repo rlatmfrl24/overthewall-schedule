@@ -3,6 +3,7 @@ import type {
   SourceHealthRepository,
   SourceHealthTarget,
 } from "./ports/source-health-repository";
+import { SourceHealthRepositoryError } from "./ports/source-health-repository";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeBatchMetadataReader,
@@ -177,6 +178,7 @@ describe("SourceHealthService", () => {
       .mockResolvedValueOnce({ kind: "stale" });
     const claimDueSources = vi.fn(async () => [target, recovered, stale]);
     const repository = repositoryOf({ claimDueSources, applyObservation });
+    const write = vi.fn();
     const readVideos = vi.fn(async () => [target, recovered, stale].map((item) => ({
       videoId: item.externalId,
       availabilityStatus: item.id === "source-1" ? "deleted" as const : "playable" as const,
@@ -196,6 +198,7 @@ describe("SourceHealthService", () => {
       readerOf(readVideos),
       () => crypto.randomUUID(),
       () => NOW,
+      { write },
     );
 
     await expect(service.runScheduled()).resolves.toEqual({
@@ -205,6 +208,7 @@ describe("SourceHealthService", () => {
       recovered: 1,
       retryScheduled: 0,
       staleSkipped: 1,
+      failed: 0,
     });
     expect(claimDueSources).toHaveBeenCalledWith(
       NOW,
@@ -217,6 +221,27 @@ describe("SourceHealthService", () => {
       recovered.externalId,
       stale.externalId,
     ]);
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.source.unavailable",
+        resourceId: "source-1",
+        transition: "playable:deleted",
+        trigger: "scheduled",
+      }),
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.source.recovered",
+        resourceId: "source-2",
+      }),
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.concurrent_write_conflict",
+        resourceId: "source-3",
+        status: 409,
+      }),
+    );
   });
 
   it("schedules every claimed source on a retryable shared outage", async () => {
@@ -249,10 +274,107 @@ describe("SourceHealthService", () => {
       recovered: 0,
       retryScheduled: 1,
       staleSkipped: 1,
+      failed: 0,
     });
     expect(scheduleRetry).toHaveBeenCalledTimes(2);
     expect(scheduleRetry).toHaveBeenNthCalledWith(1, expect.objectContaining({
       nextCheckAt: NOW + 15 * 60_000,
     }));
+  });
+
+  it("isolates source-scoped repository failures and continues later checks", async () => {
+    const second = { ...target, id: "source-2", externalId: "aaaaaaaaaaa" };
+    const applyObservation = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("source row is invalid"))
+      .mockResolvedValueOnce({ kind: "applied", response: checkedResponse });
+    const write = vi.fn();
+    const service = new SourceHealthService(
+      repositoryOf({
+        claimDueSources: vi.fn(async () => [target, second]),
+        applyObservation,
+      }),
+      readerOf(vi.fn(async () => [target, second].map((item) => ({
+        videoId: item.externalId,
+        availabilityStatus: "deleted" as const,
+        video: null,
+      })))),
+      () => crypto.randomUUID(),
+      () => NOW,
+      { write },
+    );
+
+    await expect(service.runScheduled()).resolves.toEqual({
+      claimed: 2,
+      checked: 1,
+      changed: 1,
+      recovered: 0,
+      retryScheduled: 0,
+      staleSkipped: 0,
+      failed: 1,
+    });
+    expect(applyObservation).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({
+      event: "play.request.failed",
+      resourceId: "source-1",
+      errorCode: "source_health_source_failed",
+    }));
+  });
+
+  it("isolates one retry persistence failure and schedules the remaining source", async () => {
+    const second = { ...target, id: "source-2", externalId: "aaaaaaaaaaa" };
+    const scheduleRetry = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("source row is invalid"))
+      .mockResolvedValueOnce({ kind: "applied", response: retryResponse });
+    const service = new SourceHealthService(
+      repositoryOf({
+        claimDueSources: vi.fn(async () => [target, second]),
+        scheduleRetry,
+      }),
+      readerOf(vi.fn(async () => {
+        throw new OtwPlayYouTubeMetadataError(
+          "rate limited",
+          "rate_limited",
+          true,
+        );
+      })),
+      () => crypto.randomUUID(),
+      () => NOW,
+    );
+
+    await expect(service.runScheduled()).resolves.toEqual({
+      claimed: 2,
+      checked: 0,
+      changed: 0,
+      recovered: 0,
+      retryScheduled: 1,
+      staleSkipped: 0,
+      failed: 1,
+    });
+    expect(scheduleRetry).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates shared D1 failures without checking later claimed sources", async () => {
+    const second = { ...target, id: "source-2", externalId: "aaaaaaaaaaa" };
+    const applyObservation = vi.fn(async () => {
+      throw new SourceHealthRepositoryError("unavailable", "D1 unavailable");
+    });
+    const service = new SourceHealthService(
+      repositoryOf({
+        claimDueSources: vi.fn(async () => [target, second]),
+        applyObservation,
+      }),
+      readerOf(vi.fn(async () => [target, second].map((item) => ({
+        videoId: item.externalId,
+        availabilityStatus: "deleted" as const,
+        video: null,
+      })))),
+      () => crypto.randomUUID(),
+      () => NOW,
+    );
+
+    await expect(service.runScheduled()).rejects.toThrow("D1 unavailable");
+    expect(applyObservation).toHaveBeenCalledOnce();
   });
 });

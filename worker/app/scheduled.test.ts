@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../features/otw-play", () => ({
+  CloudflarePlayTelemetryWriter: class {},
   D1SourceHealthRepository: class {},
   YouTubeOtwPlayMetadataReader: class {},
   SourceHealthService: class {

@@ -29,10 +29,17 @@ import type {
   PublicCatalogParticipant,
   PublicCatalogPerformance,
   PublicCatalogPerformanceDetail,
+  PublicCatalogReadDiagnostics,
   PublicCatalogSongDetail,
   PublicCatalogSongSummary,
   PublicCatalogSource,
 } from "../application/ports/public-catalog-reader";
+import {
+  createPlayTelemetryEvent,
+  type PlayTelemetryCacheStatus,
+  type PlayTelemetryTrigger,
+  type PlayTelemetryWriter,
+} from "../application/ports/play-telemetry";
 import { PublicCatalogCursorError } from "../domain/public-catalog-cursor";
 import { encodePublicCatalogGroupKey } from "../domain/public-group-key";
 import {
@@ -61,7 +68,15 @@ const CACHE_CONTROL = {
 } as const;
 
 type PublicCatalogEtagFactory = (material: string) => Promise<string>;
-type PublicCatalogServiceResolver = (env: Env) => PublicCatalogService;
+interface PublicCatalogRequestApplication {
+  service: PublicCatalogService;
+  beginReadObservation?: () => void;
+  readDiagnostics?: () => Readonly<PublicCatalogReadDiagnostics> | null;
+}
+type PublicCatalogServiceResolver = (
+  env: Env,
+) => PublicCatalogService | PublicCatalogRequestApplication;
+type PlayTelemetryResolver = (env: Env) => PlayTelemetryWriter;
 
 class PublicCatalogProjectionError extends Error {
   constructor() {
@@ -438,16 +453,53 @@ const handleDetailResult = <Input, Output>(
 export const createPublicCatalogHandler = (
   resolveService: PublicCatalogServiceResolver,
   createEtag: PublicCatalogEtagFactory,
+  resolveTelemetry?: PlayTelemetryResolver,
 ) => async (request: Request, env: Env): Promise<Response> => {
   const requestId = requestIdFor(request);
   const url = new URL(request.url);
   const endpoint = endpointName(url.pathname);
+  const startedAt = Date.now();
+  let readDiagnostics:
+    | (() => Readonly<PublicCatalogReadDiagnostics> | null)
+    | undefined;
+  const telemetry = resolveTelemetry?.(env);
+  const tracked = (
+    response: Response,
+    cacheStatus: PlayTelemetryCacheStatus = null,
+    errorCode?: string,
+  ) => {
+    const diagnostics = readDiagnostics?.() ?? null;
+    try {
+      telemetry?.write(
+        createPlayTelemetryEvent({
+          event: "play.catalog.read",
+          requestId,
+          cfRay: request.headers.get("CF-Ray")?.trim() || null,
+          routeId: `otw-play.public.${endpoint}`,
+          trigger: request.method as PlayTelemetryTrigger,
+          status: response.status,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          cacheStatus,
+          d1RowsRead: diagnostics?.rowsRead ?? null,
+          d1RowsWritten: null,
+          ...(errorCode ? { errorCode } : {}),
+        }),
+      );
+    } catch {
+      // A telemetry adapter cannot change the public catalog response.
+    }
+    return response;
+  };
 
   if (request.method !== "GET") {
-    return new Response("Method Not Allowed", {
-      status: 405,
-      headers: { Allow: "GET", "Cache-Control": "no-store" },
-    });
+    return tracked(
+      new Response("Method Not Allowed", {
+        status: 405,
+        headers: { Allow: "GET", "Cache-Control": "no-store" },
+      }),
+      null,
+      "PLAY_METHOD_NOT_ALLOWED",
+    );
   }
 
   try {
@@ -455,9 +507,19 @@ export const createPublicCatalogHandler = (
       request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
     if (adminPreviewRequested) {
       const admin = await requireAdminUser(request, env);
-      if (!admin.ok) return withPrivateResponseHeaders(admin.response);
+      if (!admin.ok)
+        return tracked(
+          withPrivateResponseHeaders(admin.response),
+          null,
+          "PLAY_ADMIN_AUTH_REQUIRED",
+        );
     }
-    const service = resolveService(env);
+    const resolved = resolveService(env);
+    const application =
+      "service" in resolved ? resolved : { service: resolved };
+    application.beginReadObservation?.();
+    readDiagnostics = application.readDiagnostics;
+    const service = application.service;
     const context = readContext(request, adminPreviewRequested);
     const meta = await service.readPublicState();
 
@@ -481,18 +543,22 @@ export const createPublicCatalogHandler = (
         Number(result.document.data.navigationVisible),
         result.document.data.updatedAt,
       ].join("|");
-      return successResponse(
+      return tracked(await successResponse(
         request,
         document,
         CACHE_CONTROL.config,
         etagMaterial,
         createEtag,
         requestId,
-      );
+      ), result.cacheStatus);
     }
 
     if (!meta.publicReadEnabled && !context.allowDisabledRead) {
-      return disabledResponse(requestId, request);
+      return tracked(
+        disabledResponse(requestId, request),
+        null,
+        "PLAY_PUBLIC_READ_DISABLED",
+      );
     }
 
     if (url.pathname === "/api/play/catalog") {
@@ -504,7 +570,11 @@ export const createPublicCatalogHandler = (
         }),
       );
       if (result.status === "disabled") {
-        return disabledResponse(requestId, request);
+        return tracked(
+          disabledResponse(requestId, request),
+          null,
+          "PLAY_PUBLIC_READ_DISABLED",
+        );
       }
       const cacheControl = query.normalizedQuery
         ? CACHE_CONTROL.catalogSearch
@@ -514,14 +584,14 @@ export const createPublicCatalogHandler = (
       const identity = canonicalizePublicCatalogQuery(query, {
         includeCursor: true,
       });
-      return successResponse(
+      return tracked(await successResponse(
         request,
         result.document,
         cacheControl,
         `play-catalog-v1|${result.document.catalogRevision}|${identity}`,
         createEtag,
         requestId,
-      );
+      ), result.cacheStatus);
     }
 
     if (url.pathname === "/api/play/facets") {
@@ -533,16 +603,20 @@ export const createPublicCatalogHandler = (
         toFacets,
       );
       if (result.status === "disabled") {
-        return disabledResponse(requestId, request);
+        return tracked(
+          disabledResponse(requestId, request),
+          null,
+          "PLAY_PUBLIC_READ_DISABLED",
+        );
       }
-      return successResponse(
+      return tracked(await successResponse(
         request,
         result.document,
         CACHE_CONTROL.facets,
         `play-facets-v1|${result.document.catalogRevision}`,
         createEtag,
         requestId,
-      );
+      ), result.cacheStatus);
     }
 
     const songMatch = url.pathname.match(/^\/api\/play\/songs\/([^/]+)$/);
@@ -551,25 +625,38 @@ export const createPublicCatalogHandler = (
         throw new PublicCatalogQueryError("unknown_parameter", "query");
       }
       const slug = decodePathSegment(songMatch[1] ?? "");
-      if (!slug) return notFoundResponse(requestId, request);
+      if (!slug)
+        return tracked(
+          notFoundResponse(requestId, request),
+          null,
+          "PLAY_NOT_FOUND",
+        );
       const result = handleDetailResult(
         await service.readSong(slug, context, meta),
         toSongDetail,
       );
       if (result.status === "disabled") {
-        return disabledResponse(requestId, request);
+        return tracked(
+          disabledResponse(requestId, request),
+          null,
+          "PLAY_PUBLIC_READ_DISABLED",
+        );
       }
       if (result.status === "not_found") {
-        return notFoundResponse(requestId, request);
+        return tracked(
+          notFoundResponse(requestId, request),
+          null,
+          "PLAY_NOT_FOUND",
+        );
       }
-      return successResponse(
+      return tracked(await successResponse(
         request,
         result.document,
         CACHE_CONTROL.detail,
         `play-song-v1|${result.document.catalogRevision}|${slug}`,
         createEtag,
         requestId,
-      );
+      ), result.cacheStatus);
     }
 
     const performanceMatch = url.pathname.match(
@@ -580,43 +667,61 @@ export const createPublicCatalogHandler = (
         throw new PublicCatalogQueryError("unknown_parameter", "query");
       }
       const performanceId = decodePathSegment(performanceMatch[1] ?? "");
-      if (!performanceId) return notFoundResponse(requestId, request);
+      if (!performanceId)
+        return tracked(
+          notFoundResponse(requestId, request),
+          null,
+          "PLAY_NOT_FOUND",
+        );
       const result = handleDetailResult(
         await service.readPerformance(performanceId, context, meta),
         toPerformanceResponse,
       );
       if (result.status === "disabled") {
-        return disabledResponse(requestId, request);
+        return tracked(
+          disabledResponse(requestId, request),
+          null,
+          "PLAY_PUBLIC_READ_DISABLED",
+        );
       }
       if (result.status === "not_found") {
-        return notFoundResponse(requestId, request);
+        return tracked(
+          notFoundResponse(requestId, request),
+          null,
+          "PLAY_NOT_FOUND",
+        );
       }
-      return successResponse(
+      return tracked(await successResponse(
         request,
         result.document,
         CACHE_CONTROL.detail,
         `play-performance-v1|${result.document.catalogRevision}|${performanceId}`,
         createEtag,
         requestId,
-      );
+      ), result.cacheStatus);
     }
 
-    return notFoundResponse(requestId, request);
+    return tracked(
+      notFoundResponse(requestId, request),
+      null,
+      "PLAY_NOT_FOUND",
+    );
   } catch (error) {
     if (error instanceof PublicCatalogQueryError) {
-      return errorResponse(
+      return tracked(errorResponse(
         "PLAY_INVALID_QUERY",
         "OTW Play 조회 조건이 올바르지 않습니다.",
         400,
         requestId,
         { [error.field]: error.reason },
         request,
-      );
+      ), null, "PLAY_INVALID_QUERY");
     }
     if (error instanceof PublicCatalogCursorError) {
       const stale = error.reason === "revision_mismatch";
-      return errorResponse(
-        stale ? "PLAY_CURSOR_STALE" : "PLAY_INVALID_CURSOR",
+      const code = stale ? "PLAY_CURSOR_STALE" : "PLAY_INVALID_CURSOR";
+      return tracked(errorResponse(
+        code,
         stale
           ? "카탈로그가 변경되었습니다. 첫 페이지부터 다시 조회해 주세요."
           : "OTW Play cursor가 올바르지 않습니다.",
@@ -624,7 +729,7 @@ export const createPublicCatalogHandler = (
         requestId,
         undefined,
         request,
-      );
+      ), null, code);
     }
     if (
       error instanceof PublicCatalogProjectionError ||
@@ -632,23 +737,23 @@ export const createPublicCatalogHandler = (
         error.reason === "reader_cursor_contract")
     ) {
       logFailure(endpoint, requestId, error);
-      return errorResponse(
+      return tracked(errorResponse(
         "PLAY_INTERNAL_ERROR",
         "OTW Play 응답을 구성하지 못했습니다.",
         500,
         requestId,
         undefined,
         request,
-      );
+      ), null, "PLAY_INTERNAL_ERROR");
     }
     logFailure(endpoint, requestId, error);
-    return errorResponse(
+    return tracked(errorResponse(
       "PLAY_CATALOG_UNAVAILABLE",
       "OTW Play 카탈로그를 일시적으로 불러올 수 없습니다.",
       503,
       requestId,
       undefined,
       request,
-    );
+    ), null, "PLAY_CATALOG_UNAVAILABLE");
   }
 };

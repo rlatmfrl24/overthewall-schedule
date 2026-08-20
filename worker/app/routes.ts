@@ -27,20 +27,27 @@ import {
 } from "../features/members";
 import {
   CloudflarePublicCatalogCache,
+  CloudflarePlayObservabilityReader,
+  CloudflarePlayTelemetryWriter,
   AdminCatalogService,
   createAdminCatalogHandler,
   createPublicCatalogEtag,
   createPublicCatalogHandler,
+  createPlayObservabilityHandler,
   D1AdminCatalogRepository,
   D1SourceHealthRepository,
   D1PublicCatalogReader,
+  D1ReleaseRepository,
   DrizzleAdminCatalogAudit,
   PublicCatalogService,
+  ReleaseService,
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
+  withPlayOperationsTelemetry,
   MemberSubmissionService,
   D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
+  createReleaseHandler,
 } from "../features/otw-play";
 import {
   collectNaverCafePostsForSources,
@@ -171,15 +178,35 @@ const handleMembers = createHandleMembers(
   (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
 );
 const publicCatalogCache = new CloudflarePublicCatalogCache();
+const resolvePlayTelemetry = (env: Parameters<typeof getDb>[0]) =>
+  new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS);
 const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
-  (env) =>
-    new PublicCatalogService(
-      new D1PublicCatalogReader(env.otw_db),
-      publicCatalogCache,
-    ),
+  (env) => {
+    const reader = new D1PublicCatalogReader(env.otw_db);
+    return {
+      service: new PublicCatalogService(reader, publicCatalogCache),
+      beginReadObservation: () => reader.beginReadObservation(),
+      readDiagnostics: () => reader.getReadObservation(),
+    };
+  },
   createPublicCatalogEtag,
+  resolvePlayTelemetry,
 );
-const handleOtwPlayAdminCatalog = createAdminCatalogHandler(
+const handleOtwPlayObservability = withPlayOperationsTelemetry(
+  createPlayObservabilityHandler(
+    (env) =>
+      new CloudflarePlayObservabilityReader(
+        env.CLOUDFLARE_ACCOUNT_ID,
+        env.OTW_PLAY_ANALYTICS_READ_TOKEN,
+      ),
+  ),
+  resolvePlayTelemetry,
+);
+const handleOtwPlayRelease = createReleaseHandler(
+  (env) => new ReleaseService(new D1ReleaseRepository(env.otw_db)),
+  resolvePlayTelemetry,
+);
+const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
   (env) =>
     new AdminCatalogService(
       new D1AdminCatalogRepository(env.otw_db),
@@ -194,12 +221,20 @@ const handleOtwPlayAdminCatalog = createAdminCatalogHandler(
       new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
     ),
 );
-const handleOtwPlayMemberSubmissions = createMemberSubmissionHandler(
+const handleOtwPlayAdminCatalog = withPlayOperationsTelemetry(
+  handleOtwPlayAdminCatalogCore,
+  resolvePlayTelemetry,
+);
+const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(
   (env) =>
     new MemberSubmissionService(
       new D1MemberSubmissionRepository(env.otw_db),
       () => crypto.randomUUID(),
     ),
+);
+const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
+  handleOtwPlayMemberSubmissionsCore,
+  resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
   (env) =>
@@ -279,6 +314,9 @@ const post = (
 const put = (
   contract: Omit<WorkerRouteMethodContract, "method">,
 ): WorkerRouteMethodContract => ({ method: "PUT", ...contract });
+const patch = (
+  contract: Omit<WorkerRouteMethodContract, "method">,
+): WorkerRouteMethodContract => ({ method: "PATCH", ...contract });
 const del = (
   contract: Omit<WorkerRouteMethodContract, "method">,
 ): WorkerRouteMethodContract => ({ method: "DELETE", ...contract });
@@ -614,6 +652,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.admin.sourceHealth.pattern,
     methods: methods(get(ADMIN_NO_STORE)),
     handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.observability",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.observability.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayObservability,
+  },
+  {
+    id: "otw-play.admin.release",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.release.pattern,
+    methods: methods(get(ADMIN_NO_STORE), patch(ADMIN_NO_STORE)),
+    handler: handleOtwPlayRelease,
   },
   {
     id: "otw-play.admin.source.recheck",

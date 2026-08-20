@@ -72,22 +72,66 @@ const versionGuard = (database: D1Database) =>
   database.prepare(`UPDATE music_catalog_meta
     SET id = CASE WHEN changes() = 1 THEN 1 ELSE 2 END WHERE id = 1`);
 
-const appendRevisionStatements = (
+const PUBLIC_IMPACT_PREDICATE = `EXISTS (
+  SELECT 1
+  FROM music_performance_sources AS link
+  JOIN music_performances AS performance ON performance.id = link.performance_id
+  JOIN music_songs AS song ON song.id = performance.song_id
+  WHERE link.source_id = ?
+    AND performance.publication_status = 'published'
+    AND song.archived_at IS NULL
+)`;
+
+const conditionalRevisionGuard = (
   database: D1Database,
+  sourceId: string,
+) => database
+  .prepare(`UPDATE music_catalog_meta
+    SET id = CASE
+      WHEN changes() = CASE WHEN ${PUBLIC_IMPACT_PREDICATE} THEN 1 ELSE 0 END
+      THEN 1 ELSE 2 END
+    WHERE id = 1`)
+  .bind(sourceId);
+
+const appendConditionalRevisionStatements = (
+  database: D1Database,
+  sourceId: string,
   expectedRevision: number,
   now: number,
 ) => [
   database
     .prepare(`UPDATE music_catalog_meta SET revision = revision + 1, updated_at = ?
-      WHERE id = 1 AND revision = ?`)
-    .bind(now, expectedRevision),
-  versionGuard(database),
+      WHERE id = 1 AND revision = ?
+        AND EXISTS (
+          SELECT 1 FROM music_public_read_model_meta AS read_model
+          WHERE read_model.id = 1 AND read_model.revision = music_catalog_meta.revision
+        )
+        AND ${PUBLIC_IMPACT_PREDICATE}`)
+    .bind(now, expectedRevision, sourceId),
+  conditionalRevisionGuard(database, sourceId),
   database
     .prepare(`UPDATE music_public_read_model_meta SET revision = ?, updated_at = ?
-      WHERE id = 1 AND revision = ?`)
-    .bind(expectedRevision + 1, now, expectedRevision),
-  versionGuard(database),
+      WHERE id = 1 AND revision = ?
+        AND EXISTS (
+          SELECT 1 FROM music_catalog_meta AS catalog
+          WHERE catalog.id = 1 AND catalog.revision = ?
+        )
+        AND ${PUBLIC_IMPACT_PREDICATE}`)
+    .bind(
+      expectedRevision + 1,
+      now,
+      expectedRevision,
+      expectedRevision + 1,
+      sourceId,
+    ),
+  conditionalRevisionGuard(database, sourceId),
 ];
+
+const isConstraintFailure = (error: unknown) =>
+  /constraint failed/i.test(error instanceof Error ? error.message : String(error));
+
+const unavailableError = (message: string) =>
+  new SourceHealthRepositoryError("unavailable", message);
 
 const targetOf = (row: TargetRow): SourceHealthTarget => ({
   id: row.id,
@@ -152,12 +196,17 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
   }
 
   private async readRevision() {
-    const row = await this.database
-      .prepare(`SELECT catalog.revision, read_model.revision AS read_model_revision
-        FROM music_catalog_meta AS catalog
-        JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
-        WHERE catalog.id = 1`)
-      .first<RevisionRow>();
+    let row: RevisionRow | null;
+    try {
+      row = await this.database
+        .prepare(`SELECT catalog.revision, read_model.revision AS read_model_revision
+          FROM music_catalog_meta AS catalog
+          JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+          WHERE catalog.id = 1`)
+        .first<RevisionRow>();
+    } catch {
+      throw unavailableError("Catalog revision read failed");
+    }
     if (!row) {
       throw new SourceHealthRepositoryError("unavailable", "Catalog meta missing");
     }
@@ -184,22 +233,6 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
       .bind(sourceId)
       .first<TargetRow>();
     return row ? targetOf(row) : null;
-  }
-
-  private async hasPublicImpact(sourceId: string) {
-    const row = await this.database
-      .prepare(`SELECT EXISTS (
-        SELECT 1
-        FROM music_performance_sources AS link
-        JOIN music_performances AS performance ON performance.id = link.performance_id
-        JOIN music_songs AS song ON song.id = performance.song_id
-        WHERE link.source_id = ?
-          AND performance.publication_status = 'published'
-          AND song.archived_at IS NULL
-      ) AS public_impact`)
-      .bind(sourceId)
-      .first<{ public_impact: number }>();
-    return Boolean(row?.public_impact);
   }
 
   async claimDueSources(now: number, leaseUntil: number, limit: number) {
@@ -249,17 +282,6 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
       durationSeconds !== target.durationSeconds ||
       providerPublishedAt !== target.providerPublishedAt ||
       availabilityStatus !== target.availabilityStatus;
-    const incrementsRevisions =
-      publicChanged && (await this.hasPublicImpact(target.id));
-    if (
-      incrementsRevisions &&
-      revision.revision !== revision.readModelRevision
-    ) {
-      throw new SourceHealthRepositoryError(
-        "unavailable",
-        "Catalog read model must be repaired before source health changes",
-      );
-    }
     const eventType = healthEventType(
       target.availabilityStatus,
       availabilityStatus,
@@ -304,8 +326,13 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
           }),
           checkedAt,
         ),
-      ...(incrementsRevisions
-        ? appendRevisionStatements(this.database, revision.revision, checkedAt)
+      ...(publicChanged
+        ? appendConditionalRevisionStatements(
+            this.database,
+            target.id,
+            revision.revision,
+            checkedAt,
+          )
         : []),
     ];
     try {
@@ -313,22 +340,37 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/music_catalog_meta_singleton_check/i.test(message)) {
+        const current = await this.readRevision();
+        if (current.revision !== current.readModelRevision) {
+          throw unavailableError(
+            "Catalog read model must be repaired before source health changes",
+          );
+        }
         return { kind: "stale" };
+      }
+      if (!isConstraintFailure(error)) {
+        throw unavailableError("Source health observation write failed");
       }
       throw error;
     }
-    const updated = await this.database
-      .prepare(this.targetQuery("source.id = ?"))
-      .bind(target.id)
-      .first<TargetRow>();
+    let updated: TargetRow | null;
+    try {
+      updated = await this.database
+        .prepare(this.targetQuery("source.id = ?"))
+        .bind(target.id)
+        .first<TargetRow>();
+    } catch {
+      throw unavailableError("Updated source read failed");
+    }
     if (!updated) {
       throw new SourceHealthRepositoryError("not_found", "Source not found");
     }
+    const currentRevision = await this.readRevision();
     return {
       kind: "applied",
       response: {
         data: sourceDtoOf(updated),
-        catalogRevision: revision.revision + (incrementsRevisions ? 1 : 0),
+        catalogRevision: currentRevision.revision,
         check: {
           status: "checked",
           previousAvailability: target.availabilityStatus,
@@ -378,12 +420,20 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
       if (/music_catalog_meta_singleton_check/i.test(message)) {
         return { kind: "stale" };
       }
+      if (!isConstraintFailure(error)) {
+        throw unavailableError("Source health retry write failed");
+      }
       throw error;
     }
-    const updated = await this.database
-      .prepare(this.targetQuery("source.id = ?"))
-      .bind(target.id)
-      .first<TargetRow>();
+    let updated: TargetRow | null;
+    try {
+      updated = await this.database
+        .prepare(this.targetQuery("source.id = ?"))
+        .bind(target.id)
+        .first<TargetRow>();
+    } catch {
+      throw unavailableError("Retried source read failed");
+    }
     if (!updated) {
       throw new SourceHealthRepositoryError("not_found", "Source not found");
     }

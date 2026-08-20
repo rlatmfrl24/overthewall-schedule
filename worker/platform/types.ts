@@ -13,6 +13,9 @@ export interface Env {
   CLERK_ISSUER?: string;
   CLERK_JWT_AUDIENCE?: string;
   CLERK_ADMIN_IDS?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  OTW_PLAY_ANALYTICS_READ_TOKEN?: string;
+  OTW_PLAY_ANALYTICS?: AnalyticsEngineDataset;
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   otw_db: D1Database;
   ASSET_BUCKET?: R2Bucket;
