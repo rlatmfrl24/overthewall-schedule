@@ -32,6 +32,11 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
 ] as const;
+const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
+  "0038_misty_speed_demon.sql",
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(4),
+] as const;
 const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
 
 export default defineConfig({
@@ -69,6 +74,11 @@ export default defineConfig({
             const migration = migrationsByName.get(name);
             return migration ? [migration] : [];
           });
+      const otwPlayReleaseMigrations =
+        OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.flatMap((name) => {
+          const migration = migrationsByName.get(name);
+          return migration ? [migration] : [];
+        });
       const otwPlaySourceHealthMigration = migrationsByName.get(
         OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME,
       );
@@ -88,6 +98,18 @@ export default defineConfig({
       ) {
         throw new Error(
           `Expected exact ordered OTW Play proposal/search migrations: ${OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES.join(", ")}`,
+        );
+      }
+      if (
+        otwPlayReleaseMigrations.length !==
+          OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.length ||
+        otwPlayReleaseMigrations.some(
+          ({ name }, index) =>
+            name !== OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES[index],
+        )
+      ) {
+        throw new Error(
+          `Expected exact ordered OTW Play release test migrations: ${OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES.join(", ")}`,
         );
       }
       if (
@@ -118,6 +140,7 @@ export default defineConfig({
               otwPlayPreSourceHealthMigrations,
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
               otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration] : [],
+            OTW_PLAY_RELEASE_MIGRATIONS: otwPlayReleaseMigrations,
           },
         },
       };

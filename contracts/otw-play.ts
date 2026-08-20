@@ -665,6 +665,60 @@ export interface OtwPlayAdminObservabilityDto {
   reasonCode?: "analytics_unconfigured" | "analytics_unavailable";
 }
 
+export interface OtwPlayAdminReleaseFlagsDto {
+  publicReadEnabled: boolean;
+  navigationVisible: boolean;
+}
+
+export interface OtwPlayAdminReleaseStateDto
+  extends OtwPlayAdminReleaseFlagsDto {
+  catalogRevision: number;
+  readModelRevision: number | null;
+  updatedAt: number;
+  readyForPublicRead: boolean;
+}
+
+export const OTW_PLAY_ADMIN_RELEASE_CONFIRMATIONS = [
+  "direct_routes_verified",
+  "public_canary_verified",
+  "rollback_reviewed",
+] as const;
+
+export type OtwPlayAdminReleaseConfirmation =
+  (typeof OTW_PLAY_ADMIN_RELEASE_CONFIRMATIONS)[number];
+
+export type OtwPlayAdminReleaseTransition =
+  | "enable_public_read"
+  | "enable_navigation"
+  | "disable_navigation"
+  | "rollback_all";
+
+export interface OtwPlayAdminReleaseRequest {
+  expected: OtwPlayAdminReleaseFlagsDto & { updatedAt: number };
+  target: OtwPlayAdminReleaseFlagsDto;
+  confirmation: OtwPlayAdminReleaseConfirmation;
+}
+
+export interface OtwPlayAdminReleaseAuditDto {
+  id: string;
+  transition: OtwPlayAdminReleaseTransition;
+  previous: OtwPlayAdminReleaseFlagsDto;
+  current: OtwPlayAdminReleaseFlagsDto;
+  actor: { id: string; displayName: string | null };
+  changedAt: number;
+}
+
+export interface OtwPlayAdminReleaseReadResponse {
+  data: OtwPlayAdminReleaseStateDto;
+  recentChanges: OtwPlayAdminReleaseAuditDto[];
+}
+
+export interface OtwPlayAdminReleaseCommandResponse {
+  data: OtwPlayAdminReleaseStateDto;
+  transition: OtwPlayAdminReleaseTransition;
+  changedAt: number;
+}
+
 export type OtwPlayAdminSourceRecheckResponse =
   OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto> & {
     check:

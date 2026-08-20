@@ -91,3 +91,6 @@ export {
 } from "./infrastructure/cloudflare-play-observability-reader";
 export { createPlayObservabilityHandler } from "./http/observability-handler";
 export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
+export { ReleaseService } from "./application/release-service";
+export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
+export { createReleaseHandler } from "./http/release-handler";

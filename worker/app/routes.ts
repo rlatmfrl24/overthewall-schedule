@@ -37,14 +37,17 @@ import {
   D1AdminCatalogRepository,
   D1SourceHealthRepository,
   D1PublicCatalogReader,
+  D1ReleaseRepository,
   DrizzleAdminCatalogAudit,
   PublicCatalogService,
+  ReleaseService,
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
   withPlayOperationsTelemetry,
   MemberSubmissionService,
   D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
+  createReleaseHandler,
 } from "../features/otw-play";
 import {
   collectNaverCafePostsForSources,
@@ -196,6 +199,10 @@ const handleOtwPlayObservability = createPlayObservabilityHandler(
       env.OTW_PLAY_ANALYTICS_READ_TOKEN,
     ),
 );
+const handleOtwPlayRelease = createReleaseHandler(
+  (env) => new ReleaseService(new D1ReleaseRepository(env.otw_db)),
+  resolvePlayTelemetry,
+);
 const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
   (env) =>
     new AdminCatalogService(
@@ -304,6 +311,9 @@ const post = (
 const put = (
   contract: Omit<WorkerRouteMethodContract, "method">,
 ): WorkerRouteMethodContract => ({ method: "PUT", ...contract });
+const patch = (
+  contract: Omit<WorkerRouteMethodContract, "method">,
+): WorkerRouteMethodContract => ({ method: "PATCH", ...contract });
 const del = (
   contract: Omit<WorkerRouteMethodContract, "method">,
 ): WorkerRouteMethodContract => ({ method: "DELETE", ...contract });
@@ -646,6 +656,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.admin.observability.pattern,
     methods: methods(get(ADMIN_NO_STORE)),
     handler: handleOtwPlayObservability,
+  },
+  {
+    id: "otw-play.admin.release",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.release.pattern,
+    methods: methods(get(ADMIN_NO_STORE), patch(ADMIN_NO_STORE)),
+    handler: handleOtwPlayRelease,
   },
   {
     id: "otw-play.admin.source.recheck",
