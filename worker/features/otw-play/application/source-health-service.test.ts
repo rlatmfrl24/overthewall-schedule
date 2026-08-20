@@ -177,6 +177,7 @@ describe("SourceHealthService", () => {
       .mockResolvedValueOnce({ kind: "stale" });
     const claimDueSources = vi.fn(async () => [target, recovered, stale]);
     const repository = repositoryOf({ claimDueSources, applyObservation });
+    const write = vi.fn();
     const readVideos = vi.fn(async () => [target, recovered, stale].map((item) => ({
       videoId: item.externalId,
       availabilityStatus: item.id === "source-1" ? "deleted" as const : "playable" as const,
@@ -196,6 +197,7 @@ describe("SourceHealthService", () => {
       readerOf(readVideos),
       () => crypto.randomUUID(),
       () => NOW,
+      { write },
     );
 
     await expect(service.runScheduled()).resolves.toEqual({
@@ -217,6 +219,27 @@ describe("SourceHealthService", () => {
       recovered.externalId,
       stale.externalId,
     ]);
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.source.unavailable",
+        resourceId: "source-1",
+        transition: "playable:deleted",
+        trigger: "scheduled",
+      }),
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.source.recovered",
+        resourceId: "source-2",
+      }),
+    );
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "play.concurrent_write_conflict",
+        resourceId: "source-3",
+        status: 409,
+      }),
+    );
   });
 
   it("schedules every claimed source on a retryable shared outage", async () => {

@@ -628,6 +628,43 @@ export interface OtwPlayAdminSourceHealthDto {
   recentlyRecovered: OtwPlayAdminSourceHealthItemDto[];
 }
 
+export type OtwPlayAdminObservabilityStatus =
+  | "available"
+  | "unconfigured"
+  | "unavailable";
+
+export interface OtwPlayAdminObservabilitySummaryDto {
+  requestCount: number;
+  errorCount: number;
+  errorRate: number;
+  cacheHit: number;
+  cacheMiss: number;
+  cacheBypass: number;
+  p95DurationMs: number | null;
+  d1RowsRead: number | null;
+  d1RowsWritten: number | null;
+}
+
+export interface OtwPlayAdminObservabilityRouteDto
+  extends OtwPlayAdminObservabilitySummaryDto {
+  routeId: string;
+}
+
+export interface OtwPlayAdminObservabilityEventDto {
+  event: string;
+  count: number;
+}
+
+export interface OtwPlayAdminObservabilityDto {
+  status: OtwPlayAdminObservabilityStatus;
+  generatedAt: string;
+  windowHours: 24;
+  summary: OtwPlayAdminObservabilitySummaryDto;
+  routes: OtwPlayAdminObservabilityRouteDto[];
+  events: OtwPlayAdminObservabilityEventDto[];
+  reasonCode?: "analytics_unconfigured" | "analytics_unavailable";
+}
+
 export type OtwPlayAdminSourceRecheckResponse =
   OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto> & {
     check:

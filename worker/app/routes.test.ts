@@ -345,6 +345,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
+    id: "otw-play.admin.observability",
+    owner: "otw-play",
+    path: "/api/play/admin/observability",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "otw-play.admin.source.recheck",
     owner: "otw-play",
     path: "/api/play/admin/sources/:id/recheck",

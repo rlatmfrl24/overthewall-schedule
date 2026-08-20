@@ -147,6 +147,7 @@ export const apiRoutes = {
       ),
       channels: staticRoute("/api/play/admin/channels"),
       sourceHealth: staticRoute("/api/play/admin/source-health"),
+      observability: staticRoute("/api/play/admin/observability"),
       recheckSource: dynamicRoute(
         "/api/play/admin/sources/:id/recheck",
         (id: string) =>

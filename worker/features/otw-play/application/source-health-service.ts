@@ -22,6 +22,11 @@ import {
   type OtwPlayYouTubeBatchMetadataReader,
   type OtwPlayYouTubeVideoObservation,
 } from "./ports/youtube-metadata";
+import {
+  createPlayTelemetryEvent,
+  type PlayTelemetryEventName,
+  type PlayTelemetryWriter,
+} from "./ports/play-telemetry";
 
 export type SourceHealthServiceErrorCode =
   | "invalid_request"
@@ -74,17 +79,55 @@ export class SourceHealthService {
   private readonly youtube: OtwPlayYouTubeBatchMetadataReader;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly telemetry: PlayTelemetryWriter | undefined;
 
   constructor(
     repository: SourceHealthRepository,
     youtube: OtwPlayYouTubeBatchMetadataReader,
     createId: () => string = () => crypto.randomUUID(),
     clock: () => number = Date.now,
+    telemetry?: PlayTelemetryWriter,
   ) {
     this.repository = repository;
     this.youtube = youtube;
     this.createId = createId;
     this.clock = clock;
+    this.telemetry = telemetry;
+  }
+
+  private recordScheduledTelemetry(
+    event: PlayTelemetryEventName,
+    sourceId: string | undefined,
+    now: number,
+    startedAt: number,
+    options: { transition?: string; errorCode?: string; status?: number } = {},
+  ) {
+    try {
+      this.telemetry?.write(
+        createPlayTelemetryEvent({
+          event,
+          occurredAt: new Date(now).toISOString(),
+          requestId: `scheduled:${startedAt}`,
+          cfRay: null,
+          routeId: "otw-play.scheduled.source-health",
+          trigger: "scheduled",
+          status: options.status ?? 200,
+          durationMs: Math.max(0, now - startedAt),
+          cacheStatus: null,
+          d1RowsRead: null,
+          d1RowsWritten: null,
+          ...(sourceId
+            ? { resourceType: "source", resourceId: sourceId }
+            : {}),
+          ...(options.transition
+            ? { transition: options.transition }
+            : {}),
+          ...(options.errorCode ? { errorCode: options.errorCode } : {}),
+        }),
+      );
+    } catch {
+      // Scheduled source authority is independent from telemetry availability.
+    }
   }
 
   readDashboard() {
@@ -199,6 +242,7 @@ export class SourceHealthService {
 
   async runScheduled(): Promise<ScheduledSourceHealthResult> {
     const now = this.clock();
+    const startedAt = now;
     const targets = await this.repository.claimDueSources(
       now,
       now + OTW_PLAY_SOURCE_HEALTH_LEASE_MS,
@@ -221,12 +265,42 @@ export class SourceHealthService {
       );
     } catch (error) {
       if (!(error instanceof OtwPlayYouTubeMetadataError) || !error.retryable) {
+        this.recordScheduledTelemetry(
+          "play.youtube.verify_failed",
+          undefined,
+          this.clock(),
+          startedAt,
+          {
+            errorCode:
+              error instanceof OtwPlayYouTubeMetadataError
+                ? error.code
+                : "youtube_dependency_failed",
+            status: 503,
+          },
+        );
         throw error;
       }
       for (const target of targets) {
         const mutation = await this.scheduleRetry(target, actor, error, now);
-        if (mutation.kind === "stale") result.staleSkipped += 1;
-        else result.retryScheduled += 1;
+        if (mutation.kind === "stale") {
+          result.staleSkipped += 1;
+          this.recordScheduledTelemetry(
+            "play.concurrent_write_conflict",
+            target.id,
+            this.clock(),
+            startedAt,
+            { errorCode: "PLAY_ADMIN_STALE_WRITE", status: 409 },
+          );
+        } else {
+          result.retryScheduled += 1;
+          this.recordScheduledTelemetry(
+            "play.youtube.verify_failed",
+            target.id,
+            this.clock(),
+            startedAt,
+            { errorCode: error.code },
+          );
+        }
       }
       return result;
     }
@@ -249,11 +323,45 @@ export class SourceHealthService {
       });
       if (mutation.kind === "stale") {
         result.staleSkipped += 1;
+        this.recordScheduledTelemetry(
+          "play.concurrent_write_conflict",
+          target.id,
+          this.clock(),
+          startedAt,
+          { errorCode: "PLAY_ADMIN_STALE_WRITE", status: 409 },
+        );
         continue;
       }
       result.checked += 1;
       if (mutation.response.check.status === "checked") {
         if (mutation.response.check.changed) result.changed += 1;
+        const previous = mutation.response.check.previousAvailability;
+        const current = mutation.response.check.currentAvailability;
+        if (previous === "playable" && current !== "playable") {
+          this.recordScheduledTelemetry(
+            "play.source.unavailable",
+            target.id,
+            this.clock(),
+            startedAt,
+            { transition: `${previous}:${current}` },
+          );
+        } else if (previous !== "playable" && current === "playable") {
+          this.recordScheduledTelemetry(
+            "play.source.recovered",
+            target.id,
+            this.clock(),
+            startedAt,
+            { transition: `${previous}:${current}` },
+          );
+        } else if (mutation.response.check.changed) {
+          this.recordScheduledTelemetry(
+            "play.catalog.updated",
+            target.id,
+            this.clock(),
+            startedAt,
+            { transition: `${previous}:${current}` },
+          );
+        }
         if (
           mutation.response.check.previousAvailability !== "playable" &&
           mutation.response.check.currentAvailability === "playable"
