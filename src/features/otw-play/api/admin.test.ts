@@ -5,12 +5,15 @@ import {
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
   fetchOtwPlayAdminCatalog,
+  fetchOtwPlayAdminObservability,
   fetchOtwPlayAdminProposals,
+  fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   recheckOtwPlaySource,
+  updateOtwPlayAdminRelease,
 } from "./admin";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
@@ -25,6 +28,8 @@ describe("OTW Play admin API", () => {
   it("always uses required authentication", async () => {
     await fetchOtwPlayAdminCatalog();
     await fetchOtwPlayAdminSourceHealth();
+    await fetchOtwPlayAdminObservability();
+    await fetchOtwPlayAdminRelease();
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/catalog",
       { auth: "required" },
@@ -32,6 +37,31 @@ describe("OTW Play admin API", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/source-health",
       { auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/observability",
+      { auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/release",
+      { auth: "required" },
+    );
+  });
+
+  it("sends release authority changes only through PATCH", async () => {
+    const command = {
+      expected: {
+        publicReadEnabled: false,
+        navigationVisible: false,
+        updatedAt: 10,
+      },
+      target: { publicReadEnabled: true, navigationVisible: false },
+      confirmation: "direct_routes_verified" as const,
+    };
+    await updateOtwPlayAdminRelease(command);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/release",
+      { method: "PATCH", json: command, auth: "required" },
     );
   });
 

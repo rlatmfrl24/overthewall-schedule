@@ -64,19 +64,23 @@ import {
 } from "../../api/admin";
 import {
   useOtwPlayAdminCatalog,
+  useOtwPlayAdminObservability,
   useOtwPlayAdminProposals,
+  useOtwPlayAdminRelease,
   useOtwPlayAdminSourceHealth,
 } from "../../queries/use-admin-catalog";
 import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
+import { OperationsSection } from "./operations-section";
 
-type Section = "catalog" | "review" | "source-health";
+type Section = "catalog" | "review" | "source-health" | "operations";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
   { value: "review", label: "제안 검수" },
   { value: "source-health", label: "소스 상태" },
+  { value: "operations", label: "운영·공개" },
 ];
 
 const channelRoleLabels: Record<OtwPlayChannelRole, string> = {
@@ -161,8 +165,12 @@ export function OtwPlayCatalogManager() {
   const { toast } = useToast();
   const [section, setSection] = useState<Section>("catalog");
   const sourceHealthQuery = useOtwPlayAdminSourceHealth(
-    section === "source-health",
+    section === "source-health" || section === "operations",
   );
+  const observabilityQuery = useOtwPlayAdminObservability(
+    section === "operations",
+  );
+  const releaseQuery = useOtwPlayAdminRelease(section === "operations");
   const [saving, setSaving] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
@@ -181,6 +189,25 @@ export function OtwPlayCatalogManager() {
         queryKey: queryKeys.otwPlay.adminSourceHealth(),
       }),
       queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.all }),
+    ]);
+  };
+  const refreshRelease = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.adminRelease(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.adminObservability(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.adminSourceHealth(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.config("public"),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.config("admin-preview"),
+      }),
     ]);
   };
   const run = async (label: string, task: () => Promise<unknown>) => {
@@ -346,6 +373,21 @@ export function OtwPlayCatalogManager() {
           saving={saving}
           run={run}
           refetch={sourceHealthQuery.refetch}
+        />
+      )}
+      {section === "operations" && (
+        <OperationsSection
+          observability={observabilityQuery.data}
+          observabilityLoading={observabilityQuery.isLoading}
+          observabilityError={observabilityQuery.error}
+          observabilityFetching={observabilityQuery.isFetching}
+          refetchObservability={observabilityQuery.refetch}
+          release={releaseQuery.data}
+          releaseLoading={releaseQuery.isLoading}
+          releaseError={releaseQuery.error}
+          sourceHealth={sourceHealthQuery.data}
+          onReleaseChanged={refreshRelease}
+          onOpenSourceHealth={() => setSection("source-health")}
         />
       )}
 

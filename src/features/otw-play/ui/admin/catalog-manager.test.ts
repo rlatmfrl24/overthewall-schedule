@@ -17,6 +17,9 @@ import { OtwPlayCatalogManager } from "./catalog-manager";
 const fetchCatalogMock = vi.hoisted(() => vi.fn());
 const fetchProposalsMock = vi.hoisted(() => vi.fn());
 const fetchSourceHealthMock = vi.hoisted(() => vi.fn());
+const fetchObservabilityMock = vi.hoisted(() => vi.fn());
+const fetchReleaseMock = vi.hoisted(() => vi.fn());
+const updateReleaseMock = vi.hoisted(() => vi.fn());
 const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
@@ -37,6 +40,9 @@ vi.mock("../../api/admin", async (importOriginal) => {
     fetchOtwPlayAdminCatalog: fetchCatalogMock,
     fetchOtwPlayAdminProposals: fetchProposalsMock,
     fetchOtwPlayAdminSourceHealth: fetchSourceHealthMock,
+    fetchOtwPlayAdminObservability: fetchObservabilityMock,
+    fetchOtwPlayAdminRelease: fetchReleaseMock,
+    updateOtwPlayAdminRelease: updateReleaseMock,
     recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
     updateOtwPlaySong: updateSongMock,
@@ -112,6 +118,9 @@ describe("OtwPlayCatalogManager", () => {
     fetchCatalogMock.mockResolvedValue(catalog);
     fetchProposalsMock.mockResolvedValue([proposal]);
     fetchSourceHealthMock.mockReset();
+    fetchObservabilityMock.mockReset();
+    fetchReleaseMock.mockReset();
+    updateReleaseMock.mockReset();
     recheckSourceMock.mockReset();
     fetchSourceHealthMock.mockResolvedValue({
       generatedAt: 1_777_000_000_000,
@@ -166,6 +175,48 @@ describe("OtwPlayCatalogManager", () => {
         retryCode: "timeout",
         nextCheckAt: 1_776_200_000_000,
       },
+    });
+    fetchObservabilityMock.mockResolvedValue({
+      status: "unconfigured",
+      generatedAt: "2026-08-20T00:00:00.000Z",
+      windowHours: 24,
+      summary: {
+        requestCount: 0,
+        errorCount: 0,
+        errorRate: 0,
+        cacheHit: 0,
+        cacheMiss: 0,
+        cacheBypass: 0,
+        p95DurationMs: null,
+        d1RowsRead: null,
+        d1RowsWritten: null,
+      },
+      routes: [],
+      events: [],
+      reasonCode: "analytics_unconfigured",
+    });
+    fetchReleaseMock.mockResolvedValue({
+      data: {
+        publicReadEnabled: false,
+        navigationVisible: false,
+        catalogRevision: 7,
+        readModelRevision: 7,
+        updatedAt: 10,
+        readyForPublicRead: true,
+      },
+      recentChanges: [],
+    });
+    updateReleaseMock.mockResolvedValue({
+      data: {
+        publicReadEnabled: true,
+        navigationVisible: false,
+        catalogRevision: 7,
+        readModelRevision: 7,
+        updatedAt: 11,
+        readyForPublicRead: true,
+      },
+      transition: "enable_public_read",
+      changedAt: 11,
     });
     rejectProposalMock.mockResolvedValue({
       data: { ...proposal, status: "rejected", version: 3 },
@@ -246,6 +297,45 @@ describe("OtwPlayCatalogManager", () => {
       description: "외부 API 재시도 대기 상태로 저장했습니다 (timeout).",
     }));
     await waitFor(() => expect(fetchCatalogMock.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("loads observability, release, and source health only after operations entry", async () => {
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    await screen.findByText("OTW Play 카탈로그");
+    expect(fetchObservabilityMock).not.toHaveBeenCalled();
+    expect(fetchReleaseMock).not.toHaveBeenCalled();
+    expect(fetchSourceHealthMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+    expect(await screen.findByRole("heading", { name: "운영·공개 권위" })).toBeTruthy();
+    await waitFor(() => expect(fetchObservabilityMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(fetchReleaseMock).toHaveBeenCalledOnce());
+    await waitFor(() => expect(fetchSourceHealthMock).toHaveBeenCalledOnce());
+    expect(screen.getByText(/Analytics 조회 token/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
+  });
+
+  it("refreshes release, observability, and source health after an audited switch", async () => {
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    await screen.findByText("OTW Play 카탈로그");
+    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+    const trigger = await screen.findByRole("button", { name: /공개 API canary 시작/ });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "권위 상태 변경" }));
+
+    await waitFor(() => expect(updateReleaseMock).toHaveBeenCalledWith({
+      expected: {
+        publicReadEnabled: false,
+        navigationVisible: false,
+        updatedAt: 10,
+      },
+      target: { publicReadEnabled: true, navigationVisible: false },
+      confirmation: "direct_routes_verified",
+    }));
+    await waitFor(() => expect(fetchReleaseMock.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(fetchObservabilityMock.mock.calls.length).toBeGreaterThan(1));
     await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
   });
 

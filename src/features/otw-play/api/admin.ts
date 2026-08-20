@@ -14,8 +14,12 @@ import type {
   OtwPlayAdminEntityDto,
   OtwPlayAdminExpectedVersionRequest,
   OtwPlayAdminPerformanceDto,
+  OtwPlayAdminObservabilityDto,
   OtwPlayAdminProposalDto,
   OtwPlayAdminRecheckSourceRequest,
+  OtwPlayAdminReleaseCommandResponse,
+  OtwPlayAdminReleaseReadResponse,
+  OtwPlayAdminReleaseRequest,
   OtwPlayAdminRejectProposalRequest,
   OtwPlayAdminSongDto,
   OtwPlayAdminSourceHealthDto,
@@ -42,6 +46,24 @@ export const fetchOtwPlayAdminSourceHealth = () =>
   adminRequest<{ data: OtwPlayAdminSourceHealthDto }>(
     apiRoutes.otwPlay.admin.sourceHealth.build(),
   ).then((response) => response.data);
+
+export const fetchOtwPlayAdminObservability = () =>
+  adminRequest<OtwPlayAdminObservabilityDto>(
+    apiRoutes.otwPlay.admin.observability.build(),
+  );
+
+export const fetchOtwPlayAdminRelease = () =>
+  adminRequest<OtwPlayAdminReleaseReadResponse>(
+    apiRoutes.otwPlay.admin.release.build(),
+  );
+
+export const updateOtwPlayAdminRelease = (
+  json: OtwPlayAdminReleaseRequest,
+) =>
+  adminRequest<OtwPlayAdminReleaseCommandResponse>(
+    apiRoutes.otwPlay.admin.release.build(),
+    { method: "PATCH", json },
+  );
 
 export const preflightOtwPlayCatalogEntry = (
   json: OtwPlayAdminCatalogEntryPreflightRequest,
