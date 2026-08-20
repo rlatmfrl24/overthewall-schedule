@@ -2,34 +2,43 @@ import { parseISO8601Duration } from "../../../platform/http-helpers";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeChannelMetadata,
-  type OtwPlayYouTubeMetadataReader,
+  type OtwPlayYouTubeBatchMetadataReader,
   type OtwPlayYouTubeVideoMetadata,
+  type OtwPlayYouTubeVideoObservation,
 } from "../application/ports/youtube-metadata";
+import { OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS } from "../domain/source-health-policy";
 
 type ChannelResponse = {
   items?: Array<{ id?: string; snippet?: { title?: string } }>;
 };
 
-type VideoResponse = {
-  items?: Array<{
-    id?: string;
-    snippet?: {
-      channelId?: string;
-      channelTitle?: string;
-      title?: string;
-      publishedAt?: string;
-      thumbnails?: {
-        high?: { url?: string };
-        medium?: { url?: string };
-        default?: { url?: string };
-      };
+type VideoItem = {
+  id?: string;
+  snippet?: {
+    channelId?: string;
+    channelTitle?: string;
+    title?: string;
+    publishedAt?: string;
+    thumbnails?: {
+      high?: { url?: string };
+      medium?: { url?: string };
+      default?: { url?: string };
     };
-    contentDetails?: { duration?: string };
-    status?: {
-      privacyStatus?: string;
-      embeddable?: boolean;
-    };
-  }>;
+  };
+  contentDetails?: {
+    duration?: string;
+    regionRestriction?: { allowed?: string[]; blocked?: string[] };
+  };
+  status?: {
+    uploadStatus?: string;
+    privacyStatus?: string;
+    embeddable?: boolean;
+  };
+};
+
+type VideoResponse = { items?: VideoItem[] };
+type YouTubeErrorResponse = {
+  error?: { errors?: Array<{ reason?: string }>; message?: string };
 };
 
 const parsePublishedAt = (value: string | undefined) => {
@@ -38,22 +47,61 @@ const parsePublishedAt = (value: string | undefined) => {
   return Number.isFinite(timestamp) && timestamp >= 0 ? timestamp : null;
 };
 
-const getSafeFetchFailureCode = (error: unknown) => {
-  if (!(error instanceof Error)) return null;
-  const cause = error.cause;
-  if (!cause || typeof cause !== "object" || !("code" in cause)) {
-    return error.name !== "Error" ? error.name : null;
+const parseRetryAfterMs = (response: Response) => {
+  const value = response.headers.get("Retry-After")?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.max(0, timestamp - Date.now()) : null;
+};
+
+const availabilityOf = (item: VideoItem) => {
+  if (item.status?.uploadStatus === "deleted") return "deleted" as const;
+  if (item.status?.privacyStatus === "private") return "private" as const;
+  const restriction = item.contentDetails?.regionRestriction;
+  if (
+    (restriction?.allowed && !restriction.allowed.includes("KR")) ||
+    restriction?.blocked?.includes("KR")
+  ) {
+    return "region_blocked" as const;
   }
-  const code = (cause as { code?: unknown }).code;
-  return typeof code === "string" && /^[A-Za-z0-9_]{1,50}$/.test(code)
-    ? code
-    : error.name !== "Error"
-      ? error.name
-      : null;
+  if (item.status?.embeddable === false) return "embed_disabled" as const;
+  return item.status?.uploadStatus === "processed" &&
+    (item.status.privacyStatus === "public" ||
+      item.status.privacyStatus === "unlisted")
+    ? ("playable" as const)
+    : ("unavailable" as const);
+};
+
+const videoMetadata = (
+  item: VideoItem,
+  availabilityStatus: OtwPlayYouTubeVideoObservation["availabilityStatus"],
+): OtwPlayYouTubeVideoMetadata | null => {
+  const videoId = item.id?.trim();
+  const channelId = item.snippet?.channelId?.trim();
+  if (!videoId || !channelId) return null;
+  const duration = item.contentDetails?.duration
+    ? parseISO8601Duration(item.contentDetails.duration)
+    : null;
+  return {
+    videoId,
+    channelId,
+    channelTitle: item.snippet?.channelTitle?.trim() || channelId,
+    title: item.snippet?.title?.trim() || videoId,
+    thumbnailUrl:
+      item.snippet?.thumbnails?.high?.url ??
+      item.snippet?.thumbnails?.medium?.url ??
+      item.snippet?.thumbnails?.default?.url ??
+      null,
+    durationSeconds: duration,
+    publishedAt: parsePublishedAt(item.snippet?.publishedAt),
+    availabilityStatus,
+  };
 };
 
 export class YouTubeOtwPlayMetadataReader
-  implements OtwPlayYouTubeMetadataReader
+  implements OtwPlayYouTubeBatchMetadataReader
 {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
@@ -67,26 +115,77 @@ export class YouTubeOtwPlayMetadataReader
     if (!this.apiKey) {
       throw new OtwPlayYouTubeMetadataError(
         "YouTube API key is not configured",
+        "configuration",
+        false,
       );
     }
     const search = new URLSearchParams({ ...parameters, key: this.apiKey });
-    const fetcher = this.fetcher;
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS,
+    );
     let response: Response;
     try {
-      response = await fetcher(
+      response = await this.fetcher(
         `https://www.googleapis.com/youtube/v3/${path}?${search.toString()}`,
+        { signal: controller.signal },
       );
     } catch (error) {
-      const failureCode = getSafeFetchFailureCode(error);
+      const timedOut =
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === "AbortError");
       throw new OtwPlayYouTubeMetadataError(
-        failureCode
-          ? `YouTube metadata request failed (${failureCode})`
+        timedOut
+          ? "YouTube metadata request timed out"
           : "YouTube metadata request failed",
+        timedOut ? "timeout" : "network",
+        true,
       );
+    } finally {
+      clearTimeout(timeout);
     }
     if (!response.ok) {
+      let reason = "";
+      try {
+        const body = (await response.json()) as YouTubeErrorResponse;
+        reason = body.error?.errors?.[0]?.reason ?? body.error?.message ?? "";
+      } catch {
+        // The status remains authoritative when the provider body is invalid.
+      }
+      if (response.status === 429) {
+        throw new OtwPlayYouTubeMetadataError(
+          "YouTube metadata request was rate limited",
+          "rate_limited",
+          true,
+          parseRetryAfterMs(response),
+        );
+      }
+      if (response.status === 403 && /quota|dailyLimit/i.test(reason)) {
+        throw new OtwPlayYouTubeMetadataError(
+          "YouTube metadata quota was exceeded",
+          "quota_exceeded",
+          true,
+        );
+      }
+      if (response.status >= 500) {
+        throw new OtwPlayYouTubeMetadataError(
+          `YouTube metadata request returned ${response.status}`,
+          "upstream_5xx",
+          true,
+        );
+      }
+      if ([400, 401, 403].includes(response.status)) {
+        throw new OtwPlayYouTubeMetadataError(
+          `YouTube metadata request returned ${response.status}`,
+          response.status === 400 ? "invalid_request" : "provider_auth",
+          false,
+        );
+      }
       throw new OtwPlayYouTubeMetadataError(
         `YouTube metadata request returned ${response.status}`,
+        "invalid_response",
+        true,
       );
     }
     try {
@@ -94,6 +193,8 @@ export class YouTubeOtwPlayMetadataReader
     } catch {
       throw new OtwPlayYouTubeMetadataError(
         "YouTube metadata response was invalid",
+        "invalid_response",
+        true,
       );
     }
   }
@@ -111,40 +212,65 @@ export class YouTubeOtwPlayMetadataReader
     return { channelId, displayName: item.snippet.title.trim() };
   }
 
+  async readVideos(
+    videoIds: readonly string[],
+  ): Promise<OtwPlayYouTubeVideoObservation[]> {
+    const ids = [...new Set(videoIds.map((id) => id.trim()).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right));
+    if (ids.length > 50) {
+      throw new OtwPlayYouTubeMetadataError(
+        "YouTube metadata batch exceeds 50 videos",
+        "invalid_request",
+        false,
+      );
+    }
+    if (ids.length === 0) return [];
+    const data = await this.read<VideoResponse>("videos", {
+      part: "snippet,contentDetails,status",
+      id: ids.join(","),
+      maxResults: String(ids.length),
+    });
+    if (!Array.isArray(data.items)) {
+      throw new OtwPlayYouTubeMetadataError(
+        "YouTube metadata response was invalid",
+        "invalid_response",
+        true,
+      );
+    }
+    const itemById = new Map(
+      (data.items ?? [])
+        .filter((item): item is VideoItem & { id: string } => Boolean(item.id))
+        .map((item) => [item.id, item]),
+    );
+    return ids.map((videoId) => {
+      const item = itemById.get(videoId);
+      if (!item) {
+        return {
+          videoId,
+          availabilityStatus: "unavailable" as const,
+          video: null,
+        };
+      }
+      const availabilityStatus = availabilityOf(item);
+      const video = videoMetadata(item, availabilityStatus);
+      if (!video && availabilityStatus === "playable") {
+        throw new OtwPlayYouTubeMetadataError(
+          "YouTube metadata response was invalid",
+          "invalid_response",
+          true,
+        );
+      }
+      return {
+        videoId,
+        availabilityStatus,
+        video,
+      };
+    });
+  }
+
   async readVideo(
     videoId: string,
   ): Promise<OtwPlayYouTubeVideoMetadata | null> {
-    const data = await this.read<VideoResponse>("videos", {
-      part: "snippet,contentDetails,status",
-      id: videoId,
-      maxResults: "1",
-    });
-    const item = data.items?.[0];
-    const channelId = item?.snippet?.channelId?.trim();
-    if (item?.id !== videoId || !channelId) return null;
-    const privacyStatus = item.status?.privacyStatus;
-    const availabilityStatus =
-      privacyStatus === "private"
-        ? "private"
-        : item.status?.embeddable === false
-          ? "embed_disabled"
-          : "playable";
-    const duration = item.contentDetails?.duration
-      ? parseISO8601Duration(item.contentDetails.duration)
-      : null;
-    return {
-      videoId,
-      channelId,
-      channelTitle: item.snippet?.channelTitle?.trim() || channelId,
-      title: item.snippet?.title?.trim() || videoId,
-      thumbnailUrl:
-        item.snippet?.thumbnails?.high?.url ??
-        item.snippet?.thumbnails?.medium?.url ??
-        item.snippet?.thumbnails?.default?.url ??
-        null,
-      durationSeconds: duration,
-      publishedAt: parsePublishedAt(item.snippet?.publishedAt),
-      availabilityStatus,
-    };
+    return (await this.readVideos([videoId]))[0]?.video ?? null;
   }
 }

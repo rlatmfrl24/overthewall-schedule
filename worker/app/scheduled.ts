@@ -7,6 +7,11 @@ import {
 import { settings } from "@db/schema";
 import { inArray } from "drizzle-orm";
 import { runScheduledNaverCafeCollection } from "../features/naver-cafe";
+import {
+  D1SourceHealthRepository,
+  SourceHealthService,
+  YouTubeOtwPlayMetadataReader,
+} from "../features/otw-play";
 import { runScheduledDataRetentionPrune } from "../features/operations";
 import { runAutoUpdateWithHistory } from "../features/schedules";
 import { runScheduledXCollection } from "../features/x-posts";
@@ -37,6 +42,15 @@ const warmScheduledYouTubeCache = async (env: Env) => {
   console.log("[scheduled] YouTube warmup completed", result);
 };
 
+export const checkScheduledOtwPlaySources = async (env: Env) => {
+  const result = await new SourceHealthService(
+    new D1SourceHealthRepository(env.otw_db),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+  ).runScheduled();
+  console.log("[scheduled] OTW Play source health completed", result);
+  return result;
+};
+
 const collectScheduledNaverCafePosts = async (env: Env) => {
   const outcome = await runScheduledNaverCafeCollection(env);
   if (outcome.skipped) {
@@ -65,11 +79,15 @@ const pruneScheduledD1Data = async (env: Env) => {
   });
 };
 
-const runIndependentScheduledTasks = async (env: Env) => {
+export const runIndependentScheduledTasks = async (env: Env) => {
   const tasks = [
     {
       label: "X collection",
       run: () => collectScheduledXPosts(env),
+    },
+    {
+      label: "OTW Play source health",
+      run: () => checkScheduledOtwPlaySources(env),
     },
     {
       label: "YouTube warmup",

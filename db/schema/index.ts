@@ -1255,6 +1255,10 @@ export const musicMediaSources = sqliteTable(
       table.availability_status,
       table.last_checked_at,
     ),
+    index("idx_music_media_sources_next_check_id").on(
+      table.next_check_at,
+      table.id,
+    ),
     check(
       "music_media_sources_provider_check",
       sql`${table.provider} = 'youtube'`,
@@ -1858,6 +1862,11 @@ export const musicCatalogEvents = sqliteTable(
     index("idx_music_catalog_events_aggregate_created_id").on(
       table.aggregate_type,
       table.aggregate_id,
+      sql`${table.created_at} DESC`,
+      table.id,
+    ),
+    index("idx_music_catalog_events_type_created_id").on(
+      table.event_type,
       sql`${table.created_at} DESC`,
       table.id,
     ),

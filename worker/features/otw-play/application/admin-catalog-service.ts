@@ -9,7 +9,6 @@ import type {
   OtwPlayAdminCreateSongRequest,
   OtwPlayAdminExpectedVersionRequest,
   OtwPlayAdminRejectProposalRequest,
-  OtwPlayAdminRecheckSourceRequest,
   OtwPlayAdminUpdateChannelRequest,
   OtwPlayAdminUpdateEntityRequest,
   OtwPlayAdminUpdatePerformanceRequest,
@@ -577,68 +576,6 @@ export class AdminCatalogService {
     return this.repository.deleteChannel(
       id,
       input.expectedVersion,
-      actor,
-      this.createId(),
-      this.clock(),
-    );
-  }
-
-  async recheckSource(
-    id: string,
-    input: OtwPlayAdminRecheckSourceRequest,
-    actor: AdminCatalogActor,
-  ) {
-    validateVersion(input.expectedVersion);
-    const videoId = extractYouTubeVideoId(input.youtubeUrl);
-    if (!videoId) {
-      throw new AdminCatalogServiceError(
-        "invalid_request",
-        "A supported YouTube video URL is required",
-        { youtubeUrl: "invalid" },
-      );
-    }
-    const catalog = await this.repository.readCatalog();
-    const source = catalog.performances
-      .flatMap((performance) => performance.sources.map((item) => item.source))
-      .find((item) => item.id === id);
-    const channel = catalog.channels.find(
-      (item) => item.id === input.channelId,
-    );
-    if (
-      !source ||
-      source.externalId !== videoId ||
-      source.channelId !== input.channelId ||
-      !channel
-    ) {
-      throw new AdminCatalogServiceError(
-        "validation_failed",
-        "Stored source and channel identity do not match the recheck request",
-      );
-    }
-    const remoteVideo = await this.youtube.readVideo(videoId);
-    const video = remoteVideo ?? {
-      videoId: source.externalId,
-      channelId: channel.externalChannelId,
-      channelTitle: channel.displayName,
-      title: source.title ?? source.externalId,
-      thumbnailUrl: source.thumbnailUrl,
-      durationSeconds: source.durationSeconds,
-      publishedAt: source.providerPublishedAt,
-      availabilityStatus: "unavailable" as const,
-    };
-    if (
-      video.videoId !== videoId ||
-      video.channelId !== channel.externalChannelId
-    ) {
-      throw new AdminCatalogServiceError(
-        "validation_failed",
-        "YouTube video and channel metadata do not match",
-      );
-    }
-    return this.repository.recheckSource(
-      id,
-      input.expectedVersion,
-      video,
       actor,
       this.createId(),
       this.clock(),

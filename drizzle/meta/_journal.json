@@ -386,6 +386,13 @@
       "when": 1787139782077,
       "tag": "0055_tiresome_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1787183419377,
+      "tag": "0056_moaning_killmonger",
+      "breakpoints": true
     }
   ]
 }

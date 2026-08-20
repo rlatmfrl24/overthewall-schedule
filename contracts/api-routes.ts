@@ -146,6 +146,7 @@ export const apiRoutes = {
           `/api/play/admin/submissions/${encodeURIComponent(id)}/reject` as const,
       ),
       channels: staticRoute("/api/play/admin/channels"),
+      sourceHealth: staticRoute("/api/play/admin/source-health"),
       recheckSource: dynamicRoute(
         "/api/play/admin/sources/:id/recheck",
         (id: string) =>

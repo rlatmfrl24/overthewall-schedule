@@ -32,9 +32,11 @@ import {
   createPublicCatalogEtag,
   createPublicCatalogHandler,
   D1AdminCatalogRepository,
+  D1SourceHealthRepository,
   D1PublicCatalogReader,
   DrizzleAdminCatalogAudit,
   PublicCatalogService,
+  SourceHealthService,
   YouTubeOtwPlayMetadataReader,
   MemberSubmissionService,
   D1MemberSubmissionRepository,
@@ -185,6 +187,11 @@ const handleOtwPlayAdminCatalog = createAdminCatalogHandler(
       new DrizzleAdminCatalogAudit(getDb(env)),
       () => crypto.randomUUID(),
       true,
+    ),
+  (env) =>
+    new SourceHealthService(
+      new D1SourceHealthRepository(env.otw_db),
+      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
     ),
 );
 const handleOtwPlayMemberSubmissions = createMemberSubmissionHandler(
@@ -599,6 +606,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       put(ADMIN_NO_STORE),
       del(ADMIN_NO_STORE),
     ),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
+    id: "otw-play.admin.source-health",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.sourceHealth.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
     handler: handleOtwPlayAdminCatalog,
   },
   {

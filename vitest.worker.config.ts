@@ -20,6 +20,7 @@ const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
   "0053_red_talon.sql",
   "0054_odd_storm.sql",
   "0055_tiresome_pride.sql",
+  "0056_moaning_killmonger.sql",
 ] as const;
 const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual minimal prerequisite: 0046 adds an FK to members(uid).
@@ -31,6 +32,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
 ] as const;
+const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
 
 export default defineConfig({
   resolve: {
@@ -60,6 +62,16 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration] : [];
         });
+      const otwPlayPreSourceHealthMigrations =
+        OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES
+          .filter((name) => name !== OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME)
+          .flatMap((name) => {
+            const migration = migrationsByName.get(name);
+            return migration ? [migration] : [];
+          });
+      const otwPlaySourceHealthMigration = migrationsByName.get(
+        OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME,
+      );
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
@@ -102,6 +114,10 @@ export default defineConfig({
               otwPlayProposalSearchMigrations,
             OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
               otwPlayPublicCatalogMigrations,
+            OTW_PLAY_PRE_SOURCE_HEALTH_MIGRATIONS:
+              otwPlayPreSourceHealthMigrations,
+            OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
+              otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration] : [],
           },
         },
       };
