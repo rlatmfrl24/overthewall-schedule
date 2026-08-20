@@ -16,6 +16,8 @@ import { OtwPlayCatalogManager } from "./catalog-manager";
 
 const fetchCatalogMock = vi.hoisted(() => vi.fn());
 const fetchProposalsMock = vi.hoisted(() => vi.fn());
+const fetchSourceHealthMock = vi.hoisted(() => vi.fn());
+const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
 const updatePerformanceMock = vi.hoisted(() => vi.fn());
@@ -34,6 +36,8 @@ vi.mock("../../api/admin", async (importOriginal) => {
     ...actual,
     fetchOtwPlayAdminCatalog: fetchCatalogMock,
     fetchOtwPlayAdminProposals: fetchProposalsMock,
+    fetchOtwPlayAdminSourceHealth: fetchSourceHealthMock,
+    recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
     updateOtwPlaySong: updateSongMock,
     updateOtwPlayPerformance: updatePerformanceMock,
@@ -107,6 +111,62 @@ describe("OtwPlayCatalogManager", () => {
     });
     fetchCatalogMock.mockResolvedValue(catalog);
     fetchProposalsMock.mockResolvedValue([proposal]);
+    fetchSourceHealthMock.mockReset();
+    recheckSourceMock.mockReset();
+    fetchSourceHealthMock.mockResolvedValue({
+      generatedAt: 1_777_000_000_000,
+      recentRecoveryWindowDays: 7,
+      listLimit: 50,
+      counts: { due: 1, unplayable: 1, recentlyRecovered: 0 },
+      due: [
+        {
+          source: {
+            id: "source-1",
+            provider: "youtube",
+            externalId: "dQw4w9WgXcQ",
+            channelId: "channel-1",
+            title: "Stored title",
+            thumbnailUrl: null,
+            durationSeconds: 180,
+            providerPublishedAt: null,
+            availabilityStatus: "unavailable",
+            lastCheckedAt: 1_776_000_000_000,
+            nextCheckAt: 1_776_100_000_000,
+            version: 3,
+          },
+          channel: {
+            id: "channel-1",
+            externalChannelId: `UC${"A".repeat(22)}`,
+            displayName: "공식 채널",
+          },
+          linkedPerformanceCount: 1,
+          links: [{
+            songId: "song-1",
+            songTitle: "상태 점검 곡",
+            performanceId: "performance-1",
+            publicationStatus: "published",
+          }],
+          lastEvent: {
+            type: "source.retry_scheduled",
+            at: 1_776_000_000_000,
+            retryCode: "timeout",
+          },
+          recoveredAt: null,
+        },
+      ],
+      unplayable: [],
+      recentlyRecovered: [],
+    });
+    recheckSourceMock.mockResolvedValue({
+      data: { id: "source-1" },
+      catalogRevision: 7,
+      check: {
+        status: "retry_scheduled",
+        currentAvailability: "unavailable",
+        retryCode: "timeout",
+        nextCheckAt: 1_776_200_000_000,
+      },
+    });
     rejectProposalMock.mockResolvedValue({
       data: { ...proposal, status: "rejected", version: 3 },
       catalogRevision: 7,
@@ -157,6 +217,54 @@ describe("OtwPlayCatalogManager", () => {
     createEntryMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     deleteSongMock.mockResolvedValue({ data: { id: "song-draft" }, catalogRevision: 8 });
     deletePerformanceMock.mockResolvedValue({ data: { id: "performance-draft" }, catalogRevision: 8 });
+  });
+
+  it("loads source health only after section entry and distinguishes retryable outages", async () => {
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    await screen.findByText("OTW Play 카탈로그");
+    expect(fetchSourceHealthMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "소스 상태" }));
+    expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
+    expect(fetchSourceHealthMock).toHaveBeenCalledOnce();
+    expect(screen.getAllByText("외부 API 재시도 대기 (timeout)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("상태 점검 곡").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /YouTube/ })[0]?.getAttribute("href"))
+      .toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "수동 재검사" })[0]!);
+    await waitFor(() => expect(recheckSourceMock).toHaveBeenCalledWith(
+      "source-1",
+      {
+        expectedVersion: 3,
+        youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        channelId: "channel-1",
+      },
+    ));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "info",
+      description: "외부 API 재시도 대기 상태로 저장했습니다 (timeout).",
+    }));
+    await waitFor(() => expect(fetchCatalogMock.mock.calls.length).toBeGreaterThan(1));
+    await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("reports and refreshes a stale manual source write", async () => {
+    recheckSourceMock.mockRejectedValueOnce(
+      new ApiError("Source changed before recheck", 409, {
+        code: "PLAY_ADMIN_STALE_WRITE",
+      }),
+    );
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    await screen.findByText("OTW Play 카탈로그");
+    fireEvent.click(screen.getByRole("button", { name: "소스 상태" }));
+    await screen.findByRole("heading", { name: "소스 상태" });
+    fireEvent.click(screen.getAllByRole("button", { name: "수동 재검사" })[0]!);
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description: "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다.",
+    }));
+    await waitFor(() => expect(fetchSourceHealthMock.mock.calls.length).toBeGreaterThan(1));
   });
 
   afterEach(() => {

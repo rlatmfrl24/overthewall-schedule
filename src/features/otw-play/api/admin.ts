@@ -18,7 +18,8 @@ import type {
   OtwPlayAdminRecheckSourceRequest,
   OtwPlayAdminRejectProposalRequest,
   OtwPlayAdminSongDto,
-  OtwPlayAdminSourceDto,
+  OtwPlayAdminSourceHealthDto,
+  OtwPlayAdminSourceRecheckResponse,
   OtwPlayAdminUpdateChannelRequest,
   OtwPlayAdminUpdateEntityRequest,
   OtwPlayAdminUpdatePerformanceRequest,
@@ -35,6 +36,11 @@ const adminRequest = <T>(
 export const fetchOtwPlayAdminCatalog = () =>
   adminRequest<{ data: OtwPlayAdminCatalogDto }>(
     apiRoutes.otwPlay.admin.catalog.build(),
+  ).then((response) => response.data);
+
+export const fetchOtwPlayAdminSourceHealth = () =>
+  adminRequest<{ data: OtwPlayAdminSourceHealthDto }>(
+    apiRoutes.otwPlay.admin.sourceHealth.build(),
   ).then((response) => response.data);
 
 export const preflightOtwPlayCatalogEntry = (
@@ -152,7 +158,7 @@ export const recheckOtwPlaySource = (
   id: string,
   json: OtwPlayAdminRecheckSourceRequest,
 ) =>
-  adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminSourceDto>>(
+  adminRequest<OtwPlayAdminSourceRecheckResponse>(
     apiRoutes.otwPlay.admin.recheckSource.build(id),
     { method: "POST", json },
   );
