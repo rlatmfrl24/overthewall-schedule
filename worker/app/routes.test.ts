@@ -285,6 +285,24 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
+    id: "otw-play.admin.import-candidate.update",
+    owner: "otw-play",
+    path: "/api/play/admin/import-candidates/:id",
+    methods: [ADMIN_PATCH],
+  },
+  {
+    id: "otw-play.admin.import-job.convert",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/convert",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.import-job.retry",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/retry",
+    methods: [ADMIN_POST],
+  },
+  {
     id: "otw-play.admin.catalog",
     owner: "otw-play",
     path: "/api/play/admin/catalog",

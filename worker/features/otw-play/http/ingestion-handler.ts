@@ -14,7 +14,10 @@ import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metada
 import { IngestionCursorError } from "../domain/ingestion-cursor";
 import {
   parseCreatePlaylistImport,
+  parseConvertIngestionCandidates,
   parsePlaylistPreflight,
+  parseRetryIngestionJob,
+  parseUpdateIngestionCandidate,
   type IngestionInputResult,
 } from "./ingestion-input";
 
@@ -77,6 +80,13 @@ export const createIngestionHandler = (
   const admin = await requireAdminUser(request, env);
   if (!admin.ok) return admin.response;
   const service = resolveService(env);
+  const actor = {
+    userId: admin.user.id,
+    displayName: admin.user.displayName,
+    ipAddress:
+      request.headers.get("CF-Connecting-IP") ??
+      request.headers.get("X-Forwarded-For"),
+  };
   try {
     if (
       request.method === "POST" &&
@@ -112,6 +122,61 @@ export const createIngestionHandler = (
         { data: await service.createJob(admin.user.id, parsed.value) },
         202,
       );
+    }
+    const candidateId = pathId(
+      url.pathname,
+      /^\/api\/play\/admin\/import-candidates\/([^/]+)$/u,
+    );
+    if (request.method === "PATCH" && candidateId) {
+      const parsed = await readBody(request, parseUpdateIngestionCandidate);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion candidate update",
+          parsed.fields,
+        );
+      }
+      return responseJson({
+        data: await service.updateCandidate(candidateId, parsed.value, actor),
+      });
+    }
+    const convertJobId = pathId(
+      url.pathname,
+      /^\/api\/play\/admin\/imports\/([^/]+)\/convert$/u,
+    );
+    if (request.method === "POST" && convertJobId) {
+      const parsed = await readBody(request, parseConvertIngestionCandidates);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion conversion request",
+          parsed.fields,
+        );
+      }
+      return responseJson({
+        data: await service.convertCandidates(convertJobId, parsed.value, actor),
+      });
+    }
+    const retryJobId = pathId(
+      url.pathname,
+      /^\/api\/play\/admin\/imports\/([^/]+)\/retry$/u,
+    );
+    if (request.method === "POST" && retryJobId) {
+      const parsed = await readBody(request, parseRetryIngestionJob);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion retry request",
+          parsed.fields,
+        );
+      }
+      return responseJson({ data: await service.retryJob(retryJobId, actor) });
     }
     const itemsJobId = pathId(
       url.pathname,
@@ -205,16 +270,24 @@ export const createIngestionHandler = (
     if (error instanceof IngestionRepositoryError) {
       const status = error.code === "not_found"
         ? 404
+        : error.code === "validation_failed"
+          ? 422
         : error.code === "idempotency_conflict"
           ? 409
+          : error.code === "stale_message"
+            ? 409
           : 503;
       return errorResponse(
         requestId,
         status,
         error.code === "not_found"
           ? "PLAY_ADMIN_NOT_FOUND"
+          : error.code === "validation_failed"
+            ? "PLAY_ADMIN_VALIDATION_FAILED"
           : error.code === "idempotency_conflict"
             ? "PLAY_ADMIN_STALE_WRITE"
+            : error.code === "stale_message"
+              ? "PLAY_ADMIN_STALE_WRITE"
             : "PLAY_ADMIN_INTERNAL_ERROR",
         error.message,
       );

@@ -1,7 +1,11 @@
 import type {
   OtwPlayCreatePlaylistImportRequest,
+  OtwPlayIngestionClassification,
+  OtwPlayIngestionConversionOutcome,
   OtwPlayIngestionCandidatePageDto,
+  OtwPlayIngestionCandidateStatus,
   OtwPlayIngestionJobDto,
+  OtwPlayIngestionReviewInput,
   OtwPlayPlaylistPreflightDto,
 } from "@contracts/otw-play";
 import type { IngestionItemCursor } from "../../domain/ingestion-cursor";
@@ -14,6 +18,7 @@ export type IngestionRepositoryErrorCode =
   | "not_found"
   | "idempotency_conflict"
   | "stale_message"
+  | "validation_failed"
   | "unavailable";
 
 export class IngestionRepositoryError extends Error {
@@ -48,6 +53,17 @@ export interface CreateIngestionJobCommand {
   input: OtwPlayCreatePlaylistImportRequest;
   preflight: OtwPlayPlaylistPreflightDto;
   now: number;
+}
+
+export interface IngestionReviewCandidate {
+  id: string;
+  version: number;
+  videoId: string;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  catalogChannelId: string | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  linkedPerformanceId: string | null;
 }
 
 export interface IngestionRepository {
@@ -87,4 +103,45 @@ export interface IngestionRepository {
   ): Promise<void>;
   listPendingMessages(now: number, limit: number): Promise<OtwPlayIngestionQueueMessage[]>;
   clearExpiredApiData(now: number, limit: number): Promise<number>;
+  readReviewCandidate(jobId: string | null, candidateId: string): Promise<IngestionReviewCandidate>;
+  saveCandidateReview(command: {
+    candidateId: string;
+    expectedVersion: number;
+    input: OtwPlayIngestionReviewInput;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }): Promise<IngestionReviewCandidate>;
+  ignoreCandidate(command: {
+    candidateId: string;
+    expectedVersion: number;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }): Promise<IngestionReviewCandidate>;
+  refreshCandidateMetadata(command: {
+    candidateId: string;
+    expectedVersion: number;
+    observation: OtwPlayYouTubeVideoObservation;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }): Promise<IngestionReviewCandidate>;
+  recordConversionOutcome(command: {
+    jobId: string;
+    candidateId: string;
+    expectedVersion: number;
+    outcome: Exclude<OtwPlayIngestionConversionOutcome, "created">;
+    performanceId: string | null;
+    errorCode: string | null;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }): Promise<void>;
+  retryJob(command: {
+    jobId: string;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }): Promise<OtwPlayIngestionQueueMessage[]>;
 }

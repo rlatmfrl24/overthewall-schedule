@@ -149,6 +149,12 @@ export class AdminCatalogService {
   async createCatalogEntry(
     input: OtwPlayAdminCreateCatalogEntryRequest,
     actor: AdminCatalogActor,
+    candidateConversion?: {
+      jobId: string;
+      candidateId: string;
+      expectedVersion: number;
+      eventId: string;
+    },
   ) {
     validateVersion(input.expectedCatalogRevision);
     if (
@@ -217,6 +223,7 @@ export class AdminCatalogService {
         performanceEventId: this.createId(),
         sourceId: this.createId(),
       },
+      candidateConversion,
     });
     await bestEffortAudit(this.audit, {
       eventType: "otw_play.catalog_entry.created",

@@ -130,6 +130,12 @@ export interface AdminCreateCatalogEntryCommand {
     lockToken: string;
     proposalEventId: string;
   };
+  candidateConversion?: {
+    jobId: string;
+    candidateId: string;
+    expectedVersion: number;
+    eventId: string;
+  };
 }
 
 export interface AdminUpdateSongCommand {

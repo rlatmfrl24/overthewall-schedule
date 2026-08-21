@@ -6,6 +6,8 @@ import {
   fetchOtwPlayAdminProposals,
   fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
+  fetchOtwPlayImportJob,
+  fetchOtwPlayImportJobItems,
 } from "../api/admin";
 
 export const useOtwPlayAdminCatalog = () => useQuery({
@@ -39,4 +41,21 @@ export const useOtwPlayAdminRelease = (enabled: boolean) => useQuery({
   queryFn: fetchOtwPlayAdminRelease,
   enabled,
   staleTime: 15_000,
+});
+
+export const useOtwPlayImportJob = (jobId: string | null) => useQuery({
+  queryKey: queryKeys.otwPlay.importJob(jobId ?? "none"),
+  queryFn: () => fetchOtwPlayImportJob(jobId!),
+  enabled: Boolean(jobId),
+  refetchInterval: (query) => {
+    const status = query.state.data?.status;
+    return status === "queued" || status === "collecting" ? 2_000 : false;
+  },
+});
+
+export const useOtwPlayImportJobItems = (jobId: string | null) => useQuery({
+  queryKey: queryKeys.otwPlay.importJobItems(jobId ?? "none"),
+  queryFn: () => fetchOtwPlayImportJobItems(jobId!, { limit: 100 }),
+  enabled: Boolean(jobId),
+  staleTime: 5_000,
 });

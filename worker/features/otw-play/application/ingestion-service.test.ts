@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OtwPlayIngestionJobDto } from "@contracts/otw-play";
+import type {
+  OtwPlayIngestionJobDto,
+  OtwPlayIngestionReviewInput,
+} from "@contracts/otw-play";
+import {
+  AdminCatalogServiceError,
+  type AdminCatalogService,
+} from "./admin-catalog-service";
 import {
   IngestionProcessingError,
   IngestionService,
@@ -7,6 +14,7 @@ import {
 } from "./ingestion-service";
 import type {
   IngestionRepository,
+  IngestionReviewCandidate,
   OtwPlayIngestionQueueMessage,
 } from "./ports/ingestion-repository";
 import {
@@ -71,6 +79,55 @@ const repository = () => ({
   markMessageDeadLetter: vi.fn(async () => undefined),
   listPendingMessages: vi.fn(async () => []),
   clearExpiredApiData: vi.fn(async () => 0),
+  readReviewCandidate: vi.fn(async (
+    _jobId: string | null,
+    _candidateId: string,
+  ): Promise<IngestionReviewCandidate> => {
+    void _jobId;
+    void _candidateId;
+    return ({
+    id: "youtube:AAAAAAAAAAA",
+    version: 1,
+    videoId: "AAAAAAAAAAA",
+    status: "ready" as const,
+    classification: "eligible" as const,
+    catalogChannelId: "channel-1",
+    reviewInput: null as OtwPlayIngestionReviewInput | null,
+    linkedPerformanceId: null,
+    });
+  }),
+  saveCandidateReview: vi.fn(async () => ({
+    id: "youtube:AAAAAAAAAAA",
+    version: 2,
+    videoId: "AAAAAAAAAAA",
+    status: "ready" as const,
+    classification: "eligible" as const,
+    catalogChannelId: "channel-1",
+    reviewInput: null,
+    linkedPerformanceId: null,
+  })),
+  ignoreCandidate: vi.fn(async () => ({
+    id: "youtube:AAAAAAAAAAA",
+    version: 2,
+    videoId: "AAAAAAAAAAA",
+    status: "ignored" as const,
+    classification: "eligible" as const,
+    catalogChannelId: "channel-1",
+    reviewInput: null,
+    linkedPerformanceId: null,
+  })),
+  refreshCandidateMetadata: vi.fn(async () => ({
+    id: "youtube:AAAAAAAAAAA",
+    version: 2,
+    videoId: "AAAAAAAAAAA",
+    status: "needs_input" as const,
+    classification: "eligible" as const,
+    catalogChannelId: "channel-1",
+    reviewInput: null,
+    linkedPerformanceId: null,
+  })),
+  recordConversionOutcome: vi.fn(async () => undefined),
+  retryJob: vi.fn(async () => []),
 }) satisfies IngestionRepository;
 
 const youtube = (itemCount = 51) => ({
@@ -189,6 +246,109 @@ describe("IngestionService", () => {
       "quota_exceeded",
       121_000,
       1_000,
+    );
+  });
+
+  it("converts ready rows independently as drafts and records only failed rows for retry", async () => {
+    const repo = repository();
+    const reviewInput = {
+      song: { kind: "existing" as const, songId: "song-1" },
+      participants: [{
+        subject: { kind: "entity" as const, entityId: "entity-1" },
+        participantRole: "vocal" as const,
+        creditOrder: 0,
+      }],
+      relationType: "cover" as const,
+      releaseType: "official_video" as const,
+      participationType: "solo" as const,
+      internalNote: null,
+    };
+    repo.readReviewCandidate.mockImplementation(async (
+      _jobId: string | null,
+      candidateId: string,
+    ) => ({
+      id: candidateId,
+      version: 1,
+      videoId: candidateId === "candidate-1" ? "AAAAAAAAAAA" : "BBBBBBBBBBB",
+      status: "ready" as const,
+      classification: "eligible" as const,
+      catalogChannelId: "channel-1",
+      reviewInput,
+      linkedPerformanceId: null,
+    }));
+    const preflightCatalogEntry = vi.fn()
+      .mockResolvedValueOnce({
+        catalogRevision: 3,
+        channel: {
+          state: "approved",
+          catalogChannelId: "channel-1",
+        },
+        duplicate: null,
+      })
+      .mockRejectedValueOnce(
+        new AdminCatalogServiceError(
+          "external_service_unavailable",
+          "upstream unavailable",
+        ),
+      );
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "performance-1" } },
+      catalogRevision: 4,
+    }));
+    const catalog = {
+      preflightCatalogEntry,
+      createCatalogEntry,
+    } as unknown as AdminCatalogService;
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => `event-${Math.random()}`,
+      () => 100,
+      catalog,
+    );
+    await expect(service.convertCandidates("job-1", {
+      candidates: [
+        { id: "candidate-1", expectedVersion: 1 },
+        { id: "candidate-2", expectedVersion: 1 },
+      ],
+    }, {
+      userId: "admin-1",
+      displayName: "Admin",
+      ipAddress: null,
+    })).resolves.toEqual({
+      results: [
+        {
+          candidateId: "candidate-1",
+          outcome: "created",
+          performanceId: "performance-1",
+          errorCode: null,
+        },
+        {
+          candidateId: "candidate-2",
+          outcome: "retryable_failed",
+          performanceId: null,
+          errorCode: "external_service_unavailable",
+        },
+      ],
+    });
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicationTarget: "draft",
+        channel: { kind: "existing", channelId: "channel-1" },
+      }),
+      expect.objectContaining({ userId: "admin-1" }),
+      expect.objectContaining({
+        jobId: "job-1",
+        candidateId: "candidate-1",
+        expectedVersion: 1,
+      }),
+    );
+    expect(repo.recordConversionOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateId: "candidate-2",
+        outcome: "retryable_failed",
+      }),
     );
   });
 });

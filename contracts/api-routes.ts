@@ -115,11 +115,26 @@ export const apiRoutes = {
         (jobId: string) =>
           `/api/play/admin/imports/${encodeURIComponent(jobId)}` as const,
       ),
-      importJobItems: dynamicRoute(
+        importJobItems: dynamicRoute(
         "/api/play/admin/imports/:jobId/items",
         (jobId: string) =>
           `/api/play/admin/imports/${encodeURIComponent(jobId)}/items` as const,
-      ),
+        ),
+        importCandidate: dynamicRoute(
+          "/api/play/admin/import-candidates/:id",
+          (id: string) =>
+            `/api/play/admin/import-candidates/${encodeURIComponent(id)}` as const,
+        ),
+        convertImportJob: dynamicRoute(
+          "/api/play/admin/imports/:jobId/convert",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/convert` as const,
+        ),
+        retryImportJob: dynamicRoute(
+          "/api/play/admin/imports/:jobId/retry",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/retry` as const,
+        ),
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(
         "/api/play/admin/catalog-entries/preflight",

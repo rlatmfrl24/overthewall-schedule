@@ -88,4 +88,47 @@ describe("OTW Play ingestion handler", () => {
       error: { code: "PLAY_ADMIN_NOT_FOUND", requestId: "ray-1" },
     });
   });
+
+  it("routes candidate CAS, partial conversion, and retry commands with the admin actor", async () => {
+    const updateCandidate = vi.fn(async () => ({ id: "candidate-1", version: 2 }));
+    const convertCandidates = vi.fn(async () => ({ results: [] }));
+    const retryJob = vi.fn(async () => ({ job: { id: "job-1" }, enqueued: 1 }));
+    const handler = createIngestionHandler(
+      () => ({ updateCandidate, convertCandidates, retryJob }) as unknown as IngestionService,
+    );
+    const candidateResponse = await handler(new Request(
+      "https://example.com/api/play/admin/import-candidates/candidate-1",
+      {
+        method: "PATCH",
+        headers: { "CF-Connecting-IP": "127.0.0.1" },
+        body: JSON.stringify({ expectedVersion: 1, action: "ignore" }),
+      },
+    ), env);
+    const convertResponse = await handler(new Request(
+      "https://example.com/api/play/admin/imports/job-1/convert",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          candidates: [{ id: "candidate-1", expectedVersion: 2 }],
+        }),
+      },
+    ), env);
+    const retryResponse = await handler(new Request(
+      "https://example.com/api/play/admin/imports/job-1/retry",
+      { method: "POST", body: "{}" },
+    ), env);
+    expect(candidateResponse.status).toBe(200);
+    expect(convertResponse.status).toBe(200);
+    expect(retryResponse.status).toBe(200);
+    expect(updateCandidate).toHaveBeenCalledWith(
+      "candidate-1",
+      { expectedVersion: 1, action: "ignore" },
+      expect.objectContaining({ userId: "admin-1", ipAddress: "127.0.0.1" }),
+    );
+    expect(convertCandidates).toHaveBeenCalledWith(
+      "job-1",
+      { candidates: [{ id: "candidate-1", expectedVersion: 2 }] },
+      expect.objectContaining({ userId: "admin-1" }),
+    );
+  });
 });

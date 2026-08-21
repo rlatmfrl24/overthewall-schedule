@@ -94,6 +94,16 @@ export const OTW_PLAY_INGESTION_CLASSIFICATIONS = [
 export type OtwPlayIngestionClassification =
   (typeof OTW_PLAY_INGESTION_CLASSIFICATIONS)[number];
 
+export const OTW_PLAY_INGESTION_CONVERSION_OUTCOMES = [
+  "created",
+  "duplicate",
+  "stale",
+  "validation_failed",
+  "retryable_failed",
+] as const;
+export type OtwPlayIngestionConversionOutcome =
+  (typeof OTW_PLAY_INGESTION_CONVERSION_OUTCOMES)[number];
+
 export type OtwPlayPlaylistImportMode = "all_new" | "recent";
 
 export interface OtwPlayPlaylistPreflightRequest {
@@ -173,17 +183,61 @@ export interface OtwPlayIngestionCandidateItemDto {
   title: string | null;
   channelId: string | null;
   channelTitle: string | null;
+  catalogChannelId: string | null;
   thumbnailUrl: string | null;
   durationSeconds: number | null;
   publishedAt: number | null;
   availabilityStatus: OtwPlaySourceAvailabilityStatus;
   madeForKids: boolean | null;
   metadataCheckedAt: number | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  lastConversionOutcome: OtwPlayIngestionConversionOutcome | null;
+  lastConversionErrorCode: string | null;
+  lastConversionAttemptAt: number | null;
+  linkedPerformanceId: string | null;
 }
 
 export interface OtwPlayIngestionCandidatePageDto {
   items: OtwPlayIngestionCandidateItemDto[];
   nextCursor: string | null;
+}
+
+export interface OtwPlayIngestionReviewInput {
+  song: OtwPlayAdminCatalogSongDecision;
+  participants: OtwPlayAdminCatalogParticipantInput[];
+  relationType: OtwPlayRelationType;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  participationType: OtwPlayParticipationType;
+  internalNote?: string | null;
+}
+
+export type OtwPlayUpdateIngestionCandidateRequest =
+  | {
+      expectedVersion: number;
+      action: "save";
+      input: OtwPlayIngestionReviewInput;
+    }
+  | { expectedVersion: number; action: "ignore" }
+  | { expectedVersion: number; action: "refresh_metadata" };
+
+export interface OtwPlayConvertIngestionCandidatesRequest {
+  candidates: Array<{ id: string; expectedVersion: number }>;
+}
+
+export interface OtwPlayIngestionConversionResultDto {
+  candidateId: string;
+  outcome: OtwPlayIngestionConversionOutcome;
+  performanceId: string | null;
+  errorCode: string | null;
+}
+
+export interface OtwPlayConvertIngestionCandidatesResponse {
+  results: OtwPlayIngestionConversionResultDto[];
+}
+
+export interface OtwPlayRetryIngestionJobResponse {
+  job: OtwPlayIngestionJobDto;
+  enqueued: number;
 }
 
 export const OTW_PLAY_CHANNEL_VERIFICATION_STATUSES = [

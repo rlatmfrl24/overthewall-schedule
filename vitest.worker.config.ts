@@ -22,6 +22,7 @@ const OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES = [
   "0055_tiresome_pride.sql",
   "0056_moaning_killmonger.sql",
   "0057_numerous_luminals.sql",
+  "0058_awesome_lorna_dane.sql",
 ] as const;
 const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   // Actual minimal prerequisite: 0046 adds an FK to members(uid).
@@ -39,7 +40,10 @@ const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(4),
 ] as const;
 const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
-const OTW_PLAY_INGESTION_MIGRATION_NAME = "0057_numerous_luminals.sql";
+const OTW_PLAY_INGESTION_MIGRATION_NAMES = [
+  "0057_numerous_luminals.sql",
+  "0058_awesome_lorna_dane.sql",
+] as const;
 
 export default defineConfig({
   resolve: {
@@ -74,7 +78,9 @@ export default defineConfig({
           .filter(
             (name) =>
               name !== OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME &&
-              name !== OTW_PLAY_INGESTION_MIGRATION_NAME,
+              !OTW_PLAY_INGESTION_MIGRATION_NAMES.includes(
+                name as (typeof OTW_PLAY_INGESTION_MIGRATION_NAMES)[number],
+              ),
           )
           .flatMap((name) => {
             const migration = migrationsByName.get(name);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOtwPlayCatalogEntry,
+  convertOtwPlayImportCandidates,
   createOtwPlayPerformance,
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
@@ -13,6 +14,8 @@ import {
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   recheckOtwPlaySource,
+  retryOtwPlayImportJob,
+  updateOtwPlayImportCandidate,
   updateOtwPlayAdminRelease,
 } from "./admin";
 
@@ -143,6 +146,31 @@ describe("OTW Play admin API", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/performances",
       { method: "POST", json: input, auth: "required" },
+    );
+  });
+
+  it("uses encoded candidate conversion and retry command routes", async () => {
+    const update = { expectedVersion: 2, action: "ignore" as const };
+    const convert = {
+      candidates: [{ id: "candidate / one", expectedVersion: 3 }],
+    };
+    await updateOtwPlayImportCandidate("candidate / one", update);
+    await convertOtwPlayImportCandidates("job / one", convert);
+    await retryOtwPlayImportJob("job / one");
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/import-candidates/candidate%20%2F%20one",
+      { method: "PATCH", json: update, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/imports/job%20%2F%20one/convert",
+      { method: "POST", json: convert, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/imports/job%20%2F%20one/retry",
+      { method: "POST", json: {}, auth: "required" },
     );
   });
 

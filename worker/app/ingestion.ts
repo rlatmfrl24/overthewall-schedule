@@ -5,6 +5,7 @@ import {
   type OtwPlayIngestionQueueMessage,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
+import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 
 export const createOtwPlayIngestionService = (env: Env) =>
   new IngestionService(
@@ -19,4 +20,6 @@ export const createOtwPlayIngestionService = (env: Env) =>
       },
     },
     () => crypto.randomUUID(),
+    Date.now,
+    createOtwPlayAdminCatalogService(env),
   );

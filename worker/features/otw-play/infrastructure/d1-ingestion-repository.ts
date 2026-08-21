@@ -2,6 +2,7 @@ import type {
   OtwPlayIngestionCandidateItemDto,
   OtwPlayIngestionClassification,
   OtwPlayIngestionJobDto,
+  OtwPlayIngestionReviewInput,
   OtwPlaySourceAvailabilityStatus,
 } from "@contracts/otw-play";
 import type { IngestionItemCursor } from "../domain/ingestion-cursor";
@@ -10,6 +11,7 @@ import {
   type CreateIngestionJobCommand,
   type IngestionMessageRecord,
   type IngestionRepository,
+  type IngestionReviewCandidate,
   type OtwPlayIngestionQueueMessage,
 } from "../application/ports/ingestion-repository";
 import type {
@@ -152,6 +154,18 @@ const queueMessage = (
 });
 
 const candidateId = (videoId: string) => `youtube:${videoId}`;
+
+const parseReviewInput = (value: string | null): OtwPlayIngestionReviewInput | null => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as OtwPlayIngestionReviewInput
+      : null;
+  } catch {
+    return null;
+  }
+};
 
 export class D1IngestionRepository implements IngestionRepository {
   private readonly database: D1Database;
@@ -300,10 +314,20 @@ export class D1IngestionRepository implements IngestionRepository {
         origin.playlist_item_id, candidate.external_video_id,
         candidate.status, ${itemClassificationSql} AS item_classification,
         candidate.exclusion_reason, candidate.title, candidate.channel_id,
-        candidate.channel_title, candidate.thumbnail_url,
+        candidate.channel_title,
+        (SELECT channel.id FROM music_channels AS channel
+          WHERE channel.provider = 'youtube'
+            AND channel.external_channel_id = candidate.channel_id
+            AND channel.verification_status = 'approved' AND channel.active = 1
+          LIMIT 1) AS catalog_channel_id,
+        candidate.thumbnail_url,
         candidate.duration_seconds, candidate.provider_published_at,
         candidate.availability_status, candidate.made_for_kids,
-        candidate.metadata_checked_at
+        candidate.metadata_checked_at, candidate.review_input_json,
+        candidate.last_conversion_outcome,
+        candidate.last_conversion_error_code,
+        candidate.last_conversion_attempt_at,
+        candidate.linked_performance_id
        FROM music_ingestion_candidate_origins AS origin
        JOIN music_ingestion_jobs AS job ON job.id = origin.job_id
        JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
@@ -330,12 +354,18 @@ export class D1IngestionRepository implements IngestionRepository {
           title: string | null;
           channel_id: string | null;
           channel_title: string | null;
+          catalog_channel_id: string | null;
           thumbnail_url: string | null;
           duration_seconds: number | null;
           provider_published_at: number | null;
           availability_status: OtwPlaySourceAvailabilityStatus;
           made_for_kids: number | null;
           metadata_checked_at: number | null;
+          review_input_json: string | null;
+          last_conversion_outcome: OtwPlayIngestionCandidateItemDto["lastConversionOutcome"];
+          last_conversion_error_code: string | null;
+          last_conversion_attempt_at: number | null;
+          linked_performance_id: string | null;
         }>()
       : await statement.bind(jobId, limit + 1).all();
     const rows = resultsOf(result as D1Result<Record<string, unknown>>);
@@ -353,12 +383,18 @@ export class D1IngestionRepository implements IngestionRepository {
         title: string | null;
         channel_id: string | null;
         channel_title: string | null;
+        catalog_channel_id: string | null;
         thumbnail_url: string | null;
         duration_seconds: number | null;
         provider_published_at: number | null;
         availability_status: OtwPlaySourceAvailabilityStatus;
         made_for_kids: number | null;
         metadata_checked_at: number | null;
+        review_input_json: string | null;
+        last_conversion_outcome: OtwPlayIngestionCandidateItemDto["lastConversionOutcome"];
+        last_conversion_error_code: string | null;
+        last_conversion_attempt_at: number | null;
+        linked_performance_id: string | null;
       };
       return {
         originId: row.origin_id,
@@ -373,6 +409,7 @@ export class D1IngestionRepository implements IngestionRepository {
         title: row.title,
         channelId: row.channel_id,
         channelTitle: row.channel_title,
+        catalogChannelId: row.catalog_channel_id,
         thumbnailUrl: row.thumbnail_url,
         durationSeconds:
           row.duration_seconds === null ? null : Number(row.duration_seconds),
@@ -387,6 +424,14 @@ export class D1IngestionRepository implements IngestionRepository {
           row.metadata_checked_at === null
             ? null
             : Number(row.metadata_checked_at),
+        reviewInput: parseReviewInput(row.review_input_json),
+        lastConversionOutcome: row.last_conversion_outcome,
+        lastConversionErrorCode: row.last_conversion_error_code,
+        lastConversionAttemptAt:
+          row.last_conversion_attempt_at === null
+            ? null
+            : Number(row.last_conversion_attempt_at),
+        linkedPerformanceId: row.linked_performance_id,
       } satisfies OtwPlayIngestionCandidateItemDto;
     });
     return {
@@ -877,5 +922,370 @@ export class D1IngestionRepository implements IngestionRepository {
        )`,
     ).bind(now, now - API_DATA_RETENTION_MS, now, limit).run();
     return Number(result.meta.changes ?? 0);
+  }
+
+  private async readReviewCandidateById(
+    candidateIdValue: string,
+    jobId?: string,
+  ): Promise<IngestionReviewCandidate> {
+    const row = await this.database.prepare(
+      `SELECT candidate.id, candidate.version, candidate.external_video_id,
+        candidate.status, candidate.classification,
+        (SELECT channel.id FROM music_channels AS channel
+          WHERE channel.provider = 'youtube'
+            AND channel.external_channel_id = candidate.channel_id
+            AND channel.verification_status = 'approved' AND channel.active = 1
+          LIMIT 1) AS catalog_channel_id,
+        candidate.review_input_json, candidate.linked_performance_id
+       FROM music_ingestion_candidates AS candidate
+       WHERE candidate.id = ?
+         ${jobId ? `AND EXISTS (
+           SELECT 1 FROM music_ingestion_candidate_origins AS origin
+           WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
+         )` : ""}`,
+    ).bind(...(jobId ? [candidateIdValue, jobId] : [candidateIdValue])).first<{
+      id: string;
+      version: number;
+      external_video_id: string;
+      status: IngestionReviewCandidate["status"];
+      classification: IngestionReviewCandidate["classification"];
+      catalog_channel_id: string | null;
+      review_input_json: string | null;
+      linked_performance_id: string | null;
+    }>();
+    if (!row) {
+      throw new IngestionRepositoryError(
+        "not_found",
+        "Ingestion candidate not found",
+      );
+    }
+    return {
+      id: row.id,
+      version: Number(row.version),
+      videoId: row.external_video_id,
+      status: row.status,
+      classification: row.classification,
+      catalogChannelId: row.catalog_channel_id,
+      reviewInput: parseReviewInput(row.review_input_json),
+      linkedPerformanceId: row.linked_performance_id,
+    };
+  }
+
+  readReviewCandidate(jobId: string | null, candidateIdValue: string) {
+    return this.readReviewCandidateById(candidateIdValue, jobId ?? undefined);
+  }
+
+  private async requireCandidateEvent(eventId: string) {
+    const event = await this.database.prepare(
+      "SELECT 1 AS matched FROM music_ingestion_events WHERE id = ?",
+    ).bind(eventId).first<{ matched: number }>();
+    if (!event) {
+      throw new IngestionRepositoryError(
+        "stale_message",
+        "Ingestion candidate changed during review",
+      );
+    }
+  }
+
+  async saveCandidateReview(command: {
+    candidateId: string;
+    expectedVersion: number;
+    input: OtwPlayIngestionReviewInput;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }) {
+    await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_ingestion_candidates
+         SET review_input_json = ?, reviewed_by_user_id = ?, status = 'ready',
+           last_conversion_outcome = NULL, last_conversion_error_code = NULL,
+           version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND classification = 'eligible'
+           AND status <> 'converted'
+           AND EXISTS (
+             SELECT 1 FROM music_channels AS channel
+             WHERE channel.provider = 'youtube'
+               AND channel.external_channel_id = music_ingestion_candidates.channel_id
+               AND channel.verification_status = 'approved' AND channel.active = 1
+           )`,
+      ).bind(
+        JSON.stringify(command.input),
+        command.actorUserId,
+        command.now,
+        command.candidateId,
+        command.expectedVersion,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_ingestion_events (
+          id, candidate_id, event_type, actor_user_id, detail_json, created_at
+        ) SELECT ?, ?, 'candidate.review_saved', ?, ?, ? WHERE changes() = 1`,
+      ).bind(
+        command.eventId,
+        command.candidateId,
+        command.actorUserId,
+        JSON.stringify({ changedFields: [
+          "song",
+          "participants",
+          "relationType",
+          "releaseType",
+          "participationType",
+          "internalNote",
+        ] }),
+        command.now,
+      ),
+    ]);
+    await this.requireCandidateEvent(command.eventId);
+    return this.readReviewCandidateById(command.candidateId);
+  }
+
+  async ignoreCandidate(command: {
+    candidateId: string;
+    expectedVersion: number;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }) {
+    await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_ingestion_candidates
+         SET status = 'ignored', review_input_json = NULL,
+           reviewed_by_user_id = ?, retention_expires_at = MAX(
+             retention_expires_at, ?
+           ), last_conversion_outcome = NULL,
+           last_conversion_error_code = NULL,
+           version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND status <> 'converted'`,
+      ).bind(
+        command.actorUserId,
+        command.now + BLOCKED_RETENTION_MS,
+        command.now,
+        command.candidateId,
+        command.expectedVersion,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_ingestion_events (
+          id, candidate_id, event_type, actor_user_id, detail_json, created_at
+        ) SELECT ?, ?, 'candidate.ignored', ?, '{}', ? WHERE changes() = 1`,
+      ).bind(
+        command.eventId,
+        command.candidateId,
+        command.actorUserId,
+        command.now,
+      ),
+    ]);
+    await this.requireCandidateEvent(command.eventId);
+    return this.readReviewCandidateById(command.candidateId);
+  }
+
+  async refreshCandidateMetadata(command: {
+    candidateId: string;
+    expectedVersion: number;
+    observation: OtwPlayYouTubeVideoObservation;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }) {
+    const video = command.observation.video;
+    const [sourceResult, proposalResult, channelResult] = await this.database.batch([
+      this.database.prepare(
+        `SELECT 1 AS matched FROM music_media_sources
+         WHERE provider = 'youtube' AND external_id = ? LIMIT 1`,
+      ).bind(command.observation.videoId),
+      this.database.prepare(
+        `SELECT 1 AS matched FROM music_cover_proposals
+         WHERE youtube_video_id = ? AND segment_start_seconds = 0
+           AND status = 'pending_review' LIMIT 1`,
+      ).bind(command.observation.videoId),
+      this.database.prepare(
+        `SELECT verification_status, active FROM music_channels
+         WHERE provider = 'youtube' AND external_channel_id = ? LIMIT 1`,
+      ).bind(video?.channelId ?? ""),
+    ]);
+    const existingSource = resultsOf(sourceResult).length > 0;
+    const existingProposal = resultsOf(proposalResult).length > 0;
+    const channel = resultsOf(channelResult as D1Result<{
+      verification_status: "pending" | "approved" | "revoked";
+      active: number;
+    }>)[0];
+    const unavailable = command.observation.availabilityStatus !== "playable";
+    const kids = video?.madeForKids === true;
+    const policyBlocked = channel?.verification_status === "revoked" || channel?.active === 0;
+    const approved = channel?.verification_status === "approved" && channel.active === 1;
+    const classification = existingSource
+      ? "existing_catalog"
+      : existingProposal
+        ? "existing_proposal"
+        : unavailable
+          ? "unavailable"
+          : kids || policyBlocked
+            ? "policy_blocked"
+            : approved
+              ? "eligible"
+              : "channel_review";
+    const current = await this.readReviewCandidateById(command.candidateId);
+    const status = unavailable || kids || policyBlocked
+      ? "blocked"
+      : existingSource || existingProposal
+        ? "discovered"
+        : approved
+          ? current.reviewInput ? "ready" : "needs_input"
+          : "discovered";
+    const exclusionReason = unavailable
+      ? command.observation.availabilityStatus
+      : kids
+        ? "made_for_kids_review"
+        : policyBlocked
+          ? "channel_policy_blocked"
+          : null;
+    await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_ingestion_candidates
+         SET title = ?, channel_id = ?, channel_title = ?, thumbnail_url = ?,
+           duration_seconds = ?, provider_published_at = ?, availability_status = ?,
+           made_for_kids = ?, metadata_checked_at = ?, classification = ?,
+           status = ?, exclusion_reason = ?, retention_expires_at = ?,
+           reviewed_by_user_id = ?, version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND external_video_id = ?`,
+      ).bind(
+        video?.title ?? null,
+        video?.channelId ?? null,
+        video?.channelTitle ?? null,
+        video?.thumbnailUrl ?? null,
+        video?.durationSeconds ?? null,
+        video?.publishedAt ?? null,
+        command.observation.availabilityStatus,
+        video?.madeForKids ?? null,
+        command.now,
+        classification,
+        status,
+        exclusionReason,
+        command.now + (status === "blocked" ? BLOCKED_RETENTION_MS : ACTIVE_RETENTION_MS),
+        command.actorUserId,
+        command.now,
+        command.candidateId,
+        command.expectedVersion,
+        command.observation.videoId,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_ingestion_events (
+          id, candidate_id, event_type, actor_user_id, detail_json, created_at
+        ) SELECT ?, ?, 'candidate.metadata_refreshed', ?, ?, ? WHERE changes() = 1`,
+      ).bind(
+        command.eventId,
+        command.candidateId,
+        command.actorUserId,
+        JSON.stringify({ classification, status }),
+        command.now,
+      ),
+    ]);
+    await this.requireCandidateEvent(command.eventId);
+    return this.readReviewCandidateById(command.candidateId);
+  }
+
+  async recordConversionOutcome(command: {
+    jobId: string;
+    candidateId: string;
+    expectedVersion: number;
+    outcome: "duplicate" | "stale" | "validation_failed" | "retryable_failed";
+    performanceId: string | null;
+    errorCode: string | null;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }) {
+    const duplicate = command.outcome === "duplicate";
+    const candidateExists = await this.database.prepare(
+      "SELECT 1 AS matched FROM music_ingestion_candidates WHERE id = ?",
+    ).bind(command.candidateId).first<{ matched: number }>();
+    await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_ingestion_candidates
+         SET status = CASE WHEN ? = 1 THEN 'converted' ELSE status END,
+           classification = CASE WHEN ? = 1 THEN 'existing_catalog' ELSE classification END,
+           linked_performance_id = CASE WHEN ? = 1 THEN ? ELSE linked_performance_id END,
+           last_conversion_outcome = ?, last_conversion_error_code = ?,
+           last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
+           version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND status = 'ready'`,
+      ).bind(
+        duplicate ? 1 : 0,
+        duplicate ? 1 : 0,
+        duplicate ? 1 : 0,
+        command.performanceId,
+        command.outcome,
+        command.errorCode,
+        command.now,
+        command.actorUserId,
+        command.now,
+        command.candidateId,
+        command.expectedVersion,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_ingestion_events (
+          id, job_id, candidate_id, event_type, actor_user_id, detail_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        command.eventId,
+        command.jobId,
+        candidateExists ? command.candidateId : null,
+        `candidate.convert.${command.outcome}`,
+        command.actorUserId,
+        JSON.stringify({
+          expectedVersion: command.expectedVersion,
+          candidateId: command.candidateId,
+          performanceId: command.performanceId,
+          errorCode: command.errorCode,
+        }),
+        command.now,
+      ),
+    ]);
+  }
+
+  async retryJob(command: {
+    jobId: string;
+    actorUserId: string;
+    eventId: string;
+    now: number;
+  }) {
+    await this.getJob(command.jobId);
+    const failed = await this.database.prepare(
+      `SELECT idempotency_key FROM music_ingestion_messages
+       WHERE job_id = ? AND status = 'failed'
+         AND last_error_code IN (
+           'queue_retries_exhausted', 'quota_exceeded', 'rate_limited',
+           'timeout', 'upstream_unavailable', 'ingestion_internal'
+         )
+       ORDER BY created_at, idempotency_key LIMIT 100`,
+    ).bind(command.jobId).all<{ idempotency_key: string }>();
+    const keys = resultsOf(failed).map((row) => row.idempotency_key);
+    if (keys.length === 0) return [];
+    const placeholders = keys.map(() => "?").join(", ");
+    await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_ingestion_messages
+         SET status = 'pending', attempts = 0, last_error_code = NULL,
+           next_retry_at = NULL, completed_at = NULL, updated_at = ?
+         WHERE job_id = ? AND idempotency_key IN (${placeholders})`,
+      ).bind(command.now, command.jobId, ...keys),
+      this.database.prepare(
+        `UPDATE music_ingestion_jobs
+         SET status = 'collecting', last_error_code = NULL,
+           next_retry_at = NULL, completed_at = NULL, updated_at = ?
+         WHERE id = ?`,
+      ).bind(command.now, command.jobId),
+      this.database.prepare(
+        `INSERT INTO music_ingestion_events (
+          id, job_id, event_type, actor_user_id, detail_json, created_at
+        ) VALUES (?, ?, 'job.retry_requested', ?, ?, ?)`,
+      ).bind(
+        command.eventId,
+        command.jobId,
+        command.actorUserId,
+        JSON.stringify({ messageCount: keys.length }),
+        command.now,
+      ),
+    ]);
+    return keys.map((key) => queueMessage(command.jobId, key));
   }
 }

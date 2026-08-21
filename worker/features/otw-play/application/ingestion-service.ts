@@ -1,8 +1,18 @@
 import type {
+  OtwPlayConvertIngestionCandidatesRequest,
+  OtwPlayIngestionConversionOutcome,
+  OtwPlayIngestionConversionResultDto,
   OtwPlayCreatePlaylistImportRequest,
   OtwPlayIngestionCandidatePageDto,
   OtwPlayPlaylistPreflightRequest,
+  OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
+import { AdminCatalogServiceError } from "./admin-catalog-service";
+import type { AdminCatalogService } from "./admin-catalog-service";
+import {
+  AdminCatalogRepositoryError,
+  type AdminCatalogActor,
+} from "./ports/admin-catalog-repository";
 import {
   decodeIngestionItemCursor,
   encodeIngestionItemCursor,
@@ -11,9 +21,10 @@ import {
   canonicalYouTubePlaylistUrl,
   extractYouTubePlaylistId,
 } from "../domain/youtube-playlist-id";
-import type {
-  IngestionRepository,
-  OtwPlayIngestionQueueMessage,
+import {
+  IngestionRepositoryError,
+  type IngestionRepository,
+  type OtwPlayIngestionQueueMessage,
 } from "./ports/ingestion-repository";
 import {
   OtwPlayYouTubeMetadataError,
@@ -75,6 +86,7 @@ export class IngestionService {
   private readonly queue: IngestionQueueSender;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly catalog: AdminCatalogService | null;
 
   constructor(
     repository: IngestionRepository,
@@ -82,12 +94,14 @@ export class IngestionService {
     queue: IngestionQueueSender,
     createId: () => string,
     clock: () => number = Date.now,
+    catalog: AdminCatalogService | null = null,
   ) {
     this.repository = repository;
     this.youtube = youtube;
     this.queue = queue;
     this.createId = createId;
     this.clock = clock;
+    this.catalog = catalog;
   }
 
   async preflight(input: OtwPlayPlaylistPreflightRequest) {
@@ -262,5 +276,244 @@ export class IngestionService {
 
   clearExpiredApiData(limit = 100) {
     return this.repository.clearExpiredApiData(this.clock(), limit);
+  }
+
+  updateCandidate(
+    candidateId: string,
+    input: OtwPlayUpdateIngestionCandidateRequest,
+    actor: AdminCatalogActor,
+  ) {
+    const command = {
+      candidateId,
+      expectedVersion: input.expectedVersion,
+      actorUserId: actor.userId,
+      eventId: this.createId(),
+      now: this.clock(),
+    };
+    if (input.action === "save") {
+      return this.repository.saveCandidateReview({ ...command, input: input.input });
+    }
+    if (input.action === "ignore") {
+      return this.repository.ignoreCandidate(command);
+    }
+    return this.refreshCandidate(candidateId, input.expectedVersion, actor);
+  }
+
+  private async refreshCandidate(
+    candidateId: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+  ) {
+    const candidate = await this.repository.readReviewCandidate(null, candidateId);
+    if (candidate.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "stale_message",
+        "Ingestion candidate changed during metadata refresh",
+      );
+    }
+    const observation = (await this.youtube.readVideos([candidate.videoId]))[0];
+    if (!observation || observation.videoId !== candidate.videoId) {
+      throw new IngestionServiceError(
+        "unavailable",
+        "YouTube candidate metadata is unavailable",
+      );
+    }
+    return this.repository.refreshCandidateMetadata({
+      candidateId,
+      expectedVersion,
+      observation,
+      actorUserId: actor.userId,
+      eventId: this.createId(),
+      now: this.clock(),
+    });
+  }
+
+  private conversionOutcome(error: unknown): {
+    outcome: Exclude<OtwPlayIngestionConversionOutcome, "created" | "duplicate">;
+    errorCode: string;
+  } {
+    if (
+      (error instanceof IngestionRepositoryError && error.code === "stale_message") ||
+      (error instanceof AdminCatalogRepositoryError && error.code === "stale_write") ||
+      (error instanceof AdminCatalogServiceError && error.code === "stale_write")
+    ) {
+      return { outcome: "stale", errorCode: "stale_write" };
+    }
+    if (
+      error instanceof OtwPlayYouTubeMetadataError && error.retryable ||
+      error instanceof AdminCatalogServiceError &&
+        error.code === "external_service_unavailable" ||
+      error instanceof AdminCatalogRepositoryError && error.code === "unavailable"
+    ) {
+      return { outcome: "retryable_failed", errorCode: "external_service_unavailable" };
+    }
+    return { outcome: "validation_failed", errorCode: "validation_failed" };
+  }
+
+  async convertCandidates(
+    jobId: string,
+    input: OtwPlayConvertIngestionCandidatesRequest,
+    actor: AdminCatalogActor,
+  ) {
+    if (!this.catalog) {
+      throw new IngestionServiceError(
+        "unavailable",
+        "Catalog draft conversion is unavailable",
+      );
+    }
+    await this.repository.getJob(jobId);
+    const results: OtwPlayIngestionConversionResultDto[] = [];
+    for (const selection of input.candidates) {
+      try {
+        const candidate = await this.repository.readReviewCandidate(
+          jobId,
+          selection.id,
+        );
+        if (
+          candidate.version !== selection.expectedVersion ||
+          candidate.status !== "ready" ||
+          candidate.classification !== "eligible" ||
+          !candidate.reviewInput
+        ) {
+          throw new IngestionRepositoryError(
+            candidate.version !== selection.expectedVersion
+              ? "stale_message"
+              : "validation_failed",
+            "Candidate is not ready for draft conversion",
+          );
+        }
+        const youtubeUrl = `https://www.youtube.com/watch?v=${candidate.videoId}`;
+        const preflight = await this.catalog.preflightCatalogEntry({
+          youtubeUrl,
+          startSeconds: 0,
+        });
+        if (preflight.duplicate) {
+          await this.repository.recordConversionOutcome({
+            jobId,
+            candidateId: candidate.id,
+            expectedVersion: candidate.version,
+            outcome: "duplicate",
+            performanceId: preflight.duplicate.performanceId,
+            errorCode: "duplicate_source",
+            actorUserId: actor.userId,
+            eventId: this.createId(),
+            now: this.clock(),
+          });
+          results.push({
+            candidateId: candidate.id,
+            outcome: "duplicate",
+            performanceId: preflight.duplicate.performanceId,
+            errorCode: "duplicate_source",
+          });
+          continue;
+        }
+        if (
+          preflight.channel.state !== "approved" ||
+          !preflight.channel.catalogChannelId ||
+          preflight.channel.catalogChannelId !== candidate.catalogChannelId
+        ) {
+          throw new IngestionRepositoryError(
+            "validation_failed",
+            "Candidate channel is not approved and active",
+          );
+        }
+        const created = await this.catalog.createCatalogEntry(
+          {
+            expectedCatalogRevision: preflight.catalogRevision,
+            youtubeUrl,
+            startSeconds: 0,
+            endSeconds: null,
+            ...candidate.reviewInput,
+            channel: {
+              kind: "existing",
+              channelId: preflight.channel.catalogChannelId,
+            },
+            publicationTarget: "draft",
+          },
+          actor,
+          {
+            jobId,
+            candidateId: candidate.id,
+            expectedVersion: candidate.version,
+            eventId: this.createId(),
+          },
+        );
+        results.push({
+          candidateId: candidate.id,
+          outcome: "created",
+          performanceId: created.data.performance.id,
+          errorCode: null,
+        });
+      } catch (error) {
+        if (
+          error instanceof AdminCatalogRepositoryError &&
+          error.code === "duplicate_source"
+        ) {
+          const performanceId = error.fields?.performanceId ?? null;
+          await this.repository.recordConversionOutcome({
+            jobId,
+            candidateId: selection.id,
+            expectedVersion: selection.expectedVersion,
+            outcome: "duplicate",
+            performanceId,
+            errorCode: "duplicate_source",
+            actorUserId: actor.userId,
+            eventId: this.createId(),
+            now: this.clock(),
+          });
+          results.push({
+            candidateId: selection.id,
+            outcome: "duplicate",
+            performanceId,
+            errorCode: "duplicate_source",
+          });
+          continue;
+        }
+        const failure = this.conversionOutcome(error);
+        await this.repository.recordConversionOutcome({
+          jobId,
+          candidateId: selection.id,
+          expectedVersion: selection.expectedVersion,
+          outcome: failure.outcome,
+          performanceId: null,
+          errorCode: failure.errorCode,
+          actorUserId: actor.userId,
+          eventId: this.createId(),
+          now: this.clock(),
+        });
+        results.push({
+          candidateId: selection.id,
+          outcome: failure.outcome,
+          performanceId: null,
+          errorCode: failure.errorCode,
+        });
+      }
+    }
+    return { results };
+  }
+
+  async retryJob(jobId: string, actor: AdminCatalogActor) {
+    const messages = await this.repository.retryJob({
+      jobId,
+      actorUserId: actor.userId,
+      eventId: this.createId(),
+      now: this.clock(),
+    });
+    let enqueued = 0;
+    for (const message of messages) {
+      try {
+        await this.queue.send(message);
+        enqueued += 1;
+      } catch {
+        const now = this.clock();
+        await this.repository.recordMessageFailure(
+          message.idempotencyKey,
+          "queue_enqueue_failed",
+          now + 60_000,
+          now,
+        );
+      }
+    }
+    return { job: await this.repository.getJob(jobId), enqueued };
   }
 }

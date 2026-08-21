@@ -19,6 +19,7 @@ import type {
   OtwPlayEntityKind,
   OtwPlayIngestionCandidateStatus,
   OtwPlayIngestionClassification,
+  OtwPlayIngestionConversionOutcome,
   OtwPlayIngestionJobStatus,
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
@@ -2026,6 +2027,12 @@ export const musicIngestionCandidates = sqliteTable(
       .default("unknown"),
     made_for_kids: integer("made_for_kids", { mode: "boolean" }),
     metadata_checked_at: integer("metadata_checked_at"),
+    review_input_json: text("review_input_json"),
+    reviewed_by_user_id: text("reviewed_by_user_id"),
+    last_conversion_outcome: text("last_conversion_outcome")
+      .$type<OtwPlayIngestionConversionOutcome>(),
+    last_conversion_error_code: text("last_conversion_error_code"),
+    last_conversion_attempt_at: integer("last_conversion_attempt_at"),
     first_discovered_at: integer("first_discovered_at").notNull(),
     last_discovered_at: integer("last_discovered_at").notNull(),
     retention_expires_at: integer("retention_expires_at").notNull(),
@@ -2112,6 +2119,50 @@ export const musicIngestionCandidates = sqliteTable(
 
 export type MusicIngestionCandidate = typeof musicIngestionCandidates.$inferSelect;
 export type NewMusicIngestionCandidate = typeof musicIngestionCandidates.$inferInsert;
+
+export const musicIngestionEvents = sqliteTable(
+  "music_ingestion_events",
+  {
+    id: text().primaryKey(),
+    job_id: text("job_id").references(() => musicIngestionJobs.id, {
+      onDelete: "restrict",
+    }),
+    candidate_id: text("candidate_id").references(
+      () => musicIngestionCandidates.id,
+      { onDelete: "restrict" },
+    ),
+    event_type: text("event_type").notNull(),
+    actor_user_id: text("actor_user_id").notNull(),
+    detail_json: text("detail_json").notNull().default("{}"),
+    created_at: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_music_ingestion_events_job_created_id").on(
+      table.job_id,
+      table.created_at,
+      table.id,
+    ),
+    index("idx_music_ingestion_events_candidate_created_id").on(
+      table.candidate_id,
+      table.created_at,
+      table.id,
+    ),
+    check(
+      "music_ingestion_events_required_check",
+      sql`length(trim(${table.id})) > 0
+        AND (${table.job_id} IS NOT NULL OR ${table.candidate_id} IS NOT NULL)
+        AND length(trim(${table.event_type})) > 0
+        AND length(trim(${table.actor_user_id})) > 0
+        AND json_valid(${table.detail_json}) = 1
+        AND json_type(${table.detail_json}) = 'object'
+        AND typeof(${table.created_at}) = 'integer'
+        AND ${table.created_at} >= 0`,
+    ),
+  ],
+);
+
+export type MusicIngestionEvent = typeof musicIngestionEvents.$inferSelect;
+export type NewMusicIngestionEvent = typeof musicIngestionEvents.$inferInsert;
 
 export const musicIngestionCandidateOrigins = sqliteTable(
   "music_ingestion_candidate_origins",

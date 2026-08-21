@@ -30,10 +30,14 @@ import type {
   OtwPlayAdminUpdateSongRequest,
   OtwPlayAdminApproveProposalRequest,
   OtwPlayCreatePlaylistImportRequest,
+  OtwPlayConvertIngestionCandidatesRequest,
+  OtwPlayConvertIngestionCandidatesResponse,
   OtwPlayIngestionCandidatePageDto,
   OtwPlayIngestionJobDto,
   OtwPlayPlaylistPreflightDto,
   OtwPlayPlaylistPreflightRequest,
+  OtwPlayRetryIngestionJobResponse,
+  OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
@@ -75,6 +79,28 @@ export const fetchOtwPlayImportJobItems = (
     ),
   ).then((response) => response.data);
 };
+
+export const updateOtwPlayImportCandidate = (
+  candidateId: string,
+  json: OtwPlayUpdateIngestionCandidateRequest,
+) => adminRequest<{ data: unknown }>(
+  apiRoutes.otwPlay.admin.importCandidate.build(candidateId),
+  { method: "PATCH", json },
+).then((response) => response.data);
+
+export const convertOtwPlayImportCandidates = (
+  jobId: string,
+  json: OtwPlayConvertIngestionCandidatesRequest,
+) => adminRequest<{ data: OtwPlayConvertIngestionCandidatesResponse }>(
+  apiRoutes.otwPlay.admin.convertImportJob.build(jobId),
+  { method: "POST", json },
+).then((response) => response.data);
+
+export const retryOtwPlayImportJob = (jobId: string) =>
+  adminRequest<{ data: OtwPlayRetryIngestionJobResponse }>(
+    apiRoutes.otwPlay.admin.retryImportJob.build(jobId),
+    { method: "POST", json: {} },
+  ).then((response) => response.data);
 
 export const fetchOtwPlayAdminCatalog = () =>
   adminRequest<{ data: OtwPlayAdminCatalogDto }>(

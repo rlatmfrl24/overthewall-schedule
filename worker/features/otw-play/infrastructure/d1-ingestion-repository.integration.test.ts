@@ -38,9 +38,23 @@ const input: OtwPlayCreatePlaylistImportRequest = {
   idempotencyKey: "request-0001",
 };
 
+const reviewInput = {
+  song: { kind: "existing" as const, songId: "song-1" },
+  participants: [{
+    subject: { kind: "entity" as const, entityId: "entity-1" },
+    participantRole: "vocal" as const,
+    creditOrder: 0,
+  }],
+  relationType: "cover" as const,
+  releaseType: "official_video" as const,
+  participationType: "solo" as const,
+  internalNote: "private review note",
+};
+
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS);
   await db.batch([
+    db.prepare("DELETE FROM music_ingestion_events"),
     db.prepare("DELETE FROM music_ingestion_candidate_origins"),
     db.prepare("DELETE FROM music_ingestion_messages"),
     db.prepare("DELETE FROM music_ingestion_candidates"),
@@ -364,6 +378,84 @@ describe("D1IngestionRepository", () => {
     expect(page.page.items[0]?.classification).toBe("existing_candidate");
   });
 
+  it("saves candidate review with CAS and preserves ignored decisions for 180 days", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({
+      jobId: "job-1",
+      actorUserId: "admin-1",
+      input,
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: null,
+      },
+      NOW,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      [{
+        videoId: "AAAAAAAAAAA",
+        availabilityStatus: "playable",
+        video: {
+          videoId: "AAAAAAAAAAA",
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Approved",
+          title: "Eligible",
+          thumbnailUrl: null,
+          durationSeconds: 180,
+          publishedAt: NOW,
+          availabilityStatus: "playable",
+          madeForKids: false,
+        },
+      }],
+      NOW + 1,
+    );
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:AAAAAAAAAAA",
+      expectedVersion: 1,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-review-1",
+      now: NOW + 2,
+    })).resolves.toMatchObject({
+      version: 2,
+      status: "ready",
+      reviewInput,
+    });
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:AAAAAAAAAAA",
+      expectedVersion: 1,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-review-stale",
+      now: NOW + 3,
+    })).rejects.toMatchObject({ code: "stale_message" });
+    await expect(repository.ignoreCandidate({
+      candidateId: "youtube:AAAAAAAAAAA",
+      expectedVersion: 2,
+      actorUserId: "admin-reviewer",
+      eventId: "event-ignore-1",
+      now: NOW + 4,
+    })).resolves.toMatchObject({ version: 3, status: "ignored" });
+    const stored = await db.prepare(
+      `SELECT retention_expires_at FROM music_ingestion_candidates
+       WHERE id = 'youtube:AAAAAAAAAAA'`,
+    ).first<{ retention_expires_at: number }>();
+    expect(Number(stored?.retention_expires_at)).toBe(NOW + 4 + 180 * 86_400_000);
+    const event = await db.prepare(
+      "SELECT actor_user_id, detail_json FROM music_ingestion_events WHERE id = ?",
+    ).bind("event-review-1").first<{
+      actor_user_id: string;
+      detail_json: string;
+    }>();
+    expect(event?.actor_user_id).toBe("admin-reviewer");
+    expect(event?.detail_json).not.toContain("private review note");
+  });
+
   it("keeps retry state in D1 and marks exhausted messages partial", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({
@@ -394,6 +486,17 @@ describe("D1IngestionRepository", () => {
     expect(await repository.getJob("job-1")).toMatchObject({
       status: "partial",
       counts: { retryPending: 0, permanentError: 1 },
+    });
+    const retried = await repository.retryJob({
+      jobId: "job-1",
+      actorUserId: "admin-reviewer",
+      eventId: "event-retry-1",
+      now: NOW + 60_002,
+    });
+    expect(retried).toEqual([created.message]);
+    expect(await repository.getJob("job-1")).toMatchObject({
+      status: "collecting",
+      counts: { retryPending: 0, permanentError: 0 },
     });
   });
 

@@ -1,7 +1,11 @@
 import type {
+  OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayCreatePlaylistImportRequest,
+  OtwPlayIngestionReviewInput,
   OtwPlayPlaylistPreflightRequest,
+  OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
+import { parseCreateCatalogEntry } from "./admin-catalog-input";
 
 export type IngestionInputResult<T> =
   | { ok: true; value: T }
@@ -78,3 +82,137 @@ export const parseCreatePlaylistImport = (
   }
   return { ok: true, value: { ...parsed.value, idempotencyKey } };
 };
+
+const parseCandidateReviewInput = (
+  value: unknown,
+): IngestionInputResult<OtwPlayIngestionReviewInput> => {
+  if (
+    !isObject(value) ||
+    !hasExactKeys(value, [
+      "song",
+      "participants",
+      "relationType",
+      "releaseType",
+      "participationType",
+      "internalNote",
+    ])
+  ) {
+    return { ok: false, fields: { input: "invalid_shape" } };
+  }
+  const parsed = parseCreateCatalogEntry({
+    expectedCatalogRevision: 0,
+    youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
+    startSeconds: 0,
+    endSeconds: null,
+    ...value,
+    channel: { kind: "existing", channelId: "candidate-channel" },
+    publicationTarget: "draft",
+  });
+  if (!parsed.ok) {
+    return { ok: false, fields: { input: "invalid_review_input" } };
+  }
+  const {
+    song,
+    participants,
+    relationType,
+    releaseType,
+    participationType,
+    internalNote,
+  } = parsed.value;
+  return {
+    ok: true,
+    value: {
+      song,
+      participants,
+      relationType,
+      releaseType,
+      participationType,
+      internalNote,
+    },
+  };
+};
+
+export const parseUpdateIngestionCandidate = (
+  value: unknown,
+): IngestionInputResult<OtwPlayUpdateIngestionCandidateRequest> => {
+  if (!isObject(value)) {
+    return { ok: false, fields: { body: "invalid_shape" } };
+  }
+  const expectedVersion = value.expectedVersion;
+  if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0) {
+    return { ok: false, fields: { expectedVersion: "invalid" } };
+  }
+  if (value.action === "save") {
+    if (!hasExactKeys(value, ["expectedVersion", "action", "input"])) {
+      return { ok: false, fields: { body: "invalid_shape" } };
+    }
+    const input = parseCandidateReviewInput(value.input);
+    return input.ok
+      ? {
+          ok: true,
+          value: {
+            expectedVersion: Number(expectedVersion),
+            action: "save",
+            input: input.value,
+          },
+        }
+      : input;
+  }
+  if (value.action === "ignore" || value.action === "refresh_metadata") {
+    return hasExactKeys(value, ["expectedVersion", "action"])
+      ? {
+          ok: true,
+          value: {
+            expectedVersion: Number(expectedVersion),
+            action: value.action,
+          },
+        }
+      : { ok: false, fields: { body: "invalid_shape" } };
+  }
+  return { ok: false, fields: { action: "invalid" } };
+};
+
+export const parseConvertIngestionCandidates = (
+  value: unknown,
+): IngestionInputResult<OtwPlayConvertIngestionCandidatesRequest> => {
+  if (
+    !isObject(value) ||
+    !hasExactKeys(value, ["candidates"]) ||
+    !Array.isArray(value.candidates) ||
+    value.candidates.length < 1 ||
+    value.candidates.length > 100
+  ) {
+    return { ok: false, fields: { candidates: "invalid" } };
+  }
+  const candidates = value.candidates.map((item) => {
+    if (!isObject(item) || !hasExactKeys(item, ["id", "expectedVersion"])) {
+      return null;
+    }
+    const id = text(item.id, 128);
+    return id && Number.isSafeInteger(item.expectedVersion) &&
+        Number(item.expectedVersion) >= 0
+      ? { id, expectedVersion: Number(item.expectedVersion) }
+      : null;
+  });
+  if (
+    candidates.some((item) => item === null) ||
+    new Set(candidates.map((item) => item?.id)).size !== candidates.length
+  ) {
+    return { ok: false, fields: { candidates: "invalid" } };
+  }
+  return {
+    ok: true,
+    value: {
+      candidates: candidates.filter(
+        (item): item is NonNullable<typeof item> => item !== null,
+      ),
+    },
+  };
+};
+
+export const parseRetryIngestionJob = (
+  value: unknown,
+): IngestionInputResult<Record<string, never>> =>
+  isObject(value) && Object.keys(value).length === 0
+    ? { ok: true, value: {} }
+    : { ok: false, fields: { body: "empty_object_required" } };

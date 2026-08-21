@@ -26,8 +26,12 @@ export const queryKeys = {
       [...queryKeys.otwPlay.all, "admin", "observability"] as const,
     adminRelease: () =>
       [...queryKeys.otwPlay.all, "admin", "release"] as const,
-    adminProposals: (status: string) =>
-      [...queryKeys.otwPlay.all, "admin", "proposals", status] as const,
+      adminProposals: (status: string) =>
+        [...queryKeys.otwPlay.all, "admin", "proposals", status] as const,
+      importJob: (jobId: string) =>
+        [...queryKeys.otwPlay.all, "admin", "imports", jobId] as const,
+      importJobItems: (jobId: string) =>
+        [...queryKeys.otwPlay.all, "admin", "imports", jobId, "items"] as const,
     memberSubmissions: (userId: string) =>
       [...queryKeys.otwPlay.all, "member", userId, "submissions"] as const,
     memberSubmission: (userId: string, id: string) =>
