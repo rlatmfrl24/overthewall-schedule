@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-8 운영 공개 설계 기준선
+상태: PR-8 구현·배포 완료, 운영 공개 `0/0` 설계 기준선
 
-기준일: 2026-08-20
+기준일: 2026-08-21
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -10,6 +10,9 @@
 
 - `otw-play-ui-ux-design.md`
 - `otw-play-implementation-guide.md`
+- `otw-play-catalog-bulk-ingestion-and-proposal-lifecycle-research.md`
+- `otw-play-channel-subscription-automation-research.md`
+- `otw-play-detailed-credits-and-member-songbook-research.md`
 - `architecture.md`
 
 ## 1. 설계 결론
@@ -37,7 +40,8 @@ OTW Play는 기존 VOD 최신 영상 피드의 이름이나 화면만 바꾸는 
    부분 반영을 막는다.
 9. 검색·참여자 정렬용 파생 read model은 canonical catalog revision과 일치할
    때만 config 이외 공개 조회에 사용한다.
-10. R2, KV, Durable Objects와 Queues는 MVP에 추가하지 않는다.
+10. R2, KV와 Durable Objects는 MVP에 추가하지 않는다. Queue는 PR-1~8 범위에서는
+    제외했고 PR-9B의 bounded playlist ingestion에만 D1 job과 함께 도입한다.
 
 테이블은 제품명 변경에 덜 민감한 `music_*` 접두사를 사용하고, 코드
 capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
@@ -79,8 +83,17 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 불가여도 곡과 가창 메타데이터는 `published`로 보존하고 공개 DTO의
 `playable=false`로 계산한다.
 
-자동 수집의 `candidate`는 후속 범위다. 도입 시 별도
-`music_ingestion_candidates` aggregate를 만들며 회원 제안 상태에 섞지 않는다.
+자동 수집의 `candidate`는 PR-9 후속 범위다. 별도
+`music_ingestion_candidates` aggregate를 만들고 회원 제안 상태에 섞지 않는다.
+`candidate_kind`는 최소 `catalog_video|singing_clip`을 구분한다. public·unlisted
+playlist의 `catalog_video`는 관리자 검수 뒤 draft 변환이 가능하지만 approved 노래
+clip channel의 `singing_clip`은 방송·키리누키 foundation 전에는 inbox에서만
+검수한다. 어느 종류도 자동 publish하지 않는다.
+
+추가 credit은 범용 contributor graph가 아니라 OTW 멤버의 song/performance 참여로
+제한한다. 가창은 기존 participant를 재사용하고 작사·작곡·편곡·연주·제작만 정확한
+scope별 member contribution으로 추가한다. 외부 음악 관계자 profile과 release/source
+credit aggregate는 만들지 않는다.
 
 ### ADR-PLAY-003: 공개 read boundary 분리
 
@@ -180,7 +193,7 @@ load되지 않았거나 비로그인·비관리자이면 config query와 nested 
 - Smart Placement: 현재 설정 유지
 - Cron: 게시 소스의 제한된 재검사
 - R2: MVP 음악 데이터에는 사용하지 않음
-- Queue: 자동 후보 수집이나 대량 점검이 실제로 필요할 때 도입
+- Queue: PR-9B playlist ingestion과 후속 `singing_clip` 후보 수집에서 D1 job과 함께 도입
 - Durable Object: 서버 재생 대기열이나 전역 lock이 없으므로 사용하지 않음
 
 ### ADR-PLAY-006: PR-2 catalog identity와 관계 의미
@@ -686,8 +699,10 @@ expiry는 둘 다 NULL이거나 둘 다 존재해야 한다.
 | `rejected`       | NULL            | 둘 다 필수    | 선택        | NULL                 |
 | `withdrawn`      | NULL            | NULL          | NULL        | NULL                 |
 
-GATE-04가 확정되기 전에는 `withdrawn` 값을 schema에만 보존하고 회원 수정·철회
-command나 전이를 구현하지 않는다. GATE-05는 DEC-045로 해결되었으며 회원 DTO는
+PR-7·8에서는 당시 미확정이었던 GATE-04 때문에 `withdrawn` 값을 schema에만
+보존했다. 현재는 DEC-054로 해결되었으며 PR-9A에서 본인의 `pending_review` proposal만
+version CAS로 수정하거나 불가역 철회하는 command를 추가한다. GATE-05는 DEC-045로
+해결되었으며 회원 DTO는
 `rejected` 상태와 일반 안내만 제공하고 `review_result_code`, `review_note`, reviewer와
 lock 정보를 노출하지 않는다. DB 열은 nullable로 유지하며 reject command는 관리자
 내부 기록을 위한 non-empty 사유 입력을 계속 요구한다.
@@ -1648,3 +1663,16 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
    승인하고 `public_read_enabled=1`을 적용한다.
 4. 익명 검색·상세·player와 회원 제안·관리자 승인을 다시 검증한 뒤 마지막으로
    `navigation_visible=1`을 적용한다.
+
+### 18.5 구현 closeout과 운영 잔여 gate
+
+- PR-8A, PR-8B, PR-8C는 production Worker에 반영되었고 source-health migration
+  `0056`과 Analytics Engine binding·조회 secret도 적용되었다.
+- 권위 D1의 catalog/read-model revision은 `2/2`, 공개 flag는 의도대로
+  `public_read_enabled=0`, `navigation_visible=0`이다. `/play` 직접 요청은 `200`과
+  `noindex,nofollow`, `no-store`를 반환하고 sitemap에는 Play 항목을 포함하지 않는다.
+- 남은 인증 관리자 운영 화면 스모크, 예약 source-health 실행 추적, 초기 catalog
+  정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 구현 누락이 아니라 공개 전후에
+  지속 확인할 운영 gate다.
+- 후속 capability는 제품 요구사항의 P0~P4 우선순위를 따른다. 새 UI/API/schema를
+  먼저 만들지 않고 각 단계의 권리·개인정보·감사·외부 API 결정을 선행한다.

@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-8A 직접 경로·SEO 착수 준비
+상태: PR-8 구현·병합·배포 closeout 완료, 운영 공개 `0/0` 유지
 
-기준일: 2026-08-20
+기준일: 2026-08-21
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -14,11 +14,11 @@
 ## 1. 문서 목적
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
-테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-7,
-PR-7.1 회원 제출·내 제안·관리자 승인 E2E와 PR-7.2 곡 태그·player 지속성은
-완료되었다. 현재 단계는 PR-8A 직접 경로·SEO, PR-8B source health,
-PR-8C 관측·운영 switch를 구현하고 운영 카탈로그와 단계적 공개를 검증하는 것이다.
-저장 플레이리스트와 방송 가창·키리누키는 계속 후속 범위다.
+테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-8의
+구현·병합·production 배포는 완료되었다. 현재 단계는 flag `0/0`을 유지하면서 인증
+관리자 스모크, 예약 source-health, 운영 catalog와 단계적 공개·rollback을 지속
+검증하는 것이다. 저장 플레이리스트와 방송 가창·키리누키 등은 제품 요구사항의
+P0~P4 우선순위를 따르는 후속 범위다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -34,21 +34,27 @@ flowchart LR
 
 ### 1.1 현재 권위 상태
 
-2026-08-20 기준 현재 상태는 다음과 같다.
+2026-08-20 closeout 기준 현재 상태는 다음과 같다.
 
-- PR #69가 merge commit `49cca11`로 병합되어 PR-7.1·7.2와 후속 안정화가
-  `master`에 포함되었다.
-- 원격 D1에는 migration 0053–0055가 적용되어 pending migration이 없다.
-- 원격 catalog는 song 1개, published performance 1개, source 1개이며
-  catalog revision은 `1`이다.
-- 운영 config는 `public_read_enabled=0`, `navigation_visible=0`이다.
-- 운영 `/play`와 `/play/songs/{slug}` 직접 요청은 아직 `404`이고 sitemap에는
-  OTW Play가 포함되지 않는다.
-- 관리자 수동 source 재확인은 존재하지만 scheduled source health와 설계된
-  OTW Play structured event·운영 switch command는 아직 없다.
+- PR-8A PR #72, PR-8B PR #70, PR-8C PR #71이 `master`에 병합되었고 최종
+  `master` SHA는 `9b27ee9e37f796eb5d7674fd708b5623ff650f79`이다.
+- production deployment `745fa7de-df67-461d-9833-04ee99786f13`이 Worker version
+  `b28a20c1-c331-42f0-ade2-d15579d7c86e`을 제공한다.
+- 원격 D1에는 migration 0053–0056이 적용되어 pending migration이 없다.
+  catalog/read-model revision은 `2/2`이며 운영 catalog에는 song 1개, published
+  performance 1개, playable source 1개가 있다.
+- 운영 config는 의도대로 `public_read_enabled=0`, `navigation_visible=0`이다.
+  `/play`는 `200`, `X-Robots-Tag: noindex,nofollow`, `Cache-Control: no-store`를
+  반환하고 sitemap에는 Play 항목이 없다.
+- `OTW_PLAY_ANALYTICS` dataset `otw_play_events`, account ID와 Analytics read-token
+  secret이 최종 Worker version에 연결되어 있다. 인증 없는 관리자 observability와
+  release 요청은 `401`, `no-store`로 닫힌다.
+- scheduled source health, structured telemetry, 감사 가능한 release command와 운영
+  UI가 구현되었다. 현재 due source 1개의 다음 예약 실행과 인증 관리자 UI는 지속
+  운영 검증 대상이다.
 
-위 snapshot은 PR-8 착수 판단을 위한 기준이며 구현 중 변할 수 있다. 각 PR은
-merge 시점의 원격 readback을 다시 기록한다.
+이 snapshot은 PR-8 코드 closeout의 권위 기준이다. 인증 스모크, catalog 정비와 실제
+flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지 않는다.
 
 ## 2. 구현 착수 gate
 
@@ -75,7 +81,7 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 | GATE-01 | 공식 커버 인정 기준과 허용 채널      | 해결됨                  | DEC-044 `official_cover_v1`                      |
 | GATE-02 | 초기 입력 대상 곡·멤버               | 운영 데이터 입력 전     | 그룹별 대표 5–10곡으로 검증                      |
 | GATE-03 | 전 소속 멤버의 과거 공식곡 포함 범위 | 초기 데이터 입력 전     | 기록 보존, 현재 화면은 external 표시             |
-| GATE-04 | 회원 제안 수정·철회                  | 해당 command 구현 전    | pending_review에서만 허용                        |
+| GATE-04 | 회원 제안 수정·철회                  | 해결됨                  | DEC-054: 본인 pending_review만 CAS 수정·철회     |
 | GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
 | GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
 
@@ -83,8 +89,9 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로 완료된 PR-7에도
-회원 수정·철회 command나 control이 없으며 PR-8에서도 추가하지 않는다.
+GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. PR-7·8에는 당시
+결정되지 않았던 회원 수정·철회 command와 control이 없으며, 확정 계약은 PR-9A에서
+추가한다.
 
 ## 3. 전달 전략
 
@@ -112,9 +119,9 @@ GATE-01·05·06은 DEC-043~045로 해결되었다. GATE-04는 미확정이므로
 | PR-5  | 관리자 catalog command와 UI                    | 완료      | 관리자 전용                                    |
 | PR-6  | 공개 Discover/Catalog/Detail과 player          | 완료      | feature flag 뒤                                |
 | PR-7  | 회원 제출·내 제안·관리자 승인 E2E              | 완료      | 로그인/관리자 전용                             |
-| PR-8A | 직접 경로, dynamic metadata와 sitemap          | 다음 작업 | navigation 공개 전에는 noindex·sitemap 제외    |
-| PR-8B | scheduled source health와 운영 UI              | 대기      | source 상태·event·revision만 조건부 변경        |
-| PR-8C | structured observability와 release switch      | 대기      | 배포 후에도 flag `0/0`, 별도 승인 시 단계 변경 |
+| PR-8A | 직접 경로, dynamic metadata와 sitemap          | 완료      | `0/0`에서 noindex·sitemap 제외                 |
+| PR-8B | scheduled source health와 운영 UI              | 완료      | migration 0056 적용, 예약 점검 활성            |
+| PR-8C | structured observability와 release switch      | 완료      | production 배포, flag `0/0` 유지               |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -313,9 +320,10 @@ performance dedupe key가 metadata 수정 대상에 포함되지 않는지는 PR
 
 API route·DTO contract·handler, application/repository, `worker/app/routes.ts`, frontend
 route·UI, production catalog/proposal content, 배포 설정과 원격 D1 적용은 PR-3에
-포함하지 않는다. 회원 제안 수정·철회 command, 거절 결과의 회원 노출, 제출
-limit 숫자는 각각 GATE-04~06 확정 전 구현하지 않는다. quota/counter table도
-추가하지 않는다.
+포함하지 않는다. PR-3 당시 회원 제안 수정·철회 command, 거절 결과의 회원 노출,
+제출 limit 숫자는 GATE-04~06 확정 전이어서 구현하지 않았다. GATE-04는 이후
+DEC-054로 해결되어 PR-9A에서 구현하며, PR-3에는 quota/counter table도 추가하지
+않았다.
 
 ### migration B: proposal·event
 
@@ -943,7 +951,8 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 
 - 수용 기준 9–12를 실제 UI 흐름으로 재현한다.
 - 관리자 승인 시 제출값과 최종 검수값을 모두 추적할 수 있다.
-- 수정·철회가 미결정이면 UI와 API에 죽은 control을 만들지 않는다.
+- PR-7 당시 미결정이었던 수정·철회 control은 포함하지 않았다. 이후 DEC-054로
+  확정된 command와 UI는 PR-9A에서 별도 제공한다.
 
 ### 완료 상태
 
@@ -1247,9 +1256,13 @@ readback을 함께 기록한다.
 | FR-017, 020–023       | player/queue          | single iframe, repeat/shuffle, unavailable |
 | FR-024–025            | route/SEO             | song/performance 직접 링크                 |
 | FR-030–036            | member proposal       | auth, staging, 본인 상태, duplicate        |
+| FR-037–042            | proposal lifecycle    | wizard, 수정·철회, stale-write             |
+| FR-043–048            | member songbook       | 곡/가창 집계, member contribution, SEO     |
 | ADM-001–010, 014, 019 | admin catalog         | 공식 채널·영상 검수, draft/publish         |
 | ADM-011–012, 020–021  | event/proposal        | 감사, 미검수 비공개, 거절 이력             |
 | ADM-015–018           | review unit-of-work   | 승인 queue, CAS, 공개 승격                 |
+| ADM-024–030           | ingestion/clip inbox  | playlist bound, Queue, clip 변환 차단       |
+| ADM-031–033           | member contribution   | 근거·pin·정정 승인과 revision              |
 | NFR-001–006           | UI/player             | YouTube 정책, 키보드, chip 접근성          |
 | NFR-007–012           | repository/auth/cache | published-only, metadata 보존, cache 격리  |
 | NFR-013–015           | rate/ownership/admin  | spam, 본인 조회, 관리자 전이               |
@@ -1312,3 +1325,48 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 - PR-8을 PR-8A 직접 경로·SEO, PR-8B source health, PR-8C observability·release
   switch로 나누고 각 범위, 비범위, touchpoint, 권장 사항과 완료 조건을 정의했다.
 - 초기 운영 데이터 범위는 GATE-02·03 결정 전이며 공개 flag는 `0/0`을 유지한다.
+
+## 23. 2026-08-20 PR-8 closeout
+
+- PR-8A PR #72(`a551758`), PR-8B PR #70(`caf08e0`), PR-8C PR #71
+  (`9b27ee9`)을 순서대로 `master`에 반영했다.
+- migration `0056`의 source-health 인덱스·backfill을 원격 적용했고 pending migration
+  0건과 catalog/read-model revision `2/2`를 readback했다.
+- production deployment `745fa7de-df67-461d-9833-04ee99786f13`, Worker version
+  `b28a20c1-c331-42f0-ade2-d15579d7c86e`, Analytics binding·secret을 확인했다.
+- `/play` `200`·`noindex,nofollow`·`no-store`, sitemap Play 제외, 인증 없는 관리자
+  운영 API `401`·`no-store`, 공개 flag `0/0`을 확인했다.
+- 로컬 `master`를 원격 SHA `9b27ee9e37f796eb5d7674fd708b5623ff650f79`로
+  fast-forward하고 병합된 PR-8A/B/C 로컬 브랜치와 remote-tracking ref를 정리했다.
+- 인증 관리자 운영 화면 스모크, due source의 다음 Cron readback, 초기 catalog 범위
+  결정·정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 차후 지속 확인한다.
+- 후속 기능 우선순위는 2026-08-20 추가 조사에 따라 아래 24절과 제품 요구사항의
+  DEC-052~058로 대체되었다.
+
+## 24. PR-8 이후 조사 기준선과 권장 전달 순서
+
+별도 조사 보고서:
+
+- `otw-play-catalog-bulk-ingestion-and-proposal-lifecycle-research.md`
+- `otw-play-channel-subscription-automation-research.md`
+- `otw-play-detailed-credits-and-member-songbook-research.md`
+
+권장 전달 순서:
+
+1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
+2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
+3. PR-9C: 벌크 검수 grid, 공통값·행별 보완과 catalog draft 변환
+4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
+   `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
+5. P1A: 기존 participant 기반 member songbook과 queue
+6. P1B: 최소 song/performance member contribution과 관리자 편집·곡 상세
+7. P1C: member contribution 정정 제안과 3곡 이상 current member SEO·sitemap
+8. P3/PR-9D2: 방송·키리누키 foundation 뒤 `singing_clip` candidate의 broadcast draft
+   변환
+
+P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증은 위 개발과 병행하는
+지속 운영 항목이다. PR-9D1은 PR-9B candidate pipeline보다 먼저 구현하지 않는다.
+playlist candidate는 관리자 검수 뒤 draft로 변환할 수 있지만 `singing_clip`은 P3
+foundation 전에는 inbox에만 머문다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
+외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
+계획에서 제외한다.
