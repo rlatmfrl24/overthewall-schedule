@@ -448,13 +448,6 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     const submission = editDetail.data;
     if (!editId || !submission || initializedEditId.current === editId) return;
     initializedEditId.current = editId;
-    setStep(0);
-    setClientRequestId(submission.clientRequestId);
-    setYoutubeUrl(submission.youtubeUrl);
-    setTitle(submission.title);
-    setSongMode(submission.suggestedSongId ? "existing" : "new");
-    setSuggestedSongId(submission.suggestedSongId);
-    setOriginalArtists(submission.originalArtists.map((artist) => artist.displayName));
     setOriginalArtistMemberUids(Object.fromEntries(
       submission.originalArtists.flatMap((artist) =>
         artist.memberUid === null ? [] : [[artist.displayName, artist.memberUid]],
@@ -466,23 +459,32 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     const external = submission.participants.filter(
       (participant) => participant.memberUid === null,
     );
-    setMemberUids(memberParticipants.map((participant) => participant.memberUid!));
-    setExternalParticipants(external.map((participant) => participant.displayName));
-    setMemberRoles(Object.fromEntries(
-      memberParticipants.map((participant) => [participant.memberUid!, participant.participantRole]),
-    ));
-    setExternalRoles(Object.fromEntries(
-      external.map((participant) => [participant.displayName, participant.participantRole]),
-    ));
-    setNote(submission.note ?? "");
     setExpectedVersion(submission.version);
-    setPreflight({
-      videoId: submission.youtubeVideoId,
-      canonicalUrl: submission.youtubeUrl,
-      thumbnailUrl: `https://i.ytimg.com/vi/${submission.youtubeVideoId}/hqdefault.jpg`,
-      duplicate: null,
-      songCandidates: [],
-    });
+    if (!initialDraft) {
+      setStep(0);
+      setClientRequestId(submission.clientRequestId);
+      setYoutubeUrl(submission.youtubeUrl);
+      setTitle(submission.title);
+      setSongMode(submission.suggestedSongId ? "existing" : "new");
+      setSuggestedSongId(submission.suggestedSongId);
+      setOriginalArtists(submission.originalArtists.map((artist) => artist.displayName));
+      setMemberUids(memberParticipants.map((participant) => participant.memberUid!));
+      setExternalParticipants(external.map((participant) => participant.displayName));
+      setMemberRoles(Object.fromEntries(
+        memberParticipants.map((participant) => [participant.memberUid!, participant.participantRole]),
+      ));
+      setExternalRoles(Object.fromEntries(
+        external.map((participant) => [participant.displayName, participant.participantRole]),
+      ));
+      setNote(submission.note ?? "");
+      setPreflight({
+        videoId: submission.youtubeVideoId,
+        canonicalUrl: submission.youtubeUrl,
+        thumbnailUrl: `https://i.ytimg.com/vi/${submission.youtubeVideoId}/hqdefault.jpg`,
+        duplicate: null,
+        songCandidates: [],
+      });
+    }
     setEditBaseline(JSON.stringify({
       youtubeUrl: submission.youtubeUrl,
       title: submission.title,
@@ -498,7 +500,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       })),
       note: submission.note ?? null,
     }));
-  }, [editDetail.data, editId]);
+  }, [editDetail.data, editId, initialDraft]);
 
   useEffect(() => { headingRef.current?.focus(); }, [step]);
   useEffect(() => {

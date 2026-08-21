@@ -73,13 +73,13 @@ const submission = {
   approvedSong: null,
 } as const;
 
-const renderPage = () => {
+const renderPage = (editId?: string) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <OtwPlaySubmissionPage />
+      <OtwPlaySubmissionPage editId={editId} />
     </QueryClientProvider>,
   );
 };
@@ -162,6 +162,57 @@ describe("OtwPlaySubmissionPage", () => {
     first.unmount();
     renderPage();
     expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
+  });
+
+  it("keeps an unsaved edit draft while refreshing the authoritative version and baseline", async () => {
+    sessionStorage.setItem(
+      "otw-play:member-submission-draft:v1:edit:proposal-one",
+      JSON.stringify({
+        step: 0,
+        clientRequestId: "request-one",
+        youtubeUrl: "https://youtu.be/BBBBBBBBBBB",
+        title: "저장하지 않은 제목",
+        songMode: "new",
+        suggestedSongId: null,
+        originalArtists: ["수정 중인 가수"],
+        memberUids: [1],
+        externalParticipants: [],
+        memberRoles: { 1: "vocal" },
+        externalRoles: {},
+        note: "저장하지 않은 메모",
+        preflight: null,
+      }),
+    );
+    mocks.editDetail.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...submission,
+        version: 7,
+        editable: true,
+        withdrawable: true,
+        originalArtists: [{
+          creditOrder: 0,
+          memberUid: null,
+          displayName: "원곡 가수",
+        }],
+        participants: [{
+          creditOrder: 0,
+          memberUid: 1,
+          displayName: "멤버 한명",
+          participantRole: "vocal",
+        }],
+      },
+    });
+
+    renderPage("proposal-one");
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("https://youtu.be/BBBBBBBBBBB")).toBeTruthy();
+    });
+    expect(sessionStorage.getItem(
+      "otw-play:member-submission-draft:v1:edit:proposal-one",
+    )).toContain("저장하지 않은 제목");
   });
 
   it("searches candidates explicitly, prefills the snapshot, and clears the selection", async () => {
