@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { OtwPlayIngestionClassification } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   fetchOtwPlayAdminCatalog,
@@ -53,9 +54,18 @@ export const useOtwPlayImportJob = (jobId: string | null) => useQuery({
   },
 });
 
-export const useOtwPlayImportJobItems = (jobId: string | null) => useQuery({
-  queryKey: queryKeys.otwPlay.importJobItems(jobId ?? "none"),
-  queryFn: () => fetchOtwPlayImportJobItems(jobId!, { limit: 100 }),
+export const useOtwPlayImportJobItems = (
+  jobId: string | null,
+  classification?: OtwPlayIngestionClassification,
+) => useQuery({
+  queryKey: queryKeys.otwPlay.importJobItems(
+    jobId ?? "none",
+    classification ?? "all",
+  ),
+  queryFn: () => fetchOtwPlayImportJobItems(jobId!, {
+    limit: 100,
+    ...(classification ? { classification } : {}),
+  }),
   enabled: Boolean(jobId),
   staleTime: 5_000,
 });

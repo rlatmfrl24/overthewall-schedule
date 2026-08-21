@@ -34,6 +34,7 @@ import type {
   OtwPlayConvertIngestionCandidatesResponse,
   OtwPlayIngestionCandidatePageDto,
   OtwPlayIngestionJobDto,
+  OtwPlayIngestionItemFilters,
   OtwPlayPlaylistPreflightDto,
   OtwPlayPlaylistPreflightRequest,
   OtwPlayRetryIngestionJobResponse,
@@ -67,11 +68,18 @@ export const fetchOtwPlayImportJob = (jobId: string) =>
 
 export const fetchOtwPlayImportJobItems = (
   jobId: string,
-  options: { limit?: number; cursor?: string | null } = {},
+  options: {
+    limit?: number;
+    cursor?: string | null;
+  } & OtwPlayIngestionItemFilters = {},
 ) => {
   const search = new URLSearchParams();
   if (options.limit !== undefined) search.set("limit", String(options.limit));
   if (options.cursor) search.set("cursor", options.cursor);
+  if (options.classification) {
+    search.set("classification", options.classification);
+  }
+  if (options.status) search.set("status", options.status);
   return adminRequest<{ data: OtwPlayIngestionCandidatePageDto }>(
     withRouteSearch(
       apiRoutes.otwPlay.admin.importJobItems.build(jobId),

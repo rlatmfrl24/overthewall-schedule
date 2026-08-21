@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayIngestionCandidateItemDto,
+  OtwPlayIngestionClassification,
+  OtwPlayIngestionConversionResultDto,
   OtwPlayIngestionReviewInput,
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
@@ -45,6 +47,7 @@ import {
   useOtwPlayImportJob,
   useOtwPlayImportJobItems,
 } from "../../queries/use-admin-catalog";
+import { chunkOtwPlayIngestionSelections } from "../../model/ingestion-selection";
 
 type RowDraft = {
   songId: string;
@@ -187,13 +190,17 @@ export function IngestionSection({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [playlistUrl, setPlaylistUrl] = useState("");
-  const [mode, setMode] = useState<"all_new" | "recent">("all_new");
+  const [mode, setMode] = useState<"all_new" | "recent" | "range">("all_new");
   const [recentLimit, setRecentLimit] = useState("50");
+  const [rangeStart, setRangeStart] = useState("1");
+  const [rangeLimit, setRangeLimit] = useState("5000");
   const [preflight, setPreflight] = useState<OtwPlayPlaylistPreflightDto | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [classification, setClassification] = useState("all");
+  const [classification, setClassification] = useState<
+    OtwPlayIngestionClassification | "all"
+  >("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
@@ -208,7 +215,13 @@ export function IngestionSection({
   const [commonParticipationType, setCommonParticipationType] =
     useState<OtwPlayParticipationType>("solo");
   const jobQuery = useOtwPlayImportJob(activeJobId);
-  const itemsQuery = useOtwPlayImportJobItems(activeJobId);
+  const serverClassification = classification === "all"
+    ? undefined
+    : classification;
+  const itemsQuery = useOtwPlayImportJobItems(
+    activeJobId,
+    serverClassification,
+  );
   const baseItems = useMemo(
     () => itemsQuery.data?.items ?? [],
     [itemsQuery.data],
@@ -221,9 +234,7 @@ export function IngestionSection({
       return true;
     });
   }, [baseItems, extraItems]);
-  const filtered = classification === "all"
-    ? items
-    : items.filter((item) => item.classification === classification);
+  const filtered = items;
 
   useEffect(() => {
     setExtraItems([]);
@@ -231,6 +242,13 @@ export function IngestionSection({
     setSelected(new Set());
     setDrafts({});
   }, [activeJobId]);
+
+  useEffect(() => {
+    setExtraItems([]);
+    setNextCursor(null);
+    setSelected(new Set());
+    setDrafts({});
+  }, [classification]);
 
   useEffect(() => {
     if (itemsQuery.data) setNextCursor(itemsQuery.data.nextCursor);
@@ -257,7 +275,10 @@ export function IngestionSection({
         queryKey: queryKeys.otwPlay.importJob(activeJobId),
       }),
       queryClient.invalidateQueries({
-        queryKey: queryKeys.otwPlay.importJobItems(activeJobId),
+        queryKey: queryKeys.otwPlay.importJobItems(
+          activeJobId,
+          classification,
+        ),
       }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminCatalog(),
@@ -266,14 +287,25 @@ export function IngestionSection({
     setExtraItems([]);
   };
 
+  const playlistImportInput = () => mode === "recent"
+    ? {
+        playlistUrl,
+        mode: "recent" as const,
+        recentLimit: Number(recentLimit),
+      }
+    : mode === "range"
+      ? {
+          playlistUrl,
+          mode: "all_new" as const,
+          rangeStart: Number(rangeStart) - 1,
+          rangeLimit: Number(rangeLimit),
+        }
+      : { playlistUrl, mode: "all_new" as const };
+
   const runPreflight = async () => {
     setBusy("preflight");
     try {
-      setPreflight(await preflightOtwPlayPlaylistImport({
-        playlistUrl,
-        mode,
-        ...(mode === "recent" ? { recentLimit: Number(recentLimit) } : {}),
-      }));
+      setPreflight(await preflightOtwPlayPlaylistImport(playlistImportInput()));
     } catch {
       toast({ variant: "error", description: "playlist를 확인하지 못했습니다." });
     } finally {
@@ -285,9 +317,7 @@ export function IngestionSection({
     setBusy("create");
     try {
       const job = await createOtwPlayPlaylistImport({
-        playlistUrl,
-        mode,
-        ...(mode === "recent" ? { recentLimit: Number(recentLimit) } : {}),
+        ...playlistImportInput(),
         idempotencyKey: crypto.randomUUID(),
       });
       setActiveJobId(job.id);
@@ -371,15 +401,64 @@ export function IngestionSection({
       return;
     }
     setBusy("convert");
+    const results: OtwPlayIngestionConversionResultDto[] = [];
+    let requestFailureCount = 0;
+    const requestFailureIds: string[] = [];
     try {
-      const result = await convertOtwPlayImportCandidates(activeJobId, { candidates });
+      for (const chunk of chunkOtwPlayIngestionSelections(candidates)) {
+        try {
+          const response = await convertOtwPlayImportCandidates(activeJobId, {
+            candidates: chunk,
+          });
+          results.push(...response.results);
+        } catch {
+          requestFailureCount += chunk.length;
+          requestFailureIds.push(...chunk.map((item) => item.id));
+        }
+      }
       await refresh();
-      setSelected(new Set());
-      const created = result.results.filter((item) => item.outcome === "created").length;
-      const failed = result.results.length - created;
+      setSelected(new Set(requestFailureIds));
+      const created = results.filter((item) => item.outcome === "created").length;
+      const failed = results.length - created + requestFailureCount;
       toast({
         variant: failed > 0 ? "info" : "success",
         description: `draft ${created}건 생성, 별도 확인 ${failed}건입니다. 공개 게시로 전환되지는 않았습니다.`,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const selectCurrentFilter = async () => {
+    if (!activeJobId) return;
+    setBusy("select-filter");
+    try {
+      const loaded = [...items];
+      let cursor = nextCursor;
+      let pageCount = 0;
+      while (cursor && pageCount < 50) {
+        const page = await fetchOtwPlayImportJobItems(activeJobId, {
+          limit: 100,
+          cursor,
+          ...(serverClassification
+            ? { classification: serverClassification }
+            : {}),
+        });
+        loaded.push(...page.items);
+        cursor = page.nextCursor;
+        pageCount += 1;
+      }
+      if (cursor) throw new Error("selection_page_limit");
+      const byOrigin = [...new Map(
+        loaded.map((item) => [item.originId, item]),
+      ).values()];
+      setExtraItems(byOrigin);
+      setNextCursor(null);
+      setSelected(new Set(byOrigin.map((item) => item.candidateId)));
+    } catch {
+      toast({
+        variant: "error",
+        description: "현재 filter의 전체 항목을 불러오지 못했습니다.",
       });
     } finally {
       setBusy(null);
@@ -393,6 +472,9 @@ export function IngestionSection({
       const page = await fetchOtwPlayImportJobItems(activeJobId, {
         limit: 100,
         cursor: nextCursor,
+        ...(serverClassification
+          ? { classification: serverClassification }
+          : {}),
       });
       setExtraItems((current) => [...current, ...page.items]);
       setNextCursor(page.nextCursor);
@@ -411,19 +493,22 @@ export function IngestionSection({
       <Card>
         <CardHeader><CardTitle className="text-base">1. YouTube playlist 확인</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_9rem_auto]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_9rem_9rem_auto]">
             <div><Label htmlFor="playlist-url">playlist URL 또는 ID</Label><Input id="playlist-url" value={playlistUrl} onChange={(event) => setPlaylistUrl(event.target.value)} /></div>
-            <div><Label>가져오기 범위</Label><Select value={mode} onValueChange={(value) => setMode(value as typeof mode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all_new">전체 새 항목</SelectItem><SelectItem value="recent">최근 N개</SelectItem></SelectContent></Select></div>
-            <div><Label htmlFor="recent-limit">최근 개수</Label><Input id="recent-limit" type="number" min={1} max={5000} value={recentLimit} disabled={mode !== "recent"} onChange={(event) => setRecentLimit(event.target.value)} /></div>
+            <div><Label>가져오기 범위</Label><Select value={mode} onValueChange={(value) => { setMode(value as typeof mode); setPreflight(null); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all_new">전체 새 항목</SelectItem><SelectItem value="recent">최근 N개</SelectItem><SelectItem value="range">명시적 위치 범위</SelectItem></SelectContent></Select></div>
+            <div><Label htmlFor={mode === "range" ? "range-start" : "recent-limit"}>{mode === "range" ? "시작 위치" : "최근 개수"}</Label><Input id={mode === "range" ? "range-start" : "recent-limit"} type="number" min={1} max={mode === "range" ? undefined : 5000} value={mode === "range" ? rangeStart : recentLimit} disabled={mode === "all_new"} onChange={(event) => mode === "range" ? setRangeStart(event.target.value) : setRecentLimit(event.target.value)} /></div>
+            <div><Label htmlFor="range-limit">범위 개수</Label><Input id="range-limit" type="number" min={1} max={5000} value={rangeLimit} disabled={mode !== "range"} onChange={(event) => setRangeLimit(event.target.value)} /></div>
             <Button className="self-end" disabled={!playlistUrl.trim() || busy !== null} onClick={() => void runPreflight()}>{busy === "preflight" ? <Loader2 className="animate-spin" /> : <RefreshCw />} 확인</Button>
           </div>
           {preflight && (
             <div className="space-y-3 rounded-xl border bg-muted/20 p-4 text-sm">
               <div className="font-semibold">{preflight.title}</div>
-              <div className="flex flex-wrap gap-2"><Badge variant="secondary">{preflight.privacyStatus}</Badge><Badge variant="outline">전체 {preflight.itemCount.toLocaleString()}개</Badge><Badge variant="outline">요청 {preflight.requestedItemCount.toLocaleString()}개</Badge><Badge variant="outline">page {preflight.estimatedPageCount}</Badge><Badge variant="outline">video batch {preflight.estimatedVideoBatchCount}</Badge></div>
+              <div className="flex flex-wrap gap-2"><Badge variant="secondary">{preflight.privacyStatus}</Badge><Badge variant="outline">전체 {preflight.itemCount.toLocaleString()}개</Badge><Badge variant="outline">요청 {preflight.requestedItemCount.toLocaleString()}개</Badge><Badge variant="outline">위치 {preflight.rangeStartPosition + 1}–{preflight.rangeEndExclusive}</Badge><Badge variant="outline">page {preflight.estimatedPageCount}</Badge><Badge variant="outline">video batch {preflight.estimatedVideoBatchCount}</Badge></div>
               {preflight.requiresSplit && <p role="alert" className="text-destructive">5,000개 상한을 초과했습니다. 잘린 성공으로 처리하지 않으며 범위를 나눠야 합니다.</p>}
               <div className="flex flex-wrap gap-2">
                 <Button disabled={preflight.requiresSplit || busy !== null} onClick={() => void startImport()}><Upload /> 수집 시작</Button>
+                {preflight.requiresSplit && <Button variant="outline" onClick={() => { setMode("range"); setRangeStart("1"); setRangeLimit("5000"); setPreflight(null); }}>첫 5,000개 범위로 전환</Button>}
+                {!preflight.requiresSplit && preflight.nextRangeStart !== null && mode === "range" && <Button variant="outline" onClick={() => { setRangeStart(String(preflight.nextRangeStart! + 1)); setPreflight(null); }}>다음 범위 준비</Button>}
                 {preflight.previousImport && <Button variant="outline" onClick={() => setActiveJobId(preflight.previousImport!.jobId)}>이전 job 이어보기</Button>}
               </div>
             </div>
@@ -455,8 +540,8 @@ export function IngestionSection({
               <div className="flex items-end"><Button variant="outline" className="w-full" disabled={selected.size === 0} onClick={applyCommon}>선택 행에 공통값 적용</Button></div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={classification} onValueChange={setClassification}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">eligible</SelectItem><SelectItem value="existing_candidate">existing candidate</SelectItem><SelectItem value="channel_review">channel review</SelectItem><SelectItem value="existing_catalog">existing catalog</SelectItem><SelectItem value="existing_proposal">existing proposal</SelectItem><SelectItem value="unavailable">unavailable</SelectItem><SelectItem value="policy_blocked">policy blocked</SelectItem><SelectItem value="scope_review">scope review</SelectItem><SelectItem value="playlist_duplicate">playlist duplicate</SelectItem></SelectContent></Select>
-              <Button size="sm" variant="outline" onClick={() => setSelected(new Set(filtered.map((item) => item.candidateId)))}>현재 filter 선택</Button>
+              <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">eligible</SelectItem><SelectItem value="existing_candidate">existing candidate</SelectItem><SelectItem value="channel_review">channel review</SelectItem><SelectItem value="existing_catalog">existing catalog</SelectItem><SelectItem value="existing_proposal">existing proposal</SelectItem><SelectItem value="unavailable">unavailable</SelectItem><SelectItem value="policy_blocked">policy blocked</SelectItem><SelectItem value="scope_review">scope review</SelectItem><SelectItem value="playlist_duplicate">playlist duplicate</SelectItem></SelectContent></Select>
+              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void selectCurrentFilter()}>{busy === "select-filter" ? <Loader2 className="animate-spin" /> : null} 현재 filter 전체 선택</Button>
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>선택 해제</Button>
               <Button className="ml-auto" disabled={selectedReady === 0 || busy !== null} onClick={() => void convertSelected()}>선택 ready {selectedReady}건 draft 변환</Button>
             </div>
@@ -472,7 +557,7 @@ export function IngestionSection({
               const draft = item ? drafts[item.candidateId] : null;
               if (!item || !draft) return null;
               const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({ ...current, [item.candidateId]: { ...draft, ...change } }));
-              return <div className="space-y-4 rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{item.title ?? item.videoId}</div><p className="text-xs text-muted-foreground">YouTube 제목은 추천 원문일 뿐 음악 정보의 권위값으로 자동 확정하지 않습니다.</p></div><Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>닫기</Button></div><div className="grid gap-3 lg:grid-cols-3"><div><Label>기존 곡 연결 또는 새 곡</Label><Select value={draft.songId} onValueChange={(songId) => updateDraft({ songId })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__new">새 곡 입력</SelectItem>{catalog.songs.filter((song) => song.archivedAt === null).map((song) => <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>)}</SelectContent></Select></div><div><Label>원곡 제목</Label><Input value={draft.songTitle} disabled={draft.songId !== "__new"} onChange={(event) => updateDraft({ songTitle: event.target.value })} /></div><div className="flex items-end gap-2"><Checkbox id={`original-${item.candidateId}`} checked={draft.isOtwOriginal} disabled={draft.songId !== "__new"} onCheckedChange={(checked) => updateDraft({ isOtwOriginal: checked === true })} /><Label htmlFor={`original-${item.candidateId}`}>OTW 오리지널</Label></div></div><div><Label>원곡 가수</Label><div className="mt-2 flex flex-wrap gap-3">{catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <label key={entity.id} className="flex items-center gap-2 text-sm"><Checkbox checked={draft.originalArtistIds.includes(entity.id)} disabled={draft.songId !== "__new"} onCheckedChange={(checked) => updateDraft({ originalArtistIds: checked ? [...draft.originalArtistIds, entity.id] : draft.originalArtistIds.filter((id) => id !== entity.id) })} />{entity.displayName}</label>)}</div></div><div><Label>참여자·역할</Label><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => { const role = draft.participants[entity.id]; return <div key={entity.id} className="flex items-center gap-2 rounded-lg border p-2"><Checkbox checked={Boolean(role)} onCheckedChange={(checked) => { const participants = { ...draft.participants }; if (checked) participants[entity.id] = "vocal"; else delete participants[entity.id]; updateDraft({ participants }); }} /><span className="min-w-0 flex-1 truncate text-sm">{entity.displayName}</span>{role && <Select value={role} onValueChange={(value) => updateDraft({ participants: { ...draft.participants, [entity.id]: value as OtwPlayParticipantRole } })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participantRoleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>}</div>; })}</div></div><div className="grid gap-3 lg:grid-cols-4"><div><Label>관계</Label><Select value={draft.relationType} onValueChange={(value) => updateDraft({ relationType: value as OtwPlayRelationType })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cover">커버</SelectItem><SelectItem value="original">오리지널</SelectItem></SelectContent></Select></div><div><Label>release</Label><Select value={draft.releaseType} onValueChange={(value) => updateDraft({ releaseType: value as RowDraft["releaseType"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div><div><Label>participation</Label><Select value={draft.participationType} onValueChange={(value) => updateDraft({ participationType: value as OtwPlayParticipationType })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solo">솔로</SelectItem><SelectItem value="duet">듀엣</SelectItem><SelectItem value="unit">유닛</SelectItem><SelectItem value="group">단체</SelectItem><SelectItem value="external_collab">외부 협업</SelectItem></SelectContent></Select></div><div><Label>내부 메모</Label><Input value={draft.internalNote} onChange={(event) => updateDraft({ internalNote: event.target.value })} /></div></div><div className="flex flex-wrap gap-2"><Button disabled={busy !== null || !["eligible", "existing_candidate"].includes(item.classification)} onClick={() => void saveCandidate(item)}>ready로 저장</Button><Button variant="outline" disabled={busy !== null} onClick={() => void candidateAction(item, "refresh_metadata")}>metadata 새로고침</Button><Button variant="outline" disabled={busy !== null || item.status === "converted"} onClick={() => void candidateAction(item, "ignore")}>제외</Button>{item.linkedPerformanceId && <Button variant="outline" onClick={onOpenCatalog}>생성 draft 확인</Button>}</div>{item.lastConversionOutcome && <div role="status" className="text-sm">최근 변환: <Badge variant={item.lastConversionOutcome === "created" ? "secondary" : "outline"}>{item.lastConversionOutcome}</Badge>{item.lastConversionErrorCode ? ` · ${item.lastConversionErrorCode}` : ""}</div>}</div>;
+              return <div className="space-y-4 rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-semibold">{item.title ?? item.videoId}</div><p className="text-xs text-muted-foreground">YouTube 제목은 추천 원문일 뿐 음악 정보의 권위값으로 자동 확정하지 않습니다.</p>{item.classification === "scope_review" && <p role="alert" className="mt-1 text-xs text-destructive">현재 공개 범위 밖 형식입니다. 영상 유형과 사용 범위를 확인한 뒤 저장하면 명시적으로 공식 영상 후보로 분류합니다.</p>}</div><Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>닫기</Button></div><div className="grid gap-3 lg:grid-cols-3"><div><Label>기존 곡 연결 또는 새 곡</Label><Select value={draft.songId} onValueChange={(songId) => updateDraft({ songId })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__new">새 곡 입력</SelectItem>{catalog.songs.filter((song) => song.archivedAt === null).map((song) => <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>)}</SelectContent></Select></div><div><Label>원곡 제목</Label><Input value={draft.songTitle} disabled={draft.songId !== "__new"} onChange={(event) => updateDraft({ songTitle: event.target.value })} /></div><div className="flex items-end gap-2"><Checkbox id={`original-${item.candidateId}`} checked={draft.isOtwOriginal} disabled={draft.songId !== "__new"} onCheckedChange={(checked) => updateDraft({ isOtwOriginal: checked === true })} /><Label htmlFor={`original-${item.candidateId}`}>OTW 오리지널</Label></div></div><div><Label>원곡 가수</Label><div className="mt-2 flex flex-wrap gap-3">{catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => <label key={entity.id} className="flex items-center gap-2 text-sm"><Checkbox checked={draft.originalArtistIds.includes(entity.id)} disabled={draft.songId !== "__new"} onCheckedChange={(checked) => updateDraft({ originalArtistIds: checked ? [...draft.originalArtistIds, entity.id] : draft.originalArtistIds.filter((id) => id !== entity.id) })} />{entity.displayName}</label>)}</div></div><div><Label>참여자·역할</Label><div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{catalog.entities.filter((entity) => entity.archivedAt === null).map((entity) => { const role = draft.participants[entity.id]; return <div key={entity.id} className="flex items-center gap-2 rounded-lg border p-2"><Checkbox checked={Boolean(role)} onCheckedChange={(checked) => { const participants = { ...draft.participants }; if (checked) participants[entity.id] = "vocal"; else delete participants[entity.id]; updateDraft({ participants }); }} /><span className="min-w-0 flex-1 truncate text-sm">{entity.displayName}</span>{role && <Select value={role} onValueChange={(value) => updateDraft({ participants: { ...draft.participants, [entity.id]: value as OtwPlayParticipantRole } })}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participantRoleLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>}</div>; })}</div></div><div className="grid gap-3 lg:grid-cols-4"><div><Label>관계</Label><Select value={draft.relationType} onValueChange={(value) => updateDraft({ relationType: value as OtwPlayRelationType })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cover">커버</SelectItem><SelectItem value="original">오리지널</SelectItem></SelectContent></Select></div><div><Label>release</Label><Select value={draft.releaseType} onValueChange={(value) => updateDraft({ releaseType: value as RowDraft["releaseType"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div><div><Label>participation</Label><Select value={draft.participationType} onValueChange={(value) => updateDraft({ participationType: value as OtwPlayParticipationType })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="solo">솔로</SelectItem><SelectItem value="duet">듀엣</SelectItem><SelectItem value="unit">유닛</SelectItem><SelectItem value="group">단체</SelectItem><SelectItem value="external_collab">외부 협업</SelectItem></SelectContent></Select></div><div><Label>내부 메모</Label><Input value={draft.internalNote} onChange={(event) => updateDraft({ internalNote: event.target.value })} /></div></div><div className="flex flex-wrap gap-2"><Button disabled={busy !== null || !["eligible", "existing_candidate", "scope_review"].includes(item.classification)} onClick={() => void saveCandidate(item)}>ready로 저장</Button><Button variant="outline" disabled={busy !== null} onClick={() => void candidateAction(item, "refresh_metadata")}>metadata 새로고침</Button><Button variant="outline" disabled={busy !== null || item.status === "converted"} onClick={() => void candidateAction(item, "ignore")}>제외</Button>{item.linkedPerformanceId && <Button variant="outline" onClick={onOpenCatalog}>생성 draft 확인</Button>}</div>{item.lastConversionOutcome && <div role="status" className="text-sm">최근 변환: <Badge variant={item.lastConversionOutcome === "created" ? "secondary" : "outline"}>{item.lastConversionOutcome}</Badge>{item.lastConversionErrorCode ? ` · ${item.lastConversionErrorCode}` : ""}</div>}</div>;
             })()}
             {nextCursor && <Button variant="outline" className="w-full" disabled={busy !== null} onClick={() => void loadMore()}>{busy === "more" ? <Loader2 className="animate-spin" /> : null} 다음 100개 불러오기</Button>}
             {itemsQuery.isLoading && <Loader2 className="mx-auto animate-spin" />}

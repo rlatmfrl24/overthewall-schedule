@@ -10,6 +10,7 @@ import {
   fetchOtwPlayAdminProposals,
   fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
+  fetchOtwPlayImportJobItems,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
@@ -171,6 +172,19 @@ describe("OTW Play admin API", () => {
       3,
       "/api/play/admin/imports/job%20%2F%20one/retry",
       { method: "POST", json: {}, auth: "required" },
+    );
+  });
+
+  it("serializes ingestion pagination and server filters", async () => {
+    await fetchOtwPlayImportJobItems("job / one", {
+      limit: 100,
+      cursor: "cursor-value",
+      classification: "eligible",
+      status: "ready",
+    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/imports/job%20%2F%20one/items?limit=100&cursor=cursor-value&classification=eligible&status=ready",
+      { auth: "required" },
     );
   });
 
