@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-8 운영 공개 UI/UX 기준선
+상태: PR-8 구현·배포 완료, 운영 공개 `0/0` UI/UX 기준선
 
-기준일: 2026-08-20
+기준일: 2026-08-21
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -10,6 +10,9 @@
 
 - `otw-play-system-design.md`
 - `otw-play-implementation-guide.md`
+- `otw-play-catalog-bulk-ingestion-and-proposal-lifecycle-research.md`
+- `otw-play-channel-subscription-automation-research.md`
+- `otw-play-detailed-credits-and-member-songbook-research.md`
 - `../Design.md`
 
 ## 1. 목적과 적용 원칙
@@ -49,7 +52,7 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | 플레이어 유지 범위 | `/play/*` 안에서만 유지, 다른 제품 영역 이동 시 정지 | nested layout과 player store |
 | 대기열 복원 | `sessionStorage`에 현재 세션만 복원 | 저장 플레이리스트와 명확히 분리 |
 | 외부 참여자 | 검색·필터에는 포함, 별도 공개 프로필은 만들지 않음 | detail route 범위 |
-| 제안 수정·철회 | PR-7에서는 제공하지 않음 | GATE-04 확정 전 command와 control을 만들지 않음 |
+| 제안 수정·철회 | 본인의 `pending_review` 제안만 제공 | version CAS로 수정하고 철회는 확인 dialog 뒤 불가역 처리 |
 
 ## 3. 경험 원칙
 
@@ -725,3 +728,27 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - source health에서 조치 대상과 retryable 장애를 구분해 접근할 수 있다.
 - public read `on`/navigation `off` 상태에서 익명 직접 URL을 검증할 수 있고,
   navigation을 켜기 전 별도 확인 단계가 존재한다.
+
+### 19.5 구현 closeout과 후속 UI 원칙
+
+- 직접 경로·SEO, source health, observability와 release control UI는 production에
+  배포되었다. 현재 공개 flag는 `0/0`이며 전역 navigation에는 노출하지 않는다.
+- 인증 관리자 화면 스모크, source 상태의 주기적 확인, catalog 정비, public canary와
+  navigation 전환·rollback은 공개 전후 지속 운영 검증으로 남긴다.
+- 후속 화면은 제품 요구사항의 P0~P4 순서를 따른다. 아직 gate가 닫힌 기능을 빈 탭이나
+  비활성 control로 미리 노출하지 않고, 실제 end-to-end workflow와 함께 추가한다.
+
+### 19.6 2026-08-21 채택 후속 화면 경계
+
+- `가져오기`는 public·unlisted playlist URL만 받고 private playlist는 지원하지 않는다고
+  입력 단계에서 명확히 안내한다. 5,000개 상한, 50개 batch 진행률과 candidate
+  retention을 운영자가 이해할 수 있어야 한다.
+- `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. approved clip
+  channel, WebSub/reconciliation, `singing_clip` 상태를 표시하고 방송·키리누키
+  foundation 전에는 catalog draft action을 제공하지 않는다.
+- 멤버 노래책은 외부 음악 관계자용 credit database처럼 보이지 않게 current member의
+  `부른 곡·오리지널·커버·협업·만든 곡`을 중심으로 구성한다. 추가 참여 정보도 OTW
+  멤버의 작사·작곡·편곡·연주·제작만 표시한다.
+- member page는 published song 1곡부터 direct URL을 제공하되 1~2곡은 noindex로
+  유지하고, 3곡 이상과 navigation 공개·revision 일치에서만 navigation과 sitemap에
+  포함한다. 대표 오리지널곡은 관리자 pin 최대 5곡과 최신순 fallback을 사용한다.

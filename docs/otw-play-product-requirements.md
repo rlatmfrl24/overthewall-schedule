@@ -1,10 +1,10 @@
 # OTW Play 제품 요구사항
 
-상태: Living Draft
+상태: Living Baseline
 
-단계: PR-8 운영 공개 준비
+단계: PR-8 구현·병합·배포 완료, 운영 공개 `0/0` 유지
 
-최종 갱신일: 2026-08-20
+최종 갱신일: 2026-08-21
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -25,6 +25,12 @@
 - Clean Architecture, Cloudflare와 DB 설계: `otw-play-system-design.md`
 - 공개·회원·관리자 UI/UX 설계: `otw-play-ui-ux-design.md`
 - 구현 순서, 검증과 출시 계획: `otw-play-implementation-guide.md`
+- playlist 벌크 수집·제안 수정/철회 조사:
+  `otw-play-catalog-bulk-ingestion-and-proposal-lifecycle-research.md`
+- YouTube 노래 클립 channel 신규 영상 자동 후보 조사:
+  `otw-play-channel-subscription-automation-research.md`
+- 상세 크레딧·멤버별 노래책 조사:
+  `otw-play-detailed-credits-and-member-songbook-research.md`
 
 제품 아이디어가 바뀌면 이 문서의 결정, 범위와 수용 기준을 먼저 갱신한 뒤
 하위 설계와 구현 계획에 영향을 반영한다.
@@ -97,13 +103,20 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-042 | player 정보 계층은 영상 다음에 곡명과 메인 참여자를 먼저 식별하고, 분류·재생 조작·출처를 단계적으로 제공한다. | 확정 | 현재 멤버는 권위 profile image와 이름, 외부 인물은 중립 person icon, 그룹은 group icon으로 표시한다. YouTube 외부 링크와 곡 상세 action은 참여자 이름 옆에 둔다. 음악 분류와 가창 분류는 identity 아래 보조 metadata로 두고, seek progress와 transport를 연속 배치한다. 게시 채널은 transport 아래에 YouTube icon·`게시 채널` label·channel 이름만 표시하며 참여자 profile image를 channel avatar처럼 재사용하지 않는다. 긴 참여자·channel 이름은 한 줄 말줄임과 title을 제공한다. |
 | DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버만 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 제출 단계에서는 YouTube API를 호출하거나 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
 | DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
-| DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회는 GATE-04가 확정될 때까지 만들지 않는다. |
+| DEC-045 | 회원 제출 제한과 반려 정보 노출을 최소 권한으로 운영한다. | 확정 | KST 기준 사용자당 일 5회와 Cloudflare edge 60초당 3회를 적용한다. 회원에게는 반려 상태와 일반 안내만 표시하고 review code·내부 note는 노출하지 않는다. 수정·철회 권한은 DEC-054를 따른다. |
 | DEC-046 | 회원 공식 커버 제안 진입점은 별도 제품 메뉴가 아니라 OTW Play 경험 안에 통합한다. | 확정 | 전역 콘텐츠 메뉴는 역할과 관계없이 `OTW Play` 하나만 사용한다. 관리자 catalog header의 `발견`·`곡 검색` 옆과 회원 제안 shell에 `곡 제안` 메뉴를 두고 `새 곡 제안`·`내 제안`으로 이동한다. 회원 route는 같은 brand frame을 공유하지만 public config·catalog·player를 마운트하지 않는다. |
 | DEC-047 | 가창 credit은 메인 보컬·피처링 보컬·코러스·기타 참여 역할을 제안부터 공개 조회까지 보존한다. | 부분 대체됨 | 회원 제출과 관리자 검수의 역할 보존은 유지한다. 공개 화면의 표시·검색 계층은 DEC-048이 대체한다. |
 | DEC-048 | 보조 가창 credit은 곡 상세에서만 전체 표시하고 검색에서는 독립 역할 조건으로 제공한다. | 확정 | 발견·곡 목록·Player·queue는 `vocal` 이름만 표시하며 tooltip이나 보조 역할 칩을 만들지 않는다. 곡 상세는 메인 보컬·피처링 보컬·코러스·기타 참여를 역할별로 펼쳐 표시한다. `participantRole` 필터는 선택한 멤버·외부 참여자·그룹 credit과 같은 published performance row에서 동시에 만족해야 한다. 필터가 없으면 기존 검색 의미를 유지하고, 메인 보컬이 없는 기존 데이터의 compact 표시는 credit order 첫 참여자를 사용한다. |
 | DEC-049 | 곡의 음악 분류는 가창 상태·형태와 분리된 확장형 다중 태그로 관리한다. | 확정 | `K-POP`, `J-POP`, `보컬로이드`를 빠른 입력값으로 제공하되 자유 태그를 허용한다. 공개 화면에서는 음악 분류를 1차 chip으로, 오리지널·공식 커버·공식 영상·솔로 등 performance metadata는 작은 보조 정보로 표시한다. `/play` 내부 탭 전환은 동일 player host를 유지한다. |
 | DEC-050 | 운영 공개는 public read와 navigation을 분리한 단계적 전환으로 수행한다. | 확정 | PR-8A 직접 경로·SEO, PR-8B source health, PR-8C 관측·운영 switch가 모두 검증된 뒤 `public_read_enabled=1`로 익명 직접 경로를 먼저 확인하고 마지막에 `navigation_visible=1`을 적용한다. 검색 색인과 sitemap 포함은 `navigation_visible=1`에서만 허용한다. 코드 병합이나 배포만으로 두 flag를 자동 활성화하지 않는다. |
 | DEC-051 | PR-8C 관측과 공개 switch는 PR-8B source-health 위에 stack하고 운영 관측 backend를 분리한다. | 확정 | Workers Logs는 개별 진단, Analytics Engine `otw_play_events`는 24시간 집계와 관리자 화면을 담당한다. 요청별 지표는 D1에 저장하지 않으며, 모든 공개·rollback 전환은 감사 가능한 단일 관리자 command만 사용한다. |
+| DEC-052 | PR-8 이후 최우선 프로그램은 playlist 벌크 catalog 수집과 회원 proposal 수정·철회다. | 확정 | P0-A로 두 흐름을 함께 추진하고, P0-B 노래 clip channel 후보함, P0-C 운영 공개 지속 검증, P1 멤버 참여 정보·노래책·SEO 순으로 진행한다. 권리·개인정보·외부 API gate는 각 slice 전에 확정한다. |
+| DEC-053 | playlist와 channel 자동화는 회원 proposal이 아닌 공유 system ingestion candidate를 생성한다. | 확정 | video identity와 discovery origin을 dedupe한다. playlist candidate만 관리자 검수 뒤 catalog draft로 전환할 수 있으며 `singing_clip` 변환은 DEC-057을 따른다. 자동 publish, 가짜 submitter와 title 기반 권위 확정은 금지한다. |
+| DEC-054 | 회원은 자신의 `pending_review` proposal만 version CAS로 수정하거나 철회할 수 있다. | 확정 | URL을 포함한 editable snapshot 변경은 duplicate preflight를 다시 수행한다. 철회는 불가역이며 승인·거절·철회 뒤에는 새 proposal을 사용한다. 공개 catalog revision은 수정·철회로 변경하지 않는다. |
+| DEC-055 | 상세 credit은 작품·가창/녹음·영상·발매 scope와 출처를 분리하고 멤버 노래책은 verified published 관계에서 파생한다. | 부분 대체됨 | 전체 음악 관계자 credit graph는 채택하지 않는다. scope 분리 원칙 중 OTW 멤버 참여 정보에 필요한 부분만 DEC-058이 대체한다. |
+| DEC-056 | playlist 벌크 입력은 API가 익명 조회할 수 있는 `public`·`unlisted`만 지원하고 `private`와 OAuth는 범위에서 제외한다. | 확정 | 한 job 5,000개, page·영상 batch 50개, D1 job + Queue/DLQ, 3회 retry와 idempotency를 적용한다. active candidate 90일, ignored/blocked 180일을 상한으로 두고 YouTube API data는 30일 안에 refresh 또는 삭제한다. 식별자·API 사실만 자동 적용하며 음악적 의미는 추천값으로 둔다. |
+| DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용하며 자동 publish하지 않는다. 방송·키리누키 모델과 channel 권리·승인 gate 전에는 catalog draft로도 변환하지 않는다. |
+| DEC-058 | 추가 credit 범위는 OTW 멤버의 가창과 작품·편곡·제작 참여로 제한하고 외부 음악 관계자용 상세 credit·contributor graph는 만들지 않는다. | 확정 | 기존 원곡 가수와 외부 가창 참여자 표시는 유지하되 새 범용 credit 대상이 아니다. 멤버 노래책은 published 관계에서 파생하며 1곡부터 직접 URL, 3곡부터 navigation·SEO를 허용한다. current member를 우선하고 대표 오리지널곡은 관리자 최대 5곡 pin + 최신순 fallback으로 정한다. |
 
 ## 4. 제품 원칙
 
@@ -378,6 +391,9 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 - FR-037: 회원은 OTW Play 상단의 곡 제안 메뉴에서 새 제안과 내 제안으로 이동할 수 있어야 한다.
 - FR-038: 제출 wizard는 확인한 영상, 곡 연결 방식, 참여자와 제출 snapshot을 단계별로 명확히 보여주고 오류 후에도 입력·단계·idempotency key를 유지해야 한다.
 - FR-039: 작성 중 route 이탈은 입력 손실을 확인하고, 성공 후에는 권위 제출 결과와 다음 행동을 보여준 뒤 사용자가 명시적으로 새 양식을 시작해야 한다.
+- FR-040: 회원은 자신의 `pending_review` 제안을 기존 wizard에서 수정할 수 있어야 한다.
+- FR-041: 회원은 자신의 `pending_review` 제안을 명시적 확인 뒤 철회할 수 있어야 한다.
+- FR-042: 수정·철회가 관리자 검수와 충돌하면 먼저 성공한 version만 유지하고 최신 상태를 다시 보여줘야 한다.
 
 회원 제안 대상은 공식 커버곡으로 제한한다. 오리지널곡 등록은 현재 MVP에서
 관리자 전용이다.
@@ -386,6 +402,22 @@ MVP는 공식 영상을 처음부터 끝까지 재생한다. 구간 재생은 �
 저장하지 않는다. 채널과 공개일의 권위 검증은 후속 관리자 승인 과정에서만
 수행한다. 제안 메모, 내부 검수 메모와 review result는 공개 catalog나 event
 detail로 자동 복사하지 않는다.
+
+### 9.7 멤버별 노래책과 참여 정보 [후속]
+
+- FR-043: current member의 published song이 1곡 이상이면 `/play/members/{memberCode}`
+  직접 URL에서 멤버 노래책을 제공해야 한다.
+- FR-044: 노래책은 distinct 곡 수와 published 가창 version 수를 구분하고 `부른 곡`,
+  `오리지널`, `커버`, `협업`, `만든 곡`을 같은 권위 관계에서 계산해야 한다.
+- FR-045: `만든 곡`과 `전체 참여`는 verified OTW member contribution만 사용하고
+  외부 음악 관계자 정보를 추론하거나 새 profile로 만들지 않아야 한다.
+- FR-046: published song 1~2곡인 page는 direct `200`·`noindex`·sitemap 제외를
+  유지하고, 3곡 이상 current member page만 `navigation_visible=1`과 revision 일치에서
+  navigation·index·sitemap에 포함해야 한다.
+- FR-047: 대표 오리지널곡은 관리자 pin 최대 5곡을 우선하고 부족분은 최신 published
+  original로 채워야 한다.
+- FR-048: 로그인 회원은 근거 URL이 있는 멤버 참여 정보 정정 제안을 제출할 수 있지만
+  관리자 승인 전 public DTO와 노래책에 반영되지 않아야 한다.
 
 ## 10. 관리자 기능 요구사항
 
@@ -408,6 +440,20 @@ detail로 자동 복사하지 않는다.
 - ADM-021: 현재 멤버는 `members` 권위 데이터를 자동완성하고, 검색되지 않는 외부 인물·그룹은 칩으로 추가하되 기존 identity와 자동 병합하지 않아야 한다.
 - ADM-022: 공식 채널은 별도 선행 등록을 요구하지 않는다. 권위 멤버 채널은 자동 연결하고 미등록 채널은 인라인 승인 또는 pending draft를 선택해야 한다.
 - ADM-023: 통합 등록은 metadata 재검증, entity·channel·song·performance·event·projection과 두 revision을 하나의 D1 batch로 반영해야 한다.
+- ADM-024: 관리자는 YouTube playlist URL에서 전체 항목을 page 단위로 수집하고 진행률과 항목별 결과를 다시 열어볼 수 있어야 한다.
+- ADM-025: playlist 항목을 기존 catalog·proposal·candidate, channel review, unavailable과 eligible로 분류해야 한다.
+- ADM-026: 선택 항목에 공통값을 일괄 적용하고 행별 필수 metadata를 보완한 뒤 catalog draft로 변환할 수 있어야 한다.
+- ADM-027: 일부 항목 실패는 성공 항목을 되돌리지 않고 실패 항목만 재시도할 수 있어야 한다.
+- ADM-028: 관리자가 별도로 승인한 노래 방송 clip channel을 구독해 신규 upload를 `singing_clip` system candidate로 만들고 lease·notification·reconciliation 상태를 확인할 수 있어야 한다. OTW·멤버 공식 channel은 이 자동 구독 범위가 아니다.
+- ADM-029: 자동 수집 후보는 실제 관리자 검수와 기존 publish command 없이는 공개될 수 없어야 한다.
+- ADM-030: `singing_clip` candidate는 방송·키리누키 foundation, 원본 방송·가창자·곡·
+  segment와 clip 게시 승인 검수가 끝나기 전 catalog draft로 변환할 수 없어야 한다.
+- ADM-031: 관리자는 OTW 멤버의 작사·작곡·편곡·연주·제작 참여와 공식 근거를
+  song/performance scope에 입력·수정할 수 있어야 한다.
+- ADM-032: 관리자는 current member별 대표 오리지널곡을 최대 5곡까지 pin·정렬할 수
+  있어야 한다.
+- ADM-033: 멤버 참여 정보 정정 제안을 승인·거절할 수 있고 승인 변경은 event와
+  catalog/read-model revision을 같은 D1 batch에서 반영해야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -421,6 +467,7 @@ detail로 자동 복사하지 않는다.
 | 카탈로그 공개 | `draft`, `published`, `withdrawn` | 검수된 가창 기록 |
 | 카탈로그 품질 | `ok`, `needs_update` | 가창 기록의 메타데이터 품질 |
 | 소스 가용성 | `unknown`, `playable`, `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable` | 개별 YouTube 재생 소스 |
+| 자동 수집 후보 | `discovered`, `needs_input`, `ready`, `converted`, `ignored`, `blocked` | playlist에서 발견한 catalog candidate 또는 clip channel에서 발견한 `singing_clip` candidate |
 
 회원 제안의 승인과 카탈로그 게시는 같은 상태값이 아니다. 승인 작업은 제안을
 `approved`로 전환하면서 별도의 검수된 가창 기록을 `published`로 만들 수 있다.
@@ -431,8 +478,11 @@ detail로 자동 복사하지 않는다.
 | 관리자 직접 등록 | 해당 없음 | `draft`에서 검수 후 `published` | 오리지널곡과 공식 커버곡 등록 가능 |
 | 로그인 회원 제안 | `pending_review`에서 `approved` 또는 `rejected` | 승인 작업에서 별도 `published` 기록 생성 | 공식 커버곡만 제안 가능 |
 
-자동 수집의 `candidate`는 후속 범위이며 회원 제안이나 카탈로그 공개 상태에
-추가하지 않는다. 도입 시 별도 후보 aggregate와 수명주기를 정의한다.
+자동 수집 candidate는 회원 제안이나 카탈로그 공개 상태에 추가하지 않는다. playlist와
+clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_kind`로
+구분한다. playlist candidate는 관리자 검수 뒤 catalog draft로 변환할 수 있지만,
+`singing_clip`은 방송·키리누키 모델과 승인 정책이 준비되기 전에는 draft 변환을
+허용하지 않는다.
 
 ### 10.3 운영
 
@@ -490,6 +540,7 @@ detail로 자동 복사하지 않는다.
 - 방송일 및 시작·종료 타임스탬프
 - 방송별 세트리스트
 - 신규 키리누키 영상 후보 자동 수집
+- 승인된 노래 clip channel의 WebSub·uploads reconciliation 후보함
 
 ### 12.2 플레이리스트와 개인화
 
@@ -503,13 +554,31 @@ detail로 자동 복사하지 않는다.
 
 ### 12.3 카탈로그 확장
 
-- 멤버별 노래책
-- 사용자 수정 제안
-- 앨범, 작사, 작곡과 편곡 크레딧
+- YouTube playlist 벌크 수집·검수·draft 변환
+- approved 노래 clip channel 신규 영상의 `singing_clip` system candidate 자동화
+- 회원 pending proposal 수정·철회
+- OTW 멤버의 가창·작사·작곡·편곡·제작 참여 정보
+- 멤버별 `부른 곡·오리지널·커버·협업·만든 곡` 노래책과 SEO
 - 언어, 장르, 분위기와 이벤트 태그
 
 후속 확장 항목은 MVP 데이터 모델을 불필요하게 복잡하게 만들지 않는 범위에서
-확장 가능성만 보존한다. 후속 항목의 실제 개발 순서는 별도로 결정한다.
+확장 가능성만 보존한다.
+
+### 12.4 PR-8 이후 권장 우선순위
+
+| 우선순위 | 범위 | 완료 또는 착수 gate |
+| --- | --- | --- |
+| P0-A | catalog 입력 효율·proposal lifecycle | playlist 벌크 candidate 수집·검수·draft 변환과 owner-only pending proposal 수정·철회를 구현한다. 두 흐름은 같은 우선순위 프로그램이지만 failure boundary별 PR로 전달한다. |
+| P0-B | 노래 clip channel 자동 후보함 | P0-A ingestion candidate·Queue를 재사용해 approved clip channel의 WebSub 신규 upload와 uploads reconciliation을 `singing_clip` 후보로 제공한다. 공식 channel은 직접 입력하고 clip 후보의 draft 변환·공개는 방송·키리누키 foundation 전까지 금지한다. |
+| P0-C | 운영 공개·안정화 지속 확인 | 인증 관리자 스모크, source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal을 공개 전후 지속 확인한다. |
+| P1 | 멤버 참여 정보·멤버별 노래책·SEO | existing participant와 최소 member contribution을 사용해 current member의 부른 곡·오리지널·커버·협업·만든 곡 page를 제공한다. 외부 음악 관계자 상세 credit, contributor·album graph는 범위에서 제외한다. |
+| P2 | 큐레이션·저장 경험 | 운영자 큐레이션 playlist를 먼저 제공하고 사용자 저장·공개/비공개·공유, 좋아요·최근 들은 곡·멤버 라디오를 순차 검토한다. |
+| P3 | 방송 가창·키리누키 | 날짜별 가창 기록, 방송 타임스탬프, setlist, 승인된 키리누키와 원본 방송 fallback을 추가하고 P0-B `singing_clip` 후보의 draft 변환을 연다. TBD-004·005를 먼저 해결한다. |
+| P4 | 개인화·외부 생태계 | 행동 기반 추천과 Spotify·Apple Music 등 외부 서비스 연동은 권리·개인정보·API 비용과 사용자 가치가 확인된 뒤 검토한다. 자동 공개나 AI 단독 곡 확정은 계속 금지한다. |
+
+P0-A가 다음 구현 최우선이며 P0-B는 그 candidate pipeline에 의존한다. P0-C는 개발
+순서와 무관하게 계속 수행한다. P1 이후는 별도 schema·API·UI 설계와 gate를 거쳐야
+한다. 우선순위를 바꾸면 DEC-052와 이 표를 함께 갱신한다.
 
 ## 13. 품질 및 정책 요구사항
 
@@ -585,13 +654,20 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | TBD-005 | 후속 단계에서 키리누키가 없는 방송 가창의 공개 여부 | 원본 방송 타임스탬프로 공개 권장 |
 | TBD-009 | 첫 오리지널곡·공식 커버곡 데이터 입력 범위와 우선 멤버 | 운영 비용 산정 후 결정 |
 | TBD-011 | 전 소속 멤버의 과거 OTW 공식곡 포함 범위 | 현재 표시 정책과 별도로 카탈로그 보존 범위 결정 필요 |
-| TBD-012 | 회원이 승인 전 제안을 수정하거나 철회할 수 있는지 | `pending_review` 상태에서만 허용 권장 |
+| TBD-012 | 회원이 승인 전 제안을 수정하거나 철회할 수 있는지 | DEC-054로 해결: 본인 `pending_review`만 version CAS로 전체 수정·불가역 철회 |
 | TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | DEC-045로 해결: 상태와 일반 문의 안내만 표시, 내부 code·note 비공개 |
 | TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | DEC-045로 해결: KST 일 5회, edge 60초당 3회, 동일 pending/catalog video 차단 |
+| TBD-015 | playlist import의 private playlist OAuth 지원 | DEC-056으로 해결: private는 제품 범위에서 제외하고 public·unlisted만 지원 |
+| TBD-016 | channel 자동화 canary와 과거 backfill 범위 | DEC-057로 기본 정책 해결: approved 노래 clip channel 1개, backfill 0, 필요 시 최근 20개 수동 import. 실제 channel ID는 운영 전 지정 필요 |
+| TBD-017 | 상세 credit 최초 role·출처 범위 | DEC-058로 해결: OTW 멤버의 가창·작사·작곡·편곡·제작 참여만 공식 출처로 검수하고 외부 음악 관계자 상세 credit은 제외 |
+| TBD-018 | 다채널 YouTube API Data aggregation·Made for Kids·branding compliance | approved clip channel production 확대 전 채널 권리·운영 관계와 YouTube API compliance 확인 필수 |
+| TBD-019 | 최초 자동 구독 노래 clip channel | 실제 channel URL/ID, 운영 주체, clip 사용·게시 승인 범위를 운영 전에 확인 |
 
 기존 TBD-002는 DEC-019로 해결되었다. TBD-001·003·006·007·008은 DEC-029로,
-TBD-010은 DEC-044로, TBD-013·014는 DEC-045로 해결되었다. 공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태
-변경은 관리자 권한을 사용한다.
+TBD-010은 DEC-044로, TBD-013·014는 DEC-045로, TBD-012는 DEC-054로,
+TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
+공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태 변경은 관리자
+권한을 사용한다.
 
 ## 17. 변경 관리
 
@@ -654,6 +730,9 @@ TBD-010은 DEC-044로, TBD-013·014는 DEC-045로 해결되었다. 공개 catalo
 | 2026-08-20 | PR-7.1 회원 제안·관리자 승인과 PR-7.2 곡 태그·player 지속성, 리뷰 보완 및 YouTube 재생 안정화를 완료하고 원격 migration 0053–0055 적용 뒤 PR-8 운영 공개 준비로 전환 |
 | 2026-08-20 | DEC-050 단계적 공개 확정. PR-8을 직접 경로·SEO, source health, 관측·운영 switch로 분리하고 public read 검증 뒤 navigation을 노출하도록 명시 |
 | 2026-08-20 | DEC-051 PR-8C 전달·관측 경계 확정. source-health 계측을 위해 PR-8B 위에 stack하고 Workers Logs와 Analytics Engine을 개별 진단·24시간 집계로 분리하며 공개 전환을 단일 감사 command로 제한 |
+| 2026-08-20 | PR-8A/B/C 병합·production 배포와 migration 0056 적용을 완료하고 flag `0/0`을 유지한 채 운영 closeout으로 전환. DEC-052와 P0~P4 후속 우선순위를 확정하고 인증 스모크·catalog 정비·단계적 공개는 지속 운영 항목으로 분리 |
+| 2026-08-20 | DEC-052를 변경하고 DEC-053~055 확정. playlist 벌크 candidate와 pending proposal 수정·철회를 P0-A, channel WebSub 자동 후보를 P0-B, 운영 검증을 P0-C, 상세 credit·멤버 노래책을 P1로 재배치하고 세 개의 별도 조사 보고서 연결 |
+| 2026-08-21 | DEC-056~058 확정. public·unlisted playlist와 Queue 운영안을 채택하고 private OAuth를 제외. channel 자동화 대상을 공식 channel이 아닌 approved 노래 clip channel의 `singing_clip` 후보함으로 변경. credit을 OTW 멤버 참여 정보와 멤버 노래책·SEO로 축소하고 외부 음악 관계자 graph를 제외 |
 
 ## 19. 참고
 
