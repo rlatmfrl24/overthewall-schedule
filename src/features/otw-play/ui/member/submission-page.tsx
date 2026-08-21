@@ -22,6 +22,7 @@ import {
 } from "react";
 import type {
   OtwPlayCreateSubmissionResponse,
+  OtwPlayMemberSubmissionDto,
   OtwPlayParticipantRole,
   OtwPlaySubmissionParticipantInput,
   OtwPlaySubmissionPreflightDto,
@@ -45,7 +46,9 @@ import { Textarea } from "@/shared/ui/textarea";
 import {
   createOtwPlaySubmission,
   preflightOtwPlaySubmission,
+  updateOtwPlaySubmission,
 } from "../../api/submissions";
+import { useMyOtwPlaySubmission } from "../../queries/use-member-submissions";
 
 const steps = ["영상 확인", "곡과 참여자", "검토·제출"] as const;
 const PARTICIPANT_LIMIT = 30;
@@ -68,10 +71,10 @@ type SubmissionDraft = {
   preflight: OtwPlaySubmissionPreflightDto | null;
 };
 
-const readSubmissionDraft = (): SubmissionDraft | null => {
+const readSubmissionDraft = (storageKey = SUBMISSION_DRAFT_KEY): SubmissionDraft | null => {
   if (typeof window === "undefined") return null;
   try {
-    const value: unknown = JSON.parse(sessionStorage.getItem(SUBMISSION_DRAFT_KEY) ?? "null");
+    const value: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
     if (!value || typeof value !== "object") return null;
     const draft = value as Partial<SubmissionDraft>;
     if (
@@ -362,10 +365,18 @@ function ParticipantRoleEditor({
   );
 }
 
-export function OtwPlaySubmissionPage() {
+export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const initialDraft = useMemo(readSubmissionDraft, []);
+  const draftKey = editId
+    ? `${SUBMISSION_DRAFT_KEY}:edit:${editId}`
+    : SUBMISSION_DRAFT_KEY;
+  const initialDraft = useMemo(
+    () => readSubmissionDraft(draftKey),
+    [draftKey],
+  );
+  const editDetail = useMyOtwPlaySubmission(editId ?? null);
+  const initializedEditId = useRef<string | null>(null);
   const preflightRequestId = useRef(0);
   const [step, setStep] = useState(initialDraft?.step ?? 0);
   const [clientRequestId, setClientRequestId] = useState(initialDraft?.clientRequestId ?? newClientRequestId);
@@ -379,18 +390,40 @@ export function OtwPlaySubmissionPage() {
   const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>(initialDraft?.memberRoles ?? {});
   const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>(initialDraft?.externalRoles ?? {});
   const [note, setNote] = useState(initialDraft?.note ?? "");
+  const [expectedVersion, setExpectedVersion] = useState<number | null>(null);
+  const [originalArtistMemberUids, setOriginalArtistMemberUids] = useState<Record<string, number>>({});
+  const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(initialDraft?.preflight ?? null);
   const [candidateSearchAttempted, setCandidateSearchAttempted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [success, setSuccess] = useState<OtwPlayCreateSubmissionResponse | null>(null);
+  const [success, setSuccess] = useState<
+    OtwPlayCreateSubmissionResponse | { data: OtwPlayMemberSubmissionDto } | null
+  >(null);
 
   const members = useQuery({ queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers });
   const preflightMutation = useMutation({ mutationFn: preflightOtwPlaySubmission });
   const submitMutation = useMutation({
-    mutationFn: createOtwPlaySubmission,
+    mutationFn: async (input: Parameters<typeof createOtwPlaySubmission>[0]) => {
+      if (!editId || expectedVersion === null) {
+        return createOtwPlaySubmission(input);
+      }
+      const data = await updateOtwPlaySubmission(editId, {
+        expectedVersion,
+        youtubeUrl: input.youtubeUrl,
+        title: input.title,
+        suggestedSongId: input.suggestedSongId,
+        originalArtists: input.originalArtists,
+        participants: input.participants,
+        note: input.note,
+      });
+      return { data };
+    },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "member"] });
-      sessionStorage.removeItem(SUBMISSION_DRAFT_KEY);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "member"] }),
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "admin", "proposals"] }),
+      ]);
+      sessionStorage.removeItem(draftKey);
       setMessage(null);
       setSuccess(result);
     },
@@ -401,6 +434,8 @@ export function OtwPlaySubmissionPage() {
       else if (fields.some((field) => field === "title" || field.includes("originalartists") || field.includes("participants"))) setStep(1);
       setMessage(apiError?.code === "PLAY_SUBMISSION_DUPLICATE"
         ? "이미 카탈로그에 있거나 검토 중인 영상입니다."
+        : apiError?.code === "PLAY_SUBMISSION_STALE_WRITE"
+          ? "제안이 먼저 변경되었습니다. 입력 내용은 유지했습니다. 내 제안에서 최신 상태를 확인한 뒤 다시 수정해 주세요."
         : apiError?.code === "PLAY_SUBMISSION_RATE_LIMITED"
           ? apiError.fields?.scope === "daily"
             ? "오늘의 곡 제안 한도에 도달했습니다. KST 자정 이후 다시 제안할 수 있습니다."
@@ -409,22 +444,72 @@ export function OtwPlaySubmissionPage() {
     },
   });
 
+  useEffect(() => {
+    const submission = editDetail.data;
+    if (!editId || !submission || initializedEditId.current === editId) return;
+    initializedEditId.current = editId;
+    setStep(0);
+    setClientRequestId(submission.clientRequestId);
+    setYoutubeUrl(submission.youtubeUrl);
+    setTitle(submission.title);
+    setSongMode(submission.suggestedSongId ? "existing" : "new");
+    setSuggestedSongId(submission.suggestedSongId);
+    setOriginalArtists(submission.originalArtists.map((artist) => artist.displayName));
+    setOriginalArtistMemberUids(Object.fromEntries(
+      submission.originalArtists.flatMap((artist) =>
+        artist.memberUid === null ? [] : [[artist.displayName, artist.memberUid]],
+      ),
+    ));
+    const memberParticipants = submission.participants.filter(
+      (participant) => participant.memberUid !== null,
+    );
+    const external = submission.participants.filter(
+      (participant) => participant.memberUid === null,
+    );
+    setMemberUids(memberParticipants.map((participant) => participant.memberUid!));
+    setExternalParticipants(external.map((participant) => participant.displayName));
+    setMemberRoles(Object.fromEntries(
+      memberParticipants.map((participant) => [participant.memberUid!, participant.participantRole]),
+    ));
+    setExternalRoles(Object.fromEntries(
+      external.map((participant) => [participant.displayName, participant.participantRole]),
+    ));
+    setNote(submission.note ?? "");
+    setExpectedVersion(submission.version);
+    setPreflight({
+      videoId: submission.youtubeVideoId,
+      canonicalUrl: submission.youtubeUrl,
+      thumbnailUrl: `https://i.ytimg.com/vi/${submission.youtubeVideoId}/hqdefault.jpg`,
+      duplicate: null,
+      songCandidates: [],
+    });
+    setEditBaseline(JSON.stringify({
+      youtubeUrl: submission.youtubeUrl,
+      title: submission.title,
+      suggestedSongId: submission.suggestedSongId,
+      originalArtists: submission.originalArtists.map((artist) => ({
+        memberUid: artist.memberUid,
+        displayName: artist.displayName,
+      })),
+      participants: [...memberParticipants, ...external].map((participant) => ({
+        memberUid: participant.memberUid,
+        displayName: participant.displayName,
+        participantRole: participant.participantRole,
+      })),
+      note: submission.note ?? null,
+    }));
+  }, [editDetail.data, editId]);
+
   useEffect(() => { headingRef.current?.focus(); }, [step]);
   useEffect(() => {
-    if (success) return;
+    if (success || (editId && initializedEditId.current !== editId)) return;
     const draft: SubmissionDraft = {
       step, clientRequestId, youtubeUrl, title, songMode, suggestedSongId,
       originalArtists, memberUids, externalParticipants, memberRoles,
       externalRoles, note, preflight,
     };
-    sessionStorage.setItem(SUBMISSION_DRAFT_KEY, JSON.stringify(draft));
-  }, [clientRequestId, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
-  const dirty = !success && Boolean(youtubeUrl || title || originalArtists.length || memberUids.length || externalParticipants.length || note);
-  const shouldBlock = useCallback(
-    () => dirty && !window.confirm("작성 중인 곡 제안이 있습니다. 이 페이지를 나가시겠습니까?"),
-    [dirty],
-  );
-  useBlocker({ shouldBlockFn: shouldBlock, enableBeforeUnload: dirty, disabled: !dirty });
+    sessionStorage.setItem(draftKey, JSON.stringify(draft));
+  }, [clientRequestId, draftKey, editId, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
 
   const selectedMembers = useMemo(
     () => (members.data ?? []).filter((member) => memberUids.includes(member.uid)),
@@ -442,6 +527,35 @@ export function OtwPlaySubmissionPage() {
       participantRole: externalRoles[displayName] ?? "vocal",
     })),
   ], [externalParticipants, externalRoles, memberRoles, memberUids]);
+  const currentEditSnapshot = useMemo(
+    () => JSON.stringify({
+      youtubeUrl,
+      title,
+      suggestedSongId,
+      originalArtists: originalArtists.map((displayName) => ({
+        memberUid: originalArtistMemberUids[displayName] ?? null,
+        displayName,
+      })),
+      participants: participants.map((participant) => ({
+        memberUid: participant.kind === "member" ? participant.memberUid : null,
+        displayName:
+          participant.kind === "member"
+            ? (members.data ?? []).find((member) => member.uid === participant.memberUid)?.name ?? ""
+            : participant.displayName,
+        participantRole: participant.participantRole ?? "vocal",
+      })),
+      note: note || null,
+    }),
+    [members.data, note, originalArtistMemberUids, originalArtists, participants, suggestedSongId, title, youtubeUrl],
+  );
+  const dirty = !success && (editId
+    ? editBaseline !== null && currentEditSnapshot !== editBaseline
+    : Boolean(youtubeUrl || title || originalArtists.length || memberUids.length || externalParticipants.length || note));
+  const shouldBlock = useCallback(
+    () => dirty && !window.confirm("저장하지 않은 곡 제안 변경이 있습니다. 이 페이지를 나가시겠습니까?"),
+    [dirty],
+  );
+  useBlocker({ shouldBlockFn: shouldBlock, enableBeforeUnload: dirty, disabled: !dirty });
   const participantCount = participants.length;
   const participantRoleItems = useMemo(
     () => [
@@ -481,8 +595,14 @@ export function OtwPlaySubmissionPage() {
       return null;
     });
     if (!data || requestId !== preflightRequestId.current) return;
-    setPreflight(data);
-    if (data.duplicate) {
+    const ownPendingDuplicate = Boolean(
+      editDetail.data &&
+      data.duplicate === "pending" &&
+      data.videoId === editDetail.data.youtubeVideoId,
+    );
+    const visibleData = ownPendingDuplicate ? { ...data, duplicate: null } : data;
+    setPreflight(visibleData);
+    if (visibleData.duplicate) {
       return;
     }
     setStep(1);
@@ -496,7 +616,15 @@ export function OtwPlaySubmissionPage() {
       setMessage(error instanceof ApiError ? error.message : "기존 곡 검색에 실패했습니다.");
       return null;
     });
-    if (data && requestId === preflightRequestId.current) setPreflight(data);
+    if (data && requestId === preflightRequestId.current) {
+      setPreflight(
+        editDetail.data &&
+          data.duplicate === "pending" &&
+          data.videoId === editDetail.data.youtubeVideoId
+          ? { ...data, duplicate: null }
+          : data,
+      );
+    }
   };
   const selectCandidate = (candidate: OtwPlaySubmissionSongCandidateDto) => {
     setSongMode("existing");
@@ -508,7 +636,7 @@ export function OtwPlaySubmissionPage() {
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const resetForm = () => {
     preflightRequestId.current += 1;
-    sessionStorage.removeItem(SUBMISSION_DRAFT_KEY);
+    sessionStorage.removeItem(draftKey);
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
     setSongMode("new"); setSuggestedSongId(null); setOriginalArtists([]); setMemberUids([]);
     setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
@@ -523,13 +651,33 @@ export function OtwPlaySubmissionPage() {
         </Button>
         <section className="w-full rounded-2xl border bg-card p-6 text-center shadow-sm sm:p-10">
           <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
-          <p className="mt-4 text-sm font-medium text-primary">곡 제안 접수 완료</p>
+          <p className="mt-4 text-sm font-medium text-primary">{editId ? "곡 제안 수정 완료" : "곡 제안 접수 완료"}</p>
           <h1 className="mt-1 text-2xl font-bold">{success.data.title}</h1>
           <p className="mt-3 text-sm text-muted-foreground">관리자 검수 전까지 공개되지 않습니다. 내 제안에서 현재 상태를 확인할 수 있어요.</p>
           <div className="mt-7 flex flex-col justify-center gap-2 sm:flex-row">
             <Button asChild><Link to="/play/submissions">내 제안에서 확인</Link></Button>
-            <Button type="button" variant="outline" onClick={resetForm}>다른 곡 제안</Button>
+            {!editId ? <Button type="button" variant="outline" onClick={resetForm}>다른 곡 제안</Button> : null}
           </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (editId && editDetail.isPending) {
+    return (
+      <div className="flex min-h-80 items-center justify-center" aria-busy="true">
+        <LoaderCircle className="mr-2 size-5 animate-spin" /> 수정할 제안을 불러오는 중
+      </div>
+    );
+  }
+
+  if (editId && (editDetail.isError || !editDetail.data?.editable)) {
+    return (
+      <div className="mx-auto flex min-h-96 w-full max-w-3xl flex-col items-start justify-center gap-4 p-4 sm:p-8">
+        <section className="w-full rounded-2xl border bg-card p-8 text-center shadow-sm" role="alert">
+          <h1 className="text-xl font-bold">이 제안은 수정할 수 없습니다</h1>
+          <p className="mt-2 text-sm text-muted-foreground">본인의 검토 대기 중 제안만 수정할 수 있습니다.</p>
+          <Button asChild className="mt-6"><Link to="/play/submissions">내 제안으로 돌아가기</Link></Button>
         </section>
       </div>
     );
@@ -541,7 +689,7 @@ export function OtwPlaySubmissionPage() {
         <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
       </Button>
       <div>
-        <p className="text-sm font-medium text-primary">노래 영상 추가 제안</p>
+        <p className="text-sm font-medium text-primary">{editId ? "노래 영상 제안 수정" : "노래 영상 추가 제안"}</p>
         <h1 ref={headingRef} tabIndex={-1} className="mt-1 text-2xl font-bold outline-none">{steps[step]}</h1>
         <p className="mt-2 text-sm text-muted-foreground">공식 커버 영상만 접수하며, 제출 내용은 관리자 승인 전까지 비공개입니다.</p>
       </div>
@@ -606,7 +754,22 @@ export function OtwPlaySubmissionPage() {
                 </div>
               ) : null}
               {songMode === "existing" && !suggestedSongId ? <p className="text-sm text-muted-foreground">기존 곡을 검색한 뒤 후보를 선택해 주세요.</p> : null}
-              <ChipInput id="submission-original-artists" label="원곡 가수" values={originalArtists} onChange={setOriginalArtists} placeholder="가수명 입력" maxValues={ORIGINAL_ARTIST_LIMIT} required />
+              <ChipInput
+                id="submission-original-artists"
+                label="원곡 가수"
+                values={originalArtists}
+                onChange={(values) => {
+                  setOriginalArtists(values);
+                  setOriginalArtistMemberUids((current) =>
+                    Object.fromEntries(
+                      Object.entries(current).filter(([name]) => values.includes(name)),
+                    ),
+                  );
+                }}
+                placeholder="가수명 입력"
+                maxValues={ORIGINAL_ARTIST_LIMIT}
+                required
+              />
             </fieldset>
 
             <fieldset className="space-y-5 rounded-xl border p-4 sm:p-5">
@@ -638,8 +801,8 @@ export function OtwPlaySubmissionPage() {
             <p className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm"><AlertCircle className="mr-1 inline size-4" /> 승인 전에는 제안과 메모가 공개되지 않습니다. 반려 시 회원 화면에는 상태만 표시되고 내부 검수 사유는 공개되지 않습니다.</p>
             <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row">
               <Button variant="ghost" onClick={() => setStep(1)}><ChevronLeft /> 이전</Button>
-              <Button disabled={submitMutation.isPending} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, originalArtists: originalArtists.map((displayName) => ({ kind: "external", displayName })), participants, note: note || null })}>
-                {submitMutation.isPending ? <LoaderCircle className="animate-spin" /> : null}{submitMutation.isPending ? "제출 중" : "최종 제출"}
+              <Button disabled={submitMutation.isPending} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null })}>
+                {submitMutation.isPending ? <LoaderCircle className="animate-spin" /> : null}{submitMutation.isPending ? (editId ? "저장 중" : "제출 중") : (editId ? "수정 저장" : "최종 제출")}
               </Button>
             </div>
           </div>

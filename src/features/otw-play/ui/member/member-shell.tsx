@@ -53,7 +53,7 @@ export function OtwPlayMemberHome() {
         </p>
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <Button asChild className="h-auto justify-start gap-3 rounded-xl p-4 text-left">
-            <Link to="/play/submit">
+            <Link to="/play/submit" search={{ edit: undefined }}>
               <ListPlus className="size-5" />
               <span>
                 <span className="block font-semibold">새 곡 제안</span>

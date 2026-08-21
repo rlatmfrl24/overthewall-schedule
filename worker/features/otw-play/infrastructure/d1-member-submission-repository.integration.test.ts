@@ -48,6 +48,7 @@ const create = (
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS);
   await db.batch([
+    db.prepare("DELETE FROM music_catalog_events WHERE actor_kind = 'member'"),
     db.prepare("DELETE FROM music_cover_proposal_participants"),
     db.prepare("DELETE FROM music_cover_proposal_original_artists"),
     db.prepare("DELETE FROM music_cover_proposals"),
@@ -210,6 +211,181 @@ describe("D1MemberSubmissionRepository", () => {
     await expect(repository.listMine("member-a", 20, null)).resolves.toMatchObject({
       items: [expect.objectContaining({ status: "withdrawn" })],
     });
+  });
+
+  it("updates only an owned pending proposal with CAS and audits field names", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const created = await create(repository, "member-a", "1");
+    const revisionBefore = await db.prepare(
+      `SELECT catalog.revision AS catalog_revision,
+        read_model.revision AS read_model_revision
+       FROM music_catalog_meta AS catalog
+       JOIN music_public_read_model_meta AS read_model ON read_model.id = 1
+       WHERE catalog.id = 1`,
+    ).first<{ catalog_revision: number; read_model_revision: number }>();
+
+    const updated = await repository.update({
+      userId: "member-a",
+      proposalId: created.data.id,
+      eventId: "event-member-update",
+      videoId: "EDIT0000001",
+      canonicalUrl: "https://www.youtube.com/watch?v=EDIT0000001",
+      now: NOW + 200,
+      input: {
+        expectedVersion: 0,
+        youtubeUrl: "https://youtu.be/EDIT0000001",
+        title: "수정된 커버",
+        suggestedSongId: null,
+        originalArtists: [{ kind: "external", displayName: "수정 가수" }],
+        participants: [
+          { kind: "member", memberUid: 991, participantRole: "featured_vocal" },
+          { kind: "external", displayName: "외부 참여자", participantRole: "chorus" },
+        ],
+        note: "감사 로그에 남으면 안 되는 메모",
+      },
+    });
+
+    expect(updated).toMatchObject({
+      version: 1,
+      editable: true,
+      withdrawable: true,
+      youtubeVideoId: "EDIT0000001",
+      title: "수정된 커버",
+      participants: [
+        { memberUid: 991, participantRole: "featured_vocal" },
+        { memberUid: null, displayName: "외부 참여자", participantRole: "chorus" },
+      ],
+    });
+    const event = await db.prepare(
+      "SELECT event_type, actor_kind, actor_user_id, detail_json FROM music_catalog_events WHERE id = 'event-member-update'",
+    ).first<{ event_type: string; actor_kind: string; actor_user_id: string; detail_json: string }>();
+    expect(event).toMatchObject({
+      event_type: "proposal.updated",
+      actor_kind: "member",
+      actor_user_id: "member-a",
+    });
+    expect(JSON.parse(event!.detail_json)).toEqual({
+      changedFields: expect.arrayContaining([
+        "youtubeUrl",
+        "title",
+        "originalArtists",
+        "participants",
+        "note",
+      ]),
+    });
+    expect(event!.detail_json).not.toContain("감사 로그");
+    await expect(
+      repository.update({
+        userId: "member-a",
+        proposalId: created.data.id,
+        eventId: "event-member-stale",
+        videoId: "EDIT0000002",
+        canonicalUrl: "https://www.youtube.com/watch?v=EDIT0000002",
+        now: NOW + 201,
+        input: {
+          expectedVersion: 0,
+          youtubeUrl: "https://youtu.be/EDIT0000002",
+          title: "stale",
+          originalArtists: [{ kind: "external", displayName: "가수" }],
+          participants: [{ kind: "member", memberUid: 991 }],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "stale_write" });
+    await expect(
+      repository.update({
+        userId: "member-b",
+        proposalId: created.data.id,
+        eventId: "event-member-owner",
+        videoId: "EDIT0000002",
+        canonicalUrl: "https://www.youtube.com/watch?v=EDIT0000002",
+        now: NOW + 201,
+        input: {
+          expectedVersion: 1,
+          youtubeUrl: "https://youtu.be/EDIT0000002",
+          title: "owner",
+          originalArtists: [{ kind: "external", displayName: "가수" }],
+          participants: [{ kind: "member", memberUid: 991 }],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+    await expect(
+      db.prepare(
+        `SELECT catalog.revision AS catalog_revision,
+          read_model.revision AS read_model_revision
+         FROM music_catalog_meta AS catalog
+         JOIN music_public_read_model_meta AS read_model ON read_model.id = 1
+         WHERE catalog.id = 1`,
+      ).first(),
+    ).resolves.toEqual(revisionBefore);
+  });
+
+  it("lets only one concurrent member or admin-facing CAS transition win", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const created = await create(repository, "member-a", "1");
+    const results = await Promise.allSettled([
+      repository.update({
+        userId: "member-a",
+        proposalId: created.data.id,
+        eventId: "event-member-race-update",
+        videoId: "RACE0000001",
+        canonicalUrl: "https://www.youtube.com/watch?v=RACE0000001",
+        now: NOW + 300,
+        input: {
+          expectedVersion: 0,
+          youtubeUrl: "https://youtu.be/RACE0000001",
+          title: "경쟁 수정",
+          originalArtists: [{ kind: "external", displayName: "가수" }],
+          participants: [{ kind: "member", memberUid: 991 }],
+        },
+      }),
+      repository.withdraw({
+        userId: "member-a",
+        proposalId: created.data.id,
+        eventId: "event-member-race-withdraw",
+        expectedVersion: 0,
+        now: NOW + 301,
+      }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const stored = await repository.readMine("member-a", created.data.id);
+    expect(stored.version).toBe(1);
+    expect(["pending_review", "withdrawn"]).toContain(stored.status);
+    const events = await db.prepare(
+      `SELECT event_type FROM music_catalog_events
+       WHERE id IN ('event-member-race-update', 'event-member-race-withdraw')`,
+    ).all<{ event_type: string }>();
+    expect(events.results).toHaveLength(1);
+  });
+
+  it("withdraws irreversibly and releases the pending-video uniqueness slot", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const created = await create(repository, "member-a", "1");
+    const withdrawn = await repository.withdraw({
+      userId: "member-a",
+      proposalId: created.data.id,
+      eventId: "event-member-withdraw",
+      expectedVersion: 0,
+      now: NOW + 400,
+    });
+    expect(withdrawn).toMatchObject({
+      status: "withdrawn",
+      version: 1,
+      editable: false,
+      withdrawable: false,
+    });
+    await expect(
+      repository.withdraw({
+        userId: "member-a",
+        proposalId: created.data.id,
+        eventId: "event-member-withdraw-again",
+        expectedVersion: 1,
+        now: NOW + 401,
+      }),
+    ).rejects.toMatchObject({ code: "stale_write" });
+    await expect(create(repository, "member-b", "1", {
+      clientRequestId: "00000000-0000-4000-8000-000000000099",
+    })).resolves.toMatchObject({ data: { status: "pending_review" } });
   });
 
   it("enforces the KST daily limit across all stored statuses", async () => {

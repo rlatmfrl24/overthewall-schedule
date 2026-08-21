@@ -117,6 +117,7 @@ function SubmissionMenu({ active }: { active: boolean }) {
         <DropdownMenuItem asChild>
           <Link
             to="/play/submit"
+            search={{ edit: undefined }}
             activeProps={{ "aria-current": "page", className: "bg-accent" }}
           >
             <ListPlus /> 새 곡 제안

@@ -4,6 +4,8 @@ import {
   fetchMyOtwPlaySubmission,
   fetchMyOtwPlaySubmissions,
   preflightOtwPlaySubmission,
+  updateOtwPlaySubmission,
+  withdrawOtwPlaySubmission,
 } from "./submissions";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
@@ -57,6 +59,30 @@ describe("OTW Play member submission API", () => {
       2,
       "/api/play/submissions/proposal%20%2F%20one",
       { auth: "required" },
+    );
+  });
+
+  it("uses exact authenticated update and withdrawal contracts", async () => {
+    const update = {
+      expectedVersion: 1,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      title: "Edited Cover",
+      suggestedSongId: null,
+      originalArtists: [{ kind: "external" as const, displayName: "Artist" }],
+      participants: [{ kind: "member" as const, memberUid: 1 }],
+      note: null,
+    };
+    await updateOtwPlaySubmission("proposal / one", update);
+    await withdrawOtwPlaySubmission("proposal / one", { expectedVersion: 2 });
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/submissions/proposal%20%2F%20one",
+      { method: "PATCH", json: update, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/submissions/proposal%20%2F%20one/withdraw",
+      { method: "POST", json: { expectedVersion: 2 }, auth: "required" },
     );
   });
 });

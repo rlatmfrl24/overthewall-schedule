@@ -90,6 +90,10 @@ const MEMBER_POLICY_NO_STORE_POST = {
   cache: "no-store",
   successStatus: 200,
 } as const;
+const MEMBER_POLICY_NO_STORE_PATCH = {
+  ...MEMBER_POLICY_NO_STORE_POST,
+  method: "PATCH",
+} as const;
 const MEMBER_POLICY_NO_STORE_POST_CREATED = {
   ...MEMBER_POLICY_NO_STORE_POST,
   successStatus: 201,
@@ -258,7 +262,13 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.submission.detail",
     owner: "otw-play",
     path: "/api/play/submissions/:id",
-    methods: [MEMBER_POLICY_NO_STORE_GET],
+    methods: [MEMBER_POLICY_NO_STORE_GET, MEMBER_POLICY_NO_STORE_PATCH],
+  },
+  {
+    id: "otw-play.submission.withdraw",
+    owner: "otw-play",
+    path: "/api/play/submissions/:id/withdraw",
+    methods: [MEMBER_POLICY_NO_STORE_POST],
   },
   {
     id: "otw-play.admin.playlist-import.preflight",

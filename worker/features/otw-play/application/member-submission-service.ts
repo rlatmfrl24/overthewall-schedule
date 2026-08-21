@@ -2,6 +2,8 @@ import type {
   OtwPlayCreateSubmissionRequest,
   OtwPlayMemberSubmissionPageDto,
   OtwPlaySubmissionPreflightRequest,
+  OtwPlayUpdateSubmissionRequest,
+  OtwPlayWithdrawSubmissionRequest,
 } from "@contracts/otw-play";
 import {
   decodeMemberSubmissionCursor,
@@ -130,5 +132,42 @@ export class MemberSubmissionService {
 
   readMine(userId: string, proposalId: string) {
     return this.repository.readMine(userId, proposalId);
+  }
+
+  update(
+    userId: string,
+    proposalId: string,
+    input: OtwPlayUpdateSubmissionRequest,
+  ) {
+    const videoId = extractYouTubeVideoId(input.youtubeUrl);
+    if (!videoId) {
+      throw new MemberSubmissionServiceError(
+        "invalid_request",
+        "A valid YouTube URL is required",
+      );
+    }
+    return this.repository.update({
+      userId,
+      proposalId,
+      eventId: this.createId(),
+      input,
+      videoId,
+      canonicalUrl: canonicalYouTubeUrl(videoId),
+      now: this.clock(),
+    });
+  }
+
+  withdraw(
+    userId: string,
+    proposalId: string,
+    input: OtwPlayWithdrawSubmissionRequest,
+  ) {
+    return this.repository.withdraw({
+      userId,
+      proposalId,
+      eventId: this.createId(),
+      expectedVersion: input.expectedVersion,
+      now: this.clock(),
+    });
   }
 }

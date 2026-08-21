@@ -1,18 +1,32 @@
 import { useUser } from "@clerk/clerk-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ListPlus, LoaderCircle } from "lucide-react";
+import { ChevronLeft, ListPlus, LoaderCircle, Pencil, Undo2 } from "lucide-react";
 import { useState } from "react";
 import type {
   OtwPlayMemberSubmissionStatus,
   OtwPlayParticipantRole,
 } from "@contracts/otw-play";
 import { isAdminUser } from "@/app/admin";
+import { ApiError } from "@/shared/api/client";
+import { queryKeys } from "@/shared/query/query-keys";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   useMyOtwPlaySubmission,
   useMyOtwPlaySubmissions,
 } from "../../queries/use-member-submissions";
+import { withdrawOtwPlaySubmission } from "../../api/submissions";
 
 const labels: Record<OtwPlayMemberSubmissionStatus, string> = {
   pending_review: "검토 대기",
@@ -37,11 +51,39 @@ function BackToPlayLink() {
 
 export function OtwPlaySubmissionsPage() {
   const { user } = useUser();
+  const queryClient = useQueryClient();
   const isAdmin = isAdminUser(user?.id);
   const list = useMyOtwPlaySubmissions();
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const detail = useMyOtwPlaySubmission(selectedId);
+  const withdrawMutation = useMutation({
+    mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
+      withdrawOtwPlaySubmission(id, { expectedVersion }),
+    onSuccess: async (updated) => {
+      setWithdrawOpen(false);
+      setCommandMessage("제안을 철회했습니다.");
+      queryClient.setQueryData(
+        queryKeys.otwPlay.memberSubmission(user?.id ?? "", updated.id),
+        updated,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "member"] }),
+        queryClient.invalidateQueries({ queryKey: [...queryKeys.otwPlay.all, "admin", "proposals"] }),
+      ]);
+    },
+    onError: (error) => {
+      const apiError = error instanceof ApiError ? error : null;
+      setCommandMessage(
+        apiError?.code === "PLAY_SUBMISSION_STALE_WRITE"
+          ? "제안 상태가 먼저 변경되었습니다. 최신 상태를 다시 불러왔습니다."
+          : apiError?.message ?? "제안을 철회하지 못했습니다.",
+      );
+      void detail.refetch();
+    },
+  });
 
   if (list.isPending) {
     return (
@@ -75,7 +117,7 @@ export function OtwPlaySubmissionsPage() {
             OTW 멤버가 참여한 공식 커버 영상을 알고 있다면 첫 제안을 보내주세요.
           </p>
           <Button asChild className="mt-6">
-            <Link to="/play/submit">첫 곡 제안하기</Link>
+            <Link to="/play/submit" search={{ edit: undefined }}>첫 곡 제안하기</Link>
           </Button>
         </section>
       </div>
@@ -90,7 +132,7 @@ export function OtwPlaySubmissionsPage() {
       <section className="space-y-4">
         <div>
           <h1 className="text-2xl font-bold">내 곡 제안</h1>
-          <p className="mt-1 text-sm text-muted-foreground">수정·철회 기능은 정책 확정 전까지 제공하지 않습니다.</p>
+          <p className="mt-1 text-sm text-muted-foreground">검토 대기 중인 제안은 수정하거나 철회할 수 있습니다.</p>
         </div>
         <div className="space-y-2">
           {items.map((item) => (
@@ -127,6 +169,30 @@ export function OtwPlaySubmissionsPage() {
               <div><dt className="text-muted-foreground">참여자</dt><dd>{detail.data.participants.map((item) => `${item.displayName} · ${roleLabels[item.participantRole]}`).join(", ")}</dd></div>
               {detail.data.note ? <div><dt className="text-muted-foreground">내 메모</dt><dd className="whitespace-pre-wrap">{detail.data.note}</dd></div> : null}
             </dl>
+            {detail.data.status === "withdrawn" ? (
+              <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
+                {new Date(detail.data.updatedAt).toLocaleString("ko-KR")}에 철회되었습니다.
+              </p>
+            ) : null}
+            {detail.data.editable && detail.data.withdrawable ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Button asChild variant="outline">
+                  <Link to="/play/submit" search={{ edit: detail.data.id }}>
+                    <Pencil /> 수정
+                  </Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCommandMessage(null);
+                    setWithdrawOpen(true);
+                  }}
+                >
+                  <Undo2 /> 철회
+                </Button>
+              </div>
+            ) : null}
             {detail.data.approvedSong ? (
               detail.data.approvedSong.publicLinkAvailable ? (
                 <Link
@@ -157,7 +223,41 @@ export function OtwPlaySubmissionsPage() {
             ) : null}
           </div>
         ) : null}
+        {commandMessage ? (
+          <p role="status" className="mt-4 rounded-lg border p-3 text-sm">
+            {commandMessage}
+          </p>
+        ) : null}
       </aside>
+      <AlertDialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>이 제안을 철회할까요?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>철회하면 관리자 검수 목록에서 제거되며 기존 제안은 이력으로 남습니다.</p>
+                <p>철회는 취소할 수 없습니다. 다시 제안하려면 새 제안을 제출해야 합니다.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={withdrawMutation.isPending}>계속 검토 대기</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={withdrawMutation.isPending || !detail.data?.withdrawable}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!detail.data) return;
+                withdrawMutation.mutate({
+                  id: detail.data.id,
+                  expectedVersion: detail.data.version,
+                });
+              }}
+            >
+              {withdrawMutation.isPending ? "철회 중" : "제안 철회"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

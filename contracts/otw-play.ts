@@ -578,6 +578,7 @@ export const OTW_PLAY_SUBMISSION_ERROR_CODES = [
   "PLAY_SUBMISSION_AUTH_REQUIRED",
   "PLAY_SUBMISSION_NOT_FOUND",
   "PLAY_SUBMISSION_DUPLICATE",
+  "PLAY_SUBMISSION_STALE_WRITE",
   "PLAY_SUBMISSION_IDEMPOTENCY_CONFLICT",
   "PLAY_SUBMISSION_RATE_LIMITED",
   "PLAY_SUBMISSION_UNAVAILABLE",
@@ -640,6 +641,15 @@ export interface OtwPlayCreateSubmissionRequest {
   note?: string | null;
 }
 
+export interface OtwPlayUpdateSubmissionRequest
+  extends Omit<OtwPlayCreateSubmissionRequest, "clientRequestId"> {
+  expectedVersion: number;
+}
+
+export interface OtwPlayWithdrawSubmissionRequest {
+  expectedVersion: number;
+}
+
 export type OtwPlayMemberSubmissionStatus = Extract<
   OtwPlayProposalStatus,
   "pending_review" | "approved" | "rejected" | "withdrawn"
@@ -654,14 +664,19 @@ export interface OtwPlayMemberSubmissionDto {
   suggestedSongId: string | null;
   note: string | null;
   status: OtwPlayMemberSubmissionStatus;
+  version: number;
+  editable: boolean;
+  withdrawable: boolean;
   createdAt: number;
   updatedAt: number;
   originalArtists: Array<{
     creditOrder: number;
+    memberUid: number | null;
     displayName: string;
   }>;
   participants: Array<{
     creditOrder: number;
+    memberUid: number | null;
     displayName: string;
     participantRole: OtwPlayParticipantRole;
   }>;

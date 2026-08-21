@@ -9,12 +9,16 @@ const mocks = vi.hoisted(() => ({
   preflight: vi.fn(),
   members: vi.fn(),
   blocker: vi.fn(),
+  editDetail: vi.fn(),
 }));
 vi.mock("../../api/submissions", () => ({
   createOtwPlaySubmission: mocks.create,
   preflightOtwPlaySubmission: mocks.preflight,
 }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: mocks.members }));
+vi.mock("../../queries/use-member-submissions", () => ({
+  useMyOtwPlaySubmission: mocks.editDetail,
+}));
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
@@ -112,6 +116,7 @@ describe("OtwPlaySubmissionPage", () => {
     mocks.members.mockResolvedValue([member]);
     mocks.preflight.mockResolvedValue(preflight);
     mocks.create.mockRejectedValue(new Error("network failed"));
+    mocks.editDetail.mockReturnValue({ isPending: false, data: null });
   });
   afterEach(cleanup);
 

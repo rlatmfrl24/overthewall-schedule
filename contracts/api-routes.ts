@@ -104,6 +104,11 @@ export const apiRoutes = {
         (id: string) =>
           `/api/play/submissions/${encodeURIComponent(id)}` as const,
       ),
+      withdraw: dynamicRoute(
+        "/api/play/submissions/:id/withdraw",
+        (id: string) =>
+          `/api/play/submissions/${encodeURIComponent(id)}/withdraw` as const,
+      ),
     },
     admin: {
       playlistImportPreflight: staticRoute(

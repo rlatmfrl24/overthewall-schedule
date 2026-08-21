@@ -529,6 +529,16 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.submissions.detail.pattern,
     methods: methods(
       get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+      patch({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.submission.withdraw",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.withdraw.pattern,
+    methods: methods(
+      post({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
     ),
     handler: handleOtwPlayMemberSubmissions,
   },
