@@ -43,6 +43,34 @@ describe("OTW Play ingestion input", () => {
     })).toEqual({ ok: false, fields: { idempotencyKey: "invalid" } });
   });
 
+  it("accepts explicit all-new ranges and rejects partial or oversized ranges", () => {
+    expect(parsePlaylistPreflight({
+      playlistUrl: "PL1234567890",
+      mode: "all_new",
+      rangeStart: 5_000,
+      rangeLimit: 1,
+    })).toEqual({
+      ok: true,
+      value: {
+        playlistUrl: "PL1234567890",
+        mode: "all_new",
+        rangeStart: 5_000,
+        rangeLimit: 1,
+      },
+    });
+    expect(parsePlaylistPreflight({
+      playlistUrl: "PL1234567890",
+      mode: "all_new",
+      rangeStart: 5_000,
+    })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+    expect(parsePlaylistPreflight({
+      playlistUrl: "PL1234567890",
+      mode: "all_new",
+      rangeStart: 0,
+      rangeLimit: 5_001,
+    })).toEqual({ ok: false, fields: { body: "invalid_playlist_import" } });
+  });
+
   it("strictly validates candidate review, conversion, and retry commands", () => {
     const review = {
       song: { kind: "existing", songId: "song-1" },

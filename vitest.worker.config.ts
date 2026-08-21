@@ -43,6 +43,11 @@ const OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME = "0056_moaning_killmonger.sql";
 const OTW_PLAY_INGESTION_MIGRATION_NAMES = [
   "0057_numerous_luminals.sql",
   "0058_awesome_lorna_dane.sql",
+  "0059_demonic_luke_cage.sql",
+] as const;
+const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES,
+  "0059_demonic_luke_cage.sql",
 ] as const;
 
 export default defineConfig({
@@ -70,6 +75,11 @@ export default defineConfig({
         });
       const otwPlayPublicCatalogMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.flatMap((name) => {
+          const migration = migrationsByName.get(name);
+          return migration ? [migration] : [];
+        });
+      const otwPlayIngestionMigrations =
+        OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES.flatMap((name) => {
           const migration = migrationsByName.get(name);
           return migration ? [migration] : [];
         });
@@ -148,6 +158,7 @@ export default defineConfig({
               otwPlayProposalSearchMigrations,
             OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
               otwPlayPublicCatalogMigrations,
+            OTW_PLAY_INGESTION_MIGRATIONS: otwPlayIngestionMigrations,
             OTW_PLAY_PRE_SOURCE_HEALTH_MIGRATIONS:
               otwPlayPreSourceHealthMigrations,
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:

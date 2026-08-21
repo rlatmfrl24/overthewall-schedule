@@ -37,6 +37,9 @@ const parseBase = (
     ? value.mode
     : null;
   const recentLimit = value.recentLimit;
+  const rangeStart = value.rangeStart;
+  const rangeLimit = value.rangeLimit;
+  const hasRange = rangeStart !== undefined || rangeLimit !== undefined;
   if (
     !playlistUrl ||
     !mode ||
@@ -44,7 +47,18 @@ const parseBase = (
       (!Number.isSafeInteger(recentLimit) ||
         Number(recentLimit) < 1 ||
         Number(recentLimit) > 5_000)) ||
-    (mode === "all_new" && recentLimit !== undefined)
+    (mode === "all_new" && recentLimit !== undefined) ||
+    (mode === "recent" && hasRange) ||
+    (hasRange && (
+      rangeStart === undefined ||
+      rangeLimit === undefined ||
+      !Number.isSafeInteger(rangeStart) ||
+      Number(rangeStart) < 0 ||
+      !Number.isSafeInteger(rangeLimit) ||
+      Number(rangeLimit) < 1 ||
+      Number(rangeLimit) > 5_000 ||
+      !Number.isSafeInteger(Number(rangeStart) + Number(rangeLimit))
+    ))
   ) {
     return { ok: false, fields: { body: "invalid_playlist_import" } };
   }
@@ -54,6 +68,12 @@ const parseBase = (
       playlistUrl,
       mode,
       ...(mode === "recent" ? { recentLimit: Number(recentLimit) } : {}),
+      ...(hasRange
+        ? {
+            rangeStart: Number(rangeStart),
+            rangeLimit: Number(rangeLimit),
+          }
+        : {}),
     },
   };
 };
@@ -61,7 +81,13 @@ const parseBase = (
 export const parsePlaylistPreflight = (
   value: unknown,
 ): IngestionInputResult<OtwPlayPlaylistPreflightRequest> =>
-  parseBase(value, ["playlistUrl", "mode", "recentLimit"]);
+  parseBase(value, [
+    "playlistUrl",
+    "mode",
+    "recentLimit",
+    "rangeStart",
+    "rangeLimit",
+  ]);
 
 export const parseCreatePlaylistImport = (
   value: unknown,
@@ -70,6 +96,8 @@ export const parseCreatePlaylistImport = (
     "playlistUrl",
     "mode",
     "recentLimit",
+    "rangeStart",
+    "rangeLimit",
     "idempotencyKey",
   ]);
   if (!parsed.ok) return parsed;

@@ -110,6 +110,8 @@ export interface OtwPlayPlaylistPreflightRequest {
   playlistUrl: string;
   mode: OtwPlayPlaylistImportMode;
   recentLimit?: number;
+  rangeStart?: number;
+  rangeLimit?: number;
 }
 
 export interface OtwPlayPlaylistPreflightDto {
@@ -120,6 +122,9 @@ export interface OtwPlayPlaylistPreflightDto {
   ownerChannelTitle: string;
   itemCount: number;
   privacyStatus: "public" | "unlisted";
+  rangeStartPosition: number;
+  rangeEndExclusive: number;
+  nextRangeStart: number | null;
   requestedItemCount: number;
   estimatedPageCount: number;
   estimatedVideoBatchCount: number;
@@ -147,6 +152,7 @@ export interface OtwPlayIngestionJobCountsDto {
   channelReview: number;
   unavailable: number;
   policyBlocked: number;
+  scopeReview: number;
   playlistDuplicate: number;
   retryPending: number;
   permanentError: number;
@@ -159,6 +165,8 @@ export interface OtwPlayIngestionJobDto {
   playlistOwnerChannelId: string;
   playlistOwnerChannelTitle: string;
   mode: OtwPlayPlaylistImportMode;
+  rangeStartPosition: number;
+  rangeEndExclusive: number;
   requestedItemCount: number;
   status: OtwPlayIngestionJobStatus;
   counts: OtwPlayIngestionJobCountsDto;
@@ -200,6 +208,11 @@ export interface OtwPlayIngestionCandidateItemDto {
 export interface OtwPlayIngestionCandidatePageDto {
   items: OtwPlayIngestionCandidateItemDto[];
   nextCursor: string | null;
+}
+
+export interface OtwPlayIngestionItemFilters {
+  classification?: OtwPlayIngestionClassification;
+  status?: OtwPlayIngestionCandidateStatus;
 }
 
 export interface OtwPlayIngestionReviewInput {

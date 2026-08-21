@@ -79,6 +79,10 @@ describe("OTW Play ingestion handler", () => {
     ), env);
     expect(invalid.status).toBe(400);
     expect(listItems).not.toHaveBeenCalled();
+    const invalidFilter = await handler(new Request(
+      "https://example.com/api/play/admin/imports/job-1/items?classification=wrong",
+    ), env);
+    expect(invalidFilter.status).toBe(400);
     const missing = await handler(new Request(
       "https://example.com/api/play/admin/imports/job-1",
       { headers: { "CF-Ray": "ray-1" } },
@@ -87,6 +91,23 @@ describe("OTW Play ingestion handler", () => {
     await expect(missing.json()).resolves.toMatchObject({
       error: { code: "PLAY_ADMIN_NOT_FOUND", requestId: "ray-1" },
     });
+  });
+
+  it("passes strict server-side item filters to the service", async () => {
+    const listItems = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const handler = createIngestionHandler(
+      () => ({ listItems }) as unknown as IngestionService,
+    );
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/imports/job-1/items?limit=25&classification=eligible&status=ready",
+    ), env);
+    expect(response.status).toBe(200);
+    expect(listItems).toHaveBeenCalledWith(
+      "job-1",
+      25,
+      null,
+      { classification: "eligible", status: "ready" },
+    );
   });
 
   it("routes candidate CAS, partial conversion, and retry commands with the admin actor", async () => {

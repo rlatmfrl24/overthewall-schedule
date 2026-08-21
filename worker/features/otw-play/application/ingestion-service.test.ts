@@ -29,6 +29,8 @@ const job = (overrides: Partial<OtwPlayIngestionJobDto> = {}): OtwPlayIngestionJ
   playlistOwnerChannelId: "UC123",
   playlistOwnerChannelTitle: "Official",
   mode: "all_new",
+  rangeStartPosition: 0,
+  rangeEndExclusive: 51,
   requestedItemCount: 51,
   status: "queued",
   counts: {
@@ -41,6 +43,7 @@ const job = (overrides: Partial<OtwPlayIngestionJobDto> = {}): OtwPlayIngestionJ
     channelReview: 0,
     unavailable: 0,
     policyBlocked: 0,
+    scopeReview: 0,
     playlistDuplicate: 0,
     retryPending: 0,
     permanentError: 0,
@@ -126,7 +129,7 @@ const repository = () => ({
     reviewInput: null,
     linkedPerformanceId: null,
   })),
-  recordConversionOutcome: vi.fn(async () => undefined),
+  recordConversionOutcome: vi.fn(async (command) => command.outcome),
   retryJob: vi.fn(async () => []),
 }) satisfies IngestionRepository;
 
@@ -171,6 +174,20 @@ describe("IngestionService", () => {
       idempotencyKey: "request-1",
     })).rejects.toBeInstanceOf(IngestionServiceError);
     expect(repo.createJob).not.toHaveBeenCalled();
+    await expect(service.preflight({
+      playlistUrl: "PL1234567890",
+      mode: "all_new",
+      rangeStart: 5_000,
+      rangeLimit: 1,
+    })).resolves.toMatchObject({
+      rangeStartPosition: 5_000,
+      rangeEndExclusive: 5_001,
+      nextRangeStart: null,
+      requestedItemCount: 1,
+      estimatedPageCount: 101,
+      estimatedVideoBatchCount: 1,
+      requiresSplit: false,
+    });
   });
 
   it("persists the job before enqueue and returns authoritative readback", async () => {
@@ -282,6 +299,7 @@ describe("IngestionService", () => {
         channel: {
           state: "approved",
           catalogChannelId: "channel-1",
+          channelRole: "member_music",
         },
         duplicate: null,
       })

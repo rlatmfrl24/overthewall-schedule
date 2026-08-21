@@ -1,4 +1,10 @@
-import type { OtwPlayAdminErrorCode } from "@contracts/otw-play";
+import {
+  OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
+  OTW_PLAY_INGESTION_CLASSIFICATIONS,
+  type OtwPlayAdminErrorCode,
+  type OtwPlayIngestionCandidateStatus,
+  type OtwPlayIngestionClassification,
+} from "@contracts/otw-play";
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import {
@@ -183,7 +189,9 @@ export const createIngestionHandler = (
       /^\/api\/play\/admin\/imports\/([^/]+)\/items$/u,
     );
     if (request.method === "GET" && itemsJobId) {
-      if ([...url.searchParams.keys()].some((key) => !["limit", "cursor"].includes(key))) {
+      if ([...url.searchParams.keys()].some(
+        (key) => !["limit", "cursor", "classification", "status"].includes(key),
+      )) {
         return errorResponse(
           requestId,
           400,
@@ -193,7 +201,9 @@ export const createIngestionHandler = (
       }
       if (
         url.searchParams.getAll("limit").length > 1 ||
-        url.searchParams.getAll("cursor").length > 1
+        url.searchParams.getAll("cursor").length > 1 ||
+        url.searchParams.getAll("classification").length > 1 ||
+        url.searchParams.getAll("status").length > 1
       ) {
         return errorResponse(
           requestId,
@@ -212,11 +222,36 @@ export const createIngestionHandler = (
           "limit must be between 1 and 100",
         );
       }
+      const classification = url.searchParams.get("classification");
+      const status = url.searchParams.get("status");
+      if (
+        classification !== null &&
+        !OTW_PLAY_INGESTION_CLASSIFICATIONS.includes(
+          classification as OtwPlayIngestionClassification,
+        ) ||
+        status !== null &&
+        !OTW_PLAY_INGESTION_CANDIDATE_STATUSES.includes(
+          status as OtwPlayIngestionCandidateStatus,
+        )
+      ) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion item filter",
+        );
+      }
       return responseJson({
         data: await service.listItems(
           itemsJobId,
           limit,
           url.searchParams.get("cursor"),
+          {
+            ...(classification
+              ? { classification: classification as OtwPlayIngestionClassification }
+              : {}),
+            ...(status ? { status: status as OtwPlayIngestionCandidateStatus } : {}),
+          },
         ),
       });
     }

@@ -21,6 +21,7 @@ import {
 } from "../domain/duplicate-policy";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 import { getNextSourceCheckAt } from "../domain/source-health-policy";
+import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-channel-policy";
 import {
   AdminCatalogRepositoryError,
   type AdminCatalogActor,
@@ -33,6 +34,11 @@ import {
 } from "../application/ports/admin-catalog-repository";
 
 type SqlValue = string | number | null;
+
+const ingestionOfficialChannelRoleSql =
+  OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES
+    .map((role) => `'${role}'`)
+    .join(", ");
 
 type CatalogMetaRow = { revision: number; read_model_revision: number };
 type EntityRow = {
@@ -1533,6 +1539,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
          WHERE candidate.id = ? AND candidate.status = 'ready'
            AND candidate.version = ? AND candidate.classification = 'eligible'
            AND EXISTS (
+             SELECT 1 FROM music_channels AS channel
+             WHERE channel.provider = 'youtube'
+               AND channel.external_channel_id = candidate.channel_id
+               AND channel.verification_status = 'approved'
+               AND channel.active = 1
+               AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
+           )
+           AND EXISTS (
              SELECT 1 FROM music_ingestion_candidate_origins AS origin
              WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
            )`,
@@ -2187,7 +2201,20 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
              last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
              version = version + 1, updated_at = ?
            WHERE id = ? AND status = 'ready' AND version = ?
-             AND classification = 'eligible'`,
+             AND classification = 'eligible'
+             AND EXISTS (
+               SELECT 1 FROM music_ingestion_candidate_origins AS origin
+               WHERE origin.candidate_id = music_ingestion_candidates.id
+                 AND origin.job_id = ?
+             )
+             AND EXISTS (
+               SELECT 1 FROM music_channels AS channel
+               WHERE channel.provider = 'youtube'
+                 AND channel.external_channel_id = music_ingestion_candidates.channel_id
+                 AND channel.verification_status = 'approved'
+                 AND channel.active = 1
+                 AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
+             )`,
         ).bind(
           ids.performanceId,
           now,
@@ -2195,6 +2222,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
           candidateConversion.candidateId,
           candidateConversion.expectedVersion,
+          candidateConversion.jobId,
         ),
         versionGuard(this.database),
         this.database.prepare(

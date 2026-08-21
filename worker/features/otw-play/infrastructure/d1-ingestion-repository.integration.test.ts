@@ -9,7 +9,7 @@ import type { OtwPlayYouTubeVideoObservation } from "../application/ports/youtub
 import { D1IngestionRepository } from "./d1-ingestion-repository";
 
 type TestEnv = Env & {
-  OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
+  OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
 };
 
 const testEnv = env as TestEnv;
@@ -24,6 +24,9 @@ const preflight: OtwPlayPlaylistPreflightDto = {
   ownerChannelTitle: "Official",
   itemCount: 4,
   privacyStatus: "public",
+  rangeStartPosition: 0,
+  rangeEndExclusive: 4,
+  nextRangeStart: null,
   requestedItemCount: 4,
   estimatedPageCount: 1,
   estimatedVideoBatchCount: 1,
@@ -52,7 +55,7 @@ const reviewInput = {
 };
 
 beforeEach(async () => {
-  await applyD1Migrations(db, testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS);
+  await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
     db.prepare("DELETE FROM music_ingestion_events"),
     db.prepare("DELETE FROM music_ingestion_candidate_origins"),
@@ -105,6 +108,20 @@ describe("D1IngestionRepository", () => {
       now: NOW + 1,
     });
     expect(replay.job.id).toBe("job-1");
+    const createdEvents = await db.prepare(
+      `SELECT event_type, actor_user_id, detail_json
+       FROM music_ingestion_events WHERE job_id = 'job-1'`,
+    ).all<{
+      event_type: string;
+      actor_user_id: string;
+      detail_json: string;
+    }>();
+    expect(createdEvents.results).toHaveLength(1);
+    expect(createdEvents.results[0]).toMatchObject({
+      event_type: "job.created",
+      actor_user_id: "admin-1",
+    });
+    expect(createdEvents.results[0]?.detail_json).not.toContain("Official Covers");
     await expect(repository.createJob({
       jobId: "job-conflict",
       actorUserId: "admin-1",
@@ -271,7 +288,7 @@ describe("D1IngestionRepository", () => {
       NOW + 2,
     );
 
-    expect(batchSizes).toEqual([2, 8, 8]);
+    expect(batchSizes).toEqual([3, 8, 8]);
     expect((await repository.getJob("job-50")).counts.metadataChecked).toBe(50);
   });
 
@@ -340,6 +357,25 @@ describe("D1IngestionRepository", () => {
         ["SSSSSSSSSSS", "scope_review"],
         ["KKKKKKKKKKK", "channel_review"],
       ]);
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:SSSSSSSSSSS",
+      expectedVersion: 1,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-scope-review",
+      now: NOW + 3,
+    })).resolves.toMatchObject({
+      classification: "eligible",
+      status: "ready",
+    });
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:KKKKKKKKKKK",
+      expectedVersion: 1,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-kirinuki-review",
+      now: NOW + 3,
+    })).rejects.toMatchObject({ code: "stale_message" });
   });
 
   it("shows a repeated discovery as an existing candidate without changing its global decision", async () => {
@@ -454,6 +490,37 @@ describe("D1IngestionRepository", () => {
     }>();
     expect(event?.actor_user_id).toBe("admin-reviewer");
     expect(event?.detail_json).not.toContain("private review note");
+
+    await repository.createJob({
+      jobId: "job-other",
+      actorUserId: "admin-2",
+      input: { ...input, idempotencyKey: "request-other" },
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW + 5,
+    });
+    const beforeCrossJob = await repository.readReviewCandidate(
+      "job-1",
+      "youtube:AAAAAAAAAAA",
+    );
+    await expect(repository.recordConversionOutcome({
+      jobId: "job-other",
+      candidateId: "youtube:AAAAAAAAAAA",
+      expectedVersion: beforeCrossJob.version,
+      outcome: "validation_failed",
+      performanceId: null,
+      errorCode: "validation_failed",
+      actorUserId: "admin-reviewer",
+      eventId: "event-cross-job",
+      now: NOW + 6,
+    })).resolves.toBe("validation_failed");
+    await expect(repository.readReviewCandidate(
+      "job-1",
+      "youtube:AAAAAAAAAAA",
+    )).resolves.toMatchObject({ version: beforeCrossJob.version });
+    await expect(db.prepare(
+      "SELECT candidate_id FROM music_ingestion_events WHERE id = ?",
+    ).bind("event-cross-job").first<{ candidate_id: string | null }>())
+      .resolves.toEqual({ candidate_id: null });
   });
 
   it("keeps retry state in D1 and marks exhausted messages partial", async () => {
@@ -557,5 +624,91 @@ describe("D1IngestionRepository", () => {
       classification: "eligible",
       status: "needs_input",
     });
+    const retentionEvent = await db.prepare(
+      `SELECT event_type, actor_user_id, detail_json
+       FROM music_ingestion_events
+       WHERE candidate_id = ? AND event_type = 'candidate.api_data_cleared'`,
+    ).bind("youtube:AAAAAAAAAAA").first<{
+      event_type: string;
+      actor_user_id: string;
+      detail_json: string;
+    }>();
+    expect(retentionEvent).toMatchObject({
+      event_type: "candidate.api_data_cleared",
+      actor_user_id: "system",
+    });
+    expect(retentionEvent?.detail_json).toBe('{"reason":"api_data_expired"}');
+  });
+
+  it("persists an explicit range with absolute playlist positions and server filters", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({
+      jobId: "job-range",
+      actorUserId: "admin-1",
+      input: {
+        ...input,
+        rangeStart: 5_000,
+        rangeLimit: 1,
+        idempotencyKey: "request-range",
+      },
+      preflight: {
+        ...preflight,
+        itemCount: 5_001,
+        rangeStartPosition: 5_000,
+        rangeEndExclusive: 5_001,
+        requestedItemCount: 1,
+      },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [
+          { playlistItemId: "before", videoId: "BBBBBBBBBBB", position: 4_999 },
+          { playlistItemId: "selected", videoId: "AAAAAAAAAAA", position: 5_000 },
+        ],
+        nextPageToken: "unused-after-range",
+      },
+      NOW + 1,
+    );
+    expect(children).toHaveLength(1);
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      [{
+        videoId: "AAAAAAAAAAA",
+        availabilityStatus: "playable",
+        video: {
+          videoId: "AAAAAAAAAAA",
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Approved",
+          title: "Range item",
+          thumbnailUrl: null,
+          durationSeconds: 240,
+          publishedAt: NOW,
+          availabilityStatus: "playable",
+          madeForKids: false,
+        },
+      }],
+      NOW + 2,
+    );
+    expect(await repository.getJob("job-range")).toMatchObject({
+      rangeStartPosition: 5_000,
+      rangeEndExclusive: 5_001,
+      status: "completed",
+    });
+    const eligible = await repository.listItems(
+      "job-range",
+      10,
+      null,
+      { classification: "eligible" },
+    );
+    expect(eligible.page.items.map((item) => item.playlistPosition)).toEqual([5_000]);
+    const blocked = await repository.listItems(
+      "job-range",
+      10,
+      null,
+      { status: "blocked" },
+    );
+    expect(blocked.page.items).toEqual([]);
   });
 });

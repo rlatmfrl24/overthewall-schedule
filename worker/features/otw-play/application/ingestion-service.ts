@@ -4,6 +4,7 @@ import type {
   OtwPlayIngestionConversionResultDto,
   OtwPlayCreatePlaylistImportRequest,
   OtwPlayIngestionCandidatePageDto,
+  OtwPlayIngestionItemFilters,
   OtwPlayPlaylistPreflightRequest,
   OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
@@ -16,7 +17,9 @@ import {
 import {
   decodeIngestionItemCursor,
   encodeIngestionItemCursor,
+  IngestionCursorError,
 } from "../domain/ingestion-cursor";
+import { isOtwPlayIngestionOfficialChannelRole } from "../domain/ingestion-channel-policy";
 import {
   canonicalYouTubePlaylistUrl,
   extractYouTubePlaylistId,
@@ -78,7 +81,12 @@ const requestedCount = (
   input: OtwPlayPlaylistPreflightRequest,
 ) => input.mode === "recent"
   ? Math.min(itemCount, input.recentLimit ?? PAGE_SIZE)
-  : Math.min(itemCount, PLAYLIST_HARD_CAP);
+  : input.rangeStart !== undefined
+    ? Math.min(
+        Math.max(itemCount - input.rangeStart, 0),
+        input.rangeLimit ?? PLAYLIST_HARD_CAP,
+      )
+    : Math.min(itemCount, PLAYLIST_HARD_CAP);
 
 export class IngestionService {
   private readonly repository: IngestionRepository;
@@ -120,6 +128,10 @@ export class IngestionService {
       );
     }
     const count = requestedCount(summary.itemCount, input);
+    const rangeStartPosition = input.mode === "all_new"
+      ? input.rangeStart ?? 0
+      : 0;
+    const rangeEndExclusive = rangeStartPosition + count;
     return {
       playlistId,
       canonicalUrl: canonicalYouTubePlaylistUrl(playlistId),
@@ -128,12 +140,17 @@ export class IngestionService {
       ownerChannelTitle: summary.ownerChannelTitle,
       itemCount: summary.itemCount,
       privacyStatus: summary.privacyStatus,
+      rangeStartPosition,
+      rangeEndExclusive,
+      nextRangeStart:
+        rangeEndExclusive < summary.itemCount ? rangeEndExclusive : null,
       requestedItemCount: count,
-      estimatedPageCount: Math.ceil(count / PAGE_SIZE),
+      estimatedPageCount: Math.ceil(rangeEndExclusive / PAGE_SIZE),
       estimatedVideoBatchCount: Math.ceil(count / PAGE_SIZE),
       hardCap: 5_000 as const,
       requiresSplit:
-        input.mode === "all_new" && summary.itemCount > PLAYLIST_HARD_CAP,
+        input.mode === "all_new" && input.rangeStart === undefined &&
+        summary.itemCount > PLAYLIST_HARD_CAP,
       previousImport: await this.repository.findPreviousImport(playlistId),
     };
   }
@@ -151,6 +168,7 @@ export class IngestionService {
     }
     const created = await this.repository.createJob({
       jobId: this.createId(),
+      eventId: this.createId(),
       actorUserId,
       input,
       preflight,
@@ -174,11 +192,25 @@ export class IngestionService {
     return this.repository.getJob(jobId);
   }
 
-  async listItems(jobId: string, limit: number, cursorValue: string | null) {
+  async listItems(
+    jobId: string,
+    limit: number,
+    cursorValue: string | null,
+    filters: OtwPlayIngestionItemFilters = {},
+  ) {
+    const cursor = cursorValue ? decodeIngestionItemCursor(cursorValue) : null;
+    if (
+      cursor &&
+      (cursor.classification !== (filters.classification ?? null) ||
+        cursor.status !== (filters.status ?? null))
+    ) {
+      throw new IngestionCursorError();
+    }
     const result = await this.repository.listItems(
       jobId,
       limit,
-      cursorValue ? decodeIngestionItemCursor(cursorValue) : null,
+      cursor,
+      filters,
     );
     const last = result.page.items.at(-1);
     const page: OtwPlayIngestionCandidatePageDto = {
@@ -188,6 +220,8 @@ export class IngestionService {
           ? encodeIngestionItemCursor({
               position: last.playlistPosition,
               id: last.originId,
+              classification: filters.classification ?? null,
+              status: filters.status ?? null,
             })
           : null,
     };
@@ -388,7 +422,7 @@ export class IngestionService {
           startSeconds: 0,
         });
         if (preflight.duplicate) {
-          await this.repository.recordConversionOutcome({
+          const outcome = await this.repository.recordConversionOutcome({
             jobId,
             candidateId: candidate.id,
             expectedVersion: candidate.version,
@@ -401,16 +435,17 @@ export class IngestionService {
           });
           results.push({
             candidateId: candidate.id,
-            outcome: "duplicate",
+            outcome,
             performanceId: preflight.duplicate.performanceId,
-            errorCode: "duplicate_source",
+            errorCode: outcome === "duplicate" ? "duplicate_source" : "stale_write",
           });
           continue;
         }
         if (
           preflight.channel.state !== "approved" ||
           !preflight.channel.catalogChannelId ||
-          preflight.channel.catalogChannelId !== candidate.catalogChannelId
+          preflight.channel.catalogChannelId !== candidate.catalogChannelId ||
+          !isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole)
         ) {
           throw new IngestionRepositoryError(
             "validation_failed",
@@ -450,7 +485,7 @@ export class IngestionService {
           error.code === "duplicate_source"
         ) {
           const performanceId = error.fields?.performanceId ?? null;
-          await this.repository.recordConversionOutcome({
+          const outcome = await this.repository.recordConversionOutcome({
             jobId,
             candidateId: selection.id,
             expectedVersion: selection.expectedVersion,
@@ -463,14 +498,14 @@ export class IngestionService {
           });
           results.push({
             candidateId: selection.id,
-            outcome: "duplicate",
+            outcome,
             performanceId,
-            errorCode: "duplicate_source",
+            errorCode: outcome === "duplicate" ? "duplicate_source" : "stale_write",
           });
           continue;
         }
         const failure = this.conversionOutcome(error);
-        await this.repository.recordConversionOutcome({
+        const outcome = await this.repository.recordConversionOutcome({
           jobId,
           candidateId: selection.id,
           expectedVersion: selection.expectedVersion,
@@ -483,9 +518,9 @@ export class IngestionService {
         });
         results.push({
           candidateId: selection.id,
-          outcome: failure.outcome,
+          outcome,
           performanceId: null,
-          errorCode: failure.errorCode,
+          errorCode: outcome === failure.outcome ? failure.errorCode : "stale_write",
         });
       }
     }

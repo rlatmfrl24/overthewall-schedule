@@ -1934,6 +1934,7 @@ export const musicIngestionJobs = sqliteTable(
     owner_channel_id: text("owner_channel_id").notNull(),
     owner_channel_title: text("owner_channel_title").notNull(),
     import_mode: text("import_mode").notNull(),
+    range_start_position: integer("range_start_position").notNull().default(0),
     requested_item_count: integer("requested_item_count").notNull(),
     status: text().$type<OtwPlayIngestionJobStatus>().notNull().default("queued"),
     actor_user_id: text("actor_user_id").notNull(),

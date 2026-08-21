@@ -5,6 +5,7 @@ import type {
   OtwPlayIngestionCandidatePageDto,
   OtwPlayIngestionCandidateStatus,
   OtwPlayIngestionJobDto,
+  OtwPlayIngestionItemFilters,
   OtwPlayIngestionReviewInput,
   OtwPlayPlaylistPreflightDto,
 } from "@contracts/otw-play";
@@ -49,6 +50,7 @@ export interface IngestionMessageRecord {
 
 export interface CreateIngestionJobCommand {
   jobId: string;
+  eventId?: string;
   actorUserId: string;
   input: OtwPlayCreatePlaylistImportRequest;
   preflight: OtwPlayPlaylistPreflightDto;
@@ -78,6 +80,7 @@ export interface IngestionRepository {
     jobId: string,
     limit: number,
     cursor: IngestionItemCursor | null,
+    filters: OtwPlayIngestionItemFilters,
   ): Promise<{ page: OtwPlayIngestionCandidatePageDto; hasMore: boolean }>;
   readMessage(idempotencyKey: string): Promise<IngestionMessageRecord>;
   recordPlaylistPage(
@@ -137,7 +140,7 @@ export interface IngestionRepository {
     actorUserId: string;
     eventId: string;
     now: number;
-  }): Promise<void>;
+  }): Promise<Exclude<OtwPlayIngestionConversionOutcome, "created">>;
   retryJob(command: {
     jobId: string;
     actorUserId: string;
