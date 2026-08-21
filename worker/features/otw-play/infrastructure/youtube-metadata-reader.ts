@@ -20,6 +20,7 @@ type VideoItem = {
     channelTitle?: string;
     title?: string;
     publishedAt?: string;
+    liveBroadcastContent?: string;
     thumbnails?: {
       high?: { url?: string };
       medium?: { url?: string };
@@ -35,6 +36,12 @@ type VideoItem = {
     privacyStatus?: string;
     embeddable?: boolean;
     madeForKids?: boolean;
+  };
+  player?: { embedWidth?: number; embedHeight?: number };
+  liveStreamingDetails?: {
+    actualStartTime?: string;
+    actualEndTime?: string;
+    scheduledStartTime?: string;
   };
 };
 
@@ -106,6 +113,16 @@ const videoMetadata = (
   const duration = item.contentDetails?.duration
     ? parseISO8601Duration(item.contentDetails.duration)
     : null;
+  const width = item.player?.embedWidth;
+  const height = item.player?.embedHeight;
+  const verticalShort = duration !== null &&
+    duration <= 180 &&
+    typeof width === "number" &&
+    typeof height === "number" &&
+    height > width;
+  const liveOrBroadcast = Boolean(item.liveStreamingDetails) ||
+    (item.snippet?.liveBroadcastContent !== undefined &&
+      item.snippet.liveBroadcastContent !== "none");
   return {
     videoId,
     channelId,
@@ -123,6 +140,7 @@ const videoMetadata = (
       typeof item.status?.madeForKids === "boolean"
         ? item.status.madeForKids
         : null,
+    scopeReview: verticalShort || liveOrBroadcast,
   };
 };
 
@@ -252,9 +270,10 @@ export class YouTubeOtwPlayMetadataReader
     }
     if (ids.length === 0) return [];
     const data = await this.read<VideoResponse>("videos", {
-      part: "snippet,contentDetails,status",
+      part: "snippet,contentDetails,status,player,liveStreamingDetails",
       id: ids.join(","),
       maxResults: String(ids.length),
+      maxWidth: "480",
     });
     if (!Array.isArray(data.items)) {
       throw new OtwPlayYouTubeMetadataError(

@@ -25,6 +25,19 @@ const BLOCKED_RETENTION_MS = 180 * DAY_MS;
 const resultsOf = <T>(result: D1Result<T>): T[] =>
   Array.isArray(result.results) ? result.results : [];
 
+const chunksOf = <T>(items: readonly T[], size: number) => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const officialChannelRoleSql = `
+  'otw_official', 'unit_official', 'member_music', 'member_main',
+  'project_official'
+`;
+
 type JobRow = {
   id: string;
   source_external_id: string;
@@ -491,67 +504,96 @@ export class D1IngestionRepository implements IngestionRepository {
       });
     }
 
-    await this.database.batch([
-      ...items.flatMap((item) => [
-        this.database.prepare(
-          `INSERT INTO music_ingestion_candidates (
-            id, provider, external_video_id, candidate_kind, status,
-            classification, availability_status, first_discovered_at,
-            last_discovered_at, retention_expires_at, version, created_at, updated_at
-          ) SELECT ?, 'youtube', ?, 'official_video', 'discovered',
-            'pending_metadata', 'unknown', ?, ?, ?, 0, ?, ?
-          WHERE EXISTS (
-            SELECT 1 FROM music_ingestion_messages
-            WHERE idempotency_key = ? AND status = 'pending'
-          )
-          ON CONFLICT(provider, external_video_id) DO UPDATE SET
-            last_discovered_at = excluded.last_discovered_at,
-            retention_expires_at = MAX(
-              music_ingestion_candidates.retention_expires_at,
-              excluded.retention_expires_at
-            ),
-            updated_at = excluded.updated_at`,
-        ).bind(
-          candidateId(item.videoId),
-          item.videoId,
-          now,
-          now,
-          now + ACTIVE_RETENTION_MS,
-          now,
-          now,
-          message.idempotencyKey,
-        ),
-        this.database.prepare(
-          `INSERT OR IGNORE INTO music_ingestion_candidate_origins (
-            id, candidate_id, job_id, origin_kind, playlist_id,
-            playlist_item_id, playlist_position, is_playlist_duplicate,
-            discovered_at
-          ) SELECT ?, ?, ?, 'playlist_import', ?, ?, ?,
-            EXISTS (
-              SELECT 1 FROM music_ingestion_candidate_origins AS prior_origin
-              JOIN music_ingestion_candidates AS prior_candidate
-                ON prior_candidate.id = prior_origin.candidate_id
-              WHERE prior_origin.job_id = ?
-                AND prior_candidate.provider = 'youtube'
-                AND prior_candidate.external_video_id = ?
-            ), ?
-          WHERE EXISTS (
-            SELECT 1 FROM music_ingestion_messages
-            WHERE idempotency_key = ? AND status = 'pending'
-          )`,
-        ).bind(
+    const uniqueCandidateItems = [...new Map(
+      items.map((item) => [item.videoId, item]),
+    ).values()];
+    const candidateStatements = chunksOf(uniqueCandidateItems, 48).map((chunk) =>
+      this.database.prepare(
+        `WITH context(now, expires_at, message_key) AS (VALUES (?, ?, ?)),
+          incoming(id, external_video_id) AS (VALUES ${chunk.map(() => "(?, ?)").join(", ")})
+         INSERT INTO music_ingestion_candidates (
+           id, provider, external_video_id, candidate_kind, status,
+           classification, availability_status, first_discovered_at,
+           last_discovered_at, retention_expires_at, version, created_at, updated_at
+         )
+         SELECT incoming.id, 'youtube', incoming.external_video_id,
+           'official_video', 'discovered', 'pending_metadata', 'unknown',
+           context.now, context.now, context.expires_at, 0, context.now, context.now
+         FROM incoming CROSS JOIN context
+         WHERE EXISTS (
+           SELECT 1 FROM music_ingestion_messages
+           WHERE idempotency_key = context.message_key AND status = 'pending'
+         )
+         ON CONFLICT(provider, external_video_id) DO UPDATE SET
+           last_discovered_at = excluded.last_discovered_at,
+           retention_expires_at = MAX(
+             music_ingestion_candidates.retention_expires_at,
+             excluded.retention_expires_at
+           ),
+           updated_at = excluded.updated_at`,
+      ).bind(
+        now,
+        now + ACTIVE_RETENTION_MS,
+        message.idempotencyKey,
+        ...chunk.flatMap((item) => [candidateId(item.videoId), item.videoId]),
+      )
+    );
+    const originStatements = chunksOf(items, 19).map((chunk) =>
+      this.database.prepare(
+        `WITH context(job_id, playlist_id, discovered_at, message_key) AS
+            (VALUES (?, ?, ?, ?)),
+          incoming(
+            origin_id, candidate_id, playlist_item_id, playlist_position, video_id
+          ) AS (VALUES ${chunk.map(() => "(?, ?, ?, ?, ?)").join(", ")})
+         INSERT OR IGNORE INTO music_ingestion_candidate_origins (
+           id, candidate_id, job_id, origin_kind, playlist_id,
+           playlist_item_id, playlist_position, is_playlist_duplicate,
+           discovered_at
+         )
+         SELECT incoming.origin_id, incoming.candidate_id, context.job_id,
+           'playlist_import', context.playlist_id, incoming.playlist_item_id,
+           incoming.playlist_position,
+           EXISTS (
+             SELECT 1 FROM music_ingestion_candidate_origins AS prior_origin
+             JOIN music_ingestion_candidates AS prior_candidate
+               ON prior_candidate.id = prior_origin.candidate_id
+             WHERE prior_origin.job_id = context.job_id
+               AND prior_candidate.provider = 'youtube'
+               AND prior_candidate.external_video_id = incoming.video_id
+           ) OR EXISTS (
+             SELECT 1 FROM incoming AS prior_incoming
+             WHERE prior_incoming.video_id = incoming.video_id
+               AND (
+                 prior_incoming.playlist_position < incoming.playlist_position
+                 OR (
+                   prior_incoming.playlist_position = incoming.playlist_position
+                   AND prior_incoming.origin_id < incoming.origin_id
+                 )
+               )
+           ), context.discovered_at
+         FROM incoming CROSS JOIN context
+         WHERE EXISTS (
+           SELECT 1 FROM music_ingestion_messages
+           WHERE idempotency_key = context.message_key AND status = 'pending'
+         )`,
+      ).bind(
+        message.jobId,
+        job.playlistId,
+        now,
+        message.idempotencyKey,
+        ...chunk.flatMap((item) => [
           `${message.jobId}:origin:${item.playlistItemId}`,
           candidateId(item.videoId),
-          message.jobId,
-          job.playlistId,
           item.playlistItemId,
           item.position,
-          message.jobId,
           item.videoId,
-          now,
-          message.idempotencyKey,
-        ),
-      ]),
+        ]),
+      )
+    );
+
+    await this.database.batch([
+      ...candidateStatements,
+      ...originStatements,
       ...children.map((child) => child.statement),
       this.database.prepare(
         `UPDATE music_ingestion_messages
@@ -582,112 +624,135 @@ export class D1IngestionRepository implements IngestionRepository {
     observations: OtwPlayYouTubeVideoObservation[],
     now: number,
   ) {
-    await this.database.batch([
-      ...observations.map((observation) => {
-        const video = observation.video;
-        return this.database.prepare(
-          `UPDATE music_ingestion_candidates
-           SET title = ?, channel_id = ?, channel_title = ?, thumbnail_url = ?,
-             duration_seconds = ?, provider_published_at = ?, availability_status = ?,
-             made_for_kids = ?, metadata_checked_at = ?, next_retry_at = NULL,
-             classification = CASE
-               WHEN EXISTS (
-                 SELECT 1 FROM music_media_sources
-                 WHERE provider = 'youtube' AND external_id = ?
-               ) THEN 'existing_catalog'
-               WHEN EXISTS (
-                 SELECT 1 FROM music_cover_proposals
-                 WHERE youtube_video_id = ? AND segment_start_seconds = 0
-                   AND status = 'pending_review'
-               ) THEN 'existing_proposal'
-               WHEN ? <> 'playable' THEN 'unavailable'
-               WHEN ? = 1 THEN 'policy_blocked'
-               WHEN EXISTS (
+    const observationStatements = chunksOf(observations, 9).map((chunk) =>
+      this.database.prepare(
+        `WITH context(now, blocked_expires_at, active_expires_at, message_key) AS
+            (VALUES (?, ?, ?, ?)),
+          observation(
+            video_id, title, channel_id, channel_title, thumbnail_url,
+            duration_seconds, provider_published_at, availability_status,
+            made_for_kids, scope_review
+          ) AS (VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")})
+         UPDATE music_ingestion_candidates AS candidate
+         SET title = observation.title,
+           channel_id = observation.channel_id,
+           channel_title = observation.channel_title,
+           thumbnail_url = observation.thumbnail_url,
+           duration_seconds = observation.duration_seconds,
+           provider_published_at = observation.provider_published_at,
+           availability_status = observation.availability_status,
+           made_for_kids = observation.made_for_kids,
+           metadata_checked_at = context.now,
+           next_retry_at = NULL,
+           classification = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM music_media_sources
+               WHERE provider = 'youtube' AND external_id = observation.video_id
+             ) THEN 'existing_catalog'
+             WHEN EXISTS (
+               SELECT 1 FROM music_cover_proposals
+               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0
+                 AND status = 'pending_review'
+             ) THEN 'existing_proposal'
+             WHEN observation.availability_status <> 'playable' THEN 'unavailable'
+             WHEN observation.made_for_kids = 1 THEN 'policy_blocked'
+             WHEN EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND (verification_status = 'revoked' OR active = 0)
+             ) THEN 'policy_blocked'
+             WHEN observation.scope_review = 1 AND EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND verification_status = 'approved' AND active = 1
+                 AND channel_role IN (${officialChannelRoleSql})
+             ) THEN 'scope_review'
+             WHEN EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND verification_status = 'approved' AND active = 1
+                 AND channel_role IN (${officialChannelRoleSql})
+             ) THEN 'eligible'
+             ELSE 'channel_review'
+           END,
+           status = CASE
+             WHEN observation.availability_status <> 'playable'
+               OR observation.made_for_kids = 1 OR EXISTS (
                  SELECT 1 FROM music_channels
-                 WHERE provider = 'youtube' AND external_channel_id = ?
-                   AND (verification_status = 'revoked' OR active = 0)
-               ) THEN 'policy_blocked'
-               WHEN EXISTS (
-                 SELECT 1 FROM music_channels
-                 WHERE provider = 'youtube' AND external_channel_id = ?
-                   AND verification_status = 'approved' AND active = 1
-               ) THEN 'eligible'
-               ELSE 'channel_review'
-             END,
-             status = CASE
-               WHEN ? <> 'playable' OR ? = 1 OR EXISTS (
-                 SELECT 1 FROM music_channels
-                 WHERE provider = 'youtube' AND external_channel_id = ?
+                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
                    AND (verification_status = 'revoked' OR active = 0)
                ) THEN 'blocked'
-               WHEN EXISTS (
-                 SELECT 1 FROM music_media_sources
-                 WHERE provider = 'youtube' AND external_id = ?
-               ) OR EXISTS (
-                 SELECT 1 FROM music_cover_proposals
-                 WHERE youtube_video_id = ? AND segment_start_seconds = 0
-                   AND status = 'pending_review'
-               ) THEN 'discovered'
-               WHEN EXISTS (
+             WHEN EXISTS (
+               SELECT 1 FROM music_media_sources
+               WHERE provider = 'youtube' AND external_id = observation.video_id
+             ) OR EXISTS (
+               SELECT 1 FROM music_cover_proposals
+               WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0
+                 AND status = 'pending_review'
+             ) OR observation.scope_review = 1 THEN 'discovered'
+             WHEN EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND verification_status = 'approved' AND active = 1
+                 AND channel_role IN (${officialChannelRoleSql})
+             ) THEN 'needs_input'
+             ELSE 'discovered'
+           END,
+           exclusion_reason = CASE
+             WHEN observation.availability_status <> 'playable'
+               THEN observation.availability_status
+             WHEN observation.made_for_kids = 1 THEN 'made_for_kids_review'
+             WHEN EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND (verification_status = 'revoked' OR active = 0)
+             ) THEN 'channel_policy_blocked'
+             WHEN observation.scope_review = 1 THEN 'release_scope_review'
+             ELSE NULL
+           END,
+           retention_expires_at = CASE
+             WHEN observation.availability_status <> 'playable'
+               OR observation.made_for_kids = 1 OR EXISTS (
                  SELECT 1 FROM music_channels
-                 WHERE provider = 'youtube' AND external_channel_id = ?
-                   AND verification_status = 'approved' AND active = 1
-               ) THEN 'needs_input'
-               ELSE 'discovered'
-             END,
-             exclusion_reason = CASE
-               WHEN ? <> 'playable' THEN ?
-               WHEN ? = 1 THEN 'made_for_kids_review'
-               WHEN EXISTS (
-                 SELECT 1 FROM music_channels
-                 WHERE provider = 'youtube' AND external_channel_id = ?
+                 WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
                    AND (verification_status = 'revoked' OR active = 0)
-               ) THEN 'channel_policy_blocked'
-               ELSE NULL
-             END,
-             retention_expires_at = CASE
-               WHEN ? <> 'playable' OR ? = 1 THEN ? ELSE ? END,
-             version = version + 1, updated_at = ?
-           WHERE provider = 'youtube' AND external_video_id = ?
-             AND EXISTS (
-               SELECT 1 FROM music_ingestion_messages
-               WHERE idempotency_key = ? AND status = 'pending'
-             )`,
-        ).bind(
-          video?.title ?? null,
-          video?.channelId ?? null,
-          video?.channelTitle ?? null,
-          video?.thumbnailUrl ?? null,
-          video?.durationSeconds ?? null,
-          video?.publishedAt ?? null,
-          observation.availabilityStatus,
-          video?.madeForKids ?? null,
-          now,
-          observation.videoId,
-          observation.videoId,
-          observation.availabilityStatus,
-          video?.madeForKids === true ? 1 : 0,
-          video?.channelId ?? "",
-          video?.channelId ?? "",
-          observation.availabilityStatus,
-          video?.madeForKids === true ? 1 : 0,
-          video?.channelId ?? "",
-          observation.videoId,
-          observation.videoId,
-          video?.channelId ?? "",
-          observation.availabilityStatus,
-          observation.availabilityStatus,
-          video?.madeForKids === true ? 1 : 0,
-          video?.channelId ?? "",
-          observation.availabilityStatus,
-          video?.madeForKids === true ? 1 : 0,
-          now + BLOCKED_RETENTION_MS,
-          now + ACTIVE_RETENTION_MS,
-          now,
-          observation.videoId,
-          message.idempotencyKey,
-        );
-      }),
+               ) THEN context.blocked_expires_at
+             ELSE context.active_expires_at
+           END,
+           version = version + 1,
+           updated_at = context.now
+         FROM observation CROSS JOIN context
+         WHERE candidate.provider = 'youtube'
+           AND candidate.external_video_id = observation.video_id
+           AND EXISTS (
+             SELECT 1 FROM music_ingestion_messages
+             WHERE idempotency_key = context.message_key AND status = 'pending'
+           )`,
+      ).bind(
+        now,
+        now + BLOCKED_RETENTION_MS,
+        now + ACTIVE_RETENTION_MS,
+        message.idempotencyKey,
+        ...chunk.flatMap((item) => [
+          item.videoId,
+          item.video?.title ?? null,
+          item.video?.channelId ?? null,
+          item.video?.channelTitle ?? null,
+          item.video?.thumbnailUrl ?? null,
+          item.video?.durationSeconds ?? null,
+          item.video?.publishedAt ?? null,
+          item.availabilityStatus,
+          item.video?.madeForKids === true
+            ? 1
+            : item.video?.madeForKids === false
+              ? 0
+              : null,
+          item.video?.scopeReview === true ? 1 : 0,
+        ]),
+      )
+    );
+    await this.database.batch([
+      ...observationStatements,
       this.database.prepare(
         `UPDATE music_ingestion_messages
          SET status = 'completed', completed_at = ?, next_retry_at = NULL,

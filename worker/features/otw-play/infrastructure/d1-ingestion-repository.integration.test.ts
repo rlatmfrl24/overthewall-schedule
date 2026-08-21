@@ -52,9 +52,12 @@ beforeEach(async () => {
     `INSERT INTO music_channels (
       id, provider, external_channel_id, display_name, channel_role,
       verification_status, active, version, created_at, updated_at
-    ) VALUES ('ingestion-approved-channel', 'youtube', 'UCaaaaaaaaaaaaaaaaaaaaaa',
-      'Approved', 'member_music', 'approved', 1, 0, ?, ?)`,
-  ).bind(NOW, NOW).run();
+    ) VALUES
+      ('ingestion-approved-channel', 'youtube', 'UCaaaaaaaaaaaaaaaaaaaaaa',
+        'Approved', 'member_music', 'approved', 1, 0, ?, ?),
+      ('ingestion-kirinuki-channel', 'youtube', 'UCkkkkkkkkkkkkkkkkkkkkkk',
+        'Kirinuki', 'approved_kirinuki', 'approved', 1, 0, ?, ?)`,
+  ).bind(NOW, NOW, NOW, NOW).run();
 });
 
 describe("D1IngestionRepository", () => {
@@ -199,6 +202,130 @@ describe("D1IngestionRepository", () => {
       "SELECT external_video_id, version FROM music_ingestion_candidates ORDER BY external_video_id",
     ).all<{ external_video_id: string; version: number }>();
     expect(versionsAfter.results).toEqual(versionsBefore.results);
+  });
+
+  it("keeps 50-item persistence within small D1 batches", async () => {
+    const batchSizes: number[] = [];
+    const countedDb = {
+      prepare: db.prepare.bind(db),
+      batch: async (statements: D1PreparedStatement[]) => {
+        batchSizes.push(statements.length);
+        return db.batch(statements);
+      },
+    } as unknown as D1Database;
+    const repository = new D1IngestionRepository(countedDb);
+    const items = Array.from({ length: 50 }, (_, index) => ({
+      playlistItemId: `item-${index}`,
+      videoId: `V${String(index).padStart(10, "0")}`,
+      position: index,
+    }));
+    const created = await repository.createJob({
+      jobId: "job-50",
+      actorUserId: "admin-1",
+      input: { ...input, idempotencyKey: "request-0050" },
+      preflight: {
+        ...preflight,
+        itemCount: 50,
+        requestedItemCount: 50,
+      },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      { items, nextPageToken: "unused-after-limit" },
+      NOW + 1,
+    );
+    const videoMessage = await repository.readMessage(children[0]!.idempotencyKey);
+    await repository.recordVideoBatch(
+      videoMessage,
+      items.map((item) => ({
+        videoId: item.videoId,
+        availabilityStatus: "playable" as const,
+        video: {
+          videoId: item.videoId,
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Approved",
+          title: item.videoId,
+          thumbnailUrl: null,
+          durationSeconds: 240,
+          publishedAt: NOW,
+          availabilityStatus: "playable" as const,
+          madeForKids: false,
+          scopeReview: false,
+        },
+      })),
+      NOW + 2,
+    );
+
+    expect(batchSizes).toEqual([2, 8, 8]);
+    expect((await repository.getJob("job-50")).counts.metadataChecked).toBe(50);
+  });
+
+  it("requires explicit review for out-of-scope media and rejects non-official roles", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({
+      jobId: "job-scope",
+      actorUserId: "admin-1",
+      input: { ...input, idempotencyKey: "request-scope" },
+      preflight: { ...preflight, requestedItemCount: 2 },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [
+          { playlistItemId: "scope", videoId: "SSSSSSSSSSS", position: 0 },
+          { playlistItemId: "kirinuki", videoId: "KKKKKKKKKKK", position: 1 },
+        ],
+        nextPageToken: null,
+      },
+      NOW + 1,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      [
+        {
+          videoId: "SSSSSSSSSSS",
+          availabilityStatus: "playable",
+          video: {
+            videoId: "SSSSSSSSSSS",
+            channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+            channelTitle: "Approved",
+            title: "Short",
+            thumbnailUrl: null,
+            durationSeconds: 120,
+            publishedAt: NOW,
+            availabilityStatus: "playable",
+            madeForKids: false,
+            scopeReview: true,
+          },
+        },
+        {
+          videoId: "KKKKKKKKKKK",
+          availabilityStatus: "playable",
+          video: {
+            videoId: "KKKKKKKKKKK",
+            channelId: "UCkkkkkkkkkkkkkkkkkkkkkk",
+            channelTitle: "Kirinuki",
+            title: "Kirinuki",
+            thumbnailUrl: null,
+            durationSeconds: 240,
+            publishedAt: NOW,
+            availabilityStatus: "playable",
+            madeForKids: false,
+            scopeReview: false,
+          },
+        },
+      ],
+      NOW + 2,
+    );
+
+    const page = await repository.listItems("job-scope", 10, null);
+    expect(page.page.items.map((item) => [item.videoId, item.classification]))
+      .toEqual([
+        ["SSSSSSSSSSS", "scope_review"],
+        ["KKKKKKKKKKK", "channel_review"],
+      ]);
   });
 
   it("shows a repeated discovery as an existing candidate without changing its global decision", async () => {
