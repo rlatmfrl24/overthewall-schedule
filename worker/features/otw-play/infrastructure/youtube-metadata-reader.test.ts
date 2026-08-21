@@ -59,6 +59,133 @@ describe("YouTubeOtwPlayMetadataReader", () => {
     );
   });
 
+  it("reads public playlist summary and preserves paginated item positions", async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/playlists")) {
+        return Response.json({
+          items: [{
+            id: "PL1234567890",
+            snippet: {
+              title: "Official Covers",
+              channelId: "UC123",
+              channelTitle: "Official",
+            },
+            contentDetails: { itemCount: 51 },
+            status: { privacyStatus: "unlisted" },
+          }],
+        });
+      }
+      return Response.json({
+        items: [{
+          id: "playlist-item-1",
+          snippet: { position: 50 },
+          contentDetails: { videoId: "dQw4w9WgXcQ" },
+        }],
+        nextPageToken: "next-page",
+      });
+    });
+    const reader = new YouTubeOtwPlayMetadataReader("secret-key", fetcher);
+    await expect(reader.readPlaylistSummary("PL1234567890")).resolves.toEqual({
+      playlistId: "PL1234567890",
+      title: "Official Covers",
+      ownerChannelId: "UC123",
+      ownerChannelTitle: "Official",
+      itemCount: 51,
+      privacyStatus: "unlisted",
+    });
+    await expect(
+      reader.readPlaylistPage("PL1234567890", "page-token"),
+    ).resolves.toEqual({
+      items: [{
+        playlistItemId: "playlist-item-1",
+        videoId: "dQw4w9WgXcQ",
+        position: 50,
+      }],
+      nextPageToken: "next-page",
+    });
+    const pageUrl = new URL(String(fetcher.mock.calls[1]?.[0]));
+    expect(pageUrl.searchParams.get("maxResults")).toBe("50");
+    expect(pageUrl.searchParams.get("pageToken")).toBe("page-token");
+  });
+
+  it("includes the made-for-kids API fact in video metadata", async () => {
+    const reader = new YouTubeOtwPlayMetadataReader(
+      "secret-key",
+      vi.fn<typeof fetch>(async () => Response.json({
+        items: [{
+          id: "dQw4w9WgXcQ",
+          snippet: { channelId: "UC123", title: "Song" },
+          status: {
+            uploadStatus: "processed",
+            privacyStatus: "public",
+            embeddable: true,
+            madeForKids: true,
+          },
+        }],
+      })),
+    );
+    await expect(reader.readVideo("dQw4w9WgXcQ")).resolves.toMatchObject({
+      madeForKids: true,
+    });
+  });
+
+  it("marks vertical short-form and live videos for explicit scope review", async () => {
+    const reader = new YouTubeOtwPlayMetadataReader(
+      "secret-key",
+      vi.fn<typeof fetch>(async () => Response.json({
+        items: [
+          {
+            id: "AAAAAAAAAAA",
+            snippet: {
+              channelId: "UC123",
+              title: "Vertical short",
+              liveBroadcastContent: "none",
+            },
+            contentDetails: { duration: "PT2M" },
+            player: { embedWidth: 270, embedHeight: 480 },
+            status: {
+              uploadStatus: "processed",
+              privacyStatus: "public",
+              embeddable: true,
+            },
+          },
+          {
+            id: "BBBBBBBBBBB",
+            snippet: {
+              channelId: "UC123",
+              title: "Completed broadcast",
+              liveBroadcastContent: "none",
+            },
+            contentDetails: { duration: "PT1H" },
+            player: { embedWidth: 480, embedHeight: 270 },
+            liveStreamingDetails: {
+              actualStartTime: "2026-01-01T00:00:00Z",
+              actualEndTime: "2026-01-01T01:00:00Z",
+            },
+            status: {
+              uploadStatus: "processed",
+              privacyStatus: "public",
+              embeddable: true,
+            },
+          },
+        ],
+      })),
+    );
+
+    await expect(reader.readVideos(["AAAAAAAAAAA", "BBBBBBBBBBB"]))
+      .resolves.toEqual([
+        expect.objectContaining({
+          videoId: "AAAAAAAAAAA",
+          video: expect.objectContaining({ scopeReview: true }),
+        }),
+        expect.objectContaining({
+          videoId: "BBBBBBBBBBB",
+          video: expect.objectContaining({ scopeReview: true }),
+        }),
+      ]);
+  });
+
   it("reports only a safe fetch failure classification", async () => {
     const failure = new TypeError("secret-key must not be exposed");
     const reader = new YouTubeOtwPlayMetadataReader(

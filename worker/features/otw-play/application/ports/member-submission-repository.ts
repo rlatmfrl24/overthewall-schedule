@@ -2,12 +2,14 @@ import type {
   OtwPlayCreateSubmissionRequest,
   OtwPlayMemberSubmissionDto,
   OtwPlaySubmissionPreflightDto,
+  OtwPlayUpdateSubmissionRequest,
 } from "@contracts/otw-play";
 import type { MemberSubmissionCursor } from "../../domain/member-submission-cursor";
 
 export type MemberSubmissionRepositoryErrorCode =
   | "not_found"
   | "duplicate"
+  | "stale_write"
   | "idempotency_conflict"
   | "rate_limited"
   | "unavailable"
@@ -34,6 +36,24 @@ export interface CreateMemberSubmissionCommand {
   dayEnd: number;
 }
 
+export interface UpdateMemberSubmissionCommand {
+  userId: string;
+  proposalId: string;
+  eventId: string;
+  input: OtwPlayUpdateSubmissionRequest;
+  videoId: string;
+  canonicalUrl: string;
+  now: number;
+}
+
+export interface WithdrawMemberSubmissionCommand {
+  userId: string;
+  proposalId: string;
+  eventId: string;
+  expectedVersion: number;
+  now: number;
+}
+
 export interface MemberSubmissionRepository {
   preflight(
     userId: string,
@@ -54,4 +74,6 @@ export interface MemberSubmissionRepository {
     cursor: MemberSubmissionCursor | null,
   ): Promise<{ items: OtwPlayMemberSubmissionDto[]; hasMore: boolean }>;
   readMine(userId: string, proposalId: string): Promise<OtwPlayMemberSubmissionDto>;
+  update(command: UpdateMemberSubmissionCommand): Promise<OtwPlayMemberSubmissionDto>;
+  withdraw(command: WithdrawMemberSubmissionCommand): Promise<OtwPlayMemberSubmissionDto>;
 }

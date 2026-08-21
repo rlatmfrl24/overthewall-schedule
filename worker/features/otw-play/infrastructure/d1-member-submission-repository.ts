@@ -11,6 +11,8 @@ import {
   MemberSubmissionRepositoryError,
   type CreateMemberSubmissionCommand,
   type MemberSubmissionRepository,
+  type UpdateMemberSubmissionCommand,
+  type WithdrawMemberSubmissionCommand,
 } from "../application/ports/member-submission-repository";
 
 type ProposalRow = {
@@ -22,6 +24,7 @@ type ProposalRow = {
   suggested_song_id: string | null;
   submitted_note: string | null;
   status: OtwPlayMemberSubmissionStatus;
+  version: number;
   created_at: number;
   updated_at: number;
   approved_song_id: string | null;
@@ -72,7 +75,7 @@ const groupChildren = (rows: ChildRow[]) => {
 const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   proposal.submitted_url, proposal.youtube_video_id, proposal.submitted_title,
   proposal.suggested_song_id, proposal.submitted_note, proposal.status,
-  proposal.created_at, proposal.updated_at,
+  proposal.version, proposal.created_at, proposal.updated_at,
   song.id AS approved_song_id, song.slug AS approved_song_slug,
   song.title AS approved_song_title,
   song.archived_at AS approved_song_archived_at,
@@ -277,15 +280,26 @@ export class D1MemberSubmissionRepository
       suggestedSongId: row.suggested_song_id,
       note: row.submitted_note,
       status: row.status,
+      version: Number(row.version),
+      editable: row.status === "pending_review",
+      withdrawable: row.status === "pending_review",
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
       participants: (participants.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
+        memberUid:
+          item.submitted_member_uid === null
+            ? null
+            : Number(item.submitted_member_uid),
         displayName: item.submitted_name_snapshot,
         participantRole: item.participant_role ?? "vocal",
       })),
       originalArtists: (artists.get(row.id) ?? []).map((item) => ({
         creditOrder: Number(item.credit_order),
+        memberUid:
+          item.submitted_member_uid === null
+            ? null
+            : Number(item.submitted_member_uid),
         displayName: item.submitted_name_snapshot,
       })),
       approvedSong:
@@ -637,5 +651,275 @@ export class D1MemberSubmissionRepository
       );
     }
     return (await this.hydrate([row]))[0]!;
+  }
+
+  async update(command: UpdateMemberSubmissionCommand) {
+    const { userId, proposalId, input, canonicalUrl, videoId, now } = command;
+    const current = await this.readMine(userId, proposalId);
+    if (
+      current.status !== "pending_review" ||
+      current.version !== input.expectedVersion
+    ) {
+      throw new MemberSubmissionRepositoryError(
+        "stale_write",
+        "Submission changed before the update could be applied",
+      );
+    }
+
+    if (input.suggestedSongId) {
+      const song = await this.database
+        .prepare(
+          `SELECT id FROM music_songs
+           WHERE id = ? AND archived_at IS NULL AND merged_into_song_id IS NULL`,
+        )
+        .bind(input.suggestedSongId)
+        .first<{ id: string }>();
+      if (!song) {
+        throw new MemberSubmissionRepositoryError(
+          "invalid_request",
+          "Suggested song is not available",
+        );
+      }
+    }
+
+    const [resolvedParticipants, artists] = await Promise.all([
+      this.resolveSubjects(input.participants),
+      this.resolveSubjects(input.originalArtists),
+    ]);
+    const participants: ResolvedParticipant[] = resolvedParticipants.map(
+      (participant, index) => ({
+        ...participant,
+        participantRole: input.participants[index]?.participantRole ?? "vocal",
+      }),
+    );
+    const participantSnapshot = participants.map((participant) => ({
+      memberUid: participant.submittedMemberUid,
+      displayName: participant.displayName,
+      participantRole: participant.participantRole,
+    }));
+    const artistSnapshot = artists.map((artist) => ({
+      memberUid: artist.submittedMemberUid,
+      displayName: artist.displayName,
+    }));
+    const changedFields = [
+      current.youtubeUrl !== canonicalUrl ? "youtubeUrl" : null,
+      normalizeSnapshot(current.title) !== normalizeSnapshot(input.title)
+        ? "title"
+        : null,
+      current.suggestedSongId !== (input.suggestedSongId ?? null)
+        ? "suggestedSongId"
+        : null,
+      JSON.stringify(
+        current.originalArtists.map((artist) => ({
+          memberUid: artist.memberUid,
+          displayName: artist.displayName,
+        })),
+      ) !== JSON.stringify(artistSnapshot)
+        ? "originalArtists"
+        : null,
+      JSON.stringify(
+        current.participants.map((participant) => ({
+          memberUid: participant.memberUid,
+          displayName: participant.displayName,
+          participantRole: participant.participantRole,
+        })),
+      ) !== JSON.stringify(participantSnapshot)
+        ? "participants"
+        : null,
+      (current.note ?? null) !== (input.note?.trim() || null) ? "note" : null,
+    ].filter((field): field is string => field !== null);
+    const nextVersion = input.expectedVersion + 1;
+    const updatedParent = this.database
+      .prepare(
+        `UPDATE music_cover_proposals
+         SET submitted_url = ?, youtube_video_id = ?, submitted_title = ?,
+             suggested_song_id = ?, submitted_note = ?, version = version + 1,
+             updated_at = ?
+         WHERE id = ? AND submitted_by_user_id = ?
+           AND status = 'pending_review' AND version = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM music_media_sources
+             WHERE provider = 'youtube' AND external_id = ?
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM music_cover_proposals AS other
+             WHERE other.id <> ? AND other.youtube_video_id = ?
+               AND other.segment_start_seconds = 0
+               AND other.status = 'pending_review'
+           )`,
+      )
+      .bind(
+        canonicalUrl,
+        videoId,
+        normalizeSnapshot(input.title),
+        input.suggestedSongId ?? null,
+        input.note?.trim() || null,
+        now,
+        proposalId,
+        userId,
+        input.expectedVersion,
+        videoId,
+        proposalId,
+        videoId,
+      );
+    const updateGuard = `EXISTS (
+      SELECT 1 FROM music_catalog_events
+      WHERE id = ? AND aggregate_type = 'proposal'
+        AND aggregate_id = ?
+        AND event_type = 'proposal.updated'
+    )`;
+    try {
+      await this.database.batch([
+        updatedParent,
+        this.database
+          .prepare(
+            `INSERT INTO music_catalog_events
+             (id, aggregate_type, aggregate_id, event_type, actor_kind,
+              actor_user_id, detail_json, created_at)
+             SELECT ?, 'proposal', ?, 'proposal.updated', 'member', ?, ?, ?
+             WHERE changes() = 1`,
+          )
+          .bind(
+            command.eventId,
+            proposalId,
+            userId,
+            JSON.stringify({ changedFields }),
+            now,
+          ),
+        this.database
+          .prepare(
+            `DELETE FROM music_cover_proposal_participants
+             WHERE proposal_id = ? AND ${updateGuard}`,
+          )
+          .bind(proposalId, command.eventId, proposalId),
+        this.database
+          .prepare(
+            `DELETE FROM music_cover_proposal_original_artists
+             WHERE proposal_id = ? AND ${updateGuard}`,
+          )
+          .bind(proposalId, command.eventId, proposalId),
+        ...participants.map((participant, index) =>
+          this.database
+            .prepare(
+              `INSERT INTO music_cover_proposal_participants
+               (proposal_id, credit_order, resolved_entity_id,
+                submitted_member_uid, submitted_name_snapshot, participant_role)
+               SELECT ?, ?, ?, ?, ?, ? WHERE ${updateGuard}`,
+            )
+            .bind(
+              proposalId,
+              index,
+              participant.resolvedEntityId,
+              participant.submittedMemberUid,
+              participant.displayName,
+              participant.participantRole,
+              command.eventId,
+              proposalId,
+            ),
+        ),
+        ...artists.map((artist, index) =>
+          this.database
+            .prepare(
+              `INSERT INTO music_cover_proposal_original_artists
+               (proposal_id, credit_order, resolved_entity_id,
+                submitted_member_uid, submitted_name_snapshot)
+               SELECT ?, ?, ?, ?, ? WHERE ${updateGuard}`,
+            )
+            .bind(
+              proposalId,
+              index,
+              artist.resolvedEntityId,
+              artist.submittedMemberUid,
+              artist.displayName,
+              command.eventId,
+              proposalId,
+            ),
+        ),
+      ]);
+    } catch (error) {
+      if (/UNIQUE constraint|constraint failed/i.test(String(error))) {
+        throw new MemberSubmissionRepositoryError(
+          "duplicate",
+          "This video is already in the catalog or awaiting review",
+        );
+      }
+      throw new MemberSubmissionRepositoryError(
+        "unavailable",
+        "Submission update could not be stored",
+      );
+    }
+
+    const updated = await this.readMine(userId, proposalId);
+    if (
+      updated.status === "pending_review" &&
+      updated.version === nextVersion &&
+      updated.updatedAt === now
+    ) {
+      return updated;
+    }
+    const duplicate = await this.database
+      .prepare(
+        `SELECT 1 AS found WHERE EXISTS (
+           SELECT 1 FROM music_media_sources
+           WHERE provider = 'youtube' AND external_id = ?
+         ) OR EXISTS (
+           SELECT 1 FROM music_cover_proposals
+           WHERE id <> ? AND youtube_video_id = ? AND segment_start_seconds = 0
+             AND status = 'pending_review'
+         )`,
+      )
+      .bind(videoId, proposalId, videoId)
+      .first<{ found: number }>();
+    throw new MemberSubmissionRepositoryError(
+      duplicate ? "duplicate" : "stale_write",
+      duplicate
+        ? "This video is already in the catalog or awaiting review"
+        : "Submission changed before the update could be applied",
+    );
+  }
+
+  async withdraw(command: WithdrawMemberSubmissionCommand) {
+    const nextVersion = command.expectedVersion + 1;
+    await this.database.batch([
+      this.database
+        .prepare(
+          `UPDATE music_cover_proposals
+           SET status = 'withdrawn', version = version + 1, updated_at = ?
+           WHERE id = ? AND submitted_by_user_id = ?
+             AND status = 'pending_review' AND version = ?`,
+        )
+        .bind(
+          command.now,
+          command.proposalId,
+          command.userId,
+          command.expectedVersion,
+        ),
+      this.database
+        .prepare(
+          `INSERT INTO music_catalog_events
+           (id, aggregate_type, aggregate_id, event_type, actor_kind,
+            actor_user_id, created_at)
+           SELECT ?, 'proposal', ?, 'proposal.withdrawn', 'member', ?, ?
+           WHERE changes() = 1`,
+        )
+        .bind(
+          command.eventId,
+          command.proposalId,
+          command.userId,
+          command.now,
+        ),
+    ]);
+    const updated = await this.readMine(command.userId, command.proposalId);
+    if (
+      updated.status === "withdrawn" &&
+      updated.version === nextVersion &&
+      updated.updatedAt === command.now
+    ) {
+      return updated;
+    }
+    throw new MemberSubmissionRepositoryError(
+      "stale_write",
+      "Submission changed before it could be withdrawn",
+    );
   }
 }

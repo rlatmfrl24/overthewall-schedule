@@ -6,6 +6,8 @@ import type {
   OtwPlayMemberSubmissionPageDto,
   OtwPlaySubmissionPreflightDto,
   OtwPlaySubmissionPreflightRequest,
+  OtwPlayUpdateSubmissionRequest,
+  OtwPlayWithdrawSubmissionRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
@@ -45,4 +47,22 @@ export const fetchMyOtwPlaySubmissions = (options: {
 export const fetchMyOtwPlaySubmission = (id: string) =>
   memberRequest<{ data: OtwPlayMemberSubmissionDto }>(
     apiRoutes.otwPlay.submissions.detail.build(id),
+  ).then((response) => response.data);
+
+export const updateOtwPlaySubmission = (
+  id: string,
+  json: OtwPlayUpdateSubmissionRequest,
+) =>
+  memberRequest<{ data: OtwPlayMemberSubmissionDto }>(
+    apiRoutes.otwPlay.submissions.detail.build(id),
+    { method: "PATCH", json },
+  ).then((response) => response.data);
+
+export const withdrawOtwPlaySubmission = (
+  id: string,
+  json: OtwPlayWithdrawSubmissionRequest,
+) =>
+  memberRequest<{ data: OtwPlayMemberSubmissionDto }>(
+    apiRoutes.otwPlay.submissions.withdraw.build(id),
+    { method: "POST", json },
   ).then((response) => response.data);

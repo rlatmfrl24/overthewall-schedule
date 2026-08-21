@@ -29,16 +29,13 @@ import {
   CloudflarePublicCatalogCache,
   CloudflarePlayObservabilityReader,
   CloudflarePlayTelemetryWriter,
-  AdminCatalogService,
   createAdminCatalogHandler,
   createPublicCatalogEtag,
   createPublicCatalogHandler,
   createPlayObservabilityHandler,
-  D1AdminCatalogRepository,
   D1SourceHealthRepository,
   D1PublicCatalogReader,
   D1ReleaseRepository,
-  DrizzleAdminCatalogAudit,
   PublicCatalogService,
   ReleaseService,
   SourceHealthService,
@@ -47,8 +44,11 @@ import {
   MemberSubmissionService,
   D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
+  createIngestionHandler,
   createReleaseHandler,
 } from "../features/otw-play";
+import { createOtwPlayIngestionService } from "./ingestion";
+import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 import {
   collectNaverCafePostsForSources,
   createD1NaverCafeApplication,
@@ -207,14 +207,7 @@ const handleOtwPlayRelease = createReleaseHandler(
   resolvePlayTelemetry,
 );
 const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
-  (env) =>
-    new AdminCatalogService(
-      new D1AdminCatalogRepository(env.otw_db),
-      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
-      new DrizzleAdminCatalogAudit(getDb(env)),
-      () => crypto.randomUUID(),
-      true,
-    ),
+  createOtwPlayAdminCatalogService,
   (env) =>
     new SourceHealthService(
       new D1SourceHealthRepository(env.otw_db),
@@ -234,6 +227,10 @@ const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(
 );
 const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
   handleOtwPlayMemberSubmissionsCore,
+  resolvePlayTelemetry,
+);
+const handleOtwPlayIngestion = withPlayOperationsTelemetry(
+  createIngestionHandler(createOtwPlayIngestionService),
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
@@ -532,8 +529,67 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.submissions.detail.pattern,
     methods: methods(
       get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+      patch({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
     ),
     handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.submission.withdraw",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.submissions.withdraw.pattern,
+    methods: methods(
+      post({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    ),
+    handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.admin.playlist-import.preflight",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistImportPreflight.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.playlist-import.create",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistImports.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.read",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importJob.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.items",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importJobItems.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-candidate.update",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importCandidate.pattern,
+    methods: methods(patch(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.convert",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.convertImportJob.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.retry",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.retryImportJob.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
   },
   {
     id: "otw-play.admin.catalog",

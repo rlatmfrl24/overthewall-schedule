@@ -73,11 +73,13 @@ import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
+import { IngestionSection } from "./ingestion-section";
 
-type Section = "catalog" | "review" | "source-health" | "operations";
+type Section = "catalog" | "import" | "review" | "source-health" | "operations";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
+  { value: "import", label: "가져오기" },
   { value: "review", label: "제안 검수" },
   { value: "source-health", label: "소스 상태" },
   { value: "operations", label: "운영·공개" },
@@ -248,7 +250,8 @@ export function OtwPlayCatalogManager() {
     }
   };
 
-  const catalogSection = section === "catalog" || section === "review";
+  const catalogSection =
+    section === "catalog" || section === "import" || section === "review";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -351,6 +354,12 @@ export function OtwPlayCatalogManager() {
           loading={proposalsQuery.isLoading}
           saving={effectiveSaving}
           run={run}
+        />
+      )}
+      {section === "import" && catalog && (
+        <IngestionSection
+          catalog={catalog}
+          onOpenCatalog={() => setSection("catalog")}
         />
       )}
       {section === "catalog" && catalog && (

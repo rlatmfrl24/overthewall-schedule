@@ -1173,6 +1173,18 @@ production 카탈로그는 migration fixture나 raw SQL로 넣지 않는다.
 
 ### 배포 순서
 
+PR-9B 이후의 preview version upload와 production 배포 전에 Cloudflare Queue 목록을
+확인한다. 아래 두 Queue가 없을 때만 한 번 생성하고 `queues list` readback에서 두
+이름을 모두 확인한다. Worker producer·consumer 연결은 이후 `wrangler versions
+upload` 또는 `wrangler deploy`가 `wrangler.jsonc` 선언으로 등록한다.
+
+```powershell
+pnpm exec wrangler queues list
+pnpm exec wrangler queues create otw-play-ingestion
+pnpm exec wrangler queues create otw-play-ingestion-dlq
+pnpm exec wrangler queues list
+```
+
 1. migration 직전 D1 Time Travel/backup bookmark 기록
 2. additive migration 원격 적용
 3. Worker와 정적 앱 배포

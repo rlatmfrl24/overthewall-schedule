@@ -10,6 +10,8 @@ import { MemberSubmissionCursorError } from "../domain/member-submission-cursor"
 import {
   parseCreateSubmission,
   parseSubmissionPreflight,
+  parseUpdateSubmission,
+  parseWithdrawSubmission,
   type MemberSubmissionInputResult,
 } from "./member-submission-input";
 
@@ -68,6 +70,30 @@ const decodePathId = (pathname: string) => {
   }
 };
 
+const decodeWithdrawPathId = (pathname: string) => {
+  const matched = pathname.match(
+    /^\/api\/play\/submissions\/([^/]+)\/withdraw$/u,
+  )?.[1];
+  if (!matched) return null;
+  try {
+    const decoded = decodeURIComponent(matched);
+    return decoded.trim() && !decoded.includes("/") ? decoded : null;
+  } catch {
+    return null;
+  }
+};
+
+const consumeEdgeLimit = async (env: Env, key: string) => {
+  const limiter = env.OTW_PLAY_SUBMISSION_RATE_LIMITER;
+  if (!limiter) return "unavailable" as const;
+  try {
+    const result = await limiter.limit({ key });
+    return result.success ? ("allowed" as const) : ("limited" as const);
+  } catch {
+    return "unavailable" as const;
+  }
+};
+
 export const createMemberSubmissionHandler = (
   resolveService: ResolveMemberSubmissionService,
 ) => async (request: Request, env: Env): Promise<Response> => {
@@ -122,8 +148,8 @@ export const createMemberSubmissionHandler = (
       }
       const replay = await service.findReplay(auth.user.id, parsed.value);
       if (replay) return responseJson(replay, 200);
-      const limiter = env.OTW_PLAY_SUBMISSION_RATE_LIMITER;
-      if (!limiter) {
+      const edgeLimit = await consumeEdgeLimit(env, auth.user.id);
+      if (edgeLimit === "unavailable") {
         return errorResponse(
           requestId,
           503,
@@ -131,18 +157,7 @@ export const createMemberSubmissionHandler = (
           "Submission rate limiting is unavailable",
         );
       }
-      let rateResult: { success: boolean };
-      try {
-        rateResult = await limiter.limit({ key: auth.user.id });
-      } catch {
-        return errorResponse(
-          requestId,
-          503,
-          "PLAY_SUBMISSION_UNAVAILABLE",
-          "Submission rate limiting is unavailable",
-        );
-      }
-      if (!rateResult.success) {
+      if (edgeLimit === "limited") {
         return errorResponse(
           requestId,
           429,
@@ -195,8 +210,77 @@ export const createMemberSubmissionHandler = (
     }
 
     const proposalId = decodePathId(url.pathname);
+    if (request.method === "PATCH" && proposalId) {
+      const parsed = await readBody(request, parseUpdateSubmission);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_SUBMISSION_INVALID_REQUEST",
+          "Invalid submission update",
+          parsed.fields,
+        );
+      }
+      const edgeLimit = await consumeEdgeLimit(
+        env,
+        `edit:${auth.user.id}`,
+      );
+      if (edgeLimit !== "allowed") {
+        return errorResponse(
+          requestId,
+          edgeLimit === "limited" ? 429 : 503,
+          edgeLimit === "limited"
+            ? "PLAY_SUBMISSION_RATE_LIMITED"
+            : "PLAY_SUBMISSION_UNAVAILABLE",
+          edgeLimit === "limited"
+            ? "Too many submission changes"
+            : "Submission rate limiting is unavailable",
+          edgeLimit === "limited" ? { scope: "edit" } : undefined,
+        );
+      }
+      return responseJson({
+        data: await service.update(auth.user.id, proposalId, parsed.value),
+      });
+    }
     if (request.method === "GET" && proposalId) {
       return responseJson({ data: await service.readMine(auth.user.id, proposalId) });
+    }
+    const withdrawProposalId = decodeWithdrawPathId(url.pathname);
+    if (request.method === "POST" && withdrawProposalId) {
+      const parsed = await readBody(request, parseWithdrawSubmission);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_SUBMISSION_INVALID_REQUEST",
+          "Invalid submission withdrawal",
+          parsed.fields,
+        );
+      }
+      const edgeLimit = await consumeEdgeLimit(
+        env,
+        `edit:${auth.user.id}`,
+      );
+      if (edgeLimit !== "allowed") {
+        return errorResponse(
+          requestId,
+          edgeLimit === "limited" ? 429 : 503,
+          edgeLimit === "limited"
+            ? "PLAY_SUBMISSION_RATE_LIMITED"
+            : "PLAY_SUBMISSION_UNAVAILABLE",
+          edgeLimit === "limited"
+            ? "Too many submission changes"
+            : "Submission rate limiting is unavailable",
+          edgeLimit === "limited" ? { scope: "edit" } : undefined,
+        );
+      }
+      return responseJson({
+        data: await service.withdraw(
+          auth.user.id,
+          withdrawProposalId,
+          parsed.value,
+        ),
+      });
     }
     return new Response(null, { status: 404, headers: JSON_HEADERS });
   } catch (error) {
@@ -225,6 +309,7 @@ export const createMemberSubmissionHandler = (
       const mapping = {
         not_found: [404, "PLAY_SUBMISSION_NOT_FOUND"],
         duplicate: [409, "PLAY_SUBMISSION_DUPLICATE"],
+        stale_write: [409, "PLAY_SUBMISSION_STALE_WRITE"],
         idempotency_conflict: [409, "PLAY_SUBMISSION_IDEMPOTENCY_CONFLICT"],
         rate_limited: [429, "PLAY_SUBMISSION_RATE_LIMITED"],
         unavailable: [503, "PLAY_SUBMISSION_UNAVAILABLE"],

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   parseCreateSubmission,
   parseSubmissionPreflight,
+  parseUpdateSubmission,
+  parseWithdrawSubmission,
 } from "./member-submission-input";
 
 const valid = () => ({
@@ -61,5 +63,24 @@ describe("member submission input", () => {
         })),
       }).ok,
     ).toBe(false);
+  });
+
+  it("requires a non-negative CAS version for update and withdrawal", () => {
+    const base = valid();
+    const editable = {
+      youtubeUrl: base.youtubeUrl,
+      title: base.title,
+      suggestedSongId: base.suggestedSongId,
+      originalArtists: base.originalArtists,
+      participants: base.participants,
+      note: base.note,
+    };
+    expect(parseUpdateSubmission({ ...editable, expectedVersion: 0 }).ok).toBe(true);
+    expect(parseUpdateSubmission({ ...editable, expectedVersion: -1 }).ok).toBe(false);
+    expect(parseWithdrawSubmission({ expectedVersion: 3 })).toEqual({
+      ok: true,
+      value: { expectedVersion: 3 },
+    });
+    expect(parseWithdrawSubmission({ expectedVersion: 3, reason: "secret" }).ok).toBe(false);
   });
 });

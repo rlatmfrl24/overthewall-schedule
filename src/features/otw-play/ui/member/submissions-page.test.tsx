@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +23,17 @@ vi.mock("@tanstack/react-router", () => ({
 
 import { OtwPlaySubmissionsPage } from "./submissions-page";
 
+const renderPage = () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <OtwPlaySubmissionsPage />
+    </QueryClientProvider>,
+  );
+};
+
 describe("OtwPlaySubmissionsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,7 +49,7 @@ describe("OtwPlaySubmissionsPage", () => {
       hasNextPage: false,
     });
 
-    render(<OtwPlaySubmissionsPage />);
+    renderPage();
 
     expect(screen.getByText("아직 제출한 제안이 없습니다")).toBeTruthy();
     expect(screen.getByRole("link", { name: "OTW Play로 돌아가기" }).getAttribute("href")).toBe("/play");
@@ -63,7 +75,7 @@ describe("OtwPlaySubmissionsPage", () => {
     });
     mocks.detail.mockReturnValue({ isPending: true, data: null });
 
-    const { container } = render(<OtwPlaySubmissionsPage />);
+    const { container } = renderPage();
 
     expect(screen.getByText("목록에서 제안을 선택하세요.")).toBeTruthy();
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -77,7 +89,7 @@ describe("OtwPlaySubmissionsPage", () => {
       data: undefined,
       refetch,
     });
-    render(<OtwPlaySubmissionsPage />);
+    renderPage();
     expect(screen.getByRole("alert").textContent).toContain("불러오지 못했습니다");
     expect(screen.queryByText("아직 제출한 제안이 없습니다")).toBeNull();
     screen.getByRole("button", { name: "다시 시도" }).click();
@@ -116,7 +128,7 @@ describe("OtwPlaySubmissionsPage", () => {
       },
     });
 
-    render(<OtwPlaySubmissionsPage />);
+    renderPage();
     screen.getByRole("button", { name: /승인된 제안/ }).click();
 
     expect(screen.getByText("승인되어 카탈로그에 반영되었습니다.")).toBeTruthy();

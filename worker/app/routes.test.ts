@@ -90,6 +90,10 @@ const MEMBER_POLICY_NO_STORE_POST = {
   cache: "no-store",
   successStatus: 200,
 } as const;
+const MEMBER_POLICY_NO_STORE_PATCH = {
+  ...MEMBER_POLICY_NO_STORE_POST,
+  method: "PATCH",
+} as const;
 const MEMBER_POLICY_NO_STORE_POST_CREATED = {
   ...MEMBER_POLICY_NO_STORE_POST,
   successStatus: 201,
@@ -258,7 +262,55 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.submission.detail",
     owner: "otw-play",
     path: "/api/play/submissions/:id",
-    methods: [MEMBER_POLICY_NO_STORE_GET],
+    methods: [MEMBER_POLICY_NO_STORE_GET, MEMBER_POLICY_NO_STORE_PATCH],
+  },
+  {
+    id: "otw-play.submission.withdraw",
+    owner: "otw-play",
+    path: "/api/play/submissions/:id/withdraw",
+    methods: [MEMBER_POLICY_NO_STORE_POST],
+  },
+  {
+    id: "otw-play.admin.playlist-import.preflight",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/playlist/preflight",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.playlist-import.create",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/playlist",
+    methods: [{ ...ADMIN_POST, successStatus: 202 }],
+  },
+  {
+    id: "otw-play.admin.import-job.read",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.import-job.items",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/items",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.import-candidate.update",
+    owner: "otw-play",
+    path: "/api/play/admin/import-candidates/:id",
+    methods: [ADMIN_PATCH],
+  },
+  {
+    id: "otw-play.admin.import-job.convert",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/convert",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.import-job.retry",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/retry",
+    methods: [ADMIN_POST],
   },
   {
     id: "otw-play.admin.catalog",

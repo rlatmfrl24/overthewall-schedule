@@ -1,0 +1,1 @@
+ALTER TABLE `music_ingestion_jobs` ADD `range_start_position` integer DEFAULT 0 NOT NULL;

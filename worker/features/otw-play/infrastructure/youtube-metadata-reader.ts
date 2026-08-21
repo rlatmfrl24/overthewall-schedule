@@ -3,6 +3,7 @@ import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeChannelMetadata,
   type OtwPlayYouTubeBatchMetadataReader,
+  type OtwPlayYouTubeIngestionReader,
   type OtwPlayYouTubeVideoMetadata,
   type OtwPlayYouTubeVideoObservation,
 } from "../application/ports/youtube-metadata";
@@ -19,6 +20,7 @@ type VideoItem = {
     channelTitle?: string;
     title?: string;
     publishedAt?: string;
+    liveBroadcastContent?: string;
     thumbnails?: {
       high?: { url?: string };
       medium?: { url?: string };
@@ -33,10 +35,37 @@ type VideoItem = {
     uploadStatus?: string;
     privacyStatus?: string;
     embeddable?: boolean;
+    madeForKids?: boolean;
+  };
+  player?: { embedWidth?: number; embedHeight?: number };
+  liveStreamingDetails?: {
+    actualStartTime?: string;
+    actualEndTime?: string;
+    scheduledStartTime?: string;
   };
 };
 
 type VideoResponse = { items?: VideoItem[] };
+type PlaylistResponse = {
+  items?: Array<{
+    id?: string;
+    snippet?: {
+      title?: string;
+      channelId?: string;
+      channelTitle?: string;
+    };
+    contentDetails?: { itemCount?: number };
+    status?: { privacyStatus?: string };
+  }>;
+};
+type PlaylistItemsResponse = {
+  items?: Array<{
+    id?: string;
+    snippet?: { position?: number };
+    contentDetails?: { videoId?: string };
+  }>;
+  nextPageToken?: string;
+};
 type YouTubeErrorResponse = {
   error?: { errors?: Array<{ reason?: string }>; message?: string };
 };
@@ -84,6 +113,16 @@ const videoMetadata = (
   const duration = item.contentDetails?.duration
     ? parseISO8601Duration(item.contentDetails.duration)
     : null;
+  const width = item.player?.embedWidth;
+  const height = item.player?.embedHeight;
+  const verticalShort = duration !== null &&
+    duration <= 180 &&
+    typeof width === "number" &&
+    typeof height === "number" &&
+    height > width;
+  const liveOrBroadcast = Boolean(item.liveStreamingDetails) ||
+    (item.snippet?.liveBroadcastContent !== undefined &&
+      item.snippet.liveBroadcastContent !== "none");
   return {
     videoId,
     channelId,
@@ -97,11 +136,16 @@ const videoMetadata = (
     durationSeconds: duration,
     publishedAt: parsePublishedAt(item.snippet?.publishedAt),
     availabilityStatus,
+    madeForKids:
+      typeof item.status?.madeForKids === "boolean"
+        ? item.status.madeForKids
+        : null,
+    scopeReview: verticalShort || liveOrBroadcast,
   };
 };
 
 export class YouTubeOtwPlayMetadataReader
-  implements OtwPlayYouTubeBatchMetadataReader
+  implements OtwPlayYouTubeBatchMetadataReader, OtwPlayYouTubeIngestionReader
 {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
@@ -226,9 +270,10 @@ export class YouTubeOtwPlayMetadataReader
     }
     if (ids.length === 0) return [];
     const data = await this.read<VideoResponse>("videos", {
-      part: "snippet,contentDetails,status",
+      part: "snippet,contentDetails,status,player,liveStreamingDetails",
       id: ids.join(","),
       maxResults: String(ids.length),
+      maxWidth: "480",
     });
     if (!Array.isArray(data.items)) {
       throw new OtwPlayYouTubeMetadataError(
@@ -272,5 +317,73 @@ export class YouTubeOtwPlayMetadataReader
     videoId: string,
   ): Promise<OtwPlayYouTubeVideoMetadata | null> {
     return (await this.readVideos([videoId]))[0]?.video ?? null;
+  }
+
+  async readPlaylistSummary(playlistId: string) {
+    const data = await this.read<PlaylistResponse>("playlists", {
+      part: "snippet,contentDetails,status",
+      id: playlistId,
+      maxResults: "1",
+    });
+    const item = data.items?.[0];
+    const privacyStatus = item?.status?.privacyStatus === "public"
+      ? "public" as const
+      : item?.status?.privacyStatus === "unlisted"
+        ? "unlisted" as const
+        : null;
+    if (
+      item?.id !== playlistId ||
+      privacyStatus === null ||
+      !item.snippet?.title?.trim() ||
+      !item.snippet.channelId?.trim() ||
+      !Number.isSafeInteger(item.contentDetails?.itemCount) ||
+      Number(item.contentDetails?.itemCount) < 0
+    ) {
+      return null;
+    }
+    return {
+      playlistId,
+      title: item.snippet.title.trim(),
+      ownerChannelId: item.snippet.channelId.trim(),
+      ownerChannelTitle:
+        item.snippet.channelTitle?.trim() || item.snippet.channelId.trim(),
+      itemCount: Number(item.contentDetails?.itemCount),
+      privacyStatus,
+    };
+  }
+
+  async readPlaylistPage(playlistId: string, pageToken: string | null) {
+    const data = await this.read<PlaylistItemsResponse>("playlistItems", {
+      part: "snippet,contentDetails",
+      playlistId,
+      maxResults: "50",
+      ...(pageToken ? { pageToken } : {}),
+    });
+    if (!Array.isArray(data.items)) {
+      throw new OtwPlayYouTubeMetadataError(
+        "YouTube playlist response was invalid",
+        "invalid_response",
+        true,
+      );
+    }
+    const items = data.items.flatMap((item) => {
+      const playlistItemId = item.id?.trim();
+      const videoId = item.contentDetails?.videoId?.trim();
+      const position = item.snippet?.position;
+      if (
+        !playlistItemId ||
+        !videoId ||
+        !/^[A-Za-z0-9_-]{11}$/.test(videoId) ||
+        !Number.isSafeInteger(position) ||
+        Number(position) < 0
+      ) {
+        return [];
+      }
+      return [{ playlistItemId, videoId, position: Number(position) }];
+    });
+    return {
+      items,
+      nextPageToken: data.nextPageToken?.trim() || null,
+    };
   }
 }
