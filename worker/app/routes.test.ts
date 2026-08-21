@@ -261,6 +261,30 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [MEMBER_POLICY_NO_STORE_GET],
   },
   {
+    id: "otw-play.admin.playlist-import.preflight",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/playlist/preflight",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.playlist-import.create",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/playlist",
+    methods: [{ ...ADMIN_POST, successStatus: 202 }],
+  },
+  {
+    id: "otw-play.admin.import-job.read",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.import-job.items",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/items",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "otw-play.admin.catalog",
     owner: "otw-play",
     path: "/api/play/admin/catalog",

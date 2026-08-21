@@ -47,8 +47,10 @@ import {
   MemberSubmissionService,
   D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
+  createIngestionHandler,
   createReleaseHandler,
 } from "../features/otw-play";
+import { createOtwPlayIngestionService } from "./ingestion";
 import {
   collectNaverCafePostsForSources,
   createD1NaverCafeApplication,
@@ -234,6 +236,10 @@ const handleOtwPlayMemberSubmissionsCore = createMemberSubmissionHandler(
 );
 const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
   handleOtwPlayMemberSubmissionsCore,
+  resolvePlayTelemetry,
+);
+const handleOtwPlayIngestion = withPlayOperationsTelemetry(
+  createIngestionHandler(createOtwPlayIngestionService),
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
@@ -534,6 +540,34 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
     ),
     handler: handleOtwPlayMemberSubmissions,
+  },
+  {
+    id: "otw-play.admin.playlist-import.preflight",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistImportPreflight.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.playlist-import.create",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistImports.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.read",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importJob.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.import-job.items",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importJobItems.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
   },
   {
     id: "otw-play.admin.catalog",

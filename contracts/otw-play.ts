@@ -58,6 +58,134 @@ export const OTW_PLAY_PROVIDERS = ["youtube"] as const;
 
 export type OtwPlayProvider = (typeof OTW_PLAY_PROVIDERS)[number];
 
+export const OTW_PLAY_INGESTION_JOB_STATUSES = [
+  "queued",
+  "collecting",
+  "completed",
+  "partial",
+  "failed",
+] as const;
+export type OtwPlayIngestionJobStatus =
+  (typeof OTW_PLAY_INGESTION_JOB_STATUSES)[number];
+
+export const OTW_PLAY_INGESTION_CANDIDATE_STATUSES = [
+  "discovered",
+  "needs_input",
+  "ready",
+  "converted",
+  "ignored",
+  "blocked",
+] as const;
+export type OtwPlayIngestionCandidateStatus =
+  (typeof OTW_PLAY_INGESTION_CANDIDATE_STATUSES)[number];
+
+export const OTW_PLAY_INGESTION_CLASSIFICATIONS = [
+  "pending_metadata",
+  "eligible",
+  "existing_catalog",
+  "existing_proposal",
+  "existing_candidate",
+  "channel_review",
+  "policy_blocked",
+  "unavailable",
+  "scope_review",
+  "playlist_duplicate",
+] as const;
+export type OtwPlayIngestionClassification =
+  (typeof OTW_PLAY_INGESTION_CLASSIFICATIONS)[number];
+
+export type OtwPlayPlaylistImportMode = "all_new" | "recent";
+
+export interface OtwPlayPlaylistPreflightRequest {
+  playlistUrl: string;
+  mode: OtwPlayPlaylistImportMode;
+  recentLimit?: number;
+}
+
+export interface OtwPlayPlaylistPreflightDto {
+  playlistId: string;
+  canonicalUrl: string;
+  title: string;
+  ownerChannelId: string;
+  ownerChannelTitle: string;
+  itemCount: number;
+  privacyStatus: "public" | "unlisted";
+  requestedItemCount: number;
+  estimatedPageCount: number;
+  estimatedVideoBatchCount: number;
+  hardCap: 5000;
+  requiresSplit: boolean;
+  previousImport: {
+    jobId: string;
+    status: OtwPlayIngestionJobStatus;
+    lastSyncedAt: number;
+  } | null;
+}
+
+export interface OtwPlayCreatePlaylistImportRequest
+  extends OtwPlayPlaylistPreflightRequest {
+  idempotencyKey: string;
+}
+
+export interface OtwPlayIngestionJobCountsDto {
+  discovered: number;
+  metadataChecked: number;
+  eligible: number;
+  existingCatalog: number;
+  existingProposal: number;
+  existingCandidate: number;
+  channelReview: number;
+  unavailable: number;
+  policyBlocked: number;
+  playlistDuplicate: number;
+  retryPending: number;
+  permanentError: number;
+}
+
+export interface OtwPlayIngestionJobDto {
+  id: string;
+  playlistId: string;
+  playlistTitle: string;
+  playlistOwnerChannelId: string;
+  playlistOwnerChannelTitle: string;
+  mode: OtwPlayPlaylistImportMode;
+  requestedItemCount: number;
+  status: OtwPlayIngestionJobStatus;
+  counts: OtwPlayIngestionJobCountsDto;
+  lastErrorCode: string | null;
+  nextRetryAt: number | null;
+  createdAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  updatedAt: number;
+}
+
+export interface OtwPlayIngestionCandidateItemDto {
+  originId: string;
+  candidateId: string;
+  candidateVersion: number;
+  playlistPosition: number;
+  playlistItemId: string;
+  videoId: string;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  exclusionReason: string | null;
+  title: string | null;
+  channelId: string | null;
+  channelTitle: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  publishedAt: number | null;
+  availabilityStatus: OtwPlaySourceAvailabilityStatus;
+  madeForKids: boolean | null;
+  metadataCheckedAt: number | null;
+}
+
+export interface OtwPlayIngestionCandidatePageDto {
+  items: OtwPlayIngestionCandidateItemDto[];
+  nextCursor: string | null;
+}
+
 export const OTW_PLAY_CHANNEL_VERIFICATION_STATUSES = [
   "pending",
   "approved",

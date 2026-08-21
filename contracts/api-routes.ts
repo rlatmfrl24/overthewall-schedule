@@ -106,6 +106,20 @@ export const apiRoutes = {
       ),
     },
     admin: {
+      playlistImportPreflight: staticRoute(
+        "/api/play/admin/imports/playlist/preflight",
+      ),
+      playlistImports: staticRoute("/api/play/admin/imports/playlist"),
+      importJob: dynamicRoute(
+        "/api/play/admin/imports/:jobId",
+        (jobId: string) =>
+          `/api/play/admin/imports/${encodeURIComponent(jobId)}` as const,
+      ),
+      importJobItems: dynamicRoute(
+        "/api/play/admin/imports/:jobId/items",
+        (jobId: string) =>
+          `/api/play/admin/imports/${encodeURIComponent(jobId)}/items` as const,
+      ),
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(
         "/api/play/admin/catalog-entries/preflight",

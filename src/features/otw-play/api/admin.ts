@@ -29,6 +29,11 @@ import type {
   OtwPlayAdminUpdatePerformanceRequest,
   OtwPlayAdminUpdateSongRequest,
   OtwPlayAdminApproveProposalRequest,
+  OtwPlayCreatePlaylistImportRequest,
+  OtwPlayIngestionCandidatePageDto,
+  OtwPlayIngestionJobDto,
+  OtwPlayPlaylistPreflightDto,
+  OtwPlayPlaylistPreflightRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
@@ -36,6 +41,40 @@ const adminRequest = <T>(
   path: string,
   init: RequestInit & { json?: unknown } = {},
 ) => apiFetch<T>(path, { ...init, auth: "required" });
+
+export const preflightOtwPlayPlaylistImport = (
+  json: OtwPlayPlaylistPreflightRequest,
+) => adminRequest<{ data: OtwPlayPlaylistPreflightDto }>(
+  apiRoutes.otwPlay.admin.playlistImportPreflight.build(),
+  { method: "POST", json },
+).then((response) => response.data);
+
+export const createOtwPlayPlaylistImport = (
+  json: OtwPlayCreatePlaylistImportRequest,
+) => adminRequest<{ data: OtwPlayIngestionJobDto }>(
+  apiRoutes.otwPlay.admin.playlistImports.build(),
+  { method: "POST", json },
+).then((response) => response.data);
+
+export const fetchOtwPlayImportJob = (jobId: string) =>
+  adminRequest<{ data: OtwPlayIngestionJobDto }>(
+    apiRoutes.otwPlay.admin.importJob.build(jobId),
+  ).then((response) => response.data);
+
+export const fetchOtwPlayImportJobItems = (
+  jobId: string,
+  options: { limit?: number; cursor?: string | null } = {},
+) => {
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) search.set("limit", String(options.limit));
+  if (options.cursor) search.set("cursor", options.cursor);
+  return adminRequest<{ data: OtwPlayIngestionCandidatePageDto }>(
+    withRouteSearch(
+      apiRoutes.otwPlay.admin.importJobItems.build(jobId),
+      search,
+    ),
+  ).then((response) => response.data);
+};
 
 export const fetchOtwPlayAdminCatalog = () =>
   adminRequest<{ data: OtwPlayAdminCatalogDto }>(

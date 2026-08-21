@@ -17,6 +17,9 @@ import type {
   OtwPlayChannelVerificationStatus,
   OtwPlayDatePrecision,
   OtwPlayEntityKind,
+  OtwPlayIngestionCandidateStatus,
+  OtwPlayIngestionClassification,
+  OtwPlayIngestionJobStatus,
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
   OtwPlayProvider,
@@ -1918,6 +1921,314 @@ export const musicCatalogEvents = sqliteTable(
 
 export type MusicCatalogEvent = typeof musicCatalogEvents.$inferSelect;
 export type NewMusicCatalogEvent = typeof musicCatalogEvents.$inferInsert;
+
+export const musicIngestionJobs = sqliteTable(
+  "music_ingestion_jobs",
+  {
+    id: text().primaryKey(),
+    source_kind: text("source_kind").notNull().default("playlist_import"),
+    source_external_id: text("source_external_id").notNull(),
+    source_url: text("source_url").notNull(),
+    source_title: text("source_title").notNull(),
+    owner_channel_id: text("owner_channel_id").notNull(),
+    owner_channel_title: text("owner_channel_title").notNull(),
+    import_mode: text("import_mode").notNull(),
+    requested_item_count: integer("requested_item_count").notNull(),
+    status: text().$type<OtwPlayIngestionJobStatus>().notNull().default("queued"),
+    actor_user_id: text("actor_user_id").notNull(),
+    idempotency_key: text("idempotency_key").notNull(),
+    last_error_code: text("last_error_code"),
+    next_retry_at: integer("next_retry_at"),
+    created_at: integer("created_at").notNull(),
+    started_at: integer("started_at"),
+    completed_at: integer("completed_at"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_ingestion_jobs_actor_idempotency").on(
+      table.actor_user_id,
+      table.idempotency_key,
+    ),
+    index("idx_music_ingestion_jobs_source_updated_id").on(
+      table.source_kind,
+      table.source_external_id,
+      sql`${table.updated_at} DESC`,
+      table.id,
+    ),
+    index("idx_music_ingestion_jobs_status_retry_id").on(
+      table.status,
+      table.next_retry_at,
+      table.id,
+    ),
+    check(
+      "music_ingestion_jobs_required_text_check",
+      sql`length(trim(${table.id})) > 0
+        AND ${table.source_kind} = 'playlist_import'
+        AND length(trim(${table.source_external_id})) > 0
+        AND length(trim(${table.source_url})) > 0
+        AND length(trim(${table.source_title})) > 0
+        AND length(trim(${table.owner_channel_id})) > 0
+        AND length(trim(${table.owner_channel_title})) > 0
+        AND length(trim(${table.actor_user_id})) > 0
+        AND length(trim(${table.idempotency_key})) > 0`,
+    ),
+    check(
+      "music_ingestion_jobs_mode_count_check",
+      sql`${table.import_mode} IN ('all_new', 'recent')
+        AND typeof(${table.requested_item_count}) = 'integer'
+        AND ${table.requested_item_count} >= 0
+        AND ${table.requested_item_count} <= 5000`,
+    ),
+    check(
+      "music_ingestion_jobs_status_check",
+      sql`${table.status} IN ('queued', 'collecting', 'completed', 'partial', 'failed')`,
+    ),
+    check(
+      "music_ingestion_jobs_error_check",
+      sql`(${table.last_error_code} IS NULL OR length(trim(${table.last_error_code})) > 0)
+        AND (${table.next_retry_at} IS NULL
+          OR (typeof(${table.next_retry_at}) = 'integer' AND ${table.next_retry_at} >= 0))`,
+    ),
+    check(
+      "music_ingestion_jobs_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
+        AND (${table.started_at} IS NULL
+          OR (typeof(${table.started_at}) = 'integer' AND ${table.started_at} >= ${table.created_at}))
+        AND (${table.completed_at} IS NULL
+          OR (typeof(${table.completed_at}) = 'integer' AND ${table.completed_at} >= ${table.created_at}))`,
+    ),
+  ],
+);
+
+export type MusicIngestionJob = typeof musicIngestionJobs.$inferSelect;
+export type NewMusicIngestionJob = typeof musicIngestionJobs.$inferInsert;
+
+export const musicIngestionCandidates = sqliteTable(
+  "music_ingestion_candidates",
+  {
+    id: text().primaryKey(),
+    provider: text().$type<OtwPlayProvider>().notNull().default("youtube"),
+    external_video_id: text("external_video_id").notNull(),
+    candidate_kind: text("candidate_kind").notNull().default("official_video"),
+    status: text().$type<OtwPlayIngestionCandidateStatus>().notNull().default("discovered"),
+    classification: text().$type<OtwPlayIngestionClassification>().notNull().default("pending_metadata"),
+    exclusion_reason: text("exclusion_reason"),
+    title: text(),
+    channel_id: text("channel_id"),
+    channel_title: text("channel_title"),
+    thumbnail_url: text("thumbnail_url"),
+    duration_seconds: integer("duration_seconds"),
+    provider_published_at: integer("provider_published_at"),
+    availability_status: text("availability_status")
+      .$type<OtwPlaySourceAvailabilityStatus>()
+      .notNull()
+      .default("unknown"),
+    made_for_kids: integer("made_for_kids", { mode: "boolean" }),
+    metadata_checked_at: integer("metadata_checked_at"),
+    first_discovered_at: integer("first_discovered_at").notNull(),
+    last_discovered_at: integer("last_discovered_at").notNull(),
+    retention_expires_at: integer("retention_expires_at").notNull(),
+    next_retry_at: integer("next_retry_at"),
+    linked_performance_id: text("linked_performance_id").references(
+      () => musicPerformances.id,
+      { onDelete: "restrict" },
+    ),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_ingestion_candidates_provider_video").on(
+      table.provider,
+      table.external_video_id,
+    ),
+    index("idx_music_ingestion_candidates_status_updated_id").on(
+      table.status,
+      sql`${table.updated_at} DESC`,
+      table.id,
+    ),
+    index("idx_music_ingestion_candidates_channel_status_id").on(
+      table.channel_id,
+      table.status,
+      table.id,
+    ),
+    index("idx_music_ingestion_candidates_refresh_id").on(
+      table.metadata_checked_at,
+      table.id,
+    ),
+    index("idx_music_ingestion_candidates_retention_id").on(
+      table.retention_expires_at,
+      table.id,
+    ),
+    check(
+      "music_ingestion_candidates_identity_check",
+      sql`${table.provider} = 'youtube'
+        AND length(${table.external_video_id}) = 11
+        AND ${table.external_video_id} NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND ${table.candidate_kind} IN ('official_video', 'singing_clip')`,
+    ),
+    check(
+      "music_ingestion_candidates_status_check",
+      sql`${table.status} IN ('discovered', 'needs_input', 'ready', 'converted', 'ignored', 'blocked')`,
+    ),
+    check(
+      "music_ingestion_candidates_classification_check",
+      sql`${table.classification} IN ('pending_metadata', 'eligible', 'existing_catalog',
+        'existing_proposal', 'existing_candidate', 'channel_review', 'policy_blocked',
+        'unavailable', 'scope_review', 'playlist_duplicate')`,
+    ),
+    check(
+      "music_ingestion_candidates_metadata_check",
+      sql`(${table.exclusion_reason} IS NULL OR length(trim(${table.exclusion_reason})) > 0)
+        AND (${table.title} IS NULL OR length(trim(${table.title})) > 0)
+        AND (${table.channel_id} IS NULL OR length(trim(${table.channel_id})) > 0)
+        AND (${table.channel_title} IS NULL OR length(trim(${table.channel_title})) > 0)
+        AND (${table.duration_seconds} IS NULL
+          OR (typeof(${table.duration_seconds}) = 'integer' AND ${table.duration_seconds} >= 0))`,
+    ),
+    check(
+      "music_ingestion_candidates_availability_check",
+      sql`${table.availability_status} IN ('unknown', 'playable', 'private',
+        'embed_disabled', 'deleted', 'region_blocked', 'unavailable')`,
+    ),
+    check(
+      "music_ingestion_candidates_version_time_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0
+        AND typeof(${table.first_discovered_at}) = 'integer' AND ${table.first_discovered_at} >= 0
+        AND typeof(${table.last_discovered_at}) = 'integer'
+        AND ${table.last_discovered_at} >= ${table.first_discovered_at}
+        AND typeof(${table.retention_expires_at}) = 'integer'
+        AND ${table.retention_expires_at} >= ${table.last_discovered_at}
+        AND (${table.metadata_checked_at} IS NULL
+          OR (typeof(${table.metadata_checked_at}) = 'integer' AND ${table.metadata_checked_at} >= 0))
+        AND (${table.next_retry_at} IS NULL
+          OR (typeof(${table.next_retry_at}) = 'integer' AND ${table.next_retry_at} >= 0))
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicIngestionCandidate = typeof musicIngestionCandidates.$inferSelect;
+export type NewMusicIngestionCandidate = typeof musicIngestionCandidates.$inferInsert;
+
+export const musicIngestionCandidateOrigins = sqliteTable(
+  "music_ingestion_candidate_origins",
+  {
+    id: text().primaryKey(),
+    candidate_id: text("candidate_id")
+      .notNull()
+      .references(() => musicIngestionCandidates.id, { onDelete: "cascade" }),
+    job_id: text("job_id")
+      .notNull()
+      .references(() => musicIngestionJobs.id, { onDelete: "cascade" }),
+    origin_kind: text("origin_kind").notNull().default("playlist_import"),
+    playlist_id: text("playlist_id").notNull(),
+    playlist_item_id: text("playlist_item_id").notNull(),
+    playlist_position: integer("playlist_position").notNull(),
+    is_playlist_duplicate: integer("is_playlist_duplicate", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    discovered_at: integer("discovered_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_ingestion_origins_job_item").on(
+      table.job_id,
+      table.playlist_item_id,
+    ),
+    index("idx_music_ingestion_origins_job_position_id").on(
+      table.job_id,
+      table.playlist_position,
+      table.id,
+    ),
+    index("idx_music_ingestion_origins_candidate_discovered_id").on(
+      table.candidate_id,
+      sql`${table.discovered_at} DESC`,
+      table.id,
+    ),
+    check(
+      "music_ingestion_origins_required_check",
+      sql`${table.origin_kind} = 'playlist_import'
+        AND length(trim(${table.id})) > 0
+        AND length(trim(${table.playlist_id})) > 0
+        AND length(trim(${table.playlist_item_id})) > 0
+        AND typeof(${table.playlist_position}) = 'integer'
+        AND ${table.playlist_position} >= 0
+        AND typeof(${table.is_playlist_duplicate}) = 'integer'
+        AND ${table.is_playlist_duplicate} IN (0, 1)
+        AND typeof(${table.discovered_at}) = 'integer'
+        AND ${table.discovered_at} >= 0`,
+    ),
+  ],
+);
+
+export type MusicIngestionCandidateOrigin =
+  typeof musicIngestionCandidateOrigins.$inferSelect;
+export type NewMusicIngestionCandidateOrigin =
+  typeof musicIngestionCandidateOrigins.$inferInsert;
+
+export const musicIngestionMessages = sqliteTable(
+  "music_ingestion_messages",
+  {
+    idempotency_key: text("idempotency_key").primaryKey(),
+    job_id: text("job_id")
+      .notNull()
+      .references(() => musicIngestionJobs.id, { onDelete: "cascade" }),
+    message_kind: text("message_kind").notNull(),
+    payload_key: text("payload_key").notNull(),
+    page_token: text("page_token"),
+    video_ids_json: text("video_ids_json"),
+    status: text().notNull().default("pending"),
+    attempts: integer().notNull().default(0),
+    last_error_code: text("last_error_code"),
+    next_retry_at: integer("next_retry_at"),
+    created_at: integer("created_at").notNull(),
+    completed_at: integer("completed_at"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_ingestion_messages_job_kind_payload").on(
+      table.job_id,
+      table.message_kind,
+      table.payload_key,
+    ),
+    index("idx_music_ingestion_messages_status_retry_key").on(
+      table.status,
+      table.next_retry_at,
+      table.idempotency_key,
+    ),
+    check(
+      "music_ingestion_messages_required_check",
+      sql`length(trim(${table.idempotency_key})) > 0
+        AND length(trim(${table.payload_key})) > 0
+        AND ${table.message_kind} IN ('playlist_page', 'video_batch')
+        AND ${table.status} IN ('pending', 'completed', 'failed')
+        AND typeof(${table.attempts}) = 'integer' AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "music_ingestion_messages_payload_check",
+      sql`(${table.message_kind} = 'playlist_page' AND ${table.video_ids_json} IS NULL)
+        OR (${table.message_kind} = 'video_batch'
+          AND ${table.page_token} IS NULL
+          AND ${table.video_ids_json} IS NOT NULL
+          AND json_valid(${table.video_ids_json}) = 1
+          AND json_type(${table.video_ids_json}) = 'array')`,
+    ),
+    check(
+      "music_ingestion_messages_time_check",
+      sql`typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
+        AND (${table.completed_at} IS NULL
+          OR (typeof(${table.completed_at}) = 'integer' AND ${table.completed_at} >= ${table.created_at}))
+        AND (${table.next_retry_at} IS NULL
+          OR (typeof(${table.next_retry_at}) = 'integer' AND ${table.next_retry_at} >= 0))`,
+    ),
+  ],
+);
+
+export type MusicIngestionMessage = typeof musicIngestionMessages.$inferSelect;
+export type NewMusicIngestionMessage = typeof musicIngestionMessages.$inferInsert;
 
 export const musicSearchTerms = sqliteTable(
   "music_search_terms",

@@ -67,6 +67,29 @@
       },
     },
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "OTW_PLAY_INGESTION_QUEUE",
+        "queue": "otw-play-ingestion",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "otw-play-ingestion",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-play-ingestion-dlq",
+      },
+      {
+        "queue": "otw-play-ingestion-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 0,
+      },
+    ],
+  },
   // 스케줄 자동 업데이트, X 수집, YouTube 캐시 예열을 위한 Cron Trigger
   // 실제 실행 주기는 DB settings 테이블에서 제어
   "triggers": {
