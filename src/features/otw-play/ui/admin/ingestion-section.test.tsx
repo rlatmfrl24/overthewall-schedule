@@ -2,6 +2,7 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/shared/api/client";
 import { createQueryWrapper } from "@/test/query-client";
 import { chunkOtwPlayIngestionSelections } from "../../model/ingestion-selection";
 import { IngestionSection } from "./ingestion-section";
@@ -187,6 +188,32 @@ describe("IngestionSection", () => {
     ));
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
       description: expect.stringContaining("공개 게시로 전환되지는 않았습니다"),
+    }));
+  });
+
+  it("shows the safe YouTube failure classification and request ID", async () => {
+    preflightMock.mockRejectedValue(new ApiError(
+      "YouTube playlist metadata is unavailable",
+      503,
+      {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        fields: { youtube: "network" },
+        requestId: "request-123",
+      },
+    ));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("playlist URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description:
+        "YouTube playlist metadata 조회에 실패했습니다: network 요청 ID: request-123",
     }));
   });
 

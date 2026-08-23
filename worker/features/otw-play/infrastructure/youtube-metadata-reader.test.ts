@@ -3,6 +3,30 @@ import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metada
 import { YouTubeOtwPlayMetadataReader } from "./youtube-metadata-reader";
 
 describe("YouTubeOtwPlayMetadataReader", () => {
+  it("calls fetch without rebinding the Cloudflare-compatible receiver", async () => {
+    let calledWithoutReceiver = false;
+    const fetcher = async function (this: unknown) {
+      calledWithoutReceiver = this === undefined;
+      return Response.json({
+        items: [{
+          id: "PL1234567890",
+          snippet: {
+            title: "Official Covers",
+            channelId: "UC123",
+            channelTitle: "Official",
+          },
+          contentDetails: { itemCount: 1 },
+          status: { privacyStatus: "public" },
+        }],
+      });
+    } as typeof fetch;
+    const reader = new YouTubeOtwPlayMetadataReader("secret-key", fetcher);
+
+    await expect(reader.readPlaylistSummary("PL1234567890")).resolves
+      .toMatchObject({ playlistId: "PL1234567890", itemCount: 1 });
+    expect(calledWithoutReceiver).toBe(true);
+  });
+
   it("reads authoritative video and channel identity without exposing the API key", async () => {
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));

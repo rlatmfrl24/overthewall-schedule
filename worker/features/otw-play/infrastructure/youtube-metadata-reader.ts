@@ -171,7 +171,8 @@ export class YouTubeOtwPlayMetadataReader
     );
     let response: Response;
     try {
-      response = await this.fetcher(
+      const fetcher = this.fetcher;
+      response = await fetcher(
         `https://www.googleapis.com/youtube/v3/${path}?${search.toString()}`,
         { signal: controller.signal },
       );

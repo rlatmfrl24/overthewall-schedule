@@ -194,9 +194,10 @@ export class CloudflarePlayObservabilityReader
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/analytics_engine/sql`;
+      const fetcher = this.fetcher;
       const responses = await Promise.all(
         Object.values(OTW_PLAY_OBSERVABILITY_SQL).map((body) =>
-          this.fetcher(endpoint, {
+          fetcher(endpoint, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,

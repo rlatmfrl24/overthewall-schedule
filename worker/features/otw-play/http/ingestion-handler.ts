@@ -335,6 +335,7 @@ export const createIngestionHandler = (
           ? "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE"
           : "PLAY_ADMIN_VALIDATION_FAILED",
         "YouTube playlist metadata is unavailable",
+        { youtube: error.code },
       );
     }
     console.error("OTW Play ingestion request failed", {

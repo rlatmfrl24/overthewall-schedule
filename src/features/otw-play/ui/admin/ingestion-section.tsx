@@ -11,6 +11,7 @@ import type {
   OtwPlayRelationType,
 } from "@contracts/otw-play";
 import { useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -180,6 +181,27 @@ const formatDuration = (seconds: number | null) => {
 const sourceUrl = (videoId: string) =>
   `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 
+const playlistPreflightErrorMessage = (error: unknown) => {
+  if (!(error instanceof ApiError)) {
+    return "로컬 Worker에 연결하지 못했습니다. 개발 서버 상태를 확인한 뒤 다시 시도하세요.";
+  }
+  const requestSuffix = error.requestId ? ` 요청 ID: ${error.requestId}` : "";
+  switch (error.code) {
+    case "AUTH_REQUIRED":
+      return "관리자 로그인 세션을 확인한 뒤 페이지를 새로고침하세요.";
+    case "PLAY_ADMIN_INVALID_REQUEST":
+      return `지원하는 YouTube playlist URL 또는 ID인지 확인하세요.${requestSuffix}`;
+    case "PLAY_ADMIN_NOT_FOUND":
+      return `공개 또는 일부 공개 playlist를 찾지 못했습니다.${requestSuffix}`;
+    case "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE":
+      return `YouTube playlist metadata 조회에 실패했습니다${error.fields?.youtube ? `: ${error.fields.youtube}` : ". 잠시 후 다시 시도하세요."}${requestSuffix}`;
+    case "PLAY_ADMIN_INTERNAL_ERROR":
+      return `로컬 D1의 playlist 가져오기 상태를 확인하지 못했습니다.${requestSuffix}`;
+    default:
+      return `${error.message}${requestSuffix}`;
+  }
+};
+
 export function IngestionSection({
   catalog,
   onOpenCatalog,
@@ -306,8 +328,11 @@ export function IngestionSection({
     setBusy("preflight");
     try {
       setPreflight(await preflightOtwPlayPlaylistImport(playlistImportInput()));
-    } catch {
-      toast({ variant: "error", description: "playlist를 확인하지 못했습니다." });
+    } catch (error) {
+      toast({
+        variant: "error",
+        description: playlistPreflightErrorMessage(error),
+      });
     } finally {
       setBusy(null);
     }

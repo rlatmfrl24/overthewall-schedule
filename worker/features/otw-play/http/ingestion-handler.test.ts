@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 import type { IngestionService } from "../application/ingestion-service";
 import { IngestionRepositoryError } from "../application/ports/ingestion-repository";
+import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import { createIngestionHandler } from "./ingestion-handler";
 
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
@@ -64,6 +65,37 @@ describe("OTW Play ingestion handler", () => {
     expect(createJob).toHaveBeenCalledWith("admin-1", expect.objectContaining({
       idempotencyKey: "request-1234",
     }));
+  });
+
+  it("returns a safe YouTube failure classification for playlist diagnostics", async () => {
+    const preflight = vi.fn(async () => {
+      throw new OtwPlayYouTubeMetadataError(
+        "secret provider detail",
+        "network",
+        true,
+      );
+    });
+    const handler = createIngestionHandler(
+      () => ({ preflight }) as unknown as IngestionService,
+    );
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/imports/playlist/preflight",
+      {
+        method: "POST",
+        headers: { "CF-Ray": "ray-youtube" },
+        body: JSON.stringify({ playlistUrl: "PL1234567890", mode: "all_new" }),
+      },
+    ), env);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        message: "YouTube playlist metadata is unavailable",
+        fields: { youtube: "network" },
+        requestId: "ray-youtube",
+      },
+    });
   });
 
   it("validates list query bounds and maps missing jobs to typed errors", async () => {
