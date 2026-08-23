@@ -159,15 +159,17 @@ describe("IngestionSection", () => {
       createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
       { wrapper: createQueryWrapper() },
     );
-    fireEvent.change(screen.getByLabelText("playlist URL 또는 ID"), {
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
       target: { value: "PL1234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
     expect(await screen.findByText("Official Covers")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
     expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
 
     fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
+    expect(screen.queryByLabelText("원곡 제목")).toBeNull();
+    expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
       "youtube:AAAAAAAAAAA",
@@ -191,6 +193,28 @@ describe("IngestionSection", () => {
     }));
   });
 
+  it("shows only the controls required by the selected import mode", () => {
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    expect(screen.getByRole("group", { name: "가져오기 범위" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /새 항목 전체/ })).toHaveProperty("checked", true);
+    expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
+    expect(screen.queryByLabelText("시작 위치")).toBeNull();
+    expect(screen.queryByLabelText("가져올 개수")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: /최근 항목/ }));
+    expect(screen.getByLabelText("최근 가져올 개수")).toBeTruthy();
+    expect(screen.queryByLabelText("시작 위치")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: /위치 범위/ }));
+    expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
+    expect(screen.getByLabelText("시작 위치")).toBeTruthy();
+    expect(screen.getByLabelText("가져올 개수")).toBeTruthy();
+  });
+
   it("shows the safe YouTube failure classification and request ID", async () => {
     preflightMock.mockRejectedValue(new ApiError(
       "YouTube playlist metadata is unavailable",
@@ -205,10 +229,10 @@ describe("IngestionSection", () => {
       createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
       { wrapper: createQueryWrapper() },
     );
-    fireEvent.change(screen.getByLabelText("playlist URL 또는 ID"), {
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
       target: { value: "PL1234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
 
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
       variant: "error",
@@ -241,10 +265,10 @@ describe("IngestionSection", () => {
       createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
       { wrapper: createQueryWrapper() },
     );
-    fireEvent.change(screen.getByLabelText("playlist URL 또는 ID"), {
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
       target: { value: "PL1234567890" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
     await screen.findByText("Official Covers");
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
     await screen.findAllByText("Candidate Video");
