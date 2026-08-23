@@ -168,6 +168,12 @@ describe("IngestionSection", () => {
     expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
 
     fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
+    const reviewPanel = screen.getByRole("complementary", { name: "후보 행별 보완" });
+    expect(reviewPanel.className).toContain("xl:sticky");
+    expect(reviewPanel.firstElementChild?.className).toContain("xl:max-h-[calc(100dvh-2rem)]");
+    expect(screen.getAllByRole("button", { name: "편집 중" }).every(
+      (button) => button.getAttribute("aria-pressed") === "true",
+    )).toBe(true);
     expect(screen.queryByLabelText("원곡 제목")).toBeNull();
     expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));

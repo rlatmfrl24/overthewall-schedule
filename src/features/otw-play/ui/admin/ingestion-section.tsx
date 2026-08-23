@@ -777,11 +777,16 @@ export function IngestionSection({
               <Button className="ml-auto" disabled={selectedReady === 0 || busy !== null} onClick={() => void convertSelected()}>선택 ready {selectedReady}건 draft 변환</Button>
             </div>
 
-            <div className="hidden overflow-x-auto rounded-xl border md:block">
-              <Table><TableHeader><TableRow><TableHead className="w-10">선택</TableHead><TableHead>영상</TableHead><TableHead>채널</TableHead><TableHead>위치·시간</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.originId}><TableCell><Checkbox checked={selected.has(item.candidateId)} onCheckedChange={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(item.candidateId); else next.delete(item.candidateId); return next; })} /></TableCell><TableCell><div className="flex min-w-72 gap-3">{item.thumbnailUrl ? <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" /> : <div className="h-14 w-24 rounded bg-muted" />}<div><div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div><a className="text-xs text-primary underline" href={sourceUrl(item.videoId)} target="_blank" rel="noreferrer">YouTube 원문 <ExternalLink className="inline size-3" /></a></div></div></TableCell><TableCell>{item.channelTitle ?? "-"}</TableCell><TableCell>#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</TableCell><TableCell><Badge variant={item.status === "blocked" ? "destructive" : "secondary"}>{item.classification}</Badge><div className="mt-1 text-xs text-muted-foreground">{item.status}{item.exclusionReason ? ` · ${item.exclusionReason}` : ""}</div></TableCell><TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => setEditingId(item.candidateId)}>행별 보완</Button></TableCell></TableRow>)}</TableBody></Table>
-            </div>
+            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]" : ""}`}>
+              <div className="min-w-0 space-y-3">
+                <div className="hidden overflow-x-auto rounded-xl border md:block">
+                  <Table><TableHeader><TableRow><TableHead className="w-10">선택</TableHead><TableHead>영상</TableHead><TableHead>채널</TableHead><TableHead>위치·시간</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader><TableBody>{filtered.map((item) => <TableRow key={item.originId} data-state={editingId === item.candidateId ? "selected" : undefined}><TableCell><Checkbox checked={selected.has(item.candidateId)} onCheckedChange={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(item.candidateId); else next.delete(item.candidateId); return next; })} /></TableCell><TableCell><div className="flex min-w-72 gap-3">{item.thumbnailUrl ? <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" /> : <div className="h-14 w-24 rounded bg-muted" />}<div><div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div><a className="text-xs text-primary underline" href={sourceUrl(item.videoId)} target="_blank" rel="noreferrer">YouTube 원문 <ExternalLink className="inline size-3" /></a></div></div></TableCell><TableCell>{item.channelTitle ?? "-"}</TableCell><TableCell>#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</TableCell><TableCell><Badge variant={item.status === "blocked" ? "destructive" : "secondary"}>{item.classification}</Badge><div className="mt-1 text-xs text-muted-foreground">{item.status}{item.exclusionReason ? ` · ${item.exclusionReason}` : ""}</div></TableCell><TableCell className="text-right"><Button size="sm" variant={editingId === item.candidateId ? "secondary" : "outline"} aria-pressed={editingId === item.candidateId} onClick={() => setEditingId(item.candidateId)}>{editingId === item.candidateId ? "편집 중" : "행별 보완"}</Button></TableCell></TableRow>)}</TableBody></Table>
+                </div>
 
-            <div className="space-y-3 md:hidden">{filtered.map((item) => <div key={item.originId} className="space-y-2 rounded-xl border p-3"><div className="flex items-start gap-3"><Checkbox checked={selected.has(item.candidateId)} onCheckedChange={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(item.candidateId); else next.delete(item.candidateId); return next; })} />{item.thumbnailUrl ? <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" /> : null}<div className="min-w-0"><div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div><div className="text-xs text-muted-foreground">#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</div></div></div><div className="flex items-center justify-between"><Badge variant="secondary">{item.classification}</Badge><Button size="sm" variant="outline" onClick={() => setEditingId(item.candidateId)}>행별 보완</Button></div></div>)}</div>
+                <div className="space-y-3 md:hidden">{filtered.map((item) => <div key={item.originId} data-state={editingId === item.candidateId ? "selected" : undefined} className="space-y-2 rounded-xl border p-3 data-[state=selected]:border-primary data-[state=selected]:bg-primary/5"><div className="flex items-start gap-3"><Checkbox checked={selected.has(item.candidateId)} onCheckedChange={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(item.candidateId); else next.delete(item.candidateId); return next; })} />{item.thumbnailUrl ? <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" /> : null}<div className="min-w-0"><div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div><div className="text-xs text-muted-foreground">#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</div></div></div><div className="flex items-center justify-between"><Badge variant="secondary">{item.classification}</Badge><Button size="sm" variant={editingId === item.candidateId ? "secondary" : "outline"} aria-pressed={editingId === item.candidateId} onClick={() => setEditingId(item.candidateId)}>{editingId === item.candidateId ? "편집 중" : "행별 보완"}</Button></div></div>)}</div>
+                {nextCursor && <Button variant="outline" className="w-full" disabled={busy !== null} onClick={() => void loadMore()}>{busy === "more" ? <Loader2 className="animate-spin" /> : null} 다음 100개 불러오기</Button>}
+                {itemsQuery.isLoading && <Loader2 className="mx-auto animate-spin" />}
+              </div>
 
             {editingId && (() => {
               const item = items.find((candidate) => candidate.candidateId === editingId);
@@ -789,8 +794,9 @@ export function IngestionSection({
               if (!item || !draft) return null;
               const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({ ...current, [item.candidateId]: { ...draft, ...change } }));
               return (
-                <section className="overflow-hidden rounded-xl border" aria-labelledby={`candidate-editor-${item.candidateId}`}>
-                  <div className="flex items-start justify-between gap-3 border-b bg-muted/20 p-4">
+                <aside className="min-w-0 xl:sticky xl:top-4" aria-label="후보 행별 보완">
+                <section className="overflow-hidden rounded-xl border bg-background shadow-sm xl:flex xl:max-h-[calc(100dvh-2rem)] xl:flex-col" aria-labelledby={`candidate-editor-${item.candidateId}`}>
+                  <div className="flex items-start justify-between gap-3 border-b bg-muted/20 p-4 xl:shrink-0">
                     <div className="space-y-1">
                       <h3 id={`candidate-editor-${item.candidateId}`} className="font-semibold">
                         {item.title ?? item.videoId}
@@ -807,10 +813,10 @@ export function IngestionSection({
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>닫기</Button>
                   </div>
 
-                  <div className="space-y-5 p-4">
+                  <div className="space-y-5 p-4 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
                     <fieldset className="space-y-4 rounded-lg border bg-muted/10 p-4">
                       <legend className="px-1 text-sm font-semibold">곡 정보</legend>
-                      <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-4">
                         <Field>
                           <FieldLabel id={`song-source-${item.candidateId}`}>연결할 곡</FieldLabel>
                           <FieldDescription>기존 곡을 연결하거나 새 곡 정보를 입력합니다.</FieldDescription>
@@ -899,7 +905,7 @@ export function IngestionSection({
                       <p className="text-xs leading-relaxed text-muted-foreground">
                         실제 가창 참여자를 선택하고 각 참여자의 역할을 지정합니다.
                       </p>
-                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid gap-2">
                         {catalog.entities
                           .filter((entity) => entity.archivedAt === null)
                           .map((entity) => {
@@ -960,7 +966,7 @@ export function IngestionSection({
                           카탈로그 검색과 표시에 사용되는 값을 확인합니다.
                         </p>
                       </div>
-                      <div className="grid gap-5 xl:grid-cols-3">
+                      <div className="grid gap-5">
                         <ChoiceGroup
                           label="곡 관계"
                           value={draft.relationType}
@@ -992,7 +998,7 @@ export function IngestionSection({
                     </section>
                   </div>
 
-                  <div className="flex flex-col gap-3 border-t bg-muted/20 p-4 sm:flex-row sm:items-center">
+                  <div className="flex flex-wrap items-center gap-2 border-t bg-muted/20 p-4 xl:shrink-0">
                     <Button
                       disabled={busy !== null || !["eligible", "existing_candidate", "scope_review"].includes(item.classification)}
                       onClick={() => void saveCandidate(item)}
@@ -1016,10 +1022,10 @@ export function IngestionSection({
                     ) : null}
                   </div>
                 </section>
+                </aside>
               );
             })()}
-            {nextCursor && <Button variant="outline" className="w-full" disabled={busy !== null} onClick={() => void loadMore()}>{busy === "more" ? <Loader2 className="animate-spin" /> : null} 다음 100개 불러오기</Button>}
-            {itemsQuery.isLoading && <Loader2 className="mx-auto animate-spin" />}
+            </div>
           </CardContent>
         </Card>
       )}
