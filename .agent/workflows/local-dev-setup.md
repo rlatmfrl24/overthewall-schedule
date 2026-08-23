@@ -12,7 +12,7 @@ Use canonical guidance:
 Minimum bootstrap commands:
 1. `pnpm install`
 2. `pnpm cf-typegen`
-3. `pnpm d1:reset:local`
+3. `pnpm d1:reset:local -- --force` (기존 로컬 D1을 폐기하는 경우)
 4. `pnpm d1:seed:local`
 5. `pnpm d1:doctor`
 6. `pnpm dev`
