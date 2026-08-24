@@ -72,6 +72,7 @@ const candidate = (index = 0) => ({
   videoId: index === 0 ? "AAAAAAAAAAA" : `candidate-${index}`,
   status: "ready" as const,
   classification: "eligible" as const,
+  candidateClassification: "eligible" as const,
   exclusionReason: null,
   title: index === 0 ? "Candidate Video" : `Candidate ${index}`,
   channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
@@ -468,6 +469,37 @@ describe("IngestionSection", () => {
       description:
         "YouTube playlist metadata 조회에 실패했습니다: network 요청 ID: request-123",
     }));
+  });
+
+  it("does not misclassify an existing catalog candidate as ready-editable", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              classification: "existing_candidate" as const,
+              candidateClassification: "existing_catalog" as const,
+              status: "ignored" as const,
+              reviewInput: null,
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    expect(screen.getAllByText("실제 후보 · existing_catalog")).not.toHaveLength(0);
+    expect(screen.getByText(
+      "이미 카탈로그에 등록된 영상이므로 후보 검수값을 저장하지 않습니다.",
+    )).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
+      .toBe(true);
+    expect(updateCandidateMock).not.toHaveBeenCalled();
   });
 
   it("preserves row inputs and refreshes authority after a real review conflict", async () => {

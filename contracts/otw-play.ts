@@ -187,6 +187,7 @@ export interface OtwPlayIngestionCandidateItemDto {
   videoId: string;
   status: OtwPlayIngestionCandidateStatus;
   classification: OtwPlayIngestionClassification;
+  candidateClassification: OtwPlayIngestionClassification;
   exclusionReason: string | null;
   title: string | null;
   channelId: string | null;

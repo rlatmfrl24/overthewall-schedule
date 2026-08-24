@@ -429,6 +429,35 @@ const bulkIgnorableAvailability = new Set<
   "unavailable",
 ]);
 
+const candidateReviewBlockedReason = (
+  item: OtwPlayIngestionCandidateItemDto,
+) => {
+  if (item.status === "converted") {
+    return "이미 catalog draft로 변환된 후보입니다.";
+  }
+  if (item.candidateClassification === "existing_catalog") {
+    return "이미 카탈로그에 등록된 영상이므로 후보 검수값을 저장하지 않습니다.";
+  }
+  if (item.candidateClassification === "existing_proposal") {
+    return "검수 대기 중인 회원 제안이 있어 후보 검수값을 저장하지 않습니다.";
+  }
+  if (
+    item.candidateClassification === "unavailable" ||
+    item.candidateClassification === "policy_blocked"
+  ) {
+    return "재생 가능 여부 또는 채널 정책을 먼저 확인해야 합니다.";
+  }
+  if (item.candidateClassification === "pending_metadata") {
+    return "YouTube metadata 수집이 끝난 뒤 ready로 저장할 수 있습니다.";
+  }
+  if (item.candidateClassification === "channel_review" || !item.catalogChannelId) {
+    return "공식 채널 승인이 필요해 아직 ready로 저장할 수 없습니다.";
+  }
+  return ["eligible", "scope_review"].includes(item.candidateClassification)
+    ? null
+    : "현재 후보 상태에서는 ready로 저장할 수 없습니다.";
+};
+
 export function IngestionSection({
   catalog,
   onOpenCatalog,
@@ -632,6 +661,14 @@ export function IngestionSection({
             description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지했지만 최신 상태를 불러오지 못했습니다.",
           });
         }
+        return;
+      }
+      if (error instanceof ApiError && error.code === "PLAY_ADMIN_VALIDATION_FAILED") {
+        toast({
+          variant: "info",
+          description: candidateReviewBlockedReason(item) ??
+            "후보의 최신 분류 또는 채널 상태를 확인한 뒤 다시 시도해 주세요.",
+        });
         return;
       }
       toast({
@@ -1061,6 +1098,11 @@ export function IngestionSection({
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {item.status}{item.exclusionReason ? ` · ${item.exclusionReason}` : ""}
                               </div>
+                              {item.classification !== item.candidateClassification ? (
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  실제 후보 · {item.candidateClassification}
+                                </div>
+                              ) : null}
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -1109,7 +1151,14 @@ export function IngestionSection({
                         </div>
                         <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />
                         <div className="flex items-center justify-between">
-                          <Badge variant="secondary">{item.classification}</Badge>
+                          <div>
+                            <Badge variant="secondary">{item.classification}</Badge>
+                            {item.classification !== item.candidateClassification ? (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                실제 후보 · {item.candidateClassification}
+                              </div>
+                            ) : null}
+                          </div>
                           <Button
                             size="sm"
                             variant={editingId === item.candidateId ? "secondary" : "outline"}
@@ -1131,6 +1180,7 @@ export function IngestionSection({
               const item = items.find((candidate) => candidate.candidateId === editingId);
               const draft = item ? drafts[item.candidateId] : null;
               if (!item || !draft) return null;
+              const reviewBlockedReason = candidateReviewBlockedReason(item);
               const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({
                 ...current,
                 [item.candidateId]: { ...draft, ...change, isDirty: true },
@@ -1149,6 +1199,11 @@ export function IngestionSection({
                       {item.classification === "scope_review" ? (
                         <p role="alert" className="text-xs leading-relaxed text-destructive">
                           현재 공개 범위 밖 형식입니다. 영상 유형과 사용 범위를 확인한 뒤 저장하면 공식 영상 후보로 분류합니다.
+                        </p>
+                      ) : null}
+                      {reviewBlockedReason ? (
+                        <p role="alert" className="text-xs leading-relaxed text-destructive">
+                          {reviewBlockedReason}
                         </p>
                       ) : null}
                     </div>
@@ -1406,7 +1461,7 @@ export function IngestionSection({
 
                   <div className="flex flex-wrap items-center gap-2 border-t bg-muted/20 p-4 xl:shrink-0">
                     <Button
-                      disabled={busy !== null || !["eligible", "existing_candidate", "scope_review"].includes(item.classification)}
+                      disabled={busy !== null || reviewBlockedReason !== null}
                       onClick={() => void saveCandidate(item)}
                     >
                       ready로 저장

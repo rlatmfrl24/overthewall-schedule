@@ -177,6 +177,56 @@ const parseReviewInput = (value: string | null): OtwPlayIngestionReviewInput | n
   }
 };
 
+const stableJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, stableJsonValue(item)]),
+  );
+};
+
+const comparableReviewInput = (
+  value: OtwPlayIngestionReviewInput | null,
+): unknown => {
+  if (!value) return null;
+  const song = value.song.kind === "from_video"
+    ? { ...value.song, tags: [...(value.song.tags ?? [])].sort() }
+    : value.song.kind === "create"
+      ? {
+          ...value.song,
+          aliases: value.song.aliases.map((alias) => ({
+            ...alias,
+            locale: alias.locale ?? null,
+            aliasKind: alias.aliasKind ?? null,
+          })),
+          originalArtists: [...value.song.originalArtists].sort(
+            (left, right) => left.creditOrder - right.creditOrder,
+          ),
+          tags: [...(value.song.tags ?? [])].sort(),
+        }
+      : value.song;
+  return stableJsonValue({
+    ...value,
+    song,
+    participants: value.participants
+      .map((participant) => ({
+        ...participant,
+        creditNameSnapshot: participant.creditNameSnapshot ?? null,
+      }))
+      .sort((left, right) => left.creditOrder - right.creditOrder),
+    internalNote: value.internalNote ?? null,
+  });
+};
+
+const sameReviewInput = (
+  left: OtwPlayIngestionReviewInput | null,
+  right: OtwPlayIngestionReviewInput | null,
+) => JSON.stringify(comparableReviewInput(left)) ===
+  JSON.stringify(comparableReviewInput(right));
+
 export class D1IngestionRepository implements IngestionRepository {
   private readonly database: D1Database;
 
@@ -348,6 +398,7 @@ export class D1IngestionRepository implements IngestionRepository {
         candidate.version AS candidate_version, origin.playlist_position,
         origin.playlist_item_id, candidate.external_video_id,
         candidate.status, ${itemClassificationSql} AS item_classification,
+        candidate.classification AS candidate_classification,
         candidate.exclusion_reason, candidate.title, candidate.channel_id,
         candidate.channel_title,
         (SELECT channel.id FROM music_channels AS channel
@@ -386,6 +437,7 @@ export class D1IngestionRepository implements IngestionRepository {
           external_video_id: string;
           status: OtwPlayIngestionCandidateItemDto["status"];
           item_classification: OtwPlayIngestionClassification;
+          candidate_classification: OtwPlayIngestionClassification;
           exclusion_reason: string | null;
           title: string | null;
           channel_id: string | null;
@@ -414,6 +466,7 @@ export class D1IngestionRepository implements IngestionRepository {
         external_video_id: string;
         status: OtwPlayIngestionCandidateItemDto["status"];
         item_classification: OtwPlayIngestionClassification;
+        candidate_classification: OtwPlayIngestionClassification;
         exclusion_reason: string | null;
         title: string | null;
         channel_id: string | null;
@@ -440,6 +493,7 @@ export class D1IngestionRepository implements IngestionRepository {
         videoId: row.external_video_id,
         status: row.status,
         classification: row.item_classification,
+        candidateClassification: row.candidate_classification,
         exclusionReason: row.exclusion_reason,
         title: row.title,
         channelId: row.channel_id,
@@ -743,6 +797,12 @@ export class D1IngestionRepository implements IngestionRepository {
                WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
                  AND (verification_status = 'revoked' OR active = 0)
              ) THEN 'policy_blocked'
+             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND verification_status = 'approved' AND active = 1
+                 AND channel_role IN (${officialChannelRoleSql})
+             ) THEN 'eligible'
              WHEN observation.scope_review = 1 AND EXISTS (
                SELECT 1 FROM music_channels
                WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
@@ -758,6 +818,8 @@ export class D1IngestionRepository implements IngestionRepository {
              ELSE 'channel_review'
            END,
            status = CASE
+             WHEN candidate.status = 'converted' THEN 'converted'
+             WHEN candidate.status = 'ignored' THEN 'ignored'
              WHEN observation.availability_status <> 'playable'
                OR observation.made_for_kids = 1 OR EXISTS (
                  SELECT 1 FROM music_channels
@@ -771,7 +833,14 @@ export class D1IngestionRepository implements IngestionRepository {
                SELECT 1 FROM music_cover_proposals
                WHERE youtube_video_id = observation.video_id AND segment_start_seconds = 0
                  AND status = 'pending_review'
-             ) OR observation.scope_review = 1 THEN 'discovered'
+             ) THEN 'discovered'
+             WHEN candidate.review_input_json IS NOT NULL AND EXISTS (
+               SELECT 1 FROM music_channels
+               WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
+                 AND verification_status = 'approved' AND active = 1
+                 AND channel_role IN (${officialChannelRoleSql})
+             ) THEN 'ready'
+             WHEN observation.scope_review = 1 THEN 'discovered'
              WHEN EXISTS (
                SELECT 1 FROM music_channels
                WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
@@ -789,10 +858,12 @@ export class D1IngestionRepository implements IngestionRepository {
                WHERE provider = 'youtube' AND external_channel_id = observation.channel_id
                  AND (verification_status = 'revoked' OR active = 0)
              ) THEN 'channel_policy_blocked'
-             WHEN observation.scope_review = 1 THEN 'release_scope_review'
+             WHEN observation.scope_review = 1 AND candidate.review_input_json IS NULL
+               THEN 'release_scope_review'
              ELSE NULL
            END,
            retention_expires_at = CASE
+             WHEN candidate.status = 'ignored' THEN context.blocked_expires_at
              WHEN observation.availability_status <> 'playable'
                OR observation.made_for_kids = 1 OR EXISTS (
                  SELECT 1 FROM music_channels
@@ -1063,10 +1134,31 @@ export class D1IngestionRepository implements IngestionRepository {
   }) {
     const hasExpectedReviewState = command.expectedReviewInput !== undefined &&
       command.expectedReviewStatus !== undefined;
-    const expectedReviewInputJson = command.expectedReviewInput === undefined ||
-        command.expectedReviewInput === null
-      ? null
-      : JSON.stringify(command.expectedReviewInput);
+    const current = await this.readReviewCandidateById(command.candidateId);
+    let expectedVersion = command.expectedVersion;
+    if (current.version !== command.expectedVersion) {
+      if (
+        !hasExpectedReviewState ||
+        current.status !== command.expectedReviewStatus ||
+        !sameReviewInput(current.reviewInput, command.expectedReviewInput ?? null)
+      ) {
+        throw new IngestionRepositoryError(
+          "stale_message",
+          "Ingestion candidate changed during review",
+        );
+      }
+      expectedVersion = current.version;
+    }
+    if (
+      current.status === "converted" ||
+      !["eligible", "scope_review"].includes(current.classification) ||
+      !current.catalogChannelId
+    ) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Ingestion candidate is not eligible for review saving",
+      );
+    }
     await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_candidates
@@ -1074,13 +1166,7 @@ export class D1IngestionRepository implements IngestionRepository {
            classification = 'eligible', exclusion_reason = NULL,
            last_conversion_outcome = NULL, last_conversion_error_code = NULL,
            version = version + 1, updated_at = ?
-         WHERE id = ? AND (
-           version = ? OR (
-             ? = 1 AND status = ? AND (
-               (review_input_json IS NULL AND ? IS NULL) OR review_input_json = ?
-             )
-           )
-         )
+         WHERE id = ? AND version = ?
            AND classification IN ('eligible', 'scope_review')
            AND status <> 'converted'
            AND EXISTS (
@@ -1095,11 +1181,7 @@ export class D1IngestionRepository implements IngestionRepository {
         command.actorUserId,
         command.now,
         command.candidateId,
-        command.expectedVersion,
-        hasExpectedReviewState ? 1 : 0,
-        command.expectedReviewStatus ?? null,
-        expectedReviewInputJson,
-        expectedReviewInputJson,
+        expectedVersion,
       ),
       this.database.prepare(
         `INSERT INTO music_ingestion_events (
@@ -1202,6 +1284,7 @@ export class D1IngestionRepository implements IngestionRepository {
         channel.channel_role as (typeof OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES)[number],
       );
     const scopeReview = video?.scopeReview === true;
+    const current = await this.readReviewCandidateById(command.candidateId);
     const classification = existingSource
       ? "existing_catalog"
       : existingProposal
@@ -1211,23 +1294,26 @@ export class D1IngestionRepository implements IngestionRepository {
           : kids || policyBlocked
             ? "policy_blocked"
             : approved
-              ? scopeReview ? "scope_review" : "eligible"
+              ? current.reviewInput ? "eligible" : scopeReview ? "scope_review" : "eligible"
               : "channel_review";
-    const current = await this.readReviewCandidateById(command.candidateId);
-    const status = unavailable || kids || policyBlocked
-      ? "blocked"
-      : existingSource || existingProposal
-        ? "discovered"
-        : approved && !scopeReview
-          ? current.reviewInput ? "ready" : "needs_input"
-          : "discovered";
+    const status = current.status === "converted" || current.status === "ignored"
+      ? current.status
+      : unavailable || kids || policyBlocked
+        ? "blocked"
+        : existingSource || existingProposal
+          ? "discovered"
+          : approved && current.reviewInput
+            ? "ready"
+            : approved && !scopeReview
+              ? "needs_input"
+              : "discovered";
     const exclusionReason = unavailable
       ? command.observation.availabilityStatus
       : kids
         ? "made_for_kids_review"
         : policyBlocked
           ? "channel_policy_blocked"
-          : scopeReview && approved
+          : scopeReview && approved && !current.reviewInput
             ? "release_scope_review"
           : null;
     await this.database.batch([
@@ -1252,7 +1338,11 @@ export class D1IngestionRepository implements IngestionRepository {
         classification,
         status,
         exclusionReason,
-        command.now + (status === "blocked" ? BLOCKED_RETENTION_MS : ACTIVE_RETENTION_MS),
+        command.now + (
+          status === "blocked" || status === "ignored"
+            ? BLOCKED_RETENTION_MS
+            : ACTIVE_RETENTION_MS
+        ),
         command.actorUserId,
         command.now,
         command.candidateId,

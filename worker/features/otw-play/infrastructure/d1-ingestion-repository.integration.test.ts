@@ -3,6 +3,7 @@ import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
   OtwPlayCreatePlaylistImportRequest,
+  OtwPlayIngestionReviewInput,
   OtwPlayPlaylistPreflightDto,
 } from "@contracts/otw-play";
 import type { OtwPlayYouTubeVideoObservation } from "../application/ports/youtube-metadata";
@@ -375,7 +376,7 @@ describe("D1IngestionRepository", () => {
       actorUserId: "admin-reviewer",
       eventId: "event-kirinuki-review",
       now: NOW + 3,
-    })).rejects.toMatchObject({ code: "stale_message" });
+    })).rejects.toMatchObject({ code: "validation_failed" });
   });
 
   it("shows a repeated discovery as an existing candidate without changing its global decision", async () => {
@@ -412,6 +413,7 @@ describe("D1IngestionRepository", () => {
     );
     const page = await repository.listItems("job-2", 10, null);
     expect(page.page.items[0]?.classification).toBe("existing_candidate");
+    expect(page.page.items[0]?.candidateClassification).toBe("pending_metadata");
   });
 
   it("saves a stale row when only background metadata changed its version", async () => {
@@ -486,33 +488,81 @@ describe("D1IngestionRepository", () => {
       now: NOW + 4,
     })).resolves.toMatchObject({ version: 3, status: "ready", reviewInput });
 
+    const reviewedItem = (await repository.listItems(
+      "job-review-second",
+      10,
+      null,
+    )).page.items[0]!;
+    const third = await repository.createJob({
+      jobId: "job-review-third",
+      actorUserId: "admin-3",
+      input: { ...input, idempotencyKey: "request-review-third" },
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW + 5,
+    });
+    const thirdChildren = await repository.recordPlaylistPage(
+      await repository.readMessage(third.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-third", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: null,
+      },
+      NOW + 5,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(thirdChildren[0]!.idempotencyKey),
+      [observation],
+      NOW + 6,
+    );
+    const semanticallyEquivalentReviewInput = {
+      internalNote: reviewInput.internalNote,
+      participationType: reviewInput.participationType,
+      releaseType: reviewInput.releaseType,
+      relationType: reviewInput.relationType,
+      participants: [{
+        creditOrder: 0,
+        participantRole: "vocal" as const,
+        subject: { entityId: "entity-1", kind: "entity" as const },
+      }],
+      song: { songId: "song-1", kind: "existing" as const },
+    } satisfies OtwPlayIngestionReviewInput;
+    await expect(repository.saveCandidateReview({
+      candidateId: reviewedItem.candidateId,
+      expectedVersion: reviewedItem.candidateVersion,
+      expectedReviewInput: semanticallyEquivalentReviewInput,
+      expectedReviewStatus: reviewedItem.status,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-review-after-reviewed-metadata",
+      now: NOW + 7,
+    })).resolves.toMatchObject({ version: 5, status: "ready", reviewInput });
+
     await expect(repository.saveCandidateReview({
       candidateId: staleItem.candidateId,
-      expectedVersion: 2,
+      expectedVersion: 4,
       expectedReviewInput: null,
       expectedReviewStatus: staleItem.status,
       input: reviewInput,
       actorUserId: "other-reviewer",
       eventId: "event-review-real-conflict",
-      now: NOW + 5,
+      now: NOW + 8,
     })).rejects.toMatchObject({ code: "stale_message" });
 
     await expect(repository.ignoreCandidate({
       candidateId: staleItem.candidateId,
-      expectedVersion: 3,
+      expectedVersion: 5,
       actorUserId: "other-reviewer",
       eventId: "event-review-ignore",
-      now: NOW + 6,
-    })).resolves.toMatchObject({ version: 4, status: "ignored", reviewInput: null });
+      now: NOW + 9,
+    })).resolves.toMatchObject({ version: 6, status: "ignored", reviewInput: null });
     await expect(repository.saveCandidateReview({
       candidateId: staleItem.candidateId,
-      expectedVersion: 2,
+      expectedVersion: 4,
       expectedReviewInput: null,
       expectedReviewStatus: staleItem.status,
       input: reviewInput,
       actorUserId: "admin-reviewer",
       eventId: "event-review-ignore-conflict",
-      now: NOW + 7,
+      now: NOW + 10,
     })).rejects.toMatchObject({ code: "stale_message" });
   });
 
@@ -584,6 +634,55 @@ describe("D1IngestionRepository", () => {
        WHERE id = 'youtube:AAAAAAAAAAA'`,
     ).first<{ retention_expires_at: number }>();
     expect(Number(stored?.retention_expires_at)).toBe(NOW + 4 + 180 * 86_400_000);
+
+    const rediscovery = await repository.createJob({
+      jobId: "job-rediscovery",
+      actorUserId: "admin-2",
+      input: { ...input, idempotencyKey: "request-rediscovery" },
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW + 5,
+    });
+    const rediscoveryChildren = await repository.recordPlaylistPage(
+      await repository.readMessage(rediscovery.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-rediscovery", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: null,
+      },
+      NOW + 5,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(rediscoveryChildren[0]!.idempotencyKey),
+      [{
+        videoId: "AAAAAAAAAAA",
+        availabilityStatus: "playable",
+        video: {
+          videoId: "AAAAAAAAAAA",
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Approved",
+          title: "Eligible",
+          thumbnailUrl: null,
+          durationSeconds: 180,
+          publishedAt: NOW,
+          availabilityStatus: "playable",
+          madeForKids: false,
+        },
+      }],
+      NOW + 6,
+    );
+    await expect(repository.readReviewCandidate(
+      "job-rediscovery",
+      "youtube:AAAAAAAAAAA",
+    )).resolves.toMatchObject({
+      version: 4,
+      status: "ignored",
+      reviewInput: null,
+    });
+    const rediscoveredRetention = await db.prepare(
+      `SELECT retention_expires_at FROM music_ingestion_candidates
+       WHERE id = 'youtube:AAAAAAAAAAA'`,
+    ).first<{ retention_expires_at: number }>();
+    expect(Number(rediscoveredRetention?.retention_expires_at))
+      .toBe(NOW + 6 + 180 * 86_400_000);
     const event = await db.prepare(
       "SELECT actor_user_id, detail_json FROM music_ingestion_events WHERE id = ?",
     ).bind("event-review-1").first<{

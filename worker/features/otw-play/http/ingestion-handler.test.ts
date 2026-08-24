@@ -142,6 +142,47 @@ describe("OTW Play ingestion handler", () => {
     );
   });
 
+  it("distinguishes review policy validation from a concurrent review conflict", async () => {
+    const updateCandidate = vi.fn(async () => {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Ingestion candidate is not eligible for review saving",
+      );
+    });
+    const handler = createIngestionHandler(
+      () => ({ updateCandidate }) as unknown as IngestionService,
+    );
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/import-candidates/candidate-1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedVersion: 1,
+          expectedReviewInput: null,
+          expectedReviewStatus: "needs_input",
+          action: "save",
+          input: {
+            song: { kind: "existing", songId: "song-1" },
+            participants: [{
+              subject: { kind: "entity", entityId: "entity-1" },
+              participantRole: "vocal",
+              creditOrder: 0,
+            }],
+            relationType: "cover",
+            releaseType: "official_video",
+            participationType: "solo",
+            internalNote: null,
+          },
+        }),
+      },
+    ), env);
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "PLAY_ADMIN_VALIDATION_FAILED" },
+    });
+  });
+
   it("routes candidate CAS, bulk ignore, partial conversion, and retry commands with the admin actor", async () => {
     const updateCandidate = vi.fn(async () => ({ id: "candidate-1", version: 2 }));
     const ignoreCandidates = vi.fn(async () => ({ results: [] }));
