@@ -1390,11 +1390,17 @@ Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 
 행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. 기존 catalog·proposal,
 channel/policy gate는 422 validation으로 분리한다. item DTO는 origin 관점 `classification`과
 실제 `candidateClassification`을 함께 제공하며 ready 저장 가능 여부는 후자를 사용한다.
+상태 열은 이 값을 raw code로 나열하지 않는다. candidate `status`는 검수 시작 전·입력 보완
+필요·저장 준비 완료 같은 workflow 단계로, `candidateClassification`은 현재 권위 판단으로,
+origin `classification`은 가져오기 기록으로 구분하고 현재 가능한 다음 조치를 함께 표시한다.
 job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
 변경 예정 항목은 sticky form 내부나 별도 table 열이 아니라 desktop table과 mobile card의
 각 영상 아래에 가로 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다.
 `channel_review`는 같은 sticky form에서 공식 역할·소유 주체를 확인해 채널 승인·활성화와
-candidate metadata 재분류를 이어 간다. 숨김·삭제 일괄 제외는
+candidate metadata 재분류를 이어 간다. 기본 신규 승인 경로는 `otw_official` 또는
+`member_music|member_main`과 current member 주체로 제한한다. 외부 채널은 별도 예외 모드에서
+`project_official`, 활성 non-member 주체와 명시적 외부 승인 확인을 모두 제출해야 하며 Worker가
+현재 catalog entity 상태와 조합을 다시 검증한다. 숨김·삭제 일괄 제외는
 현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
 `private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
 100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.

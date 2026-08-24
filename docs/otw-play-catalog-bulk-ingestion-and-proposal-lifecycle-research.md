@@ -294,6 +294,10 @@ DLQ 14일을 사용한다. 장기 quota 대기는 D1 `next_retry_at`에 기록�
 validation으로 분리한다. origin 관점의 `existing_candidate` 분류와 candidate 자체 분류를
 DTO에서 분리해 UI가 편집 가능 여부를 실제 candidate 기준으로 판단한다. UI는 진짜 409에서만
 최신 항목을 refetch하며 작성 중인 form 값은 버리지 않는다.
+상태 열에서는 origin 분류, candidate workflow status와 실제 candidate 분류를 raw code로
+겹쳐 쓰지 않는다. 현재 검수 단계, 권위 판단, 다음 조치와 가져오기 기록을 별도 한국어 항목으로
+표시한다. 신규 채널 승인은 OTW 공식·멤버 공식만 기본 제공하며, 외부 채널은 별도 예외 모드와
+non-member 주체 연결·명시적 승인 확인을 모두 요구한다.
 
 Cloudflare는 Queue가 at-least-once delivery이며 중복 효과를 idempotency key로 방지할
 것을 권고한다. [Queues delivery guarantees](https://developers.cloudflare.com/queues/reference/delivery-guarantees/)
