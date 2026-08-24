@@ -1367,7 +1367,7 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 
 1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
 2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
-3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·즉시 적용 미리보기와 선택한 ready 후보의 catalog draft 변환
+3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·목록 즉시 적용 미리보기, 확인된 재생 불가 후보의 job 단위 일괄 제외와 선택한 ready 후보의 catalog draft 변환
 4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
 5. P1A: 기존 participant 기반 member songbook과 queue
@@ -1388,3 +1388,8 @@ Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 
 정책을 D1 update 조건에서 다시 확인해 저장한다. 실제 검수 baseline이 바뀐 409에서는
 행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. job `updatedAt`이
 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
+적용 미리보기는 sticky form 내부가 아니라 desktop table과 mobile card의 각 영상 행에
+배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다. 숨김·삭제 일괄 제외는
+현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
+`private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
+100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.
