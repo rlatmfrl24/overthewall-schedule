@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/shared/api/client";
 import { createQueryWrapper } from "@/test/query-client";
@@ -183,6 +183,7 @@ describe("IngestionSection", () => {
     expect(await screen.findByText("Official Covers")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
     expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
+    expect(screen.queryByText("선택 항목 일괄 설정")).toBeNull();
 
     fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
     const reviewPanel = screen.getByRole("complementary", { name: "후보 행별 보완" });
@@ -193,6 +194,12 @@ describe("IngestionSection", () => {
     )).toBe(true);
     expect(screen.queryByLabelText("원곡 제목")).toBeNull();
     expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
+    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
+    expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
+    expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
+    expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
+    expect(within(preview).getByText("커버 · 공식 영상 · 솔로")).toBeTruthy();
+    expect(within(preview).getByText("저장 준비됨")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
       "youtube:AAAAAAAAAAA",
@@ -264,6 +271,13 @@ describe("IngestionSection", () => {
     fireEvent.change(externalSearch, { target: { value: "Guest Vocal" } });
     fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
     expect(screen.getByLabelText("Guest Vocal 참여 역할")).toBeTruthy();
+
+    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
+    expect(within(preview).getByText("새 곡 생성 · Candidate Video")).toBeTruthy();
+    expect(within(preview).getByText("Guest Artist, New Original Artist")).toBeTruthy();
+    expect(within(preview).getByText(
+      "Singer · 메인 보컬, Guest Vocal · 메인 보컬",
+    )).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(

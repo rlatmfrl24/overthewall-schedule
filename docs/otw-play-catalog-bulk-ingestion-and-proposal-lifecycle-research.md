@@ -54,7 +54,7 @@ aggregate로 계속 유지한다.
 현재 빠진 것은 다음과 같다.
 
 - playlist URL/ID 정규화, pagination, import progress와 항목별 결과
-- 여러 영상에 공통값을 적용하고 행별 필수값을 보완하는 작업 화면
+- 후보별 필수값을 보완하고 실제 적용값을 즉시 확인하는 작업 화면
 - import와 채널 자동화가 공유할 system candidate·origin·처리 이력
 - 회원 proposal의 owner-only update/withdraw command와 UI
 - 대량 작업의 재시도·부분 성공·idempotency·감사 readback
@@ -191,7 +191,7 @@ desktop은 table, mobile은 card를 사용하며 다음 기능을 제공한다.
 - 기존 song 검색·연결 또는 새 song 후보 입력
 - 원곡 제목·원곡 가수, OTW original 여부
 - 참여자·역할, relation/release/participation type
-- 공통값 일괄 적용 후 개별 override
+- 행별 sticky form과 실제 저장 draft 기준의 즉시 적용 미리보기
 - YouTube 원문 링크와 metadata refresh
 - 누락 필드·중복·policy 오류의 행 단위 표시
 
@@ -363,7 +363,7 @@ confirm dialog에 다음을 명시한다.
 | --- | --- | --- |
 | PR-9A | 회원 proposal 수정·철회 contract, CAS, audit, UI | 별도 migration 필요 여부 검증 |
 | PR-9B | ingestion job/candidate schema, Queue, playlist preflight·수집 | Queue·DLQ 운영 승인 |
-| PR-9C | 관리자 검수 grid, 일괄값·행별 보완, draft 변환·재시도 | PR-9B |
+| PR-9C | 관리자 검수 grid, 행별 sticky 보완·적용 미리보기, draft 변환·재시도 | PR-9B |
 | PR-9D | approved 노래 clip channel의 `singing_clip` candidate inbox | PR-9B candidate pipeline, clip channel 승인 |
 
 PR-9A와 PR-9B는 같은 우선순위 프로그램이지만 migration·failure boundary가 다르므로

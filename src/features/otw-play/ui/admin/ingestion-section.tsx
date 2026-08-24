@@ -305,6 +305,109 @@ const participationOptions = [
   { value: "external_collab", label: "외부 협업" },
 ] satisfies readonly ChoiceOption<OtwPlayParticipationType>[];
 
+function ReviewApplicationPreview({
+  draft,
+  catalog,
+}: {
+  draft: RowDraft;
+  catalog: OtwPlayAdminCatalogDto;
+}) {
+  const existingSong = draft.songId === "__new"
+    ? null
+    : catalog.songs.find((song) => song.id === draft.songId);
+  const songTitle = draft.songId === "__new"
+    ? draft.songTitle.trim()
+    : existingSong?.title ?? draft.songId;
+  const participants = [
+    ...Object.entries(draft.participants).map(([entityId, role]) => ({
+      key: `entity:${entityId}`,
+      label:
+        catalog.entities.find((entity) => entity.id === entityId)?.displayName ??
+        entityId,
+      role,
+    })),
+    ...draft.externalParticipants.map((participant) => ({
+      key: participant.key,
+      label: participant.label,
+      role: participant.participantRole,
+    })),
+  ];
+  const missingFields = [
+    draft.songId === "__new" && !songTitle ? "원곡 제목" : null,
+    draft.songId === "__new" && draft.originalArtists.length === 0
+      ? "원곡 가수"
+      : null,
+    participants.length === 0 ? "가창 참여자" : null,
+  ].filter((value): value is string => value !== null);
+
+  return (
+    <section
+      className="space-y-3 border-b bg-muted/20 p-4 xl:shrink-0"
+      aria-labelledby="review-application-preview-title"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 id="review-application-preview-title" className="text-sm font-semibold">
+            현재 적용 미리보기
+          </h4>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            입력값을 저장하면 아래 내용으로 검수 draft에 적용됩니다.
+          </p>
+        </div>
+        <Badge variant={missingFields.length === 0 ? "secondary" : "outline"}>
+          {missingFields.length === 0 ? "저장 준비됨" : `필수값 ${missingFields.length}개`}
+        </Badge>
+      </div>
+
+      <dl className="grid gap-2 text-xs">
+        <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-muted-foreground">곡</dt>
+          <dd className="min-w-0 truncate font-medium">
+            {draft.songId === "__new" ? "새 곡 생성" : "기존 곡 연결"}
+            {songTitle ? ` · ${songTitle}` : " · 제목 입력 필요"}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-muted-foreground">원곡 가수</dt>
+          <dd className="min-w-0 truncate font-medium">
+            {draft.songId === "__new"
+              ? draft.originalArtists.map((artist) => artist.label).join(", ") || "입력 필요"
+              : "기존 곡 정보 유지"}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-muted-foreground">가창자</dt>
+          <dd className="min-w-0 truncate font-medium">
+            {participants.map((participant) =>
+              `${participant.label} · ${participantRoleLabels[participant.role]}`
+            ).join(", ") || "입력 필요"}
+          </dd>
+        </div>
+        <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
+          <dt className="text-muted-foreground">공개 분류</dt>
+          <dd className="min-w-0 truncate font-medium">
+            {relationOptions.find((option) => option.value === draft.relationType)?.label}
+            {" · "}
+            {releaseOptions.find((option) => option.value === draft.releaseType)?.label}
+            {" · "}
+            {participationOptions.find((option) => option.value === draft.participationType)?.label}
+          </dd>
+        </div>
+      </dl>
+
+      {missingFields.length > 0 ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          저장 전 확인: {missingFields.join(", ")}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          ready 저장 후 선택한 후보만 catalog draft로 변환되며 즉시 공개되지는 않습니다.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function IngestionSection({
   catalog,
   onOpenCatalog,
@@ -330,15 +433,6 @@ export function IngestionSection({
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [commonParticipantId, setCommonParticipantId] = useState("none");
-  const [commonParticipantRole, setCommonParticipantRole] =
-    useState<OtwPlayParticipantRole>("vocal");
-  const [commonRelationType, setCommonRelationType] =
-    useState<OtwPlayRelationType>("cover");
-  const [commonReleaseType, setCommonReleaseType] =
-    useState<"official_mv" | "official_video">("official_video");
-  const [commonParticipationType, setCommonParticipationType] =
-    useState<OtwPlayParticipationType>("solo");
   const jobQuery = useOtwPlayImportJob(activeJobId);
   const serverClassification = classification === "all"
     ? undefined
@@ -455,33 +549,6 @@ export function IngestionSection({
     } finally {
       setBusy(null);
     }
-  };
-
-  const applyCommon = () => {
-    setDrafts((current) => {
-      const next = { ...current };
-      for (const item of filtered) {
-        if (!selected.has(item.candidateId)) continue;
-        const previous = next[item.candidateId] ?? emptyDraft(item);
-        next[item.candidateId] = {
-          ...previous,
-          relationType: commonRelationType,
-          releaseType: commonReleaseType,
-          participationType: commonParticipationType,
-          participants: commonParticipantId === "none"
-            ? previous.participants
-            : { [commonParticipantId]: commonParticipantRole },
-          externalParticipants: commonParticipantId === "none"
-            ? previous.externalParticipants
-            : [],
-          showExternalParticipantInput: commonParticipantId === "none"
-            ? previous.showExternalParticipantInput
-            : false,
-        };
-      }
-      return next;
-    });
-    toast({ variant: "info", description: "선택 행에 공통값을 적용했습니다. 저장 전 행별로 수정할 수 있습니다." });
   };
 
   const saveCandidate = async (item: OtwPlayIngestionCandidateItemDto) => {
@@ -752,95 +819,6 @@ export function IngestionSection({
         <Card>
           <CardHeader><CardTitle className="text-base">3. 후보 검수 · 4. draft 변환</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <section className="overflow-hidden rounded-xl border bg-muted/15" aria-labelledby="bulk-settings-title">
-              <div className="border-b bg-background/70 px-4 py-3">
-                <h3 id="bulk-settings-title" className="text-sm font-semibold">선택 항목 일괄 설정</h3>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  선택한 후보에만 적용됩니다. 적용 후에도 각 후보에서 값을 다시 조정할 수 있습니다.
-                </p>
-              </div>
-              <div className="grid gap-6 p-4 xl:grid-cols-[minmax(16rem,0.8fr)_minmax(0,1.6fr)]">
-                <div className="space-y-4 rounded-lg border bg-background p-4">
-                  <div>
-                    <h4 className="text-sm font-semibold">가창 참여자</h4>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      참여자를 선택하지 않으면 각 후보의 기존 참여자 값을 유지합니다.
-                    </p>
-                  </div>
-                  <Field>
-                    <FieldLabel id="common-participant-label">일괄 지정할 참여자</FieldLabel>
-                    <Select value={commonParticipantId} onValueChange={setCommonParticipantId}>
-                      <SelectTrigger className="w-full" aria-labelledby="common-participant-label">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">참여자 변경 안 함</SelectItem>
-                        {catalog.entities
-                          .filter(
-                            (entity) =>
-                              entity.archivedAt === null &&
-                              entity.memberUid !== null,
-                          )
-                          .map((entity) => (
-                            <SelectItem key={entity.id} value={entity.id}>
-                              {entity.displayName}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {commonParticipantId !== "none" ? (
-                    <Field>
-                      <FieldLabel id="common-participant-role-label">참여 역할</FieldLabel>
-                      <Select
-                        value={commonParticipantRole}
-                        onValueChange={(value) => setCommonParticipantRole(value as OtwPlayParticipantRole)}
-                      >
-                        <SelectTrigger className="w-full" aria-labelledby="common-participant-role-label">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(participantRoleLabels).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>{label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  ) : (
-                    <p className="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
-                      참여자 역할은 참여자를 지정할 때 함께 선택할 수 있습니다.
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-5 rounded-lg border bg-background p-4">
-                  <ChoiceGroup
-                    label="곡 관계"
-                    value={commonRelationType}
-                    onValueChange={setCommonRelationType}
-                    options={relationOptions}
-                  />
-                  <ChoiceGroup
-                    label="공개 유형"
-                    value={commonReleaseType}
-                    onValueChange={setCommonReleaseType}
-                    options={releaseOptions}
-                  />
-                  <ChoiceGroup
-                    label="참여 형태"
-                    value={commonParticipationType}
-                    onValueChange={setCommonParticipationType}
-                    options={participationOptions}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col gap-2 border-t bg-background/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-muted-foreground">현재 {selected.size.toLocaleString()}개 후보 선택됨</p>
-                <Button disabled={selected.size === 0} onClick={applyCommon}>
-                  선택 항목에 설정 적용
-                </Button>
-              </div>
-            </section>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">eligible</SelectItem><SelectItem value="existing_candidate">existing candidate</SelectItem><SelectItem value="channel_review">channel review</SelectItem><SelectItem value="existing_catalog">existing catalog</SelectItem><SelectItem value="existing_proposal">existing proposal</SelectItem><SelectItem value="unavailable">unavailable</SelectItem><SelectItem value="policy_blocked">policy blocked</SelectItem><SelectItem value="scope_review">scope review</SelectItem><SelectItem value="playlist_duplicate">playlist duplicate</SelectItem></SelectContent></Select>
               <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void selectCurrentFilter()}>{busy === "select-filter" ? <Loader2 className="animate-spin" /> : null} 현재 filter 전체 선택</Button>
@@ -883,6 +861,8 @@ export function IngestionSection({
                     </div>
                     <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>닫기</Button>
                   </div>
+
+                  <ReviewApplicationPreview draft={draft} catalog={catalog} />
 
                   <div className="space-y-5 p-4 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
                     <fieldset className="space-y-4 rounded-lg border bg-muted/10 p-4">

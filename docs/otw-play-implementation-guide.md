@@ -1367,7 +1367,7 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 
 1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
 2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
-3. PR-9C: 벌크 검수 grid, 공통값·행별 보완과 catalog draft 변환
+3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·즉시 적용 미리보기와 선택한 ready 후보의 catalog draft 변환
 4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
 5. P1A: 기존 participant 기반 member songbook과 queue

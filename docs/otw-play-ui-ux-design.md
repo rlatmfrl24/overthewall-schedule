@@ -743,6 +743,9 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `가져오기`는 public·unlisted playlist URL만 받고 private playlist는 지원하지 않는다고
   입력 단계에서 명확히 안내한다. 5,000개 상한, 50개 batch 진행률과 candidate
   retention을 운영자가 이해할 수 있어야 한다.
+- candidate 선택은 ready 항목의 catalog draft 변환 범위에만 사용한다. 공통값 일괄
+  설정 form은 두지 않고, 행별 sticky 검수 form 상단에 곡 연결·신규 생성, 원곡 가수,
+  가창자·역할, 공개 분류와 필수 누락을 실제 저장값 기준으로 즉시 미리 보여 준다.
 - `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. approved clip
   channel, WebSub/reconciliation, `singing_clip` 상태를 표시하고 방송·키리누키
   foundation 전에는 catalog draft action을 제공하지 않는다.
