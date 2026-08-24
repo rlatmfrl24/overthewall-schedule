@@ -1400,7 +1400,9 @@ job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate versio
 candidate metadata 재분류를 이어 간다. 기본 신규 승인 경로는 `otw_official` 또는
 `member_music|member_main`과 archive되지 않은 catalog member identity로 제한한다. 외부 채널은 별도 예외 모드에서
 `project_official`, 활성 non-member 주체와 명시적 외부 승인 확인을 모두 제출해야 하며 Worker가
-현재 catalog entity 상태와 조합을 다시 검증한다. 숨김·삭제 일괄 제외는
+현재 catalog entity 상태와 조합을 다시 검증한다. 기본 소유 유형 2개는 sidebar 가용 폭을
+채우는 2열 카드로 배치하고, archive되지 않은 OTW 멤버 목록은 별도 max-height나 중첩
+scroll container 없이 모두 렌더링한다. 숨김·삭제 일괄 제외는
 현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
 `private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
 100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.

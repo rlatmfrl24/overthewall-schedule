@@ -121,7 +121,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. Queue·단건 metadata refresh는 수동 결정인 `ready`, `ignored`, `converted`와 review input을 덮어쓰지 않는다. version만 달라지고 review state가 의미상 같으면 현재 channel·실제 candidate 분류 정책을 다시 검증한 뒤 저장을 허용한다. 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`, 기존 catalog·proposal·channel/policy 상태로 저장할 수 없는 경우는 validation으로 구분한다. 목록의 origin 분류 `existing_candidate`는 실제 candidate 분류와 함께 표시한다. |
 | DEC-061 | playlist job의 숨김·삭제·재생 불가 영상은 관리자가 한 번에 제외할 수 있다. | 확정 | 현재 화면이나 분류 filter가 아니라 job 전체의 `blocked` 후보를 조회하고 `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable`만 대상으로 한다. `unknown`과 정책 검토 후보는 자동 제외하지 않는다. 최대 100건 단위 명령으로 job 소속과 candidate version CAS를 재검증하며 성공과 stale·실패를 항목별로 분리한다. |
 | DEC-062 | playlist 후보 검수는 공식 채널 승인과 완료 항목 정리를 같은 작업 흐름에 포함한다. | 확정 | `channel_review` 후보는 sticky form에서 공식 역할과 소유·연결 주체를 확인해 채널을 승인·활성화하고 metadata를 다시 분류한다. 변환은 화면 선택이 아니라 job 전체 `ready` 후보를 100건 단위로 처리하며 `converted|ignored`는 기본 후보 목록에서 제외하되 명시적 status 조회는 유지한다. |
-| DEC-063 | playlist 후보의 상태와 채널 승인 경계는 운영자가 의미와 다음 행동을 바로 판단할 수 있게 표시한다. | 확정 | 상태 열은 내부 code 대신 후보 workflow 단계, 현재 권위 분류, 다음 조치와 origin 가져오기 기록을 분리해 한국어로 표시한다. 신규 채널 승인의 기본 소유 유형은 OTW 공식 또는 catalog member identity 공식으로 제한하고, 외부 채널은 별도 모드를 열어 기존 외부 주체 연결과 명시적 승인 확인을 모두 거쳐야 한다. |
+| DEC-063 | playlist 후보의 상태와 채널 승인 경계는 운영자가 의미와 다음 행동을 바로 판단할 수 있게 표시한다. | 확정 | 상태 열은 내부 code 대신 후보 workflow 단계, 현재 권위 분류, 다음 조치와 origin 가져오기 기록을 분리해 한국어로 표시한다. 신규 채널 승인의 기본 소유 유형은 OTW 공식 또는 catalog member identity 공식으로 제한하고, 두 유형은 가용 폭을 채우는 2열 카드로 표시한다. archive되지 않은 OTW 멤버는 중첩 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드를 열어 기존 외부 주체 연결과 명시적 승인 확인을 모두 거쳐야 한다. |
 
 ## 4. 제품 원칙
 
@@ -754,7 +754,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-24 | DEC-061 확정 및 DEC-059 보완. 적용 미리보기를 sticky 편집 form에서 영상 목록 행으로 이동하고, job 전체의 확인된 숨김·삭제·embed·지역 차단·재생 불가 후보를 CAS 기반 100건 단위로 일괄 제외하되 unknown·정책 검토 후보는 보존 |
 | 2026-08-24 | DEC-060 보완. 반복 metadata 수집이 ready·ignored·converted 수동 결정을 되돌리지 않게 하고, origin의 existing_candidate와 실제 candidate 분류를 분리해 기존 catalog·channel/policy 거부를 동시 검수 409가 아닌 validation으로 안내 |
 | 2026-08-24 | DEC-062 확정 및 DEC-059 보완. 후보 검수에 공식 채널 인라인 승인·재분류를 포함하고, 선택 checkbox 대신 job 전체 ready 완료 항목을 일괄 draft 저장하며 converted·ignored 항목은 기본 목록에서 제외. 변경 예정 값은 영상 아래 가로 항목으로 재배치 |
-| 2026-08-24 | DEC-063 확정. 후보 상태를 workflow 단계·현재 권위 판단·다음 조치·가져오기 기록으로 분리해 한국어로 표시하고, 신규 채널 승인은 OTW 공식·catalog member identity 공식을 기본으로 제한. 외부 채널은 별도 모드에서 non-member 주체 연결과 명시적 승인 확인을 모두 요구 |
+| 2026-08-24 | DEC-063 확정. 후보 상태를 workflow 단계·현재 권위 판단·다음 조치·가져오기 기록으로 분리해 한국어로 표시하고, 신규 채널 승인은 OTW 공식·catalog member identity 공식을 기본으로 제한. 소유 유형 카드는 2열로 폭을 채우고 archive되지 않은 OTW 멤버는 내부 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드에서 non-member 주체 연결과 명시적 승인 확인을 모두 요구 |
 
 ## 19. 참고
 
