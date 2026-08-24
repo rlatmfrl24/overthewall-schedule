@@ -78,14 +78,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     this.database = database;
   }
 
-  async findEligibleChannel(channelId: string) {
+  async findEligibleChannel(externalChannelId: string) {
     return await this.database.prepare(
       `SELECT id, external_channel_id, display_name
        FROM music_channels
-       WHERE id = ? AND provider = 'youtube'
-         AND channel_role = 'approved_kirinuki'
+       WHERE external_channel_id = ? AND provider = 'youtube'
          AND verification_status = 'approved' AND active = 1`,
-    ).bind(channelId).first<EligibleChannelMonitorTarget & {
+    ).bind(externalChannelId).first<EligibleChannelMonitorTarget & {
       external_channel_id: string;
       display_name: string;
     }>().then((row) => row ? ({
@@ -95,10 +94,10 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     }) : null);
   }
 
-  async findByChannel(channelId: string) {
+  async findByExternalChannel(externalChannelId: string) {
     const row = await this.database.prepare(
-      `${monitorSelect} WHERE monitor.channel_id = ?`,
-    ).bind(channelId).first<MonitorRow>();
+      `${monitorSelect} WHERE channel.external_channel_id = ?`,
+    ).bind(externalChannelId).first<MonitorRow>();
     return row ? toDto(row) : null;
   }
 
@@ -206,6 +205,62 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     return this.get(input.id);
   }
 
+  async updateTarget(input: Parameters<ChannelMonitorRepository["updateTarget"]>[0]) {
+    const [updateResult] = await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_channel_upload_monitors
+         SET channel_id = ?, uploads_playlist_id = ?, last_checked_at = NULL,
+           next_check_at = ?, last_seen_video_id = ?, last_seen_published_at = NULL,
+           last_error_code = NULL, lease_until = NULL,
+           version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ?`,
+      ).bind(
+        input.channel.id,
+        input.uploadsPlaylistId,
+        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        input.lastSeenVideoId,
+        input.now,
+        input.id,
+        input.expectedVersion,
+      ),
+      this.database.prepare(
+        `DELETE FROM music_channel_upload_candidate_origins
+         WHERE monitor_id = ?
+           AND EXISTS (
+             SELECT 1 FROM music_channel_upload_monitors
+             WHERE id = ? AND channel_id = ? AND version = ?
+           )`,
+      ).bind(
+        input.id,
+        input.id,
+        input.channel.id,
+        input.expectedVersion + 1,
+      ),
+    ]);
+    if (Number(updateResult?.meta.changes ?? 0) !== 1) {
+      await this.get(input.id);
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor changed during review",
+      );
+    }
+    return this.get(input.id);
+  }
+
+  async remove(input: { id: string; expectedVersion: number }) {
+    const result = await this.database.prepare(
+      "DELETE FROM music_channel_upload_monitors WHERE id = ? AND version = ?",
+    ).bind(input.id, input.expectedVersion).run();
+    if (Number(result.meta.changes ?? 0) !== 1) {
+      await this.get(input.id);
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor changed during review",
+      );
+    }
+    return { id: input.id };
+  }
+
   async listDueIds(now: number, limit: number) {
     const result = await this.database.prepare(
       `SELECT id FROM music_channel_upload_monitors
@@ -214,7 +269,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          AND EXISTS (
            SELECT 1 FROM music_channels AS channel
            WHERE channel.id = music_channel_upload_monitors.channel_id
-             AND channel.channel_role = 'approved_kirinuki'
+             AND channel.provider = 'youtube'
              AND channel.verification_status = 'approved' AND channel.active = 1
          )
        ORDER BY next_check_at ASC, id ASC LIMIT ?`,
@@ -231,7 +286,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          AND EXISTS (
            SELECT 1 FROM music_channels AS channel
            WHERE channel.id = music_channel_upload_monitors.channel_id
-             AND channel.channel_role = 'approved_kirinuki'
+             AND channel.provider = 'youtube'
              AND channel.verification_status = 'approved' AND channel.active = 1
          )`,
     ).bind(now + LEASE_MS, now, id, now).run();

@@ -1318,6 +1318,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "자동 검수" }));
 
     expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
+    expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
   });
 
   it("shows the actionable preflight API error and request id", async () => {

@@ -9,6 +9,7 @@ import { IngestionRepositoryError } from "../application/ports/ingestion-reposit
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 
 const headers = { "Cache-Control": "no-store" };
+const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers });
 const errorJson = (
   requestId: string,
@@ -58,11 +59,21 @@ export const createChannelMonitorHandler = (
     }
     if (request.method === "POST" && url.pathname === "/api/play/admin/channel-monitors") {
       const body = await readObject(request);
-      const channelId = typeof body?.channelId === "string" ? body.channelId.trim() : "";
-      if (!channelId || Object.keys(body ?? {}).some((key) => key !== "channelId")) {
-        return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "channelId is required");
+      const externalChannelId = typeof body?.externalChannelId === "string"
+        ? body.externalChannelId.trim()
+        : "";
+      if (
+        !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
+        Object.keys(body ?? {}).some((key) => key !== "externalChannelId")
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "A valid externalChannelId is required",
+        );
       }
-      return json({ data: await service.create(channelId, auth.user.id) }, 201);
+      return json({ data: await service.create(externalChannelId, auth.user.id) }, 201);
     }
     const candidatesId = pathId(url.pathname, "/candidates");
     if (request.method === "GET" && candidatesId) {
@@ -89,14 +100,36 @@ export const createChannelMonitorHandler = (
       const body = await readObject(request);
       const expectedVersion = body?.expectedVersion;
       const status = body?.status;
+      const externalChannelId = typeof body?.externalChannelId === "string"
+        ? body.externalChannelId.trim()
+        : "";
+      const keys = Object.keys(body ?? {});
+      const statusUpdate = keys.length === 2 && keys.includes("expectedVersion") &&
+        keys.includes("status") && ["active", "paused"].includes(String(status));
+      const targetUpdate = keys.length === 2 && keys.includes("expectedVersion") &&
+        keys.includes("externalChannelId") &&
+        YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId);
       if (
         !body ||
-        Object.keys(body).some((key) => !["expectedVersion", "status"].includes(key)) ||
         !Number.isSafeInteger(expectedVersion) ||
         Number(expectedVersion) < 0 ||
-        !["active", "paused"].includes(String(status))
+        (!statusUpdate && !targetUpdate)
       ) {
-        return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "expectedVersion and status are required");
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Update exactly one of status or externalChannelId with expectedVersion",
+        );
+      }
+      if (targetUpdate) {
+        return json({
+          data: await service.updateTarget(
+            monitorId,
+            Number(expectedVersion),
+            externalChannelId,
+          ),
+        });
       }
       return json({
         data: await service.updateStatus(
@@ -105,6 +138,25 @@ export const createChannelMonitorHandler = (
           status as OtwPlayChannelMonitorStatus,
         ),
       });
+    }
+    if (request.method === "DELETE" && monitorId) {
+      const body = await readObject(request);
+      const expectedVersion = body?.expectedVersion;
+      if (
+        !body ||
+        Object.keys(body).length !== 1 ||
+        !Object.hasOwn(body, "expectedVersion") ||
+        !Number.isSafeInteger(expectedVersion) ||
+        Number(expectedVersion) < 0
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "expectedVersion is required",
+        );
+      }
+      return json({ data: await service.remove(monitorId, Number(expectedVersion)) });
     }
     return errorJson(requestId, 404, "PLAY_ADMIN_NOT_FOUND", "Channel monitor route not found");
   } catch (error) {

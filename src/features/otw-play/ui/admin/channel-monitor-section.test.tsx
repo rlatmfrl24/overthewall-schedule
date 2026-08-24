@@ -6,12 +6,16 @@ import { createQueryWrapper } from "@/test/query-client";
 import { ChannelMonitorSection } from "./channel-monitor-section";
 
 const reconcileMock = vi.hoisted(() => vi.fn());
+const createMonitorMock = vi.hoisted(() => vi.fn());
+const updateMonitorMock = vi.hoisted(() => vi.fn());
+const deleteMonitorMock = vi.hoisted(() => vi.fn());
 const updateCandidateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
-  createOtwPlayChannelMonitor: vi.fn(),
-  updateOtwPlayChannelMonitor: vi.fn(),
+  createOtwPlayChannelMonitor: createMonitorMock,
+  updateOtwPlayChannelMonitor: updateMonitorMock,
+  deleteOtwPlayChannelMonitor: deleteMonitorMock,
   reconcileOtwPlayChannelMonitor: reconcileMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
 }));
@@ -68,17 +72,8 @@ describe("ChannelMonitorSection", () => {
       capped: false,
     });
     updateCandidateMock.mockResolvedValue({});
-    const catalog = {
-      channels: [{
-        id: "channel-1",
-        displayName: "Approved Clips",
-        channelRole: "approved_kirinuki",
-        verificationStatus: "approved",
-        active: true,
-      }],
-    } as never;
 
-    render(createElement(ChannelMonitorSection, { catalog }), {
+    render(createElement(ChannelMonitorSection), {
       wrapper: createQueryWrapper(),
     });
 
@@ -93,6 +88,43 @@ describe("ChannelMonitorSection", () => {
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
       "youtube:BBBBBBBBBBB",
       { expectedVersion: 3, action: "ignore" },
+    ));
+  });
+
+  it("adds, edits, and deletes collection targets by external channel ID", async () => {
+    createMonitorMock.mockResolvedValue({ id: "monitor-1" });
+    updateMonitorMock.mockResolvedValue({ id: "monitor-1" });
+    deleteMonitorMock.mockResolvedValue({ id: "monitor-1" });
+    render(createElement(ChannelMonitorSection), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.change(screen.getByLabelText("수집 대상 채널 ID"), {
+      target: { value: "UC1111111111111111111111" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "채널 추가" }));
+    await waitFor(() => expect(createMonitorMock).toHaveBeenCalledWith({
+      externalChannelId: "UC1111111111111111111111",
+    }));
+
+    fireEvent.change(screen.getByLabelText("채널 ID 수정"), {
+      target: { value: "UC2222222222222222222222" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => expect(updateMonitorMock).toHaveBeenCalledWith(
+      "monitor-1",
+      {
+        expectedVersion: 2,
+        externalChannelId: "UC2222222222222222222222",
+      },
+    ));
+
+    fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    expect(screen.getByText("수집 대상 채널을 삭제할까요?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "수집 대상 삭제" }));
+    await waitFor(() => expect(deleteMonitorMock).toHaveBeenCalledWith(
+      "monitor-1",
+      { expectedVersion: 2 },
     ));
   });
 });

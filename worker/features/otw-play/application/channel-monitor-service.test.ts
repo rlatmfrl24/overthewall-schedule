@@ -26,12 +26,12 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
 });
 
 const repository = () => ({
-  findEligibleChannel: vi.fn(async () => ({
+  findEligibleChannel: vi.fn(async (externalChannelId) => ({
     id: "channel-1",
-    externalChannelId: "UC1234567890123456789012",
+    externalChannelId,
     displayName: "Approved Clips",
   })),
-  findByChannel: vi.fn(async () => null),
+  findByExternalChannel: vi.fn(async () => null),
   get: vi.fn(async () => monitor()),
   list: vi.fn(async () => []),
   listCandidates: vi.fn(async () => []),
@@ -40,6 +40,14 @@ const repository = () => ({
     lastSeenVideoId: input.lastSeenVideoId,
   })),
   updateStatus: vi.fn(async () => monitor()),
+  updateTarget: vi.fn(async (input) => monitor({
+    channelId: input.channel.id,
+    externalChannelId: input.channel.externalChannelId,
+    uploadsPlaylistId: input.uploadsPlaylistId,
+    lastSeenVideoId: input.lastSeenVideoId,
+    version: input.expectedVersion + 1,
+  })),
+  remove: vi.fn(async ({ id }) => ({ id })),
   listDueIds: vi.fn(async () => []),
   claim: vi.fn(async () => monitor()),
   recordCandidates: vi.fn(async () => 1),
@@ -91,13 +99,52 @@ describe("ChannelMonitorService", () => {
     });
     const service = new ChannelMonitorService(repo, reader, () => "monitor-1", () => 100);
 
-    await expect(service.create("channel-1", "admin-1")).resolves.toMatchObject({
+    await expect(service.create("UC1234567890123456789012", "admin-1")).resolves.toMatchObject({
       lastSeenVideoId: "AAAAAAAAAAA",
     });
     expect(repo.recordCandidates).not.toHaveBeenCalled();
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
       lastSeenVideoId: "AAAAAAAAAAA",
     }));
+  });
+
+  it("repoints a monitor by external channel ID and resets its watermark", async () => {
+    const repo = repository();
+    const reader = youtube();
+    reader.readChannelUploads.mockResolvedValueOnce({
+      channelId: "UC2222222222222222222222",
+      displayName: "Second Approved Channel",
+      uploadsPlaylistId: "UU2222222222222222222222",
+    });
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [{ playlistItemId: "item-z", videoId: "ZZZZZZZZZZZ", position: 0 }],
+      nextPageToken: null,
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "unused", () => 500);
+
+    await expect(service.updateTarget(
+      "monitor-1",
+      0,
+      "UC2222222222222222222222",
+    )).resolves.toMatchObject({
+      externalChannelId: "UC2222222222222222222222",
+      lastSeenVideoId: "ZZZZZZZZZZZ",
+    });
+    expect(repo.updateTarget).toHaveBeenCalledWith(expect.objectContaining({
+      id: "monitor-1",
+      expectedVersion: 0,
+      uploadsPlaylistId: "UU2222222222222222222222",
+      lastSeenVideoId: "ZZZZZZZZZZZ",
+      now: 500,
+    }));
+  });
+
+  it("deletes a monitor with optimistic concurrency", async () => {
+    const repo = repository();
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.remove("monitor-1", 3)).resolves.toEqual({ id: "monitor-1" });
+    expect(repo.remove).toHaveBeenCalledWith({ id: "monitor-1", expectedVersion: 3 });
   });
 
   it("adds only uploads newer than the stored watermark to review candidates", async () => {

@@ -38,14 +38,14 @@ export class ChannelMonitorService {
     return this.repository.listCandidates(id, Math.max(1, Math.min(100, limit)));
   }
 
-  async create(channelId: string, actorUserId: string) {
-    const existing = await this.repository.findByChannel(channelId);
+  async create(externalChannelId: string, actorUserId: string) {
+    const existing = await this.repository.findByExternalChannel(externalChannelId);
     if (existing) return existing;
-    const channel = await this.repository.findEligibleChannel(channelId);
+    const channel = await this.repository.findEligibleChannel(externalChannelId);
     if (!channel) {
       throw new IngestionRepositoryError(
         "validation_failed",
-        "Only active, approved clip channels can be monitored",
+        "Only active, approved YouTube channels can be monitored",
       );
     }
     const uploads = await this.youtube.readChannelUploads(channel.externalChannelId);
@@ -77,6 +77,55 @@ export class ChannelMonitorService {
       status,
       now: this.clock(),
     });
+  }
+
+  async updateTarget(
+    id: string,
+    expectedVersion: number,
+    externalChannelId: string,
+  ) {
+    const current = await this.repository.get(id);
+    if (current.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor changed during review",
+      );
+    }
+    if (current.externalChannelId === externalChannelId) return current;
+    const duplicate = await this.repository.findByExternalChannel(externalChannelId);
+    if (duplicate && duplicate.id !== id) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "The channel is already monitored",
+      );
+    }
+    const channel = await this.repository.findEligibleChannel(externalChannelId);
+    if (!channel) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Only active, approved YouTube channels can be monitored",
+      );
+    }
+    const uploads = await this.youtube.readChannelUploads(channel.externalChannelId);
+    if (!uploads || uploads.channelId !== channel.externalChannelId) {
+      throw new IngestionRepositoryError(
+        "not_found",
+        "The channel uploads playlist could not be resolved",
+      );
+    }
+    const page = await this.youtube.readPlaylistPage(uploads.uploadsPlaylistId, null);
+    return this.repository.updateTarget({
+      id,
+      expectedVersion,
+      channel,
+      uploadsPlaylistId: uploads.uploadsPlaylistId,
+      lastSeenVideoId: page.items[0]?.videoId ?? null,
+      now: this.clock(),
+    });
+  }
+
+  remove(id: string, expectedVersion: number) {
+    return this.repository.remove({ id, expectedVersion });
   }
 
   async reconcile(id: string): Promise<OtwPlayChannelMonitorReconcileDto> {

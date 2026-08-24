@@ -14,7 +14,9 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_channel_upload_candidate_origins"),
     db.prepare("DELETE FROM music_channel_upload_monitors"),
     db.prepare("DELETE FROM music_ingestion_candidates WHERE candidate_kind = 'singing_clip'"),
-    db.prepare("DELETE FROM music_channels WHERE id = 'monitor-channel'"),
+    db.prepare(
+      "DELETE FROM music_channels WHERE id IN ('monitor-channel', 'monitor-channel-next')",
+    ),
   ]);
   await db.prepare(
     `INSERT INTO music_channels (
@@ -23,14 +25,17 @@ beforeEach(async () => {
     ) VALUES (
       'monitor-channel', 'youtube', 'UCmmmmmmmmmmmmmmmmmmmmmm', 'Approved Clips',
       'approved_kirinuki', 'approved', 1, 0, ?, ?
+    ), (
+      'monitor-channel-next', 'youtube', 'UCnnnnnnnnnnnnnnnnnnnnnn', 'Official Channel',
+      'otw_official', 'approved', 1, 0, ?, ?
     )`,
-  ).bind(NOW, NOW).run();
+  ).bind(NOW, NOW, NOW, NOW).run();
 });
 
 describe("D1ChannelMonitorRepository", () => {
   it("persists the channel watermark and adds new uploads to the shared review candidates", async () => {
     const repository = new D1ChannelMonitorRepository(db);
-    const channel = await repository.findEligibleChannel("monitor-channel");
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
     expect(channel).toMatchObject({ externalChannelId: "UCmmmmmmmmmmmmmmmmmmmmmm" });
 
     const created = await repository.create({
@@ -83,5 +88,39 @@ describe("D1ChannelMonitorRepository", () => {
       "SELECT candidate_kind FROM music_ingestion_candidates WHERE external_video_id = ?",
     ).bind("BBBBBBBBBBB").first<{ candidate_kind: string }>();
     expect(candidate?.candidate_kind).toBe("singing_clip");
+
+    const nextChannel = await repository.findEligibleChannel(
+      "UCnnnnnnnnnnnnnnnnnnnnnn",
+    );
+    expect(nextChannel).toMatchObject({
+      id: "monitor-channel-next",
+      displayName: "Official Channel",
+    });
+    const updated = await repository.updateTarget({
+      id: created.id,
+      expectedVersion: 1,
+      channel: nextChannel!,
+      uploadsPlaylistId: "UUnnnnnnnnnnnnnnnnnnnnnn",
+      lastSeenVideoId: "CCCCCCCCCCC",
+      now: NOW + 2_000,
+    });
+    expect(updated).toMatchObject({
+      externalChannelId: "UCnnnnnnnnnnnnnnnnnnnnnn",
+      channelDisplayName: "Official Channel",
+      lastSeenVideoId: "CCCCCCCCCCC",
+      lastCheckedAt: null,
+      candidateCount: 0,
+      pendingCandidateCount: 0,
+      version: 2,
+    });
+    await expect(repository.listCandidates(created.id, 50)).resolves.toEqual([]);
+
+    await expect(repository.remove({
+      id: created.id,
+      expectedVersion: updated.version,
+    })).resolves.toEqual({ id: created.id });
+    await expect(repository.get(created.id)).rejects.toMatchObject({
+      code: "not_found",
+    });
   });
 });

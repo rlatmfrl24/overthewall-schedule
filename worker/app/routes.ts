@@ -625,7 +625,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.admin.channel-monitors.item",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.channelMonitor.pattern,
-    methods: methods(patch(ADMIN_NO_STORE)),
+    methods: methods(patch(ADMIN_NO_STORE), del(ADMIN_NO_STORE)),
     handler: handleOtwPlayChannelMonitors,
   },
   {

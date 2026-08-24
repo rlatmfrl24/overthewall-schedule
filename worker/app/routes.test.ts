@@ -334,7 +334,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.admin.channel-monitors.item",
     owner: "otw-play",
     path: "/api/play/admin/channel-monitors/:id",
-    methods: [ADMIN_PATCH],
+    methods: [ADMIN_PATCH, ADMIN_DELETE],
   },
   {
     id: "otw-play.admin.channel-monitors.candidates",

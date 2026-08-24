@@ -46,6 +46,8 @@ import type {
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorReconcileDto,
   OtwPlayCreateChannelMonitorRequest,
+  OtwPlayDeleteChannelMonitorDto,
+  OtwPlayDeleteChannelMonitorRequest,
   OtwPlayUpdateChannelMonitorRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
@@ -100,6 +102,14 @@ export const updateOtwPlayChannelMonitor = (
 ) => adminRequest<{ data: OtwPlayChannelMonitorDto }>(
   apiRoutes.otwPlay.admin.channelMonitor.build(id),
   { method: "PATCH", json },
+).then((response) => response.data);
+
+export const deleteOtwPlayChannelMonitor = (
+  id: string,
+  json: OtwPlayDeleteChannelMonitorRequest,
+) => adminRequest<{ data: OtwPlayDeleteChannelMonitorDto }>(
+  apiRoutes.otwPlay.admin.channelMonitor.build(id),
+  { method: "DELETE", json },
 ).then((response) => response.data);
 
 export const reconcileOtwPlayChannelMonitor = (id: string) =>

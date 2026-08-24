@@ -12,8 +12,8 @@ export interface EligibleChannelMonitorTarget {
 }
 
 export interface ChannelMonitorRepository {
-  findEligibleChannel(channelId: string): Promise<EligibleChannelMonitorTarget | null>;
-  findByChannel(channelId: string): Promise<OtwPlayChannelMonitorDto | null>;
+  findEligibleChannel(externalChannelId: string): Promise<EligibleChannelMonitorTarget | null>;
+  findByExternalChannel(externalChannelId: string): Promise<OtwPlayChannelMonitorDto | null>;
   get(id: string): Promise<OtwPlayChannelMonitorDto>;
   list(): Promise<OtwPlayChannelMonitorDto[]>;
   listCandidates(id: string, limit: number): Promise<OtwPlayChannelMonitorCandidateDto[]>;
@@ -31,6 +31,15 @@ export interface ChannelMonitorRepository {
     status: OtwPlayChannelMonitorStatus;
     now: number;
   }): Promise<OtwPlayChannelMonitorDto>;
+  updateTarget(input: {
+    id: string;
+    expectedVersion: number;
+    channel: EligibleChannelMonitorTarget;
+    uploadsPlaylistId: string;
+    lastSeenVideoId: string | null;
+    now: number;
+  }): Promise<OtwPlayChannelMonitorDto>;
+  remove(input: { id: string; expectedVersion: number }): Promise<{ id: string }>;
   listDueIds(now: number, limit: number): Promise<string[]>;
   claim(id: string, now: number): Promise<OtwPlayChannelMonitorDto | null>;
   recordCandidates(input: {

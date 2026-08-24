@@ -370,9 +370,7 @@ export function OtwPlayCatalogManager() {
           onOpenCatalog={() => setSection("catalog")}
         />
       )}
-      {section === "automatic-review" && catalog && (
-        <ChannelMonitorSection catalog={catalog} />
-      )}
+      {section === "automatic-review" && <ChannelMonitorSection />}
       {section === "catalog" && catalog && (
         <WorkflowCatalog
           catalog={catalog}

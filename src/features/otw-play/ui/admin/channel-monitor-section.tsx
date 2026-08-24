@@ -1,22 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import type { OtwPlayAdminCatalogDto } from "@contracts/otw-play";
 import { useQueryClient } from "@tanstack/react-query";
-import { EyeOff, Loader2, Pause, Play, Radar, RefreshCw } from "lucide-react";
+import { EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
+import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/ui/select";
+import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/ui/toast";
 import {
   createOtwPlayChannelMonitor,
+  deleteOtwPlayChannelMonitor,
   reconcileOtwPlayChannelMonitor,
   updateOtwPlayChannelMonitor,
   updateOtwPlayImportCandidate,
@@ -28,25 +23,22 @@ import {
 
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
+const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
 
-export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalogDto }) {
+export function ChannelMonitorSection() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const monitorsQuery = useOtwPlayChannelMonitors();
   const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
-  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [newChannelId, setNewChannelId] = useState("");
+  const [editChannelId, setEditChannelId] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const candidatesQuery = useOtwPlayChannelMonitorCandidates(selectedMonitorId);
   const monitors = useMemo(() => monitorsQuery.data ?? [], [monitorsQuery.data]);
-  const monitoredChannelIds = useMemo(
-    () => new Set(monitors.map((monitor) => monitor.channelId)),
-    [monitors],
-  );
-  const availableChannels = catalog.channels.filter((channel) =>
-    channel.channelRole === "approved_kirinuki" &&
-    channel.verificationStatus === "approved" &&
-    channel.active &&
-    !monitoredChannelIds.has(channel.id)
+  const normalizedNewChannelId = newChannelId.trim();
+  const newChannelAlreadyMonitored = monitors.some(
+    (monitor) => monitor.externalChannelId === normalizedNewChannelId,
   );
   const selectedMonitor = monitors.find((monitor) => monitor.id === selectedMonitorId) ?? null;
   const candidates = (candidatesQuery.data ?? []).filter(
@@ -60,6 +52,10 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
     }
   }, [monitors, selectedMonitorId]);
 
+  useEffect(() => {
+    setEditChannelId(selectedMonitor?.externalChannelId ?? "");
+  }, [selectedMonitor?.externalChannelId, selectedMonitor?.id]);
+
   const refresh = async (monitorId = selectedMonitorId) => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.channelMonitors() });
     if (monitorId) {
@@ -70,19 +66,75 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
   };
 
   const createMonitor = async () => {
-    if (!selectedChannelId) return;
+    const externalChannelId = normalizedNewChannelId;
+    if (
+      !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
+      newChannelAlreadyMonitored
+    ) return;
     setBusy("create");
     try {
-      const monitor = await createOtwPlayChannelMonitor({ channelId: selectedChannelId });
+      const monitor = await createOtwPlayChannelMonitor({ externalChannelId });
       setSelectedMonitorId(monitor.id);
-      setSelectedChannelId("");
+      setNewChannelId("");
       await refresh(monitor.id);
       toast({
         variant: "success",
         description: "현재 최신 영상을 기준점으로 저장했습니다. 이후 업로드부터 검수 제안에 추가합니다.",
       });
     } catch {
-      toast({ variant: "error", description: "채널 감시를 등록하지 못했습니다." });
+      toast({
+        variant: "error",
+        description: "수집 대상을 추가하지 못했습니다. 승인·활성 상태인 YouTube 채널 ID인지 확인해 주세요.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateTarget = async () => {
+    const externalChannelId = editChannelId.trim();
+    if (
+      !selectedMonitor ||
+      !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
+      externalChannelId === selectedMonitor.externalChannelId
+    ) return;
+    setBusy("target");
+    try {
+      await updateOtwPlayChannelMonitor(selectedMonitor.id, {
+        expectedVersion: selectedMonitor.version,
+        externalChannelId,
+      });
+      await refresh();
+      toast({
+        variant: "success",
+        description: "수집 대상 채널을 변경하고 새 채널의 최신 영상을 기준점으로 저장했습니다.",
+      });
+    } catch {
+      toast({
+        variant: "error",
+        description: "채널 ID를 수정하지 못했습니다. 승인 상태와 최신 버전을 확인해 주세요.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const removeMonitor = async () => {
+    if (!selectedMonitor) return;
+    setBusy("delete");
+    try {
+      await deleteOtwPlayChannelMonitor(selectedMonitor.id, {
+        expectedVersion: selectedMonitor.version,
+      });
+      setDeleteOpen(false);
+      setSelectedMonitorId(null);
+      await refresh(null);
+      toast({ variant: "success", description: "수집 대상 채널을 삭제했습니다." });
+    } catch {
+      toast({
+        variant: "error",
+        description: "수집 대상을 삭제하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
+      });
     } finally {
       setBusy(null);
     }
@@ -131,7 +183,7 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
           <div className="space-y-1">
             <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              승인된 클립 채널을 6시간마다 확인합니다. 등록 이전 영상은 소급하지 않고,
+              승인된 YouTube 채널을 6시간마다 확인합니다. 등록 이전 영상은 소급하지 않고,
               새 영상은 singing clip 검수함에만 보관하며 자동 공개하지 않습니다.
             </p>
           </div>
@@ -140,22 +192,33 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
       <CardContent className="space-y-5 pt-6">
         <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(260px,1fr)_auto] md:items-end">
           <Field>
-            <FieldLabel>감시할 승인 클립 채널</FieldLabel>
+            <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
             <FieldDescription>
-              채널 관리에서 active · approved · approved_kirinuki로 승인된 채널만 표시됩니다.
+              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 채널 관리에서 승인·활성화된 채널만 추가됩니다.
             </FieldDescription>
-            <Select value={selectedChannelId} onValueChange={setSelectedChannelId}>
-              <SelectTrigger className="h-11 w-full"><SelectValue placeholder="채널 선택" /></SelectTrigger>
-              <SelectContent>
-                {availableChannels.map((channel) => (
-                  <SelectItem key={channel.id} value={channel.id}>{channel.displayName}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input
+              id="new-monitor-channel-id"
+              className="h-11 font-mono"
+              value={newChannelId}
+              onChange={(event) => setNewChannelId(event.target.value)}
+              placeholder="UCxxxxxxxxxxxxxxxxxxxxxx"
+              aria-invalid={Boolean(newChannelId) && !YOUTUBE_CHANNEL_ID_PATTERN.test(newChannelId.trim())}
+            />
+            {newChannelAlreadyMonitored ? (
+              <p className="text-sm text-destructive">이미 수집 대상으로 등록된 채널입니다.</p>
+            ) : null}
           </Field>
-          <Button className="h-11" disabled={!selectedChannelId || busy !== null} onClick={() => void createMonitor()}>
+          <Button
+            className="h-11"
+            disabled={
+              !YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedNewChannelId) ||
+              newChannelAlreadyMonitored ||
+              busy !== null
+            }
+            onClick={() => void createMonitor()}
+          >
             {busy === "create" ? <Loader2 className="animate-spin" /> : <Radar />}
-            감시 시작
+            채널 추가
           </Button>
         </div>
 
@@ -184,6 +247,9 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
                   <p className="mt-2 text-xs text-muted-foreground">
                     마지막 확인 {formatAt(monitor.lastCheckedAt)}
                   </p>
+                  <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                    {monitor.externalChannelId}
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     미처리 {monitor.pendingCandidateCount}개 · 누적 {monitor.candidateCount}개
                   </p>
@@ -197,21 +263,58 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
             <div className="min-w-0 rounded-xl border">
               {selectedMonitor ? (
                 <>
-                  <div className="flex flex-wrap items-center gap-2 border-b p-4">
-                    <div className="mr-auto min-w-0">
-                      <p className="truncate font-semibold">{selectedMonitor.channelDisplayName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        다음 확인 {formatAt(selectedMonitor.nextCheckAt)}
-                      </p>
+                  <div className="space-y-4 border-b p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="mr-auto min-w-0">
+                        <p className="truncate font-semibold">{selectedMonitor.channelDisplayName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          다음 확인 {formatAt(selectedMonitor.nextCheckAt)}
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void toggleMonitor()}>
+                        {selectedMonitor.status === "active" ? <Pause /> : <Play />}
+                        {selectedMonitor.status === "active" ? "일시 정지" : "감시 재개"}
+                      </Button>
+                      <Button size="sm" disabled={busy !== null || selectedMonitor.status !== "active"} onClick={() => void reconcile()}>
+                        {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                        지금 대조
+                      </Button>
                     </div>
-                    <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void toggleMonitor()}>
-                      {selectedMonitor.status === "active" ? <Pause /> : <Play />}
-                      {selectedMonitor.status === "active" ? "일시 정지" : "감시 재개"}
-                    </Button>
-                    <Button size="sm" disabled={busy !== null || selectedMonitor.status !== "active"} onClick={() => void reconcile()}>
-                      {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-                      지금 대조
-                    </Button>
+                    <Field>
+                      <FieldLabel htmlFor="edit-monitor-channel-id">채널 ID 수정</FieldLabel>
+                      <FieldDescription>
+                        변경하면 이전 채널의 제안 연결을 이 대상에서 분리하고 새 채널의 최신 영상부터 확인합니다.
+                      </FieldDescription>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          id="edit-monitor-channel-id"
+                          className="h-10 font-mono"
+                          value={editChannelId}
+                          onChange={(event) => setEditChannelId(event.target.value)}
+                          aria-invalid={!YOUTUBE_CHANNEL_ID_PATTERN.test(editChannelId.trim())}
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={
+                            busy !== null ||
+                            !YOUTUBE_CHANNEL_ID_PATTERN.test(editChannelId.trim()) ||
+                            editChannelId.trim() === selectedMonitor.externalChannelId
+                          }
+                          onClick={() => void updateTarget()}
+                        >
+                          {busy === "target" ? <Loader2 className="animate-spin" /> : null}
+                          변경 저장
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="text-destructive hover:text-destructive"
+                          disabled={busy !== null}
+                          onClick={() => setDeleteOpen(true)}
+                        >
+                          <Trash2 /> 삭제
+                        </Button>
+                      </div>
+                    </Field>
                   </div>
                   <div className="divide-y">
                     {candidates.length === 0 ? (
@@ -272,6 +375,16 @@ export function ChannelMonitorSection({ catalog }: { catalog: OtwPlayAdminCatalo
           </div>
         )}
       </CardContent>
+      <ConfirmActionDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="수집 대상 채널을 삭제할까요?"
+        description="자동 확인을 중단하고 이 채널과 연결된 자동 제안 이력을 대상 목록에서 분리합니다. 이미 생성된 영상 후보 자체는 삭제하지 않습니다."
+        confirmLabel="수집 대상 삭제"
+        destructive
+        isProcessing={busy === "delete"}
+        onConfirm={() => void removeMonitor()}
+      />
     </Card>
   );
 }

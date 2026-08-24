@@ -217,12 +217,27 @@ export interface OtwPlayChannelMonitorCandidateDto {
 }
 
 export interface OtwPlayCreateChannelMonitorRequest {
-  channelId: string;
+  externalChannelId: string;
 }
 
-export interface OtwPlayUpdateChannelMonitorRequest {
+export type OtwPlayUpdateChannelMonitorRequest =
+  | {
+      expectedVersion: number;
+      status: OtwPlayChannelMonitorStatus;
+      externalChannelId?: never;
+    }
+  | {
+      expectedVersion: number;
+      externalChannelId: string;
+      status?: never;
+    };
+
+export interface OtwPlayDeleteChannelMonitorRequest {
   expectedVersion: number;
-  status: OtwPlayChannelMonitorStatus;
+}
+
+export interface OtwPlayDeleteChannelMonitorDto {
+  id: string;
 }
 
 export interface OtwPlayChannelMonitorReconcileDto {

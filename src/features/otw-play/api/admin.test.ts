@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createOtwPlayCatalogEntry,
+  createOtwPlayChannelMonitor,
   convertOtwPlayImportCandidates,
   createOtwPlayPerformance,
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
+  deleteOtwPlayChannelMonitor,
   fetchOtwPlayAdminCatalog,
   fetchOtwPlayAdminObservability,
   fetchOtwPlayAdminProposals,
@@ -18,6 +20,7 @@ import {
   retryOtwPlayImportJob,
   updateOtwPlayImportCandidate,
   updateOtwPlayAdminRelease,
+  updateOtwPlayChannelMonitor,
 } from "./admin";
 
 const apiFetchMock = vi.hoisted(() => vi.fn());
@@ -172,6 +175,48 @@ describe("OTW Play admin API", () => {
       3,
       "/api/play/admin/imports/job%20%2F%20one/retry",
       { method: "POST", json: {}, auth: "required" },
+    );
+  });
+
+  it("uses external YouTube channel IDs for collection-target CRUD", async () => {
+    await createOtwPlayChannelMonitor({
+      externalChannelId: "UC1111111111111111111111",
+    });
+    await updateOtwPlayChannelMonitor("monitor-1", {
+      expectedVersion: 3,
+      externalChannelId: "UC2222222222222222222222",
+    });
+    await deleteOtwPlayChannelMonitor("monitor-1", { expectedVersion: 4 });
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/channel-monitors",
+      {
+        method: "POST",
+        json: { externalChannelId: "UC1111111111111111111111" },
+        auth: "required",
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/channel-monitors/monitor-1",
+      {
+        method: "PATCH",
+        json: {
+          expectedVersion: 3,
+          externalChannelId: "UC2222222222222222222222",
+        },
+        auth: "required",
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/channel-monitors/monitor-1",
+      {
+        method: "DELETE",
+        json: { expectedVersion: 4 },
+        auth: "required",
+      },
     );
   });
 
