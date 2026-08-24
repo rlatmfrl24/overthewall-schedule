@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   OtwPlayAdminCatalogDto,
+  OtwPlayAdminCatalogSubjectInput,
   OtwPlayIngestionCandidateItemDto,
   OtwPlayIngestionClassification,
   OtwPlayIngestionConversionResultDto,
@@ -53,13 +54,20 @@ import {
   ChoiceGroup,
   type ChoiceOption,
 } from "./ingestion-form-controls";
+import { SubjectPicker, type SelectedSubject } from "./catalog-entry-dialog";
+
+type ExternalParticipantDraft = SelectedSubject & {
+  participantRole: OtwPlayParticipantRole;
+};
 
 type RowDraft = {
   songId: string;
   songTitle: string;
   isOtwOriginal: boolean;
-  originalArtistIds: string[];
+  originalArtists: SelectedSubject[];
   participants: Record<string, OtwPlayParticipantRole>;
+  externalParticipants: ExternalParticipantDraft[];
+  showExternalParticipantInput: boolean;
   relationType: OtwPlayRelationType;
   releaseType: "official_mv" | "official_video";
   participationType: OtwPlayParticipationType;
@@ -77,13 +85,53 @@ const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
   songId: "__new",
   songTitle: item.title ?? "",
   isOtwOriginal: false,
-  originalArtistIds: [],
+  originalArtists: [],
   participants: {},
+  externalParticipants: [],
+  showExternalParticipantInput: false,
   relationType: "cover",
   releaseType: "official_video",
   participationType: "solo",
   internalNote: "",
 });
+
+const subjectFromInput = (
+  subject: OtwPlayAdminCatalogSubjectInput,
+  catalog: OtwPlayAdminCatalogDto,
+): SelectedSubject => {
+  if (subject.kind === "new_external") {
+    return {
+      key: `external:${subject.clientKey}`,
+      label: subject.displayName,
+      detail: subject.entityKind === "group" ? "새 그룹" : "새 외부 인물",
+      subject,
+    };
+  }
+  if (subject.kind === "member") {
+    const entity = catalog.entities.find(
+      (candidate) => candidate.memberUid === subject.memberUid,
+    );
+    return {
+      key: entity ? `entity:${entity.id}` : `member:${subject.memberUid}`,
+      label: entity?.displayName ?? `멤버 UID ${subject.memberUid}`,
+      detail: "OTW 멤버",
+      subject,
+    };
+  }
+  const entity = catalog.entities.find(
+    (candidate) => candidate.id === subject.entityId,
+  );
+  return {
+    key: `entity:${subject.entityId}`,
+    label: entity?.displayName ?? subject.entityId,
+    detail: entity?.memberUid !== null && entity?.memberUid !== undefined
+      ? "OTW 멤버"
+      : entity?.entityKind === "group"
+        ? "기존 그룹"
+        : "기존 외부 인물",
+    subject,
+  };
+};
 
 const draftFromItem = (
   item: OtwPlayIngestionCandidateItemDto,
@@ -96,31 +144,35 @@ const draftFromItem = (
   if (input.song.kind === "create") {
     draft.songTitle = input.song.title;
     draft.isOtwOriginal = input.song.isOtwOriginal;
-    draft.originalArtistIds = input.song.originalArtists.flatMap((artist) => {
-      if (artist.subject.kind === "entity") return [artist.subject.entityId];
-      if (artist.subject.kind === "member") {
-        const memberUid = artist.subject.memberUid;
-        const entity = catalog.entities.find(
-          (candidate) => candidate.memberUid === memberUid,
-        );
-        return entity ? [entity.id] : [];
-      }
-      return [];
-    });
+    draft.originalArtists = input.song.originalArtists.map((artist) =>
+      subjectFromInput(artist.subject, catalog)
+    );
   }
-  draft.participants = Object.fromEntries(
-    input.participants.flatMap((participant) => {
-      const subject = participant.subject;
-      const entityId = subject.kind === "entity"
-        ? subject.entityId
-        : subject.kind === "member"
-          ? catalog.entities.find(
-              (entity) => entity.memberUid === subject.memberUid,
-            )?.id
-          : null;
-      return entityId ? [[entityId, participant.participantRole]] : [];
-    }),
-  );
+  const participantEntries = input.participants.map((participant) => ({
+    ...subjectFromInput(participant.subject, catalog),
+    participantRole: participant.participantRole,
+  }));
+  draft.participants = Object.fromEntries(participantEntries.flatMap((participant) => {
+    const subject = participant.subject;
+    const entity = subject.kind === "entity"
+      ? catalog.entities.find((candidate) => candidate.id === subject.entityId)
+      : subject.kind === "member"
+        ? catalog.entities.find((candidate) => candidate.memberUid === subject.memberUid)
+        : null;
+    return entity?.memberUid !== null && entity?.memberUid !== undefined
+      ? [[entity.id, participant.participantRole]]
+      : [];
+  }));
+  draft.externalParticipants = participantEntries.filter((participant) => {
+    const subject = participant.subject;
+    if (subject.kind === "new_external") return true;
+    if (subject.kind === "member") return false;
+    const entity = catalog.entities.find(
+      (candidate) => candidate.id === subject.entityId,
+    );
+    return entity?.memberUid === null || entity === undefined;
+  });
+  draft.showExternalParticipantInput = draft.externalParticipants.length > 0;
   draft.relationType = input.relationType;
   draft.releaseType = input.releaseType;
   draft.participationType = input.participationType;
@@ -132,7 +184,7 @@ const buildReviewInput = (
   draft: RowDraft,
   catalog: OtwPlayAdminCatalogDto,
 ): OtwPlayIngestionReviewInput => {
-  const participants = Object.entries(draft.participants).map(
+  const memberParticipants = Object.entries(draft.participants).map(
     ([entityId, participantRole], creditOrder) => ({
       subject: { kind: "entity" as const, entityId },
       participantRole,
@@ -142,6 +194,15 @@ const buildReviewInput = (
         entityId,
     }),
   );
+  const participants = [
+    ...memberParticipants,
+    ...draft.externalParticipants.map((participant, index) => ({
+      subject: participant.subject,
+      participantRole: participant.participantRole,
+      creditOrder: memberParticipants.length + index,
+      creditNameSnapshot: participant.label,
+    })),
+  ];
   if (participants.length === 0) {
     throw new Error("참여자를 한 명 이상 선택해 주세요.");
   }
@@ -154,8 +215,8 @@ const buildReviewInput = (
         originalReleaseDate: null,
         originalReleasePrecision: "unknown" as const,
         aliases: [],
-        originalArtists: draft.originalArtistIds.map((entityId, creditOrder) => ({
-          subject: { kind: "entity" as const, entityId },
+        originalArtists: draft.originalArtists.map((artist, creditOrder) => ({
+          subject: artist.subject,
           creditOrder,
           isPrimary: creditOrder === 0,
         })),
@@ -410,6 +471,12 @@ export function IngestionSection({
           participants: commonParticipantId === "none"
             ? previous.participants
             : { [commonParticipantId]: commonParticipantRole },
+          externalParticipants: commonParticipantId === "none"
+            ? previous.externalParticipants
+            : [],
+          showExternalParticipantInput: commonParticipantId === "none"
+            ? previous.showExternalParticipantInput
+            : false,
         };
       }
       return next;
@@ -709,7 +776,11 @@ export function IngestionSection({
                       <SelectContent>
                         <SelectItem value="none">참여자 변경 안 함</SelectItem>
                         {catalog.entities
-                          .filter((entity) => entity.archivedAt === null)
+                          .filter(
+                            (entity) =>
+                              entity.archivedAt === null &&
+                              entity.memberUid !== null,
+                          )
                           .map((entity) => (
                             <SelectItem key={entity.id} value={entity.id}>
                               {entity.displayName}
@@ -865,37 +936,16 @@ export function IngestionSection({
                               </span>
                             </span>
                           </label>
-                          <div className="space-y-2">
-                            <div>
-                              <p className="text-sm font-semibold">원곡 가수</p>
-                              <p className="mt-1 text-xs text-muted-foreground">한 명 이상 선택해 주세요.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {catalog.entities
-                                .filter((entity) => entity.archivedAt === null)
-                                .map((entity) => {
-                                  const checkboxId = `artist-${item.candidateId}-${entity.id}`;
-                                  return (
-                                    <label
-                                      key={entity.id}
-                                      htmlFor={checkboxId}
-                                      className="inline-flex cursor-pointer items-center gap-2 rounded-full border bg-background px-3 py-2 text-sm hover:bg-muted/50"
-                                    >
-                                      <Checkbox
-                                        id={checkboxId}
-                                        checked={draft.originalArtistIds.includes(entity.id)}
-                                        onCheckedChange={(checked) => updateDraft({
-                                          originalArtistIds: checked
-                                            ? [...draft.originalArtistIds, entity.id]
-                                            : draft.originalArtistIds.filter((id) => id !== entity.id),
-                                        })}
-                                      />
-                                      {entity.displayName}
-                                    </label>
-                                  );
-                                })}
-                            </div>
-                          </div>
+                          <SubjectPicker
+                            label="원곡 가수"
+                            placeholder="가수명을 검색하거나 새 외부 가수로 추가"
+                            helpText="기존 OTW 멤버·외부 가수를 검색해 선택하거나, 없는 가수는 새 외부 identity로 추가합니다."
+                            members={[]}
+                            entities={catalog.entities}
+                            selected={draft.originalArtists}
+                            onChange={(originalArtists) => updateDraft({ originalArtists })}
+                            includeMemberEntities
+                          />
                         </>
                       ) : null}
                     </fieldset>
@@ -903,11 +953,15 @@ export function IngestionSection({
                     <fieldset className="space-y-3 rounded-lg border bg-muted/10 p-4">
                       <legend className="px-1 text-sm font-semibold">가창 참여자와 역할</legend>
                       <p className="text-xs leading-relaxed text-muted-foreground">
-                        실제 가창 참여자를 선택하고 각 참여자의 역할을 지정합니다.
+                        기본 목록에는 OTW 멤버만 표시됩니다. 외부 가창자는 아래 옵션을 켠 뒤 별도로 추가합니다.
                       </p>
                       <div className="grid gap-2">
                         {catalog.entities
-                          .filter((entity) => entity.archivedAt === null)
+                          .filter(
+                            (entity) =>
+                              entity.archivedAt === null &&
+                              entity.memberUid !== null,
+                          )
                           .map((entity) => {
                             const role = draft.participants[entity.id];
                             const checkboxId = `participant-${item.candidateId}-${entity.id}`;
@@ -957,6 +1011,87 @@ export function IngestionSection({
                             );
                           })}
                       </div>
+                      <label
+                        htmlFor={`external-participant-${item.candidateId}`}
+                        className="flex cursor-pointer items-start gap-3 rounded-lg border bg-background p-3 hover:bg-muted/40"
+                      >
+                        <Checkbox
+                          id={`external-participant-${item.candidateId}`}
+                          checked={draft.showExternalParticipantInput}
+                          onCheckedChange={(checked) => updateDraft({
+                            showExternalParticipantInput: checked === true,
+                            externalParticipants: checked === true
+                              ? draft.externalParticipants
+                              : [],
+                          })}
+                        />
+                        <span>
+                          <span className="block text-sm font-medium">외부 가창자 추가</span>
+                          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                            OTW 멤버가 아닌 가창자가 실제로 참여한 경우에만 사용합니다.
+                          </span>
+                        </span>
+                      </label>
+                      {draft.showExternalParticipantInput ? (
+                        <div className="space-y-3 rounded-lg border border-dashed bg-background p-3">
+                          <SubjectPicker
+                            label="외부 가창자"
+                            placeholder="외부 인물·그룹을 검색하거나 새로 추가"
+                            helpText="기존 외부 identity를 선택하거나 새 외부 인물·그룹을 추가합니다."
+                            members={[]}
+                            entities={catalog.entities}
+                            selected={draft.externalParticipants}
+                            onChange={(subjects) => {
+                              const currentByKey = new Map(
+                                draft.externalParticipants.map((participant) => [
+                                  participant.key,
+                                  participant,
+                                ]),
+                              );
+                              updateDraft({
+                                externalParticipants: subjects.map((subject) => ({
+                                  ...subject,
+                                  participantRole:
+                                    currentByKey.get(subject.key)?.participantRole ?? "vocal",
+                                })),
+                              });
+                            }}
+                          />
+                          {draft.externalParticipants.map((participant) => (
+                            <Field key={participant.key} orientation="horizontal">
+                              <FieldLabel className="min-w-0 flex-1 truncate">
+                                {participant.label}
+                              </FieldLabel>
+                              <Select
+                                value={participant.participantRole}
+                                onValueChange={(value) => updateDraft({
+                                  externalParticipants: draft.externalParticipants.map((candidate) =>
+                                    candidate.key === participant.key
+                                      ? {
+                                          ...candidate,
+                                          participantRole: value as OtwPlayParticipantRole,
+                                        }
+                                      : candidate
+                                  ),
+                                })}
+                              >
+                                <SelectTrigger
+                                  size="sm"
+                                  className="w-32"
+                                  aria-label={`${participant.label} 참여 역할`}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {Object.entries(participantRoleLabels).map(([value, label]) => (
+                                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </Field>
+                          ))}
+                        </div>
+                      ) : null}
                     </fieldset>
 
                     <section className="space-y-5 rounded-lg border bg-muted/10 p-4" aria-labelledby={`classification-${item.candidateId}`}>

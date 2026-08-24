@@ -57,6 +57,12 @@ const catalog = {
     displayName: "Singer",
     memberUid: 1,
     archivedAt: null,
+  }, {
+    id: "entity-external",
+    displayName: "Guest Artist",
+    memberUid: null,
+    entityKind: "person",
+    archivedAt: null,
   }],
   performances: [],
   channels: [],
@@ -101,6 +107,17 @@ const candidate = (index = 0) => ({
   lastConversionAttemptAt: null,
   linkedPerformanceId: null,
 });
+
+const startImportAndOpenEditor = async () => {
+  fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+    target: { value: "PL1234567890" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+  await screen.findByText("Official Covers");
+  fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+  await screen.findAllByText("Candidate Video");
+  fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
+};
 
 describe("IngestionSection", () => {
   beforeAll(() => {
@@ -219,6 +236,129 @@ describe("IngestionSection", () => {
     expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
     expect(screen.getByLabelText("시작 위치")).toBeTruthy();
     expect(screen.getByLabelText("가져올 개수")).toBeTruthy();
+  });
+
+  it("searches or adds original artists and keeps external singers behind an explicit option", async () => {
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    expect(screen.getByLabelText("Singer")).toBeTruthy();
+    expect(screen.queryByLabelText("Guest Artist")).toBeNull();
+    expect(screen.queryByLabelText("외부 가창자 검색")).toBeNull();
+
+    const songSelect = screen.getByRole("combobox", { name: "연결할 곡" });
+    fireEvent.keyDown(songSelect, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "새 곡 입력" }));
+
+    const artistSearch = screen.getByLabelText("원곡 가수 검색");
+    fireEvent.change(artistSearch, { target: { value: "Guest Artist" } });
+    fireEvent.click(await screen.findByRole("option", { name: /Guest Artist/ }));
+    fireEvent.change(artistSearch, { target: { value: "New Original Artist" } });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /외부 가창자 추가/ }));
+    const externalSearch = screen.getByLabelText("외부 가창자 검색");
+    fireEvent.change(externalSearch, { target: { value: "Guest Vocal" } });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
+    expect(screen.getByLabelText("Guest Vocal 참여 역할")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:AAAAAAAAAAA",
+      expect.objectContaining({
+        action: "save",
+        input: expect.objectContaining({
+          song: expect.objectContaining({
+            kind: "create",
+            originalArtists: [
+              expect.objectContaining({
+                subject: { kind: "entity", entityId: "entity-external" },
+              }),
+              expect.objectContaining({
+                subject: expect.objectContaining({
+                  kind: "new_external",
+                  displayName: "New Original Artist",
+                }),
+              }),
+            ],
+          }),
+          participants: expect.arrayContaining([
+            expect.objectContaining({
+              subject: { kind: "entity", entityId: "entity-1" },
+            }),
+            expect.objectContaining({
+              subject: expect.objectContaining({
+                kind: "new_external",
+                displayName: "Guest Vocal",
+              }),
+            }),
+          ]),
+        }),
+      }),
+    ));
+  });
+
+  it("restores saved external participant inputs instead of dropping them", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              reviewInput: {
+                ...candidate().reviewInput,
+                participants: [
+                  ...candidate().reviewInput.participants,
+                  {
+                    subject: {
+                      kind: "new_external" as const,
+                      clientKey: "guest-vocal",
+                      displayName: "Saved Guest Vocal",
+                      entityKind: "person" as const,
+                    },
+                    participantRole: "featured_vocal" as const,
+                    creditOrder: 1,
+                  },
+                ],
+              },
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    expect(screen.getByRole("checkbox", { name: /외부 가창자 추가/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByText("Saved Guest Vocal")).toHaveLength(2);
+    expect(screen.getByRole("combobox", {
+      name: "Saved Guest Vocal 참여 역할",
+    }).textContent).toContain("피처링 보컬");
+
+    fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:AAAAAAAAAAA",
+      expect.objectContaining({
+        input: expect.objectContaining({
+          participants: expect.arrayContaining([
+            expect.objectContaining({
+              subject: expect.objectContaining({
+                kind: "new_external",
+                clientKey: "guest-vocal",
+                displayName: "Saved Guest Vocal",
+              }),
+              participantRole: "featured_vocal",
+            }),
+          ]),
+        }),
+      }),
+    ));
   });
 
   it("shows the safe YouTube failure classification and request ID", async () => {
