@@ -194,6 +194,10 @@ export class IngestionService {
     return this.repository.getJob(jobId);
   }
 
+  listJobs(limit = 100) {
+    return this.repository.listJobs(Math.max(1, Math.min(100, limit)));
+  }
+
   async listItems(
     jobId: string,
     limit: number,

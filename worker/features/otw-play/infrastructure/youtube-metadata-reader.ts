@@ -10,7 +10,11 @@ import {
 import { OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS } from "../domain/source-health-policy";
 
 type ChannelResponse = {
-  items?: Array<{ id?: string; snippet?: { title?: string } }>;
+  items?: Array<{
+    id?: string;
+    snippet?: { title?: string };
+    contentDetails?: { relatedPlaylists?: { uploads?: string } };
+  }>;
 };
 
 type VideoItem = {
@@ -255,6 +259,26 @@ export class YouTubeOtwPlayMetadataReader
     const item = data.items?.[0];
     if (item?.id !== channelId || !item.snippet?.title?.trim()) return null;
     return { channelId, displayName: item.snippet.title.trim() };
+  }
+
+  async readChannelUploads(channelId: string) {
+    const data = await this.read<ChannelResponse>("channels", {
+      part: "snippet,contentDetails",
+      id: channelId,
+      maxResults: "1",
+    });
+    const item = data.items?.[0];
+    const displayName = item?.snippet?.title?.trim();
+    const uploadsPlaylistId = item?.contentDetails?.relatedPlaylists?.uploads?.trim();
+    if (
+      item?.id !== channelId ||
+      !displayName ||
+      !uploadsPlaylistId ||
+      !/^UU[A-Za-z0-9_-]{22}$/.test(uploadsPlaylistId)
+    ) {
+      return null;
+    }
+    return { channelId, displayName, uploadsPlaylistId };
   }
 
   async readVideos(

@@ -178,6 +178,60 @@ export interface OtwPlayIngestionJobDto {
   updatedAt: number;
 }
 
+export const OTW_PLAY_CHANNEL_MONITOR_STATUSES = ["active", "paused"] as const;
+export type OtwPlayChannelMonitorStatus =
+  (typeof OTW_PLAY_CHANNEL_MONITOR_STATUSES)[number];
+
+export interface OtwPlayChannelMonitorDto {
+  id: string;
+  channelId: string;
+  channelDisplayName: string;
+  externalChannelId: string;
+  uploadsPlaylistId: string;
+  status: OtwPlayChannelMonitorStatus;
+  checkIntervalMinutes: number;
+  lastCheckedAt: number | null;
+  nextCheckAt: number;
+  lastSeenVideoId: string | null;
+  lastSeenPublishedAt: number | null;
+  lastErrorCode: string | null;
+  candidateCount: number;
+  pendingCandidateCount: number;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OtwPlayChannelMonitorCandidateDto {
+  candidateId: string;
+  candidateVersion: number;
+  videoId: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  publishedAt: number | null;
+  availabilityStatus: OtwPlaySourceAvailabilityStatus;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  exclusionReason: string | null;
+  discoveredAt: number;
+}
+
+export interface OtwPlayCreateChannelMonitorRequest {
+  channelId: string;
+}
+
+export interface OtwPlayUpdateChannelMonitorRequest {
+  expectedVersion: number;
+  status: OtwPlayChannelMonitorStatus;
+}
+
+export interface OtwPlayChannelMonitorReconcileDto {
+  monitor: OtwPlayChannelMonitorDto;
+  discoveredCount: number;
+  checkedVideoCount: number;
+  capped: boolean;
+}
+
 export interface OtwPlayIngestionCandidateItemDto {
   originId: string;
   candidateId: string;

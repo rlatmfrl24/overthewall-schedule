@@ -67,6 +67,22 @@ describe("OTW Play ingestion handler", () => {
     }));
   });
 
+  it("lists persisted import jobs so previous playlists remain reachable", async () => {
+    const listJobs = vi.fn(async () => [{ id: "job-old", playlistTitle: "Saved" }]);
+    const handler = createIngestionHandler(
+      () => ({ listJobs }) as unknown as IngestionService,
+    );
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/imports?limit=100",
+    ), env);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      data: [{ id: "job-old", playlistTitle: "Saved" }],
+    });
+    expect(listJobs).toHaveBeenCalledWith(100);
+  });
+
   it("returns a safe YouTube failure classification for playlist diagnostics", async () => {
     const preflight = vi.fn(async () => {
       throw new OtwPlayYouTubeMetadataError(

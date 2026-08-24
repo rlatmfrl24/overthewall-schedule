@@ -8,6 +8,12 @@ export interface OtwPlayYouTubeChannelMetadata {
   displayName: string;
 }
 
+export interface OtwPlayYouTubeChannelUploads {
+  channelId: string;
+  displayName: string;
+  uploadsPlaylistId: string;
+}
+
 export interface OtwPlayYouTubeVideoMetadata {
   videoId: string;
   channelId: string;
@@ -65,6 +71,9 @@ export interface OtwPlayYouTubePlaylistPage {
 
 export interface OtwPlayYouTubeIngestionReader
   extends OtwPlayYouTubeBatchMetadataReader {
+  readChannelUploads(
+    channelId: string,
+  ): Promise<OtwPlayYouTubeChannelUploads | null>;
   readPlaylistSummary(
     playlistId: string,
   ): Promise<OtwPlayYouTubePlaylistSummary | null>;

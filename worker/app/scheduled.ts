@@ -21,6 +21,7 @@ import { getDb } from "../platform/db";
 import { updateSetting } from "../platform/http-helpers";
 import type { Env } from "../platform/types";
 import { createOtwPlayIngestionService } from "./ingestion";
+import { createOtwPlayChannelMonitorService } from "./channel-monitors";
 
 const collectScheduledXPosts = async (env: Env) => {
   const outcome = await runScheduledXCollection(env);
@@ -101,6 +102,14 @@ const requeueScheduledOtwPlayIngestion = async (env: Env) => {
   }
 };
 
+export const reconcileScheduledOtwPlayChannels = async (env: Env) => {
+  const results = await createOtwPlayChannelMonitorService(env).runDue();
+  if (results.length > 0) {
+    console.log("[scheduled] OTW Play channel reconciliation completed", results);
+  }
+  return results;
+};
+
 export const runIndependentScheduledTasks = async (env: Env) => {
   const tasks = [
     {
@@ -114,6 +123,10 @@ export const runIndependentScheduledTasks = async (env: Env) => {
     {
       label: "OTW Play ingestion recovery",
       run: () => requeueScheduledOtwPlayIngestion(env),
+    },
+    {
+      label: "OTW Play channel reconciliation",
+      run: () => reconcileScheduledOtwPlayChannels(env),
     },
     {
       label: "YouTube warmup",

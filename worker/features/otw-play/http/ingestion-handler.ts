@@ -96,6 +96,30 @@ export const createIngestionHandler = (
   };
   try {
     if (
+      request.method === "GET" &&
+      url.pathname === "/api/play/admin/imports"
+    ) {
+      if ([...url.searchParams.keys()].some((key) => key !== "limit")) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Unexpected query parameter",
+        );
+      }
+      const rawLimit = url.searchParams.get("limit");
+      const limit = rawLimit === null ? 100 : Number(rawLimit);
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "limit must be between 1 and 100",
+        );
+      }
+      return responseJson({ data: await service.listJobs(limit) });
+    }
+    if (
       request.method === "POST" &&
       url.pathname === "/api/play/admin/imports/playlist/preflight"
     ) {

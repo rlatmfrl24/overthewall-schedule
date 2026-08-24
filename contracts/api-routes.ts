@@ -115,6 +115,7 @@ export const apiRoutes = {
         "/api/play/admin/imports/playlist/preflight",
       ),
       playlistImports: staticRoute("/api/play/admin/imports/playlist"),
+      importJobs: staticRoute("/api/play/admin/imports"),
       importJob: dynamicRoute(
         "/api/play/admin/imports/:jobId",
         (jobId: string) =>
@@ -145,6 +146,22 @@ export const apiRoutes = {
           (jobId: string) =>
             `/api/play/admin/imports/${encodeURIComponent(jobId)}/retry` as const,
         ),
+      channelMonitors: staticRoute("/api/play/admin/channel-monitors"),
+      channelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}` as const,
+      ),
+      channelMonitorCandidates: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/candidates",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/candidates` as const,
+      ),
+      reconcileChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/reconcile",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/reconcile` as const,
+      ),
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(
         "/api/play/admin/catalog-entries/preflight",

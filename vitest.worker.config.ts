@@ -44,10 +44,12 @@ const OTW_PLAY_INGESTION_MIGRATION_NAMES = [
   "0057_numerous_luminals.sql",
   "0058_awesome_lorna_dane.sql",
   "0059_demonic_luke_cage.sql",
+  "0060_ancient_cardiac.sql",
 ] as const;
 const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES,
   "0059_demonic_luke_cage.sql",
+  "0060_ancient_cardiac.sql",
 ] as const;
 
 export default defineConfig({

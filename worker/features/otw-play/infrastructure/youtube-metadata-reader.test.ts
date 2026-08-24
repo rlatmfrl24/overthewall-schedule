@@ -83,6 +83,29 @@ describe("YouTubeOtwPlayMetadataReader", () => {
     );
   });
 
+  it("resolves the authoritative uploads playlist for channel monitoring", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json({
+      items: [{
+        id: "UC1234567890123456789012",
+        snippet: { title: "Approved Clips" },
+        contentDetails: {
+          relatedPlaylists: { uploads: "UU1234567890123456789012" },
+        },
+      }],
+    }));
+    const reader = new YouTubeOtwPlayMetadataReader("secret-key", fetcher);
+
+    await expect(
+      reader.readChannelUploads("UC1234567890123456789012"),
+    ).resolves.toEqual({
+      channelId: "UC1234567890123456789012",
+      displayName: "Approved Clips",
+      uploadsPlaylistId: "UU1234567890123456789012",
+    });
+    const url = new URL(String(fetcher.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("part")).toBe("snippet,contentDetails");
+  });
+
   it("reads public playlist summary and preserves paginated item positions", async () => {
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = new URL(String(input));

@@ -77,6 +77,9 @@ export {
 } from "./application/ingestion-service";
 export type { OtwPlayIngestionQueueMessage } from "./application/ports/ingestion-repository";
 export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
+export { ChannelMonitorService } from "./application/channel-monitor-service";
+export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
+export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
 export {
   createIngestionHandler,
   createIngestionQueueHandler,

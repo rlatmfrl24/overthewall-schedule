@@ -271,6 +271,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [MEMBER_POLICY_NO_STORE_POST],
   },
   {
+    id: "otw-play.admin.import-jobs.list",
+    owner: "otw-play",
+    path: "/api/play/admin/imports",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "otw-play.admin.playlist-import.preflight",
     owner: "otw-play",
     path: "/api/play/admin/imports/playlist/preflight",
@@ -316,6 +322,30 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.admin.import-job.retry",
     owner: "otw-play",
     path: "/api/play/admin/imports/:jobId/retry",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.collection",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors",
+    methods: [ADMIN_GET, ADMIN_POST_CREATED],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.item",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id",
+    methods: [ADMIN_PATCH],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.candidates",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/candidates",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.reconcile",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/reconcile",
     methods: [ADMIN_POST],
   },
   {

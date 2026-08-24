@@ -378,6 +378,13 @@ export class D1IngestionRepository implements IngestionRepository {
     return toJobDto(row);
   }
 
+  async listJobs(limit: number) {
+    const result = await this.database.prepare(
+      `${jobSelect} ORDER BY job.created_at DESC, job.id DESC LIMIT ?`,
+    ).bind(limit).all<JobRow>();
+    return resultsOf(result).map(toJobDto);
+  }
+
   async listItems(
     jobId: string,
     limit: number,

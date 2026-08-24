@@ -45,9 +45,11 @@ import {
   D1MemberSubmissionRepository,
   createMemberSubmissionHandler,
   createIngestionHandler,
+  createChannelMonitorHandler,
   createReleaseHandler,
 } from "../features/otw-play";
 import { createOtwPlayIngestionService } from "./ingestion";
+import { createOtwPlayChannelMonitorService } from "./channel-monitors";
 import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 import {
   collectNaverCafePostsForSources,
@@ -231,6 +233,10 @@ const handleOtwPlayMemberSubmissions = withPlayOperationsTelemetry(
 );
 const handleOtwPlayIngestion = withPlayOperationsTelemetry(
   createIngestionHandler(createOtwPlayIngestionService),
+  resolvePlayTelemetry,
+);
+const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
+  createChannelMonitorHandler(createOtwPlayChannelMonitorService),
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
@@ -543,6 +549,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayMemberSubmissions,
   },
   {
+    id: "otw-play.admin.import-jobs.list",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.importJobs.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
     id: "otw-play.admin.playlist-import.preflight",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.playlistImportPreflight.pattern,
@@ -597,6 +610,37 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.otwPlay.admin.retryImportJob.pattern,
     methods: methods(post(ADMIN_NO_STORE)),
     handler: handleOtwPlayIngestion,
+  },
+  {
+    id: "otw-play.admin.channel-monitors.collection",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.channelMonitors.pattern,
+    methods: methods(
+      get(ADMIN_NO_STORE),
+      post({ ...ADMIN_NO_STORE, successStatus: 201 }),
+    ),
+    handler: handleOtwPlayChannelMonitors,
+  },
+  {
+    id: "otw-play.admin.channel-monitors.item",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.channelMonitor.pattern,
+    methods: methods(patch(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
+  },
+  {
+    id: "otw-play.admin.channel-monitors.candidates",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.channelMonitorCandidates.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
+  },
+  {
+    id: "otw-play.admin.channel-monitors.reconcile",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.reconcileChannelMonitor.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
   },
   {
     id: "otw-play.admin.catalog",

@@ -2121,6 +2121,89 @@ export const musicIngestionCandidates = sqliteTable(
 export type MusicIngestionCandidate = typeof musicIngestionCandidates.$inferSelect;
 export type NewMusicIngestionCandidate = typeof musicIngestionCandidates.$inferInsert;
 
+export const musicChannelUploadMonitors = sqliteTable(
+  "music_channel_upload_monitors",
+  {
+    id: text().primaryKey(),
+    channel_id: text("channel_id")
+      .notNull()
+      .references(() => musicChannels.id, { onDelete: "restrict" }),
+    uploads_playlist_id: text("uploads_playlist_id").notNull(),
+    status: text().$type<"active" | "paused">().notNull().default("active"),
+    check_interval_minutes: integer("check_interval_minutes").notNull().default(360),
+    last_checked_at: integer("last_checked_at"),
+    next_check_at: integer("next_check_at").notNull(),
+    last_seen_video_id: text("last_seen_video_id"),
+    last_seen_published_at: integer("last_seen_published_at"),
+    last_error_code: text("last_error_code"),
+    lease_until: integer("lease_until"),
+    created_by_user_id: text("created_by_user_id").notNull(),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_channel_upload_monitors_channel").on(table.channel_id),
+    index("idx_music_channel_upload_monitors_due").on(
+      table.status,
+      table.next_check_at,
+      table.lease_until,
+      table.id,
+    ),
+    check(
+      "music_channel_upload_monitors_identity_check",
+      sql`length(trim(${table.id})) > 0
+        AND length(${table.uploads_playlist_id}) = 24
+        AND substr(${table.uploads_playlist_id}, 1, 2) = 'UU'
+        AND substr(${table.uploads_playlist_id}, 3) NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND length(trim(${table.created_by_user_id})) > 0`,
+    ),
+    check(
+      "music_channel_upload_monitors_status_interval_check",
+      sql`${table.status} IN ('active', 'paused')
+        AND typeof(${table.check_interval_minutes}) = 'integer'
+        AND ${table.check_interval_minutes} >= 60
+        AND ${table.check_interval_minutes} <= 1440`,
+    ),
+    check(
+      "music_channel_upload_monitors_watermark_check",
+      sql`(${table.last_seen_video_id} IS NULL
+          OR (length(${table.last_seen_video_id}) = 11
+            AND ${table.last_seen_video_id} NOT GLOB '*[^A-Za-z0-9_-]*'))
+        AND (${table.last_error_code} IS NULL OR length(trim(${table.last_error_code})) > 0)`,
+    ),
+    check(
+      "music_channel_upload_monitors_version_time_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
+        AND typeof(${table.next_check_at}) = 'integer' AND ${table.next_check_at} >= 0`,
+    ),
+  ],
+);
+
+export const musicChannelUploadCandidateOrigins = sqliteTable(
+  "music_channel_upload_candidate_origins",
+  {
+    monitor_id: text("monitor_id")
+      .notNull()
+      .references(() => musicChannelUploadMonitors.id, { onDelete: "cascade" }),
+    candidate_id: text("candidate_id")
+      .notNull()
+      .references(() => musicIngestionCandidates.id, { onDelete: "cascade" }),
+    provider_published_at: integer("provider_published_at"),
+    discovered_at: integer("discovered_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.monitor_id, table.candidate_id] }),
+    index("idx_music_channel_upload_origins_monitor_discovered").on(
+      table.monitor_id,
+      sql`${table.discovered_at} DESC`,
+      table.candidate_id,
+    ),
+  ],
+);
+
 export const musicIngestionEvents = sqliteTable(
   "music_ingestion_events",
   {

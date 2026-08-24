@@ -64,6 +64,7 @@ const repository = () => ({
     message: { schemaVersion: 1 as const, jobId: "job-1", idempotencyKey: "message-1" },
   })),
   getJob: vi.fn(async () => job()),
+  listJobs: vi.fn(async () => [job()]),
   listItems: vi.fn(async () => ({ page: { items: [], nextCursor: null }, hasMore: false })),
   readMessage: vi.fn(async () => ({
     jobId: "job-1",
@@ -134,6 +135,7 @@ const repository = () => ({
 }) satisfies IngestionRepository;
 
 const youtube = (itemCount = 51) => ({
+  readChannelUploads: vi.fn(async () => null),
   readPlaylistSummary: vi.fn(async () => ({
     playlistId: "PL1234567890",
     title: "Playlist",

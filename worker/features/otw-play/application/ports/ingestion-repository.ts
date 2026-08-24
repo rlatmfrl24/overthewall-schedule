@@ -67,6 +67,7 @@ export interface IngestionRepository {
     command: CreateIngestionJobCommand,
   ): Promise<{ job: OtwPlayIngestionJobDto; message: OtwPlayIngestionQueueMessage }>;
   getJob(jobId: string): Promise<OtwPlayIngestionJobDto>;
+  listJobs(limit: number): Promise<OtwPlayIngestionJobDto[]>;
   listItems(
     jobId: string,
     limit: number,
