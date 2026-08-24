@@ -273,6 +273,17 @@ Queue message는 최대 50개 video ID와 내부 job key만 가지며 raw metada
 DLQ 14일을 사용한다. 장기 quota 대기는 D1 `next_retry_at`에 기록하고 scheduled task가
 재enqueue하므로 Queue retention을 권위 복구 수단으로 사용하지 않는다.
 
+### 7.4 후보 검수와 metadata 갱신의 동시성
+
+후보 version은 Queue video batch의 metadata 갱신과 관리자 검수 저장이 함께 증가시킨다.
+따라서 version만 비교하면 행을 편집하는 동안 정상 완료된 metadata batch도 검수 충돌로
+오판한다. 검수 form은 행을 열 때의 `candidateVersion`, `reviewInput`, `status`를 baseline으로
+보존하고 저장 command에 전달한다. 저장소는 version이 같으면 기존 CAS를 적용하고,
+version이 다르면 review input과 status가 baseline과 모두 같은 경우에만 현재 approved
+channel과 `eligible|scope_review` 정책을 다시 확인해 저장한다. 실제 관리자 저장·제외처럼
+review input 또는 status가 바뀐 경우에는 409를 유지한다. UI는 이때 최신 항목을 refetch하되
+작성 중인 form 값은 버리지 않는다.
+
 Cloudflare는 Queue가 at-least-once delivery이며 중복 효과를 idempotency key로 방지할
 것을 권고한다. [Queues delivery guarantees](https://developers.cloudflare.com/queues/reference/delivery-guarantees/)
 

@@ -414,6 +414,108 @@ describe("D1IngestionRepository", () => {
     expect(page.page.items[0]?.classification).toBe("existing_candidate");
   });
 
+  it("saves a stale row when only background metadata changed its version", async () => {
+    const repository = new D1IngestionRepository(db);
+    const first = await repository.createJob({
+      jobId: "job-review-first",
+      actorUserId: "admin-1",
+      input,
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW,
+    });
+    const firstChildren = await repository.recordPlaylistPage(
+      await repository.readMessage(first.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-first", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: null,
+      },
+      NOW,
+    );
+    const observation = {
+      videoId: "AAAAAAAAAAA",
+      availabilityStatus: "playable" as const,
+      video: {
+        videoId: "AAAAAAAAAAA",
+        channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+        channelTitle: "Approved",
+        title: "Eligible",
+        thumbnailUrl: null,
+        durationSeconds: 180,
+        publishedAt: NOW,
+        availabilityStatus: "playable" as const,
+        madeForKids: false,
+      },
+    };
+    await repository.recordVideoBatch(
+      await repository.readMessage(firstChildren[0]!.idempotencyKey),
+      [observation],
+      NOW + 1,
+    );
+    const staleItem = (await repository.listItems("job-review-first", 10, null)).page.items[0]!;
+    expect(staleItem).toMatchObject({ candidateVersion: 1, reviewInput: null });
+
+    const second = await repository.createJob({
+      jobId: "job-review-second",
+      actorUserId: "admin-2",
+      input: { ...input, idempotencyKey: "request-review-second" },
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW + 2,
+    });
+    const secondChildren = await repository.recordPlaylistPage(
+      await repository.readMessage(second.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-second", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: null,
+      },
+      NOW + 2,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(secondChildren[0]!.idempotencyKey),
+      [observation],
+      NOW + 3,
+    );
+
+    await expect(repository.saveCandidateReview({
+      candidateId: staleItem.candidateId,
+      expectedVersion: staleItem.candidateVersion,
+      expectedReviewInput: staleItem.reviewInput,
+      expectedReviewStatus: staleItem.status,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-review-after-metadata",
+      now: NOW + 4,
+    })).resolves.toMatchObject({ version: 3, status: "ready", reviewInput });
+
+    await expect(repository.saveCandidateReview({
+      candidateId: staleItem.candidateId,
+      expectedVersion: 2,
+      expectedReviewInput: null,
+      expectedReviewStatus: staleItem.status,
+      input: reviewInput,
+      actorUserId: "other-reviewer",
+      eventId: "event-review-real-conflict",
+      now: NOW + 5,
+    })).rejects.toMatchObject({ code: "stale_message" });
+
+    await expect(repository.ignoreCandidate({
+      candidateId: staleItem.candidateId,
+      expectedVersion: 3,
+      actorUserId: "other-reviewer",
+      eventId: "event-review-ignore",
+      now: NOW + 6,
+    })).resolves.toMatchObject({ version: 4, status: "ignored", reviewInput: null });
+    await expect(repository.saveCandidateReview({
+      candidateId: staleItem.candidateId,
+      expectedVersion: 2,
+      expectedReviewInput: null,
+      expectedReviewStatus: staleItem.status,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-review-ignore-conflict",
+      now: NOW + 7,
+    })).rejects.toMatchObject({ code: "stale_message" });
+  });
+
   it("saves candidate review with CAS and preserves ignored decisions for 180 days", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({

@@ -15,6 +15,7 @@ const retryMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const itemsHookMock = vi.hoisted(() => vi.fn());
+const jobHookMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
   preflightOtwPlayPlaylistImport: preflightMock,
@@ -26,17 +27,7 @@ vi.mock("../../api/admin", () => ({
 }));
 
 vi.mock("../../queries/use-admin-catalog", () => ({
-  useOtwPlayImportJob: (jobId: string | null) => ({
-    data: jobId
-      ? {
-          id: "job-1",
-          playlistTitle: "Official Covers",
-          status: "completed",
-          counts: { discovered: 1, metadataChecked: 1, eligible: 1 },
-          lastErrorCode: null,
-        }
-      : undefined,
-  }),
+  useOtwPlayImportJob: jobHookMock,
   useOtwPlayImportJobItems: itemsHookMock,
 }));
 
@@ -136,7 +127,19 @@ describe("IngestionSection", () => {
     convertMock.mockReset();
     fetchItemsMock.mockReset();
     itemsHookMock.mockReset();
+    jobHookMock.mockReset();
     toastMock.mockReset();
+    jobHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            id: "job-1",
+            playlistTitle: "Official Covers",
+            status: "completed",
+            counts: { discovered: 1, metadataChecked: 1, eligible: 1 },
+            lastErrorCode: null,
+          }
+        : undefined,
+    }));
     itemsHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId ? { items: [candidate()], nextCursor: null } : undefined,
       isLoading: false,
@@ -160,7 +163,16 @@ describe("IngestionSection", () => {
       previousImport: null,
     });
     createImportMock.mockResolvedValue({ id: "job-1" });
-    updateCandidateMock.mockResolvedValue({ version: 3 });
+    updateCandidateMock.mockResolvedValue({
+      id: "youtube:AAAAAAAAAAA",
+      version: 3,
+      videoId: "AAAAAAAAAAA",
+      status: "ready",
+      classification: "eligible",
+      catalogChannelId: "channel-1",
+      reviewInput: candidate().reviewInput,
+      linkedPerformanceId: null,
+    });
     convertMock.mockResolvedValue({
       results: [{
         candidateId: "youtube:AAAAAAAAAAA",
@@ -205,6 +217,8 @@ describe("IngestionSection", () => {
       "youtube:AAAAAAAAAAA",
       expect.objectContaining({
         expectedVersion: 2,
+        expectedReviewInput: candidate().reviewInput,
+        expectedReviewStatus: "ready",
         action: "save",
         input: expect.objectContaining({
           song: { kind: "existing", songId: "song-1" },
@@ -243,6 +257,43 @@ describe("IngestionSection", () => {
     expect(screen.queryByLabelText("최근 가져올 개수")).toBeNull();
     expect(screen.getByLabelText("시작 위치")).toBeTruthy();
     expect(screen.getByLabelText("가져올 개수")).toBeTruthy();
+  });
+
+  it("refetches candidate items when the ingestion job authority changes", async () => {
+    let updatedAt = 1;
+    const refetch = vi.fn(async () => undefined);
+    jobHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            id: "job-1",
+            playlistTitle: "Official Covers",
+            status: "collecting",
+            counts: { discovered: 1, metadataChecked: 0, eligible: 0 },
+            lastErrorCode: null,
+            updatedAt,
+          }
+        : undefined,
+    }));
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId ? { items: [candidate()], nextCursor: null } : undefined,
+      isLoading: false,
+      refetch,
+    }));
+    const view = render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+
+    updatedAt = 2;
+    view.rerender(createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(2));
   });
 
   it("searches or adds original artists and keeps external singers behind an explicit option", async () => {
@@ -399,6 +450,29 @@ describe("IngestionSection", () => {
       description:
         "YouTube playlist metadata 조회에 실패했습니다: network 요청 ID: request-123",
     }));
+  });
+
+  it("preserves row inputs and refreshes authority after a real review conflict", async () => {
+    updateCandidateMock.mockRejectedValueOnce(new ApiError(
+      "Ingestion candidate changed during review",
+      409,
+      { code: "PLAY_ADMIN_STALE_WRITE" },
+    ));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "info",
+      description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지한 채 최신 상태를 불러왔습니다.",
+    }));
+    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
+    expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
+    expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
   });
 
   it("chunks more than 100 selected candidates into bounded conversion requests", () => {

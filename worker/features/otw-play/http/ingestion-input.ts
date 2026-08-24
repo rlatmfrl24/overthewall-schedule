@@ -1,9 +1,11 @@
-import type {
-  OtwPlayConvertIngestionCandidatesRequest,
-  OtwPlayCreatePlaylistImportRequest,
-  OtwPlayIngestionReviewInput,
-  OtwPlayPlaylistPreflightRequest,
-  OtwPlayUpdateIngestionCandidateRequest,
+import {
+  OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
+  type OtwPlayIngestionCandidateStatus,
+  type OtwPlayConvertIngestionCandidatesRequest,
+  type OtwPlayCreatePlaylistImportRequest,
+  type OtwPlayIngestionReviewInput,
+  type OtwPlayPlaylistPreflightRequest,
+  type OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
 import { parseCreateCatalogEntry } from "./admin-catalog-input";
 
@@ -171,20 +173,55 @@ export const parseUpdateIngestionCandidate = (
     return { ok: false, fields: { expectedVersion: "invalid" } };
   }
   if (value.action === "save") {
-    if (!hasExactKeys(value, ["expectedVersion", "action", "input"])) {
+    if (!hasExactKeys(value, [
+      "expectedVersion",
+      "expectedReviewInput",
+      "expectedReviewStatus",
+      "action",
+      "input",
+    ])) {
       return { ok: false, fields: { body: "invalid_shape" } };
     }
     const input = parseCandidateReviewInput(value.input);
-    return input.ok
-      ? {
-          ok: true,
-          value: {
-            expectedVersion: Number(expectedVersion),
-            action: "save",
-            input: input.value,
-          },
-        }
-      : input;
+    if (!input.ok) return input;
+    const expectedReviewInput = value.expectedReviewInput === undefined ||
+        value.expectedReviewInput === null
+      ? value.expectedReviewInput
+      : parseCandidateReviewInput(value.expectedReviewInput);
+    if (
+      expectedReviewInput !== undefined &&
+      expectedReviewInput !== null &&
+      !expectedReviewInput.ok
+    ) {
+      return { ok: false, fields: { expectedReviewInput: "invalid_review_input" } };
+    }
+    const expectedReviewStatus = typeof value.expectedReviewStatus === "string" &&
+        OTW_PLAY_INGESTION_CANDIDATE_STATUSES.includes(
+          value.expectedReviewStatus as OtwPlayIngestionCandidateStatus,
+        )
+      ? value.expectedReviewStatus as OtwPlayIngestionCandidateStatus
+      : value.expectedReviewStatus === undefined
+        ? undefined
+        : null;
+    if (expectedReviewStatus === null) {
+      return { ok: false, fields: { expectedReviewStatus: "invalid" } };
+    }
+    return {
+      ok: true,
+      value: {
+        expectedVersion: Number(expectedVersion),
+        ...(expectedReviewInput !== undefined
+          ? {
+              expectedReviewInput: expectedReviewInput === null
+                ? null
+                : expectedReviewInput.value,
+            }
+          : {}),
+        ...(expectedReviewStatus !== undefined ? { expectedReviewStatus } : {}),
+        action: "save",
+        input: input.value,
+      },
+    };
   }
   if (value.action === "ignore" || value.action === "refresh_metadata") {
     return hasExactKeys(value, ["expectedVersion", "action"])

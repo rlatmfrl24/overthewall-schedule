@@ -746,6 +746,10 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - candidate 선택은 ready 항목의 catalog draft 변환 범위에만 사용한다. 공통값 일괄
   설정 form은 두지 않고, 행별 sticky 검수 form 상단에 곡 연결·신규 생성, 원곡 가수,
   가창자·역할, 공개 분류와 필수 누락을 실제 저장값 기준으로 즉시 미리 보여 준다.
+- 수집 진행 중 metadata가 갱신되면 후보 목록도 함께 최신화하되 열어 둔 행의 입력값과
+  검수 baseline은 덮어쓰지 않는다. metadata-only version 변경은 저장을 이어가고, 다른
+  관리자의 실제 검수 변경은 입력값을 유지한 상태에서 최신 권위 상태를 다시 불러왔다고
+  안내한다.
 - `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. approved clip
   channel, WebSub/reconciliation, `singing_clip` 상태를 표시하고 방송·키리누키
   foundation 전에는 catalog draft action을 제공하지 않는다.

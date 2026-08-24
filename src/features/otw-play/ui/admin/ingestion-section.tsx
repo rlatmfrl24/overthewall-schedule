@@ -61,6 +61,10 @@ type ExternalParticipantDraft = SelectedSubject & {
 };
 
 type RowDraft = {
+  baseVersion: number;
+  baseReviewInput: OtwPlayIngestionReviewInput | null;
+  baseStatus: OtwPlayIngestionCandidateItemDto["status"];
+  isDirty: boolean;
   songId: string;
   songTitle: string;
   isOtwOriginal: boolean;
@@ -82,6 +86,10 @@ const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
 };
 
 const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
+  baseVersion: item.candidateVersion,
+  baseReviewInput: item.reviewInput,
+  baseStatus: item.status,
+  isDirty: false,
   songId: "__new",
   songTitle: item.title ?? "",
   isOtwOriginal: false,
@@ -441,6 +449,7 @@ export function IngestionSection({
     activeJobId,
     serverClassification,
   );
+  const refetchItems = itemsQuery.refetch;
   const baseItems = useMemo(
     () => itemsQuery.data?.items ?? [],
     [itemsQuery.data],
@@ -474,18 +483,26 @@ export function IngestionSection({
   }, [itemsQuery.data]);
 
   useEffect(() => {
+    if (!activeJobId || jobQuery.data?.updatedAt === undefined) return;
+    void refetchItems();
+  }, [activeJobId, refetchItems, jobQuery.data?.updatedAt]);
+
+  useEffect(() => {
     setDrafts((current) => {
-      const next = { ...current };
-      let changed = false;
-      for (const item of items) {
-        if (!next[item.candidateId]) {
-          next[item.candidateId] = draftFromItem(item, catalog);
-          changed = true;
-        }
+      if (!editingId) return current;
+      const item = items.find((candidate) => candidate.candidateId === editingId);
+      const existing = current[editingId];
+      if (!item || existing?.isDirty) return current;
+      if (
+        existing?.baseVersion === item.candidateVersion &&
+        existing.baseStatus === item.status &&
+        JSON.stringify(existing.baseReviewInput) === JSON.stringify(item.reviewInput)
+      ) {
+        return current;
       }
-      return changed ? next : current;
+      return { ...current, [editingId]: draftFromItem(item, catalog) };
     });
-  }, [catalog, items]);
+  }, [catalog, editingId, items]);
 
   const refresh = async () => {
     if (!activeJobId) return;
@@ -554,14 +571,55 @@ export function IngestionSection({
   const saveCandidate = async (item: OtwPlayIngestionCandidateItemDto) => {
     setBusy(`save:${item.candidateId}`);
     try {
-      await updateOtwPlayImportCandidate(item.candidateId, {
-        expectedVersion: item.candidateVersion,
+      const draft = drafts[item.candidateId] ?? emptyDraft(item);
+      const saved = await updateOtwPlayImportCandidate(item.candidateId, {
+        expectedVersion: draft.baseVersion,
+        expectedReviewInput: draft.baseReviewInput,
+        expectedReviewStatus: draft.baseStatus,
         action: "save",
-        input: buildReviewInput(drafts[item.candidateId] ?? emptyDraft(item), catalog),
+        input: buildReviewInput(draft, catalog),
       });
-      await refresh();
+      setDrafts((current) => {
+        const currentDraft = current[item.candidateId];
+        return currentDraft
+          ? {
+              ...current,
+              [item.candidateId]: {
+                ...currentDraft,
+                baseVersion: saved.version,
+                baseReviewInput: saved.reviewInput,
+                baseStatus: saved.status,
+                isDirty: false,
+              },
+            }
+          : current;
+      });
+      try {
+        await refresh();
+      } catch {
+        toast({
+          variant: "info",
+          description: "검수 입력은 저장되었지만 최신 목록을 불러오지 못했습니다. 권위 상태 새로고침을 다시 실행해 주세요.",
+        });
+        return;
+      }
       toast({ variant: "success", description: "검수 입력을 ready 상태로 저장했습니다." });
     } catch (error) {
+      if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
+        try {
+          await refresh();
+          toast({
+            variant: "info",
+            description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지한 채 최신 상태를 불러왔습니다.",
+          });
+        } catch {
+          toast({
+            variant: "error",
+            description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지했지만 최신 상태를 불러오지 못했습니다.",
+          });
+        }
+        return;
+      }
       toast({
         variant: "error",
         description: error instanceof Error ? error.message : "검수 입력 저장에 실패했습니다.",
@@ -841,7 +899,10 @@ export function IngestionSection({
               const item = items.find((candidate) => candidate.candidateId === editingId);
               const draft = item ? drafts[item.candidateId] : null;
               if (!item || !draft) return null;
-              const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({ ...current, [item.candidateId]: { ...draft, ...change } }));
+              const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({
+                ...current,
+                [item.candidateId]: { ...draft, ...change, isDirty: true },
+              }));
               return (
                 <aside className="min-w-0 xl:sticky xl:top-4" aria-label="후보 행별 보완">
                 <section className="overflow-hidden rounded-xl border bg-background shadow-sm xl:flex xl:max-h-[calc(100dvh-2rem)] xl:flex-col" aria-labelledby={`candidate-editor-${item.candidateId}`}>

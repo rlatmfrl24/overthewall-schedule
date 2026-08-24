@@ -118,6 +118,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용하며 자동 publish하지 않는다. 방송·키리누키 모델과 channel 권리·승인 gate 전에는 catalog draft로도 변환하지 않는다. |
 | DEC-058 | 추가 credit 범위는 OTW 멤버의 가창과 작품·편곡·제작 참여로 제한하고 외부 음악 관계자용 상세 credit·contributor graph는 만들지 않는다. | 확정 | 기존 원곡 가수와 외부 가창 참여자 표시는 유지하되 새 범용 credit 대상이 아니다. 멤버 노래책은 published 관계에서 파생하며 1곡부터 직접 URL, 3곡부터 navigation·SEO를 허용한다. current member를 우선하고 대표 오리지널곡은 관리자 최대 5곡 pin + 최신순 fallback으로 정한다. |
 | DEC-059 | playlist 후보 검수는 공통값 일괄 설정 대신 행별 보완과 즉시 적용 미리보기를 사용한다. | 확정 | 선택 checkbox는 ready 후보의 catalog draft 변환 범위에만 사용한다. 각 행의 sticky 검수 form은 곡 연결·신규 생성, 원곡 가수, 가창자·역할, 공개 분류와 필수 누락을 실제 저장 draft 기준으로 계속 보여 주며 즉시 공개되지 않음을 명시한다. |
+| DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. version만 달라지고 review input·status가 같으면 현재 channel·분류 정책을 다시 검증한 뒤 저장을 허용한다. review input 또는 status가 달라진 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`로 막고, 로컬 입력값을 유지한 채 권위 상태를 다시 불러온다. |
 
 ## 4. 제품 원칙
 
@@ -455,6 +456,9 @@ detail로 자동 복사하지 않는다.
   있어야 한다.
 - ADM-033: 멤버 참여 정보 정정 제안을 승인·거절할 수 있고 승인 변경은 event와
   catalog/read-model revision을 같은 D1 batch에서 반영해야 한다.
+- ADM-034: playlist 후보를 편집하는 동안 metadata 수집이 version을 갱신해도 검수
+  baseline이 변하지 않았다면 저장할 수 있어야 하며, 실제 검수 충돌에서는 입력값을
+  잃지 않고 최신 권위 상태를 다시 보여 줘야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -735,6 +739,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-20 | DEC-052를 변경하고 DEC-053~055 확정. playlist 벌크 candidate와 pending proposal 수정·철회를 P0-A, channel WebSub 자동 후보를 P0-B, 운영 검증을 P0-C, 상세 credit·멤버 노래책을 P1로 재배치하고 세 개의 별도 조사 보고서 연결 |
 | 2026-08-21 | DEC-056~058 확정. public·unlisted playlist와 Queue 운영안을 채택하고 private OAuth를 제외. channel 자동화 대상을 공식 channel이 아닌 approved 노래 clip channel의 `singing_clip` 후보함으로 변경. credit을 OTW 멤버 참여 정보와 멤버 노래책·SEO로 축소하고 외부 음악 관계자 graph를 제외 |
 | 2026-08-24 | DEC-059 확정. playlist 후보의 공통값 일괄 설정 UI를 제거하고, 행별 sticky 검수 form에 실제 저장 draft 기준의 즉시 적용 미리보기를 추가. 선택은 ready 후보의 draft 변환 범위에만 사용 |
+| 2026-08-24 | DEC-060 확정. 수집 중 metadata 갱신으로 인한 version 상승은 review input·status baseline이 같을 때만 저장을 이어가고, 실제 동시 검수는 409로 차단하면서 행 입력값을 유지하도록 후보 CAS를 분리 |
 
 ## 19. 참고
 

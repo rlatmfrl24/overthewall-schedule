@@ -1,10 +1,10 @@
 import type {
   OtwPlayCreatePlaylistImportRequest,
-  OtwPlayIngestionClassification,
   OtwPlayIngestionConversionOutcome,
   OtwPlayIngestionCandidatePageDto,
   OtwPlayIngestionCandidateStatus,
   OtwPlayIngestionJobDto,
+  OtwPlayIngestionReviewCandidateDto,
   OtwPlayIngestionItemFilters,
   OtwPlayIngestionReviewInput,
   OtwPlayPlaylistPreflightDto,
@@ -57,16 +57,7 @@ export interface CreateIngestionJobCommand {
   now: number;
 }
 
-export interface IngestionReviewCandidate {
-  id: string;
-  version: number;
-  videoId: string;
-  status: OtwPlayIngestionCandidateStatus;
-  classification: OtwPlayIngestionClassification;
-  catalogChannelId: string | null;
-  reviewInput: OtwPlayIngestionReviewInput | null;
-  linkedPerformanceId: string | null;
-}
+export type IngestionReviewCandidate = OtwPlayIngestionReviewCandidateDto;
 
 export interface IngestionRepository {
   findPreviousImport(
@@ -110,6 +101,8 @@ export interface IngestionRepository {
   saveCandidateReview(command: {
     candidateId: string;
     expectedVersion: number;
+    expectedReviewInput?: OtwPlayIngestionReviewInput | null;
+    expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
     input: OtwPlayIngestionReviewInput;
     actorUserId: string;
     eventId: string;

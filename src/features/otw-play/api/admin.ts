@@ -33,6 +33,7 @@ import type {
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayConvertIngestionCandidatesResponse,
   OtwPlayIngestionCandidatePageDto,
+  OtwPlayIngestionReviewCandidateDto,
   OtwPlayIngestionJobDto,
   OtwPlayIngestionItemFilters,
   OtwPlayPlaylistPreflightDto,
@@ -91,7 +92,7 @@ export const fetchOtwPlayImportJobItems = (
 export const updateOtwPlayImportCandidate = (
   candidateId: string,
   json: OtwPlayUpdateIngestionCandidateRequest,
-) => adminRequest<{ data: unknown }>(
+) => adminRequest<{ data: OtwPlayIngestionReviewCandidateDto }>(
   apiRoutes.otwPlay.admin.importCandidate.build(candidateId),
   { method: "PATCH", json },
 ).then((response) => response.data);

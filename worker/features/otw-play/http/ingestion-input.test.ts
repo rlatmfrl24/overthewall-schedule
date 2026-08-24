@@ -86,11 +86,39 @@ describe("OTW Play ingestion input", () => {
     };
     expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,
+      expectedReviewInput: null,
+      expectedReviewStatus: "needs_input",
       action: "save",
       input: review,
     })).toEqual({
       ok: true,
-      value: { expectedVersion: 1, action: "save", input: review },
+      value: {
+        expectedVersion: 1,
+        expectedReviewInput: null,
+        expectedReviewStatus: "needs_input",
+        action: "save",
+        input: review,
+      },
+    });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 1,
+      expectedReviewInput: { invalid: true },
+      expectedReviewStatus: "needs_input",
+      action: "save",
+      input: review,
+    })).toEqual({
+      ok: false,
+      fields: { expectedReviewInput: "invalid_review_input" },
+    });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 1,
+      expectedReviewInput: null,
+      expectedReviewStatus: "invalid",
+      action: "save",
+      input: review,
+    })).toEqual({
+      ok: false,
+      fields: { expectedReviewStatus: "invalid" },
     });
     expect(parseUpdateIngestionCandidate({
       expectedVersion: 1,

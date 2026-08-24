@@ -1382,3 +1382,9 @@ playlist candidate는 관리자 검수 뒤 draft로 변환할 수 있지만 `sin
 foundation 전에는 inbox에만 머문다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
 외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
 계획에서 제외한다.
+
+PR-9C 후보 저장은 행을 열 때의 version·review input·status를 baseline으로 보존한다.
+Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 현재 channel·분류
+정책을 D1 update 조건에서 다시 확인해 저장한다. 실제 검수 baseline이 바뀐 409에서는
+행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. job `updatedAt`이
+변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.

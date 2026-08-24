@@ -325,7 +325,16 @@ export class IngestionService {
       now: this.clock(),
     };
     if (input.action === "save") {
-      return this.repository.saveCandidateReview({ ...command, input: input.input });
+      return this.repository.saveCandidateReview({
+        ...command,
+        ...(input.expectedReviewInput !== undefined
+          ? { expectedReviewInput: input.expectedReviewInput }
+          : {}),
+        ...(input.expectedReviewStatus !== undefined
+          ? { expectedReviewStatus: input.expectedReviewStatus }
+          : {}),
+        input: input.input,
+      });
     }
     if (input.action === "ignore") {
       return this.repository.ignoreCandidate(command);

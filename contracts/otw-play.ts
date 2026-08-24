@@ -205,6 +205,17 @@ export interface OtwPlayIngestionCandidateItemDto {
   linkedPerformanceId: string | null;
 }
 
+export interface OtwPlayIngestionReviewCandidateDto {
+  id: string;
+  version: number;
+  videoId: string;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  catalogChannelId: string | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  linkedPerformanceId: string | null;
+}
+
 export interface OtwPlayIngestionCandidatePageDto {
   items: OtwPlayIngestionCandidateItemDto[];
   nextCursor: string | null;
@@ -227,6 +238,8 @@ export interface OtwPlayIngestionReviewInput {
 export type OtwPlayUpdateIngestionCandidateRequest =
   | {
       expectedVersion: number;
+      expectedReviewInput?: OtwPlayIngestionReviewInput | null;
+      expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
       action: "save";
       input: OtwPlayIngestionReviewInput;
     }

@@ -1054,11 +1054,19 @@ export class D1IngestionRepository implements IngestionRepository {
   async saveCandidateReview(command: {
     candidateId: string;
     expectedVersion: number;
+    expectedReviewInput?: OtwPlayIngestionReviewInput | null;
+    expectedReviewStatus?: OtwPlayIngestionCandidateItemDto["status"];
     input: OtwPlayIngestionReviewInput;
     actorUserId: string;
     eventId: string;
     now: number;
   }) {
+    const hasExpectedReviewState = command.expectedReviewInput !== undefined &&
+      command.expectedReviewStatus !== undefined;
+    const expectedReviewInputJson = command.expectedReviewInput === undefined ||
+        command.expectedReviewInput === null
+      ? null
+      : JSON.stringify(command.expectedReviewInput);
     await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_candidates
@@ -1066,7 +1074,13 @@ export class D1IngestionRepository implements IngestionRepository {
            classification = 'eligible', exclusion_reason = NULL,
            last_conversion_outcome = NULL, last_conversion_error_code = NULL,
            version = version + 1, updated_at = ?
-         WHERE id = ? AND version = ?
+         WHERE id = ? AND (
+           version = ? OR (
+             ? = 1 AND status = ? AND (
+               (review_input_json IS NULL AND ? IS NULL) OR review_input_json = ?
+             )
+           )
+         )
            AND classification IN ('eligible', 'scope_review')
            AND status <> 'converted'
            AND EXISTS (
@@ -1082,6 +1096,10 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
         command.candidateId,
         command.expectedVersion,
+        hasExpectedReviewState ? 1 : 0,
+        command.expectedReviewStatus ?? null,
+        expectedReviewInputJson,
+        expectedReviewInputJson,
       ),
       this.database.prepare(
         `INSERT INTO music_ingestion_events (
