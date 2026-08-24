@@ -130,6 +130,7 @@ describe("OTW Play ingestion input", () => {
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
+        ownershipKind: "member",
         channelRole: "member_music",
         entityIds: ["entity-1"],
       },
@@ -139,6 +140,7 @@ describe("OTW Play ingestion input", () => {
         expectedVersion: 2,
         action: "approve_channel",
         channel: {
+          ownershipKind: "member",
           channelRole: "member_music",
           entityIds: ["entity-1"],
         },
@@ -148,8 +150,40 @@ describe("OTW Play ingestion input", () => {
       expectedVersion: 2,
       action: "approve_channel",
       channel: {
+        ownershipKind: "external",
         channelRole: "approved_kirinuki",
         entityIds: [],
+        externalApprovalConfirmed: true,
+      },
+    })).toEqual({ ok: false, fields: { channel: "invalid" } });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 2,
+      action: "approve_channel",
+      channel: {
+        ownershipKind: "otw_official",
+        channelRole: "otw_official",
+        entityIds: [],
+      },
+    })).toEqual({
+      ok: true,
+      value: {
+        expectedVersion: 2,
+        action: "approve_channel",
+        channel: {
+          ownershipKind: "otw_official",
+          channelRole: "otw_official",
+          entityIds: [],
+        },
+      },
+    });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 2,
+      action: "approve_channel",
+      channel: {
+        ownershipKind: "external",
+        channelRole: "project_official",
+        entityIds: ["entity-external"],
+        externalApprovalConfirmed: false,
       },
     })).toEqual({ ok: false, fields: { channel: "invalid" } });
     expect(parseConvertIngestionCandidates({

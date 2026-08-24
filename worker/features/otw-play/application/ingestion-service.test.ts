@@ -326,7 +326,14 @@ describe("IngestionService", () => {
           channelTitle: "Candidate Channel",
         },
       })),
-      readCatalog: vi.fn(async () => ({ channels: [] })),
+      readCatalog: vi.fn(async () => ({
+        channels: [],
+        entities: [{
+          id: "entity-1",
+          memberUid: 1,
+          archivedAt: null,
+        }],
+      })),
       createChannel,
       updateChannel,
     } as unknown as AdminCatalogService;
@@ -345,6 +352,7 @@ describe("IngestionService", () => {
         expectedVersion: 1,
         action: "approve_channel",
         channel: {
+          ownershipKind: "member",
           channelRole: "member_music",
           entityIds: ["entity-1"],
         },
@@ -365,6 +373,39 @@ describe("IngestionService", () => {
     expect(repo.refreshCandidateMetadata).toHaveBeenCalledWith(
       expect.objectContaining({ candidateId: "youtube:AAAAAAAAAAA" }),
     );
+    createChannel.mockClear();
+    await expect(service.updateCandidate(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 1,
+        action: "approve_channel",
+        channel: {
+          ownershipKind: "external",
+          channelRole: "project_official",
+          entityIds: ["entity-1"],
+          externalApprovalConfirmed: true,
+        },
+      },
+      { userId: "admin-1", displayName: "Admin", ipAddress: null },
+    )).rejects.toMatchObject({ code: "validation_failed" });
+    expect(createChannel).not.toHaveBeenCalled();
+    await expect(service.updateCandidate(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 1,
+        action: "approve_channel",
+        channel: {
+          ownershipKind: "otw_official",
+          channelRole: "otw_official",
+          entityIds: [],
+        },
+      },
+      { userId: "admin-1", displayName: "Admin", ipAddress: null },
+    )).resolves.toMatchObject({ classification: "eligible" });
+    expect(createChannel).toHaveBeenLastCalledWith(expect.objectContaining({
+      channelRole: "otw_official",
+      entityIds: [],
+    }), expect.objectContaining({ userId: "admin-1" }));
   });
 
   it("converts ready rows independently as drafts and records only failed rows for retry", async () => {

@@ -229,10 +229,24 @@ export const parseUpdateIngestionCandidate = (
   if (value.action === "approve_channel") {
     if (
       !hasExactKeys(value, ["expectedVersion", "action", "channel"]) ||
-      !isObject(value.channel) ||
-      !hasExactKeys(value.channel, ["channelRole", "entityIds"])
+      !isObject(value.channel)
     ) {
       return { ok: false, fields: { body: "invalid_shape" } };
+    }
+    const ownershipKind = value.channel.ownershipKind;
+    const externalApproval = ownershipKind === "external";
+    if (!hasExactKeys(
+      value.channel,
+      externalApproval
+        ? [
+            "ownershipKind",
+            "channelRole",
+            "entityIds",
+            "externalApprovalConfirmed",
+          ]
+        : ["ownershipKind", "channelRole", "entityIds"],
+    )) {
+      return { ok: false, fields: { channel: "invalid" } };
     }
     const channelRole = typeof value.channel.channelRole === "string" &&
         OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES.includes(
@@ -241,7 +255,6 @@ export const parseUpdateIngestionCandidate = (
       ? value.channel.channelRole as OtwPlayPublicChannelRole
       : null;
     const entityIds = Array.isArray(value.channel.entityIds) &&
-        value.channel.entityIds.length > 0 &&
         value.channel.entityIds.length <= 30
       ? value.channel.entityIds.map((item) => text(item, 128))
       : null;
@@ -249,9 +262,49 @@ export const parseUpdateIngestionCandidate = (
       !channelRole ||
       !entityIds ||
       entityIds.some((item) => item === null) ||
-      new Set(entityIds).size !== entityIds.length
+      new Set(entityIds).size !== entityIds.length ||
+      (
+        ownershipKind === "otw_official"
+          ? channelRole !== "otw_official" || entityIds.length !== 0
+          : ownershipKind === "member"
+            ? !["member_music", "member_main"].includes(channelRole) ||
+              entityIds.length === 0
+            : ownershipKind === "external"
+              ? channelRole !== "project_official" ||
+                entityIds.length === 0 ||
+                value.channel.externalApprovalConfirmed !== true
+              : true
+      )
     ) {
       return { ok: false, fields: { channel: "invalid" } };
+    }
+    if (ownershipKind === "otw_official") {
+      return {
+        ok: true,
+        value: {
+          expectedVersion: Number(expectedVersion),
+          action: "approve_channel",
+          channel: {
+            ownershipKind,
+            channelRole: "otw_official",
+            entityIds: [],
+          },
+        },
+      };
+    }
+    if (ownershipKind === "member") {
+      return {
+        ok: true,
+        value: {
+          expectedVersion: Number(expectedVersion),
+          action: "approve_channel",
+          channel: {
+            ownershipKind,
+            channelRole: channelRole as "member_music" | "member_main",
+            entityIds: entityIds as string[],
+          },
+        },
+      };
     }
     return {
       ok: true,
@@ -259,8 +312,10 @@ export const parseUpdateIngestionCandidate = (
         expectedVersion: Number(expectedVersion),
         action: "approve_channel",
         channel: {
-          channelRole,
+          ownershipKind: "external",
+          channelRole: "project_official",
           entityIds: entityIds as string[],
+          externalApprovalConfirmed: true,
         },
       },
     };

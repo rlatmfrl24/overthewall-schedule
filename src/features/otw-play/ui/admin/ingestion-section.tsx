@@ -12,6 +12,7 @@ import type {
   OtwPlayPlaylistPreflightDto,
   OtwPlayPublicChannelRole,
   OtwPlayRelationType,
+  OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/shared/api/client";
@@ -73,6 +74,12 @@ type ExternalParticipantDraft = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
 };
 
+type ChannelOwnershipKind = "member" | "otw_official" | "external";
+type ChannelApprovalInput = Extract<
+  OtwPlayUpdateIngestionCandidateRequest,
+  { action: "approve_channel" }
+>["channel"];
+
 type RowDraft = {
   baseVersion: number;
   baseReviewInput: OtwPlayIngestionReviewInput | null;
@@ -89,8 +96,10 @@ type RowDraft = {
   releaseType: "official_mv" | "official_video";
   participationType: OtwPlayParticipationType;
   internalNote: string;
+  channelOwnershipKind: ChannelOwnershipKind;
   channelRole: OtwPlayPublicChannelRole;
   channelOwnerEntityIds: string[];
+  externalChannelApprovalConfirmed: boolean;
 };
 
 const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
@@ -106,6 +115,25 @@ const officialChannelRoleLabels: Record<OtwPlayPublicChannelRole, string> = {
   member_music: "멤버 노래 채널",
   member_main: "멤버 메인 채널",
   project_official: "승인 프로젝트",
+};
+
+const primaryChannelOwnershipOptions = [
+  {
+    value: "member",
+    label: "멤버 공식 채널",
+    description: "OTW 멤버의 메인 또는 노래 채널이며, 연결 주체는 멤버만 선택합니다.",
+  },
+  {
+    value: "otw_official",
+    label: "오버더월 공식 채널",
+    description: "오버더월이 직접 소유·운영하는 공식 채널로 승인합니다.",
+  },
+] satisfies readonly ChoiceOption<ChannelOwnershipKind>[];
+
+const channelOwnershipLabels: Record<ChannelOwnershipKind, string> = {
+  member: "멤버 공식",
+  otw_official: "오버더월 공식",
+  external: "외부 채널 별도 승인",
 };
 
 const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
@@ -124,8 +152,10 @@ const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
   releaseType: "official_video",
   participationType: "solo",
   internalNote: "",
+  channelOwnershipKind: "member",
   channelRole: "member_music",
   channelOwnerEntityIds: [],
+  externalChannelApprovalConfirmed: false,
 });
 
 const subjectFromInput = (
@@ -177,6 +207,14 @@ const draftFromItem = (
   if (channel && channel.channelRole in officialChannelRoleLabels) {
     draft.channelRole = channel.channelRole as OtwPlayPublicChannelRole;
     draft.channelOwnerEntityIds = channel.entityIds;
+    draft.channelOwnershipKind = channel.channelRole === "otw_official"
+      ? "otw_official"
+      : channel.channelRole === "member_music" || channel.channelRole === "member_main"
+        ? "member"
+        : "external";
+    draft.externalChannelApprovalConfirmed =
+      draft.channelOwnershipKind === "external" &&
+      channel.verificationStatus === "approved";
   }
   const input = item.reviewInput;
   if (!input) return draft;
@@ -345,6 +383,107 @@ const participationOptions = [
   { value: "external_collab", label: "외부 협업" },
 ] satisfies readonly ChoiceOption<OtwPlayParticipationType>[];
 
+const candidateStatusPresentations: Record<
+  OtwPlayIngestionCandidateItemDto["status"],
+  { label: string; description: string; variant: "default" | "secondary" | "outline" | "destructive" }
+> = {
+  discovered: {
+    label: "검수 시작 전",
+    description: "가져온 뒤 아직 검수값을 저장하지 않았습니다.",
+    variant: "outline",
+  },
+  needs_input: {
+    label: "입력 보완 필요",
+    description: "필수 정보 또는 채널 승인을 완료해야 합니다.",
+    variant: "secondary",
+  },
+  ready: {
+    label: "저장 준비 완료",
+    description: "검수가 끝나 일괄 저장할 수 있습니다.",
+    variant: "default",
+  },
+  converted: {
+    label: "카탈로그 임시 저장 완료",
+    description: "카탈로그 draft로 변환되었습니다.",
+    variant: "secondary",
+  },
+  ignored: {
+    label: "검수 목록에서 제외",
+    description: "관리자가 이 후보를 제외했습니다.",
+    variant: "outline",
+  },
+  blocked: {
+    label: "처리 중단",
+    description: "오류 또는 정책 사유를 먼저 해결해야 합니다.",
+    variant: "destructive",
+  },
+};
+
+const candidateClassificationLabels: Record<
+  OtwPlayIngestionClassification,
+  string
+> = {
+  pending_metadata: "YouTube 정보 확인 중",
+  eligible: "카탈로그 등록 가능",
+  existing_catalog: "이미 카탈로그에 등록됨",
+  existing_proposal: "회원 제안에서 검수 중",
+  existing_candidate: "기존 후보를 다시 발견함",
+  channel_review: "공식 채널 승인 필요",
+  policy_blocked: "채널 정책 확인 필요",
+  unavailable: "재생할 수 없는 영상",
+  scope_review: "공개 범위 확인 필요",
+  playlist_duplicate: "같은 플레이리스트 안의 중복 영상",
+};
+
+const candidateNextAction = (item: OtwPlayIngestionCandidateItemDto) => {
+  if (item.status === "ready") return "ready 완료 항목 일괄 저장";
+  if (item.status === "converted" || item.status === "ignored") return "추가 조치 없음";
+  if (item.candidateClassification === "channel_review") return "행별 보완에서 공식 채널 승인";
+  if (item.candidateClassification === "pending_metadata") return "YouTube 정보 갱신 대기";
+  if (item.candidateClassification === "existing_catalog") return "기존 카탈로그 항목 확인";
+  if (item.candidateClassification === "existing_proposal") return "회원 제안 검수에서 처리";
+  if (item.candidateClassification === "unavailable") return "영상 제외 또는 metadata 재확인";
+  if (item.candidateClassification === "policy_blocked") return "채널 정책 검토";
+  if (item.candidateClassification === "scope_review") return "영상 범위 확인 후 행별 보완";
+  if (item.status === "blocked") return "오류 사유 확인 후 metadata 갱신";
+  return "행별 보완 후 ready로 저장";
+};
+
+function CandidateStateSummary({ item }: { item: OtwPlayIngestionCandidateItemDto }) {
+  const status = candidateStatusPresentations[item.status];
+  const classification = candidateClassificationLabels[item.candidateClassification];
+  const importedAs = candidateClassificationLabels[item.classification];
+
+  return (
+    <div
+      className="space-y-1.5 whitespace-normal"
+      aria-label={`${item.title ?? item.videoId} 현재 상태`}
+      title={`${item.status} / ${item.candidateClassification}`}
+    >
+      <Badge variant={status.variant}>{status.label}</Badge>
+      <p className="text-xs leading-relaxed">
+        <span className="font-medium text-foreground">현재 판단</span>
+        <span className="text-muted-foreground"> · {classification}</span>
+      </p>
+      <p className="text-xs leading-relaxed text-muted-foreground">{status.description}</p>
+      <p className="text-xs leading-relaxed">
+        <span className="font-medium text-foreground">다음 조치</span>
+        <span className="text-muted-foreground"> · {candidateNextAction(item)}</span>
+      </p>
+      {item.classification !== item.candidateClassification ? (
+        <p className="border-t pt-1 text-[11px] leading-relaxed text-muted-foreground">
+          가져오기 기록 · {importedAs}
+        </p>
+      ) : null}
+      {item.exclusionReason ? (
+        <p className="text-[11px] leading-relaxed text-destructive">
+          제외 사유 · {item.exclusionReason}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function ReviewApplicationPreview({
   item,
   draft,
@@ -439,7 +578,7 @@ function ReviewApplicationPreview({
               ? `승인 · ${item.channelTitle ?? item.channelId}`
               : channel
                 ? `${channel.verificationStatus} · ${officialChannelRoleLabels[draft.channelRole]}`
-                : "승인 필요"}
+                : `${channelOwnershipLabels[draft.channelOwnershipKind]} · 승인 필요`}
           </dd>
         </div>
       </dl>
@@ -736,22 +875,52 @@ export function IngestionSection({
     item: OtwPlayIngestionCandidateItemDto,
   ) => {
     const draft = drafts[item.candidateId] ?? emptyDraft(item);
-    if (draft.channelOwnerEntityIds.length === 0) {
+    if (
+      draft.channelOwnershipKind !== "otw_official" &&
+      draft.channelOwnerEntityIds.length === 0
+    ) {
       toast({
         variant: "error",
         description: "공식 채널의 소유·연결 주체를 한 명 이상 선택해 주세요.",
       });
       return;
     }
+    if (
+      draft.channelOwnershipKind === "external" &&
+      !draft.externalChannelApprovalConfirmed
+    ) {
+      toast({
+        variant: "error",
+        description: "외부 채널 추가·승인 확인 항목을 선택해 주세요.",
+      });
+      return;
+    }
+    const channel: ChannelApprovalInput = draft.channelOwnershipKind === "otw_official"
+      ? {
+          ownershipKind: "otw_official",
+          channelRole: "otw_official",
+          entityIds: [],
+        }
+      : draft.channelOwnershipKind === "external"
+        ? {
+            ownershipKind: "external",
+            channelRole: "project_official",
+            entityIds: draft.channelOwnerEntityIds,
+            externalApprovalConfirmed: true,
+          }
+        : {
+            ownershipKind: "member",
+            channelRole: draft.channelRole === "member_main"
+              ? "member_main"
+              : "member_music",
+            entityIds: draft.channelOwnerEntityIds,
+          };
     setBusy(`approve-channel:${item.candidateId}`);
     try {
       const saved = await updateOtwPlayImportCandidate(item.candidateId, {
         expectedVersion: item.candidateVersion,
         action: "approve_channel",
-        channel: {
-          channelRole: draft.channelRole,
-          entityIds: draft.channelOwnerEntityIds,
-        },
+        channel,
       });
       setDrafts((current) => {
         const currentDraft = current[item.candidateId];
@@ -1154,15 +1323,7 @@ export function IngestionSection({
                             </TableCell>
                             <TableCell>#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</TableCell>
                             <TableCell>
-                              <Badge variant={item.status === "blocked" ? "destructive" : "secondary"}>{item.classification}</Badge>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {item.status}{item.exclusionReason ? ` · ${item.exclusionReason}` : ""}
-                              </div>
-                              {item.classification !== item.candidateClassification ? (
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                  실제 후보 · {item.candidateClassification}
-                                </div>
-                              ) : null}
+                              <CandidateStateSummary item={item} />
                             </TableCell>
                             <TableCell className="text-right">
                               <Button
@@ -1208,14 +1369,7 @@ export function IngestionSection({
                         </div>
                         <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />
                         <div className="flex items-center justify-between">
-                          <div>
-                            <Badge variant="secondary">{item.classification}</Badge>
-                            {item.classification !== item.candidateClassification ? (
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                실제 후보 · {item.candidateClassification}
-                              </div>
-                            ) : null}
-                          </div>
+                          <CandidateStateSummary item={item} />
                           <Button
                             size="sm"
                             variant={editingId === item.candidateId ? "secondary" : "outline"}
@@ -1241,6 +1395,17 @@ export function IngestionSection({
               const catalogChannel = catalog.channels.find(
                 (channel) => channel.externalChannelId === item.channelId,
               );
+              const channelOwnerCandidates = catalog.entities.filter((entity) =>
+                entity.archivedAt === null &&
+                (
+                  draft.channelOwnershipKind === "member"
+                    ? entity.memberUid !== null
+                    : draft.channelOwnershipKind === "external"
+                      ? entity.memberUid === null
+                      : false
+                )
+              );
+              const channelOwnerRequired = draft.channelOwnershipKind !== "otw_official";
               const channelApprovalBlocked = !item.channelId
                 ? "YouTube 채널 metadata를 먼저 갱신해 주세요."
                 : catalogChannel?.verificationStatus === "revoked"
@@ -1288,31 +1453,83 @@ export function IngestionSection({
                             영상의 실제 채널, 공식 역할과 소유 주체를 확인한 뒤 승인합니다. 승인 후 후보 metadata와 분류가 즉시 갱신됩니다.
                           </p>
                         </div>
-                        <Field>
-                          <FieldLabel id={`channel-role-${item.candidateId}`}>공식 채널 역할</FieldLabel>
-                          <Select
-                            value={draft.channelRole}
-                            onValueChange={(channelRole) => updateDraft({
-                              channelRole: channelRole as OtwPlayPublicChannelRole,
+                        <ChoiceGroup
+                          label="기본 소유 유형"
+                          description="일반 검수에서는 멤버 또는 오버더월 공식 채널만 승인합니다."
+                          value={draft.channelOwnershipKind}
+                          onValueChange={(channelOwnershipKind) => updateDraft({
+                            channelOwnershipKind,
+                            channelRole: channelOwnershipKind === "otw_official"
+                              ? "otw_official"
+                              : "member_music",
+                            channelOwnerEntityIds: [],
+                            externalChannelApprovalConfirmed: false,
+                          })}
+                          options={primaryChannelOwnershipOptions}
+                          presentation="cards"
+                        />
+
+                        {draft.channelOwnershipKind === "member" ? (
+                          <Field>
+                            <FieldLabel id={`channel-role-${item.candidateId}`}>멤버 채널 역할</FieldLabel>
+                            <Select
+                              value={draft.channelRole === "member_main" ? "member_main" : "member_music"}
+                              onValueChange={(channelRole) => updateDraft({
+                                channelRole: channelRole as "member_music" | "member_main",
+                              })}
+                            >
+                              <SelectTrigger aria-labelledby={`channel-role-${item.candidateId}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="member_music">멤버 노래 채널</SelectItem>
+                                <SelectItem value="member_main">멤버 메인 채널</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        ) : null}
+
+                        {draft.channelOwnershipKind === "otw_official" ? (
+                          <div className="rounded-lg border bg-background p-3 text-sm">
+                            <div className="font-medium">오버더월 공식 소유</div>
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                              채널 역할 자체가 오버더월 공식 소유를 나타내므로 별도의 연결 주체를 선택하지 않습니다.
+                            </p>
+                          </div>
+                        ) : null}
+
+                        <label
+                          htmlFor={`external-channel-${item.candidateId}`}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg border border-dashed bg-background p-3 hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            id={`external-channel-${item.candidateId}`}
+                            checked={draft.channelOwnershipKind === "external"}
+                            onCheckedChange={(checked) => updateDraft({
+                              channelOwnershipKind: checked === true ? "external" : "member",
+                              channelRole: checked === true ? "project_official" : "member_music",
+                              channelOwnerEntityIds: [],
+                              externalChannelApprovalConfirmed: false,
                             })}
-                          >
-                            <SelectTrigger aria-labelledby={`channel-role-${item.candidateId}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(officialChannelRoleLabels).map(([value, label]) => (
-                                <SelectItem key={value} value={value}>{label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                        <Field>
-                          <FieldLabel>소유·연결 주체</FieldLabel>
-                          <FieldDescription>공식적으로 소유하거나 운영하는 OTW 멤버·그룹을 선택합니다.</FieldDescription>
-                          <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
-                            {catalog.entities
-                              .filter((entity) => entity.archivedAt === null)
-                              .map((entity) => {
+                          />
+                          <span>
+                            <span className="block text-sm font-medium">외부 채널 추가·승인</span>
+                            <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                              OTW 또는 멤버 소유가 아닌 공식 협업·프로젝트 채널일 때만 사용합니다.
+                            </span>
+                          </span>
+                        </label>
+
+                        {channelOwnerRequired ? (
+                          <Field>
+                            <FieldLabel>소유·연결 주체</FieldLabel>
+                            <FieldDescription>
+                              {draft.channelOwnershipKind === "member"
+                                ? "활성 OTW 멤버만 표시합니다."
+                                : "외부 채널과 실제로 연결할 기존 외부 인물·그룹·조직을 선택합니다."}
+                            </FieldDescription>
+                            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+                              {channelOwnerCandidates.length > 0 ? channelOwnerCandidates.map((entity) => {
                                 const checkboxId = `channel-owner-${item.candidateId}-${entity.id}`;
                                 return (
                                   <label
@@ -1332,9 +1549,40 @@ export function IngestionSection({
                                     <span className="min-w-0 truncate">{entity.displayName}</span>
                                   </label>
                                 );
+                              }) : (
+                                <p className="px-2 py-3 text-xs leading-relaxed text-muted-foreground">
+                                  선택할 수 있는 {draft.channelOwnershipKind === "member" ? "OTW 멤버" : "외부 주체"}가 없습니다.
+                                </p>
+                              )}
+                            </div>
+                            {draft.channelOwnershipKind === "external" ? (
+                              <Button type="button" size="sm" variant="outline" onClick={onOpenCatalog}>
+                                카탈로그에서 외부 주체 추가
+                              </Button>
+                            ) : null}
+                          </Field>
+                        ) : null}
+
+                        {draft.channelOwnershipKind === "external" ? (
+                          <label
+                            htmlFor={`external-channel-confirm-${item.candidateId}`}
+                            className="flex cursor-pointer items-start gap-3 rounded-lg border border-amber-400/60 bg-amber-100/50 p-3 dark:bg-amber-950/20"
+                          >
+                            <Checkbox
+                              id={`external-channel-confirm-${item.candidateId}`}
+                              checked={draft.externalChannelApprovalConfirmed}
+                              onCheckedChange={(checked) => updateDraft({
+                                externalChannelApprovalConfirmed: checked === true,
                               })}
-                          </div>
-                        </Field>
+                            />
+                            <span>
+                              <span className="block text-sm font-medium">외부 공식 소스로 추가·승인함을 확인</span>
+                              <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                                선택한 외부 주체와 채널의 공식 관계를 확인했으며 승인 이력이 기록됩니다.
+                              </span>
+                            </span>
+                          </label>
+                        ) : null}
                         {channelApprovalBlocked ? (
                           <p role="alert" className="text-xs text-destructive">{channelApprovalBlocked}</p>
                         ) : null}
@@ -1344,12 +1592,18 @@ export function IngestionSection({
                           disabled={
                             busy !== null ||
                             channelApprovalBlocked !== null ||
-                            draft.channelOwnerEntityIds.length === 0
+                            (channelOwnerRequired && draft.channelOwnerEntityIds.length === 0) ||
+                            (
+                              draft.channelOwnershipKind === "external" &&
+                              !draft.externalChannelApprovalConfirmed
+                            )
                           }
                           onClick={() => void approveCandidateChannel(item)}
                         >
                           {busy === `approve-channel:${item.candidateId}` ? <Loader2 className="animate-spin" /> : null}
-                          공식 채널 승인 후 후보 갱신
+                          {draft.channelOwnershipKind === "external"
+                            ? "외부 채널 추가·승인 후 후보 갱신"
+                            : "공식 채널 승인 후 후보 갱신"}
                         </Button>
                       </fieldset>
                     ) : null}

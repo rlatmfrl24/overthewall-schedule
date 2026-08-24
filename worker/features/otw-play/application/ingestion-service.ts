@@ -390,6 +390,32 @@ export class IngestionService {
         startSeconds: 0,
       });
       const snapshot = await this.catalog.readCatalog();
+      const ownershipEntities = channelInput.entityIds.map((entityId) =>
+        snapshot.entities.find((entity) => entity.id === entityId)
+      );
+      const ownershipIsValid = channelInput.ownershipKind === "otw_official"
+        ? channelInput.channelRole === "otw_official" &&
+          channelInput.entityIds.length === 0
+        : channelInput.ownershipKind === "member"
+          ? ["member_music", "member_main"].includes(channelInput.channelRole) &&
+            ownershipEntities.length > 0 &&
+            ownershipEntities.every((entity) =>
+              entity?.archivedAt === null && entity.memberUid !== null
+            )
+          : channelInput.ownershipKind === "external"
+            ? channelInput.channelRole === "project_official" &&
+              channelInput.externalApprovalConfirmed === true &&
+              ownershipEntities.length > 0 &&
+              ownershipEntities.every((entity) =>
+                entity?.archivedAt === null && entity.memberUid === null
+              )
+            : false;
+      if (!ownershipIsValid) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Official channel ownership does not match the selected approval path",
+        );
+      }
       const existing = snapshot.channels.find(
         (channel) =>
           channel.provider === "youtube" &&
@@ -408,10 +434,11 @@ export class IngestionService {
         channelRole: channelInput.channelRole,
         entityIds: channelInput.entityIds,
       }, actor)).data;
+      const expectedOwnerIds = new Set<string>(channelInput.entityIds);
       const sameOwners = createdOrExisting.entityIds.length ===
           channelInput.entityIds.length &&
         createdOrExisting.entityIds.every((id) =>
-          channelInput.entityIds.includes(id)
+          expectedOwnerIds.has(id)
         );
       if (
         createdOrExisting.verificationStatus !== "approved" ||

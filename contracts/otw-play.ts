@@ -247,10 +247,26 @@ export type OtwPlayUpdateIngestionCandidateRequest =
   | {
       expectedVersion: number;
       action: "approve_channel";
-      channel: {
-        channelRole: OtwPlayPublicChannelRole;
-        entityIds: string[];
-      };
+      channel:
+        | {
+            ownershipKind: "otw_official";
+            channelRole: "otw_official";
+            entityIds: [];
+          }
+        | {
+            ownershipKind: "member";
+            channelRole: Extract<
+              OtwPlayPublicChannelRole,
+              "member_music" | "member_main"
+            >;
+            entityIds: string[];
+          }
+        | {
+            ownershipKind: "external";
+            channelRole: "project_official";
+            entityIds: string[];
+            externalApprovalConfirmed: true;
+          };
     }
   | { expectedVersion: number; action: "ignore" }
   | { expectedVersion: number; action: "refresh_metadata" };

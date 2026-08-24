@@ -519,6 +519,7 @@ describe("IngestionSection", () => {
     expect(within(approval).getByText("Approved Channel")).toBeTruthy();
     expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
       .toBe(true);
+    expect(within(approval).queryByRole("checkbox", { name: "Guest Artist" })).toBeNull();
     fireEvent.click(within(approval).getByRole("checkbox", { name: "Singer" }));
     fireEvent.click(within(approval).getByRole("button", {
       name: "공식 채널 승인 후 후보 갱신",
@@ -530,6 +531,7 @@ describe("IngestionSection", () => {
         expectedVersion: 2,
         action: "approve_channel",
         channel: {
+          ownershipKind: "member",
           channelRole: "member_music",
           entityIds: ["entity-1"],
         },
@@ -539,6 +541,93 @@ describe("IngestionSection", () => {
       variant: "success",
       description: "공식 채널을 승인하고 후보 상태를 갱신했습니다.",
     });
+  });
+
+  it("requires an explicit exceptional approval before adding an external channel", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              status: "needs_input" as const,
+              classification: "channel_review" as const,
+              candidateClassification: "channel_review" as const,
+              catalogChannelId: null,
+              reviewInput: null,
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    const approval = screen.getByRole("group", { name: "공식 채널 승인" });
+    fireEvent.click(within(approval).getByRole("checkbox", {
+      name: /외부 채널 추가·승인/,
+    }));
+    fireEvent.click(within(approval).getByRole("checkbox", { name: "Guest Artist" }));
+    const approve = within(approval).getByRole("button", {
+      name: "외부 채널 추가·승인 후 후보 갱신",
+    });
+    expect(approve.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(within(approval).getByRole("checkbox", {
+      name: /외부 공식 소스로 추가·승인함을 확인/,
+    }));
+    expect(approve.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(approve);
+
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 2,
+        action: "approve_channel",
+        channel: {
+          ownershipKind: "external",
+          channelRole: "project_official",
+          entityIds: ["entity-external"],
+          externalApprovalConfirmed: true,
+        },
+      },
+    ));
+  });
+
+  it("explains workflow state, authority judgment, import history, and next action", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              classification: "existing_candidate" as const,
+              candidateClassification: "eligible" as const,
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+    await screen.findAllByText("Candidate Video");
+
+    const state = screen.getAllByLabelText("Candidate Video 현재 상태")[0]!;
+    expect(within(state).getByText("저장 준비 완료")).toBeTruthy();
+    expect(state.textContent).toContain("현재 판단 · 카탈로그 등록 가능");
+    expect(state.textContent).toContain("다음 조치 · ready 완료 항목 일괄 저장");
+    expect(state.textContent).toContain("가져오기 기록 · 기존 후보를 다시 발견함");
+    expect(state.textContent).not.toContain("existing_candidate");
   });
 
   it("does not misclassify an existing catalog candidate as ready-editable", async () => {
@@ -563,7 +652,9 @@ describe("IngestionSection", () => {
     );
     await startImportAndOpenEditor();
 
-    expect(screen.getAllByText("실제 후보 · existing_catalog")).not.toHaveLength(0);
+    const state = screen.getAllByLabelText("Candidate Video 현재 상태")[0]!;
+    expect(state.textContent).toContain("현재 판단 · 이미 카탈로그에 등록됨");
+    expect(state.textContent).toContain("가져오기 기록 · 기존 후보를 다시 발견함");
     expect(screen.getByText(
       "이미 카탈로그에 등록된 영상이므로 후보 검수값을 저장하지 않습니다.",
     )).toBeTruthy();
