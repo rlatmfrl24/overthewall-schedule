@@ -143,7 +143,7 @@ const youtube = (itemCount = 51) => ({
     privacyStatus: "public" as const,
   })),
   readPlaylistPage: vi.fn(async () => ({ items: [], nextPageToken: null })),
-  readVideos: vi.fn(async () => []),
+  readVideos: vi.fn<OtwPlayYouTubeIngestionReader["readVideos"]>(async () => []),
   readVideo: vi.fn(async () => null),
   readChannel: vi.fn(async () => null),
 }) satisfies OtwPlayYouTubeIngestionReader;
@@ -263,6 +263,107 @@ describe("IngestionService", () => {
       "quota_exceeded",
       121_000,
       1_000,
+    );
+  });
+
+  it("approves an official channel in the candidate flow and refreshes its authority state", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockResolvedValue({
+      id: "youtube:AAAAAAAAAAA",
+      version: 1,
+      videoId: "AAAAAAAAAAA",
+      status: "needs_input",
+      classification: "channel_review",
+      catalogChannelId: null,
+      reviewInput: null,
+      linkedPerformanceId: null,
+    });
+    const reader = youtube();
+    reader.readVideos.mockResolvedValue([{
+      videoId: "AAAAAAAAAAA",
+      availabilityStatus: "playable",
+      video: {
+        videoId: "AAAAAAAAAAA",
+        channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+        channelTitle: "Candidate Channel",
+        title: "Candidate Video",
+        thumbnailUrl: null,
+        durationSeconds: 180,
+        publishedAt: 100,
+        availabilityStatus: "playable",
+        madeForKids: false,
+      },
+    }]);
+    const pendingChannel = {
+      id: "channel-1",
+      provider: "youtube" as const,
+      externalChannelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+      displayName: "Candidate Channel",
+      channelRole: "member_music" as const,
+      verificationStatus: "pending" as const,
+      active: false,
+      entityIds: ["entity-1"],
+      version: 0,
+    };
+    const createChannel = vi.fn(async () => ({
+      data: pendingChannel,
+      catalogRevision: 4,
+    }));
+    const updateChannel = vi.fn(async () => ({
+      data: {
+        ...pendingChannel,
+        verificationStatus: "approved" as const,
+        active: true,
+        version: 1,
+      },
+      catalogRevision: 5,
+    }));
+    const catalog = {
+      preflightCatalogEntry: vi.fn(async () => ({
+        video: {
+          videoId: "AAAAAAAAAAA",
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Candidate Channel",
+        },
+      })),
+      readCatalog: vi.fn(async () => ({ channels: [] })),
+      createChannel,
+      updateChannel,
+    } as unknown as AdminCatalogService;
+    const service = new IngestionService(
+      repo,
+      reader,
+      { send: vi.fn(async () => undefined) },
+      () => "event-1",
+      () => 100,
+      catalog,
+    );
+
+    await expect(service.updateCandidate(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 1,
+        action: "approve_channel",
+        channel: {
+          channelRole: "member_music",
+          entityIds: ["entity-1"],
+        },
+      },
+      { userId: "admin-1", displayName: "Admin", ipAddress: null },
+    )).resolves.toMatchObject({ status: "needs_input", classification: "eligible" });
+    expect(createChannel).toHaveBeenCalledWith(expect.objectContaining({
+      externalChannelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+      channelRole: "member_music",
+      entityIds: ["entity-1"],
+    }), expect.objectContaining({ userId: "admin-1" }));
+    expect(updateChannel).toHaveBeenCalledWith(expect.objectContaining({
+      id: "channel-1",
+      verificationStatus: "approved",
+      active: true,
+      expectedVersion: 0,
+    }), expect.objectContaining({ userId: "admin-1" }));
+    expect(repo.refreshCandidateMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({ candidateId: "youtube:AAAAAAAAAAA" }),
     );
   });
 

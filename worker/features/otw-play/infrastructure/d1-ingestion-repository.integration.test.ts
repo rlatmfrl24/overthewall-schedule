@@ -629,6 +629,17 @@ describe("D1IngestionRepository", () => {
       eventId: "event-ignore-1",
       now: NOW + 4,
     })).resolves.toMatchObject({ version: 3, status: "ignored" });
+    await expect(repository.listItems("job-1", 10, null)).resolves.toMatchObject({
+      page: { items: [] },
+    });
+    await expect(repository.listItems(
+      "job-1",
+      10,
+      null,
+      { status: "ignored" },
+    )).resolves.toMatchObject({
+      page: { items: [expect.objectContaining({ status: "ignored" })] },
+    });
     const stored = await db.prepare(
       `SELECT retention_expires_at FROM music_ingestion_candidates
        WHERE id = 'youtube:AAAAAAAAAAA'`,

@@ -244,6 +244,14 @@ export type OtwPlayUpdateIngestionCandidateRequest =
       action: "save";
       input: OtwPlayIngestionReviewInput;
     }
+  | {
+      expectedVersion: number;
+      action: "approve_channel";
+      channel: {
+        channelRole: OtwPlayPublicChannelRole;
+        entityIds: string[];
+      };
+    }
   | { expectedVersion: number; action: "ignore" }
   | { expectedVersion: number; action: "refresh_metadata" };
 

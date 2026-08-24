@@ -6,8 +6,10 @@ import {
   type OtwPlayIgnoreIngestionCandidatesRequest,
   type OtwPlayIngestionReviewInput,
   type OtwPlayPlaylistPreflightRequest,
+  type OtwPlayPublicChannelRole,
   type OtwPlayUpdateIngestionCandidateRequest,
 } from "@contracts/otw-play";
+import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-channel-policy";
 import { parseCreateCatalogEntry } from "./admin-catalog-input";
 
 export type IngestionInputResult<T> =
@@ -221,6 +223,45 @@ export const parseUpdateIngestionCandidate = (
         ...(expectedReviewStatus !== undefined ? { expectedReviewStatus } : {}),
         action: "save",
         input: input.value,
+      },
+    };
+  }
+  if (value.action === "approve_channel") {
+    if (
+      !hasExactKeys(value, ["expectedVersion", "action", "channel"]) ||
+      !isObject(value.channel) ||
+      !hasExactKeys(value.channel, ["channelRole", "entityIds"])
+    ) {
+      return { ok: false, fields: { body: "invalid_shape" } };
+    }
+    const channelRole = typeof value.channel.channelRole === "string" &&
+        OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES.includes(
+          value.channel.channelRole as OtwPlayPublicChannelRole,
+        )
+      ? value.channel.channelRole as OtwPlayPublicChannelRole
+      : null;
+    const entityIds = Array.isArray(value.channel.entityIds) &&
+        value.channel.entityIds.length > 0 &&
+        value.channel.entityIds.length <= 30
+      ? value.channel.entityIds.map((item) => text(item, 128))
+      : null;
+    if (
+      !channelRole ||
+      !entityIds ||
+      entityIds.some((item) => item === null) ||
+      new Set(entityIds).size !== entityIds.length
+    ) {
+      return { ok: false, fields: { channel: "invalid" } };
+    }
+    return {
+      ok: true,
+      value: {
+        expectedVersion: Number(expectedVersion),
+        action: "approve_channel",
+        channel: {
+          channelRole,
+          entityIds: entityIds as string[],
+        },
       },
     };
   }

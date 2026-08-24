@@ -388,7 +388,9 @@ export class D1IngestionRepository implements IngestionRepository {
     const classificationSql = filters.classification
       ? `AND (${itemClassificationSql}) = ?`
       : "";
-    const statusSql = filters.status ? "AND candidate.status = ?" : "";
+    const statusSql = filters.status
+      ? "AND candidate.status = ?"
+      : "AND candidate.status NOT IN ('converted', 'ignored')";
     const cursorSql = cursor
       ? `AND (origin.playlist_position > ?
         OR (origin.playlist_position = ? AND origin.id > ?))`

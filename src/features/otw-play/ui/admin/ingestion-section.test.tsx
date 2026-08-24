@@ -133,6 +133,10 @@ describe("IngestionSection", () => {
     itemsHookMock.mockReset();
     jobHookMock.mockReset();
     toastMock.mockReset();
+    fetchItemsMock.mockResolvedValue({
+      items: [candidate()],
+      nextCursor: null,
+    });
     jobHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId
         ? {
@@ -207,10 +211,14 @@ describe("IngestionSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
     expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
     expect(screen.queryByText("선택 항목 일괄 설정")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "적용 미리보기" })).toBeNull();
+    expect(screen.getByRole("table").className).toContain("table-fixed");
+    expect(screen.queryByRole("checkbox")).toBeNull();
 
     const preview = screen.getAllByRole("region", {
-      name: "Candidate Video 적용 미리보기",
+      name: "Candidate Video 변경 예정 항목",
     })[0]!;
+    expect(preview.querySelector("dl")?.className).toContain("2xl:grid-cols-5");
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
@@ -227,7 +235,7 @@ describe("IngestionSection", () => {
     expect(screen.queryByLabelText("원곡 제목")).toBeNull();
     expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
     expect(within(reviewPanel).queryByRole("region", {
-      name: "Candidate Video 적용 미리보기",
+      name: "Candidate Video 변경 예정 항목",
     })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
@@ -243,8 +251,11 @@ describe("IngestionSection", () => {
       }),
     ));
 
-    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
-    fireEvent.click(screen.getByRole("button", { name: /선택 ready 1건 draft 변환/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ready 완료 항목 일괄 저장" }));
+    await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledWith(
+      "job-1",
+      { limit: 100, cursor: null, status: "ready" },
+    ));
     await waitFor(() => expect(convertMock).toHaveBeenCalledWith(
       "job-1",
       { candidates: [{ id: "youtube:AAAAAAAAAAA", expectedVersion: 2 }] },
@@ -341,7 +352,7 @@ describe("IngestionSection", () => {
     expect(screen.getByLabelText("Guest Vocal 참여 역할")).toBeTruthy();
 
     const preview = screen.getAllByRole("region", {
-      name: "Candidate Video 적용 미리보기",
+      name: "Candidate Video 변경 예정 항목",
     })[0]!;
     expect(within(preview).getByText("새 곡 생성 · Candidate Video")).toBeTruthy();
     expect(within(preview).getByText("Guest Artist, New Original Artist")).toBeTruthy();
@@ -471,6 +482,65 @@ describe("IngestionSection", () => {
     }));
   });
 
+  it("approves an official channel inside the candidate review flow", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              status: "needs_input" as const,
+              classification: "channel_review" as const,
+              candidateClassification: "channel_review" as const,
+              catalogChannelId: null,
+              reviewInput: null,
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    updateCandidateMock.mockResolvedValueOnce({
+      id: "youtube:AAAAAAAAAAA",
+      version: 3,
+      videoId: "AAAAAAAAAAA",
+      status: "needs_input",
+      classification: "eligible",
+      catalogChannelId: "channel-1",
+      reviewInput: null,
+      linkedPerformanceId: null,
+    });
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    const approval = screen.getByRole("group", { name: "공식 채널 승인" });
+    expect(within(approval).getByText("Approved Channel")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
+      .toBe(true);
+    fireEvent.click(within(approval).getByRole("checkbox", { name: "Singer" }));
+    fireEvent.click(within(approval).getByRole("button", {
+      name: "공식 채널 승인 후 후보 갱신",
+    }));
+
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 2,
+        action: "approve_channel",
+        channel: {
+          channelRole: "member_music",
+          entityIds: ["entity-1"],
+        },
+      },
+    ));
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: "success",
+      description: "공식 채널을 승인하고 후보 상태를 갱신했습니다.",
+    });
+  });
+
   it("does not misclassify an existing catalog candidate as ready-editable", async () => {
     itemsHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId
@@ -479,7 +549,7 @@ describe("IngestionSection", () => {
               ...candidate(),
               classification: "existing_candidate" as const,
               candidateClassification: "existing_catalog" as const,
-              status: "ignored" as const,
+              status: "discovered" as const,
               reviewInput: null,
             }],
             nextCursor: null,
@@ -502,6 +572,36 @@ describe("IngestionSection", () => {
     expect(updateCandidateMock).not.toHaveBeenCalled();
   });
 
+  it("does not render converted or ignored items in the actionable candidate list", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [
+              candidate(),
+              { ...candidate(1), status: "converted" as const },
+              { ...candidate(2), status: "ignored" as const },
+            ],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+
+    expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
+    expect(screen.queryByText("Candidate 1")).toBeNull();
+    expect(screen.queryByText("Candidate 2")).toBeNull();
+  });
+
   it("preserves row inputs and refreshes authority after a real review conflict", async () => {
     updateCandidateMock.mockRejectedValueOnce(new ApiError(
       "Ingestion candidate changed during review",
@@ -521,13 +621,13 @@ describe("IngestionSection", () => {
       description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지한 채 최신 상태를 불러왔습니다.",
     }));
     const preview = screen.getAllByRole("region", {
-      name: "Candidate Video 적용 미리보기",
+      name: "Candidate Video 변경 예정 항목",
     })[0]!;
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
   });
 
-  it("chunks more than 100 selected candidates into bounded conversion requests", () => {
+  it("chunks more than 100 ready candidates into bounded conversion requests", () => {
     const chunks = chunkOtwPlayIngestionSelections(
       Array.from({ length: 101 }, (_, index) => candidate(index)),
     );
@@ -611,16 +711,17 @@ describe("IngestionSection", () => {
     });
   });
 
-  it("loads every page for a selected server-side classification filter", async () => {
-    itemsHookMock.mockImplementation((jobId: string | null) => ({
-      data: jobId
-        ? { items: [candidate()], nextCursor: "cursor-1" }
-        : undefined,
-      isLoading: false,
-    }));
-    fetchItemsMock.mockResolvedValue({
-      items: [candidate(1)],
-      nextCursor: null,
+  it("loads every ready page for job-wide draft conversion", async () => {
+    fetchItemsMock
+      .mockResolvedValueOnce({ items: [candidate()], nextCursor: "ready-cursor-1" })
+      .mockResolvedValueOnce({ items: [candidate(1)], nextCursor: null });
+    convertMock.mockResolvedValueOnce({
+      results: [candidate(), candidate(1)].map((item) => ({
+        candidateId: item.candidateId,
+        outcome: "created",
+        performanceId: `performance-${item.candidateId}`,
+        errorCode: null,
+      })),
     });
     render(
       createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
@@ -633,16 +734,24 @@ describe("IngestionSection", () => {
     await screen.findByText("Official Covers");
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
     await screen.findAllByText("Candidate Video");
-    const classificationTrigger = screen.getByText("전체 분류").closest("button");
-    expect(classificationTrigger).toBeTruthy();
-    fireEvent.keyDown(classificationTrigger!, { key: "Enter" });
-    fireEvent.click(await screen.findByRole("option", { name: "eligible" }));
     fireEvent.click(screen.getByRole("button", {
-      name: /현재 filter 전체 선택/,
+      name: "ready 완료 항목 일괄 저장",
     }));
-    await waitFor(() => expect(fetchItemsMock).toHaveBeenCalledWith(
+    await waitFor(() => expect(fetchItemsMock).toHaveBeenNthCalledWith(
+      1,
       "job-1",
-      { limit: 100, cursor: "cursor-1", classification: "eligible" },
+      { limit: 100, cursor: null, status: "ready" },
     ));
+    expect(fetchItemsMock).toHaveBeenNthCalledWith(
+      2,
+      "job-1",
+      { limit: 100, cursor: "ready-cursor-1", status: "ready" },
+    );
+    expect(convertMock).toHaveBeenCalledWith("job-1", {
+      candidates: [
+        { id: candidate().candidateId, expectedVersion: 2 },
+        { id: candidate(1).candidateId, expectedVersion: 2 },
+      ],
+    });
   });
 });

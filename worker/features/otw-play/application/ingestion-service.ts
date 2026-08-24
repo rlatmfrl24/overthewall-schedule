@@ -341,7 +341,126 @@ export class IngestionService {
     if (input.action === "ignore") {
       return this.repository.ignoreCandidate(command);
     }
+    if (input.action === "approve_channel") {
+      return this.approveCandidateChannel(
+        candidateId,
+        input.expectedVersion,
+        input.channel,
+        actor,
+      );
+    }
     return this.refreshCandidate(candidateId, input.expectedVersion, actor);
+  }
+
+  private async approveCandidateChannel(
+    candidateId: string,
+    expectedVersion: number,
+    channelInput: Extract<
+      OtwPlayUpdateIngestionCandidateRequest,
+      { action: "approve_channel" }
+    >["channel"],
+    actor: AdminCatalogActor,
+  ) {
+    if (!this.catalog) {
+      throw new IngestionServiceError(
+        "unavailable",
+        "Official channel approval is unavailable",
+      );
+    }
+    const candidate = await this.repository.readReviewCandidate(
+      null,
+      candidateId,
+    );
+    if (candidate.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "stale_message",
+        "Ingestion candidate changed during channel approval",
+      );
+    }
+    if (candidate.status === "converted" || candidate.status === "ignored") {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Completed ingestion candidates cannot approve a channel",
+      );
+    }
+
+    try {
+      const preflight = await this.catalog.preflightCatalogEntry({
+        youtubeUrl: `https://www.youtube.com/watch?v=${candidate.videoId}`,
+        startSeconds: 0,
+      });
+      const snapshot = await this.catalog.readCatalog();
+      const existing = snapshot.channels.find(
+        (channel) =>
+          channel.provider === "youtube" &&
+          channel.externalChannelId === preflight.video.channelId,
+      );
+      if (existing?.verificationStatus === "revoked") {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "A revoked official channel must be reviewed in channel management",
+        );
+      }
+
+      const createdOrExisting = existing ?? (await this.catalog.createChannel({
+        externalChannelId: preflight.video.channelId,
+        displayName: preflight.video.channelTitle,
+        channelRole: channelInput.channelRole,
+        entityIds: channelInput.entityIds,
+      }, actor)).data;
+      const sameOwners = createdOrExisting.entityIds.length ===
+          channelInput.entityIds.length &&
+        createdOrExisting.entityIds.every((id) =>
+          channelInput.entityIds.includes(id)
+        );
+      if (
+        createdOrExisting.verificationStatus !== "approved" ||
+        !createdOrExisting.active ||
+        createdOrExisting.channelRole !== channelInput.channelRole ||
+        !sameOwners
+      ) {
+        await this.catalog.updateChannel({
+          id: createdOrExisting.id,
+          externalChannelId: preflight.video.channelId,
+          displayName: preflight.video.channelTitle,
+          channelRole: channelInput.channelRole,
+          entityIds: channelInput.entityIds,
+          verificationStatus: "approved",
+          active: true,
+          expectedVersion: createdOrExisting.version,
+        }, actor);
+      }
+    } catch (error) {
+      if (error instanceof IngestionRepositoryError) throw error;
+      if (
+        error instanceof AdminCatalogRepositoryError ||
+        error instanceof AdminCatalogServiceError
+      ) {
+        if (error.code === "stale_write") {
+          throw new IngestionRepositoryError(
+            "stale_message",
+            "Official channel changed during approval",
+          );
+        }
+        if (
+          error.code === "external_service_unavailable" ||
+          error.code === "unavailable"
+        ) {
+          throw new IngestionServiceError(
+            "unavailable",
+            "Official channel approval is temporarily unavailable",
+          );
+        }
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Official channel approval could not be completed",
+        );
+      }
+      throw error;
+    }
+
+    const latest = await this.repository.readReviewCandidate(null, candidateId);
+    return this.refreshCandidate(candidateId, latest.version, actor);
   }
 
   private async refreshCandidate(

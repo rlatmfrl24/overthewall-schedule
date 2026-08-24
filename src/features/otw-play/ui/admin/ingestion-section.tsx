@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminCatalogSubjectInput,
@@ -10,6 +10,7 @@ import type {
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
   OtwPlayPlaylistPreflightDto,
+  OtwPlayPublicChannelRole,
   OtwPlayRelationType,
 } from "@contracts/otw-play";
 import { useQueryClient } from "@tanstack/react-query";
@@ -88,6 +89,8 @@ type RowDraft = {
   releaseType: "official_mv" | "official_video";
   participationType: OtwPlayParticipationType;
   internalNote: string;
+  channelRole: OtwPlayPublicChannelRole;
+  channelOwnerEntityIds: string[];
 };
 
 const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
@@ -95,6 +98,14 @@ const participantRoleLabels: Record<OtwPlayParticipantRole, string> = {
   featured_vocal: "피처링 보컬",
   chorus: "코러스",
   other: "기타 참여",
+};
+
+const officialChannelRoleLabels: Record<OtwPlayPublicChannelRole, string> = {
+  otw_official: "OTW 공식",
+  unit_official: "유닛 공식",
+  member_music: "멤버 노래 채널",
+  member_main: "멤버 메인 채널",
+  project_official: "승인 프로젝트",
 };
 
 const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
@@ -113,6 +124,8 @@ const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
   releaseType: "official_video",
   participationType: "solo",
   internalNote: "",
+  channelRole: "member_music",
+  channelOwnerEntityIds: [],
 });
 
 const subjectFromInput = (
@@ -158,6 +171,13 @@ const draftFromItem = (
   catalog: OtwPlayAdminCatalogDto,
 ): RowDraft => {
   const draft = emptyDraft(item);
+  const channel = catalog.channels.find(
+    (candidate) => candidate.externalChannelId === item.channelId,
+  );
+  if (channel && channel.channelRole in officialChannelRoleLabels) {
+    draft.channelRole = channel.channelRole as OtwPlayPublicChannelRole;
+    draft.channelOwnerEntityIds = channel.entityIds;
+  }
   const input = item.reviewInput;
   if (!input) return draft;
   draft.songId = input.song.kind === "existing" ? input.song.songId : "__new";
@@ -360,52 +380,66 @@ function ReviewApplicationPreview({
       ? "원곡 가수"
       : null,
     participants.length === 0 ? "가창 참여자" : null,
+    !item.catalogChannelId ? "공식 채널 승인" : null,
   ].filter((value): value is string => value !== null);
+  const channel = catalog.channels.find(
+    (candidate) => candidate.externalChannelId === item.channelId,
+  );
 
   return (
     <section
-      className="min-w-64 space-y-2 rounded-lg border bg-muted/20 p-3"
-      aria-label={`${item.title ?? item.videoId} 적용 미리보기`}
+      className="space-y-3 rounded-lg border bg-muted/20 p-3"
+      aria-label={`${item.title ?? item.videoId} 변경 예정 항목`}
     >
       <div className="flex items-start justify-between gap-3">
-        <h4 className="text-xs font-semibold">적용 미리보기</h4>
+        <h4 className="text-xs font-semibold">변경 예정</h4>
         <Badge className="shrink-0" variant={missingFields.length === 0 ? "secondary" : "outline"}>
           {missingFields.length === 0 ? "저장 준비됨" : `필수값 ${missingFields.length}개`}
         </Badge>
       </div>
 
-      <dl className="grid gap-1.5 text-xs">
-        <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">곡</dt>
-          <dd className="min-w-0 truncate font-medium">
+      <dl className="grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-5">
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">곡</dt>
+          <dd className="line-clamp-2 font-medium">
             {draft.songId === "__new" ? "새 곡 생성" : "기존 곡 연결"}
             {songTitle ? ` · ${songTitle}` : " · 제목 입력 필요"}
           </dd>
         </div>
-        <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">원곡 가수</dt>
-          <dd className="min-w-0 truncate font-medium">
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">원곡 가수</dt>
+          <dd className="line-clamp-2 font-medium">
             {draft.songId === "__new"
               ? draft.originalArtists.map((artist) => artist.label).join(", ") || "입력 필요"
               : "기존 곡 정보 유지"}
           </dd>
         </div>
-        <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">가창자</dt>
-          <dd className="min-w-0 truncate font-medium">
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">가창자</dt>
+          <dd className="line-clamp-2 font-medium">
             {participants.map((participant) =>
               `${participant.label} · ${participantRoleLabels[participant.role]}`
             ).join(", ") || "입력 필요"}
           </dd>
         </div>
-        <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
-          <dt className="text-muted-foreground">공개 분류</dt>
-          <dd className="min-w-0 truncate font-medium">
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">공개 분류</dt>
+          <dd className="line-clamp-2 font-medium">
             {relationOptions.find((option) => option.value === draft.relationType)?.label}
             {" · "}
             {releaseOptions.find((option) => option.value === draft.releaseType)?.label}
             {" · "}
             {participationOptions.find((option) => option.value === draft.participationType)?.label}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-md border bg-background p-2.5 sm:col-span-2 2xl:col-span-1">
+          <dt className="mb-1 text-muted-foreground">공식 채널</dt>
+          <dd className="line-clamp-2 font-medium">
+            {item.catalogChannelId
+              ? `승인 · ${item.channelTitle ?? item.channelId}`
+              : channel
+                ? `${channel.verificationStatus} · ${officialChannelRoleLabels[draft.channelRole]}`
+                : "승인 필요"}
           </dd>
         </div>
       </dl>
@@ -435,6 +469,9 @@ const candidateReviewBlockedReason = (
   if (item.status === "converted") {
     return "이미 catalog draft로 변환된 후보입니다.";
   }
+  if (item.status === "ignored") {
+    return "이미 제외된 후보입니다.";
+  }
   if (item.candidateClassification === "existing_catalog") {
     return "이미 카탈로그에 등록된 영상이므로 후보 검수값을 저장하지 않습니다.";
   }
@@ -451,7 +488,7 @@ const candidateReviewBlockedReason = (
     return "YouTube metadata 수집이 끝난 뒤 ready로 저장할 수 있습니다.";
   }
   if (item.candidateClassification === "channel_review" || !item.catalogChannelId) {
-    return "공식 채널 승인이 필요해 아직 ready로 저장할 수 없습니다.";
+    return "아래에서 공식 채널을 승인하면 ready 검수를 이어갈 수 있습니다.";
   }
   return ["eligible", "scope_review"].includes(item.candidateClassification)
     ? null
@@ -475,7 +512,6 @@ export function IngestionSection({
   const [preflight, setPreflight] = useState<OtwPlayPlaylistPreflightDto | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [classification, setClassification] = useState<
     OtwPlayIngestionClassification | "all"
   >("all");
@@ -505,19 +541,19 @@ export function IngestionSection({
       return true;
     });
   }, [baseItems, extraItems]);
-  const filtered = items;
+  const filtered = items.filter(
+    (item) => item.status !== "converted" && item.status !== "ignored",
+  );
 
   useEffect(() => {
     setExtraItems([]);
     setNextCursor(null);
-    setSelected(new Set());
     setDrafts({});
   }, [activeJobId]);
 
   useEffect(() => {
     setExtraItems([]);
     setNextCursor(null);
-    setSelected(new Set());
     setDrafts({});
   }, [classification]);
 
@@ -696,25 +732,100 @@ export function IngestionSection({
     }
   };
 
-  const convertSelected = async () => {
+  const approveCandidateChannel = async (
+    item: OtwPlayIngestionCandidateItemDto,
+  ) => {
+    const draft = drafts[item.candidateId] ?? emptyDraft(item);
+    if (draft.channelOwnerEntityIds.length === 0) {
+      toast({
+        variant: "error",
+        description: "공식 채널의 소유·연결 주체를 한 명 이상 선택해 주세요.",
+      });
+      return;
+    }
+    setBusy(`approve-channel:${item.candidateId}`);
+    try {
+      const saved = await updateOtwPlayImportCandidate(item.candidateId, {
+        expectedVersion: item.candidateVersion,
+        action: "approve_channel",
+        channel: {
+          channelRole: draft.channelRole,
+          entityIds: draft.channelOwnerEntityIds,
+        },
+      });
+      setDrafts((current) => {
+        const currentDraft = current[item.candidateId];
+        return currentDraft
+          ? {
+              ...current,
+              [item.candidateId]: {
+                ...currentDraft,
+                baseVersion: saved.version,
+                baseReviewInput: saved.reviewInput,
+                baseStatus: saved.status,
+              },
+            }
+          : current;
+      });
+      await refresh();
+      toast({
+        variant: "success",
+        description: "공식 채널을 승인하고 후보 상태를 갱신했습니다.",
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
+        await refresh();
+        toast({
+          variant: "info",
+          description: "후보 또는 채널 상태가 먼저 변경되었습니다. 최신 상태를 확인해 주세요.",
+        });
+        return;
+      }
+      toast({
+        variant: "error",
+        description: error instanceof Error
+          ? error.message
+          : "공식 채널 승인에 실패했습니다.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const convertReadyCandidates = async () => {
     if (!activeJobId) return;
-    const candidates = [...new Map(
-      items
-        .filter((item) => selected.has(item.candidateId) && item.status === "ready")
-        .map((item) => [
+    setBusy("convert-ready");
+    try {
+      const loaded: OtwPlayIngestionCandidateItemDto[] = [];
+      let cursor: string | null = null;
+      let pageCount = 0;
+      do {
+        const page = await fetchOtwPlayImportJobItems(activeJobId, {
+          limit: 100,
+          cursor,
+          status: "ready",
+        });
+        loaded.push(...page.items);
+        cursor = page.nextCursor;
+        pageCount += 1;
+      } while (cursor && pageCount < 50);
+      if (cursor) throw new Error("bulk_conversion_page_limit");
+      const candidates = [...new Map(
+        loaded.map((item) => [
           item.candidateId,
           { id: item.candidateId, expectedVersion: item.candidateVersion },
         ]),
-    ).values()];
-    if (candidates.length === 0) {
-      toast({ variant: "error", description: "ready 상태 후보를 선택해 주세요." });
-      return;
-    }
-    setBusy("convert");
-    const results: OtwPlayIngestionConversionResultDto[] = [];
-    let requestFailureCount = 0;
-    const requestFailureIds: string[] = [];
-    try {
+      ).values()];
+      if (candidates.length === 0) {
+        toast({
+          variant: "info",
+          description: "일괄 저장할 ready 완료 항목이 없습니다.",
+        });
+        return;
+      }
+
+      const results: OtwPlayIngestionConversionResultDto[] = [];
+      let requestFailureCount = 0;
       for (const chunk of chunkOtwPlayIngestionSelections(candidates)) {
         try {
           const response = await convertOtwPlayImportCandidates(activeJobId, {
@@ -723,16 +834,21 @@ export function IngestionSection({
           results.push(...response.results);
         } catch {
           requestFailureCount += chunk.length;
-          requestFailureIds.push(...chunk.map((item) => item.id));
         }
       }
       await refresh();
-      setSelected(new Set(requestFailureIds));
-      const created = results.filter((item) => item.outcome === "created").length;
-      const failed = results.length - created + requestFailureCount;
+      const completed = results.filter((item) =>
+        item.outcome === "created" || item.outcome === "duplicate"
+      ).length;
+      const failed = results.length - completed + requestFailureCount;
       toast({
         variant: failed > 0 ? "info" : "success",
-        description: `draft ${created}건 생성, 별도 확인 ${failed}건입니다. 공개 게시로 전환되지는 않았습니다.`,
+        description: `catalog draft ${completed}건 저장, 별도 확인 ${failed}건입니다. 완료 항목은 후보 목록에서 제외되며 공개 게시로 전환되지는 않았습니다.`,
+      });
+    } catch {
+      toast({
+        variant: "error",
+        description: "ready 완료 항목을 일괄 저장하지 못했습니다.",
       });
     } finally {
       setBusy(null);
@@ -779,19 +895,14 @@ export function IngestionSection({
 
       const results: OtwPlayIngestionIgnoreResultDto[] = [];
       let requestFailureCount = 0;
-      const reviewIds: string[] = [];
       for (const chunk of chunkOtwPlayIngestionSelections(candidates)) {
         try {
           const response = await ignoreOtwPlayImportCandidates(activeJobId, {
             candidates: chunk,
           });
           results.push(...response.results);
-          reviewIds.push(...response.results
-            .filter((result) => result.outcome !== "ignored")
-            .map((result) => result.candidateId));
         } catch {
           requestFailureCount += chunk.length;
-          reviewIds.push(...chunk.map((item) => item.id));
         }
       }
       let refreshFailed = false;
@@ -800,7 +911,6 @@ export function IngestionSection({
       } catch {
         refreshFailed = true;
       }
-      setSelected(new Set(reviewIds));
       const ignored = results.filter((result) => result.outcome === "ignored").length;
       const needsReview = results.length - ignored + requestFailureCount;
       toast({
@@ -813,42 +923,6 @@ export function IngestionSection({
       toast({
         variant: "error",
         description: "숨김·삭제·재생 불가 영상을 일괄 제외하지 못했습니다.",
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const selectCurrentFilter = async () => {
-    if (!activeJobId) return;
-    setBusy("select-filter");
-    try {
-      const loaded = [...items];
-      let cursor = nextCursor;
-      let pageCount = 0;
-      while (cursor && pageCount < 50) {
-        const page = await fetchOtwPlayImportJobItems(activeJobId, {
-          limit: 100,
-          cursor,
-          ...(serverClassification
-            ? { classification: serverClassification }
-            : {}),
-        });
-        loaded.push(...page.items);
-        cursor = page.nextCursor;
-        pageCount += 1;
-      }
-      if (cursor) throw new Error("selection_page_limit");
-      const byOrigin = [...new Map(
-        loaded.map((item) => [item.originId, item]),
-      ).values()];
-      setExtraItems(byOrigin);
-      setNextCursor(null);
-      setSelected(new Set(byOrigin.map((item) => item.candidateId)));
-    } catch {
-      toast({
-        variant: "error",
-        description: "현재 filter의 전체 항목을 불러오지 못했습니다.",
       });
     } finally {
       setBusy(null);
@@ -874,9 +948,6 @@ export function IngestionSection({
   };
 
   const job = jobQuery.data;
-  const selectedReady = new Set(items
-    .filter((item) => selected.has(item.candidateId) && item.status === "ready")
-    .map((item) => item.candidateId)).size;
 
   return (
     <div className="space-y-5">
@@ -1014,9 +1085,10 @@ export function IngestionSection({
                 {busy === "ignore-unavailable" ? <Loader2 className="animate-spin" /> : <EyeOff />}
                 숨김·삭제 영상 일괄 제외
               </Button>
-              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void selectCurrentFilter()}>{busy === "select-filter" ? <Loader2 className="animate-spin" /> : null} 현재 filter 전체 선택</Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>선택 해제</Button>
-              <Button className="ml-auto" disabled={selectedReady === 0 || busy !== null} onClick={() => void convertSelected()}>선택 ready {selectedReady}건 draft 변환</Button>
+              <Button className="ml-auto" disabled={busy !== null} onClick={() => void convertReadyCandidates()}>
+                {busy === "convert-ready" ? <Loader2 className="animate-spin" /> : null}
+                ready 완료 항목 일괄 저장
+              </Button>
             </div>
 
             <AlertDialog open={bulkIgnoreConfirmOpen} onOpenChange={setBulkIgnoreConfirmOpen}>
@@ -1038,19 +1110,17 @@ export function IngestionSection({
               </AlertDialogContent>
             </AlertDialog>
 
-            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(24rem,28rem)]" : ""}`}>
+            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)]" : ""}`}>
               <div className="min-w-0 space-y-3">
-                <div className="hidden overflow-x-auto rounded-xl border md:block">
-                  <Table>
+                <div className="hidden overflow-hidden rounded-xl border md:block">
+                  <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-10">선택</TableHead>
-                        <TableHead>영상</TableHead>
-                        <TableHead>적용 미리보기</TableHead>
-                        <TableHead>채널</TableHead>
-                        <TableHead>위치·시간</TableHead>
-                        <TableHead>분류</TableHead>
-                        <TableHead className="text-right">작업</TableHead>
+                        <TableHead className="w-[38%]">영상</TableHead>
+                        <TableHead className="w-[20%]">채널</TableHead>
+                        <TableHead className="w-[12%]">위치·시간</TableHead>
+                        <TableHead className="w-[20%]">상태</TableHead>
+                        <TableHead className="w-[10%] text-right">작업</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1058,29 +1128,18 @@ export function IngestionSection({
                         const previewDraft = drafts[item.candidateId] ??
                           draftFromItem(item, catalog);
                         return (
-                          <TableRow
-                            key={item.originId}
-                            data-state={editingId === item.candidateId ? "selected" : undefined}
-                          >
-                            <TableCell>
-                              <Checkbox
-                                checked={selected.has(item.candidateId)}
-                                onCheckedChange={(checked) => setSelected((current) => {
-                                  const next = new Set(current);
-                                  if (checked) next.add(item.candidateId);
-                                  else next.delete(item.candidateId);
-                                  return next;
-                                })}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex min-w-72 gap-3">
+                          <Fragment key={item.originId}>
+                            <TableRow
+                              data-state={editingId === item.candidateId ? "selected" : undefined}
+                            >
+                            <TableCell className="min-w-0 whitespace-normal">
+                              <div className="flex min-w-0 gap-3">
                                 {item.thumbnailUrl ? (
-                                  <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" />
+                                  <img className="h-14 w-24 shrink-0 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" />
                                 ) : (
-                                  <div className="h-14 w-24 rounded bg-muted" />
+                                  <div className="h-14 w-24 shrink-0 rounded bg-muted" />
                                 )}
-                                <div>
+                                <div className="min-w-0">
                                   <div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div>
                                   <a className="text-xs text-primary underline" href={sourceUrl(item.videoId)} target="_blank" rel="noreferrer">
                                     YouTube 원문 <ExternalLink className="inline size-3" />
@@ -1088,10 +1147,11 @@ export function IngestionSection({
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell>
-                              <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />
+                            <TableCell className="min-w-0">
+                              <div className="truncate" title={item.channelTitle ?? undefined}>
+                                {item.channelTitle ?? "-"}
+                              </div>
                             </TableCell>
-                            <TableCell>{item.channelTitle ?? "-"}</TableCell>
                             <TableCell>#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</TableCell>
                             <TableCell>
                               <Badge variant={item.status === "blocked" ? "destructive" : "secondary"}>{item.classification}</Badge>
@@ -1114,7 +1174,13 @@ export function IngestionSection({
                                 {editingId === item.candidateId ? "편집 중" : "행별 보완"}
                               </Button>
                             </TableCell>
-                          </TableRow>
+                            </TableRow>
+                            <TableRow className="bg-muted/5 hover:bg-muted/5">
+                              <TableCell colSpan={5} className="whitespace-normal px-3 pb-3 pt-0">
+                                <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />
+                              </TableCell>
+                            </TableRow>
+                          </Fragment>
                         );
                       })}
                     </TableBody>
@@ -1132,15 +1198,6 @@ export function IngestionSection({
                         className="space-y-3 rounded-xl border p-3 data-[state=selected]:border-primary data-[state=selected]:bg-primary/5"
                       >
                         <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={selected.has(item.candidateId)}
-                            onCheckedChange={(checked) => setSelected((current) => {
-                              const next = new Set(current);
-                              if (checked) next.add(item.candidateId);
-                              else next.delete(item.candidateId);
-                              return next;
-                            })}
-                          />
                           {item.thumbnailUrl ? (
                             <img className="h-14 w-24 rounded object-cover" src={item.thumbnailUrl} alt="YouTube thumbnail" />
                           ) : null}
@@ -1181,6 +1238,14 @@ export function IngestionSection({
               const draft = item ? drafts[item.candidateId] : null;
               if (!item || !draft) return null;
               const reviewBlockedReason = candidateReviewBlockedReason(item);
+              const catalogChannel = catalog.channels.find(
+                (channel) => channel.externalChannelId === item.channelId,
+              );
+              const channelApprovalBlocked = !item.channelId
+                ? "YouTube 채널 metadata를 먼저 갱신해 주세요."
+                : catalogChannel?.verificationStatus === "revoked"
+                  ? "철회된 채널은 공식 채널 관리에서 별도로 재검수해야 합니다."
+                  : null;
               const updateDraft = (change: Partial<RowDraft>) => setDrafts((current) => ({
                 ...current,
                 [item.candidateId]: { ...draft, ...change, isDirty: true },
@@ -1211,6 +1276,84 @@ export function IngestionSection({
                   </div>
 
                   <div className="space-y-5 p-4 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
+                    {!item.catalogChannelId ? (
+                      <fieldset className="space-y-4 rounded-lg border border-amber-300/70 bg-amber-50/40 p-4 dark:border-amber-800 dark:bg-amber-950/10">
+                        <legend className="px-1 text-sm font-semibold">공식 채널 승인</legend>
+                        <div className="space-y-1">
+                          <div className="font-medium">{item.channelTitle ?? "채널 이름 확인 필요"}</div>
+                          <div className="break-all text-xs text-muted-foreground">
+                            {item.channelId ?? "채널 ID 없음"}
+                          </div>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            영상의 실제 채널, 공식 역할과 소유 주체를 확인한 뒤 승인합니다. 승인 후 후보 metadata와 분류가 즉시 갱신됩니다.
+                          </p>
+                        </div>
+                        <Field>
+                          <FieldLabel id={`channel-role-${item.candidateId}`}>공식 채널 역할</FieldLabel>
+                          <Select
+                            value={draft.channelRole}
+                            onValueChange={(channelRole) => updateDraft({
+                              channelRole: channelRole as OtwPlayPublicChannelRole,
+                            })}
+                          >
+                            <SelectTrigger aria-labelledby={`channel-role-${item.candidateId}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(officialChannelRoleLabels).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>소유·연결 주체</FieldLabel>
+                          <FieldDescription>공식적으로 소유하거나 운영하는 OTW 멤버·그룹을 선택합니다.</FieldDescription>
+                          <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+                            {catalog.entities
+                              .filter((entity) => entity.archivedAt === null)
+                              .map((entity) => {
+                                const checkboxId = `channel-owner-${item.candidateId}-${entity.id}`;
+                                return (
+                                  <label
+                                    key={entity.id}
+                                    htmlFor={checkboxId}
+                                    className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted"
+                                  >
+                                    <Checkbox
+                                      id={checkboxId}
+                                      checked={draft.channelOwnerEntityIds.includes(entity.id)}
+                                      onCheckedChange={(checked) => updateDraft({
+                                        channelOwnerEntityIds: checked === true
+                                          ? [...draft.channelOwnerEntityIds, entity.id]
+                                          : draft.channelOwnerEntityIds.filter((id) => id !== entity.id),
+                                      })}
+                                    />
+                                    <span className="min-w-0 truncate">{entity.displayName}</span>
+                                  </label>
+                                );
+                              })}
+                          </div>
+                        </Field>
+                        {channelApprovalBlocked ? (
+                          <p role="alert" className="text-xs text-destructive">{channelApprovalBlocked}</p>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={
+                            busy !== null ||
+                            channelApprovalBlocked !== null ||
+                            draft.channelOwnerEntityIds.length === 0
+                          }
+                          onClick={() => void approveCandidateChannel(item)}
+                        >
+                          {busy === `approve-channel:${item.candidateId}` ? <Loader2 className="animate-spin" /> : null}
+                          공식 채널 승인 후 후보 갱신
+                        </Button>
+                      </fieldset>
+                    ) : null}
+
                     <fieldset className="space-y-4 rounded-lg border bg-muted/10 p-4">
                       <legend className="px-1 text-sm font-semibold">곡 정보</legend>
                       <div className="grid gap-4">

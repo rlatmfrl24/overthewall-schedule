@@ -126,6 +126,32 @@ describe("OTW Play ingestion input", () => {
       action: "ignore",
       unexpected: true,
     })).toEqual({ ok: false, fields: { body: "invalid_shape" } });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 2,
+      action: "approve_channel",
+      channel: {
+        channelRole: "member_music",
+        entityIds: ["entity-1"],
+      },
+    })).toEqual({
+      ok: true,
+      value: {
+        expectedVersion: 2,
+        action: "approve_channel",
+        channel: {
+          channelRole: "member_music",
+          entityIds: ["entity-1"],
+        },
+      },
+    });
+    expect(parseUpdateIngestionCandidate({
+      expectedVersion: 2,
+      action: "approve_channel",
+      channel: {
+        channelRole: "approved_kirinuki",
+        entityIds: [],
+      },
+    })).toEqual({ ok: false, fields: { channel: "invalid" } });
     expect(parseConvertIngestionCandidates({
       candidates: [
         { id: "candidate-1", expectedVersion: 1 },
