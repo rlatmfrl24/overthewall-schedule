@@ -1279,7 +1279,7 @@ export function IngestionSection({
               </AlertDialogContent>
             </AlertDialog>
 
-            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(22rem,26rem)]" : ""}`}>
+            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(28rem,32rem)] 2xl:grid-cols-[minmax(0,1fr)_36rem]" : ""}`}>
               <div className="min-w-0 space-y-3">
                 <div className="hidden overflow-hidden rounded-xl border md:block">
                   <Table className="table-fixed">
@@ -1467,6 +1467,7 @@ export function IngestionSection({
                           })}
                           options={primaryChannelOwnershipOptions}
                           presentation="cards"
+                          cardColumns={2}
                         />
 
                         {draft.channelOwnershipKind === "member" ? (
@@ -1528,7 +1529,12 @@ export function IngestionSection({
                                 ? "카탈로그에 연결되고 archive되지 않은 OTW 멤버만 표시합니다."
                                 : "외부 채널과 실제로 연결할 기존 외부 인물·그룹·조직을 선택합니다."}
                             </FieldDescription>
-                            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
+                            <div
+                              className="grid gap-1 rounded-md border bg-background p-2 sm:grid-cols-2"
+                              aria-label={draft.channelOwnershipKind === "member"
+                                ? "OTW 멤버 전체 목록"
+                                : "외부 연결 주체 목록"}
+                            >
                               {channelOwnerCandidates.length > 0 ? channelOwnerCandidates.map((entity) => {
                                 const checkboxId = `channel-owner-${item.candidateId}-${entity.id}`;
                                 return (

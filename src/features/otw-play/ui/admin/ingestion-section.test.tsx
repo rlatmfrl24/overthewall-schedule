@@ -51,6 +51,16 @@ const catalog = {
     memberUid: 1,
     archivedAt: null,
   }, {
+    id: "entity-2",
+    displayName: "Member Two",
+    memberUid: 2,
+    archivedAt: null,
+  }, {
+    id: "entity-3",
+    displayName: "Member Three",
+    memberUid: 3,
+    archivedAt: null,
+  }, {
     id: "entity-external",
     displayName: "Guest Artist",
     memberUid: null,
@@ -517,6 +527,21 @@ describe("IngestionSection", () => {
 
     const approval = screen.getByRole("group", { name: "공식 채널 승인" });
     expect(within(approval).getByText("Approved Channel")).toBeTruthy();
+    const ownershipChoices = within(approval).getByRole("group", {
+      name: "기본 소유 유형",
+    });
+    expect(ownershipChoices.querySelector(":scope > div")?.className)
+      .toContain("sm:grid-cols-2");
+    expect(within(ownershipChoices).getByRole("radio", {
+      name: /오버더월 공식 채널/,
+    })).toBeTruthy();
+    const memberList = within(approval).getByLabelText("OTW 멤버 전체 목록");
+    expect(memberList.className).toContain("sm:grid-cols-2");
+    expect(memberList.className).not.toContain("overflow-y-auto");
+    expect(memberList.className).not.toContain("max-h-");
+    expect(within(memberList).getByRole("checkbox", { name: "Singer" })).toBeTruthy();
+    expect(within(memberList).getByRole("checkbox", { name: "Member Two" })).toBeTruthy();
+    expect(within(memberList).getByRole("checkbox", { name: "Member Three" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
       .toBe(true);
     expect(within(approval).queryByRole("checkbox", { name: "Guest Artist" })).toBeNull();

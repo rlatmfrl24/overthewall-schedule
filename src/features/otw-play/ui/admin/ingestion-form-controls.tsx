@@ -15,6 +15,7 @@ type ChoiceGroupProps<T extends string> = {
   onValueChange: (value: T) => void;
   options: readonly ChoiceOption<T>[];
   presentation?: "cards" | "pills";
+  cardColumns?: 2 | 3;
   className?: string;
 };
 
@@ -25,6 +26,7 @@ export function ChoiceGroup<T extends string>({
   onValueChange,
   options,
   presentation = "pills",
+  cardColumns = 3,
   className,
 }: ChoiceGroupProps<T>) {
   const name = useId();
@@ -40,7 +42,10 @@ export function ChoiceGroup<T extends string>({
       <div
         className={cn(
           presentation === "cards"
-            ? "grid gap-2 lg:grid-cols-3"
+            ? cn(
+                "grid gap-2",
+                cardColumns === 2 ? "sm:grid-cols-2" : "lg:grid-cols-3",
+              )
             : "flex flex-wrap gap-2",
         )}
       >
@@ -67,9 +72,9 @@ export function ChoiceGroup<T extends string>({
                 onChange={() => onValueChange(option.value)}
               />
               <span className="min-w-0 flex-1">
-                <span className="block font-medium leading-snug">{option.label}</span>
+                <span className="block break-keep font-medium leading-snug">{option.label}</span>
                 {option.description ? (
-                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                  <span className="mt-1 block break-keep text-xs leading-relaxed text-muted-foreground">
                     {option.description}
                   </span>
                 ) : null}
