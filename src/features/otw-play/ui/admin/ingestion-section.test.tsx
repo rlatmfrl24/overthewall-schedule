@@ -65,6 +65,16 @@ const catalog = {
     memberUid: 3,
     archivedAt: null,
   }, {
+    id: "member:yang_mei",
+    displayName: "양메이",
+    memberUid: 4,
+    archivedAt: null,
+  }, {
+    id: "member:u_lili",
+    displayName: "유리리",
+    memberUid: 5,
+    archivedAt: null,
+  }, {
     id: "entity-external",
     displayName: "Guest Artist",
     memberUid: null,
@@ -569,6 +579,8 @@ describe("IngestionSection", () => {
     expect(within(memberList).getByRole("checkbox", { name: "Singer" })).toBeTruthy();
     expect(within(memberList).getByRole("checkbox", { name: "Member Two" })).toBeTruthy();
     expect(within(memberList).getByRole("checkbox", { name: "Member Three" })).toBeTruthy();
+    expect(within(memberList).getByRole("checkbox", { name: "양메이" })).toBeTruthy();
+    expect(within(memberList).getByRole("checkbox", { name: "유리리" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
       .toBe(true);
     expect(within(approval).queryByRole("checkbox", { name: "Guest Artist" })).toBeNull();
