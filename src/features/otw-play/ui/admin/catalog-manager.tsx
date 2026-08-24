@@ -74,12 +74,20 @@ import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
 import { IngestionSection } from "./ingestion-section";
+import { ChannelMonitorSection } from "./channel-monitor-section";
 
-type Section = "catalog" | "import" | "review" | "source-health" | "operations";
+type Section =
+  | "catalog"
+  | "import"
+  | "automatic-review"
+  | "review"
+  | "source-health"
+  | "operations";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
   { value: "import", label: "가져오기" },
+  { value: "automatic-review", label: "자동 검수" },
   { value: "review", label: "제안 검수" },
   { value: "source-health", label: "소스 상태" },
   { value: "operations", label: "운영·공개" },
@@ -361,6 +369,9 @@ export function OtwPlayCatalogManager() {
           catalog={catalog}
           onOpenCatalog={() => setSection("catalog")}
         />
+      )}
+      {section === "automatic-review" && catalog && (
+        <ChannelMonitorSection catalog={catalog} />
       )}
       {section === "catalog" && catalog && (
         <WorkflowCatalog

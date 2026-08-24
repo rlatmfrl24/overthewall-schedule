@@ -70,7 +70,6 @@ import {
   type ChoiceOption,
 } from "./ingestion-form-controls";
 import { SubjectPicker, type SelectedSubject } from "./catalog-entry-dialog";
-import { ChannelMonitorSection } from "./channel-monitor-section";
 
 type ExternalParticipantDraft = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
@@ -1289,8 +1288,6 @@ export function IngestionSection({
           )}
         </CardContent>
       </Card>
-
-      <ChannelMonitorSection catalog={catalog} />
 
       {job && (
         <Card>

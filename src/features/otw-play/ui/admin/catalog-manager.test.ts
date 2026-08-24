@@ -19,6 +19,7 @@ const fetchProposalsMock = vi.hoisted(() => vi.fn());
 const fetchSourceHealthMock = vi.hoisted(() => vi.fn());
 const fetchObservabilityMock = vi.hoisted(() => vi.fn());
 const fetchReleaseMock = vi.hoisted(() => vi.fn());
+const fetchChannelMonitorsMock = vi.hoisted(() => vi.fn());
 const updateReleaseMock = vi.hoisted(() => vi.fn());
 const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     fetchOtwPlayAdminSourceHealth: fetchSourceHealthMock,
     fetchOtwPlayAdminObservability: fetchObservabilityMock,
     fetchOtwPlayAdminRelease: fetchReleaseMock,
+    fetchOtwPlayChannelMonitors: fetchChannelMonitorsMock,
     updateOtwPlayAdminRelease: updateReleaseMock,
     recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
@@ -120,6 +122,8 @@ describe("OtwPlayCatalogManager", () => {
     fetchSourceHealthMock.mockReset();
     fetchObservabilityMock.mockReset();
     fetchReleaseMock.mockReset();
+    fetchChannelMonitorsMock.mockReset();
+    fetchChannelMonitorsMock.mockResolvedValue([]);
     updateReleaseMock.mockReset();
     recheckSourceMock.mockReset();
     fetchSourceHealthMock.mockResolvedValue({
@@ -1217,6 +1221,7 @@ describe("OtwPlayCatalogManager", () => {
     await screen.findByRole("button", { name: "새 영상 등록" });
     expect(screen.getByRole("button", { name: "카탈로그" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "제안 검수" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "자동 검수" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "곡" })).toBeNull();
     expect(screen.queryByRole("button", { name: "가창" })).toBeNull();
     expect(screen.queryByRole("button", { name: "공식 채널" })).toBeNull();
@@ -1301,6 +1306,18 @@ describe("OtwPlayCatalogManager", () => {
         }),
       ),
     );
+  });
+
+  it("opens automatic upload review in its own workflow tab", async () => {
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+    await screen.findByRole("button", { name: "새 영상 등록" });
+    expect(screen.queryByText("신규 업로드 자동 검수 제안")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "자동 검수" }));
+
+    expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
   });
 
   it("shows the actionable preflight API error and request id", async () => {
