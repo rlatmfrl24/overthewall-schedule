@@ -284,11 +284,13 @@ DLQ 14일을 사용한다. 장기 quota 대기는 D1 `next_retry_at`에 기록�
 후보 version은 Queue video batch의 metadata 갱신과 관리자 검수 저장이 함께 증가시킨다.
 따라서 version만 비교하면 행을 편집하는 동안 정상 완료된 metadata batch도 검수 충돌로
 오판한다. 검수 form은 행을 열 때의 `candidateVersion`, `reviewInput`, `status`를 baseline으로
-보존하고 저장 command에 전달한다. 저장소는 version이 같으면 기존 CAS를 적용하고,
-version이 다르면 review input과 status가 baseline과 모두 같은 경우에만 현재 approved
-channel과 `eligible|scope_review` 정책을 다시 확인해 저장한다. 실제 관리자 저장·제외처럼
-review input 또는 status가 바뀐 경우에는 409를 유지한다. UI는 이때 최신 항목을 refetch하되
-작성 중인 form 값은 버리지 않는다.
+보존하고 저장 command에 전달한다. Queue와 단건 refresh는 review input과 수동 결정
+`ready|ignored|converted`를 보존한다. 저장소는 version이 다르면 key order와 optional null
+차이를 제거한 review state의 의미상 동등성을 확인한 후 최신 version으로 다시 CAS한다.
+실제 관리자 저장·제외는 409를 유지하고, 기존 catalog·proposal 또는 channel/policy gate는
+validation으로 분리한다. origin 관점의 `existing_candidate` 분류와 candidate 자체 분류를
+DTO에서 분리해 UI가 편집 가능 여부를 실제 candidate 기준으로 판단한다. UI는 진짜 409에서만
+최신 항목을 refetch하며 작성 중인 form 값은 버리지 않는다.
 
 Cloudflare는 Queue가 at-least-once delivery이며 중복 효과를 idempotency key로 방지할
 것을 권고한다. [Queues delivery guarantees](https://developers.cloudflare.com/queues/reference/delivery-guarantees/)

@@ -1385,9 +1385,12 @@ foundation 전에는 inbox에만 머문다. 어떤 자동 수집 결과도 자�
 
 PR-9C 후보 저장은 행을 열 때의 version·review input·status를 baseline으로 보존한다.
 Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 현재 channel·분류
-정책을 D1 update 조건에서 다시 확인해 저장한다. 실제 검수 baseline이 바뀐 409에서는
-행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. job `updatedAt`이
-변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
+정책을 다시 확인하고 최신 version으로 CAS한다. Queue와 단건 metadata refresh는
+`ready|ignored|converted` 및 review input을 보존한다. 실제 검수 baseline이 바뀐 409에서는
+행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. 기존 catalog·proposal,
+channel/policy gate는 422 validation으로 분리한다. item DTO는 origin 관점 `classification`과
+실제 `candidateClassification`을 함께 제공하며 ready 저장 가능 여부는 후자를 사용한다.
+job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
 적용 미리보기는 sticky form 내부가 아니라 desktop table과 mobile card의 각 영상 행에
 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다. 숨김·삭제 일괄 제외는
 현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.

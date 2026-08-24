@@ -118,7 +118,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용하며 자동 publish하지 않는다. 방송·키리누키 모델과 channel 권리·승인 gate 전에는 catalog draft로도 변환하지 않는다. |
 | DEC-058 | 추가 credit 범위는 OTW 멤버의 가창과 작품·편곡·제작 참여로 제한하고 외부 음악 관계자용 상세 credit·contributor graph는 만들지 않는다. | 확정 | 기존 원곡 가수와 외부 가창 참여자 표시는 유지하되 새 범용 credit 대상이 아니다. 멤버 노래책은 published 관계에서 파생하며 1곡부터 직접 URL, 3곡부터 navigation·SEO를 허용한다. current member를 우선하고 대표 오리지널곡은 관리자 최대 5곡 pin + 최신순 fallback으로 정한다. |
 | DEC-059 | playlist 후보 검수는 공통값 일괄 설정 대신 행별 보완과 즉시 적용 미리보기를 사용한다. | 확정 | 선택 checkbox는 ready 후보의 catalog draft 변환 범위에만 사용한다. sticky 검수 form은 곡 연결·신규 생성, 원곡 가수, 가창자·역할과 공개 분류를 편집하고, 실제 저장 draft와 필수 누락 미리보기는 각 영상 목록 행에서 편집 중에도 즉시 갱신한다. |
-| DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. version만 달라지고 review input·status가 같으면 현재 channel·분류 정책을 다시 검증한 뒤 저장을 허용한다. review input 또는 status가 달라진 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`로 막고, 로컬 입력값을 유지한 채 권위 상태를 다시 불러온다. |
+| DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. Queue·단건 metadata refresh는 수동 결정인 `ready`, `ignored`, `converted`와 review input을 덮어쓰지 않는다. version만 달라지고 review state가 의미상 같으면 현재 channel·실제 candidate 분류 정책을 다시 검증한 뒤 저장을 허용한다. 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`, 기존 catalog·proposal·channel/policy 상태로 저장할 수 없는 경우는 validation으로 구분한다. 목록의 origin 분류 `existing_candidate`는 실제 candidate 분류와 함께 표시한다. |
 | DEC-061 | playlist job의 숨김·삭제·재생 불가 영상은 관리자가 한 번에 제외할 수 있다. | 확정 | 현재 화면이나 분류 filter가 아니라 job 전체의 `blocked` 후보를 조회하고 `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable`만 대상으로 한다. `unknown`과 정책 검토 후보는 자동 제외하지 않는다. 최대 100건 단위 명령으로 job 소속과 candidate version CAS를 재검증하며 성공과 stale·실패를 항목별로 분리한다. |
 
 ## 4. 제품 원칙
@@ -743,6 +743,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-24 | DEC-059 확정. playlist 후보의 공통값 일괄 설정 UI를 제거하고, 행별 sticky 검수 form에 실제 저장 draft 기준의 즉시 적용 미리보기를 추가. 선택은 ready 후보의 draft 변환 범위에만 사용 |
 | 2026-08-24 | DEC-060 확정. 수집 중 metadata 갱신으로 인한 version 상승은 review input·status baseline이 같을 때만 저장을 이어가고, 실제 동시 검수는 409로 차단하면서 행 입력값을 유지하도록 후보 CAS를 분리 |
 | 2026-08-24 | DEC-061 확정 및 DEC-059 보완. 적용 미리보기를 sticky 편집 form에서 영상 목록 행으로 이동하고, job 전체의 확인된 숨김·삭제·embed·지역 차단·재생 불가 후보를 CAS 기반 100건 단위로 일괄 제외하되 unknown·정책 검토 후보는 보존 |
+| 2026-08-24 | DEC-060 보완. 반복 metadata 수집이 ready·ignored·converted 수동 결정을 되돌리지 않게 하고, origin의 existing_candidate와 실제 candidate 분류를 분리해 기존 catalog·channel/policy 거부를 동시 검수 409가 아닌 validation으로 안내 |
 
 ## 19. 참고
 
