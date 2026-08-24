@@ -1525,7 +1525,7 @@ export function IngestionSection({
                             <FieldLabel>소유·연결 주체</FieldLabel>
                             <FieldDescription>
                               {draft.channelOwnershipKind === "member"
-                                ? "활성 OTW 멤버만 표시합니다."
+                                ? "카탈로그에 연결되고 archive되지 않은 OTW 멤버만 표시합니다."
                                 : "외부 채널과 실제로 연결할 기존 외부 인물·그룹·조직을 선택합니다."}
                             </FieldDescription>
                             <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
