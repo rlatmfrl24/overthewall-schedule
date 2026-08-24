@@ -61,6 +61,7 @@ import {
 } from "../../api/admin";
 import {
   useOtwPlayImportJob,
+  useOtwPlayImportJobs,
   useOtwPlayImportJobItems,
 } from "../../queries/use-admin-catalog";
 import { chunkOtwPlayIngestionSelections } from "../../model/ingestion-selection";
@@ -69,6 +70,7 @@ import {
   type ChoiceOption,
 } from "./ingestion-form-controls";
 import { SubjectPicker, type SelectedSubject } from "./catalog-entry-dialog";
+import { ChannelMonitorSection } from "./channel-monitor-section";
 
 type ExternalParticipantDraft = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
@@ -659,6 +661,7 @@ export function IngestionSection({
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const jobsQuery = useOtwPlayImportJobs();
   const jobQuery = useOtwPlayImportJob(activeJobId);
   const serverClassification = classification === "all"
     ? undefined
@@ -683,6 +686,10 @@ export function IngestionSection({
   const filtered = items.filter(
     (item) => item.status !== "converted" && item.status !== "ignored",
   );
+
+  useEffect(() => {
+    if (!activeJobId && jobsQuery.data?.[0]) setActiveJobId(jobsQuery.data[0].id);
+  }, [activeJobId, jobsQuery.data]);
 
   useEffect(() => {
     setExtraItems([]);
@@ -737,6 +744,9 @@ export function IngestionSection({
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminCatalog(),
       }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.importJobs(),
+      }),
     ]);
     setExtraItems([]);
   };
@@ -778,6 +788,7 @@ export function IngestionSection({
         idempotencyKey: crypto.randomUUID(),
       });
       setActiveJobId(job.id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.importJobs() });
       toast({ variant: "success", description: "수집 job을 저장하고 Queue에 등록했습니다." });
     } catch {
       toast({ variant: "error", description: "수집 job을 시작하지 못했습니다." });
@@ -1232,6 +1243,54 @@ export function IngestionSection({
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="text-base">가져오기 이력</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            이전에 가져온 플레이리스트 작업을 계속 열어 검수할 수 있습니다.
+          </p>
+        </CardHeader>
+        <CardContent className="pt-4">
+          {jobsQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">가져오기 이력을 불러오는 중입니다.</p>
+          ) : (jobsQuery.data?.length ?? 0) === 0 ? (
+            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+              저장된 가져오기 작업이 없습니다.
+            </p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {jobsQuery.data?.map((historyJob) => (
+                <button
+                  type="button"
+                  key={historyJob.id}
+                  onClick={() => setActiveJobId(historyJob.id)}
+                  className={`rounded-xl border p-4 text-left transition-colors ${
+                    historyJob.id === activeJobId
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="line-clamp-2 font-semibold">{historyJob.playlistTitle}</span>
+                    <Badge variant={historyJob.status === "completed" ? "secondary" : "outline"}>
+                      {historyJob.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 truncate text-xs text-muted-foreground">
+                    {historyJob.playlistOwnerChannelTitle}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(historyJob.createdAt).toLocaleString("ko-KR")} · 후보 {historyJob.counts.discovered}개
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <ChannelMonitorSection catalog={catalog} />
 
       {job && (
         <Card>

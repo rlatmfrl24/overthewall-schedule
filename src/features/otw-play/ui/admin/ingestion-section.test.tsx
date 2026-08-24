@@ -17,6 +17,7 @@ const toastMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
 const itemsHookMock = vi.hoisted(() => vi.fn());
 const jobHookMock = vi.hoisted(() => vi.fn());
+const jobsHookMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
   preflightOtwPlayPlaylistImport: preflightMock,
@@ -31,6 +32,9 @@ vi.mock("../../api/admin", () => ({
 vi.mock("../../queries/use-admin-catalog", () => ({
   useOtwPlayImportJob: jobHookMock,
   useOtwPlayImportJobItems: itemsHookMock,
+  useOtwPlayImportJobs: jobsHookMock,
+  useOtwPlayChannelMonitors: () => ({ data: [], isLoading: false }),
+  useOtwPlayChannelMonitorCandidates: () => ({ data: [], isLoading: false }),
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -142,7 +146,9 @@ describe("IngestionSection", () => {
     fetchItemsMock.mockReset();
     itemsHookMock.mockReset();
     jobHookMock.mockReset();
+    jobsHookMock.mockReset();
     toastMock.mockReset();
+    jobsHookMock.mockReturnValue({ data: [], isLoading: false });
     fetchItemsMock.mockResolvedValue({
       items: [candidate()],
       nextCursor: null,
@@ -273,6 +279,27 @@ describe("IngestionSection", () => {
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
       description: expect.stringContaining("공개 게시로 전환되지는 않았습니다"),
     }));
+  });
+
+  it("keeps previously imported playlists visible and reopens their review job", async () => {
+    jobsHookMock.mockReturnValue({
+      isLoading: false,
+      data: [{
+        id: "saved-job",
+        playlistTitle: "Previously Imported Playlist",
+        playlistOwnerChannelTitle: "Saved Channel",
+        status: "completed",
+        createdAt: 100,
+        counts: { discovered: 23 },
+      }],
+    });
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    expect(await screen.findByText("Previously Imported Playlist")).toBeTruthy();
+    await waitFor(() => expect(jobHookMock).toHaveBeenCalledWith("saved-job"));
   });
 
   it("shows only the controls required by the selected import mode", () => {

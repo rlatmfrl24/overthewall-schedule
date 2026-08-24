@@ -42,6 +42,11 @@ import type {
   OtwPlayPlaylistPreflightRequest,
   OtwPlayRetryIngestionJobResponse,
   OtwPlayUpdateIngestionCandidateRequest,
+  OtwPlayChannelMonitorCandidateDto,
+  OtwPlayChannelMonitorDto,
+  OtwPlayChannelMonitorReconcileDto,
+  OtwPlayCreateChannelMonitorRequest,
+  OtwPlayUpdateChannelMonitorRequest,
 } from "@contracts/otw-play";
 import { apiFetch } from "@/shared/api/client";
 
@@ -67,6 +72,48 @@ export const createOtwPlayPlaylistImport = (
 export const fetchOtwPlayImportJob = (jobId: string) =>
   adminRequest<{ data: OtwPlayIngestionJobDto }>(
     apiRoutes.otwPlay.admin.importJob.build(jobId),
+  ).then((response) => response.data);
+
+export const fetchOtwPlayImportJobs = () =>
+  adminRequest<{ data: OtwPlayIngestionJobDto[] }>(
+    withRouteSearch(
+      apiRoutes.otwPlay.admin.importJobs.build(),
+      new URLSearchParams({ limit: "100" }),
+    ),
+  ).then((response) => response.data);
+
+export const fetchOtwPlayChannelMonitors = () =>
+  adminRequest<{ data: OtwPlayChannelMonitorDto[] }>(
+    apiRoutes.otwPlay.admin.channelMonitors.build(),
+  ).then((response) => response.data);
+
+export const createOtwPlayChannelMonitor = (
+  json: OtwPlayCreateChannelMonitorRequest,
+) => adminRequest<{ data: OtwPlayChannelMonitorDto }>(
+  apiRoutes.otwPlay.admin.channelMonitors.build(),
+  { method: "POST", json },
+).then((response) => response.data);
+
+export const updateOtwPlayChannelMonitor = (
+  id: string,
+  json: OtwPlayUpdateChannelMonitorRequest,
+) => adminRequest<{ data: OtwPlayChannelMonitorDto }>(
+  apiRoutes.otwPlay.admin.channelMonitor.build(id),
+  { method: "PATCH", json },
+).then((response) => response.data);
+
+export const reconcileOtwPlayChannelMonitor = (id: string) =>
+  adminRequest<{ data: OtwPlayChannelMonitorReconcileDto }>(
+    apiRoutes.otwPlay.admin.reconcileChannelMonitor.build(id),
+    { method: "POST", json: {} },
+  ).then((response) => response.data);
+
+export const fetchOtwPlayChannelMonitorCandidates = (id: string) =>
+  adminRequest<{ data: OtwPlayChannelMonitorCandidateDto[] }>(
+    withRouteSearch(
+      apiRoutes.otwPlay.admin.channelMonitorCandidates.build(id),
+      new URLSearchParams({ limit: "100" }),
+    ),
   ).then((response) => response.data);
 
 export const fetchOtwPlayImportJobItems = (

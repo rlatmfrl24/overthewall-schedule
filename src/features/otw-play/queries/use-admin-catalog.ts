@@ -9,6 +9,9 @@ import {
   fetchOtwPlayAdminSourceHealth,
   fetchOtwPlayImportJob,
   fetchOtwPlayImportJobItems,
+  fetchOtwPlayImportJobs,
+  fetchOtwPlayChannelMonitors,
+  fetchOtwPlayChannelMonitorCandidates,
 } from "../api/admin";
 
 export const useOtwPlayAdminCatalog = () => useQuery({
@@ -52,6 +55,27 @@ export const useOtwPlayImportJob = (jobId: string | null) => useQuery({
     const status = query.state.data?.status;
     return status === "queued" || status === "collecting" ? 2_000 : false;
   },
+});
+
+export const useOtwPlayImportJobs = () => useQuery({
+  queryKey: queryKeys.otwPlay.importJobs(),
+  queryFn: fetchOtwPlayImportJobs,
+  refetchInterval: (query) => query.state.data?.some(
+    (job) => job.status === "queued" || job.status === "collecting",
+  ) ? 2_000 : false,
+});
+
+export const useOtwPlayChannelMonitors = () => useQuery({
+  queryKey: queryKeys.otwPlay.channelMonitors(),
+  queryFn: fetchOtwPlayChannelMonitors,
+  staleTime: 15_000,
+});
+
+export const useOtwPlayChannelMonitorCandidates = (monitorId: string | null) => useQuery({
+  queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId ?? "none"),
+  queryFn: () => fetchOtwPlayChannelMonitorCandidates(monitorId!),
+  enabled: Boolean(monitorId),
+  staleTime: 5_000,
 });
 
 export const useOtwPlayImportJobItems = (
