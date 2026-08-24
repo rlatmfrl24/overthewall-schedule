@@ -250,6 +250,29 @@ export interface OtwPlayConvertIngestionCandidatesRequest {
   candidates: Array<{ id: string; expectedVersion: number }>;
 }
 
+export interface OtwPlayIgnoreIngestionCandidatesRequest {
+  candidates: Array<{ id: string; expectedVersion: number }>;
+}
+
+export const OTW_PLAY_INGESTION_IGNORE_OUTCOMES = [
+  "ignored",
+  "stale",
+  "failed",
+] as const;
+
+export type OtwPlayIngestionIgnoreOutcome =
+  (typeof OTW_PLAY_INGESTION_IGNORE_OUTCOMES)[number];
+
+export interface OtwPlayIngestionIgnoreResultDto {
+  candidateId: string;
+  outcome: OtwPlayIngestionIgnoreOutcome;
+  errorCode: string | null;
+}
+
+export interface OtwPlayIgnoreIngestionCandidatesResponse {
+  results: OtwPlayIngestionIgnoreResultDto[];
+}
+
 export interface OtwPlayIngestionConversionResultDto {
   candidateId: string;
   outcome: OtwPlayIngestionConversionOutcome;

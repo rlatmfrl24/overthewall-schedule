@@ -76,6 +76,7 @@ describe("protected worker routes", () => {
       dispatch(new Request("https://example.com/api/play/admin/imports/job-1/items")),
       dispatch(new Request("https://example.com/api/play/admin/import-candidates/candidate-1", { method: "PATCH" })),
       dispatch(new Request("https://example.com/api/play/admin/imports/job-1/convert", { method: "POST" })),
+      dispatch(new Request("https://example.com/api/play/admin/imports/job-1/ignore", { method: "POST" })),
       dispatch(new Request("https://example.com/api/play/admin/imports/job-1/retry", { method: "POST" })),
       dispatch(new Request("https://example.com/api/play/admin/catalog-entries/preflight", { method: "POST" })),
       dispatch(new Request("https://example.com/api/play/admin/catalog-entries", { method: "POST" })),

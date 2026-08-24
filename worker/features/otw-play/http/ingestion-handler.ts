@@ -21,6 +21,7 @@ import { IngestionCursorError } from "../domain/ingestion-cursor";
 import {
   parseCreatePlaylistImport,
   parseConvertIngestionCandidates,
+  parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
   parseRetryIngestionJob,
   parseUpdateIngestionCandidate,
@@ -165,6 +166,25 @@ export const createIngestionHandler = (
       }
       return responseJson({
         data: await service.convertCandidates(convertJobId, parsed.value, actor),
+      });
+    }
+    const ignoreJobId = pathId(
+      url.pathname,
+      /^\/api\/play\/admin\/imports\/([^/]+)\/ignore$/u,
+    );
+    if (request.method === "POST" && ignoreJobId) {
+      const parsed = await readBody(request, parseIgnoreIngestionCandidates);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion bulk ignore request",
+          parsed.fields,
+        );
+      }
+      return responseJson({
+        data: await service.ignoreCandidates(ignoreJobId, parsed.value, actor),
       });
     }
     const retryJobId = pathId(

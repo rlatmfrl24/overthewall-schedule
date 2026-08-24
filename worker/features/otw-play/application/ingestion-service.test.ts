@@ -369,4 +369,60 @@ describe("IngestionService", () => {
       }),
     );
   });
+
+  it("bulk ignores job-owned candidates and returns stale rows for separate review", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockImplementation(async (
+      _jobId: string | null,
+      candidateId: string,
+    ) => ({
+      id: candidateId,
+      version: candidateId === "candidate-stale" ? 3 : 1,
+      videoId: candidateId === "candidate-stale" ? "BBBBBBBBBBB" : "AAAAAAAAAAA",
+      status: "blocked" as const,
+      classification: "unavailable" as const,
+      catalogChannelId: null,
+      reviewInput: null,
+      linkedPerformanceId: null,
+    }));
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-1",
+      () => 100,
+    );
+
+    await expect(service.ignoreCandidates("job-1", {
+      candidates: [
+        { id: "candidate-1", expectedVersion: 1 },
+        { id: "candidate-stale", expectedVersion: 2 },
+      ],
+    }, {
+      userId: "admin-1",
+      displayName: "Admin",
+      ipAddress: null,
+    })).resolves.toEqual({
+      results: [
+        { candidateId: "candidate-1", outcome: "ignored", errorCode: null },
+        {
+          candidateId: "candidate-stale",
+          outcome: "stale",
+          errorCode: "stale_write",
+        },
+      ],
+    });
+    expect(repo.getJob).toHaveBeenCalledWith("job-1");
+    expect(repo.readReviewCandidate).toHaveBeenNthCalledWith(
+      1,
+      "job-1",
+      "candidate-1",
+    );
+    expect(repo.ignoreCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      candidateId: "candidate-1",
+      expectedVersion: 1,
+      actorUserId: "admin-1",
+    }));
+    expect(repo.ignoreCandidate).toHaveBeenCalledTimes(1);
+  });
 });

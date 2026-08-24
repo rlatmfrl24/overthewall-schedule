@@ -11,6 +11,7 @@ const preflightMock = vi.hoisted(() => vi.fn());
 const createImportMock = vi.hoisted(() => vi.fn());
 const updateCandidateMock = vi.hoisted(() => vi.fn());
 const convertMock = vi.hoisted(() => vi.fn());
+const ignoreCandidatesMock = vi.hoisted(() => vi.fn());
 const retryMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const fetchItemsMock = vi.hoisted(() => vi.fn());
@@ -22,6 +23,7 @@ vi.mock("../../api/admin", () => ({
   createOtwPlayPlaylistImport: createImportMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
   convertOtwPlayImportCandidates: convertMock,
+  ignoreOtwPlayImportCandidates: ignoreCandidatesMock,
   retryOtwPlayImportJob: retryMock,
   fetchOtwPlayImportJobItems: fetchItemsMock,
 }));
@@ -125,6 +127,7 @@ describe("IngestionSection", () => {
     createImportMock.mockReset();
     updateCandidateMock.mockReset();
     convertMock.mockReset();
+    ignoreCandidatesMock.mockReset();
     fetchItemsMock.mockReset();
     itemsHookMock.mockReset();
     jobHookMock.mockReset();
@@ -181,6 +184,13 @@ describe("IngestionSection", () => {
         errorCode: null,
       }],
     });
+    ignoreCandidatesMock.mockResolvedValue({
+      results: [{
+        candidateId: "youtube:AAAAAAAAAAA",
+        outcome: "ignored",
+        errorCode: null,
+      }],
+    });
   });
 
   it("runs the persisted playlist flow, saves row review, and converts only to draft", async () => {
@@ -197,6 +207,15 @@ describe("IngestionSection", () => {
     expect(await screen.findAllByText("Candidate Video")).not.toHaveLength(0);
     expect(screen.queryByText("선택 항목 일괄 설정")).toBeNull();
 
+    const preview = screen.getAllByRole("region", {
+      name: "Candidate Video 적용 미리보기",
+    })[0]!;
+    expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
+    expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
+    expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
+    expect(within(preview).getByText("커버 · 공식 영상 · 솔로")).toBeTruthy();
+    expect(within(preview).getByText("저장 준비됨")).toBeTruthy();
+
     fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
     const reviewPanel = screen.getByRole("complementary", { name: "후보 행별 보완" });
     expect(reviewPanel.className).toContain("xl:sticky");
@@ -206,12 +225,9 @@ describe("IngestionSection", () => {
     )).toBe(true);
     expect(screen.queryByLabelText("원곡 제목")).toBeNull();
     expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
-    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
-    expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
-    expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
-    expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
-    expect(within(preview).getByText("커버 · 공식 영상 · 솔로")).toBeTruthy();
-    expect(within(preview).getByText("저장 준비됨")).toBeTruthy();
+    expect(within(reviewPanel).queryByRole("region", {
+      name: "Candidate Video 적용 미리보기",
+    })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
       "youtube:AAAAAAAAAAA",
@@ -323,7 +339,9 @@ describe("IngestionSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
     expect(screen.getByLabelText("Guest Vocal 참여 역할")).toBeTruthy();
 
-    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
+    const preview = screen.getAllByRole("region", {
+      name: "Candidate Video 적용 미리보기",
+    })[0]!;
     expect(within(preview).getByText("새 곡 생성 · Candidate Video")).toBeTruthy();
     expect(within(preview).getByText("Guest Artist, New Original Artist")).toBeTruthy();
     expect(within(preview).getByText(
@@ -470,7 +488,9 @@ describe("IngestionSection", () => {
       variant: "info",
       description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지한 채 최신 상태를 불러왔습니다.",
     }));
-    const preview = screen.getByRole("region", { name: "현재 적용 미리보기" });
+    const preview = screen.getAllByRole("region", {
+      name: "Candidate Video 적용 미리보기",
+    })[0]!;
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
   });
@@ -482,6 +502,81 @@ describe("IngestionSection", () => {
     expect(chunks).toHaveLength(2);
     expect(chunks[0]).toHaveLength(100);
     expect(chunks[1]).toHaveLength(1);
+  });
+
+  it("scans the whole job and bulk ignores only known non-playable videos", async () => {
+    const privateVideo = {
+      ...candidate(1),
+      status: "blocked" as const,
+      classification: "unavailable" as const,
+      availabilityStatus: "private" as const,
+      exclusionReason: "private",
+    };
+    const unknownVideo = {
+      ...candidate(2),
+      status: "blocked" as const,
+      classification: "policy_blocked" as const,
+      availabilityStatus: "unknown" as const,
+      exclusionReason: "made_for_kids_review",
+    };
+    const deletedVideo = {
+      ...candidate(3),
+      status: "blocked" as const,
+      classification: "unavailable" as const,
+      availabilityStatus: "deleted" as const,
+      exclusionReason: "deleted",
+    };
+    fetchItemsMock
+      .mockResolvedValueOnce({
+        items: [privateVideo, unknownVideo],
+        nextCursor: "blocked-cursor-1",
+      })
+      .mockResolvedValueOnce({ items: [deletedVideo], nextCursor: null });
+    ignoreCandidatesMock.mockResolvedValueOnce({
+      results: [privateVideo, deletedVideo].map((item) => ({
+        candidateId: item.candidateId,
+        outcome: "ignored",
+        errorCode: null,
+      })),
+    });
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+    await screen.findAllByText("Candidate Video");
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "숨김·삭제 영상 일괄 제외",
+    }));
+    expect(screen.getByRole("alertdialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "일괄 제외 실행" }));
+
+    await waitFor(() => expect(fetchItemsMock).toHaveBeenNthCalledWith(
+      1,
+      "job-1",
+      { limit: 100, cursor: null, status: "blocked" },
+    ));
+    expect(fetchItemsMock).toHaveBeenNthCalledWith(
+      2,
+      "job-1",
+      { limit: 100, cursor: "blocked-cursor-1", status: "blocked" },
+    );
+    expect(ignoreCandidatesMock).toHaveBeenCalledWith("job-1", {
+      candidates: [
+        { id: privateVideo.candidateId, expectedVersion: 2 },
+        { id: deletedVideo.candidateId, expectedVersion: 2 },
+      ],
+    });
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: "success",
+      description: "숨김·삭제·재생 불가 영상 2건 제외, 별도 확인 0건입니다.",
+    });
   });
 
   it("loads every page for a selected server-side classification filter", async () => {

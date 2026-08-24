@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseCreatePlaylistImport,
   parseConvertIngestionCandidates,
+  parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
   parseRetryIngestionJob,
   parseUpdateIngestionCandidate,
@@ -129,6 +130,18 @@ describe("OTW Play ingestion input", () => {
       candidates: [
         { id: "candidate-1", expectedVersion: 1 },
         { id: "candidate-1", expectedVersion: 1 },
+      ],
+    })).toEqual({ ok: false, fields: { candidates: "invalid" } });
+    expect(parseIgnoreIngestionCandidates({
+      candidates: [{ id: "candidate-1", expectedVersion: 1 }],
+    })).toEqual({
+      ok: true,
+      value: { candidates: [{ id: "candidate-1", expectedVersion: 1 }] },
+    });
+    expect(parseIgnoreIngestionCandidates({
+      candidates: [
+        { id: "candidate-1", expectedVersion: 1 },
+        { id: "candidate-1", expectedVersion: 2 },
       ],
     })).toEqual({ ok: false, fields: { candidates: "invalid" } });
     expect(parseRetryIngestionJob({})).toEqual({ ok: true, value: {} });

@@ -3,6 +3,7 @@ import {
   type OtwPlayIngestionCandidateStatus,
   type OtwPlayConvertIngestionCandidatesRequest,
   type OtwPlayCreatePlaylistImportRequest,
+  type OtwPlayIgnoreIngestionCandidatesRequest,
   type OtwPlayIngestionReviewInput,
   type OtwPlayPlaylistPreflightRequest,
   type OtwPlayUpdateIngestionCandidateRequest,
@@ -237,9 +238,9 @@ export const parseUpdateIngestionCandidate = (
   return { ok: false, fields: { action: "invalid" } };
 };
 
-export const parseConvertIngestionCandidates = (
+const parseIngestionCandidateSelections = (
   value: unknown,
-): IngestionInputResult<OtwPlayConvertIngestionCandidatesRequest> => {
+): IngestionInputResult<{ candidates: Array<{ id: string; expectedVersion: number }> }> => {
   if (
     !isObject(value) ||
     !hasExactKeys(value, ["candidates"]) ||
@@ -274,6 +275,16 @@ export const parseConvertIngestionCandidates = (
     },
   };
 };
+
+export const parseConvertIngestionCandidates = (
+  value: unknown,
+): IngestionInputResult<OtwPlayConvertIngestionCandidatesRequest> =>
+  parseIngestionCandidateSelections(value);
+
+export const parseIgnoreIngestionCandidates = (
+  value: unknown,
+): IngestionInputResult<OtwPlayIgnoreIngestionCandidatesRequest> =>
+  parseIngestionCandidateSelections(value);
 
 export const parseRetryIngestionJob = (
   value: unknown,

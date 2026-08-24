@@ -307,6 +307,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_POST],
   },
   {
+    id: "otw-play.admin.import-job.ignore",
+    owner: "otw-play",
+    path: "/api/play/admin/imports/:jobId/ignore",
+    methods: [ADMIN_POST],
+  },
+  {
     id: "otw-play.admin.import-job.retry",
     owner: "otw-play",
     path: "/api/play/admin/imports/:jobId/retry",

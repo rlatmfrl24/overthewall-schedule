@@ -3,6 +3,8 @@ import type {
   OtwPlayIngestionConversionOutcome,
   OtwPlayIngestionConversionResultDto,
   OtwPlayCreatePlaylistImportRequest,
+  OtwPlayIgnoreIngestionCandidatesRequest,
+  OtwPlayIngestionIgnoreResultDto,
   OtwPlayIngestionCandidatePageDto,
   OtwPlayIngestionItemFilters,
   OtwPlayPlaylistPreflightRequest,
@@ -391,6 +393,56 @@ export class IngestionService {
       return { outcome: "retryable_failed", errorCode: "external_service_unavailable" };
     }
     return { outcome: "validation_failed", errorCode: "validation_failed" };
+  }
+
+  async ignoreCandidates(
+    jobId: string,
+    input: OtwPlayIgnoreIngestionCandidatesRequest,
+    actor: AdminCatalogActor,
+  ) {
+    await this.repository.getJob(jobId);
+    const results: OtwPlayIngestionIgnoreResultDto[] = [];
+    for (const selection of input.candidates) {
+      try {
+        const candidate = await this.repository.readReviewCandidate(
+          jobId,
+          selection.id,
+        );
+        if (candidate.version !== selection.expectedVersion) {
+          throw new IngestionRepositoryError(
+            "stale_message",
+            "Ingestion candidate changed during bulk ignore",
+          );
+        }
+        if (candidate.status === "converted" || candidate.status === "ignored") {
+          throw new IngestionRepositoryError(
+            "validation_failed",
+            "Ingestion candidate cannot be ignored",
+          );
+        }
+        await this.repository.ignoreCandidate({
+          candidateId: candidate.id,
+          expectedVersion: candidate.version,
+          actorUserId: actor.userId,
+          eventId: this.createId(),
+          now: this.clock(),
+        });
+        results.push({
+          candidateId: candidate.id,
+          outcome: "ignored",
+          errorCode: null,
+        });
+      } catch (error) {
+        const stale = error instanceof IngestionRepositoryError &&
+          error.code === "stale_message";
+        results.push({
+          candidateId: selection.id,
+          outcome: stale ? "stale" : "failed",
+          errorCode: stale ? "stale_write" : "validation_failed",
+        });
+      }
+    }
+    return { results };
   }
 
   async convertCandidates(

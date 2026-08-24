@@ -135,6 +135,11 @@ export const apiRoutes = {
           (jobId: string) =>
             `/api/play/admin/imports/${encodeURIComponent(jobId)}/convert` as const,
         ),
+        ignoreImportJobCandidates: dynamicRoute(
+          "/api/play/admin/imports/:jobId/ignore",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/ignore` as const,
+        ),
         retryImportJob: dynamicRoute(
           "/api/play/admin/imports/:jobId/retry",
           (jobId: string) =>

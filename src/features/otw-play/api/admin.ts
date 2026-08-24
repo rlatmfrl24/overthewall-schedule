@@ -33,6 +33,8 @@ import type {
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayConvertIngestionCandidatesResponse,
   OtwPlayIngestionCandidatePageDto,
+  OtwPlayIgnoreIngestionCandidatesRequest,
+  OtwPlayIgnoreIngestionCandidatesResponse,
   OtwPlayIngestionReviewCandidateDto,
   OtwPlayIngestionJobDto,
   OtwPlayIngestionItemFilters,
@@ -102,6 +104,14 @@ export const convertOtwPlayImportCandidates = (
   json: OtwPlayConvertIngestionCandidatesRequest,
 ) => adminRequest<{ data: OtwPlayConvertIngestionCandidatesResponse }>(
   apiRoutes.otwPlay.admin.convertImportJob.build(jobId),
+  { method: "POST", json },
+).then((response) => response.data);
+
+export const ignoreOtwPlayImportCandidates = (
+  jobId: string,
+  json: OtwPlayIgnoreIngestionCandidatesRequest,
+) => adminRequest<{ data: OtwPlayIgnoreIngestionCandidatesResponse }>(
+  apiRoutes.otwPlay.admin.ignoreImportJobCandidates.build(jobId),
   { method: "POST", json },
 ).then((response) => response.data);
 
