@@ -185,13 +185,14 @@ preflight 결과:
 
 desktop은 table, mobile은 card를 사용하며 다음 기능을 제공한다.
 
-- checkbox 전체/현재 filter 선택
+- classification filter와 job 전체 ready 일괄 저장
 - thumbnail, YouTube title, channel, 게시일, duration, playlist position
 - 분류 badge와 제외 이유
 - 기존 song 검색·연결 또는 새 song 후보 입력
 - 원곡 제목·원곡 가수, OTW original 여부
 - 참여자·역할, relation/release/participation type
-- 행별 sticky form과 영상 목록 행에 표시되는 실제 저장 draft 기준의 즉시 적용 미리보기
+- 행별 sticky form과 영상 아래 가로 영역에 표시되는 실제 저장 draft 기준의 변경 예정 항목
+- `channel_review` 후보의 공식 역할·소유 주체 확인, 채널 승인·활성화와 metadata 재분류
 - job 전체의 확인된 숨김·삭제·embed 차단·지역 차단·재생 불가 후보 일괄 제외
 - YouTube 원문 링크와 metadata refresh
 - 누락 필드·중복·policy 오류의 행 단위 표시
@@ -206,7 +207,9 @@ YouTube title parsing 결과는 `추천값`으로만 표시한다. title pattern
   자동 제외하지 않는다.
 - 제외 명령은 100건 단위로 job 소속과 candidate version을 재검증하고 항목별
   `ignored|stale|failed` 결과를 반환해 부분 성공을 보존한다.
-- 선택한 `ready` candidate만 catalog `draft`로 변환한다.
+- job 전체의 `ready` candidate를 100건 단위로 catalog `draft`로 변환한다.
+- 변환된 `converted`와 제외된 `ignored` candidate는 기본 작업 목록에서 숨기되,
+  운영 확인용 명시적 status 조회는 유지한다.
 - 항목별 기존 catalog-entry validation과 channel allowlist를 그대로 사용한다.
 - 한 영상 실패가 전체 job을 rollback하지 않는다. 각 행은 자체 D1 batch로 원자 처리한다.
 - 완료 결과는 `created|duplicate|stale|validation_failed|retryable_failed`로 남긴다.
@@ -382,7 +385,7 @@ confirm dialog에 다음을 명시한다.
 | --- | --- | --- |
 | PR-9A | 회원 proposal 수정·철회 contract, CAS, audit, UI | 별도 migration 필요 여부 검증 |
 | PR-9B | ingestion job/candidate schema, Queue, playlist preflight·수집 | Queue·DLQ 운영 승인 |
-| PR-9C | 관리자 검수 grid, 행별 sticky 보완·목록 적용 미리보기, 재생 불가 일괄 제외, draft 변환·재시도 | PR-9B |
+| PR-9C | 관리자 검수 grid, 행별 sticky 보완·공식 채널 승인, 영상 아래 가로 변경 예정 항목, 재생 불가 일괄 제외, job 전체 ready draft 변환·재시도 | PR-9B |
 | PR-9D | approved 노래 clip channel의 `singing_clip` candidate inbox | PR-9B candidate pipeline, clip channel 승인 |
 
 PR-9A와 PR-9B는 같은 우선순위 프로그램이지만 migration·failure boundary가 다르므로

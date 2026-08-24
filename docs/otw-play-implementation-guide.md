@@ -1367,7 +1367,7 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 
 1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
 2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
-3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·목록 즉시 적용 미리보기, 확인된 재생 불가 후보의 job 단위 일괄 제외와 선택한 ready 후보의 catalog draft 변환
+3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
 4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
 5. P1A: 기존 participant 기반 member songbook과 queue
@@ -1391,8 +1391,13 @@ Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 
 channel/policy gate는 422 validation으로 분리한다. item DTO는 origin 관점 `classification`과
 실제 `candidateClassification`을 함께 제공하며 ready 저장 가능 여부는 후자를 사용한다.
 job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
-적용 미리보기는 sticky form 내부가 아니라 desktop table과 mobile card의 각 영상 행에
-배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다. 숨김·삭제 일괄 제외는
+변경 예정 항목은 sticky form 내부나 별도 table 열이 아니라 desktop table과 mobile card의
+각 영상 아래에 가로 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다.
+`channel_review`는 같은 sticky form에서 공식 역할·소유 주체를 확인해 채널 승인·활성화와
+candidate metadata 재분류를 이어 간다. 숨김·삭제 일괄 제외는
 현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
 `private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
 100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.
+draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체 page를 최대 5,000건까지
+조회해 100건 단위로 처리한다. 기본 items 조회는 `converted|ignored`를 제외하고, 운영 확인을
+위한 명시적 status filter에서는 해당 상태를 계속 조회할 수 있다.
