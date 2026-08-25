@@ -17,6 +17,13 @@ const validSubmission = {
   originalArtists: [{ kind: "external", displayName: "Artist" }],
   participants: [{ kind: "member", memberUid: 1, participantRole: "vocal" }],
 };
+const validUpdate = {
+  expectedVersion: 2,
+  youtubeUrl: validSubmission.youtubeUrl,
+  title: validSubmission.title,
+  originalArtists: validSubmission.originalArtists,
+  participants: validSubmission.participants,
+};
 
 describe("member submission handler", () => {
   beforeEach(() => {
@@ -119,5 +126,74 @@ describe("member submission handler", () => {
     );
     expect(response.status).toBe(200);
     expect(limit).not.toHaveBeenCalled();
+  });
+
+  it("applies the separate edit limit to update and withdrawal commands", async () => {
+    const update = vi.fn(async () => ({ id: "proposal-1", version: 3 }));
+    const withdraw = vi.fn(async () => ({ id: "proposal-1", version: 4 }));
+    const limit = vi.fn(async () => ({ success: true }));
+    const handler = createMemberSubmissionHandler(
+      () => ({ update, withdraw }) as unknown as MemberSubmissionService,
+    );
+    const env = {
+      OTW_PLAY_SUBMISSION_RATE_LIMITER: { limit },
+    } as unknown as Env;
+
+    const updateResponse = await handler(
+      new Request("https://example.com/api/play/submissions/proposal-1", {
+        method: "PATCH",
+        body: JSON.stringify(validUpdate),
+      }),
+      env,
+    );
+    expect(updateResponse.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      "member-1",
+      "proposal-1",
+      expect.objectContaining(validUpdate),
+    );
+
+    const withdrawResponse = await handler(
+      new Request("https://example.com/api/play/submissions/proposal-1/withdraw", {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 3 }),
+      }),
+      env,
+    );
+    expect(withdrawResponse.status).toBe(200);
+    expect(withdraw).toHaveBeenCalledWith(
+      "member-1",
+      "proposal-1",
+      { expectedVersion: 3 },
+    );
+    expect(limit).toHaveBeenNthCalledWith(1, { key: "edit:member-1" });
+    expect(limit).toHaveBeenNthCalledWith(2, { key: "edit:member-1" });
+  });
+
+  it("returns the fixed stale-write contract without exposing state", async () => {
+    const response = await createMemberSubmissionHandler(
+      () => ({
+        update: vi.fn(async () => {
+          throw new MemberSubmissionRepositoryError(
+            "stale_write",
+            "Submission changed",
+          );
+        }),
+      }) as unknown as MemberSubmissionService,
+    )(
+      new Request("https://example.com/api/play/submissions/proposal-1", {
+        method: "PATCH",
+        body: JSON.stringify(validUpdate),
+      }),
+      {
+        OTW_PLAY_SUBMISSION_RATE_LIMITER: {
+          limit: vi.fn(async () => ({ success: true })),
+        },
+      } as unknown as Env,
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "PLAY_SUBMISSION_STALE_WRITE" },
+    });
   });
 });

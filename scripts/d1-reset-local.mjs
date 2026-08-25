@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shouldBlockDestructiveLocalReset } from "./d1-reset-guard.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -40,10 +41,11 @@ const bootstrapMemberCodes = [
 ];
 
 const usage = [
-  "Usage: pnpm d1:reset:local [-- --validate-only]",
+  "Usage: pnpm d1:reset:local [-- --validate-only | --force]",
   "",
   "Options:",
   "  --validate-only  임시 D1에서 전체 migration만 검증하고 로컬 DB는 교체하지 않습니다.",
+  "  --force          기존 로컬 D1이 있어도 검증된 빈 DB로 교체합니다.",
   "  --help           이 도움말을 표시합니다.",
 ].join("\n");
 
@@ -52,7 +54,9 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(usage);
   process.exit(0);
 }
-const unknownArgs = args.filter((arg) => arg !== "--validate-only");
+const unknownArgs = args.filter(
+  (arg) => arg !== "--validate-only" && arg !== "--force",
+);
 if (unknownArgs.length > 0) {
   console.error(
     `[d1:reset:local] 알 수 없는 인자입니다: ${unknownArgs.join(", ")}`,
@@ -61,6 +65,7 @@ if (unknownArgs.length > 0) {
   process.exit(2);
 }
 const validateOnly = args.includes("--validate-only");
+const force = args.includes("--force");
 
 const ensureInsideStateDir = (target) => {
   const relative = target.slice(wranglerStateDir.length);
@@ -81,6 +86,31 @@ const pathExists = async (target) => {
     return false;
   }
 };
+
+const hasCurrentDatabase =
+  (await pathExists(localD1Dir)) || (await pathExists(legacyLocalD1Dir));
+if (
+  shouldBlockDestructiveLocalReset({
+    validateOnly,
+    force,
+    hasCurrentDatabase,
+  })
+) {
+  console.error(
+    [
+      "[d1:reset:local] 기존 로컬 D1을 보호하기 위해 reset을 중단했습니다.",
+      "현재 DB를 보존한 채 migration 체인만 확인하려면 --validate-only를 사용하세요.",
+      "현재 DB를 의도적으로 폐기하려면 --force를 명시하세요.",
+    ].join("\n"),
+  );
+  process.exit(2);
+}
+
+if (!validateOnly && force && hasCurrentDatabase) {
+  console.warn(
+    "[d1:reset:local] --force가 지정되어 기존 로컬 D1을 검증된 빈 DB로 교체합니다.",
+  );
+}
 
 const runWrangler = (args, options = {}) =>
   new Promise((resolveRun, rejectRun) => {

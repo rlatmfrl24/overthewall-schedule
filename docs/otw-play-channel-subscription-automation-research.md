@@ -318,3 +318,33 @@ Aggregation 조항에 대한 별도 compliance 확인이 선행되어야 한다.
 채택 기본값은 `approved_kirinuki`, `candidate_kind='singing_clip'`, `review_only`,
 backfill 0, 6시간 reconciliation과 자동 draft/publish 금지다. OTW·멤버 공식 channel은
 이 자동화가 아니라 직접 입력 경로를 사용한다.
+
+## 13. 2026-08-24 구현 반영 범위
+
+이번 Draft PR에는 사용자 요청의 주기 확인 경로를 먼저 반영했다.
+
+- `active + approved + approved_kirinuki` channel만 관리자가 명시적으로 감시 등록한다.
+- 등록 시 uploads playlist의 현재 최신 video를 watermark로 저장하고 과거 영상은
+  소급 제안하지 않는다.
+- 기존 15분 scheduled entrypoint가 due monitor를 확인하며, channel별 실제 대조 간격은
+  6시간이다.
+- watermark까지 최대 250개를 대조하고 `videos.list` 권위 metadata를 확인한 새 영상만
+  shared ingestion candidate에 `candidate_kind='singing_clip'`으로 저장한다.
+- 검수함에서는 제안 확인과 제외만 제공하고 catalog draft 변환·공개는 제공하지 않는다.
+- lease와 `(monitor_id, candidate_id)` unique origin으로 scheduled/manual 중복 실행과
+  반복 대조를 흡수한다.
+- 감시 대상은 `approved_kirinuki` 역할로 제한하고, OTW·멤버 공식 channel은 이
+  자동 후보 수집 경로에서 거부한다.
+- 실행 중 대상 channel이 변경되면 monitor generation과 claim version을 함께 검증해
+  이전 실행이 새 대상의 watermark나 후보 목록을 덮어쓰지 못하게 한다. 이전 generation의
+  origin은 감사 이력으로 보존하되 현재 목록과 집계에서는 분리한다.
+- 저장한 watermark를 최대 250개 범위에서 찾지 못하면 임의 backfill하지 않고
+  `gap_suspected`로 감시를 정지한다. 관리자가 현재 최신 영상을 새 기준점으로 명시적으로
+  재설정해야 재개한다.
+- monitor 삭제는 soft delete와 관리자 event로 기록하며 discovery origin을 보존한다.
+  후보 목록은 terminal 상태를 서버에서 제외한 뒤 opaque cursor로 page 처리한다.
+- `candidate_kind='singing_clip'`은 service와 D1 변환 경계 모두에서 catalog draft 변환을
+  거부한다.
+
+WebSub callback·subscription renewal·daily recent-50 보조 대조·명시적 최근 N개 backfill은
+이번 주기 확인 범위에 포함하지 않았으며 PR-9D1의 후속 전달 항목으로 유지한다.

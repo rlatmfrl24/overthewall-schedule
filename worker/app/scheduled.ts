@@ -20,6 +20,8 @@ import { runScheduledYouTubeWarmup } from "../features/youtube";
 import { getDb } from "../platform/db";
 import { updateSetting } from "../platform/http-helpers";
 import type { Env } from "../platform/types";
+import { createOtwPlayIngestionService } from "./ingestion";
+import { createOtwPlayChannelMonitorService } from "./channel-monitors";
 
 const collectScheduledXPosts = async (env: Env) => {
   const outcome = await runScheduledXCollection(env);
@@ -83,6 +85,31 @@ const pruneScheduledD1Data = async (env: Env) => {
   });
 };
 
+const requeueScheduledOtwPlayIngestion = async (env: Env) => {
+  const service = createOtwPlayIngestionService(env);
+  const clearedApiData = await service.clearExpiredApiData();
+  if (clearedApiData > 0) {
+    console.log("[scheduled] OTW Play ingestion API data cleared", {
+      clearedApiData,
+    });
+  }
+  if (!env.OTW_PLAY_INGESTION_QUEUE) return;
+  const enqueued = await service.requeuePending();
+  if (enqueued > 0) {
+    console.log("[scheduled] OTW Play ingestion messages requeued", {
+      enqueued,
+    });
+  }
+};
+
+export const reconcileScheduledOtwPlayChannels = async (env: Env) => {
+  const results = await createOtwPlayChannelMonitorService(env).runDue();
+  if (results.length > 0) {
+    console.log("[scheduled] OTW Play channel reconciliation completed", results);
+  }
+  return results;
+};
+
 export const runIndependentScheduledTasks = async (env: Env) => {
   const tasks = [
     {
@@ -92,6 +119,14 @@ export const runIndependentScheduledTasks = async (env: Env) => {
     {
       label: "OTW Play source health",
       run: () => checkScheduledOtwPlaySources(env),
+    },
+    {
+      label: "OTW Play ingestion recovery",
+      run: () => requeueScheduledOtwPlayIngestion(env),
+    },
+    {
+      label: "OTW Play channel reconciliation",
+      run: () => reconcileScheduledOtwPlayChannels(env),
     },
     {
       label: "YouTube warmup",

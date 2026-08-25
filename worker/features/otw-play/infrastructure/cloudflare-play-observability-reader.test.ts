@@ -44,8 +44,10 @@ describe("Cloudflare OTW Play observability reader", () => {
   });
 
   it("uses fixed SQL with sample intervals and validates aggregate rows", async () => {
+    const receivers: unknown[] = [];
     const fetcher = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
+      async function (this: unknown, _input: RequestInfo | URL, init?: RequestInit) {
+        receivers.push(this);
         const body = init?.body;
         const data =
           body === OTW_PLAY_OBSERVABILITY_SQL.summary
@@ -78,6 +80,7 @@ describe("Cloudflare OTW Play observability reader", () => {
       events: [{ event: "play.catalog.read", count: 12 }],
     });
     expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(receivers).toEqual([undefined, undefined, undefined]);
     const requests = fetcher.mock.calls.map(([, init]) => init);
     expect(requests.map((init) => init?.body)).toEqual(
       Object.values(OTW_PLAY_OBSERVABILITY_SQL),

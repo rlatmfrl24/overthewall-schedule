@@ -9,6 +9,7 @@ import type {
   OtwPlayAdminCatalogEntryPreflightDto,
   OtwPlayAdminCatalogSongDecision,
   OtwPlayAdminCatalogSubjectInput,
+  OtwPlayAdminPerformanceDto,
   OtwPlayEntityKind,
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
@@ -57,6 +58,7 @@ import {
 import {
   createOtwPlayChannel,
   approveOtwPlayProposal,
+  publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   updateOtwPlayChannel,
@@ -73,11 +75,21 @@ import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
 import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
+import { IngestionSection } from "./ingestion-section";
+import { ChannelMonitorSection } from "./channel-monitor-section";
 
-type Section = "catalog" | "review" | "source-health" | "operations";
+type Section =
+  | "catalog"
+  | "import"
+  | "automatic-review"
+  | "review"
+  | "source-health"
+  | "operations";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
+  { value: "import", label: "가져오기" },
+  { value: "automatic-review", label: "자동 검수" },
   { value: "review", label: "제안 검수" },
   { value: "source-health", label: "소스 상태" },
   { value: "operations", label: "운영·공개" },
@@ -248,7 +260,48 @@ export function OtwPlayCatalogManager() {
     }
   };
 
-  const catalogSection = section === "catalog" || section === "review";
+  const publishDraftPerformances = async (
+    performances: OtwPlayAdminPerformanceDto[],
+  ) => {
+    if (saving !== null || performances.length === 0) return;
+    let published = 0;
+    let failed = 0;
+    try {
+      for (const [index, performance] of performances.entries()) {
+        setSaving(`미게시 가창 게시 ${index + 1}/${performances.length}`);
+        try {
+          await publishOtwPlayPerformance(performance.id, {
+            expectedVersion: performance.version,
+          });
+          published += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await refresh();
+      if (failed === 0) {
+        toast({
+          variant: "success",
+          description: `미게시 가창 ${published}개를 모두 게시했습니다.`,
+        });
+      } else if (published > 0) {
+        toast({
+          variant: "info",
+          description: `${published}개를 게시했고 ${failed}개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.`,
+        });
+      } else {
+        toast({
+          variant: "error",
+          description: `${failed}개 항목을 게시하지 못했습니다. 채널 승인, 가창 참여자와 최신 상태를 확인해 주세요.`,
+        });
+      }
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const catalogSection =
+    section === "catalog" || section === "import" || section === "review";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -353,11 +406,19 @@ export function OtwPlayCatalogManager() {
           run={run}
         />
       )}
+      {section === "import" && catalog && (
+        <IngestionSection
+          catalog={catalog}
+          onOpenCatalog={() => setSection("catalog")}
+        />
+      )}
+      {section === "automatic-review" && <ChannelMonitorSection />}
       {section === "catalog" && catalog && (
         <WorkflowCatalog
           catalog={catalog}
           saving={effectiveSaving}
           run={run}
+          onPublishDrafts={publishDraftPerformances}
           onAddPerformance={(songId) => {
             setPreselectedSongId(songId);
             setRegistrationOpen(true);

@@ -117,6 +117,11 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-056 | playlist 벌크 입력은 API가 익명 조회할 수 있는 `public`·`unlisted`만 지원하고 `private`와 OAuth는 범위에서 제외한다. | 확정 | 한 job 5,000개, page·영상 batch 50개, D1 job + Queue/DLQ, 3회 retry와 idempotency를 적용한다. active candidate 90일, ignored/blocked 180일을 상한으로 두고 YouTube API data는 30일 안에 refresh 또는 삭제한다. 식별자·API 사실만 자동 적용하며 음악적 의미는 추천값으로 둔다. |
 | DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용하며 자동 publish하지 않는다. 방송·키리누키 모델과 channel 권리·승인 gate 전에는 catalog draft로도 변환하지 않는다. |
 | DEC-058 | 추가 credit 범위는 OTW 멤버의 가창과 작품·편곡·제작 참여로 제한하고 외부 음악 관계자용 상세 credit·contributor graph는 만들지 않는다. | 확정 | 기존 원곡 가수와 외부 가창 참여자 표시는 유지하되 새 범용 credit 대상이 아니다. 멤버 노래책은 published 관계에서 파생하며 1곡부터 직접 URL, 3곡부터 navigation·SEO를 허용한다. current member를 우선하고 대표 오리지널곡은 관리자 최대 5곡 pin + 최신순 fallback으로 정한다. |
+| DEC-059 | playlist 후보 검수는 공통값 일괄 설정 대신 행별 보완과 즉시 적용 미리보기를 사용한다. | 확정 | 선택 checkbox는 사용하지 않는다. sticky 검수 form은 곡 연결·신규 생성, 원곡 가수, 가창자·역할과 공개 분류를 편집하고, 실제 저장 draft와 필수 누락 미리보기는 각 영상 아래의 가로 배치 영역에서 편집 중에도 즉시 갱신한다. ready 완료 후보는 job 전체에서 일괄 변환한다. |
+| DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. Queue·단건 metadata refresh는 수동 결정인 `ready`, `ignored`, `converted`와 review input을 덮어쓰지 않는다. version만 달라지고 review state가 의미상 같으면 현재 channel·실제 candidate 분류 정책을 다시 검증한 뒤 저장을 허용한다. 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`, 기존 catalog·proposal·channel/policy 상태로 저장할 수 없는 경우는 validation으로 구분한다. 목록의 origin 분류 `existing_candidate`는 실제 candidate 분류와 함께 표시한다. |
+| DEC-061 | playlist job의 숨김·삭제·재생 불가 영상은 관리자가 한 번에 제외할 수 있다. | 확정 | 현재 화면이나 분류 filter가 아니라 job 전체의 `blocked` 후보를 조회하고 `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable`만 대상으로 한다. `unknown`과 정책 검토 후보는 자동 제외하지 않는다. 최대 100건 단위 명령으로 job 소속과 candidate version CAS를 재검증하며 성공과 stale·실패를 항목별로 분리한다. |
+| DEC-062 | playlist 후보 검수는 공식 채널 승인과 완료 항목 정리를 같은 작업 흐름에 포함한다. | 확정 | `channel_review` 후보는 sticky form에서 공식 역할과 소유·연결 주체를 확인해 채널을 승인·활성화하고 metadata를 다시 분류한다. 변환은 화면 선택이 아니라 job 전체 `ready` 후보를 100건 단위로 처리하며 `converted|ignored`는 기본 후보 목록에서 제외하되 명시적 status 조회는 유지한다. |
+| DEC-063 | playlist 후보의 상태와 채널 승인 경계는 운영자가 의미와 다음 행동을 바로 판단할 수 있게 표시한다. | 확정 | 상태 열은 내부 code 대신 후보 workflow 단계, 현재 권위 분류, 다음 조치와 origin 가져오기 기록을 분리해 한국어로 표시한다. 신규 채널 승인의 기본 소유 유형은 OTW 공식 또는 catalog member identity 공식으로 제한하고, 두 유형은 가용 폭을 채우는 2열 카드로 표시한다. archive되지 않은 OTW 멤버는 중첩 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드를 열어 기존 외부 주체 연결과 명시적 승인 확인을 모두 거쳐야 한다. |
 
 ## 4. 제품 원칙
 
@@ -442,7 +447,7 @@ detail로 자동 복사하지 않는다.
 - ADM-023: 통합 등록은 metadata 재검증, entity·channel·song·performance·event·projection과 두 revision을 하나의 D1 batch로 반영해야 한다.
 - ADM-024: 관리자는 YouTube playlist URL에서 전체 항목을 page 단위로 수집하고 진행률과 항목별 결과를 다시 열어볼 수 있어야 한다.
 - ADM-025: playlist 항목을 기존 catalog·proposal·candidate, channel review, unavailable과 eligible로 분류해야 한다.
-- ADM-026: 선택 항목에 공통값을 일괄 적용하고 행별 필수 metadata를 보완한 뒤 catalog draft로 변환할 수 있어야 한다.
+- ADM-026: 각 playlist 후보의 sticky 검수 form에서 필수 metadata를 보완하고, 실제 저장될 곡·원곡 가수·가창자·역할·공개 분류와 누락값을 해당 영상 아래의 가로 배치 영역에서 즉시 미리 본 뒤, job 전체의 ready 완료 후보를 catalog draft로 일괄 변환할 수 있어야 한다.
 - ADM-027: 일부 항목 실패는 성공 항목을 되돌리지 않고 실패 항목만 재시도할 수 있어야 한다.
 - ADM-028: 관리자가 별도로 승인한 노래 방송 clip channel을 구독해 신규 upload를 `singing_clip` system candidate로 만들고 lease·notification·reconciliation 상태를 확인할 수 있어야 한다. OTW·멤버 공식 channel은 이 자동 구독 범위가 아니다.
 - ADM-029: 자동 수집 후보는 실제 관리자 검수와 기존 publish command 없이는 공개될 수 없어야 한다.
@@ -452,8 +457,19 @@ detail로 자동 복사하지 않는다.
   song/performance scope에 입력·수정할 수 있어야 한다.
 - ADM-032: 관리자는 current member별 대표 오리지널곡을 최대 5곡까지 pin·정렬할 수
   있어야 한다.
+- ADM-033: 관리자는 playlist job 전체에서 숨김·삭제·embed 차단·지역 차단·재생 불가로 확인된 후보를 일괄 제외하고, 동시 변경되었거나 실패한 후보 수를 별도 확인할 수 있어야 한다.
 - ADM-033: 멤버 참여 정보 정정 제안을 승인·거절할 수 있고 승인 변경은 event와
   catalog/read-model revision을 같은 D1 batch에서 반영해야 한다.
+- ADM-034: playlist 후보를 편집하는 동안 metadata 수집이 version을 갱신해도 검수
+  baseline이 변하지 않았다면 저장할 수 있어야 하며, 실제 검수 충돌에서는 입력값을
+  잃지 않고 최신 권위 상태를 다시 보여 줘야 한다.
+- ADM-035: `channel_review` 후보는 별도 화면으로 이탈하지 않고 공식 채널 역할과
+  소유·연결 주체를 확인해 승인·활성화한 뒤 후보 분류를 갱신할 수 있어야 하며,
+  `converted|ignored` 후보는 기본 작업 목록에서 제거되어야 한다.
+- ADM-036: playlist 후보 상태는 workflow 단계, 현재 candidate 판단, 다음 조치와
+  origin 가져오기 기록을 구분해 표시해야 한다. 신규 채널 승인은 OTW 공식 또는
+  archive되지 않은 catalog member identity 공식 흐름을 기본으로 하고 외부 채널은 별도 추가·승인 확인과
+  non-member 주체 연결을 요구해야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -733,6 +749,12 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-20 | PR-8A/B/C 병합·production 배포와 migration 0056 적용을 완료하고 flag `0/0`을 유지한 채 운영 closeout으로 전환. DEC-052와 P0~P4 후속 우선순위를 확정하고 인증 스모크·catalog 정비·단계적 공개는 지속 운영 항목으로 분리 |
 | 2026-08-20 | DEC-052를 변경하고 DEC-053~055 확정. playlist 벌크 candidate와 pending proposal 수정·철회를 P0-A, channel WebSub 자동 후보를 P0-B, 운영 검증을 P0-C, 상세 credit·멤버 노래책을 P1로 재배치하고 세 개의 별도 조사 보고서 연결 |
 | 2026-08-21 | DEC-056~058 확정. public·unlisted playlist와 Queue 운영안을 채택하고 private OAuth를 제외. channel 자동화 대상을 공식 channel이 아닌 approved 노래 clip channel의 `singing_clip` 후보함으로 변경. credit을 OTW 멤버 참여 정보와 멤버 노래책·SEO로 축소하고 외부 음악 관계자 graph를 제외 |
+| 2026-08-24 | DEC-059 확정. playlist 후보의 공통값 일괄 설정 UI를 제거하고, 행별 sticky 검수 form에 실제 저장 draft 기준의 즉시 적용 미리보기를 추가. 선택은 ready 후보의 draft 변환 범위에만 사용 |
+| 2026-08-24 | DEC-060 확정. 수집 중 metadata 갱신으로 인한 version 상승은 review input·status baseline이 같을 때만 저장을 이어가고, 실제 동시 검수는 409로 차단하면서 행 입력값을 유지하도록 후보 CAS를 분리 |
+| 2026-08-24 | DEC-061 확정 및 DEC-059 보완. 적용 미리보기를 sticky 편집 form에서 영상 목록 행으로 이동하고, job 전체의 확인된 숨김·삭제·embed·지역 차단·재생 불가 후보를 CAS 기반 100건 단위로 일괄 제외하되 unknown·정책 검토 후보는 보존 |
+| 2026-08-24 | DEC-060 보완. 반복 metadata 수집이 ready·ignored·converted 수동 결정을 되돌리지 않게 하고, origin의 existing_candidate와 실제 candidate 분류를 분리해 기존 catalog·channel/policy 거부를 동시 검수 409가 아닌 validation으로 안내 |
+| 2026-08-24 | DEC-062 확정 및 DEC-059 보완. 후보 검수에 공식 채널 인라인 승인·재분류를 포함하고, 선택 checkbox 대신 job 전체 ready 완료 항목을 일괄 draft 저장하며 converted·ignored 항목은 기본 목록에서 제외. 변경 예정 값은 영상 아래 가로 항목으로 재배치 |
+| 2026-08-24 | DEC-063 확정. 후보 상태를 workflow 단계·현재 권위 판단·다음 조치·가져오기 기록으로 분리해 한국어로 표시하고, 신규 채널 승인은 OTW 공식·catalog member identity 공식을 기본으로 제한. 소유 유형 카드는 2열로 폭을 채우고 archive되지 않은 OTW 멤버는 내부 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드에서 non-member 주체 연결과 명시적 승인 확인을 모두 요구 |
 
 ## 19. 참고
 

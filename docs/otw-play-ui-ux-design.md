@@ -743,6 +743,17 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `가져오기`는 public·unlisted playlist URL만 받고 private playlist는 지원하지 않는다고
   입력 단계에서 명확히 안내한다. 5,000개 상한, 50개 batch 진행률과 candidate
   retention을 운영자가 이해할 수 있어야 한다.
+- candidate 선택은 ready 항목의 catalog draft 변환 범위에만 사용한다. 공통값 일괄
+  설정 form은 두지 않고, 행별 sticky 검수 form은 곡 연결·신규 생성, 원곡 가수,
+  가창자·역할과 공개 분류 편집에 집중한다. 실제 저장값과 필수 누락 미리보기는 desktop
+  table과 mobile card의 각 영상 행에 두고 form을 편집하는 동안 즉시 갱신한다.
+- 숨김·삭제 영상 일괄 제외는 현재 filter가 아니라 job 전체의 확인된 재생 불가 후보만
+  처리한다고 confirm dialog에 명시한다. `unknown`과 정책 검토 후보는 유지하고, 처리 뒤
+  성공·별도 확인 건수를 toast로 분리해 보여 준다.
+- 수집 진행 중 metadata가 갱신되면 후보 목록도 함께 최신화하되 열어 둔 행의 입력값과
+  검수 baseline은 덮어쓰지 않는다. metadata-only version 변경은 저장을 이어가고, 다른
+  관리자의 실제 검수 변경은 입력값을 유지한 상태에서 최신 권위 상태를 다시 불러왔다고
+  안내한다.
 - `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. approved clip
   channel, WebSub/reconciliation, `singing_clip` 상태를 표시하고 방송·키리누키
   foundation 전에는 catalog draft action을 제공하지 않는다.

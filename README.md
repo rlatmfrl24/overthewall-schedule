@@ -66,19 +66,22 @@ release or deploy commands.
 ```bash
 pnpm drizzle:migrate:local
 pnpm d1:reset:local -- --validate-only
-pnpm d1:reset:local
+pnpm d1:reset:local -- --force
 pnpm d1:seed:local
 pnpm d1:doctor
 ```
 
 `pnpm d1:reset:local -- --validate-only`는 임시 D1에서 모든 numbered
 migration SQL을 실제 적용·검증하며 현재 로컬 DB를 교체하지 않습니다.
-`pnpm d1:reset:local`은 같은 검증을 통과한 임시 DB만 로컬 DB로 교체합니다.
+`pnpm d1:reset:local -- --force`는 같은 검증을 통과한 임시 DB만 로컬 DB로
+교체합니다. 기존 로컬 D1이 있으면 데이터 보호를 위해 `--force` 없는 reset은
+중단됩니다.
 
 `pnpm d1:seed:local`은 fixture 전용 명령이며 비강제 실행은 삭제 대상
 테이블이 모두 비어 있을 때만 허용됩니다. fixture 환경이 필요할 때는 기존
-로컬 데이터 삭제가 의도된 경우에만 `pnpm d1:reset:local`로 빈 스키마를
-만든 뒤 실행합니다. 기존 데이터를 의도적으로 fixture로 교체하는 경우에만
+로컬 데이터 삭제가 의도된 경우에만
+`pnpm d1:reset:local -- --force`로 빈 스키마를 만든 뒤 실행합니다. 기존
+데이터를 의도적으로 fixture로 교체하는 경우에만
 `pnpm d1:seed:local -- --force`를 사용합니다.
 
 Run release or migration preflight checks in one command:

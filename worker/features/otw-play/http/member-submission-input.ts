@@ -3,6 +3,8 @@ import type {
   OtwPlaySubmissionParticipantInput,
   OtwPlaySubmissionPreflightRequest,
   OtwPlaySubmissionSubjectInput,
+  OtwPlayUpdateSubmissionRequest,
+  OtwPlayWithdrawSubmissionRequest,
 } from "@contracts/otw-play";
 import { OTW_PLAY_PARTICIPANT_ROLES } from "@contracts/otw-play";
 
@@ -181,5 +183,61 @@ export const parseCreateSubmission = (
       participants,
       note,
     },
+  };
+};
+
+export const parseUpdateSubmission = (
+  value: unknown,
+): MemberSubmissionInputResult<OtwPlayUpdateSubmissionRequest> => {
+  if (
+    !isObject(value) ||
+    !hasExactKeys(value, [
+      "expectedVersion",
+      "youtubeUrl",
+      "title",
+      "suggestedSongId",
+      "originalArtists",
+      "participants",
+      "note",
+    ]) ||
+    !Number.isSafeInteger(value.expectedVersion) ||
+    Number(value.expectedVersion) < 0
+  ) {
+    return { ok: false, fields: { body: "invalid_update" } };
+  }
+  const { expectedVersion, ...snapshot } = value;
+  const parsed = parseCreateSubmission({
+    ...snapshot,
+    clientRequestId: "00000000-0000-4000-8000-000000000000",
+  });
+  if (!parsed.ok) return parsed;
+  return {
+    ok: true,
+    value: {
+      expectedVersion: Number(expectedVersion),
+      youtubeUrl: parsed.value.youtubeUrl,
+      title: parsed.value.title,
+      suggestedSongId: parsed.value.suggestedSongId,
+      originalArtists: parsed.value.originalArtists,
+      participants: parsed.value.participants,
+      note: parsed.value.note,
+    },
+  };
+};
+
+export const parseWithdrawSubmission = (
+  value: unknown,
+): MemberSubmissionInputResult<OtwPlayWithdrawSubmissionRequest> => {
+  if (
+    !isObject(value) ||
+    !hasExactKeys(value, ["expectedVersion"]) ||
+    !Number.isSafeInteger(value.expectedVersion) ||
+    Number(value.expectedVersion) < 0
+  ) {
+    return { ok: false, fields: { body: "invalid_withdrawal" } };
+  }
+  return {
+    ok: true,
+    value: { expectedVersion: Number(value.expectedVersion) },
   };
 };

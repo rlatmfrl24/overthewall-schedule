@@ -104,8 +104,64 @@ export const apiRoutes = {
         (id: string) =>
           `/api/play/submissions/${encodeURIComponent(id)}` as const,
       ),
+      withdraw: dynamicRoute(
+        "/api/play/submissions/:id/withdraw",
+        (id: string) =>
+          `/api/play/submissions/${encodeURIComponent(id)}/withdraw` as const,
+      ),
     },
     admin: {
+      playlistImportPreflight: staticRoute(
+        "/api/play/admin/imports/playlist/preflight",
+      ),
+      playlistImports: staticRoute("/api/play/admin/imports/playlist"),
+      importJobs: staticRoute("/api/play/admin/imports"),
+      importJob: dynamicRoute(
+        "/api/play/admin/imports/:jobId",
+        (jobId: string) =>
+          `/api/play/admin/imports/${encodeURIComponent(jobId)}` as const,
+      ),
+        importJobItems: dynamicRoute(
+        "/api/play/admin/imports/:jobId/items",
+        (jobId: string) =>
+          `/api/play/admin/imports/${encodeURIComponent(jobId)}/items` as const,
+        ),
+        importCandidate: dynamicRoute(
+          "/api/play/admin/import-candidates/:id",
+          (id: string) =>
+            `/api/play/admin/import-candidates/${encodeURIComponent(id)}` as const,
+        ),
+        convertImportJob: dynamicRoute(
+          "/api/play/admin/imports/:jobId/convert",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/convert` as const,
+        ),
+        ignoreImportJobCandidates: dynamicRoute(
+          "/api/play/admin/imports/:jobId/ignore",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/ignore` as const,
+        ),
+        retryImportJob: dynamicRoute(
+          "/api/play/admin/imports/:jobId/retry",
+          (jobId: string) =>
+            `/api/play/admin/imports/${encodeURIComponent(jobId)}/retry` as const,
+        ),
+      channelMonitors: staticRoute("/api/play/admin/channel-monitors"),
+      channelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}` as const,
+      ),
+      channelMonitorCandidates: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/candidates",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/candidates` as const,
+      ),
+      reconcileChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/reconcile",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/reconcile` as const,
+      ),
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(
         "/api/play/admin/catalog-entries/preflight",

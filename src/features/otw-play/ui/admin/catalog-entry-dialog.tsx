@@ -208,6 +208,7 @@ export function SubjectPicker({
   selected,
   onChange,
   allowGroup = true,
+  includeMemberEntities = false,
 }: {
   label: string;
   placeholder?: string;
@@ -217,6 +218,7 @@ export function SubjectPicker({
   selected: SelectedSubject[];
   onChange: (items: SelectedSubject[]) => void;
   allowGroup?: boolean;
+  includeMemberEntities?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -236,7 +238,7 @@ export function SubjectPicker({
     .filter(
       (entity) =>
         entity.archivedAt === null &&
-        entity.memberUid === null &&
+        (includeMemberEntities || entity.memberUid === null) &&
         !selectedKeys.has(`entity:${entity.id}`) &&
         (!normalized ||
           entity.displayName.toLocaleLowerCase().includes(normalized)),
@@ -369,7 +371,9 @@ export function SubjectPicker({
             >
               <span>{entity.displayName}</span>
               <span className="text-xs text-muted-foreground">
-                {entity.entityKind === "group"
+                {entity.memberUid !== null
+                  ? "OTW 멤버"
+                  : entity.entityKind === "group"
                   ? "기존 그룹"
                   : entity.entityKind === "organization"
                     ? "기존 단체"

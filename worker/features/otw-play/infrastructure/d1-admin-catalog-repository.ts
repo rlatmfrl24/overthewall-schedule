@@ -21,6 +21,7 @@ import {
 } from "../domain/duplicate-policy";
 import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 import { getNextSourceCheckAt } from "../domain/source-health-policy";
+import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-channel-policy";
 import {
   AdminCatalogRepositoryError,
   type AdminCatalogActor,
@@ -33,6 +34,11 @@ import {
 } from "../application/ports/admin-catalog-repository";
 
 type SqlValue = string | number | null;
+
+const ingestionOfficialChannelRoleSql =
+  OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES
+    .map((role) => `'${role}'`)
+    .join(", ");
 
 type CatalogMetaRow = { revision: number; read_model_revision: number };
 type EntityRow = {
@@ -1495,7 +1501,15 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   async createCatalogEntry(command: AdminCreateCatalogEntryCommand) {
-    const { input, video, actor, now, ids, proposalApproval } = command;
+    const {
+      input,
+      video,
+      actor,
+      now,
+      ids,
+      proposalApproval,
+      candidateConversion,
+    } = command;
     const meta = await this.readRevision();
     if (Number(meta.revision) !== input.expectedCatalogRevision) {
       throw new AdminCatalogRepositoryError(
@@ -1516,6 +1530,36 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         throw new AdminCatalogRepositoryError(
           "stale_write",
           "Proposal changed during review",
+        );
+      }
+    }
+    if (candidateConversion) {
+      const candidate = await this.database.prepare(
+        `SELECT 1 AS matched FROM music_ingestion_candidates AS candidate
+         WHERE candidate.id = ? AND candidate.status = 'ready'
+           AND candidate.version = ? AND candidate.classification = 'eligible'
+           AND candidate.candidate_kind = 'official_video'
+           AND EXISTS (
+             SELECT 1 FROM music_channels AS channel
+             WHERE channel.provider = 'youtube'
+               AND channel.external_channel_id = candidate.channel_id
+               AND channel.verification_status = 'approved'
+               AND channel.active = 1
+               AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
+           )
+           AND EXISTS (
+             SELECT 1 FROM music_ingestion_candidate_origins AS origin
+             WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
+           )`,
+      ).bind(
+        candidateConversion.candidateId,
+        candidateConversion.expectedVersion,
+        candidateConversion.jobId,
+      ).first<{ matched: number }>();
+      if (!candidate) {
+        throw new AdminCatalogRepositoryError(
+          "stale_write",
+          "Ingestion candidate changed during conversion",
         );
       }
     }
@@ -2145,6 +2189,57 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             eventJson({ performanceId: ids.performanceId }),
             now,
           ),
+      );
+    }
+
+    if (candidateConversion) {
+      statements.push(
+        this.database.prepare(
+          `UPDATE music_ingestion_candidates
+           SET status = 'converted', classification = 'existing_catalog',
+             linked_performance_id = ?, last_conversion_outcome = 'created',
+             last_conversion_error_code = NULL,
+             last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
+             version = version + 1, updated_at = ?
+           WHERE id = ? AND status = 'ready' AND version = ?
+              AND classification = 'eligible'
+              AND candidate_kind = 'official_video'
+             AND EXISTS (
+               SELECT 1 FROM music_ingestion_candidate_origins AS origin
+               WHERE origin.candidate_id = music_ingestion_candidates.id
+                 AND origin.job_id = ?
+             )
+             AND EXISTS (
+               SELECT 1 FROM music_channels AS channel
+               WHERE channel.provider = 'youtube'
+                 AND channel.external_channel_id = music_ingestion_candidates.channel_id
+                 AND channel.verification_status = 'approved'
+                 AND channel.active = 1
+                 AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
+             )`,
+        ).bind(
+          ids.performanceId,
+          now,
+          actor.userId,
+          now,
+          candidateConversion.candidateId,
+          candidateConversion.expectedVersion,
+          candidateConversion.jobId,
+        ),
+        versionGuard(this.database),
+        this.database.prepare(
+          `INSERT INTO music_ingestion_events (
+            id, job_id, candidate_id, event_type, actor_user_id,
+            detail_json, created_at
+          ) VALUES (?, ?, ?, 'candidate.convert.created', ?, ?, ?)`,
+        ).bind(
+          candidateConversion.eventId,
+          candidateConversion.jobId,
+          candidateConversion.candidateId,
+          actor.userId,
+          eventJson({ performanceId: ids.performanceId }),
+          now,
+        ),
       );
     }
 

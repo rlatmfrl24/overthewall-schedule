@@ -1173,6 +1173,18 @@ production 카탈로그는 migration fixture나 raw SQL로 넣지 않는다.
 
 ### 배포 순서
 
+PR-9B 이후의 preview version upload와 production 배포 전에 Cloudflare Queue 목록을
+확인한다. 아래 두 Queue가 없을 때만 한 번 생성하고 `queues list` readback에서 두
+이름을 모두 확인한다. Worker producer·consumer 연결은 이후 `wrangler versions
+upload` 또는 `wrangler deploy`가 `wrangler.jsonc` 선언으로 등록한다.
+
+```powershell
+pnpm exec wrangler queues list
+pnpm exec wrangler queues create otw-play-ingestion
+pnpm exec wrangler queues create otw-play-ingestion-dlq
+pnpm exec wrangler queues list
+```
+
 1. migration 직전 D1 Time Travel/backup bookmark 기록
 2. additive migration 원격 적용
 3. Worker와 정적 앱 배포
@@ -1355,7 +1367,7 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 
 1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
 2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
-3. PR-9C: 벌크 검수 grid, 공통값·행별 보완과 catalog draft 변환
+3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
 4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
 5. P1A: 기존 participant 기반 member songbook과 queue
@@ -1370,3 +1382,30 @@ playlist candidate는 관리자 검수 뒤 draft로 변환할 수 있지만 `sin
 foundation 전에는 inbox에만 머문다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
 외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
 계획에서 제외한다.
+
+PR-9C 후보 저장은 행을 열 때의 version·review input·status를 baseline으로 보존한다.
+Queue metadata batch로 version만 상승한 경우에는 baseline 동등성과 현재 channel·분류
+정책을 다시 확인하고 최신 version으로 CAS한다. Queue와 단건 metadata refresh는
+`ready|ignored|converted` 및 review input을 보존한다. 실제 검수 baseline이 바뀐 409에서는
+행 draft를 유지한 채 job·items·catalog 권위 query를 다시 불러온다. 기존 catalog·proposal,
+channel/policy gate는 422 validation으로 분리한다. item DTO는 origin 관점 `classification`과
+실제 `candidateClassification`을 함께 제공하며 ready 저장 가능 여부는 후자를 사용한다.
+상태 열은 이 값을 raw code로 나열하지 않는다. candidate `status`는 검수 시작 전·입력 보완
+필요·저장 준비 완료 같은 workflow 단계로, `candidateClassification`은 현재 권위 판단으로,
+origin `classification`은 가져오기 기록으로 구분하고 현재 가능한 다음 조치를 함께 표시한다.
+job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate version을 계속 표시하지 않게 한다.
+변경 예정 항목은 sticky form 내부나 별도 table 열이 아니라 desktop table과 mobile card의
+각 영상 아래에 가로 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다.
+`channel_review`는 같은 sticky form에서 공식 역할·소유 주체를 확인해 채널 승인·활성화와
+candidate metadata 재분류를 이어 간다. 기본 신규 승인 경로는 `otw_official` 또는
+`member_music|member_main`과 archive되지 않은 catalog member identity로 제한한다. 외부 채널은 별도 예외 모드에서
+`project_official`, 활성 non-member 주체와 명시적 외부 승인 확인을 모두 제출해야 하며 Worker가
+현재 catalog entity 상태와 조합을 다시 검증한다. 기본 소유 유형 2개는 sidebar 가용 폭을
+채우는 2열 카드로 배치하고, archive되지 않은 OTW 멤버 목록은 별도 max-height나 중첩
+scroll container 없이 모두 렌더링한다. 숨김·삭제 일괄 제외는
+현재 filter를 재사용하지 않고 job의 `blocked` page를 최대 5,000건까지 별도로 조회한다.
+`private|embed_disabled|deleted|region_blocked|unavailable`만 선택하고 `unknown`은 보존하며,
+100건 단위 bulk ignore API가 job 소속과 version CAS를 확인해 항목별 결과를 반환한다.
+draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체 page를 최대 5,000건까지
+조회해 100건 단위로 처리한다. 기본 items 조회는 `converted|ignored`를 제외하고, 운영 확인을
+위한 명시적 status filter에서는 해당 상태를 계속 조회할 수 있다.

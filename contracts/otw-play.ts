@@ -58,6 +58,354 @@ export const OTW_PLAY_PROVIDERS = ["youtube"] as const;
 
 export type OtwPlayProvider = (typeof OTW_PLAY_PROVIDERS)[number];
 
+export const OTW_PLAY_INGESTION_JOB_STATUSES = [
+  "queued",
+  "collecting",
+  "completed",
+  "partial",
+  "failed",
+] as const;
+export type OtwPlayIngestionJobStatus =
+  (typeof OTW_PLAY_INGESTION_JOB_STATUSES)[number];
+
+export const OTW_PLAY_INGESTION_CANDIDATE_STATUSES = [
+  "discovered",
+  "needs_input",
+  "ready",
+  "converted",
+  "ignored",
+  "blocked",
+] as const;
+export type OtwPlayIngestionCandidateStatus =
+  (typeof OTW_PLAY_INGESTION_CANDIDATE_STATUSES)[number];
+
+export const OTW_PLAY_INGESTION_CANDIDATE_KINDS = [
+  "official_video",
+  "singing_clip",
+] as const;
+export type OtwPlayIngestionCandidateKind =
+  (typeof OTW_PLAY_INGESTION_CANDIDATE_KINDS)[number];
+
+export const OTW_PLAY_INGESTION_CLASSIFICATIONS = [
+  "pending_metadata",
+  "eligible",
+  "existing_catalog",
+  "existing_proposal",
+  "existing_candidate",
+  "channel_review",
+  "policy_blocked",
+  "unavailable",
+  "scope_review",
+  "playlist_duplicate",
+] as const;
+export type OtwPlayIngestionClassification =
+  (typeof OTW_PLAY_INGESTION_CLASSIFICATIONS)[number];
+
+export const OTW_PLAY_INGESTION_CONVERSION_OUTCOMES = [
+  "created",
+  "duplicate",
+  "stale",
+  "validation_failed",
+  "retryable_failed",
+] as const;
+export type OtwPlayIngestionConversionOutcome =
+  (typeof OTW_PLAY_INGESTION_CONVERSION_OUTCOMES)[number];
+
+export type OtwPlayPlaylistImportMode = "all_new" | "recent";
+
+export interface OtwPlayPlaylistPreflightRequest {
+  playlistUrl: string;
+  mode: OtwPlayPlaylistImportMode;
+  recentLimit?: number;
+  rangeStart?: number;
+  rangeLimit?: number;
+}
+
+export interface OtwPlayPlaylistPreflightDto {
+  playlistId: string;
+  canonicalUrl: string;
+  title: string;
+  ownerChannelId: string;
+  ownerChannelTitle: string;
+  itemCount: number;
+  privacyStatus: "public" | "unlisted";
+  rangeStartPosition: number;
+  rangeEndExclusive: number;
+  nextRangeStart: number | null;
+  requestedItemCount: number;
+  estimatedPageCount: number;
+  estimatedVideoBatchCount: number;
+  hardCap: 5000;
+  requiresSplit: boolean;
+  previousImport: {
+    jobId: string;
+    status: OtwPlayIngestionJobStatus;
+    lastSyncedAt: number;
+  } | null;
+}
+
+export interface OtwPlayCreatePlaylistImportRequest
+  extends OtwPlayPlaylistPreflightRequest {
+  idempotencyKey: string;
+}
+
+export interface OtwPlayIngestionJobCountsDto {
+  discovered: number;
+  metadataChecked: number;
+  eligible: number;
+  existingCatalog: number;
+  existingProposal: number;
+  existingCandidate: number;
+  channelReview: number;
+  unavailable: number;
+  policyBlocked: number;
+  scopeReview: number;
+  playlistDuplicate: number;
+  retryPending: number;
+  permanentError: number;
+}
+
+export interface OtwPlayIngestionJobDto {
+  id: string;
+  playlistId: string;
+  playlistTitle: string;
+  playlistOwnerChannelId: string;
+  playlistOwnerChannelTitle: string;
+  mode: OtwPlayPlaylistImportMode;
+  rangeStartPosition: number;
+  rangeEndExclusive: number;
+  requestedItemCount: number;
+  status: OtwPlayIngestionJobStatus;
+  counts: OtwPlayIngestionJobCountsDto;
+  lastErrorCode: string | null;
+  nextRetryAt: number | null;
+  createdAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  updatedAt: number;
+}
+
+export const OTW_PLAY_CHANNEL_MONITOR_STATUSES = ["active", "paused"] as const;
+export type OtwPlayChannelMonitorStatus =
+  (typeof OTW_PLAY_CHANNEL_MONITOR_STATUSES)[number];
+
+export interface OtwPlayChannelMonitorDto {
+  id: string;
+  channelId: string;
+  channelDisplayName: string;
+  externalChannelId: string;
+  uploadsPlaylistId: string;
+  status: OtwPlayChannelMonitorStatus;
+  checkIntervalMinutes: number;
+  lastCheckedAt: number | null;
+  nextCheckAt: number;
+  lastSeenVideoId: string | null;
+  lastSeenPublishedAt: number | null;
+  lastErrorCode: string | null;
+  candidateCount: number;
+  pendingCandidateCount: number;
+  generation: number;
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OtwPlayChannelMonitorCandidateDto {
+  candidateId: string;
+  candidateVersion: number;
+  videoId: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  publishedAt: number | null;
+  availabilityStatus: OtwPlaySourceAvailabilityStatus;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  exclusionReason: string | null;
+  discoveredAt: number;
+}
+
+export interface OtwPlayChannelMonitorCandidatePageDto {
+  items: OtwPlayChannelMonitorCandidateDto[];
+  nextCursor: string | null;
+}
+
+export interface OtwPlayCreateChannelMonitorRequest {
+  externalChannelId: string;
+}
+
+export type OtwPlayUpdateChannelMonitorRequest =
+  | {
+      expectedVersion: number;
+      status: OtwPlayChannelMonitorStatus;
+      externalChannelId?: never;
+      resetWatermark?: never;
+    }
+  | {
+      expectedVersion: number;
+      externalChannelId: string;
+      status?: never;
+      resetWatermark?: never;
+    }
+  | {
+      expectedVersion: number;
+      resetWatermark: true;
+      status?: never;
+      externalChannelId?: never;
+    };
+
+export interface OtwPlayDeleteChannelMonitorRequest {
+  expectedVersion: number;
+}
+
+export interface OtwPlayDeleteChannelMonitorDto {
+  id: string;
+}
+
+export interface OtwPlayChannelMonitorReconcileDto {
+  monitor: OtwPlayChannelMonitorDto;
+  discoveredCount: number;
+  checkedVideoCount: number;
+  capped: boolean;
+  gapSuspected: boolean;
+}
+
+export interface OtwPlayIngestionCandidateItemDto {
+  originId: string;
+  candidateId: string;
+  candidateVersion: number;
+  playlistPosition: number;
+  playlistItemId: string;
+  videoId: string;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  candidateClassification: OtwPlayIngestionClassification;
+  exclusionReason: string | null;
+  title: string | null;
+  channelId: string | null;
+  channelTitle: string | null;
+  catalogChannelId: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  publishedAt: number | null;
+  availabilityStatus: OtwPlaySourceAvailabilityStatus;
+  madeForKids: boolean | null;
+  metadataCheckedAt: number | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  lastConversionOutcome: OtwPlayIngestionConversionOutcome | null;
+  lastConversionErrorCode: string | null;
+  lastConversionAttemptAt: number | null;
+  linkedPerformanceId: string | null;
+}
+
+export interface OtwPlayIngestionReviewCandidateDto {
+  id: string;
+  version: number;
+  videoId: string;
+  candidateKind: OtwPlayIngestionCandidateKind;
+  status: OtwPlayIngestionCandidateStatus;
+  classification: OtwPlayIngestionClassification;
+  catalogChannelId: string | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  linkedPerformanceId: string | null;
+}
+
+export interface OtwPlayIngestionCandidatePageDto {
+  items: OtwPlayIngestionCandidateItemDto[];
+  nextCursor: string | null;
+}
+
+export interface OtwPlayIngestionItemFilters {
+  classification?: OtwPlayIngestionClassification;
+  status?: OtwPlayIngestionCandidateStatus;
+}
+
+export interface OtwPlayIngestionReviewInput {
+  song: OtwPlayAdminCatalogSongDecision;
+  participants: OtwPlayAdminCatalogParticipantInput[];
+  relationType: OtwPlayRelationType;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  participationType: OtwPlayParticipationType;
+  internalNote?: string | null;
+}
+
+export type OtwPlayUpdateIngestionCandidateRequest =
+  | {
+      expectedVersion: number;
+      expectedReviewInput?: OtwPlayIngestionReviewInput | null;
+      expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
+      action: "save";
+      input: OtwPlayIngestionReviewInput;
+    }
+  | {
+      expectedVersion: number;
+      action: "approve_channel";
+      channel:
+        | {
+            ownershipKind: "otw_official";
+            channelRole: "otw_official";
+            entityIds: [];
+          }
+        | {
+            ownershipKind: "member";
+            channelRole: Extract<
+              OtwPlayPublicChannelRole,
+              "member_music" | "member_main"
+            >;
+            entityIds: string[];
+          }
+        | {
+            ownershipKind: "external";
+            channelRole: "project_official";
+            entityIds: string[];
+            externalApprovalConfirmed: true;
+          };
+    }
+  | { expectedVersion: number; action: "ignore" }
+  | { expectedVersion: number; action: "refresh_metadata" };
+
+export interface OtwPlayConvertIngestionCandidatesRequest {
+  candidates: Array<{ id: string; expectedVersion: number }>;
+}
+
+export interface OtwPlayIgnoreIngestionCandidatesRequest {
+  candidates: Array<{ id: string; expectedVersion: number }>;
+}
+
+export const OTW_PLAY_INGESTION_IGNORE_OUTCOMES = [
+  "ignored",
+  "stale",
+  "failed",
+] as const;
+
+export type OtwPlayIngestionIgnoreOutcome =
+  (typeof OTW_PLAY_INGESTION_IGNORE_OUTCOMES)[number];
+
+export interface OtwPlayIngestionIgnoreResultDto {
+  candidateId: string;
+  outcome: OtwPlayIngestionIgnoreOutcome;
+  errorCode: string | null;
+}
+
+export interface OtwPlayIgnoreIngestionCandidatesResponse {
+  results: OtwPlayIngestionIgnoreResultDto[];
+}
+
+export interface OtwPlayIngestionConversionResultDto {
+  candidateId: string;
+  outcome: OtwPlayIngestionConversionOutcome;
+  performanceId: string | null;
+  errorCode: string | null;
+}
+
+export interface OtwPlayConvertIngestionCandidatesResponse {
+  results: OtwPlayIngestionConversionResultDto[];
+}
+
+export interface OtwPlayRetryIngestionJobResponse {
+  job: OtwPlayIngestionJobDto;
+  enqueued: number;
+}
+
 export const OTW_PLAY_CHANNEL_VERIFICATION_STATUSES = [
   "pending",
   "approved",
@@ -383,6 +731,7 @@ export const OTW_PLAY_SUBMISSION_ERROR_CODES = [
   "PLAY_SUBMISSION_AUTH_REQUIRED",
   "PLAY_SUBMISSION_NOT_FOUND",
   "PLAY_SUBMISSION_DUPLICATE",
+  "PLAY_SUBMISSION_STALE_WRITE",
   "PLAY_SUBMISSION_IDEMPOTENCY_CONFLICT",
   "PLAY_SUBMISSION_RATE_LIMITED",
   "PLAY_SUBMISSION_UNAVAILABLE",
@@ -445,6 +794,15 @@ export interface OtwPlayCreateSubmissionRequest {
   note?: string | null;
 }
 
+export interface OtwPlayUpdateSubmissionRequest
+  extends Omit<OtwPlayCreateSubmissionRequest, "clientRequestId"> {
+  expectedVersion: number;
+}
+
+export interface OtwPlayWithdrawSubmissionRequest {
+  expectedVersion: number;
+}
+
 export type OtwPlayMemberSubmissionStatus = Extract<
   OtwPlayProposalStatus,
   "pending_review" | "approved" | "rejected" | "withdrawn"
@@ -459,14 +817,19 @@ export interface OtwPlayMemberSubmissionDto {
   suggestedSongId: string | null;
   note: string | null;
   status: OtwPlayMemberSubmissionStatus;
+  version: number;
+  editable: boolean;
+  withdrawable: boolean;
   createdAt: number;
   updatedAt: number;
   originalArtists: Array<{
     creditOrder: number;
+    memberUid: number | null;
     displayName: string;
   }>;
   participants: Array<{
     creditOrder: number;
+    memberUid: number | null;
     displayName: string;
     participantRole: OtwPlayParticipantRole;
   }>;

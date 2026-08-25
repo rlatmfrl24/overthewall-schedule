@@ -71,6 +71,19 @@ export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
 export { MemberSubmissionService } from "./application/member-submission-service";
 export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
 export { createMemberSubmissionHandler } from "./http/member-submission-handler";
+export {
+  IngestionProcessingError,
+  IngestionService,
+} from "./application/ingestion-service";
+export type { OtwPlayIngestionQueueMessage } from "./application/ports/ingestion-repository";
+export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
+export { ChannelMonitorService } from "./application/channel-monitor-service";
+export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
+export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
+export {
+  createIngestionHandler,
+  createIngestionQueueHandler,
+} from "./http/ingestion-handler";
 export type {
   PlayTelemetryEvent,
   PlayTelemetryEventName,
