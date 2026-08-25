@@ -776,5 +776,6 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - production 인증은 Clerk production instance 전환 전까지 보류한다. 전환은 OTW Play
   공개 전환과 같은 변경 창에서 수행하며 개발 instance session으로 P0-A/P0-B 성공
   화면을 만들지 않는다.
-- WebSub UI는 local Draft PR 범위이며 production에는 미배포다. 권리 승인·인증·secret이
-  준비되지 않은 상태를 일반 오류가 아니라 명시적인 운영 gate로 보여 준다.
+- WebSub UI는 Draft PR 범위이며 production에는 미배포다. additive migration `0063`만
+  production D1에 적용됐고 관련 row는 0개다. 권리 승인·인증·secret이 준비되지 않은
+  상태를 일반 오류가 아니라 명시적인 운영 gate로 보여 준다.

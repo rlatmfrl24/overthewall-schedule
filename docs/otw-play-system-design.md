@@ -1690,8 +1690,8 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - production은 Clerk development instance를 사용하므로 인증 관리자 canary를 실행하지
   않는다. Clerk production instance 전환은 OTW Play 공개 전환과 같은 변경 창에서
   수행한다. `pk_live` build key, production issuer/JWKS/admin ID, OAuth redirect/domain과
-  Worker production origin 검증이 완료될 때까지 개발 session을 우회 수단으로 사용하지
-  않는다.
+  Worker의 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp` exact-origin
+  검증이 완료될 때까지 개발 session을 우회 수단으로 사용하지 않는다.
 - legacy `kirinuki_channels`는 clip 수집 권리의 권위가 아니다. 채널별 운영 주체,
   candidate-only 수집 승인 근거, 해제 절차와 승인·철회 actor/time/version을 별도
   approval aggregate로 보존하고, 유효한 approval이 없으면 monitor, WebSub, backfill,
@@ -1699,6 +1699,8 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - `music_channel_upload_monitors`는 channel/watermark 권위로 유지한다. WebSub는 별도
   subscription과 delivery transport aggregate를 사용하고 기존 Queue message와
   `singing_clip` candidate idempotency 경계를 재사용한다.
-- WebSub 구현은 local migration·contract·callback·Queue·scheduler·관리자 UI 검증과 Draft
-  PR까지만 수행한다. remote D1 migration, secret 등록, 배포, 실제 구독은 인증과 권리
-  gate가 모두 해제될 때까지 금지한다.
+- WebSub contract·callback·Queue·scheduler·관리자 UI는 Draft PR에서 검증했다. additive
+  migration `0063`은 2026-08-26 production D1에 적용했고 신규 approval·subscription·
+  delivery table과 reconciliation column readback을 통과했다. 모든 신규 row는 0개다.
+  secret 등록, Worker/UI production 배포와 실제 구독은 인증과 권리 gate가 모두
+  해제될 때까지 금지한다.

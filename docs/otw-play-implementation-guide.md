@@ -89,7 +89,7 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 | GATE-04 | 회원 제안 수정·철회                  | 해결됨                  | DEC-054: 본인 pending_review만 CAS 수정·철회     |
 | GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
 | GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
-| GATE-07 | production 인증 권위                 | 운영 전 미해결          | Clerk production instance·issuer·JWKS·admin ID   |
+| GATE-07 | production 인증 권위                 | 운영 전 미해결          | Clerk production instance·issuer·JWKS·admin ID·`azp` origin allowlist |
 | GATE-08 | clip channel 자동 수집 권리          | 운영 전 미해결          | 운영 주체·candidate-only 근거·해제 절차 기록      |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
@@ -97,8 +97,10 @@ draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TB
 먼저 반영한다.
 
 GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원 수정·철회
-command와 control은 PR-9A에서 구현되었다. GATE-07·08은 독립적인 WebSub 로컬 구현을
-막지 않지만 production migration·배포·monitor·구독·canary를 막는다.
+command와 control은 PR-9A에서 구현되었다. GATE-07·08은 독립적인 WebSub 구현과
+비활성 additive schema 준비를 막지 않는다. migration `0063`은 2026-08-26 production
+D1에 적용했지만 approval·monitor·subscription row는 0개다. 두 gate는 WebSub secret,
+Worker/UI production 배포, monitor·구독·canary를 계속 막는다.
 
 ## 3. 전달 전략
 
@@ -1430,9 +1432,10 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
 - 현재 권리 승인 channel은 0개다. legacy `kirinuki_channels`를 `approved_kirinuki`나
   자동화 승인으로 승격하지 않는다. 운영 주체·candidate-only 수집 근거·해제 절차가
   기록되기 전 production monitor와 WebSub subscription을 만들지 않는다.
-- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 로컬
-  구현과 Draft PR까지만 진행한다. remote migration, secret, 배포와 실제 hub 구독은
-  GATE-07·08이 해결될 때까지 보류한다.
+- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 Draft
+  PR에서 검증했다. additive remote migration `0063`은 production D1에 적용했고 remote
+  doctor와 신규 table/column readback을 통과했다. secret, Worker/UI 배포와 실제 hub
+  구독은 GATE-07·08이 해결될 때까지 보류한다.
 - 구독이 허용된 뒤에도 backfill 0으로 시작하고 실제 upload notification을 최대 7일
   기다려 `hub → callback → Queue → videos.list → singing_clip candidate` readback이
   성공해야 E2E 완료로 판정한다. challenge 성공만으로 완료를 선언하지 않는다.

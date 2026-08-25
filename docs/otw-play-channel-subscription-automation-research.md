@@ -1,6 +1,7 @@
 # OTW Play YouTube 노래 클립 채널 구독·신규 영상 후보 자동화 조사 보고서
 
-상태: 6시간 polling foundation 구현·배포 완료, WebSub 후속 미배포·권리 gate 대기
+상태: 6시간 polling foundation 구현·배포 완료, WebSub Draft 구현·`0063` schema 적용,
+code·secret·실제 구독 미배포 및 권리 gate 대기
 
 조사일: 2026-08-20
 
@@ -359,8 +360,9 @@ PR-9D1 후속 전달 항목이다.
 - 권리 권위는 channel row와 분리해 운영 주체 참조, candidate-only 승인 근거, 해제
   절차, 승인·철회 actor/time/version을 보존한다. publication 권한으로 확대 해석하지
   않으며 유효한 row가 없으면 monitor 생성·WebSub·backfill·reconciliation을 거부한다.
-- WebSub는 local migration·callback·Queue·scheduler·관리자 UI 검증 뒤 Draft PR로
-  유지한다. remote migration, secret, 배포와 실제 hub 구독은 금지한다.
+- WebSub callback·Queue·scheduler·관리자 UI는 Draft PR로 유지한다. additive migration
+  `0063`은 2026-08-26 production D1에 적용했고 신규 row는 모두 0개다. secret,
+  Worker/UI 배포와 실제 hub 구독은 금지한다.
 - production 인증은 Clerk production instance 전환 전까지 보류한다. 이후 P0-A는 공식
   `Cover Song` playlist `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개를 인증 UI로
   수집해 Queue와 D1 readback만 확인하고 변환·게시하지 않는다.
