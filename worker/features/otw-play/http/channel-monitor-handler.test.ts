@@ -120,6 +120,40 @@ describe("OTW Play channel monitor handler", () => {
     expect(resetWatermark).toHaveBeenCalledWith("monitor-1", 5, "admin-1");
   });
 
+  it("requires current versions and confirmation to revoke collection authority", async () => {
+    const revokeApproval = vi.fn(async () => ({ id: "monitor-1", status: "paused" }));
+    const handler = createChannelMonitorHandler(
+      () => ({ revokeApproval }) as unknown as ChannelMonitorService,
+    );
+    const accepted = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/revoke-approval",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expectedVersion: 4,
+          expectedApprovalVersion: 2,
+          confirmed: true,
+        }),
+      },
+    ), env);
+    const rejected = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/revoke-approval",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expectedVersion: 4,
+          expectedApprovalVersion: 2,
+          confirmed: false,
+        }),
+      },
+    ), env);
+
+    expect(accepted.status).toBe(200);
+    expect(revokeApproval).toHaveBeenCalledWith("monitor-1", 4, 2, "admin-1");
+    expect(rejected.status).toBe(400);
+    expect(revokeApproval).toHaveBeenCalledOnce();
+  });
+
   it("passes candidate pagination to the service and rejects malformed cursors", async () => {
     const listCandidates = vi.fn(async () => ({ items: [], nextCursor: null }));
     const handler = createChannelMonitorHandler(

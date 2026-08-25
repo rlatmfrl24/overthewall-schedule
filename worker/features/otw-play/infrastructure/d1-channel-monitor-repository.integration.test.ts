@@ -289,4 +289,64 @@ describe("D1ChannelMonitorRepository", () => {
       lastErrorCode: null,
     });
   });
+
+  it("atomically revokes candidate collection authority and pauses the monitor", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({
+      id: "monitor-revoke",
+      eventId: "event-revoke-created",
+      approvalEventId: "event-revoke-approved",
+      channel: channel!,
+      uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
+      lastSeenVideoId: "AAAAAAAAAAA",
+      approval,
+      actorUserId: "admin-1",
+      now: NOW,
+    });
+
+    const revoked = await repository.revokeApproval({
+      id: created.id,
+      expectedVersion: created.version,
+      expectedApprovalVersion: created.automationApproval!.version,
+      actorUserId: "admin-2",
+      approvalEventId: "event-revoke-authority",
+      monitorEventId: "event-revoke-paused",
+      now: NOW + 1_000,
+    });
+
+    expect(revoked).toMatchObject({
+      status: "paused",
+      version: created.version + 1,
+      automationApproval: {
+        status: "revoked",
+        revokedByUserId: "admin-2",
+        revokedAt: NOW + 1_000,
+        version: created.automationApproval!.version + 1,
+      },
+    });
+    await expect(repository.claim(created.id, NOW + 2_000)).resolves.toBeNull();
+    const events = await db.prepare(
+      `SELECT aggregate_type, event_type, actor_user_id
+       FROM music_catalog_events
+       WHERE id IN ('event-revoke-authority', 'event-revoke-paused')
+       ORDER BY aggregate_type ASC`,
+    ).all<{
+      aggregate_type: string;
+      event_type: string;
+      actor_user_id: string;
+    }>();
+    expect(events.results).toEqual([
+      {
+        aggregate_type: "channel_automation_approval",
+        event_type: "channel_automation_approval.revoked",
+        actor_user_id: "admin-2",
+      },
+      {
+        aggregate_type: "channel_monitor",
+        event_type: "channel_monitor.status_changed",
+        actor_user_id: "admin-2",
+      },
+    ]);
+  });
 });

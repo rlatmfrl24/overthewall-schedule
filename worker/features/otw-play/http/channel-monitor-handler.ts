@@ -163,6 +163,37 @@ export const createChannelMonitorHandler = (
       }
       return json({ data: await service.backfill(backfillId, Number(count)) });
     }
+    const revokeApprovalId = pathId(url.pathname, "/revoke-approval");
+    if (request.method === "POST" && revokeApprovalId) {
+      const body = await readObject(request);
+      const expectedVersion = body?.expectedVersion;
+      const expectedApprovalVersion = body?.expectedApprovalVersion;
+      if (
+        !body ||
+        Object.keys(body).length !== 3 ||
+        !Object.hasOwn(body, "expectedVersion") ||
+        !Object.hasOwn(body, "expectedApprovalVersion") ||
+        !Object.hasOwn(body, "confirmed") ||
+        !Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0 ||
+        !Number.isSafeInteger(expectedApprovalVersion) || Number(expectedApprovalVersion) < 0 ||
+        body.confirmed !== true
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Current monitor and approval versions with explicit confirmation are required",
+        );
+      }
+      return json({
+        data: await service.revokeApproval(
+          revokeApprovalId,
+          Number(expectedVersion),
+          Number(expectedApprovalVersion),
+          auth.user.id,
+        ),
+      });
+    }
     const monitorId = pathId(url.pathname, "");
     if (request.method === "PATCH" && monitorId) {
       const body = await readObject(request);

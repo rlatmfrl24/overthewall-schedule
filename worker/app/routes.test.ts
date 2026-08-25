@@ -359,6 +359,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_POST],
   },
   {
+    id: "otw-play.admin.channel-monitors.revoke-approval",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/revoke-approval",
+    methods: [ADMIN_POST],
+  },
+  {
     id: "otw-play.admin.channel-monitors.subscribe",
     owner: "otw-play",
     path: "/api/play/admin/channel-monitors/:id/subscribe",

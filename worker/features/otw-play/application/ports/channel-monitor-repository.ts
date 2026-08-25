@@ -61,6 +61,15 @@ export interface ChannelMonitorRepository {
     eventId: string;
     now: number;
   }): Promise<OtwPlayChannelMonitorDto>;
+  revokeApproval(input: {
+    id: string;
+    expectedVersion: number;
+    expectedApprovalVersion: number;
+    actorUserId: string;
+    approvalEventId: string;
+    monitorEventId: string;
+    now: number;
+  }): Promise<OtwPlayChannelMonitorDto>;
   remove(input: {
     id: string;
     expectedVersion: number;

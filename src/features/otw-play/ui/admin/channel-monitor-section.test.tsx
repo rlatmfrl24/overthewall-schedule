@@ -13,6 +13,7 @@ const updateCandidateMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const renewMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
+const revokeApprovalMock = vi.hoisted(() => vi.fn());
 const backfillMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
@@ -26,6 +27,7 @@ vi.mock("../../api/admin", () => ({
   subscribeOtwPlayChannelMonitor: subscribeMock,
   renewOtwPlayChannelMonitor: renewMock,
   unsubscribeOtwPlayChannelMonitor: unsubscribeMock,
+  revokeOtwPlayChannelMonitorApproval: revokeApprovalMock,
   backfillOtwPlayChannelMonitor: backfillMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
 }));
@@ -294,6 +296,52 @@ describe("ChannelMonitorSection", () => {
     await waitFor(() => expect(backfillMock).toHaveBeenCalledWith(
       "monitor-1",
       { count: 20 },
+    ));
+  });
+
+  it("keeps failed WebSub intents releasable but blocks target deletion", async () => {
+    monitorsQueryMock.mockReturnValue({
+      data: [{
+        ...monitor,
+        subscription: {
+          status: "failed",
+          leaseExpiresAt: null,
+          lastNotificationAt: null,
+          lastErrorCode: "hub_request_failed",
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
+
+    render(createElement(ChannelMonitorSection), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("구독 요청 실패")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "구독 해제" }));
+    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
+  });
+
+  it("revokes candidate collection authority through an explicit confirmation", async () => {
+    revokeApprovalMock.mockResolvedValue({});
+    render(createElement(ChannelMonitorSection), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /권리 승인 철회/ }));
+    const confirmationButtons = await screen.findAllByRole("button", {
+      name: /권리 승인 철회/,
+    });
+    fireEvent.click(confirmationButtons.at(-1)!);
+
+    await waitFor(() => expect(revokeApprovalMock).toHaveBeenCalledWith(
+      "monitor-1",
+      { expectedVersion: 2, expectedApprovalVersion: 0, confirmed: true },
     ));
   });
 });

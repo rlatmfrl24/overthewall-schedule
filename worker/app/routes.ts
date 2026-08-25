@@ -666,6 +666,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     methods: methods(post(ADMIN_NO_STORE)),
     handler: handleOtwPlayChannelMonitors,
   },
+  {
+    id: "otw-play.admin.channel-monitors.revoke-approval",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.revokeChannelMonitorApproval.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
+  },
   ...[
     {
       action: "subscribe",

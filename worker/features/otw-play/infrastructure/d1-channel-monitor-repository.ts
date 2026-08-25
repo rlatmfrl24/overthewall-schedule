@@ -498,6 +498,105 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     return this.get(input.id);
   }
 
+  async revokeApproval(
+    input: Parameters<ChannelMonitorRepository["revokeApproval"]>[0],
+  ) {
+    const results = await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_channel_automation_approvals
+         SET status = 'revoked', revoked_by_user_id = ?, revoked_at = ?,
+           version = version + 1, updated_at = ?
+         WHERE channel_id = (
+           SELECT channel_id FROM music_channel_upload_monitors
+           WHERE id = ? AND version = ? AND deleted_at IS NULL
+         )
+           AND status = 'approved' AND version = ?`,
+      ).bind(
+        input.actorUserId,
+        input.now,
+        input.now,
+        input.id,
+        input.expectedVersion,
+        input.expectedApprovalVersion,
+      ),
+      this.database.prepare(
+        `UPDATE music_channel_upload_monitors
+         SET status = 'paused', lease_until = NULL,
+           next_check_at = ?, version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND deleted_at IS NULL
+           AND changes() = 1
+           AND EXISTS (
+             SELECT 1 FROM music_channel_automation_approvals AS approval
+             WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+               AND approval.status = 'revoked'
+               AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?
+           )`,
+      ).bind(
+        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        input.now,
+        input.id,
+        input.expectedVersion,
+        input.actorUserId,
+        input.now,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_catalog_events (
+          id, aggregate_type, aggregate_id, event_type, actor_kind,
+          actor_user_id, detail_json, created_at
+        ) SELECT ?, 'channel_automation_approval', monitor.channel_id,
+          'channel_automation_approval.revoked', 'admin', ?, ?, ?
+          FROM music_channel_upload_monitors AS monitor
+          JOIN music_channel_automation_approvals AS approval
+            ON approval.channel_id = monitor.channel_id
+          WHERE changes() = 1 AND monitor.id = ? AND approval.status = 'revoked'
+            AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?`,
+      ).bind(
+        input.approvalEventId,
+        input.actorUserId,
+        JSON.stringify({ scope: "candidate_collection" }),
+        input.now,
+        input.id,
+        input.actorUserId,
+        input.now,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_catalog_events (
+          id, aggregate_type, aggregate_id, event_type, actor_kind,
+          actor_user_id, detail_json, created_at
+        ) SELECT ?, 'channel_monitor', ?, 'channel_monitor.status_changed',
+          'admin', ?, ?, ?
+          WHERE changes() = 1 AND EXISTS (
+            SELECT 1 FROM music_channel_upload_monitors AS monitor
+            JOIN music_channel_automation_approvals AS approval
+              ON approval.channel_id = monitor.channel_id
+            WHERE monitor.id = ? AND monitor.status = 'paused'
+              AND approval.status = 'revoked'
+              AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?
+          )`,
+      ).bind(
+        input.monitorEventId,
+        input.id,
+        input.actorUserId,
+        JSON.stringify({ status: "paused", reason: "authority_revoked" }),
+        input.now,
+        input.id,
+        input.actorUserId,
+        input.now,
+      ),
+    ]);
+    if (
+      Number(results[0]?.meta.changes ?? 0) !== 1 ||
+      Number(results[1]?.meta.changes ?? 0) !== 1
+    ) {
+      await this.get(input.id);
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor or candidate-collection approval changed during review",
+      );
+    }
+    return this.get(input.id);
+  }
+
   async remove(input: Parameters<ChannelMonitorRepository["remove"]>[0]) {
     const [result] = await this.database.batch([
       this.database.prepare(

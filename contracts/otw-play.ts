@@ -309,6 +309,12 @@ export interface OtwPlayDeleteChannelMonitorRequest {
   expectedVersion: number;
 }
 
+export interface OtwPlayRevokeChannelMonitorRequest {
+  expectedVersion: number;
+  expectedApprovalVersion: number;
+  confirmed: true;
+}
+
 export interface OtwPlayDeleteChannelMonitorDto {
   id: string;
 }

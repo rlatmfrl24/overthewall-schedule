@@ -80,6 +80,22 @@ const repository = () => ({
     lastRecentReconciledAt: input.now,
     version: input.expectedVersion + 1,
   })),
+  revokeApproval: vi.fn(async (input) => monitor({
+    status: "paused",
+    automationApproval: {
+      scope: "candidate_collection",
+      status: "revoked",
+      operatorReference: "operator-proof",
+      approvalReference: "rights-ticket",
+      revocationProcedure: "pause and unsubscribe",
+      approvedByUserId: "admin-1",
+      approvedAt: 90,
+      revokedByUserId: input.actorUserId,
+      revokedAt: input.now,
+      version: input.expectedApprovalVersion + 1,
+    },
+    version: input.expectedVersion + 1,
+  })),
   markGapSuspected: vi.fn(async (input) => monitor({
     status: "paused",
     lastErrorCode: "gap_suspected",
@@ -234,6 +250,7 @@ describe("ChannelMonitorService", () => {
 
   it("deletes a monitor with optimistic concurrency", async () => {
     const repo = repository();
+    repo.get.mockResolvedValueOnce(monitor({ version: 3 }));
     const service = new ChannelMonitorService(repo, youtube());
 
     await expect(service.remove("monitor-1", 3, "admin-1")).resolves.toEqual({ id: "monitor-1" });
@@ -372,5 +389,107 @@ describe("ChannelMonitorService", () => {
       monitorGeneration: 0,
       now: 700,
     });
+  });
+
+  it("revokes collection authority, pauses the monitor, and requests unsubscribe", async () => {
+    const repo = repository();
+    const approved = monitor({
+      status: "paused",
+      version: 3,
+      automationApproval: {
+        scope: "candidate_collection",
+        status: "revoked",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        approvedByUserId: "admin-1",
+        approvedAt: 100,
+        revokedByUserId: "admin-2",
+        revokedAt: 800,
+        version: 2,
+      },
+      subscription: {
+        id: "subscription-1",
+        status: "active",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: 110,
+        leaseExpiresAt: 1_000,
+        lastNotificationAt: null,
+        lastErrorCode: null,
+        version: 1,
+      },
+    });
+    repo.revokeApproval.mockResolvedValueOnce(approved);
+    repo.get.mockResolvedValue(approved);
+    const unsubscribe = vi.fn(async () => undefined);
+    const service = new ChannelMonitorService(
+      repo,
+      youtube(),
+      () => "event-revoke",
+      () => 800,
+      unsubscribe,
+    );
+
+    await service.revokeApproval("monitor-1", 2, 1, "admin-2");
+
+    expect(repo.revokeApproval).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 2,
+      expectedApprovalVersion: 1,
+      actorUserId: "admin-2",
+      approvalEventId: "event-revoke",
+      monitorEventId: "event-revoke",
+      now: 800,
+    });
+    expect(unsubscribe).toHaveBeenCalledWith("monitor-1", "admin-2");
+  });
+
+  it("blocks deletion and target changes until the current lease is released", async () => {
+    const repo = repository();
+    repo.get.mockResolvedValue(monitor({
+      subscription: {
+        id: "subscription-1",
+        status: "active",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: 110,
+        leaseExpiresAt: 1_000,
+        lastNotificationAt: null,
+        lastErrorCode: null,
+        version: 1,
+      },
+    }));
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.remove("monitor-1", 0, "admin-1"))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.updateTarget(
+      "monitor-1",
+      0,
+      "UC2222222222222222222222",
+      "admin-1",
+    )).rejects.toMatchObject({ code: "validation_failed" });
+    expect(repo.remove).not.toHaveBeenCalled();
+    expect(repo.updateTarget).not.toHaveBeenCalled();
+
+    repo.get.mockResolvedValue(monitor({
+      subscription: {
+        id: "subscription-1",
+        status: "failed",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: null,
+        leaseExpiresAt: null,
+        lastNotificationAt: null,
+        lastErrorCode: "hub_request_failed",
+        version: 2,
+      },
+    }));
+    await expect(service.remove("monitor-1", 0, "admin-1"))
+      .rejects.toMatchObject({ code: "validation_failed" });
   });
 });

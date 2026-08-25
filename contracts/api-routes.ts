@@ -182,6 +182,11 @@ export const apiRoutes = {
         (id: string) =>
           `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/unsubscribe` as const,
       ),
+      revokeChannelMonitorApproval: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/revoke-approval",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/revoke-approval` as const,
+      ),
       backfillChannelMonitor: dynamicRoute(
         "/api/play/admin/channel-monitors/:id/backfill",
         (id: string) =>

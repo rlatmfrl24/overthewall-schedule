@@ -19,6 +19,7 @@ import {
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
   renewOtwPlayChannelMonitor,
+  revokeOtwPlayChannelMonitorApproval,
   recheckOtwPlaySource,
   retryOtwPlayImportJob,
   subscribeOtwPlayChannelMonitor,
@@ -271,6 +272,11 @@ describe("OTW Play admin API", () => {
     await subscribeOtwPlayChannelMonitor("monitor / one");
     await renewOtwPlayChannelMonitor("monitor / one");
     await unsubscribeOtwPlayChannelMonitor("monitor / one");
+    await revokeOtwPlayChannelMonitorApproval("monitor / one", {
+      expectedVersion: 3,
+      expectedApprovalVersion: 2,
+      confirmed: true,
+    });
     await backfillOtwPlayChannelMonitor("monitor / one", { count: 20 });
 
     expect(apiFetchMock).toHaveBeenNthCalledWith(
@@ -290,6 +296,15 @@ describe("OTW Play admin API", () => {
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       4,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/revoke-approval",
+      {
+        method: "POST",
+        json: { expectedVersion: 3, expectedApprovalVersion: 2, confirmed: true },
+        auth: "required",
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      5,
       "/api/play/admin/channel-monitors/monitor%20%2F%20one/backfill",
       { method: "POST", json: { count: 20 }, auth: "required" },
     );
