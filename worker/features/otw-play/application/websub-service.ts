@@ -139,6 +139,7 @@ export class WebsubService {
     mode: "subscribe" | "unsubscribe",
     renewal: boolean,
     actorUserId: string,
+    retryRenewal = false,
   ) {
     let monitor: OtwPlayChannelMonitorDto;
     try {
@@ -154,7 +155,10 @@ export class WebsubService {
       monitor.id,
       monitor.generation,
     );
-    if (renewal && current?.status !== "active") {
+    if (
+      renewal && current?.status !== "active" &&
+      !(retryRenewal && current?.status === "renewing")
+    ) {
       throw new WebsubError("invalid_request", "Only an active subscription can be renewed");
     }
     if (mode === "subscribe" && !renewal && current?.status === "active") {
@@ -166,12 +170,26 @@ export class WebsubService {
     const id = current?.id ?? this.createId();
     const secretVersion = current?.secretVersion ?? 1;
     const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${monitor.externalChannelId}`;
-    const secrets = await deriveWebsubSecrets(
-      this.getSecret(secretVersion),
-      id,
-      monitor.generation,
-    );
-    const callbackUrl = `${this.getOrigin()}/api/play/webhooks/youtube/${secrets.callbackToken}`;
+    let secrets: Awaited<ReturnType<typeof deriveWebsubSecrets>>;
+    let callbackUrl: string;
+    try {
+      secrets = await deriveWebsubSecrets(
+        this.getSecret(secretVersion),
+        id,
+        monitor.generation,
+      );
+      callbackUrl = `${this.getOrigin()}/api/play/webhooks/youtube/${secrets.callbackToken}`;
+    } catch (error) {
+      if (current) {
+        await this.repository.markSubscriptionFailed(
+          id,
+          error instanceof WebsubError ? error.code : "callback_configuration_failed",
+          renewal || mode === "unsubscribe" ? "active" : "failed",
+          this.clock(),
+        ).catch(() => undefined);
+      }
+      throw error;
+    }
     const now = this.clock();
     try {
       await this.repository.prepareSubscription({
@@ -443,6 +461,52 @@ export class WebsubService {
       }
     }
     return enqueued;
+  }
+
+  async cleanupInvalidSubscriptions(
+    actorUserId = "system:websub-cleanup",
+    limit = 10,
+  ) {
+    const ids = await this.repository.listCleanupMonitorIds(limit);
+    const results: Array<{ id: string; ok: boolean }> = [];
+    for (const id of ids) {
+      try {
+        await this.unsubscribe(id, actorUserId);
+        results.push({ id, ok: true });
+      } catch {
+        results.push({ id, ok: false });
+      }
+    }
+    return results;
+  }
+
+  async recoverStaleIntents(
+    actorUserId = "system:websub-intent-recovery",
+    limit = 10,
+  ) {
+    const intents = await this.repository.listStaleIntents(this.clock(), limit);
+    const results: Array<{ id: string; ok: boolean }> = [];
+    for (const intent of intents) {
+      try {
+        if (intent.status === "pending") {
+          await this.subscribe(intent.monitorId, actorUserId);
+        } else if (intent.status === "renewing") {
+          await this.requestSubscription(
+            intent.monitorId,
+            "subscribe",
+            true,
+            actorUserId,
+            true,
+          );
+        } else {
+          await this.unsubscribe(intent.monitorId, actorUserId);
+        }
+        results.push({ id: intent.monitorId, ok: true });
+      } catch {
+        results.push({ id: intent.monitorId, ok: false });
+      }
+    }
+    return results;
   }
 
   async renewDue(actorUserId = "system:websub-renewal", limit = 10) {

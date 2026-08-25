@@ -10,6 +10,10 @@ import type {
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
 
 const RETENTION_MS = 180 * 86_400_000;
+const DELIVERY_RECOVERY_MS = 60_000;
+const ENQUEUED_RECOVERY_MS = 15 * 60_000;
+const PROCESSING_RECOVERY_MS = 5 * 60_000;
+const INTENT_RECOVERY_MS = 15 * 60_000;
 
 const subscriptionSelect = `SELECT subscription.*,
   channel.external_channel_id,
@@ -227,6 +231,7 @@ export class D1WebsubRepository implements WebsubRepository {
             SELECT 1 FROM music_channel_websub_subscriptions AS subscription
             JOIN music_channel_upload_monitors AS monitor
               ON monitor.id = subscription.monitor_id
+            JOIN music_channels AS channel ON channel.id = monitor.channel_id
             JOIN music_channel_automation_approvals AS approval
               ON approval.channel_id = monitor.channel_id
             WHERE subscription.id = ? AND subscription.status = 'active'
@@ -234,6 +239,9 @@ export class D1WebsubRepository implements WebsubRepository {
               AND subscription.monitor_generation = ?
               AND monitor.generation = subscription.monitor_generation
               AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+              AND channel.provider = 'youtube'
+              AND channel.channel_role = 'approved_kirinuki'
+              AND channel.verification_status = 'approved' AND channel.active = 1
               AND approval.scope = 'candidate_collection'
               AND approval.status = 'approved'
           )
@@ -259,12 +267,16 @@ export class D1WebsubRepository implements WebsubRepository {
          WHERE id = ? AND status = 'active'
            AND EXISTS (
              SELECT 1 FROM music_channel_upload_monitors AS monitor
+             JOIN music_channels AS channel ON channel.id = monitor.channel_id
              JOIN music_channel_automation_approvals AS approval
                ON approval.channel_id = monitor.channel_id
              WHERE monitor.id = music_channel_websub_subscriptions.monitor_id
-               AND monitor.generation = music_channel_websub_subscriptions.monitor_generation
-               AND monitor.status = 'active' AND monitor.deleted_at IS NULL
-               AND approval.scope = 'candidate_collection'
+                AND monitor.generation = music_channel_websub_subscriptions.monitor_generation
+                AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+                AND channel.provider = 'youtube'
+                AND channel.channel_role = 'approved_kirinuki'
+                AND channel.verification_status = 'approved' AND channel.active = 1
+                AND approval.scope = 'candidate_collection'
                AND approval.status = 'approved'
            )`,
       ).bind(input.now, input.now, input.subscription.id),
@@ -312,8 +324,11 @@ export class D1WebsubRepository implements WebsubRepository {
     const result = await this.database.prepare(
       `UPDATE music_channel_websub_deliveries
        SET status = 'processing', attempt_count = attempt_count + 1, updated_at = ?
-       WHERE id = ? AND status IN ('enqueued', 'failed')`,
-    ).bind(now, id).run();
+       WHERE id = ? AND (
+         status IN ('pending', 'enqueued', 'failed')
+         OR (status = 'processing' AND updated_at <= ?)
+       )`,
+    ).bind(now, id, now - PROCESSING_RECOVERY_MS).run();
     if (Number(result.meta.changes ?? 0) !== 1) return null;
     const row = await this.database.prepare(
       `SELECT delivery.*, monitor.version AS monitor_version,
@@ -384,13 +399,35 @@ export class D1WebsubRepository implements WebsubRepository {
         ) SELECT ?, 'youtube', ?, 'singing_clip', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
           WHERE EXISTS (
             SELECT 1 FROM music_channel_upload_monitors AS monitor
+            JOIN music_channels AS channel ON channel.id = monitor.channel_id
             JOIN music_channel_automation_approvals AS approval
               ON approval.channel_id = monitor.channel_id
             WHERE monitor.id = ? AND monitor.generation = ?
               AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+              AND channel.provider = 'youtube'
+              AND channel.channel_role = 'approved_kirinuki'
+              AND channel.verification_status = 'approved' AND channel.active = 1
               AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
           )
         ON CONFLICT(provider, external_video_id) DO UPDATE SET
+          status = CASE
+            WHEN excluded.status = 'blocked'
+              AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+              THEN 'blocked'
+            ELSE music_ingestion_candidates.status
+          END,
+          classification = CASE
+            WHEN excluded.status = 'blocked'
+              AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+              THEN excluded.classification
+            ELSE music_ingestion_candidates.classification
+          END,
+          exclusion_reason = CASE
+            WHEN excluded.status = 'blocked'
+              AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+              THEN excluded.exclusion_reason
+            ELSE music_ingestion_candidates.exclusion_reason
+          END,
           title = excluded.title, channel_id = excluded.channel_id,
           channel_title = excluded.channel_title, thumbnail_url = excluded.thumbnail_url,
           duration_seconds = excluded.duration_seconds,
@@ -434,10 +471,14 @@ export class D1WebsubRepository implements WebsubRepository {
           WHERE provider = 'youtube' AND external_video_id = ?
             AND EXISTS (
               SELECT 1 FROM music_channel_upload_monitors AS monitor
+              JOIN music_channels AS channel ON channel.id = monitor.channel_id
               JOIN music_channel_automation_approvals AS approval
                 ON approval.channel_id = monitor.channel_id
               WHERE monitor.id = ? AND monitor.generation = ?
                 AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+                AND channel.provider = 'youtube'
+                AND channel.channel_role = 'approved_kirinuki'
+                AND channel.verification_status = 'approved' AND channel.active = 1
                 AND approval.scope = 'candidate_collection'
                 AND approval.status = 'approved'
             )
@@ -456,12 +497,16 @@ export class D1WebsubRepository implements WebsubRepository {
          WHERE id = ? AND status = 'processing'
            AND EXISTS (
              SELECT 1 FROM music_channel_upload_monitors AS monitor
+             JOIN music_channels AS channel ON channel.id = monitor.channel_id
              JOIN music_channel_automation_approvals AS approval
                ON approval.channel_id = monitor.channel_id
              WHERE monitor.id = music_channel_websub_deliveries.monitor_id
-               AND monitor.generation = music_channel_websub_deliveries.monitor_generation
-               AND monitor.status = 'active' AND monitor.deleted_at IS NULL
-               AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
+                AND monitor.generation = music_channel_websub_deliveries.monitor_generation
+                AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+                AND channel.provider = 'youtube'
+                AND channel.channel_role = 'approved_kirinuki'
+                AND channel.verification_status = 'approved' AND channel.active = 1
+                AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
            )`,
       ).bind(input.now, input.now, input.delivery.id),
     ]);
@@ -490,9 +535,58 @@ export class D1WebsubRepository implements WebsubRepository {
   async listRecoverableDeliveryIds(now: number, limit: number) {
     const result = await this.database.prepare(
       `SELECT id FROM music_channel_websub_deliveries
-       WHERE status IN ('pending', 'failed') AND updated_at <= ?
+       WHERE (status IN ('pending', 'failed') AND updated_at <= ?)
+          OR (status = 'enqueued' AND updated_at <= ?)
+          OR (status = 'processing' AND updated_at <= ?)
        ORDER BY updated_at ASC, id ASC LIMIT ?`,
-    ).bind(now - 60_000, limit).all<{ id: string }>();
+    ).bind(
+      now - DELIVERY_RECOVERY_MS,
+      now - ENQUEUED_RECOVERY_MS,
+      now - PROCESSING_RECOVERY_MS,
+      limit,
+    ).all<{ id: string }>();
+    return (result.results ?? []).map((row) => row.id);
+  }
+
+  async listStaleIntents(now: number, limit: number) {
+    const result = await this.database.prepare(
+      `SELECT monitor_id, status
+       FROM music_channel_websub_subscriptions
+       WHERE status IN ('pending', 'renewing', 'unsubscribing')
+         AND requested_at <= ?
+       ORDER BY requested_at ASC, id ASC LIMIT ?`,
+    ).bind(now - INTENT_RECOVERY_MS, limit).all<{
+      monitor_id: string;
+      status: "pending" | "renewing" | "unsubscribing";
+    }>();
+    return (result.results ?? []).map((row) => ({
+      monitorId: row.monitor_id,
+      status: row.status,
+    }));
+  }
+
+  async listCleanupMonitorIds(limit: number) {
+    const result = await this.database.prepare(
+      `SELECT subscription.monitor_id AS id
+       FROM music_channel_websub_subscriptions AS subscription
+       JOIN music_channel_upload_monitors AS monitor ON monitor.id = subscription.monitor_id
+       JOIN music_channels AS channel ON channel.id = monitor.channel_id
+       LEFT JOIN music_channel_automation_approvals AS approval
+         ON approval.channel_id = monitor.channel_id
+        AND approval.scope = 'candidate_collection'
+       WHERE subscription.status IN ('active', 'pending', 'renewing', 'failed', 'denied')
+         AND subscription.monitor_generation = monitor.generation
+         AND monitor.deleted_at IS NULL
+         AND (
+           monitor.status <> 'active'
+           OR channel.provider <> 'youtube'
+           OR channel.channel_role <> 'approved_kirinuki'
+           OR channel.verification_status <> 'approved'
+           OR channel.active <> 1
+           OR approval.status IS NULL OR approval.status <> 'approved'
+         )
+       ORDER BY subscription.updated_at ASC, subscription.id ASC LIMIT ?`,
+    ).bind(limit).all<{ id: string }>();
     return (result.results ?? []).map((row) => row.id);
   }
 
@@ -501,6 +595,7 @@ export class D1WebsubRepository implements WebsubRepository {
       `SELECT subscription.monitor_id AS id
        FROM music_channel_websub_subscriptions AS subscription
        JOIN music_channel_upload_monitors AS monitor ON monitor.id = subscription.monitor_id
+       JOIN music_channels AS channel ON channel.id = monitor.channel_id
        JOIN music_channel_automation_approvals AS approval
          ON approval.channel_id = monitor.channel_id
        WHERE subscription.status = 'active'
@@ -508,6 +603,9 @@ export class D1WebsubRepository implements WebsubRepository {
          AND subscription.lease_expires_at IS NOT NULL
          AND subscription.lease_expires_at <= ?
          AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+         AND channel.provider = 'youtube'
+         AND channel.channel_role = 'approved_kirinuki'
+         AND channel.verification_status = 'approved' AND channel.active = 1
          AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
        ORDER BY subscription.lease_expires_at ASC, subscription.id ASC LIMIT ?`,
     ).bind(now + 48 * 60 * 60_000, limit).all<{ id: string }>();

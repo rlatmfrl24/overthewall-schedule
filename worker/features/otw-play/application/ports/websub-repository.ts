@@ -37,6 +37,11 @@ export interface WebsubDeliveryWorkItem {
   approvalStatus: "approved" | "revoked" | null;
 }
 
+export interface StaleWebsubIntent {
+  monitorId: string;
+  status: "pending" | "renewing" | "unsubscribing";
+}
+
 export interface WebsubRepository {
   getMonitor(id: string): Promise<OtwPlayChannelMonitorDto>;
   getCurrentSubscription(
@@ -91,6 +96,8 @@ export interface WebsubRepository {
   rejectDelivery(id: string, errorCode: string, now: number): Promise<void>;
   markDeliveryDeadLetter(id: string, errorCode: string, now: number): Promise<void>;
   listRecoverableDeliveryIds(now: number, limit: number): Promise<string[]>;
+  listStaleIntents(now: number, limit: number): Promise<StaleWebsubIntent[]>;
+  listCleanupMonitorIds(limit: number): Promise<string[]>;
   listRenewalMonitorIds(now: number, limit: number): Promise<string[]>;
 }
 

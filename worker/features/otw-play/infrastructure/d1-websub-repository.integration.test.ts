@@ -150,10 +150,40 @@ describe("D1WebsubRepository", () => {
       now: NOW + 23,
     });
 
+    const policyUpdate = await repository.recordDelivery({
+      id: "delivery-3",
+      subscription,
+      externalChannelId: CHANNEL_ID,
+      externalVideoId: "BBBBBBBBBBB",
+      providerUpdatedAt: NOW + 30,
+      now: NOW + 30,
+    });
+    await repository.markDeliveryEnqueued(policyUpdate.id, NOW + 31);
+    const policyWork = await repository.claimDelivery(policyUpdate.id, NOW + 32);
+    await repository.recordDeliveryObservation({
+      delivery: policyWork!,
+      observation: {
+        videoId: "BBBBBBBBBBB",
+        availabilityStatus: "playable",
+        video: {
+          videoId: "BBBBBBBBBBB",
+          channelId: CHANNEL_ID,
+          channelTitle: "Approved Clips",
+          title: "Policy update",
+          thumbnailUrl: null,
+          durationSeconds: 120,
+          publishedAt: NOW + 5,
+          availabilityStatus: "playable",
+          madeForKids: true,
+        },
+      },
+      now: NOW + 33,
+    });
+
     const candidate = await db.prepare(
-      `SELECT title, status FROM music_ingestion_candidates
+      `SELECT title, status, classification, exclusion_reason FROM music_ingestion_candidates
        WHERE provider = 'youtube' AND external_video_id = 'BBBBBBBBBBB'`,
-    ).first<{ title: string; status: string }>();
+    ).first<{ title: string; status: string; classification: string; exclusion_reason: string }>();
     const counts = await db.prepare(
       `SELECT
         (SELECT COUNT(*) FROM music_ingestion_candidates
@@ -163,8 +193,82 @@ describe("D1WebsubRepository", () => {
         (SELECT COUNT(*) FROM music_channel_websub_deliveries
           WHERE external_video_id = 'BBBBBBBBBBB') AS deliveries`,
     ).first<{ candidates: number; origins: number; deliveries: number }>();
-    expect(candidate).toEqual({ title: "Updated title", status: "needs_input" });
-    expect(counts).toEqual({ candidates: 1, origins: 1, deliveries: 2 });
+    expect(candidate).toEqual({
+      title: "Policy update",
+      status: "blocked",
+      classification: "policy_blocked",
+      exclusion_reason: "made_for_kids",
+    });
+    expect(counts).toEqual({ candidates: 1, origins: 1, deliveries: 3 });
+  });
+
+  it("claims pending deliveries and recovers abandoned processing work", async () => {
+    const { repository, subscription } = await prepareActiveSubscription();
+    const item = await repository.recordDelivery({
+      id: "delivery-race",
+      subscription,
+      externalChannelId: CHANNEL_ID,
+      externalVideoId: "PPPPPPPPPPP",
+      providerUpdatedAt: NOW + 10,
+      now: NOW + 10,
+    });
+
+    await expect(repository.claimDelivery(item.id, NOW + 11)).resolves.toMatchObject({
+      id: item.id,
+      status: "processing",
+    });
+    await expect(repository.listRecoverableDeliveryIds(NOW + 4 * 60_000, 10))
+      .resolves.not.toContain(item.id);
+    await expect(repository.listRecoverableDeliveryIds(NOW + 6 * 60_000, 10))
+      .resolves.toContain(item.id);
+    await expect(repository.claimDelivery(item.id, NOW + 6 * 60_000))
+      .resolves.toMatchObject({ id: item.id, attemptCount: 2 });
+  });
+
+  it("stops delivery and renewal when the catalog channel is revoked", async () => {
+    const { repository, subscription } = await prepareActiveSubscription();
+    await db.prepare(
+      `UPDATE music_channels SET verification_status = 'revoked', active = 0,
+        version = version + 1, updated_at = ? WHERE id = 'websub-channel'`,
+    ).bind(NOW + 10).run();
+
+    await expect(repository.recordDelivery({
+      id: "delivery-after-channel-revoke",
+      subscription,
+      externalChannelId: CHANNEL_ID,
+      externalVideoId: "CCCCCCCCCCC",
+      providerUpdatedAt: NOW + 11,
+      now: NOW + 11,
+    })).rejects.toMatchObject({ code: "stale_message" });
+    await expect(repository.listRenewalMonitorIds(NOW + 12, 10)).resolves.toEqual([]);
+    await expect(repository.listCleanupMonitorIds(10)).resolves.toEqual(["monitor-1"]);
+    await db.prepare(
+      `UPDATE music_channel_websub_subscriptions SET status = 'failed',
+        last_error_code = 'hub_request_failed', updated_at = ? WHERE id = ?`,
+    ).bind(NOW + 13, subscription.id).run();
+    await expect(repository.listCleanupMonitorIds(10)).resolves.toEqual(["monitor-1"]);
+  });
+
+  it("lists only timed-out subscription intents for recovery", async () => {
+    const { repository, subscription } = await prepareActiveSubscription();
+    await repository.prepareSubscription({
+      id: subscription.id,
+      monitorId: "monitor-1",
+      monitorGeneration: 0,
+      topicUrl: subscription.topicUrl,
+      callbackTokenHash: subscription.callbackTokenHash,
+      secretVersion: 1,
+      status: "renewing",
+      pendingMode: "subscribe",
+      actorUserId: "system:websub-renewal",
+      eventId: "event-renew-stale",
+      now: NOW + 10,
+    });
+
+    await expect(repository.listStaleIntents(NOW + 14 * 60_000, 10))
+      .resolves.toEqual([]);
+    await expect(repository.listStaleIntents(NOW + 16 * 60_000, 10))
+      .resolves.toEqual([{ monitorId: "monitor-1", status: "renewing" }]);
   });
 
   it("stores Made for Kids as blocked and refuses persistence after rights revocation", async () => {

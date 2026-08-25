@@ -100,6 +100,8 @@ const repository = () => ({
   rejectDelivery: vi.fn(async () => undefined),
   markDeliveryDeadLetter: vi.fn(async () => undefined),
   listRecoverableDeliveryIds: vi.fn(async () => []),
+  listStaleIntents: vi.fn<WebsubRepository["listStaleIntents"]>(async () => []),
+  listCleanupMonitorIds: vi.fn<WebsubRepository["listCleanupMonitorIds"]>(async () => []),
   listRenewalMonitorIds: vi.fn(async () => []),
 }) satisfies WebsubRepository;
 
@@ -387,6 +389,32 @@ describe("WebsubService", () => {
     expect(repo.prepareSubscription).not.toHaveBeenCalled();
   });
 
+  it("persists a retryable transport error when unsubscribe configuration is missing", async () => {
+    const repo = repository();
+    const service = new WebsubService(
+      repo,
+      youtube(),
+      { request: vi.fn() },
+      { send: vi.fn() },
+      {},
+      "https://example.com",
+      () => "event-1",
+      () => NOW,
+    );
+
+    await expect(service.unsubscribe("monitor-1", "admin-2")).rejects.toMatchObject({
+      code: "not_configured",
+      retryable: true,
+    });
+    expect(repo.markSubscriptionFailed).toHaveBeenCalledWith(
+      subscription.id,
+      "not_configured",
+      "active",
+      NOW,
+    );
+    expect(repo.prepareSubscription).not.toHaveBeenCalled();
+  });
+
   it("preserves Made for Kids as an authoritative blocked observation", async () => {
     const repo = repository();
     const reader = youtube();
@@ -469,5 +497,52 @@ describe("WebsubService", () => {
       NOW,
     );
     expect(raced.markDeliveryFailed).not.toHaveBeenCalled();
+  });
+
+  it("retries stale renewal intents and cleans up invalid active subscriptions", async () => {
+    const repo = repository();
+    repo.listStaleIntents.mockResolvedValueOnce([{
+      monitorId: "monitor-1",
+      status: "renewing",
+    }]);
+    repo.getCurrentSubscription.mockResolvedValue({
+      ...subscription,
+      status: "renewing",
+      pendingMode: "subscribe",
+    });
+    repo.listCleanupMonitorIds.mockResolvedValueOnce(["monitor-1"]);
+    const hub = { request: vi.fn(async () => undefined) };
+    const service = new WebsubService(
+      repo,
+      youtube(),
+      hub,
+      { send: vi.fn() },
+      { 1: "root-secret" },
+      "https://example.com",
+      () => "event-recovery",
+      () => NOW,
+    );
+
+    await expect(service.recoverStaleIntents()).resolves.toEqual([{
+      id: "monitor-1",
+      ok: true,
+    }]);
+    expect(repo.prepareSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      status: "renewing",
+      pendingMode: "subscribe",
+      actorUserId: "system:websub-intent-recovery",
+    }));
+
+    repo.getCurrentSubscription.mockResolvedValue(subscription);
+    await expect(service.cleanupInvalidSubscriptions()).resolves.toEqual([{
+      id: "monitor-1",
+      ok: true,
+    }]);
+    expect(repo.prepareSubscription).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "unsubscribing",
+      pendingMode: "unsubscribe",
+      actorUserId: "system:websub-cleanup",
+    }));
+    expect(hub.request).toHaveBeenCalledTimes(2);
   });
 });

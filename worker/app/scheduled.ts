@@ -122,14 +122,21 @@ export const reconcileRecentScheduledOtwPlayChannels = async (env: Env) => {
 export const maintainScheduledOtwPlayWebsub = async (env: Env) => {
   const service = createOtwPlayWebsubService(env);
   const recoveredDeliveries = await service.recoverPending();
+  const cleanupRequests = await service.cleanupInvalidSubscriptions();
+  const recoveredIntents = await service.recoverStaleIntents();
   const renewals = await service.renewDue();
-  if (recoveredDeliveries > 0 || renewals.length > 0) {
+  if (
+    recoveredDeliveries > 0 || cleanupRequests.length > 0 ||
+    recoveredIntents.length > 0 || renewals.length > 0
+  ) {
     console.log("[scheduled] OTW Play WebSub maintenance completed", {
       recoveredDeliveries,
+      cleanupRequests,
+      recoveredIntents,
       renewals,
     });
   }
-  return { recoveredDeliveries, renewals };
+  return { recoveredDeliveries, cleanupRequests, recoveredIntents, renewals };
 };
 
 export const runIndependentScheduledTasks = async (env: Env) => {
