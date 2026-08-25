@@ -42,7 +42,16 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { Textarea } from "@/shared/ui/textarea";
-import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import {
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
@@ -72,11 +81,13 @@ export function WorkflowCatalog({
   catalog,
   saving,
   run,
+  onPublishDrafts,
   onAddPerformance,
 }: {
   catalog: OtwPlayAdminCatalogDto;
   saving: string | null;
   run: Run;
+  onPublishDrafts: (performances: OtwPlayAdminPerformanceDto[]) => Promise<void>;
   onAddPerformance: (songId: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -90,6 +101,16 @@ export function WorkflowCatalog({
     action: () => Promise<void>;
   } | null>(null);
   const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const activeSongIds = new Set(activeSongs.map((song) => song.id));
+  const draftPerformances = catalog.performances.filter(
+    (performance) =>
+      performance.publicationStatus === "draft" &&
+      activeSongIds.has(performance.songId),
+  );
+  const draftSongCount = new Set(
+    draftPerformances.map((performance) => performance.songId),
+  ).size;
+  const publishingDrafts = saving?.startsWith("미게시 가창 게시") ?? false;
 
   const performanceActions = (performance: OtwPlayAdminPerformanceDto) => (
     <div className="flex flex-wrap justify-end gap-1">
@@ -196,6 +217,35 @@ export function WorkflowCatalog({
         </div>
       ) : (
         <>
+          <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium">
+                미게시 가창 {draftPerformances.length}개 · {draftSongCount}곡
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                현재 카탈로그의 임시 저장 가창만 게시합니다. 철회된 항목은 포함하지 않습니다.
+              </p>
+            </div>
+            <Button
+              className="shrink-0"
+              disabled={saving !== null || draftPerformances.length === 0}
+              onClick={() => setConfirmation({
+                title: "미게시 곡을 모두 게시할까요?",
+                description: `${draftSongCount}곡에 연결된 임시 저장 가창 ${draftPerformances.length}개를 순서대로 게시합니다. 각 항목은 승인된 공식 채널과 실제 가창 참여자를 다시 검증하며, 실패 항목은 임시 저장 상태로 유지합니다.`,
+                confirmLabel: `${draftPerformances.length}개 게시`,
+                action: async () => {
+                  await onPublishDrafts(draftPerformances);
+                },
+              })}
+            >
+              {publishingDrafts ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              {publishingDrafts ? saving : "미게시 곡 모두 게시"}
+            </Button>
+          </div>
           <div className="hidden overflow-x-auto rounded-xl border md:block">
             <Table className="min-w-[900px]">
               <TableHeader><TableRow><TableHead className="w-10" /><TableHead>곡</TableHead><TableHead>원곡 가수</TableHead><TableHead>가창</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader>

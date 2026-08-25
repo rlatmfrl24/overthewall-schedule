@@ -29,6 +29,7 @@ const preflightEntryMock = vi.hoisted(() => vi.fn());
 const createEntryMock = vi.hoisted(() => vi.fn());
 const deleteSongMock = vi.hoisted(() => vi.fn());
 const deletePerformanceMock = vi.hoisted(() => vi.fn());
+const publishPerformanceMock = vi.hoisted(() => vi.fn());
 const fetchMembersMock = vi.hoisted(() => vi.fn());
 const rejectProposalMock = vi.hoisted(() => vi.fn());
 const approveProposalMock = vi.hoisted(() => vi.fn());
@@ -53,6 +54,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     createOtwPlayCatalogEntry: createEntryMock,
     deleteOtwPlaySong: deleteSongMock,
     deleteOtwPlayPerformance: deletePerformanceMock,
+    publishOtwPlayPerformance: publishPerformanceMock,
     rejectOtwPlayProposal: rejectProposalMock,
     approveOtwPlayProposal: approveProposalMock,
   };
@@ -126,6 +128,8 @@ describe("OtwPlayCatalogManager", () => {
     fetchChannelMonitorsMock.mockResolvedValue([]);
     updateReleaseMock.mockReset();
     recheckSourceMock.mockReset();
+    publishPerformanceMock.mockReset();
+    publishPerformanceMock.mockResolvedValue({});
     fetchSourceHealthMock.mockResolvedValue({
       generatedAt: 1_777_000_000_000,
       recentRecoveryWindowDays: 7,
@@ -1212,6 +1216,126 @@ describe("OtwPlayCatalogManager", () => {
         expectedVersion: 5,
       }),
     );
+  });
+
+  it("publishes every visible draft from one catalog action and preserves failed drafts", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      songs: [
+        {
+          id: "song-one",
+          slug: "song-one",
+          title: "첫 번째 곡",
+          normalizedTitle: "첫 번째 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+        {
+          id: "song-two",
+          slug: "song-two",
+          title: "두 번째 곡",
+          normalizedTitle: "두 번째 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          version: 1,
+          archivedAt: null,
+          aliases: [],
+          originalArtists: [],
+        },
+      ],
+      performances: [
+        {
+          id: "performance-draft-one",
+          songId: "song-one",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "draft",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 3,
+          participants: [],
+          sources: [],
+        },
+        {
+          id: "performance-draft-two",
+          songId: "song-two",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "draft",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 5,
+          participants: [],
+          sources: [],
+        },
+        {
+          id: "performance-withdrawn",
+          songId: "song-two",
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          publicationStatus: "withdrawn",
+          qualityStatus: "ok",
+          releasedAt: null,
+          internalNote: null,
+          version: 7,
+          participants: [],
+          sources: [],
+        },
+      ],
+    });
+    let resolveFirstPublish: (() => void) | undefined;
+    publishPerformanceMock
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirstPublish = () => resolve({});
+      }))
+      .mockRejectedValueOnce(new Error("channel approval changed"));
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("미게시 가창 2개 · 2곡")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "미게시 곡 모두 게시" }));
+    expect(screen.getByText("미게시 곡을 모두 게시할까요?")).toBeTruthy();
+    expect(screen.getByText(/실패 항목은 임시 저장 상태로 유지/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "2개 게시" }));
+
+    await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(1));
+    expect(publishPerformanceMock).toHaveBeenNthCalledWith(
+      1,
+      "performance-draft-one",
+      { expectedVersion: 3 },
+    );
+    expect(publishPerformanceMock).not.toHaveBeenCalledWith(
+      "performance-draft-two",
+      expect.anything(),
+    );
+    resolveFirstPublish?.();
+
+    await waitFor(() => expect(publishPerformanceMock).toHaveBeenCalledTimes(2));
+    expect(publishPerformanceMock).toHaveBeenNthCalledWith(
+      2,
+      "performance-draft-two",
+      { expectedVersion: 5 },
+    );
+    expect(publishPerformanceMock).not.toHaveBeenCalledWith(
+      "performance-withdrawn",
+      expect.anything(),
+    );
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "info",
+      description: "1개를 게시했고 1개는 검증 실패 또는 동시 변경으로 임시 저장 상태를 유지했습니다.",
+    }));
   });
 
   it("shows only workflow sections and suggests current members without a prerequisite identity screen", async () => {
