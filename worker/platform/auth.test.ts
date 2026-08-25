@@ -131,6 +131,54 @@ describe("worker auth", () => {
     }
   });
 
+  it("accepts a token from an explicitly authorized party", async () => {
+    const token = await signToken({ azp: "https://example.com" });
+    const result = await authenticateRequest(
+      new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv({
+        CLERK_AUTHORIZED_PARTIES:
+          "https://example.com/, https://admin.example.com",
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ["missing", {}],
+    ["foreign", { azp: "https://attacker.example.com" }],
+  ])("rejects a token with a %s authorized party", async (_case, claims) => {
+    const token = await signToken(claims);
+    const result = await authenticateRequest(
+      new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv({ CLERK_AUTHORIZED_PARTIES: "https://example.com" }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
+
+  it("fails closed when the authorized-party configuration is invalid", async () => {
+    const token = await signToken({ azp: "https://example.com" });
+    const result = await authenticateRequest(
+      new Request("https://example.com/api/settings", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      makeEnv({ CLERK_AUTHORIZED_PARTIES: "https://example.com/admin" }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(500);
+    }
+  });
+
   it("infers local Clerk auth config from the publishable key", async () => {
     const token = await signToken();
     const result = await authenticateRequest(

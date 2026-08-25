@@ -12,6 +12,7 @@ export interface Env {
   CLERK_JWKS_URL?: string;
   CLERK_ISSUER?: string;
   CLERK_JWT_AUDIENCE?: string;
+  CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_ADMIN_IDS?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   OTW_PLAY_ANALYTICS_READ_TOKEN?: string;
