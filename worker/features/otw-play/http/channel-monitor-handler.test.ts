@@ -31,7 +31,16 @@ describe("OTW Play channel monitor handler", () => {
       "https://example.com/api/play/admin/channel-monitors",
       {
         method: "POST",
-        body: JSON.stringify({ externalChannelId: "UC1234567890123456789012" }),
+        body: JSON.stringify({
+          externalChannelId: "UC1234567890123456789012",
+          approval: {
+            scope: "candidate_collection",
+            operatorReference: "operator-proof",
+            approvalReference: "rights-ticket",
+            revocationProcedure: "pause and unsubscribe",
+            confirmed: true,
+          },
+        }),
       },
     ), env);
     const checked = await handler(new Request(
@@ -40,7 +49,17 @@ describe("OTW Play channel monitor handler", () => {
     ), env);
 
     expect(created.status).toBe(201);
-    expect(create).toHaveBeenCalledWith("UC1234567890123456789012", "admin-1");
+    expect(create).toHaveBeenCalledWith(
+      "UC1234567890123456789012",
+      {
+        scope: "candidate_collection",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        confirmed: true,
+      },
+      "admin-1",
+    );
     expect(checked.status).toBe(200);
     expect(reconcile).toHaveBeenCalledWith("monitor-1");
   });
@@ -134,5 +153,64 @@ describe("OTW Play channel monitor handler", () => {
 
     expect(response.status).toBe(400);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rejects monitor creation without explicit candidate-collection rights", async () => {
+    const create = vi.fn();
+    const handler = createChannelMonitorHandler(
+      () => ({ create }) as unknown as ChannelMonitorService,
+    );
+    const missing = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors",
+      {
+        method: "POST",
+        body: JSON.stringify({ externalChannelId: "UC1234567890123456789012" }),
+      },
+    ), env);
+    const unconfirmed = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          externalChannelId: "UC1234567890123456789012",
+          approval: {
+            scope: "candidate_collection",
+            operatorReference: "operator-proof",
+            approvalReference: "rights-ticket",
+            revocationProcedure: "pause and unsubscribe",
+            confirmed: false,
+          },
+        }),
+      },
+    ), env);
+
+    expect(missing.status).toBe(400);
+    expect(unconfirmed.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("allows only an explicit recent 1 to 20 item backfill", async () => {
+    const backfill = vi.fn(async () => ({
+      discoveredCount: 2,
+      checkedVideoCount: 20,
+      capped: false,
+    }));
+    const handler = createChannelMonitorHandler(
+      () => ({ backfill }) as unknown as ChannelMonitorService,
+    );
+
+    const accepted = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/backfill",
+      { method: "POST", body: JSON.stringify({ count: 20 }) },
+    ), env);
+    const rejected = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/backfill",
+      { method: "POST", body: JSON.stringify({ count: 21 }) },
+    ), env);
+
+    expect(accepted.status).toBe(200);
+    expect(backfill).toHaveBeenCalledWith("monitor-1", 20);
+    expect(rejected.status).toBe(400);
+    expect(backfill).toHaveBeenCalledOnce();
   });
 });

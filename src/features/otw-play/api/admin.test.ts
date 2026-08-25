@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  backfillOtwPlayChannelMonitor,
   createOtwPlayCatalogEntry,
   createOtwPlayChannelMonitor,
   convertOtwPlayImportCandidates,
@@ -17,8 +18,11 @@ import {
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
+  renewOtwPlayChannelMonitor,
   recheckOtwPlaySource,
   retryOtwPlayImportJob,
+  subscribeOtwPlayChannelMonitor,
+  unsubscribeOtwPlayChannelMonitor,
   updateOtwPlayImportCandidate,
   updateOtwPlayAdminRelease,
   updateOtwPlayChannelMonitor,
@@ -182,6 +186,13 @@ describe("OTW Play admin API", () => {
   it("uses external YouTube channel IDs for collection-target CRUD", async () => {
     await createOtwPlayChannelMonitor({
       externalChannelId: "UC1111111111111111111111",
+      approval: {
+        scope: "candidate_collection",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        confirmed: true,
+      },
     });
     await updateOtwPlayChannelMonitor("monitor-1", {
       expectedVersion: 3,
@@ -194,7 +205,16 @@ describe("OTW Play admin API", () => {
       "/api/play/admin/channel-monitors",
       {
         method: "POST",
-        json: { externalChannelId: "UC1111111111111111111111" },
+        json: {
+          externalChannelId: "UC1111111111111111111111",
+          approval: {
+            scope: "candidate_collection",
+            operatorReference: "operator-proof",
+            approvalReference: "rights-ticket",
+            revocationProcedure: "pause and unsubscribe",
+            confirmed: true,
+          },
+        },
         auth: "required",
       },
     );
@@ -244,6 +264,34 @@ describe("OTW Play admin API", () => {
         json: { expectedVersion: 5, resetWatermark: true },
         auth: "required",
       },
+    );
+  });
+
+  it("uses explicit WebSub commands and a bounded backfill payload", async () => {
+    await subscribeOtwPlayChannelMonitor("monitor / one");
+    await renewOtwPlayChannelMonitor("monitor / one");
+    await unsubscribeOtwPlayChannelMonitor("monitor / one");
+    await backfillOtwPlayChannelMonitor("monitor / one", { count: 20 });
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/subscribe",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/renew",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/unsubscribe",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/backfill",
+      { method: "POST", json: { count: 20 }, auth: "required" },
     );
   });
 

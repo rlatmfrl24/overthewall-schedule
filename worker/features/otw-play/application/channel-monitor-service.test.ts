@@ -16,7 +16,10 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
   nextCheckAt: 100,
   lastSeenVideoId: "AAAAAAAAAAA",
   lastSeenPublishedAt: 50,
+  lastRecentReconciledAt: null,
   lastErrorCode: null,
+  automationApproval: null,
+  subscription: null,
   candidateCount: 0,
   pendingCandidateCount: 0,
   generation: 0,
@@ -27,12 +30,19 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
 });
 
 const repository = () => ({
+  findApprovableChannel: vi.fn(async (externalChannelId) => ({
+    id: "channel-1",
+    externalChannelId,
+    displayName: "Approved Clips",
+  })),
   findEligibleChannel: vi.fn(async (externalChannelId) => ({
     id: "channel-1",
     externalChannelId,
     displayName: "Approved Clips",
   })),
-  findByExternalChannel: vi.fn(async () => null),
+  findByExternalChannel: vi.fn<ChannelMonitorRepository["findByExternalChannel"]>(
+    async () => null,
+  ),
   get: vi.fn(async () => monitor()),
   list: vi.fn(async () => []),
   listCandidates: vi.fn<ChannelMonitorRepository["listCandidates"]>(
@@ -57,13 +67,18 @@ const repository = () => ({
     version: input.expectedVersion + 1,
   })),
   remove: vi.fn(async ({ id }) => ({ id })),
-  listDueIds: vi.fn(async () => []),
+  listDueIds: vi.fn<ChannelMonitorRepository["listDueIds"]>(async () => []),
+  listRecentDueIds: vi.fn<ChannelMonitorRepository["listRecentDueIds"]>(async () => []),
   claim: vi.fn(async () => monitor()),
   recordCandidates: vi.fn(async () => 1),
   complete: vi.fn(async (input) => monitor({
     lastSeenVideoId: input.lastSeenVideoId,
     lastSeenPublishedAt: input.lastSeenPublishedAt,
     lastCheckedAt: input.now,
+  })),
+  completeSupplemental: vi.fn(async (input) => monitor({
+    lastRecentReconciledAt: input.now,
+    version: input.expectedVersion + 1,
   })),
   markGapSuspected: vi.fn(async (input) => monitor({
     status: "paused",
@@ -144,13 +159,45 @@ describe("ChannelMonitorService", () => {
     });
     const service = new ChannelMonitorService(repo, reader, () => "monitor-1", () => 100);
 
-    await expect(service.create("UC1234567890123456789012", "admin-1")).resolves.toMatchObject({
+    await expect(service.create(
+      "UC1234567890123456789012",
+      {
+        scope: "candidate_collection",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        confirmed: true,
+      },
+      "admin-1",
+    )).resolves.toMatchObject({
       lastSeenVideoId: "AAAAAAAAAAA",
     });
     expect(repo.recordCandidates).not.toHaveBeenCalled();
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
       lastSeenVideoId: "AAAAAAAAAAA",
+      approval: expect.objectContaining({ scope: "candidate_collection" }),
     }));
+  });
+
+  it("does not treat an existing monitor without active rights as an approved create", async () => {
+    const repo = repository();
+    repo.findByExternalChannel.mockResolvedValueOnce(monitor({
+      automationApproval: null,
+    }));
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.create(
+      "UC1234567890123456789012",
+      {
+        scope: "candidate_collection",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        confirmed: true,
+      },
+      "admin-1",
+    )).rejects.toMatchObject({ code: "validation_failed" });
+    expect(repo.create).not.toHaveBeenCalled();
   });
 
   it("repoints a monitor by external channel ID and resets its watermark", async () => {
@@ -268,6 +315,62 @@ describe("ChannelMonitorService", () => {
       actorUserId: "admin-1",
       eventId: "event-reset",
       now: 500,
+    });
+  });
+
+  it("backfills only an explicit recent 1 to 20 item window", async () => {
+    const repo = repository();
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [
+        { playlistItemId: "item-c", videoId: "CCCCCCCCCCC", position: 0 },
+        { playlistItemId: "item-b", videoId: "BBBBBBBBBBB", position: 1 },
+        { playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 2 },
+      ],
+      nextPageToken: "next",
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "unused", () => 600);
+
+    await expect(service.backfill("monitor-1", 2)).resolves.toMatchObject({
+      discoveredCount: 1,
+      checkedVideoCount: 2,
+      capped: true,
+    });
+    expect(reader.readVideos).toHaveBeenCalledWith(["CCCCCCCCCCC", "BBBBBBBBBBB"]);
+    await expect(service.backfill("monitor-1", 0)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+    await expect(service.backfill("monitor-1", 21)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+  });
+
+  it("reconciles only uploads newer than the watermark in the daily recent window", async () => {
+    const repo = repository();
+    repo.listRecentDueIds.mockResolvedValueOnce(["monitor-1"]);
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [
+        { playlistItemId: "item-c", videoId: "CCCCCCCCCCC", position: 0 },
+        { playlistItemId: "item-b", videoId: "BBBBBBBBBBB", position: 1 },
+        { playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 2 },
+        { playlistItemId: "item-old", videoId: "OOOOOOOOOOO", position: 3 },
+      ],
+      nextPageToken: null,
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "unused", () => 700);
+
+    await expect(service.runRecentDue()).resolves.toEqual([{
+      id: "monitor-1",
+      ok: true,
+      discoveredCount: 1,
+    }]);
+    expect(reader.readVideos).toHaveBeenCalledWith(["CCCCCCCCCCC", "BBBBBBBBBBB"]);
+    expect(repo.completeSupplemental).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 0,
+      monitorGeneration: 0,
+      now: 700,
     });
   });
 });

@@ -10,6 +10,10 @@ const createMonitorMock = vi.hoisted(() => vi.fn());
 const updateMonitorMock = vi.hoisted(() => vi.fn());
 const deleteMonitorMock = vi.hoisted(() => vi.fn());
 const updateCandidateMock = vi.hoisted(() => vi.fn());
+const subscribeMock = vi.hoisted(() => vi.fn());
+const renewMock = vi.hoisted(() => vi.fn());
+const unsubscribeMock = vi.hoisted(() => vi.fn());
+const backfillMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
 const candidatesQueryMock = vi.hoisted(() => vi.fn());
@@ -19,6 +23,10 @@ vi.mock("../../api/admin", () => ({
   updateOtwPlayChannelMonitor: updateMonitorMock,
   deleteOtwPlayChannelMonitor: deleteMonitorMock,
   reconcileOtwPlayChannelMonitor: reconcileMock,
+  subscribeOtwPlayChannelMonitor: subscribeMock,
+  renewOtwPlayChannelMonitor: renewMock,
+  unsubscribeOtwPlayChannelMonitor: unsubscribeMock,
+  backfillOtwPlayChannelMonitor: backfillMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
 }));
 
@@ -39,7 +47,21 @@ const monitor = {
     nextCheckAt: 200,
     lastSeenVideoId: "AAAAAAAAAAA",
     lastSeenPublishedAt: 100,
+    lastRecentReconciledAt: null,
     lastErrorCode: null,
+    automationApproval: {
+      scope: "candidate_collection",
+      status: "approved",
+      operatorReference: "operator-proof",
+      approvalReference: "rights-ticket",
+      revocationProcedure: "pause and unsubscribe",
+      approvedByUserId: "admin-1",
+      approvedAt: 100,
+      revokedByUserId: null,
+      revokedAt: null,
+      version: 0,
+    },
+    subscription: null,
     candidateCount: 1,
     pendingCandidateCount: 1,
     generation: 0,
@@ -181,9 +203,26 @@ describe("ChannelMonitorSection", () => {
     fireEvent.change(screen.getByLabelText("수집 대상 채널 ID"), {
       target: { value: "UC1111111111111111111111" },
     });
+    fireEvent.change(screen.getByLabelText("운영 주체 확인 근거"), {
+      target: { value: "operator-proof" },
+    });
+    fireEvent.change(screen.getByLabelText("비공개 후보 수집 승인 근거"), {
+      target: { value: "rights-ticket" },
+    });
+    fireEvent.change(screen.getByLabelText("승인 해제 절차"), {
+      target: { value: "pause and unsubscribe" },
+    });
+    fireEvent.click(screen.getByLabelText("후보 수집 권리 확인"));
     fireEvent.click(screen.getByRole("button", { name: "채널 추가" }));
     await waitFor(() => expect(createMonitorMock).toHaveBeenCalledWith({
       externalChannelId: "UC1111111111111111111111",
+      approval: {
+        scope: "candidate_collection",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        confirmed: true,
+      },
     }));
 
     fireEvent.change(screen.getByLabelText("채널 ID 수정"), {
@@ -204,6 +243,57 @@ describe("ChannelMonitorSection", () => {
     await waitFor(() => expect(deleteMonitorMock).toHaveBeenCalledWith(
       "monitor-1",
       { expectedVersion: 2 },
+    ));
+  });
+
+  it("shows subscription state and runs explicit WebSub and bounded backfill actions", async () => {
+    monitorsQueryMock.mockReturnValue({
+      data: [{
+        ...monitor,
+        lastRecentReconciledAt: 1756101600000,
+        subscription: {
+          status: "active",
+          leaseExpiresAt: 1756274400000,
+          lastNotificationAt: 1756105200000,
+          lastErrorCode: null,
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    subscribeMock.mockResolvedValue({ id: "monitor-1" });
+    renewMock.mockResolvedValue({ id: "monitor-1" });
+    unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
+    backfillMock.mockResolvedValue({ discoveredCount: 0, checkedVideoCount: 20, capped: false });
+
+    render(createElement(ChannelMonitorSection), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("구독 활성")).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("권리 후보 수집 승인") === true,
+    )).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("마지막 알림") === true,
+    )).toBeTruthy();
+    expect(screen.getByText((_, element) =>
+      element?.tagName === "P" && element.textContent?.includes("최근 50개 대조") === true,
+    )).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "갱신" }));
+    await waitFor(() => expect(renewMock).toHaveBeenCalledWith("monitor-1"));
+    fireEvent.click(screen.getByRole("button", { name: "구독 해제" }));
+    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
+
+    fireEvent.change(screen.getByLabelText("명시적 최근 영상 가져오기"), {
+      target: { value: "20" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기" }));
+    await waitFor(() => expect(backfillMock).toHaveBeenCalledWith(
+      "monitor-1",
+      { count: 20 },
     ));
   });
 });
