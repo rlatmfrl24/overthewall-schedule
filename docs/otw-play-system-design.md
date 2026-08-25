@@ -1688,9 +1688,10 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   ingestion job, candidate, channel monitor는 모두 0이며 승인된 clip 자동화 channel도
   0개다.
 - production은 Clerk development instance를 사용하므로 인증 관리자 canary를 실행하지
-  않는다. Clerk production instance, `pk_live` build key, production issuer/JWKS/admin
-  ID, OAuth redirect/domain과 Worker production origin 검증이 완료될 때까지 개발 session을
-  우회 수단으로 사용하지 않는다.
+  않는다. Clerk production instance 전환은 OTW Play 공개 전환과 같은 변경 창에서
+  수행한다. `pk_live` build key, production issuer/JWKS/admin ID, OAuth redirect/domain과
+  Worker production origin 검증이 완료될 때까지 개발 session을 우회 수단으로 사용하지
+  않는다.
 - legacy `kirinuki_channels`는 clip 수집 권리의 권위가 아니다. 채널별 운영 주체,
   candidate-only 수집 승인 근거, 해제 절차와 승인·철회 actor/time/version을 별도
   approval aggregate로 보존하고, 유효한 approval이 없으면 monitor, WebSub, backfill,

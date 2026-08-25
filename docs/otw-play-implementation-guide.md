@@ -55,8 +55,8 @@ flowchart LR
 - scheduled source health, structured telemetry, 감사 가능한 release command와 운영
   UI가 구현되었다. source health due count는 0이다.
 - production 관리 화면은 Clerk development instance를 사용한다. 관리자 세션은
-  동작하지만 production auth canary의 권위로 사용하지 않고 production instance 전환
-  뒤 다시 검증한다.
+  동작하지만 production auth canary의 권위로 사용하지 않는다. production instance
+  전환과 재검증은 OTW Play 공개 전환과 같은 변경 창에서 수행한다.
 
 이 snapshot은 PR-9 코드 closeout의 권위 기준이다. 인증 스모크, catalog 정비와 실제
 flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지 않는다.

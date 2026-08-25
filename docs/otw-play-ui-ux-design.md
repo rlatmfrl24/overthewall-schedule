@@ -773,7 +773,8 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   `singing_clip` 검수·제외만 제공한다.
 - production 승인 clip channel은 0개다. legacy channel을 선택했다는 이유만으로 권리
   승인을 표시하거나 monitor/WebSub action을 활성화하지 않는다.
-- production 인증은 Clerk production instance 전환 전까지 보류한다. 개발 instance
-  session으로 P0-A/P0-B 성공 화면을 만들지 않는다.
+- production 인증은 Clerk production instance 전환 전까지 보류한다. 전환은 OTW Play
+  공개 전환과 같은 변경 창에서 수행하며 개발 instance session으로 P0-A/P0-B 성공
+  화면을 만들지 않는다.
 - WebSub UI는 local Draft PR 범위이며 production에는 미배포다. 권리 승인·인증·secret이
   준비되지 않은 상태를 일반 오류가 아니라 명시적인 운영 gate로 보여 준다.

@@ -122,7 +122,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-061 | playlist job의 숨김·삭제·재생 불가 영상은 관리자가 한 번에 제외할 수 있다. | 확정 | 현재 화면이나 분류 filter가 아니라 job 전체의 `blocked` 후보를 조회하고 `private`, `embed_disabled`, `deleted`, `region_blocked`, `unavailable`만 대상으로 한다. `unknown`과 정책 검토 후보는 자동 제외하지 않는다. 최대 100건 단위 명령으로 job 소속과 candidate version CAS를 재검증하며 성공과 stale·실패를 항목별로 분리한다. |
 | DEC-062 | playlist 후보 검수는 공식 채널 승인과 완료 항목 정리를 같은 작업 흐름에 포함한다. | 확정 | `channel_review` 후보는 sticky form에서 공식 역할과 소유·연결 주체를 확인해 채널을 승인·활성화하고 metadata를 다시 분류한다. 변환은 화면 선택이 아니라 job 전체 `ready` 후보를 100건 단위로 처리하며 `converted|ignored`는 기본 후보 목록에서 제외하되 명시적 status 조회는 유지한다. |
 | DEC-063 | playlist 후보의 상태와 채널 승인 경계는 운영자가 의미와 다음 행동을 바로 판단할 수 있게 표시한다. | 확정 | 상태 열은 내부 code 대신 후보 workflow 단계, 현재 권위 분류, 다음 조치와 origin 가져오기 기록을 분리해 한국어로 표시한다. 신규 채널 승인의 기본 소유 유형은 OTW 공식 또는 catalog member identity 공식으로 제한하고, 두 유형은 가용 폭을 채우는 2열 카드로 표시한다. archive되지 않은 OTW 멤버는 중첩 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드를 열어 기존 외부 주체 연결과 명시적 승인 확인을 모두 거쳐야 한다. |
-| DEC-064 | production P0-A·P0-B canary는 Clerk production instance와 채널별 자동 수집 권리 승인 뒤에만 수행한다. | 확정 | 현재 production의 Clerk development instance를 canary 권위로 사용하지 않는다. legacy `kirinuki_channels` row를 자동 승인으로 해석하지 않고, 운영 주체·candidate-only 수집 근거·해제 절차가 기록된 `approved_kirinuki`만 backfill 0으로 등록한다. 승인 채널이 없으므로 production monitor·WebSub 구독은 만들지 않는다. |
+| DEC-064 | production P0-A·P0-B canary는 Clerk production instance와 채널별 자동 수집 권리 승인 뒤에만 수행한다. | 확정 | Clerk production 전환은 OTW Play 공개 전환과 같은 변경 창에서 수행하며, 현재 development instance를 canary 권위로 사용하지 않는다. legacy `kirinuki_channels` row를 자동 승인으로 해석하지 않고, 운영 주체·candidate-only 수집 근거·해제 절차가 기록된 `approved_kirinuki`만 backfill 0으로 등록한다. 승인 채널이 없으므로 production monitor·WebSub 구독은 만들지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -587,7 +587,7 @@ clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_
 | --- | --- | --- |
 | P0-A | catalog 입력 효율·proposal lifecycle | PR-9A~C로 구현·배포 완료했다. production canary는 Clerk production instance 전환 뒤 OTW 공식 `Cover Song` playlist 최근 5개를 수집하되 draft 변환·게시 없이 Queue와 D1 readback만 확인한다. |
 | P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation·review-only candidate foundation은 배포 완료했다. WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill은 후속 구현하되 권리 승인 channel이 생기기 전 production 구독하지 않는다. |
-| P0-C | 운영 공개·안정화 지속 확인 | Clerk production instance, production issuer/JWKS/admin ID와 origin 검증을 먼저 완료한다. 이후 인증 관리자 스모크, source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal을 공개 전후 지속 확인한다. |
+| P0-C | 운영 공개·안정화 지속 확인 | OTW Play 공개 전환 변경 창에서 Clerk production instance, production issuer/JWKS/admin ID와 origin 검증을 완료한다. 이후 인증 관리자 스모크, source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal을 공개 전후 지속 확인한다. |
 | P1 | 멤버 참여 정보·멤버별 노래책·SEO | existing participant와 최소 member contribution을 사용해 current member의 부른 곡·오리지널·커버·협업·만든 곡 page를 제공한다. 외부 음악 관계자 상세 credit, contributor·album graph는 범위에서 제외한다. |
 | P2 | 큐레이션·저장 경험 | 운영자 큐레이션 playlist를 먼저 제공하고 사용자 저장·공개/비공개·공유, 좋아요·최근 들은 곡·멤버 라디오를 순차 검토한다. |
 | P3 | 방송 가창·키리누키 | 날짜별 가창 기록, 방송 타임스탬프, setlist, 승인된 키리누키와 원본 방송 fallback을 추가하고 P0-B `singing_clip` 후보의 draft 변환을 연다. TBD-004·005를 먼저 해결한다. |
@@ -758,7 +758,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-24 | DEC-060 보완. 반복 metadata 수집이 ready·ignored·converted 수동 결정을 되돌리지 않게 하고, origin의 existing_candidate와 실제 candidate 분류를 분리해 기존 catalog·channel/policy 거부를 동시 검수 409가 아닌 validation으로 안내 |
 | 2026-08-24 | DEC-062 확정 및 DEC-059 보완. 후보 검수에 공식 채널 인라인 승인·재분류를 포함하고, 선택 checkbox 대신 job 전체 ready 완료 항목을 일괄 draft 저장하며 converted·ignored 항목은 기본 목록에서 제외. 변경 예정 값은 영상 아래 가로 항목으로 재배치 |
 | 2026-08-24 | DEC-063 확정. 후보 상태를 workflow 단계·현재 권위 판단·다음 조치·가져오기 기록으로 분리해 한국어로 표시하고, 신규 채널 승인은 OTW 공식·catalog member identity 공식을 기본으로 제한. 소유 유형 카드는 2열로 폭을 채우고 archive되지 않은 OTW 멤버는 내부 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드에서 non-member 주체 연결과 명시적 승인 확인을 모두 요구 |
-| 2026-08-25 | PR-9A~C와 P0-B polling foundation의 PR #74 병합·production 배포·migration 0057~0062·Queue consumer readback을 완료 상태로 반영. DEC-064로 Clerk production 전환과 channel별 candidate-only 권리 승인 전에는 P0-A/P0-B canary, production monitor와 WebSub 구독을 수행하지 않도록 확정 |
+| 2026-08-25 | PR-9A~C와 P0-B polling foundation의 PR #74 병합·production 배포·migration 0057~0062·Queue consumer readback을 완료 상태로 반영. DEC-064로 Clerk production 전환과 channel별 candidate-only 권리 승인 전에는 P0-A/P0-B canary, production monitor와 WebSub 구독을 수행하지 않도록 확정. Clerk production 전환 시점은 OTW Play 공개 전환과 같은 변경 창으로 정정 |
 
 ## 19. 참고
 
