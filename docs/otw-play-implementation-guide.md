@@ -34,14 +34,14 @@ flowchart LR
 
 ### 1.1 현재 권위 상태
 
-2026-08-20 closeout 기준 현재 상태는 다음과 같다.
+2026-08-25 closeout 기준 현재 상태는 다음과 같다.
 
-- PR-8A PR #72, PR-8B PR #70, PR-8C PR #71이 `master`에 병합되었고 최종
-  `master` SHA는 `9b27ee9e37f796eb5d7674fd708b5623ff650f79`이다.
-- production deployment `745fa7de-df67-461d-9833-04ee99786f13`이 Worker version
-  `b28a20c1-c331-42f0-ade2-d15579d7c86e`을 제공한다.
-- 원격 D1에는 migration 0053–0056이 적용되어 pending migration이 없다.
-  catalog/read-model revision은 `2/2`이며 운영 catalog에는 song 1개, published
+- PR-9A~C와 P0-B polling foundation을 포함한 PR #74가 `master`에 병합되었고
+  merge SHA는 `981371ee5c5b60303acb28198d958fc778d655a5`이다.
+- merge-connected deployment가 Worker version
+  `32ccd5ea-766f-4bf2-ae96-b1c8042e6a1f`을 제공한다.
+- 원격 D1에는 migration 0053–0062가 적용되어 pending migration이 없다.
+  catalog/read-model revision은 `3/3`이며 운영 catalog에는 song 1개, published
   performance 1개, playable source 1개가 있다.
 - 운영 config는 의도대로 `public_read_enabled=0`, `navigation_visible=0`이다.
   `/play`는 `200`, `X-Robots-Tag: noindex,nofollow`, `Cache-Control: no-store`를
@@ -49,11 +49,16 @@ flowchart LR
 - `OTW_PLAY_ANALYTICS` dataset `otw_play_events`, account ID와 Analytics read-token
   secret이 최종 Worker version에 연결되어 있다. 인증 없는 관리자 observability와
   release 요청은 `401`, `no-store`로 닫힌다.
+- `otw-play-ingestion` Queue와 DLQ에 producer/consumer가 연결되어 있다. production
+  ingestion job, candidate와 active channel monitor는 모두 0개이며 승인·활성
+  `approved_kirinuki` channel도 없다.
 - scheduled source health, structured telemetry, 감사 가능한 release command와 운영
-  UI가 구현되었다. 현재 due source 1개의 다음 예약 실행과 인증 관리자 UI는 지속
-  운영 검증 대상이다.
+  UI가 구현되었다. source health due count는 0이다.
+- production 관리 화면은 Clerk development instance를 사용한다. 관리자 세션은
+  동작하지만 production auth canary의 권위로 사용하지 않고 production instance 전환
+  뒤 다시 검증한다.
 
-이 snapshot은 PR-8 코드 closeout의 권위 기준이다. 인증 스모크, catalog 정비와 실제
+이 snapshot은 PR-9 코드 closeout의 권위 기준이다. 인증 스모크, catalog 정비와 실제
 flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지 않는다.
 
 ## 2. 구현 착수 gate
@@ -84,14 +89,16 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 | GATE-04 | 회원 제안 수정·철회                  | 해결됨                  | DEC-054: 본인 pending_review만 CAS 수정·철회     |
 | GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
 | GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
+| GATE-07 | production 인증 권위                 | 운영 전 미해결          | Clerk production instance·issuer·JWKS·admin ID   |
+| GATE-08 | clip channel 자동 수집 권리          | 운영 전 미해결          | 운영 주체·candidate-only 근거·해제 절차 기록      |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
-GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. PR-7·8에는 당시
-결정되지 않았던 회원 수정·철회 command와 control이 없으며, 확정 계약은 PR-9A에서
-추가한다.
+GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원 수정·철회
+command와 control은 PR-9A에서 구현되었다. GATE-07·08은 독립적인 WebSub 로컬 구현을
+막지 않지만 production migration·배포·monitor·구독·canary를 막는다.
 
 ## 3. 전달 전략
 
@@ -1355,7 +1362,7 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 - 후속 기능 우선순위는 2026-08-20 추가 조사에 따라 아래 24절과 제품 요구사항의
   DEC-052~058로 대체되었다.
 
-## 24. PR-8 이후 조사 기준선과 권장 전달 순서
+## 24. PR-8 이후 조사 기준선과 전달 상태
 
 별도 조사 보고서:
 
@@ -1363,17 +1370,19 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 - `otw-play-channel-subscription-automation-research.md`
 - `otw-play-detailed-credits-and-member-songbook-research.md`
 
-권장 전달 순서:
+전달 상태와 다음 순서:
 
-1. PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
-2. PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
-3. PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
-4. PR-9D1: approved 노래 clip channel WebSub, lease renewal, uploads reconciliation과
+1. 완료 — PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
+2. 완료 — PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
+3. 완료 — PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
+4. 부분 완료 — P0-B polling foundation: approved clip channel의 6시간 uploads
+   reconciliation, 250개 cap, watermark·gap·generation과 review-only candidate inbox
+5. 다음 개발 — PR-9D1: approved 노래 clip channel WebSub, lease renewal, daily recent-50과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
-5. P1A: 기존 participant 기반 member songbook과 queue
-6. P1B: 최소 song/performance member contribution과 관리자 편집·곡 상세
-7. P1C: member contribution 정정 제안과 3곡 이상 current member SEO·sitemap
-8. P3/PR-9D2: 방송·키리누키 foundation 뒤 `singing_clip` candidate의 broadcast draft
+6. P1A: 기존 participant 기반 member songbook과 queue
+7. P1B: 최소 song/performance member contribution과 관리자 편집·곡 상세
+8. P1C: member contribution 정정 제안과 3곡 이상 current member SEO·sitemap
+9. P3/PR-9D2: 방송·키리누키 foundation 뒤 `singing_clip` candidate의 broadcast draft
    변환
 
 P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증은 위 개발과 병행하는
@@ -1409,3 +1418,21 @@ scroll container 없이 모두 렌더링한다. 숨김·삭제 일괄 제외는
 draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체 page를 최대 5,000건까지
 조회해 100건 단위로 처리한다. 기본 items 조회는 `converted|ignored`를 제외하고, 운영 확인을
 위한 명시적 status filter에서는 해당 상태를 계속 조회할 수 있다.
+
+## 25. 2026-08-25 PR-9 closeout과 production gate
+
+- PR #74와 migration 0057–0062, Queue/DLQ consumer, proposal lifecycle, playlist
+  ingestion·review·draft conversion 및 polling channel monitor를 완료 상태로 반영했다.
+- production P0-A 입력은 OTW 공식 `Cover Song` playlist
+  `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개로 고정한다. production Clerk
+  instance 전환 뒤에만 인증 UI에서 실행하고 draft 변환·게시 없이 Queue와 D1 job/candidate
+  readback을 확인한다.
+- 현재 권리 승인 channel은 0개다. legacy `kirinuki_channels`를 `approved_kirinuki`나
+  자동화 승인으로 승격하지 않는다. 운영 주체·candidate-only 수집 근거·해제 절차가
+  기록되기 전 production monitor와 WebSub subscription을 만들지 않는다.
+- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 로컬
+  구현과 Draft PR까지만 진행한다. remote migration, secret, 배포와 실제 hub 구독은
+  GATE-07·08이 해결될 때까지 보류한다.
+- 구독이 허용된 뒤에도 backfill 0으로 시작하고 실제 upload notification을 최대 7일
+  기다려 `hub → callback → Queue → videos.list → singing_clip candidate` readback이
+  성공해야 E2E 완료로 판정한다. challenge 성공만으로 완료를 선언하지 않는다.

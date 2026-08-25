@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-8 구현·배포 완료, 운영 공개 `0/0` 설계 기준선
+상태: PR-9A~C·P0-B polling foundation 구현·배포 완료, 운영 공개 `0/0` 설계 기준선
 
-기준일: 2026-08-21
+기준일: 2026-08-25
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -40,8 +40,9 @@ OTW Play는 기존 VOD 최신 영상 피드의 이름이나 화면만 바꾸는 
    부분 반영을 막는다.
 9. 검색·참여자 정렬용 파생 read model은 canonical catalog revision과 일치할
    때만 config 이외 공개 조회에 사용한다.
-10. R2, KV와 Durable Objects는 MVP에 추가하지 않는다. Queue는 PR-1~8 범위에서는
-    제외했고 PR-9B의 bounded playlist ingestion에만 D1 job과 함께 도입한다.
+10. R2, KV와 Durable Objects는 OTW Play ingestion에 추가하지 않는다. Queue는
+    PR-9B의 bounded playlist ingestion과 P0-B `singing_clip` 후보 수집에 D1 job과
+    함께 사용한다.
 
 테이블은 제품명 변경에 덜 민감한 `music_*` 접두사를 사용하고, 코드
 capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
@@ -83,8 +84,8 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 불가여도 곡과 가창 메타데이터는 `published`로 보존하고 공개 DTO의
 `playable=false`로 계산한다.
 
-자동 수집의 `candidate`는 PR-9 후속 범위다. 별도
-`music_ingestion_candidates` aggregate를 만들고 회원 제안 상태에 섞지 않는다.
+자동 수집의 `candidate`는 PR-9B에서 별도 `music_ingestion_candidates` aggregate로
+구현했으며 회원 제안 상태에 섞지 않는다.
 `candidate_kind`는 최소 `catalog_video|singing_clip`을 구분한다. public·unlisted
 playlist의 `catalog_video`는 관리자 검수 뒤 draft 변환이 가능하지만 approved 노래
 clip channel의 `singing_clip`은 방송·키리누키 foundation 전에는 inbox에서만
@@ -1676,3 +1677,27 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   지속 확인할 운영 gate다.
 - 후속 capability는 제품 요구사항의 P0~P4 우선순위를 따른다. 새 UI/API/schema를
   먼저 만들지 않고 각 단계의 권리·개인정보·감사·외부 API 결정을 선행한다.
+
+## 19. PR-9 closeout과 WebSub 전달 경계
+
+- PR-9A~C의 회원 proposal 수정·철회, playlist ingestion job/candidate, Queue/DLQ,
+  관리자 검수·draft 변환 흐름은 production에 반영되었다. P0-B의 6시간·최대 250개
+  uploads playlist polling monitor도 구현·배포되었으며 `singing_clip`은 검수·제외만
+  가능하고 service와 D1 양쪽에서 draft 변환·publish를 거부한다.
+- production catalog/read-model revision은 `3/3`, 공개 flag는 `0/0`이다. 운영
+  ingestion job, candidate, channel monitor는 모두 0이며 승인된 clip 자동화 channel도
+  0개다.
+- production은 Clerk development instance를 사용하므로 인증 관리자 canary를 실행하지
+  않는다. Clerk production instance, `pk_live` build key, production issuer/JWKS/admin
+  ID, OAuth redirect/domain과 Worker production origin 검증이 완료될 때까지 개발 session을
+  우회 수단으로 사용하지 않는다.
+- legacy `kirinuki_channels`는 clip 수집 권리의 권위가 아니다. 채널별 운영 주체,
+  candidate-only 수집 승인 근거, 해제 절차와 승인·철회 actor/time/version을 별도
+  approval aggregate로 보존하고, 유효한 approval이 없으면 monitor, WebSub, backfill,
+  reconciliation을 모두 거부한다.
+- `music_channel_upload_monitors`는 channel/watermark 권위로 유지한다. WebSub는 별도
+  subscription과 delivery transport aggregate를 사용하고 기존 Queue message와
+  `singing_clip` candidate idempotency 경계를 재사용한다.
+- WebSub 구현은 local migration·contract·callback·Queue·scheduler·관리자 UI 검증과 Draft
+  PR까지만 수행한다. remote D1 migration, secret 등록, 배포, 실제 구독은 인증과 권리
+  gate가 모두 해제될 때까지 금지한다.

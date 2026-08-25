@@ -1,10 +1,10 @@
 # OTW Play YouTube 노래 클립 채널 구독·신규 영상 후보 자동화 조사 보고서
 
-상태: 2026-08-21 대상 범위·권장 운영값 채택, 구현 전
+상태: 6시간 polling foundation 구현·배포 완료, WebSub 후속 미배포·권리 gate 대기
 
 조사일: 2026-08-20
 
-결정일: 2026-08-21
+결정일: 2026-08-25
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -309,11 +309,11 @@ Aggregation 조항에 대한 별도 compliance 확인이 선행되어야 한다.
 | ID | 상태 | 확정값 또는 남은 확인 |
 | --- | --- | --- |
 | GATE-AUTO-01 | 해결 | P0-A Queue/DLQ, D1 job과 retention 정책 재사용 |
-| GATE-AUTO-02 | 기본 정책 해결 | approved clip channel 1개, backfill 0, 필요 시 최근 20개. 실제 channel ID는 운영 전 지정 |
+| GATE-AUTO-02 | 운영 gate | 현재 승인 channel 0개. 권리 승인 뒤 1개, backfill 0으로 시작하고 필요 시 최근 1~20개만 명시 실행 |
 | GATE-AUTO-03 | 해결 | Cloudflare root secret, channel별 파생 key, V1/V2 48시간 회전 |
-| GATE-AUTO-04 | 해결 | 6시간 watermark reconciliation, 실행당 250개 cap, 일일 최근 50개 중복 확인 |
+| GATE-AUTO-04 | 부분 완료 | 6시간 watermark reconciliation·실행당 250개 cap은 배포 완료, 일일 최근 50개는 WebSub 후속 |
 | GATE-AUTO-05 | 해결 | title keyword는 내부 triage priority만 사용, 관리자 override 필수 |
-| GATE-AUTO-06 | 운영 전 확인 | 실제 clip channel의 운영 주체·사용/게시 승인 범위와 YouTube API compliance |
+| GATE-AUTO-06 | 미해결 | 실제 clip channel의 운영 주체·candidate 수집 승인 근거·해제 절차와 YouTube API compliance |
 
 채택 기본값은 `approved_kirinuki`, `candidate_kind='singing_clip'`, `review_only`,
 backfill 0, 6시간 reconciliation과 자동 draft/publish 금지다. OTW·멤버 공식 channel은
@@ -347,4 +347,24 @@ backfill 0, 6시간 reconciliation과 자동 draft/publish 금지다. OTW·멤�
   거부한다.
 
 WebSub callback·subscription renewal·daily recent-50 보조 대조·명시적 최근 N개 backfill은
-이번 주기 확인 범위에 포함하지 않았으며 PR-9D1의 후속 전달 항목으로 유지한다.
+PR-9D1 후속 전달 항목이다.
+
+## 14. 2026-08-25 closeout과 gated WebSub 후속
+
+- PR-9A~C의 proposal lifecycle, D1 ingestion job/candidate, Queue/DLQ와 관리자 검수는
+  구현·배포 완료다. P0-B의 6시간·최대 250개 polling monitor도 production에 반영되었고
+  현재 monitor/candidate는 0개다.
+- clip 자동화 권리 승인은 현재 0개다. legacy `kirinuki_channels`의 6개 channel을
+  `approved_kirinuki`나 candidate 수집 승인으로 자동 승격하지 않는다.
+- 권리 권위는 channel row와 분리해 운영 주체 참조, candidate-only 승인 근거, 해제
+  절차, 승인·철회 actor/time/version을 보존한다. publication 권한으로 확대 해석하지
+  않으며 유효한 row가 없으면 monitor 생성·WebSub·backfill·reconciliation을 거부한다.
+- WebSub는 local migration·callback·Queue·scheduler·관리자 UI 검증 뒤 Draft PR로
+  유지한다. remote migration, secret, 배포와 실제 hub 구독은 금지한다.
+- production 인증은 Clerk production instance 전환 전까지 보류한다. 이후 P0-A는 공식
+  `Cover Song` playlist `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개를 인증 UI로
+  수집해 Queue와 D1 readback만 확인하고 변환·게시하지 않는다.
+- P0-B는 별도 권리 승인 뒤 backfill 0으로 monitor를 만들고 현재 최신 watermark를
+  확인한 다음 구독한다. challenge 성공만으로 완료하지 않고 최대 7일 안의 실제 upload
+  notification이 `hub → callback → Queue → videos.list → singing_clip candidate`를
+  통과해야 완료다.

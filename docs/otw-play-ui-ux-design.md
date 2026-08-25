@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-8 구현·배포 완료, 운영 공개 `0/0` UI/UX 기준선
+상태: PR-9A~C·P0-B polling foundation 구현·배포 완료, 운영 공개 `0/0` UI/UX 기준선
 
-기준일: 2026-08-21
+기준일: 2026-08-25
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -754,12 +754,26 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   검수 baseline은 덮어쓰지 않는다. metadata-only version 변경은 저장을 이어가고, 다른
   관리자의 실제 검수 변경은 입력값을 유지한 상태에서 최신 권위 상태를 다시 불러왔다고
   안내한다.
-- `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. approved clip
-  channel, WebSub/reconciliation, `singing_clip` 상태를 표시하고 방송·키리누키
-  foundation 전에는 catalog draft action을 제공하지 않는다.
+- `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. 유효한 candidate
+  수집 승인이 있는 clip channel만 monitor와 transport action을 제공한다. subscription
+  상태, lease, 마지막 알림·대조, 안전한 오류와 subscribe/pause/renew/reconcile/backfill
+  action을 표시하되 방송·키리누키 foundation 전에는 `singing_clip` catalog draft action을
+  제공하지 않는다.
 - 멤버 노래책은 외부 음악 관계자용 credit database처럼 보이지 않게 current member의
   `부른 곡·오리지널·커버·협업·만든 곡`을 중심으로 구성한다. 추가 참여 정보도 OTW
   멤버의 작사·작곡·편곡·연주·제작만 표시한다.
 - member page는 published song 1곡부터 direct URL을 제공하되 1~2곡은 noindex로
   유지하고, 3곡 이상과 navigation 공개·revision 일치에서만 navigation과 sitemap에
   포함한다. 대표 오리지널곡은 관리자 pin 최대 5곡과 최신순 fallback을 사용한다.
+
+### 19.7 PR-9 운영 UI closeout
+
+- playlist 수집 진행률, Queue 완료 readback, candidate 검수·보완·일괄 제외와 ready
+  candidate의 draft 변환은 구현·배포되었다. 6시간 channel monitor는
+  `singing_clip` 검수·제외만 제공한다.
+- production 승인 clip channel은 0개다. legacy channel을 선택했다는 이유만으로 권리
+  승인을 표시하거나 monitor/WebSub action을 활성화하지 않는다.
+- production 인증은 Clerk production instance 전환 전까지 보류한다. 개발 instance
+  session으로 P0-A/P0-B 성공 화면을 만들지 않는다.
+- WebSub UI는 local Draft PR 범위이며 production에는 미배포다. 권리 승인·인증·secret이
+  준비되지 않은 상태를 일반 오류가 아니라 명시적인 운영 gate로 보여 준다.

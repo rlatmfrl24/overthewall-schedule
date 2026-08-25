@@ -109,8 +109,10 @@ background assets under `public/profile-background`.
 
 ## Roadmap Notes
 
-- Music catalog/player work should start from the archived MVP analysis in
-  `docs/archive/` and must respect YouTube embed and rights constraints.
+- Music catalog/player work must start from the active OTW Play product
+  requirements, system design, UI/UX design, and implementation guide under
+  `docs/`. Archived MVP analysis is historical context only. YouTube embed,
+  API-policy, authentication, and channel-rights gates remain authoritative.
 - Future social/content integrations should reuse the shared content page shell
   and member post/feed card patterns.
 - New release or migration workflows should update `.agent` first, then mirror
