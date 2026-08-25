@@ -1,10 +1,10 @@
 # OTW Play 카탈로그 벌크 수집·제안 수정/철회 조사 보고서
 
-상태: 2026-08-21 권장안 채택, 구현 전
+상태: PR-9A~C 구현·배포 완료, 운영 canary 인증 gate 대기
 
 조사일: 2026-08-20
 
-결정일: 2026-08-21
+결정일: 2026-08-25
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -385,16 +385,15 @@ confirm dialog에 다음을 명시한다.
 
 ## 11. 단계별 전달 권장안
 
-| slice | 범위 | 선행 조건 |
+| slice | 상태 | 구현 범위와 남은 gate |
 | --- | --- | --- |
-| PR-9A | 회원 proposal 수정·철회 contract, CAS, audit, UI | 별도 migration 필요 여부 검증 |
-| PR-9B | ingestion job/candidate schema, Queue, playlist preflight·수집 | Queue·DLQ 운영 승인 |
-| PR-9C | 관리자 검수 grid, 행별 sticky 보완·공식 채널 승인, 영상 아래 가로 변경 예정 항목, 재생 불가 일괄 제외, job 전체 ready draft 변환·재시도 | PR-9B |
-| PR-9D | approved 노래 clip channel의 `singing_clip` candidate inbox | PR-9B candidate pipeline, clip channel 승인 |
+| PR-9A | 완료·배포 | 회원 proposal 수정·철회 contract, CAS, audit, UI |
+| PR-9B | 완료·배포 | ingestion job/candidate schema, Queue/DLQ, playlist preflight·수집 |
+| PR-9C | 완료·배포 | 관리자 검수 grid, 행별 sticky 보완·공식 채널 승인, 재생 불가 일괄 제외, job 전체 ready draft 변환·재시도 |
+| PR-9D | polling foundation 완료, WebSub 후속 | approved clip channel의 `singing_clip` candidate inbox. 현재 권리 승인 channel 0개 |
 
-PR-9A와 PR-9B는 같은 우선순위 프로그램이지만 migration·failure boundary가 다르므로
-별도 PR을 권장한다. PR-9C는 실제 관리자가 playlist를 끝까지 처리하는 대표 흐름을
-완성해야 완료다.
+PR-9A~C 구현은 완료되었다. production canary는 Clerk production instance와 권리 gate가
+해제된 뒤 실제 인증 UI·Queue·D1 readback으로 별도 확인한다.
 
 ## 12. 수용 기준
 

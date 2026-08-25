@@ -3,8 +3,8 @@
 ## 문서 상태
 
 - 상태: 현재 구현의 기준 문서
-- 기준일: 2026-07-29
-- 대상: React 웹 앱, Cloudflare Worker, D1, R2, 외부 콘텐츠 API
+- 기준일: 2026-08-25
+- 대상: React 웹 앱, Cloudflare Worker, D1, R2, Queue, 외부 콘텐츠 API
 
 이 문서는 OTW Schedule의 현재 코드 소유권과 의존성 규칙을 정의한다.
 리팩터링의 실행 배경과 당시 체크포인트는
@@ -33,6 +33,7 @@ flowchart LR
   external["CHZZK · YouTube · X · Naver Cafe"]
   d1[("Cloudflare D1<br/>업무 데이터·캐시")]
   r2[("Cloudflare R2<br/>공지·프로필 파일")]
+  queue[("Cloudflare Queue + DLQ<br/>OTW Play bounded ingestion")]
   staticAssets[("Cloudflare Static Assets routing<br/>SPA·정적 파일")]
 
   subgraph web["React 웹 앱"]
@@ -78,6 +79,8 @@ flowchart LR
   platform -. "JWKS 검증" .-> auth
   workerFeature --> d1
   workerFeature --> r2
+  workerFeature --> queue
+  queue --> workerFeature
   workerFeature --> external
   feature --> mulLive
 ```
@@ -94,7 +97,8 @@ flowchart LR
 | `ports` / `infrastructure` | 콘센트 규격과 실제 플러그 | application이 요구하는 규격을 D1·외부 API adapter가 구현한다. |
 | D1 | 업무 장부 | 일정·설정·수집 결과와 일부 외부 API cache처럼 구조화된 데이터를 보관한다. |
 | R2 (`ASSET_BUCKET`) | 서비스용 파일 창고 | 공지·프로필 등 애플리케이션이 관리하는 이미지와 파일을 보관한다. |
-| Cloudflare Static Assets routing | 배포된 전시물 보관함 | 빌드된 SPA와 정적 파일을 Worker보다 먼저 전달한다. 현재 배포에는 `ASSETS` binding이 없다. |
+| Cloudflare Queue + DLQ | 재시도 가능한 작업함 | OTW Play playlist ingestion을 최대 50개 영상 단위로 처리하고 실패 message를 격리한다. |
+| Cloudflare Static Assets routing | 배포된 전시물 보관함 | 빌드된 SPA와 정적 파일을 Worker보다 먼저 전달하며 Worker에는 `ASSETS` binding이 있다. |
 
 즉, 화면이 D1을 직접 만지는 구조가 아니다. 화면은 정해진 API 계약으로
 요청하고, Worker의 해당 capability가 규칙을 적용한 뒤 저장소나 외부 API를
@@ -102,8 +106,8 @@ flowchart LR
 
 현재 `wrangler.jsonc`는 `/api/*`, `/r2-assets/*`만 Worker를 먼저 실행하고,
 나머지 SPA·정적 파일 요청은 Cloudflare Static Assets routing이 먼저
-처리한다. `worker/app/fetch.ts`에 optional `env.ASSETS` fallback이 남아
-있지만 현재 배포 설정에는 해당 binding이 없다.
+처리한다. `worker/app/fetch.ts`는 `ASSETS` binding으로 직접 경로의 SPA fallback과
+route별 SEO 응답을 제공한다.
 
 일반적인 요청은 다음 순서로 처리된다.
 
