@@ -153,6 +153,7 @@ describe("IngestionSection", () => {
     updateCandidateMock.mockReset();
     convertMock.mockReset();
     ignoreCandidatesMock.mockReset();
+    retryMock.mockReset();
     fetchItemsMock.mockReset();
     itemsHookMock.mockReset();
     jobHookMock.mockReset();
@@ -222,6 +223,7 @@ describe("IngestionSection", () => {
         errorCode: null,
       }],
     });
+    retryMock.mockResolvedValue(undefined);
   });
 
   it("runs the persisted playlist flow, saves row review, and converts only to draft", async () => {
@@ -780,6 +782,85 @@ describe("IngestionSection", () => {
     })[0]!;
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
+  });
+
+  it("reports metadata refresh failures without leaving an unhandled action", async () => {
+    updateCandidateMock.mockRejectedValueOnce(new Error("network failed"));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    fireEvent.click(screen.getByRole("button", { name: "metadata 새로고침" }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description: "영상 metadata를 새로고침하지 못했습니다.",
+    }));
+    expect(screen.getByRole("button", { name: "metadata 새로고침" }).hasAttribute("disabled"))
+      .toBe(false);
+  });
+
+  it("reports pagination failures and releases the busy state", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId ? { items: [candidate()], nextCursor: "next-page" } : undefined,
+      isLoading: false,
+    }));
+    fetchItemsMock.mockRejectedValueOnce(new Error("network failed"));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+    const loadMoreButton = await screen.findByRole("button", { name: "다음 100개 불러오기" });
+
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description: "다음 후보 목록을 불러오지 못했습니다. 다시 시도해 주세요.",
+    }));
+    expect(loadMoreButton.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("reports failed-message retry errors and releases the busy state", async () => {
+    jobHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            id: "job-1",
+            playlistTitle: "Official Covers",
+            status: "partial",
+            counts: { discovered: 1, metadataChecked: 1, eligible: 1 },
+            lastErrorCode: "youtube_failed",
+          }
+        : undefined,
+    }));
+    retryMock.mockRejectedValueOnce(new Error("network failed"));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    fireEvent.change(screen.getByLabelText("YouTube 플레이리스트 URL 또는 ID"), {
+      target: { value: "PL1234567890" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
+    await screen.findByText("Official Covers");
+    fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
+    const retryButton = await screen.findByRole("button", { name: "실패 message 재시도" });
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description: "실패 message를 재시도하지 못했습니다.",
+    }));
+    expect(retryButton.hasAttribute("disabled")).toBe(false);
   });
 
   it("chunks more than 100 ready candidates into bounded conversion requests", () => {

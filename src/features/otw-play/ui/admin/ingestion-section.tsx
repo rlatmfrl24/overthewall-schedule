@@ -876,6 +876,28 @@ export function IngestionSection({
         action,
       });
       await refresh();
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
+        try {
+          await refresh();
+          toast({
+            variant: "info",
+            description: "후보 상태가 먼저 변경되었습니다. 최신 상태를 불러왔으니 다시 시도해 주세요.",
+          });
+        } catch {
+          toast({
+            variant: "error",
+            description: "후보 상태가 먼저 변경되었고 최신 목록도 불러오지 못했습니다. 권위 상태 새로고침을 다시 실행해 주세요.",
+          });
+        }
+        return;
+      }
+      toast({
+        variant: "error",
+        description: action === "ignore"
+          ? "후보를 제외하지 못했습니다."
+          : "영상 metadata를 새로고침하지 못했습니다.",
+      });
     } finally {
       setBusy(null);
     }
@@ -953,11 +975,18 @@ export function IngestionSection({
       });
     } catch (error) {
       if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
-        await refresh();
-        toast({
-          variant: "info",
-          description: "후보 또는 채널 상태가 먼저 변경되었습니다. 최신 상태를 확인해 주세요.",
-        });
+        try {
+          await refresh();
+          toast({
+            variant: "info",
+            description: "후보 또는 채널 상태가 먼저 변경되었습니다. 최신 상태를 확인해 주세요.",
+          });
+        } catch {
+          toast({
+            variant: "error",
+            description: "후보 또는 채널 상태가 먼저 변경되었고 최신 목록도 불러오지 못했습니다.",
+          });
+        }
         return;
       }
       toast({
@@ -1121,6 +1150,42 @@ export function IngestionSection({
       });
       setExtraItems((current) => [...current, ...page.items]);
       setNextCursor(page.nextCursor);
+    } catch {
+      toast({
+        variant: "error",
+        description: "다음 후보 목록을 불러오지 못했습니다. 다시 시도해 주세요.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const refreshAuthority = async () => {
+    setBusy("refresh");
+    try {
+      await refresh();
+      toast({ variant: "success", description: "최신 권위 상태를 불러왔습니다." });
+    } catch {
+      toast({
+        variant: "error",
+        description: "최신 권위 상태를 불러오지 못했습니다. 다시 시도해 주세요.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const retryFailedMessages = async (jobId: string) => {
+    setBusy("retry");
+    try {
+      await retryOtwPlayImportJob(jobId);
+      await refresh();
+      toast({ variant: "success", description: "실패 message를 다시 Queue에 등록했습니다." });
+    } catch {
+      toast({
+        variant: "error",
+        description: "실패 message를 재시도하지 못했습니다.",
+      });
     } finally {
       setBusy(null);
     }
@@ -1295,7 +1360,7 @@ export function IngestionSection({
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2"><Badge>{job.status}</Badge>{Object.entries(job.counts).map(([key, value]) => <Badge key={key} variant="outline">{key} {value}</Badge>)}</div>
             {job.lastErrorCode && <p className="text-sm text-destructive">최근 오류: {job.lastErrorCode}</p>}
-            <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw /> 권위 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={async () => { setBusy("retry"); try { await retryOtwPlayImportJob(job.id); await refresh(); } finally { setBusy(null); } }}>실패 message 재시도</Button>}</div>
+            <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 권위 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 message 재시도</Button>}</div>
           </CardContent>
         </Card>
       )}
