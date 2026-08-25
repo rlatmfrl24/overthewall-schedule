@@ -779,6 +779,46 @@ describe("D1IngestionRepository", () => {
     });
   });
 
+  it("keeps a job partial when a playlist page completes after a sibling failed", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({
+      jobId: "job-1",
+      actorUserId: "admin-1",
+      input,
+      preflight,
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [{ playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 0 }],
+        nextPageToken: "next-page",
+      },
+      NOW + 1,
+    );
+    const childRecords = await Promise.all(
+      children.map((message) => repository.readMessage(message.idempotencyKey)),
+    );
+    const videoMessage = childRecords.find((message) => message.kind === "video_batch")!;
+    const nextPageMessage = childRecords.find((message) => message.kind === "playlist_page")!;
+    await repository.markMessageDeadLetter(
+      videoMessage.idempotencyKey,
+      "queue_retries_exhausted",
+      NOW + 2,
+    );
+    await repository.recordPlaylistPage(
+      await repository.readMessage(nextPageMessage.idempotencyKey),
+      { items: [], nextPageToken: null },
+      NOW + 3,
+    );
+
+    expect(await repository.getJob("job-1")).toMatchObject({
+      status: "partial",
+      lastErrorCode: "queue_retries_exhausted",
+      counts: { retryPending: 0, permanentError: 1 },
+    });
+  });
+
   it("removes YouTube API data at 30 days while preserving the internal decision", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({

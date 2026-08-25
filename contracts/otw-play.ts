@@ -79,6 +79,13 @@ export const OTW_PLAY_INGESTION_CANDIDATE_STATUSES = [
 export type OtwPlayIngestionCandidateStatus =
   (typeof OTW_PLAY_INGESTION_CANDIDATE_STATUSES)[number];
 
+export const OTW_PLAY_INGESTION_CANDIDATE_KINDS = [
+  "official_video",
+  "singing_clip",
+] as const;
+export type OtwPlayIngestionCandidateKind =
+  (typeof OTW_PLAY_INGESTION_CANDIDATE_KINDS)[number];
+
 export const OTW_PLAY_INGESTION_CLASSIFICATIONS = [
   "pending_metadata",
   "eligible",
@@ -279,6 +286,7 @@ export interface OtwPlayIngestionReviewCandidateDto {
   id: string;
   version: number;
   videoId: string;
+  candidateKind: OtwPlayIngestionCandidateKind;
   status: OtwPlayIngestionCandidateStatus;
   classification: OtwPlayIngestionClassification;
   catalogChannelId: string | null;

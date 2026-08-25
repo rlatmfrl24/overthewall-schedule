@@ -1538,6 +1538,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         `SELECT 1 AS matched FROM music_ingestion_candidates AS candidate
          WHERE candidate.id = ? AND candidate.status = 'ready'
            AND candidate.version = ? AND candidate.classification = 'eligible'
+           AND candidate.candidate_kind = 'official_video'
            AND EXISTS (
              SELECT 1 FROM music_channels AS channel
              WHERE channel.provider = 'youtube'
@@ -2201,7 +2202,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
              last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
              version = version + 1, updated_at = ?
            WHERE id = ? AND status = 'ready' AND version = ?
-             AND classification = 'eligible'
+              AND classification = 'eligible'
+              AND candidate_kind = 'official_video'
              AND EXISTS (
                SELECT 1 FROM music_ingestion_candidate_origins AS origin
                WHERE origin.candidate_id = music_ingestion_candidates.id

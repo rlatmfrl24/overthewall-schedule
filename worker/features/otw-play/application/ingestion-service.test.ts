@@ -93,6 +93,7 @@ const repository = () => ({
     id: "youtube:AAAAAAAAAAA",
     version: 1,
     videoId: "AAAAAAAAAAA",
+    candidateKind: "official_video" as const,
     status: "ready" as const,
     classification: "eligible" as const,
     catalogChannelId: "channel-1",
@@ -104,6 +105,7 @@ const repository = () => ({
     id: "youtube:AAAAAAAAAAA",
     version: 2,
     videoId: "AAAAAAAAAAA",
+    candidateKind: "official_video" as const,
     status: "ready" as const,
     classification: "eligible" as const,
     catalogChannelId: "channel-1",
@@ -114,6 +116,7 @@ const repository = () => ({
     id: "youtube:AAAAAAAAAAA",
     version: 2,
     videoId: "AAAAAAAAAAA",
+    candidateKind: "official_video" as const,
     status: "ignored" as const,
     classification: "eligible" as const,
     catalogChannelId: "channel-1",
@@ -124,6 +127,7 @@ const repository = () => ({
     id: "youtube:AAAAAAAAAAA",
     version: 2,
     videoId: "AAAAAAAAAAA",
+    candidateKind: "official_video" as const,
     status: "needs_input" as const,
     classification: "eligible" as const,
     catalogChannelId: "channel-1",
@@ -274,6 +278,7 @@ describe("IngestionService", () => {
       id: "youtube:AAAAAAAAAAA",
       version: 1,
       videoId: "AAAAAAAAAAA",
+      candidateKind: "official_video",
       status: "needs_input",
       classification: "channel_review",
       catalogChannelId: null,
@@ -431,6 +436,7 @@ describe("IngestionService", () => {
       id: candidateId,
       version: 1,
       videoId: candidateId === "candidate-1" ? "AAAAAAAAAAA" : "BBBBBBBBBBB",
+      candidateKind: "official_video" as const,
       status: "ready" as const,
       classification: "eligible" as const,
       catalogChannelId: "channel-1",
@@ -514,6 +520,65 @@ describe("IngestionService", () => {
     );
   });
 
+  it("never converts monitored singing clips into official catalog drafts", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockResolvedValue({
+      id: "candidate-clip",
+      version: 1,
+      videoId: "AAAAAAAAAAA",
+      candidateKind: "singing_clip",
+      status: "ready",
+      classification: "eligible",
+      catalogChannelId: "channel-1",
+      reviewInput: {
+        song: { kind: "existing", songId: "song-1" },
+        participants: [{
+          subject: { kind: "entity", entityId: "entity-1" },
+          participantRole: "vocal",
+          creditOrder: 0,
+        }],
+        relationType: "cover",
+        releaseType: "official_video",
+        participationType: "solo",
+        internalNote: null,
+      },
+      linkedPerformanceId: null,
+    });
+    const preflightCatalogEntry = vi.fn();
+    const createCatalogEntry = vi.fn();
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-1",
+      () => 100,
+      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
+    );
+
+    await expect(service.convertCandidates("job-1", {
+      candidates: [{ id: "candidate-clip", expectedVersion: 1 }],
+    }, {
+      userId: "admin-1",
+      displayName: "Admin",
+      ipAddress: null,
+    })).resolves.toEqual({
+      results: [{
+        candidateId: "candidate-clip",
+        outcome: "validation_failed",
+        performanceId: null,
+        errorCode: "validation_failed",
+      }],
+    });
+    expect(preflightCatalogEntry).not.toHaveBeenCalled();
+    expect(createCatalogEntry).not.toHaveBeenCalled();
+    expect(repo.recordConversionOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateId: "candidate-clip",
+        outcome: "validation_failed",
+      }),
+    );
+  });
+
   it("bulk ignores job-owned candidates and returns stale rows for separate review", async () => {
     const repo = repository();
     repo.readReviewCandidate.mockImplementation(async (
@@ -523,6 +588,7 @@ describe("IngestionService", () => {
       id: candidateId,
       version: candidateId === "candidate-stale" ? 3 : 1,
       videoId: candidateId === "candidate-stale" ? "BBBBBBBBBBB" : "AAAAAAAAAAA",
+      candidateKind: "official_video" as const,
       status: "blocked" as const,
       classification: "unavailable" as const,
       catalogChannelId: null,

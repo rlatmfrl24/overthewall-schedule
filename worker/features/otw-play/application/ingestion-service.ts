@@ -616,6 +616,7 @@ export class IngestionService {
         );
         if (
           candidate.version !== selection.expectedVersion ||
+          candidate.candidateKind !== "official_video" ||
           candidate.status !== "ready" ||
           candidate.classification !== "eligible" ||
           !candidate.reviewInput

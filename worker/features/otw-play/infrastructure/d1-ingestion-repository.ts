@@ -749,17 +749,35 @@ export class D1IngestionRepository implements IngestionRepository {
       this.database.prepare(
         `UPDATE music_ingestion_jobs
          SET status = CASE WHEN EXISTS (
-             SELECT 1 FROM music_ingestion_messages
-             WHERE job_id = ? AND status = 'pending'
-           ) THEN 'collecting' ELSE 'completed' END,
+              SELECT 1 FROM music_ingestion_messages
+              WHERE job_id = ? AND status = 'pending'
+            ) THEN 'collecting'
+            WHEN EXISTS (
+              SELECT 1 FROM music_ingestion_messages
+              WHERE job_id = ? AND status = 'failed'
+            ) THEN 'partial'
+            ELSE 'completed' END,
            started_at = COALESCE(started_at, ?),
            completed_at = CASE WHEN EXISTS (
              SELECT 1 FROM music_ingestion_messages
              WHERE job_id = ? AND status = 'pending'
            ) THEN NULL ELSE ? END,
-           last_error_code = NULL, next_retry_at = NULL, updated_at = ?
+           last_error_code = CASE WHEN EXISTS (
+             SELECT 1 FROM music_ingestion_messages
+             WHERE job_id = ? AND status = 'failed'
+           ) THEN last_error_code ELSE NULL END,
+           next_retry_at = NULL, updated_at = ?
          WHERE id = ?`,
-      ).bind(message.jobId, now, message.jobId, now, now, message.jobId),
+      ).bind(
+        message.jobId,
+        message.jobId,
+        now,
+        message.jobId,
+        now,
+        message.jobId,
+        now,
+        message.jobId,
+      ),
     ]);
     return children.map((child) => child.message);
   }
@@ -1073,6 +1091,7 @@ export class D1IngestionRepository implements IngestionRepository {
   ): Promise<IngestionReviewCandidate> {
     const row = await this.database.prepare(
       `SELECT candidate.id, candidate.version, candidate.external_video_id,
+        candidate.candidate_kind,
         candidate.status, candidate.classification,
         (SELECT channel.id FROM music_channels AS channel
           WHERE channel.provider = 'youtube'
@@ -1091,6 +1110,7 @@ export class D1IngestionRepository implements IngestionRepository {
       id: string;
       version: number;
       external_video_id: string;
+      candidate_kind: IngestionReviewCandidate["candidateKind"];
       status: IngestionReviewCandidate["status"];
       classification: IngestionReviewCandidate["classification"];
       catalog_channel_id: string | null;
@@ -1107,6 +1127,7 @@ export class D1IngestionRepository implements IngestionRepository {
       id: row.id,
       version: Number(row.version),
       videoId: row.external_video_id,
+      candidateKind: row.candidate_kind,
       status: row.status,
       classification: row.classification,
       catalogChannelId: row.catalog_channel_id,
@@ -1418,6 +1439,7 @@ export class D1IngestionRepository implements IngestionRepository {
            last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND status = 'ready'
+           AND candidate_kind = 'official_video'
            AND EXISTS (
              SELECT 1 FROM music_ingestion_candidate_origins AS origin
              WHERE origin.candidate_id = music_ingestion_candidates.id
