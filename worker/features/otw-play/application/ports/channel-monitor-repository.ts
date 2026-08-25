@@ -2,6 +2,7 @@ import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorStatus,
+  OtwPlayCreateChannelMonitorRequest,
 } from "@contracts/otw-play";
 import type { OtwPlayYouTubeVideoObservation } from "./youtube-metadata";
 import type { ChannelMonitorCandidateCursor } from "../../domain/channel-monitor-cursor";
@@ -13,6 +14,7 @@ export interface EligibleChannelMonitorTarget {
 }
 
 export interface ChannelMonitorRepository {
+  findApprovableChannel(externalChannelId: string): Promise<EligibleChannelMonitorTarget | null>;
   findEligibleChannel(externalChannelId: string): Promise<EligibleChannelMonitorTarget | null>;
   findByExternalChannel(externalChannelId: string): Promise<OtwPlayChannelMonitorDto | null>;
   get(id: string): Promise<OtwPlayChannelMonitorDto>;
@@ -25,9 +27,11 @@ export interface ChannelMonitorRepository {
   create(input: {
     id: string;
     eventId: string;
+    approvalEventId: string;
     channel: EligibleChannelMonitorTarget;
     uploadsPlaylistId: string;
     lastSeenVideoId: string | null;
+    approval: OtwPlayCreateChannelMonitorRequest["approval"];
     actorUserId: string;
     now: number;
   }): Promise<OtwPlayChannelMonitorDto>;
@@ -65,6 +69,7 @@ export interface ChannelMonitorRepository {
     now: number;
   }): Promise<{ id: string }>;
   listDueIds(now: number, limit: number): Promise<string[]>;
+  listRecentDueIds(now: number, limit: number): Promise<string[]>;
   claim(id: string, now: number): Promise<OtwPlayChannelMonitorDto | null>;
   recordCandidates(input: {
     monitorId: string;
@@ -79,6 +84,12 @@ export interface ChannelMonitorRepository {
     monitorGeneration: number;
     lastSeenVideoId: string | null;
     lastSeenPublishedAt: number | null;
+    now: number;
+  }): Promise<OtwPlayChannelMonitorDto>;
+  completeSupplemental(input: {
+    id: string;
+    expectedVersion: number;
+    monitorGeneration: number;
     now: number;
   }): Promise<OtwPlayChannelMonitorDto>;
   markGapSuspected(input: {

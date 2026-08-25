@@ -95,6 +95,11 @@ export const apiRoutes = {
       (id: string) =>
         `/api/play/performances/${encodeURIComponent(id)}` as const,
     ),
+    youtubeWebhook: dynamicRoute(
+      "/api/play/webhooks/youtube/:token",
+      (token: string) =>
+        `/api/play/webhooks/youtube/${encodeURIComponent(token)}` as const,
+    ),
     submissions: {
       preflight: staticRoute("/api/play/submissions/preflight"),
       create: staticRoute("/api/play/submissions"),
@@ -161,6 +166,26 @@ export const apiRoutes = {
         "/api/play/admin/channel-monitors/:id/reconcile",
         (id: string) =>
           `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/reconcile` as const,
+      ),
+      subscribeChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/subscribe",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/subscribe` as const,
+      ),
+      renewChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/renew",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/renew` as const,
+      ),
+      unsubscribeChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/unsubscribe",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/unsubscribe` as const,
+      ),
+      backfillChannelMonitor: dynamicRoute(
+        "/api/play/admin/channel-monitors/:id/backfill",
+        (id: string) =>
+          `/api/play/admin/channel-monitors/${encodeURIComponent(id)}/backfill` as const,
       ),
       catalog: staticRoute("/api/play/admin/catalog"),
       catalogEntryPreflight: staticRoute(

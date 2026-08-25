@@ -22,6 +22,7 @@ import { updateSetting } from "../platform/http-helpers";
 import type { Env } from "../platform/types";
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayChannelMonitorService } from "./channel-monitors";
+import { createOtwPlayWebsubService } from "./websub";
 
 const collectScheduledXPosts = async (env: Env) => {
   const outcome = await runScheduledXCollection(env);
@@ -110,6 +111,27 @@ export const reconcileScheduledOtwPlayChannels = async (env: Env) => {
   return results;
 };
 
+export const reconcileRecentScheduledOtwPlayChannels = async (env: Env) => {
+  const results = await createOtwPlayChannelMonitorService(env).runRecentDue();
+  if (results.length > 0) {
+    console.log("[scheduled] OTW Play daily recent reconciliation completed", results);
+  }
+  return results;
+};
+
+export const maintainScheduledOtwPlayWebsub = async (env: Env) => {
+  const service = createOtwPlayWebsubService(env);
+  const recoveredDeliveries = await service.recoverPending();
+  const renewals = await service.renewDue();
+  if (recoveredDeliveries > 0 || renewals.length > 0) {
+    console.log("[scheduled] OTW Play WebSub maintenance completed", {
+      recoveredDeliveries,
+      renewals,
+    });
+  }
+  return { recoveredDeliveries, renewals };
+};
+
 export const runIndependentScheduledTasks = async (env: Env) => {
   const tasks = [
     {
@@ -127,6 +149,14 @@ export const runIndependentScheduledTasks = async (env: Env) => {
     {
       label: "OTW Play channel reconciliation",
       run: () => reconcileScheduledOtwPlayChannels(env),
+    },
+    {
+      label: "OTW Play daily recent reconciliation",
+      run: () => reconcileRecentScheduledOtwPlayChannels(env),
+    },
+    {
+      label: "OTW Play WebSub maintenance",
+      run: () => maintainScheduledOtwPlayWebsub(env),
     },
     {
       label: "YouTube warmup",

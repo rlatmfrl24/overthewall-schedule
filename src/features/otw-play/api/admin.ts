@@ -45,6 +45,7 @@ import type {
   OtwPlayChannelMonitorCandidatePageDto,
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorReconcileDto,
+  OtwPlayChannelMonitorBackfillRequest,
   OtwPlayCreateChannelMonitorRequest,
   OtwPlayDeleteChannelMonitorDto,
   OtwPlayDeleteChannelMonitorRequest,
@@ -117,6 +118,32 @@ export const reconcileOtwPlayChannelMonitor = (id: string) =>
     apiRoutes.otwPlay.admin.reconcileChannelMonitor.build(id),
     { method: "POST", json: {} },
   ).then((response) => response.data);
+
+export const subscribeOtwPlayChannelMonitor = (id: string) =>
+  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
+    apiRoutes.otwPlay.admin.subscribeChannelMonitor.build(id),
+    { method: "POST", json: {} },
+  ).then((response) => response.data);
+
+export const renewOtwPlayChannelMonitor = (id: string) =>
+  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
+    apiRoutes.otwPlay.admin.renewChannelMonitor.build(id),
+    { method: "POST", json: {} },
+  ).then((response) => response.data);
+
+export const unsubscribeOtwPlayChannelMonitor = (id: string) =>
+  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
+    apiRoutes.otwPlay.admin.unsubscribeChannelMonitor.build(id),
+    { method: "POST", json: {} },
+  ).then((response) => response.data);
+
+export const backfillOtwPlayChannelMonitor = (
+  id: string,
+  json: OtwPlayChannelMonitorBackfillRequest,
+) => adminRequest<{ data: OtwPlayChannelMonitorReconcileDto }>(
+  apiRoutes.otwPlay.admin.backfillChannelMonitor.build(id),
+  { method: "POST", json },
+).then((response) => response.data);
 
 export const fetchOtwPlayChannelMonitorCandidates = (
   id: string,

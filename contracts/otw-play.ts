@@ -189,6 +189,44 @@ export const OTW_PLAY_CHANNEL_MONITOR_STATUSES = ["active", "paused"] as const;
 export type OtwPlayChannelMonitorStatus =
   (typeof OTW_PLAY_CHANNEL_MONITOR_STATUSES)[number];
 
+export interface OtwPlayChannelAutomationApprovalDto {
+  scope: "candidate_collection";
+  status: "approved" | "revoked";
+  operatorReference: string;
+  approvalReference: string;
+  revocationProcedure: string;
+  approvedByUserId: string;
+  approvedAt: number;
+  revokedByUserId: string | null;
+  revokedAt: number | null;
+  version: number;
+}
+
+export const OTW_PLAY_WEBSUB_SUBSCRIPTION_STATUSES = [
+  "pending",
+  "active",
+  "renewing",
+  "unsubscribing",
+  "unsubscribed",
+  "denied",
+  "failed",
+] as const;
+export type OtwPlayWebsubSubscriptionStatus =
+  (typeof OTW_PLAY_WEBSUB_SUBSCRIPTION_STATUSES)[number];
+
+export interface OtwPlayWebsubSubscriptionDto {
+  id: string;
+  status: OtwPlayWebsubSubscriptionStatus;
+  pendingMode: "subscribe" | "unsubscribe" | null;
+  secretVersion: number;
+  requestedAt: number;
+  verifiedAt: number | null;
+  leaseExpiresAt: number | null;
+  lastNotificationAt: number | null;
+  lastErrorCode: string | null;
+  version: number;
+}
+
 export interface OtwPlayChannelMonitorDto {
   id: string;
   channelId: string;
@@ -201,7 +239,10 @@ export interface OtwPlayChannelMonitorDto {
   nextCheckAt: number;
   lastSeenVideoId: string | null;
   lastSeenPublishedAt: number | null;
+  lastRecentReconciledAt: number | null;
   lastErrorCode: string | null;
+  automationApproval: OtwPlayChannelAutomationApprovalDto | null;
+  subscription: OtwPlayWebsubSubscriptionDto | null;
   candidateCount: number;
   pendingCandidateCount: number;
   generation: number;
@@ -231,6 +272,17 @@ export interface OtwPlayChannelMonitorCandidatePageDto {
 
 export interface OtwPlayCreateChannelMonitorRequest {
   externalChannelId: string;
+  approval: {
+    scope: "candidate_collection";
+    operatorReference: string;
+    approvalReference: string;
+    revocationProcedure: string;
+    confirmed: true;
+  };
+}
+
+export interface OtwPlayChannelMonitorBackfillRequest {
+  count: number;
 }
 
 export type OtwPlayUpdateChannelMonitorRequest =

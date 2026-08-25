@@ -18,6 +18,8 @@ export interface Env {
   OTW_PLAY_ANALYTICS?: AnalyticsEngineDataset;
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   OTW_PLAY_INGESTION_QUEUE?: Queue<unknown>;
+  OTW_PLAY_WEBSUB_SECRET_V1?: string;
+  OTW_PLAY_PUBLIC_ORIGIN?: string;
   otw_db: D1Database;
   ASSET_BUCKET?: R2Bucket;
   ASSETS?: Fetcher;

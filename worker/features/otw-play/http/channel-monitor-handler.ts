@@ -63,18 +63,52 @@ export const createChannelMonitorHandler = (
       const externalChannelId = typeof body?.externalChannelId === "string"
         ? body.externalChannelId.trim()
         : "";
+      const approval = typeof body?.approval === "object" &&
+          body.approval !== null && !Array.isArray(body.approval)
+        ? body.approval as Record<string, unknown>
+        : null;
+      const operatorReference = typeof approval?.operatorReference === "string"
+        ? approval.operatorReference.trim()
+        : "";
+      const approvalReference = typeof approval?.approvalReference === "string"
+        ? approval.approvalReference.trim()
+        : "";
+      const revocationProcedure = typeof approval?.revocationProcedure === "string"
+        ? approval.revocationProcedure.trim()
+        : "";
       if (
         !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
-        Object.keys(body ?? {}).some((key) => key !== "externalChannelId")
+        Object.keys(body ?? {}).length !== 2 ||
+        !Object.hasOwn(body ?? {}, "externalChannelId") ||
+        !Object.hasOwn(body ?? {}, "approval") ||
+        !approval ||
+        Object.keys(approval).length !== 5 ||
+        approval.scope !== "candidate_collection" ||
+        approval.confirmed !== true ||
+        !operatorReference || operatorReference.length > 500 ||
+        !approvalReference || approvalReference.length > 500 ||
+        !revocationProcedure || revocationProcedure.length > 1_000
       ) {
         return errorJson(
           requestId,
           400,
           "PLAY_ADMIN_INVALID_REQUEST",
-          "A valid externalChannelId is required",
+          "A valid externalChannelId and explicit candidate-collection approval are required",
         );
       }
-      return json({ data: await service.create(externalChannelId, auth.user.id) }, 201);
+      return json({
+        data: await service.create(
+          externalChannelId,
+          {
+            scope: "candidate_collection",
+            operatorReference,
+            approvalReference,
+            revocationProcedure,
+            confirmed: true,
+          },
+          auth.user.id,
+        ),
+      }, 201);
     }
     const candidatesId = pathId(url.pathname, "/candidates");
     if (request.method === "GET" && candidatesId) {
@@ -107,6 +141,27 @@ export const createChannelMonitorHandler = (
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "An empty object is required");
       }
       return json({ data: await service.reconcile(reconcileId) });
+    }
+    const backfillId = pathId(url.pathname, "/backfill");
+    if (request.method === "POST" && backfillId) {
+      const body = await readObject(request);
+      const count = body?.count;
+      if (
+        !body ||
+        Object.keys(body).length !== 1 ||
+        !Object.hasOwn(body, "count") ||
+        !Number.isSafeInteger(count) ||
+        Number(count) < 1 ||
+        Number(count) > 20
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "count must be an integer between 1 and 20",
+        );
+      }
+      return json({ data: await service.backfill(backfillId, Number(count)) });
     }
     const monitorId = pathId(url.pathname, "");
     if (request.method === "PATCH" && monitorId) {
