@@ -72,9 +72,51 @@ describe("OTW Play channel monitor handler", () => {
       "monitor-1",
       4,
       "UC2222222222222222222222",
+      "admin-1",
     );
     expect(deleted.status).toBe(200);
-    expect(remove).toHaveBeenCalledWith("monitor-1", 5);
+    expect(remove).toHaveBeenCalledWith("monitor-1", 5, "admin-1");
+  });
+
+  it("resets a suspected-gap watermark through an explicit command", async () => {
+    const resetWatermark = vi.fn(async () => ({
+      id: "monitor-1",
+      version: 6,
+      status: "active",
+      lastErrorCode: null,
+    }));
+    const handler = createChannelMonitorHandler(
+      () => ({ resetWatermark }) as unknown as ChannelMonitorService,
+    );
+
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ expectedVersion: 5, resetWatermark: true }),
+      },
+    ), env);
+
+    expect(response.status).toBe(200);
+    expect(resetWatermark).toHaveBeenCalledWith("monitor-1", 5, "admin-1");
+  });
+
+  it("passes candidate pagination to the service and rejects malformed cursors", async () => {
+    const listCandidates = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const handler = createChannelMonitorHandler(
+      () => ({ listCandidates }) as unknown as ChannelMonitorService,
+    );
+
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/candidates?limit=25&cursor=opaque",
+    ), env);
+    expect(response.status).toBe(200);
+    expect(listCandidates).toHaveBeenCalledWith("monitor-1", 25, "opaque");
+
+    const duplicate = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/candidates?cursor=a&cursor=b",
+    ), env);
+    expect(duplicate.status).toBe(400);
   });
 
   it("rejects malformed channel IDs before calling the service", async () => {

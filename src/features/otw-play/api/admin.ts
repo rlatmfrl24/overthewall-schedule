@@ -42,7 +42,7 @@ import type {
   OtwPlayPlaylistPreflightRequest,
   OtwPlayRetryIngestionJobResponse,
   OtwPlayUpdateIngestionCandidateRequest,
-  OtwPlayChannelMonitorCandidateDto,
+  OtwPlayChannelMonitorCandidatePageDto,
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorReconcileDto,
   OtwPlayCreateChannelMonitorRequest,
@@ -118,13 +118,20 @@ export const reconcileOtwPlayChannelMonitor = (id: string) =>
     { method: "POST", json: {} },
   ).then((response) => response.data);
 
-export const fetchOtwPlayChannelMonitorCandidates = (id: string) =>
-  adminRequest<{ data: OtwPlayChannelMonitorCandidateDto[] }>(
+export const fetchOtwPlayChannelMonitorCandidates = (
+  id: string,
+  options: { limit?: number; cursor?: string | null } = {},
+) => {
+  const search = new URLSearchParams();
+  if (options.limit !== undefined) search.set("limit", String(options.limit));
+  if (options.cursor) search.set("cursor", options.cursor);
+  return adminRequest<{ data: OtwPlayChannelMonitorCandidatePageDto }>(
     withRouteSearch(
       apiRoutes.otwPlay.admin.channelMonitorCandidates.build(id),
-      new URLSearchParams({ limit: "100" }),
+      search,
     ),
   ).then((response) => response.data);
+};
 
 export const fetchOtwPlayImportJobItems = (
   jobId: string,

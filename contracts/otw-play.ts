@@ -204,6 +204,7 @@ export interface OtwPlayChannelMonitorDto {
   lastErrorCode: string | null;
   candidateCount: number;
   pendingCandidateCount: number;
+  generation: number;
   version: number;
   createdAt: number;
   updatedAt: number;
@@ -223,6 +224,11 @@ export interface OtwPlayChannelMonitorCandidateDto {
   discoveredAt: number;
 }
 
+export interface OtwPlayChannelMonitorCandidatePageDto {
+  items: OtwPlayChannelMonitorCandidateDto[];
+  nextCursor: string | null;
+}
+
 export interface OtwPlayCreateChannelMonitorRequest {
   externalChannelId: string;
 }
@@ -232,11 +238,19 @@ export type OtwPlayUpdateChannelMonitorRequest =
       expectedVersion: number;
       status: OtwPlayChannelMonitorStatus;
       externalChannelId?: never;
+      resetWatermark?: never;
     }
   | {
       expectedVersion: number;
       externalChannelId: string;
       status?: never;
+      resetWatermark?: never;
+    }
+  | {
+      expectedVersion: number;
+      resetWatermark: true;
+      status?: never;
+      externalChannelId?: never;
     };
 
 export interface OtwPlayDeleteChannelMonitorRequest {
@@ -252,6 +266,7 @@ export interface OtwPlayChannelMonitorReconcileDto {
   discoveredCount: number;
   checkedVideoCount: number;
   capped: boolean;
+  gapSuspected: boolean;
 }
 
 export interface OtwPlayIngestionCandidateItemDto {

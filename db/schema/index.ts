@@ -2137,13 +2137,17 @@ export const musicChannelUploadMonitors = sqliteTable(
     last_seen_published_at: integer("last_seen_published_at"),
     last_error_code: text("last_error_code"),
     lease_until: integer("lease_until"),
+    generation: integer().notNull().default(0),
+    deleted_at: integer("deleted_at"),
     created_by_user_id: text("created_by_user_id").notNull(),
     version: integer().notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("uidx_music_channel_upload_monitors_channel").on(table.channel_id),
+    uniqueIndex("uidx_music_channel_upload_monitors_channel")
+      .on(table.channel_id)
+      .where(sql`${table.deleted_at} IS NULL`),
     index("idx_music_channel_upload_monitors_due").on(
       table.status,
       table.next_check_at,
@@ -2193,11 +2197,18 @@ export const musicChannelUploadCandidateOrigins = sqliteTable(
       .references(() => musicIngestionCandidates.id, { onDelete: "cascade" }),
     provider_published_at: integer("provider_published_at"),
     discovered_at: integer("discovered_at").notNull(),
+    monitor_generation: integer("monitor_generation").notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.monitor_id, table.candidate_id] }),
     index("idx_music_channel_upload_origins_monitor_discovered").on(
       table.monitor_id,
+      sql`${table.discovered_at} DESC`,
+      table.candidate_id,
+    ),
+    index("idx_music_channel_upload_origins_monitor_generation_discovered").on(
+      table.monitor_id,
+      table.monitor_generation,
       sql`${table.discovered_at} DESC`,
       table.candidate_id,
     ),

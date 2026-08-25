@@ -9,6 +9,10 @@ import {
   type OtwPlayYouTubeVideoObservation,
 } from "./ports/youtube-metadata";
 import { IngestionRepositoryError } from "./ports/ingestion-repository";
+import {
+  decodeChannelMonitorCandidateCursor,
+  encodeChannelMonitorCandidateCursor,
+} from "../domain/channel-monitor-cursor";
 
 const MAX_RECONCILIATION_VIDEOS = 250;
 
@@ -34,8 +38,25 @@ export class ChannelMonitorService {
     return this.repository.list();
   }
 
-  listCandidates(id: string, limit = 50) {
-    return this.repository.listCandidates(id, Math.max(1, Math.min(100, limit)));
+  async listCandidates(id: string, limit = 50, cursorValue: string | null = null) {
+    const cursor = cursorValue
+      ? decodeChannelMonitorCandidateCursor(cursorValue)
+      : null;
+    const result = await this.repository.listCandidates(
+      id,
+      Math.max(1, Math.min(100, limit)),
+      cursor,
+    );
+    const last = result.items.at(-1);
+    return {
+      items: result.items,
+      nextCursor: result.hasMore && last
+        ? encodeChannelMonitorCandidateCursor({
+            discoveredAt: last.discoveredAt,
+            candidateId: last.candidateId,
+          })
+        : null,
+    };
   }
 
   async create(externalChannelId: string, actorUserId: string) {
@@ -45,7 +66,7 @@ export class ChannelMonitorService {
     if (!channel) {
       throw new IngestionRepositoryError(
         "validation_failed",
-        "Only active, approved YouTube channels can be monitored",
+        "Only active, approved singing-clip YouTube channels can be monitored",
       );
     }
     const uploads = await this.youtube.readChannelUploads(channel.externalChannelId);
@@ -58,6 +79,7 @@ export class ChannelMonitorService {
     const page = await this.youtube.readPlaylistPage(uploads.uploadsPlaylistId, null);
     return this.repository.create({
       id: this.createId(),
+      eventId: this.createId(),
       channel,
       uploadsPlaylistId: uploads.uploadsPlaylistId,
       lastSeenVideoId: page.items[0]?.videoId ?? null,
@@ -70,11 +92,14 @@ export class ChannelMonitorService {
     id: string,
     expectedVersion: number,
     status: OtwPlayChannelMonitorStatus,
+    actorUserId: string,
   ) {
     return this.repository.updateStatus({
       id,
       expectedVersion,
       status,
+      actorUserId,
+      eventId: this.createId(),
       now: this.clock(),
     });
   }
@@ -83,6 +108,7 @@ export class ChannelMonitorService {
     id: string,
     expectedVersion: number,
     externalChannelId: string,
+    actorUserId: string,
   ) {
     const current = await this.repository.get(id);
     if (current.version !== expectedVersion) {
@@ -103,7 +129,7 @@ export class ChannelMonitorService {
     if (!channel) {
       throw new IngestionRepositoryError(
         "validation_failed",
-        "Only active, approved YouTube channels can be monitored",
+        "Only active, approved singing-clip YouTube channels can be monitored",
       );
     }
     const uploads = await this.youtube.readChannelUploads(channel.externalChannelId);
@@ -120,12 +146,57 @@ export class ChannelMonitorService {
       channel,
       uploadsPlaylistId: uploads.uploadsPlaylistId,
       lastSeenVideoId: page.items[0]?.videoId ?? null,
+      actorUserId,
+      eventId: this.createId(),
       now: this.clock(),
     });
   }
 
-  remove(id: string, expectedVersion: number) {
-    return this.repository.remove({ id, expectedVersion });
+  async resetWatermark(
+    id: string,
+    expectedVersion: number,
+    actorUserId: string,
+  ) {
+    const current = await this.repository.get(id);
+    if (current.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor changed during review",
+      );
+    }
+    const channel = await this.repository.findEligibleChannel(current.externalChannelId);
+    if (!channel) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Only active, approved singing-clip YouTube channels can be monitored",
+      );
+    }
+    const uploads = await this.youtube.readChannelUploads(channel.externalChannelId);
+    if (!uploads || uploads.channelId !== channel.externalChannelId) {
+      throw new IngestionRepositoryError(
+        "not_found",
+        "The channel uploads playlist could not be resolved",
+      );
+    }
+    const page = await this.youtube.readPlaylistPage(uploads.uploadsPlaylistId, null);
+    return this.repository.resetWatermark({
+      id,
+      expectedVersion,
+      lastSeenVideoId: page.items[0]?.videoId ?? null,
+      actorUserId,
+      eventId: this.createId(),
+      now: this.clock(),
+    });
+  }
+
+  remove(id: string, expectedVersion: number, actorUserId: string) {
+    return this.repository.remove({
+      id,
+      expectedVersion,
+      actorUserId,
+      eventId: this.createId(),
+      now: this.clock(),
+    });
   }
 
   async reconcile(id: string): Promise<OtwPlayChannelMonitorReconcileDto> {
@@ -170,6 +241,24 @@ export class ChannelMonitorService {
         videoIds.length < MAX_RECONCILIATION_VIDEOS
       );
 
+      const capped = !foundWatermark &&
+        videoIds.length >= MAX_RECONCILIATION_VIDEOS && hasMore;
+      if (monitor.lastSeenVideoId && !foundWatermark) {
+        const gapMonitor = await this.repository.markGapSuspected({
+          id: monitor.id,
+          expectedVersion: monitor.version,
+          monitorGeneration: monitor.generation,
+          now: this.clock(),
+        });
+        return {
+          monitor: gapMonitor,
+          discoveredCount: 0,
+          checkedVideoCount: videoIds.length,
+          capped,
+          gapSuspected: true,
+        };
+      }
+
       const observations: OtwPlayYouTubeVideoObservation[] = [];
       for (let index = 0; index < videoIds.length; index += 50) {
         const batch = await this.youtube.readVideos(videoIds.slice(index, index + 50));
@@ -181,6 +270,8 @@ export class ChannelMonitorService {
       }
       const discoveredCount = await this.repository.recordCandidates({
         monitorId: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
         observations,
         now: this.clock(),
       });
@@ -189,6 +280,8 @@ export class ChannelMonitorService {
       )?.video?.publishedAt ?? monitor.lastSeenPublishedAt;
       const completed = await this.repository.complete({
         id: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
         lastSeenVideoId: newestVideoId,
         lastSeenPublishedAt: newestPublishedAt,
         now: this.clock(),
@@ -197,11 +290,14 @@ export class ChannelMonitorService {
         monitor: completed,
         discoveredCount,
         checkedVideoCount: observations.length,
-        capped: !foundWatermark && videoIds.length >= MAX_RECONCILIATION_VIDEOS && hasMore,
+        capped,
+        gapSuspected: false,
       };
     } catch (error) {
       await this.repository.fail({
         id: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
         errorCode: error instanceof OtwPlayYouTubeMetadataError
           ? `youtube_${error.code}`
           : "reconciliation_failed",

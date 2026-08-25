@@ -12,6 +12,7 @@ import {
   fetchOtwPlayAdminProposals,
   fetchOtwPlayAdminRelease,
   fetchOtwPlayAdminSourceHealth,
+  fetchOtwPlayChannelMonitorCandidates,
   fetchOtwPlayImportJobItems,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
@@ -215,6 +216,32 @@ describe("OTW Play admin API", () => {
       {
         method: "DELETE",
         json: { expectedVersion: 4 },
+        auth: "required",
+      },
+    );
+  });
+
+  it("serializes channel-monitor candidate pagination and watermark reset", async () => {
+    await fetchOtwPlayChannelMonitorCandidates("monitor / one", {
+      limit: 50,
+      cursor: "cursor-value",
+    });
+    await updateOtwPlayChannelMonitor("monitor / one", {
+      expectedVersion: 5,
+      resetWatermark: true,
+    });
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/candidates?limit=50&cursor=cursor-value",
+      { auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one",
+      {
+        method: "PATCH",
+        json: { expectedVersion: 5, resetWatermark: true },
         auth: "required",
       },
     );

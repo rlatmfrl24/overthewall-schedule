@@ -19,6 +19,7 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
   lastErrorCode: null,
   candidateCount: 0,
   pendingCandidateCount: 0,
+  generation: 0,
   version: 0,
   createdAt: 100,
   updatedAt: 100,
@@ -34,7 +35,9 @@ const repository = () => ({
   findByExternalChannel: vi.fn(async () => null),
   get: vi.fn(async () => monitor()),
   list: vi.fn(async () => []),
-  listCandidates: vi.fn(async () => []),
+  listCandidates: vi.fn<ChannelMonitorRepository["listCandidates"]>(
+    async () => ({ items: [], hasMore: false }),
+  ),
   create: vi.fn(async (input) => monitor({
     id: input.id,
     lastSeenVideoId: input.lastSeenVideoId,
@@ -47,6 +50,12 @@ const repository = () => ({
     lastSeenVideoId: input.lastSeenVideoId,
     version: input.expectedVersion + 1,
   })),
+  resetWatermark: vi.fn(async (input) => monitor({
+    status: "active",
+    lastSeenVideoId: input.lastSeenVideoId,
+    lastErrorCode: null,
+    version: input.expectedVersion + 1,
+  })),
   remove: vi.fn(async ({ id }) => ({ id })),
   listDueIds: vi.fn(async () => []),
   claim: vi.fn(async () => monitor()),
@@ -55,6 +64,11 @@ const repository = () => ({
     lastSeenVideoId: input.lastSeenVideoId,
     lastSeenPublishedAt: input.lastSeenPublishedAt,
     lastCheckedAt: input.now,
+  })),
+  markGapSuspected: vi.fn(async (input) => monitor({
+    status: "paused",
+    lastErrorCode: "gap_suspected",
+    version: input.expectedVersion + 1,
   })),
   fail: vi.fn(async () => undefined),
 }) satisfies ChannelMonitorRepository;
@@ -90,6 +104,37 @@ const youtube = () => ({
 }) satisfies OtwPlayYouTubeIngestionReader;
 
 describe("ChannelMonitorService", () => {
+  it("returns an opaque cursor and restores it for the next candidate page", async () => {
+    const repo = repository();
+    repo.listCandidates
+      .mockResolvedValueOnce({
+        items: [{
+          candidateId: "youtube:BBBBBBBBBBB",
+          candidateVersion: 2,
+          videoId: "BBBBBBBBBBB",
+          title: "New Singing Clip",
+          thumbnailUrl: null,
+          publishedAt: 150,
+          availabilityStatus: "playable",
+          status: "needs_input",
+          classification: "scope_review",
+          exclusionReason: null,
+          discoveredAt: 160,
+        }],
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({ items: [], hasMore: false });
+    const service = new ChannelMonitorService(repo, youtube());
+
+    const first = await service.listCandidates("monitor-1", 1);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    await service.listCandidates("monitor-1", 1, first.nextCursor);
+    expect(repo.listCandidates).toHaveBeenNthCalledWith(2, "monitor-1", 1, {
+      discoveredAt: 160,
+      candidateId: "youtube:BBBBBBBBBBB",
+    });
+  });
+
   it("seeds the newest upload as a watermark without backfilling old videos", async () => {
     const repo = repository();
     const reader = youtube();
@@ -126,6 +171,7 @@ describe("ChannelMonitorService", () => {
       "monitor-1",
       0,
       "UC2222222222222222222222",
+      "admin-1",
     )).resolves.toMatchObject({
       externalChannelId: "UC2222222222222222222222",
       lastSeenVideoId: "ZZZZZZZZZZZ",
@@ -143,8 +189,12 @@ describe("ChannelMonitorService", () => {
     const repo = repository();
     const service = new ChannelMonitorService(repo, youtube());
 
-    await expect(service.remove("monitor-1", 3)).resolves.toEqual({ id: "monitor-1" });
-    expect(repo.remove).toHaveBeenCalledWith({ id: "monitor-1", expectedVersion: 3 });
+    await expect(service.remove("monitor-1", 3, "admin-1")).resolves.toEqual({ id: "monitor-1" });
+    expect(repo.remove).toHaveBeenCalledWith(expect.objectContaining({
+      id: "monitor-1",
+      expectedVersion: 3,
+      actorUserId: "admin-1",
+    }));
   });
 
   it("adds only uploads newer than the stored watermark to review candidates", async () => {
@@ -163,6 +213,7 @@ describe("ChannelMonitorService", () => {
       discoveredCount: 1,
       checkedVideoCount: 1,
       capped: false,
+      gapSuspected: false,
       monitor: { lastSeenVideoId: "BBBBBBBBBBB" },
     });
     expect(reader.readVideos).toHaveBeenCalledWith(["BBBBBBBBBBB"]);
@@ -170,5 +221,53 @@ describe("ChannelMonitorService", () => {
       monitorId: "monitor-1",
       observations: [expect.objectContaining({ videoId: "BBBBBBBBBBB" })],
     }));
+  });
+
+  it("pauses without backfilling when the stored watermark is missing", async () => {
+    const repo = repository();
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [
+        { playlistItemId: "item-old", videoId: "OOOOOOOOOOO", position: 0 },
+      ],
+      nextPageToken: null,
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "event-gap", () => 400);
+
+    await expect(service.reconcile("monitor-1")).resolves.toMatchObject({
+      discoveredCount: 0,
+      checkedVideoCount: 1,
+      capped: false,
+      gapSuspected: true,
+      monitor: { status: "paused", lastErrorCode: "gap_suspected" },
+    });
+    expect(reader.readVideos).not.toHaveBeenCalled();
+    expect(repo.recordCandidates).not.toHaveBeenCalled();
+    expect(repo.markGapSuspected).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 0,
+      monitorGeneration: 0,
+      now: 400,
+    });
+  });
+
+  it("resets a missing watermark to the current newest upload", async () => {
+    const repo = repository();
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [{ playlistItemId: "item-current", videoId: "CCCCCCCCCCC", position: 0 }],
+      nextPageToken: null,
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "event-reset", () => 500);
+
+    await service.resetWatermark("monitor-1", 0, "admin-1");
+    expect(repo.resetWatermark).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 0,
+      lastSeenVideoId: "CCCCCCCCCCC",
+      actorUserId: "admin-1",
+      eventId: "event-reset",
+      now: 500,
+    });
   });
 });

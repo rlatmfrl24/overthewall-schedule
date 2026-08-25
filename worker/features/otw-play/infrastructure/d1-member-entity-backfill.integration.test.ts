@@ -9,9 +9,13 @@ const db = testEnv.otw_db;
 describe("OTW Play member entity backfill migration", () => {
   it("adds every active member missing from the ownership entity authority", async () => {
     const migrations = testEnv.OTW_PLAY_INGESTION_MIGRATIONS;
-    const backfill = migrations.at(-1);
+    const backfillIndex = migrations.findIndex(
+      (migration) => migration.name === "0061_otw-play-member-entity-backfill.sql",
+    );
+    const backfill = migrations[backfillIndex];
     expect(backfill?.name).toBe("0061_otw-play-member-entity-backfill.sql");
-    await applyD1Migrations(db, migrations.slice(0, -1));
+    expect(backfillIndex).toBeGreaterThan(0);
+    await applyD1Migrations(db, migrations.slice(0, backfillIndex));
     await db.batch([
       db.prepare(
         `INSERT INTO members (uid, code, name, is_deprecated) VALUES

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { OtwPlayIngestionClassification } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
@@ -71,9 +71,14 @@ export const useOtwPlayChannelMonitors = () => useQuery({
   staleTime: 15_000,
 });
 
-export const useOtwPlayChannelMonitorCandidates = (monitorId: string | null) => useQuery({
+export const useOtwPlayChannelMonitorCandidates = (monitorId: string | null) => useInfiniteQuery({
   queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId ?? "none"),
-  queryFn: () => fetchOtwPlayChannelMonitorCandidates(monitorId!),
+  queryFn: ({ pageParam }) => fetchOtwPlayChannelMonitorCandidates(monitorId!, {
+    limit: 50,
+    cursor: pageParam,
+  }),
+  initialPageParam: null as string | null,
+  getNextPageParam: (page) => page.nextCursor,
   enabled: Boolean(monitorId),
   staleTime: 5_000,
 });

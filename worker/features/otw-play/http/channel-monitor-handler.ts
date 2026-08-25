@@ -7,6 +7,7 @@ import type { Env } from "../../../platform/types";
 import { ChannelMonitorService } from "../application/channel-monitor-service";
 import { IngestionRepositoryError } from "../application/ports/ingestion-repository";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
+import { ChannelMonitorCursorError } from "../domain/channel-monitor-cursor";
 
 const headers = { "Cache-Control": "no-store" };
 const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
@@ -77,15 +78,27 @@ export const createChannelMonitorHandler = (
     }
     const candidatesId = pathId(url.pathname, "/candidates");
     if (request.method === "GET" && candidatesId) {
-      if ([...url.searchParams.keys()].some((key) => key !== "limit")) {
+      if ([...url.searchParams.keys()].some((key) => !["limit", "cursor"].includes(key))) {
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Unexpected query parameter");
+      }
+      if (
+        url.searchParams.getAll("limit").length > 1 ||
+        url.searchParams.getAll("cursor").length > 1
+      ) {
+        return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Duplicate query parameter");
       }
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit === null ? 50 : Number(rawLimit);
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "limit must be between 1 and 100");
       }
-      return json({ data: await service.listCandidates(candidatesId, limit) });
+      return json({
+        data: await service.listCandidates(
+          candidatesId,
+          limit,
+          url.searchParams.get("cursor"),
+        ),
+      });
     }
     const reconcileId = pathId(url.pathname, "/reconcile");
     if (request.method === "POST" && reconcileId) {
@@ -109,17 +122,19 @@ export const createChannelMonitorHandler = (
       const targetUpdate = keys.length === 2 && keys.includes("expectedVersion") &&
         keys.includes("externalChannelId") &&
         YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId);
+      const watermarkReset = keys.length === 2 && keys.includes("expectedVersion") &&
+        keys.includes("resetWatermark") && body?.resetWatermark === true;
       if (
         !body ||
         !Number.isSafeInteger(expectedVersion) ||
         Number(expectedVersion) < 0 ||
-        (!statusUpdate && !targetUpdate)
+        (!statusUpdate && !targetUpdate && !watermarkReset)
       ) {
         return errorJson(
           requestId,
           400,
           "PLAY_ADMIN_INVALID_REQUEST",
-          "Update exactly one of status or externalChannelId with expectedVersion",
+          "Update exactly one of status, externalChannelId, or resetWatermark with expectedVersion",
         );
       }
       if (targetUpdate) {
@@ -128,6 +143,16 @@ export const createChannelMonitorHandler = (
             monitorId,
             Number(expectedVersion),
             externalChannelId,
+            auth.user.id,
+          ),
+        });
+      }
+      if (watermarkReset) {
+        return json({
+          data: await service.resetWatermark(
+            monitorId,
+            Number(expectedVersion),
+            auth.user.id,
           ),
         });
       }
@@ -136,6 +161,7 @@ export const createChannelMonitorHandler = (
           monitorId,
           Number(expectedVersion),
           status as OtwPlayChannelMonitorStatus,
+          auth.user.id,
         ),
       });
     }
@@ -156,10 +182,19 @@ export const createChannelMonitorHandler = (
           "expectedVersion is required",
         );
       }
-      return json({ data: await service.remove(monitorId, Number(expectedVersion)) });
+      return json({
+        data: await service.remove(
+          monitorId,
+          Number(expectedVersion),
+          auth.user.id,
+        ),
+      });
     }
     return errorJson(requestId, 404, "PLAY_ADMIN_NOT_FOUND", "Channel monitor route not found");
   } catch (error) {
+    if (error instanceof ChannelMonitorCursorError) {
+      return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Invalid cursor");
+    }
     if (error instanceof IngestionRepositoryError) {
       if (error.code === "not_found") {
         return errorJson(requestId, 404, "PLAY_ADMIN_NOT_FOUND", error.message);

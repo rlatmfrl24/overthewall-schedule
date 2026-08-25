@@ -24,6 +24,39 @@ import {
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
 const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
+const candidateStatusLabels = {
+  discovered: "검수 대기",
+  needs_input: "정보 입력 필요",
+  ready: "검수 완료",
+  converted: "저장 완료",
+  ignored: "제외됨",
+  blocked: "확인 차단",
+} as const;
+const classificationLabels = {
+  pending_metadata: "메타데이터 확인 중",
+  eligible: "검수 가능",
+  existing_catalog: "기존 카탈로그",
+  existing_proposal: "기존 제안",
+  existing_candidate: "기존 후보",
+  channel_review: "채널 승인 필요",
+  policy_blocked: "정책 확인 필요",
+  unavailable: "재생 불가",
+  scope_review: "노래 영상 여부 확인",
+  playlist_duplicate: "플레이리스트 중복",
+} as const;
+const availabilityLabels = {
+  unknown: "가용성 미확인",
+  playable: "재생 가능",
+  private: "비공개",
+  embed_disabled: "외부 재생 제한",
+  deleted: "삭제됨",
+  region_blocked: "지역 제한",
+  unavailable: "재생 불가",
+} as const;
+const monitorErrorLabel = (errorCode: string) =>
+  errorCode === "gap_suspected"
+    ? "기준 영상 확인 필요 · 안전을 위해 감시 중단"
+    : "마지막 업로드 확인 실패";
 
 export function ChannelMonitorSection() {
   const queryClient = useQueryClient();
@@ -41,8 +74,9 @@ export function ChannelMonitorSection() {
     (monitor) => monitor.externalChannelId === normalizedNewChannelId,
   );
   const selectedMonitor = monitors.find((monitor) => monitor.id === selectedMonitorId) ?? null;
-  const candidates = (candidatesQuery.data ?? []).filter(
-    (candidate) => candidate.status !== "ignored" && candidate.status !== "converted",
+  const candidates = useMemo(
+    () => candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [candidatesQuery.data],
   );
 
   useEffect(() => {
@@ -84,7 +118,7 @@ export function ChannelMonitorSection() {
     } catch {
       toast({
         variant: "error",
-        description: "수집 대상을 추가하지 못했습니다. 승인·활성 상태인 YouTube 채널 ID인지 확인해 주세요.",
+        description: "수집 대상을 추가하지 못했습니다. 승인·활성 상태인 노래 클립 채널인지 확인해 주세요.",
       });
     } finally {
       setBusy(null);
@@ -163,13 +197,36 @@ export function ChannelMonitorSection() {
       const result = await reconcileOtwPlayChannelMonitor(selectedMonitor.id);
       await refresh();
       toast({
-        variant: result.capped ? "info" : "success",
-        description: result.capped
-          ? `최근 250개를 확인해 ${result.discoveredCount}개를 추가했습니다. 기준점을 찾지 못해 다음 대조가 필요합니다.`
+        variant: result.gapSuspected ? "info" : "success",
+        description: result.gapSuspected
+          ? `기존 기준 영상을 찾지 못해 과거 영상은 추가하지 않았습니다. 현재 최신 영상으로 기준점을 재설정한 뒤 감시를 재개해 주세요.`
           : `${result.checkedVideoCount}개를 확인해 신규 검수 제안 ${result.discoveredCount}개를 추가했습니다.`,
       });
     } catch {
       toast({ variant: "error", description: "채널 업로드를 대조하지 못했습니다." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const resetWatermark = async () => {
+    if (!selectedMonitor) return;
+    setBusy("reset-watermark");
+    try {
+      await updateOtwPlayChannelMonitor(selectedMonitor.id, {
+        expectedVersion: selectedMonitor.version,
+        resetWatermark: true,
+      });
+      await refresh();
+      toast({
+        variant: "success",
+        description: "현재 최신 영상을 새 기준점으로 저장하고 감시를 재개했습니다.",
+      });
+    } catch {
+      toast({
+        variant: "error",
+        description: "기준점을 재설정하지 못했습니다. 채널 승인과 최신 상태를 확인해 주세요.",
+      });
     } finally {
       setBusy(null);
     }
@@ -183,7 +240,7 @@ export function ChannelMonitorSection() {
           <div className="space-y-1">
             <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              승인된 YouTube 채널을 6시간마다 확인합니다. 등록 이전 영상은 소급하지 않고,
+              별도 승인된 노래 클립 YouTube 채널을 6시간마다 확인합니다. 등록 이전 영상은 소급하지 않고,
               새 영상은 singing clip 검수함에만 보관하며 자동 공개하지 않습니다.
             </p>
           </div>
@@ -194,7 +251,7 @@ export function ChannelMonitorSection() {
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
             <FieldDescription>
-              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 채널 관리에서 승인·활성화된 채널만 추가됩니다.
+              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 채널 관리에서 노래 클립 채널로 승인·활성화된 대상만 추가됩니다.
             </FieldDescription>
             <Input
               id="new-monitor-channel-id"
@@ -222,7 +279,18 @@ export function ChannelMonitorSection() {
           </Button>
         </div>
 
-        {monitors.length === 0 ? (
+        {monitorsQuery.isLoading ? (
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm text-muted-foreground">
+            <Loader2 className="animate-spin" /> 수집 대상 채널을 불러오는 중입니다.
+          </div>
+        ) : monitorsQuery.isError ? (
+          <div className="space-y-3 rounded-xl border border-destructive/40 p-6 text-center">
+            <p className="text-sm text-destructive">수집 대상 채널을 불러오지 못했습니다.</p>
+            <Button variant="outline" size="sm" onClick={() => void monitorsQuery.refetch()}>
+              <RefreshCw /> 다시 불러오기
+            </Button>
+          </div>
+        ) : monitors.length === 0 ? (
           <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
             등록된 채널 감시가 없습니다.
           </div>
@@ -254,7 +322,9 @@ export function ChannelMonitorSection() {
                     미처리 {monitor.pendingCandidateCount}개 · 누적 {monitor.candidateCount}개
                   </p>
                   {monitor.lastErrorCode ? (
-                    <p className="mt-2 text-xs text-destructive">오류 · {monitor.lastErrorCode}</p>
+                    <p className="mt-2 text-xs text-destructive">
+                      {monitorErrorLabel(monitor.lastErrorCode)}
+                    </p>
                   ) : null}
                 </button>
               ))}
@@ -271,7 +341,12 @@ export function ChannelMonitorSection() {
                           다음 확인 {formatAt(selectedMonitor.nextCheckAt)}
                         </p>
                       </div>
-                      <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void toggleMonitor()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy !== null || selectedMonitor.lastErrorCode === "gap_suspected"}
+                        onClick={() => void toggleMonitor()}
+                      >
                         {selectedMonitor.status === "active" ? <Pause /> : <Play />}
                         {selectedMonitor.status === "active" ? "일시 정지" : "감시 재개"}
                       </Button>
@@ -279,6 +354,16 @@ export function ChannelMonitorSection() {
                         {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                         지금 대조
                       </Button>
+                      {selectedMonitor.lastErrorCode === "gap_suspected" ? (
+                        <Button
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => void resetWatermark()}
+                        >
+                          {busy === "reset-watermark" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                          기준점 재설정
+                        </Button>
+                      ) : null}
                     </div>
                     <Field>
                       <FieldLabel htmlFor="edit-monitor-channel-id">채널 ID 수정</FieldLabel>
@@ -317,7 +402,18 @@ export function ChannelMonitorSection() {
                     </Field>
                   </div>
                   <div className="divide-y">
-                    {candidates.length === 0 ? (
+                    {candidatesQuery.isLoading ? (
+                      <p className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                        <Loader2 className="animate-spin" /> 신규 영상을 불러오는 중입니다.
+                      </p>
+                    ) : candidatesQuery.isError ? (
+                      <div className="space-y-3 p-8 text-center">
+                        <p className="text-sm text-destructive">신규 영상 목록을 불러오지 못했습니다.</p>
+                        <Button variant="outline" size="sm" onClick={() => void candidatesQuery.refetch()}>
+                          <RefreshCw /> 다시 불러오기
+                        </Button>
+                      </div>
+                    ) : candidates.length === 0 ? (
                       <p className="p-8 text-center text-sm text-muted-foreground">대기 중인 신규 영상이 없습니다.</p>
                     ) : candidates.map((candidate) => (
                       <div key={candidate.candidateId} className="flex min-w-0 gap-4 p-4">
@@ -335,8 +431,9 @@ export function ChannelMonitorSection() {
                           </a>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Badge variant="outline">노래 클립 검수</Badge>
-                            <Badge variant="secondary">{candidate.status}</Badge>
-                            <Badge variant="outline">{candidate.classification}</Badge>
+                            <Badge variant="secondary">{candidateStatusLabels[candidate.status]}</Badge>
+                            <Badge variant="outline">{classificationLabels[candidate.classification]}</Badge>
+                            <Badge variant="outline">{availabilityLabels[candidate.availabilityStatus]}</Badge>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground">
                             업로드 {formatAt(candidate.publishedAt)} · 자동 공개/변환 안 함
@@ -368,6 +465,18 @@ export function ChannelMonitorSection() {
                         </Button>
                       </div>
                     ))}
+                    {candidatesQuery.hasNextPage ? (
+                      <div className="p-4 text-center">
+                        <Button
+                          variant="outline"
+                          disabled={candidatesQuery.isFetchingNextPage || busy !== null}
+                          onClick={() => void candidatesQuery.fetchNextPage()}
+                        >
+                          {candidatesQuery.isFetchingNextPage ? <Loader2 className="animate-spin" /> : null}
+                          이전 미처리 영상 더 보기
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 </>
               ) : null}
