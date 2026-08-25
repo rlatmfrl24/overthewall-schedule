@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  update: vi.fn(),
   preflight: vi.fn(),
   members: vi.fn(),
   blocker: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../api/submissions", () => ({
   createOtwPlaySubmission: mocks.create,
   preflightOtwPlaySubmission: mocks.preflight,
+  updateOtwPlaySubmission: mocks.update,
 }));
 vi.mock("@/features/members", () => ({ fetchActiveMembers: mocks.members }));
 vi.mock("../../queries/use-member-submissions", () => ({
@@ -116,6 +118,7 @@ describe("OtwPlaySubmissionPage", () => {
     mocks.members.mockResolvedValue([member]);
     mocks.preflight.mockResolvedValue(preflight);
     mocks.create.mockRejectedValue(new Error("network failed"));
+    mocks.update.mockRejectedValue(new Error("network failed"));
     mocks.editDetail.mockReturnValue({ isPending: false, data: null });
   });
   afterEach(cleanup);
@@ -164,12 +167,13 @@ describe("OtwPlaySubmissionPage", () => {
     expect(screen.getByDisplayValue("https://youtu.be/dQw4w9WgXcQ")).toBeTruthy();
   });
 
-  it("keeps an unsaved edit draft while refreshing the authoritative version and baseline", async () => {
+  it("keeps an unsaved edit draft with its original concurrency baseline", async () => {
     sessionStorage.setItem(
       "otw-play:member-submission-draft:v1:edit:proposal-one",
       JSON.stringify({
-        step: 0,
+        step: 2,
         clientRequestId: "request-one",
+        expectedVersion: 6,
         youtubeUrl: "https://youtu.be/BBBBBBBBBBB",
         title: "저장하지 않은 제목",
         songMode: "new",
@@ -180,7 +184,7 @@ describe("OtwPlaySubmissionPage", () => {
         memberRoles: { 1: "vocal" },
         externalRoles: {},
         note: "저장하지 않은 메모",
-        preflight: null,
+        preflight,
       }),
     );
     mocks.editDetail.mockReturnValue({
@@ -208,11 +212,21 @@ describe("OtwPlaySubmissionPage", () => {
     renderPage("proposal-one");
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("https://youtu.be/BBBBBBBBBBB")).toBeTruthy();
+      expect(screen.getByText("저장하지 않은 제목")).toBeTruthy();
     });
+    expect(screen.getByDisplayValue("저장하지 않은 메모")).toBeTruthy();
     expect(sessionStorage.getItem(
       "otw-play:member-submission-draft:v1:edit:proposal-one",
     )).toContain("저장하지 않은 제목");
+    fireEvent.click(screen.getByRole("button", { name: "수정 저장" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(
+      "proposal-one",
+      expect.objectContaining({
+        expectedVersion: 6,
+        title: "저장하지 않은 제목",
+      }),
+    ));
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("searches candidates explicitly, prefills the snapshot, and clears the selection", async () => {

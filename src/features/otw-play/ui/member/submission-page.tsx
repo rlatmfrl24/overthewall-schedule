@@ -58,6 +58,7 @@ const SUBMISSION_DRAFT_KEY = "otw-play:member-submission-draft:v1";
 type SubmissionDraft = {
   step: number;
   clientRequestId: string;
+  expectedVersion: number | null;
   youtubeUrl: string;
   title: string;
   songMode: "new" | "existing";
@@ -71,12 +72,18 @@ type SubmissionDraft = {
   preflight: OtwPlaySubmissionPreflightDto | null;
 };
 
-const readSubmissionDraft = (storageKey = SUBMISSION_DRAFT_KEY): SubmissionDraft | null => {
+const readSubmissionDraft = (
+  storageKey = SUBMISSION_DRAFT_KEY,
+  requireExpectedVersion = false,
+): SubmissionDraft | null => {
   if (typeof window === "undefined") return null;
   try {
     const value: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
     if (!value || typeof value !== "object") return null;
     const draft = value as Partial<SubmissionDraft>;
+    const hasExpectedVersion = typeof draft.expectedVersion === "number" &&
+      Number.isSafeInteger(draft.expectedVersion) &&
+      draft.expectedVersion >= 0;
     if (
       typeof draft.clientRequestId !== "string" ||
       typeof draft.youtubeUrl !== "string" ||
@@ -85,11 +92,13 @@ const readSubmissionDraft = (storageKey = SUBMISSION_DRAFT_KEY): SubmissionDraft
       !Array.isArray(draft.originalArtists) ||
       !Array.isArray(draft.memberUids) ||
       !Array.isArray(draft.externalParticipants) ||
-      typeof draft.note !== "string"
+      typeof draft.note !== "string" ||
+      (requireExpectedVersion && !hasExpectedVersion)
     ) return null;
     return {
       step: draft.step === 1 || draft.step === 2 ? draft.step : 0,
       clientRequestId: draft.clientRequestId,
+      expectedVersion: hasExpectedVersion ? draft.expectedVersion! : null,
       youtubeUrl: draft.youtubeUrl,
       title: draft.title,
       songMode: draft.songMode,
@@ -372,8 +381,8 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     ? `${SUBMISSION_DRAFT_KEY}:edit:${editId}`
     : SUBMISSION_DRAFT_KEY;
   const initialDraft = useMemo(
-    () => readSubmissionDraft(draftKey),
-    [draftKey],
+    () => readSubmissionDraft(draftKey, Boolean(editId)),
+    [draftKey, editId],
   );
   const editDetail = useMyOtwPlaySubmission(editId ?? null);
   const initializedEditId = useRef<string | null>(null);
@@ -390,7 +399,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const [memberRoles, setMemberRoles] = useState<Record<number, OtwPlayParticipantRole>>(initialDraft?.memberRoles ?? {});
   const [externalRoles, setExternalRoles] = useState<Record<string, OtwPlayParticipantRole>>(initialDraft?.externalRoles ?? {});
   const [note, setNote] = useState(initialDraft?.note ?? "");
-  const [expectedVersion, setExpectedVersion] = useState<number | null>(null);
+  const [expectedVersion, setExpectedVersion] = useState<number | null>(initialDraft?.expectedVersion ?? null);
   const [originalArtistMemberUids, setOriginalArtistMemberUids] = useState<Record<string, number>>({});
   const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [preflight, setPreflight] = useState<OtwPlaySubmissionPreflightDto | null>(initialDraft?.preflight ?? null);
@@ -404,8 +413,11 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const preflightMutation = useMutation({ mutationFn: preflightOtwPlaySubmission });
   const submitMutation = useMutation({
     mutationFn: async (input: Parameters<typeof createOtwPlaySubmission>[0]) => {
-      if (!editId || expectedVersion === null) {
+      if (!editId) {
         return createOtwPlaySubmission(input);
+      }
+      if (expectedVersion === null) {
+        throw new Error("수정 기준 버전을 불러오지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.");
       }
       const data = await updateOtwPlaySubmission(editId, {
         expectedVersion,
@@ -459,7 +471,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     const external = submission.participants.filter(
       (participant) => participant.memberUid === null,
     );
-    setExpectedVersion(submission.version);
+    setExpectedVersion(initialDraft?.expectedVersion ?? submission.version);
     if (!initialDraft) {
       setStep(0);
       setClientRequestId(submission.clientRequestId);
@@ -506,12 +518,12 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   useEffect(() => {
     if (success || (editId && initializedEditId.current !== editId)) return;
     const draft: SubmissionDraft = {
-      step, clientRequestId, youtubeUrl, title, songMode, suggestedSongId,
+      step, clientRequestId, expectedVersion, youtubeUrl, title, songMode, suggestedSongId,
       originalArtists, memberUids, externalParticipants, memberRoles,
       externalRoles, note, preflight,
     };
     sessionStorage.setItem(draftKey, JSON.stringify(draft));
-  }, [clientRequestId, draftKey, editId, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
+  }, [clientRequestId, draftKey, editId, expectedVersion, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
 
   const selectedMembers = useMemo(
     () => (members.data ?? []).filter((member) => memberUids.includes(member.uid)),
@@ -803,7 +815,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
             <p className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm"><AlertCircle className="mr-1 inline size-4" /> 승인 전에는 제안과 메모가 공개되지 않습니다. 반려 시 회원 화면에는 상태만 표시되고 내부 검수 사유는 공개되지 않습니다.</p>
             <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row">
               <Button variant="ghost" onClick={() => setStep(1)}><ChevronLeft /> 이전</Button>
-              <Button disabled={submitMutation.isPending} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null })}>
+              <Button disabled={submitMutation.isPending || Boolean(editId && expectedVersion === null)} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null })}>
                 {submitMutation.isPending ? <LoaderCircle className="animate-spin" /> : null}{submitMutation.isPending ? (editId ? "저장 중" : "제출 중") : (editId ? "수정 저장" : "최종 제출")}
               </Button>
             </div>
