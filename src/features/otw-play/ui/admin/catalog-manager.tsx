@@ -81,6 +81,7 @@ import { ChannelMonitorSection } from "./channel-monitor-section";
 type Section =
   | "catalog"
   | "import"
+  | "channels"
   | "automatic-review"
   | "review"
   | "source-health"
@@ -89,6 +90,7 @@ type Section =
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
   { value: "import", label: "가져오기" },
+  { value: "channels", label: "승인 채널" },
   { value: "automatic-review", label: "자동 검수" },
   { value: "review", label: "제안 검수" },
   { value: "source-health", label: "소스 상태" },
@@ -301,7 +303,7 @@ export function OtwPlayCatalogManager() {
   };
 
   const catalogSection =
-    section === "catalog" || section === "import" || section === "review";
+    section === "catalog" || section === "import" || section === "channels" || section === "review";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -327,7 +329,7 @@ export function OtwPlayCatalogManager() {
                   <Video className="h-4 w-4" /> 새 영상 등록
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setAdvancedOpen(true)}>
-                  <Settings2 className="h-4 w-4" /> 고급 관리
+                  <Settings2 className="h-4 w-4" /> 외부 주체 관리
                 </Button>
               </>
             )}
@@ -413,6 +415,14 @@ export function OtwPlayCatalogManager() {
         />
       )}
       {section === "automatic-review" && <ChannelMonitorSection />}
+      {section === "channels" && catalog && (
+        <ChannelSection
+          items={catalog.channels}
+          entities={catalog.entities}
+          saving={effectiveSaving}
+          run={run}
+        />
+      )}
       {section === "catalog" && catalog && (
         <WorkflowCatalog
           catalog={catalog}
@@ -464,19 +474,13 @@ export function OtwPlayCatalogManager() {
           <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
             <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
               <div className="border-b bg-background p-6 pr-12">
-                <SheetTitle className="text-lg">고급 관리</SheetTitle>
+                <SheetTitle className="text-lg">외부 주체 관리</SheetTitle>
                 <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
-                  일상 등록에서 자동 처리하지 못한 채널 상태와 외부 인물·그룹만
-                  수정합니다. 현재 멤버 정보는 members가 권위입니다.
+                  카탈로그에 연결할 외부 인물·그룹을 보정합니다. 승인 채널은
+                  상단의 별도 탭에서 관리하며 현재 멤버 정보는 members가 권위입니다.
                 </SheetDescription>
               </div>
               <div className="space-y-6 p-4 pb-10 sm:p-6">
-                <ChannelSection
-                  items={catalog.channels}
-                  entities={catalog.entities}
-                  saving={effectiveSaving}
-                  run={run}
-                />
                 <EntitySection
                   items={catalog.entities.filter((item) => item.memberUid === null)}
                   saving={effectiveSaving}
@@ -1511,24 +1515,37 @@ function ChannelSection({
   };
   return (
     <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="text-base">공식 채널</CardTitle>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          인라인 등록에서 확인된 YouTube 채널의 역할, 연결 주체와 사용 가능 상태를 관리합니다.
-        </p>
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base"><h2 id="approved-channels-title">승인 채널 관리</h2></CardTitle>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              YouTube 채널의 역할·검수·활성 상태를 확정합니다. 자동 검수는 승인·활성화된 채널만 사용합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Badge variant="outline">전체 {items.length}</Badge>
+            <Badge variant="secondary">
+              활성 {items.filter((item) => item.verificationStatus === "approved" && item.active).length}
+            </Badge>
+            <Badge variant="outline">
+              키리누키 {items.filter((item) => item.channelRole === "approved_kirinuki").length}
+            </Badge>
+          </div>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="space-y-5 rounded-xl border bg-muted/20 p-4">
+      <CardContent className="space-y-4 p-4">
+        <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 수동 등록"}</div>
+              <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 등록"}</div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                일반 등록에서는 영상 확인 단계가 채널을 자동 인식합니다. 이 폼은 예외 보정용입니다.
+                신규 채널은 검수 대기로 생성됩니다. 등록 후 아래 목록에서 승인 상태와 활성 여부를 확정하세요.
               </p>
             </div>
             {editing && <Badge variant="outline">version {editing.version}</Badge>}
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3">
           <Field
             label="YouTube 채널 ID"
             htmlFor="advanced-channel-id"
@@ -1574,6 +1591,7 @@ function ChannelSection({
                   "member_music",
                   "member_main",
                   "project_official",
+                  "approved_kirinuki",
                 ].map((role) => (
                   <SelectItem key={role} value={role}>
                     {channelRoleLabels[role as OtwPlayChannelRole]}
@@ -1584,7 +1602,9 @@ function ChannelSection({
           </Field>
           <Field
             label="소유·연결 주체"
-            description="이 채널을 공식적으로 소유하거나 운영하는 멤버·그룹을 모두 선택합니다."
+            description={form.channelRole === "approved_kirinuki"
+              ? "서면 동의를 확보한 키리누키 채널은 연결 주체 없이 등록할 수 있습니다."
+              : "이 채널을 공식적으로 소유하거나 운영하는 멤버·그룹을 모두 선택합니다."}
           >
             <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
               {entities.length === 0 && (
@@ -1671,7 +1691,7 @@ function ChannelSection({
               disabled={!form.externalChannelId.trim() || !form.displayName.trim() || saving !== null}
               onClick={() => void submit()}
             >
-              {editing ? "채널 수정 저장" : "채널 확인 후 등록"}
+              {editing ? "채널 수정 저장" : "채널 등록"}
             </Button>
           </div>
         </div>

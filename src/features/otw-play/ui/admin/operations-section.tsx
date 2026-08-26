@@ -20,7 +20,7 @@ import {
 } from "@/shared/ui/alert-dialog";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent } from "@/shared/ui/card";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Label } from "@/shared/ui/label";
 import {
@@ -127,12 +127,10 @@ const formatAt = (value: number) => new Date(value).toLocaleString("ko-KR");
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-      </CardContent>
-    </Card>
+    <div className="min-w-0 px-3 py-2.5 sm:px-4">
+      <p className="truncate text-xs text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
   );
 }
 
@@ -163,24 +161,26 @@ function ObservabilityPanel({
   const cacheTotal = data.summary.cacheHit + data.summary.cacheMiss + data.summary.cacheBypass;
   const cacheHitRate = cacheTotal > 0 ? data.summary.cacheHit / cacheTotal : 0;
   return (
-    <section aria-labelledby="observability-title" className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <Card className="gap-0 py-0">
+      <section aria-labelledby="observability-title">
+      <CardContent className="p-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div>
-          <h2 id="observability-title" className="flex items-center gap-2 text-lg font-semibold"><Activity className="h-5 w-5" /> 최근 24시간 관측</h2>
-          <p className="text-sm text-muted-foreground">Workers Analytics Engine 집계이며 개별 요청이나 검색 원문은 표시하지 않습니다.</p>
+          <h2 id="observability-title" className="flex items-center gap-2 text-base font-semibold"><Activity className="h-4 w-4" /> 최근 24시간 관측</h2>
+          <p className="text-xs text-muted-foreground">Analytics Engine 집계 · 요청 원문은 저장하지 않음</p>
         </div>
         <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>
           {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} 새로고침
         </Button>
       </div>
       {data.status !== "available" && (
-        <div role="status" className="rounded-xl border border-amber-300/50 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <div role="status" className="m-3 rounded-lg border border-amber-300/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
           {data.status === "unconfigured"
             ? "Analytics 조회 token이 설정되지 않았습니다. 공개 제어는 계속 사용할 수 있습니다."
             : "Analytics 집계를 일시적으로 불러올 수 없습니다. 공개 제어와 권위 상태에는 영향이 없습니다."}
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6" aria-live="polite">
+      <div className="grid grid-cols-2 divide-x border-b sm:grid-cols-3 xl:grid-cols-6" aria-live="polite">
         <MetricCard label="요청" value={formatCount(data.summary.requestCount)} />
         <MetricCard label="오류율" value={formatRate(data.summary.errorRate)} />
         <MetricCard label="cache hit" value={formatRate(cacheHitRate)} />
@@ -189,9 +189,9 @@ function ObservabilityPanel({
         <MetricCard label="D1 rows written" value={formatCount(data.summary.d1RowsWritten)} />
       </div>
       {data.status === "available" && data.routes.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">최근 24시간 route 집계가 없습니다.</p>
+        <p className="m-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">최근 24시간 route 집계가 없습니다.</p>
       ) : data.routes.length > 0 ? (
-        <>
+        <div className="p-3">
           <div className="hidden overflow-x-auto md:block">
             <Table>
               <TableHeader><TableRow><TableHead>route</TableHead><TableHead>요청</TableHead><TableHead>오류율</TableHead><TableHead>cache hit/miss/bypass</TableHead><TableHead>p95</TableHead><TableHead>D1 read/write</TableHead></TableRow></TableHeader>
@@ -207,8 +207,8 @@ function ObservabilityPanel({
               ))}</TableBody>
             </Table>
           </div>
-          <div className="space-y-3 md:hidden">{data.routes.map((route) => (
-            <Card key={route.routeId}><CardContent className="space-y-3 p-4">
+          <div className="divide-y rounded-lg border md:hidden">{data.routes.map((route) => (
+            <div key={route.routeId} className="space-y-3 p-3">
               <p className="break-all font-mono text-xs font-semibold">{route.routeId}</p>
               <dl className="grid grid-cols-2 gap-2 text-sm">
                 <div><dt className="text-muted-foreground">요청</dt><dd>{formatCount(route.requestCount)}</dd></div>
@@ -216,19 +216,21 @@ function ObservabilityPanel({
                 <div><dt className="text-muted-foreground">p95</dt><dd>{formatDuration(route.p95DurationMs)}</dd></div>
                 <div><dt className="text-muted-foreground">D1 read/write</dt><dd>{formatCount(route.d1RowsRead)}/{formatCount(route.d1RowsWritten)}</dd></div>
               </dl>
-            </CardContent></Card>
+            </div>
           ))}</div>
-        </>
+        </div>
       ) : null}
-      <Card>
-        <CardHeader><CardTitle className="text-base">도메인 이벤트</CardTitle></CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2 border-t px-4 py-3 sm:flex-row sm:items-center">
+        <h3 className="shrink-0 text-sm font-semibold">도메인 이벤트</h3>
+        <div className="flex flex-wrap gap-2">
           {data.events.length > 0 ? data.events.map((event) => (
             <Badge key={event.event} variant="outline">{event.event} · {formatCount(event.count)}</Badge>
           )) : <p className="text-sm text-muted-foreground">집계된 도메인 이벤트가 없습니다.</p>}
-        </CardContent>
-      </Card>
-    </section>
+        </div>
+      </div>
+      </CardContent>
+      </section>
+    </Card>
   );
 }
 
@@ -297,50 +299,51 @@ function ReleasePanel({
   const actionFor = (control: ReleaseAction["control"]) =>
     actions.filter((action) => action.control === control);
   return (
-    <section aria-labelledby="release-title" className="space-y-4">
-      <div>
-        <h2 id="release-title" className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5" /> 운영·공개 권위</h2>
-        <p className="text-sm text-muted-foreground">배포와 분리된 감사 command만 flag를 변경합니다. optimistic 상태는 표시하지 않습니다.</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
+    <Card className="gap-0 py-0">
+    <section aria-labelledby="release-title">
+      <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 id="release-title" className="flex items-center gap-2 text-base font-semibold"><ShieldCheck className="h-4 w-4" /> 운영·공개 권위</h2>
+          <p className="text-xs text-muted-foreground">감사 command만 flag를 변경하며 optimistic 상태는 표시하지 않습니다.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
         <Badge variant="outline">catalog r{state.catalogRevision}</Badge>
         <Badge variant={state.readyForPublicRead ? "secondary" : "destructive"}>read model {state.readModelRevision === null ? "없음" : `r${state.readModelRevision}`}</Badge>
         <Badge variant="outline">갱신 {formatAt(state.updatedAt)}</Badge>
+        </div>
       </div>
       {!state.readyForPublicRead && (
-        <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">catalog와 read-model revision이 다릅니다. 공개 활성화는 서버에서도 차단됩니다.</div>
+        <div role="alert" className="m-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">catalog와 read-model revision이 다릅니다. 공개 활성화는 서버에서도 차단됩니다.</div>
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="mx-3 mt-3 divide-y overflow-hidden rounded-lg border">
         {([
           ["public", "공개 API", state.publicReadEnabled, "익명 직접 URL과 public catalog read"],
           ["navigation", "내비게이션·색인", state.navigationVisible, "메뉴 노출, index와 sitemap 포함"],
         ] as const).map(([control, title, enabled, description]) => (
-          <Card key={control}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3"><CardTitle className="text-base">{title}</CardTitle><Badge variant={enabled ? "secondary" : "outline"}>{enabled ? "활성" : "비활성"}</Badge></div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">{description}</p>
-              <div className="flex flex-wrap gap-2">{actionFor(control).map((action) => (
+          <div key={control} className="grid gap-3 p-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2"><h3 className="text-sm font-semibold">{title}</h3><Badge variant={enabled ? "secondary" : "outline"}>{enabled ? "활성" : "비활성"}</Badge></div>
+              <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+            </div>
+              <div className="flex flex-wrap gap-2 md:justify-end">{actionFor(control).map((action) => (
                 <Button key={action.transition} size="sm" variant={action.tone} disabled={saving || (!state.readyForPublicRead && (action.transition === "enable_public_read" || action.transition === "enable_navigation"))} onClick={(event) => openAction(action, event.currentTarget)}>
                   {action.label} <ArrowRight className="h-4 w-4" />
                 </Button>
               ))}</div>
-            </CardContent>
-          </Card>
+          </div>
         ))}
       </div>
-      <Card>
-        <CardHeader><CardTitle className="text-base">최근 공개 변경</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
+      <div className="mt-3 border-t px-4 py-3">
+        <h3 className="mb-2 text-sm font-semibold">최근 공개 변경</h3>
+        <div className="space-y-2">
           {release.recentChanges.length === 0 ? <p className="text-sm text-muted-foreground">기록된 공개 변경이 없습니다.</p> : release.recentChanges.map((change) => (
-            <div key={change.id} className="flex flex-col gap-1 border-b pb-3 text-sm last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+            <div key={change.id} className="flex flex-col gap-1 border-b pb-2 text-sm last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
               <div><span className="font-medium">{change.transition}</span><span className="ml-2 text-muted-foreground">{Number(change.previous.publicReadEnabled)}/{Number(change.previous.navigationVisible)} → {Number(change.current.publicReadEnabled)}/{Number(change.current.navigationVisible)}</span></div>
               <div className="text-xs text-muted-foreground">{change.actor.displayName ?? change.actor.id} · {formatAt(change.changedAt)}</div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
       <AlertDialog open={pending !== null} onOpenChange={(open) => { if (!open && !saving) close(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -360,6 +363,7 @@ function ReleasePanel({
         </AlertDialogContent>
       </AlertDialog>
     </section>
+    </Card>
   );
 }
 
@@ -389,13 +393,13 @@ export function OperationsSection({
   onOpenSourceHealth: () => void;
 }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <ReleasePanel release={release} loading={releaseLoading} error={releaseError} onChanged={onReleaseChanged} />
       <ObservabilityPanel data={observability} loading={observabilityLoading} error={observabilityError} fetching={observabilityFetching} refetch={refetchObservability} />
-      <Card>
-        <CardHeader><CardTitle className="text-base">소스 상태 연결</CardTitle></CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2 text-sm">
+      <Card className="gap-0 py-0">
+        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="mr-1 font-semibold">소스 상태</span>
             <Badge variant="outline">재확인 필요 {sourceHealth?.counts.due ?? "-"}</Badge>
             <Badge variant="outline">재생 불가 {sourceHealth?.counts.unplayable ?? "-"}</Badge>
             <Badge variant="outline">최근 복구 {sourceHealth?.counts.recentlyRecovered ?? "-"}</Badge>

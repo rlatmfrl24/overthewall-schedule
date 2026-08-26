@@ -5,7 +5,7 @@ import type {
 } from "@contracts/otw-play";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent } from "@/shared/ui/card";
 import {
   Table,
   TableBody,
@@ -93,14 +93,17 @@ function HealthList({
   run: Run;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </CardHeader>
-      <CardContent>
+    <section aria-label={title} className="overflow-hidden rounded-lg border bg-background">
+      <div className="flex flex-col gap-1 border-b bg-muted/30 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          <Badge variant="outline">{items.length}</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div>
         {items.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+          <p className="px-3 py-4 text-sm text-muted-foreground">
             해당 source가 없습니다.
           </p>
         ) : (
@@ -119,7 +122,7 @@ function HealthList({
                 <TableBody>
                   {items.map((item) => (
                     <TableRow key={item.source.id}>
-                      <TableCell>
+                      <TableCell className="py-2">
                         <div className="space-y-1">
                           <Badge variant={item.source.availabilityStatus === "playable" ? "secondary" : "destructive"}>
                             {availabilityLabels[item.source.availabilityStatus]}
@@ -132,15 +135,15 @@ function HealthList({
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-xs">
+                      <TableCell className="max-w-xs py-2">
                         <p className="truncate">{linkedSummary(item)}</p>
                         <p className="text-xs text-muted-foreground">
                           연결 가창 {item.linkedPerformanceCount}개
                         </p>
                       </TableCell>
-                      <TableCell>{formatAt(item.source.lastCheckedAt)}</TableCell>
-                      <TableCell>{formatAt(item.source.nextCheckAt)}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-2 text-xs">{formatAt(item.source.lastCheckedAt)}</TableCell>
+                      <TableCell className="py-2 text-xs">{formatAt(item.source.nextCheckAt)}</TableCell>
+                      <TableCell className="py-2">
                         <div className="flex justify-end gap-2">
                           <Button asChild size="sm" variant="ghost">
                             <a
@@ -159,9 +162,9 @@ function HealthList({
                 </TableBody>
               </Table>
             </div>
-            <div className="space-y-3 md:hidden">
+            <div className="divide-y md:hidden">
               {items.map((item) => (
-                <article key={item.source.id} className="space-y-3 rounded-lg border p-4">
+                <article key={item.source.id} className="space-y-3 p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-medium">{item.channel.displayName}</p>
@@ -191,8 +194,8 @@ function HealthList({
             </div>
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -225,24 +228,30 @@ export function SourceHealthSection({
     );
   }
   return (
-    <section aria-labelledby="source-health-title" className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="source-health-title" className="text-lg font-semibold">소스 상태</h2>
-          <p className="text-sm text-muted-foreground">KR 재생·임베드 가능 여부와 다음 YouTube 재검사 시각입니다.</p>
-        </div>
-        <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>
-          {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} 새로고침
-        </Button>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-3" aria-live="polite">
-        <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">재확인 필요</p><p className="text-2xl font-semibold">{data.counts.due}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">재생 불가</p><p className="text-2xl font-semibold">{data.counts.unplayable}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">최근 {data.recentRecoveryWindowDays}일 복구</p><p className="text-2xl font-semibold">{data.counts.recentlyRecovered}</p></CardContent></Card>
-      </div>
-      <HealthList title="재확인 필요" description="점검 예정 시각이 지난 source입니다." items={data.due} saving={saving} run={run} />
-      <HealthList title="재생 불가" description="재생 가능 상태가 아닌 source입니다. 외부 장애 재시도와 확정 상태를 구분합니다." items={data.unplayable} saving={saving} run={run} />
-      <HealthList title={`최근 ${data.recentRecoveryWindowDays}일 복구`} description="재생 불가 상태에서 playable로 복구된 source입니다." items={data.recentlyRecovered} saving={saving} run={run} />
+    <section aria-labelledby="source-health-title">
+      <Card className="gap-0 py-0">
+        <CardContent className="p-0">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+            <div>
+              <h2 id="source-health-title" className="text-lg font-semibold">소스 상태</h2>
+              <p className="text-sm text-muted-foreground">KR 재생·임베드 가능 여부와 다음 YouTube 재검사 시각입니다.</p>
+            </div>
+            <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>
+              {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} 새로고침
+            </Button>
+          </div>
+          <dl className="grid grid-cols-3 divide-x border-b" aria-live="polite">
+            <div className="px-3 py-2.5 sm:px-4"><dt className="text-xs text-muted-foreground">재확인 필요</dt><dd className="mt-0.5 text-xl font-semibold tabular-nums">{data.counts.due}</dd></div>
+            <div className="px-3 py-2.5 sm:px-4"><dt className="text-xs text-muted-foreground">재생 불가</dt><dd className="mt-0.5 text-xl font-semibold tabular-nums">{data.counts.unplayable}</dd></div>
+            <div className="px-3 py-2.5 sm:px-4"><dt className="text-xs text-muted-foreground">최근 {data.recentRecoveryWindowDays}일 복구</dt><dd className="mt-0.5 text-xl font-semibold tabular-nums">{data.counts.recentlyRecovered}</dd></div>
+          </dl>
+          <div className="space-y-3 p-3">
+            <HealthList title="재확인 필요" description="점검 예정 시각이 지난 source" items={data.due} saving={saving} run={run} />
+            <HealthList title="재생 불가" description="외부 장애 재시도와 확정 상태를 구분" items={data.unplayable} saving={saving} run={run} />
+            <HealthList title={`최근 ${data.recentRecoveryWindowDays}일 복구`} description="재생 불가에서 playable로 복구" items={data.recentlyRecovered} saving={saving} run={run} />
+          </div>
+        </CardContent>
+      </Card>
     </section>
   );
 }
