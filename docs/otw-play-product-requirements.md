@@ -124,6 +124,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-063 | playlist 후보의 상태와 채널 승인 경계는 운영자가 의미와 다음 행동을 바로 판단할 수 있게 표시한다. | 확정 | 상태 열은 내부 code 대신 후보 workflow 단계, 현재 권위 분류, 다음 조치와 origin 가져오기 기록을 분리해 한국어로 표시한다. 신규 채널 승인의 기본 소유 유형은 OTW 공식 또는 catalog member identity 공식으로 제한하고, 두 유형은 가용 폭을 채우는 2열 카드로 표시한다. archive되지 않은 OTW 멤버는 중첩 스크롤 없이 모두 표시하며, 외부 채널은 별도 모드를 열어 기존 외부 주체 연결과 명시적 승인 확인을 모두 거쳐야 한다. |
 | DEC-064 | production P0-A·P0-B canary는 Clerk production instance와 채널별 자동 수집 권리 승인 뒤에만 수행한다. | 확정 | Clerk production 전환, 사용자 `22/22` 이관, production JWT의 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp` 검증과 실제 관리자 스모크를 완료해 GATE-07은 해결했다. 자동 수집 대상은 키리누키 제작자의 메일 서면 동의를 확보했으므로 GATE-08도 해결되었다. legacy `kirinuki_channels` row는 자동 승인으로 해석하지 않고 `approved_kirinuki`로 등록된 활성 채널만 허용한다. monitor 등록 UI/API는 채널 ID만 받고 서버가 표준 승인·감사 기록을 생성하며, 운영자에게 동일한 동의 근거와 해제 절차를 다시 입력시키지 않는다. |
 | DEC-065 | 승인 채널은 자동 검수와 분리된 관리자 1차 탭에서 관리하고 상태·관측 화면은 한눈에 비교 가능한 고밀도 작업면을 사용한다. | 확정 | `승인 채널` 탭은 `approved_kirinuki`를 포함한 역할 등록, 검수 승인과 활성화를 제공하며 신규 등록의 pending 기본값과 명시적 승인 경계는 유지한다. `소스 상태`는 요약·세 목록·행 작업을 하나의 panel로, `운영·공개`는 공개 권위·최근 변경·24시간 지표·route·event를 소수의 panel로 묶되 권위 readback과 confirmation은 바꾸지 않는다. |
+| DEC-066 | 승인 채널과 외부 주체는 하나의 관리 작업면에서 다루고, YouTube 채널 표시명은 입력한 채널 ID의 권위 조회 결과를 사용한다. | 확정 | 별도 `외부 주체 관리` Sheet와 채널 등록의 소유·연결 주체 선택을 제거한다. 채널 ID 조회가 성공하면 표시명을 읽기 전용으로 자동 입력하며 조회한 ID와 현재 입력이 같을 때만 등록한다. 기존 채널 수정 시 저장된 주체 연결은 보존한다. WebSub `active`는 callback 검증과 유효 lease가 모두 있는 상태만 의미하며, 검증·lease가 없는 legacy active는 재구독 가능한 복구 상태로 표시하고 hub 실패가 이를 active로 되돌리지 못하게 한다. |
 
 ## 4. 제품 원칙
 
@@ -766,6 +767,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-26 | 자동 수집 대상 키리누키 제작자의 메일 서면 동의를 확보해 GATE-08을 해결. monitor 등록을 채널 ID 단일 입력으로 단순화하고 `approved_kirinuki` 서버 검증과 표준 승인·감사 레코드는 유지. 권리 입력·표시·철회 UI는 제거하고 수집 및 WebSub 관리에 집중 |
 | 2026-08-26 | PR #76을 merge commit `c7b0607`로 병합하고 WebSub Worker/UI를 production에 배포. `OTW_PLAY_PUBLIC_ORIGIN=https://otw-schedule.info`와 `OTW_PLAY_WEBSUB_SECRET_V1` 등록을 확인하고, secret 반영 version `8241864f`의 binding readback과 미등록 callback의 `404`·`no-store`, 공개 화면/API 회귀 확인을 통과. 공개 flag와 approval·monitor·subscription·delivery는 모두 비활성/0을 유지하며 동의받은 정확한 채널 확정만 등록 gate로 남김 |
 | 2026-08-26 | DEC-065 확정. 승인 채널을 `고급 관리`에서 별도 `승인 채널` 탭으로 이동하고 `approved_kirinuki` 역할·명시적 승인·활성화 흐름을 연결. `소스 상태`와 `운영·공개`는 분산된 반복 card를 요약·상세·작업이 인접한 고밀도 panel로 통합 |
+| 2026-08-26 | DEC-066 확정. 승인 채널과 외부 주체를 한 작업면으로 통합하고 채널 등록의 소유·연결 주체 선택을 제거. YouTube 채널 ID 조회로 권위 표시명을 자동 입력하며, callback 검증·lease가 없는 false-active WebSub row를 복구 대상으로 분류하고 transient hub 요청 1회 재시도와 비민감 오류 code 보존을 추가 |
 
 ## 19. 참고
 

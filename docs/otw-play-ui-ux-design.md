@@ -513,10 +513,12 @@ identity·새 외부/그룹 칩을 사용한다. 게시 상태는 이 form의 en
 승인 채널은 상단 `승인 채널` 1차 탭에서 등록·검수·활성 상태와 전체·활성·키리누키
 요약을 함께 관리한다. 신규 등록은 pending으로 생성하고 같은 탭의 목록 수정에서만
 승인·활성화한다. `approved_kirinuki`는 메일 서면 동의를 확보한 채널에만 선택한다.
-외부 identity는 `외부 주체 관리` 우측 Sheet에 두고, 목록과 현재 편집 form을 시각적으로
-분리하며 label·help·action이 한 입력 단위로 읽히는 반응형 form을 사용한다. 현재 멤버 identity는 `members`가 권위이므로
-수동 UID·slug 편집을 제공하지 않는다. 입력 오류가 발생해도
-dialog, 현재 단계와 모든 입력값을 유지한다.
+외부 identity는 별도 Sheet를 열지 않고 같은 승인 채널 card 아래의 외부 주체 목록·편집
+영역에서 관리한다. 채널 신규 등록 form은 소유·연결 주체를 선택하지 않는다. `UC` 채널
+ID를 입력하고 `채널 조회`를 실행하면 YouTube 권위 표시명을 읽기 전용 입력에 자동으로
+채우며, 조회한 ID와 현재 입력이 일치해야 등록 action을 활성화한다. 현재 멤버 identity는
+`members`가 권위이므로 수동 UID·slug 편집을 제공하지 않는다. 입력 오류가 발생해도 현재
+작업면과 모든 입력값을 유지한다.
 
 PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
 접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative
