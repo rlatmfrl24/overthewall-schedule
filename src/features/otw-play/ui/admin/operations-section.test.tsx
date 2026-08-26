@@ -96,7 +96,8 @@ describe("OTW Play operations section", () => {
   afterEach(() => cleanup());
 
   it("renders 24-hour metrics for desktop table and mobile cards", () => {
-    render(createElement(OperationsSection, props()));
+    const { container } = render(createElement(OperationsSection, props()));
+    expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(3);
     expect(screen.getByText("최근 24시간 관측")).toBeTruthy();
     expect(screen.getByText("2.0%")).toBeTruthy();
     expect(screen.getByText("125ms")).toBeTruthy();

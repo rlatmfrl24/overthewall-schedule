@@ -23,6 +23,8 @@ const fetchChannelMonitorsMock = vi.hoisted(() => vi.fn());
 const updateReleaseMock = vi.hoisted(() => vi.fn());
 const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
+const createChannelMock = vi.hoisted(() => vi.fn());
+const updateChannelMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
 const updatePerformanceMock = vi.hoisted(() => vi.fn());
 const preflightEntryMock = vi.hoisted(() => vi.fn());
@@ -48,6 +50,8 @@ vi.mock("../../api/admin", async (importOriginal) => {
     updateOtwPlayAdminRelease: updateReleaseMock,
     recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
+    createOtwPlayChannel: createChannelMock,
+    updateOtwPlayChannel: updateChannelMock,
     updateOtwPlaySong: updateSongMock,
     updateOtwPlayPerformance: updatePerformanceMock,
     preflightOtwPlayCatalogEntry: preflightEntryMock,
@@ -128,6 +132,10 @@ describe("OtwPlayCatalogManager", () => {
     fetchChannelMonitorsMock.mockResolvedValue([]);
     updateReleaseMock.mockReset();
     recheckSourceMock.mockReset();
+    createChannelMock.mockReset();
+    updateChannelMock.mockReset();
+    createChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    updateChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     publishPerformanceMock.mockReset();
     publishPerformanceMock.mockResolvedValue({});
     fetchSourceHealthMock.mockResolvedValue({
@@ -723,7 +731,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "고급 관리" }));
+    fireEvent.click(await screen.findByRole("button", { name: "외부 주체 관리" }));
     fireEvent.click(screen.getByRole("button", { name: "외부 인물 수정" }));
     const nameInput = screen.getByLabelText(
       "외부 identity 표시명",
@@ -742,25 +750,72 @@ describe("OtwPlayCatalogManager", () => {
     consoleError.mockRestore();
   });
 
-  it("presents advanced channel data as a labeled correction form", async () => {
+  it("manages approved channels in a dedicated tab and supports kirinuki registration", async () => {
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "고급 관리" }));
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
 
-    expect(screen.getByText("채널 수동 등록")).toBeTruthy();
-    expect(screen.getByText(/예외 보정용/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "승인 채널 관리" })).toBeTruthy();
+    expect(screen.getByText(/검수 대기로 생성/)).toBeTruthy();
     const channelId = screen.getByLabelText("YouTube channel ID");
     const displayName = screen.getByLabelText("채널 표시명");
-    const submit = screen.getByRole("button", { name: "채널 확인 후 등록" });
+    const submit = screen.getByRole("button", { name: "채널 등록" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(channelId, { target: { value: `UC${"F".repeat(22)}` } });
     fireEvent.change(displayName, { target: { value: "정리된 공식 채널" } });
+    fireEvent.click(screen.getByLabelText("채널 역할"));
+    fireEvent.click(await screen.findByRole("option", { name: "승인 키리누키" }));
     expect((submit as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByLabelText("채널 역할")).toBeTruthy();
+    fireEvent.click(submit);
+    await waitFor(() => expect(createChannelMock).toHaveBeenCalledWith({
+      externalChannelId: `UC${"F".repeat(22)}`,
+      displayName: "정리된 공식 채널",
+      channelRole: "approved_kirinuki",
+      entityIds: [],
+    }));
     expect(screen.getByText("등록된 채널")).toBeTruthy();
+  });
+
+  it("approves and activates a registered kirinuki channel from the channel tab", async () => {
+    const channelId = `UC${"K".repeat(22)}`;
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      channels: [{
+        id: "channel-kirinuki",
+        provider: "youtube",
+        externalChannelId: channelId,
+        displayName: "동의 완료 키리누키",
+        channelRole: "approved_kirinuki",
+        verificationStatus: "pending",
+        active: false,
+        entityIds: [],
+        version: 2,
+      }],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(screen.getByRole("button", { name: "동의 완료 키리누키 수정" }));
+    fireEvent.click(screen.getByLabelText("채널 검수 상태"));
+    fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "카탈로그 source에 사용" }));
+    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
+
+    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith({
+      id: "channel-kirinuki",
+      expectedVersion: 2,
+      externalChannelId: channelId,
+      displayName: "동의 완료 키리누키",
+      channelRole: "approved_kirinuki",
+      entityIds: [],
+      verificationStatus: "approved",
+      active: true,
+    }));
   });
 
   it("edits original artists as reusable chips without exposing the original release date", async () => {
@@ -1056,9 +1111,9 @@ describe("OtwPlayCatalogManager", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "관리자 쓰기를 중단했습니다",
     );
-    fireEvent.click(screen.getByRole("button", { name: "고급 관리" }));
+    fireEvent.click(screen.getByRole("button", { name: "승인 채널" }));
     expect(
-      (screen.getByRole("button", { name: "채널 확인 후 등록" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: "채널 등록" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
   });
@@ -1344,6 +1399,7 @@ describe("OtwPlayCatalogManager", () => {
     });
     await screen.findByRole("button", { name: "새 영상 등록" });
     expect(screen.getByRole("button", { name: "카탈로그" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "승인 채널" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "제안 검수" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "자동 검수" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "곡" })).toBeNull();
