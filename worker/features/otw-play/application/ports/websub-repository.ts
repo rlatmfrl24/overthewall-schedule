@@ -15,6 +15,7 @@ export interface WebsubSubscriptionAuthority {
   status: OtwPlayWebsubSubscriptionStatus;
   pendingMode: "subscribe" | "unsubscribe" | null;
   requestedAt: number;
+  verifiedAt: number | null;
   leaseExpiresAt: number | null;
   monitorStatus: "active" | "paused";
   monitorDeletedAt: number | null;
@@ -108,6 +109,21 @@ export interface WebsubHubClient {
     callbackUrl: string;
     hubSecret: string;
   }): Promise<void>;
+}
+
+export type WebsubHubRequestErrorCode =
+  | "hub_timeout"
+  | "hub_network"
+  | `hub_http_${number}`;
+
+export class WebsubHubRequestError extends Error {
+  readonly code: WebsubHubRequestErrorCode;
+
+  constructor(code: WebsubHubRequestErrorCode) {
+    super("WebSub hub request failed");
+    this.name = "WebsubHubRequestError";
+    this.code = code;
+  }
 }
 
 export interface WebsubQueueSender {

@@ -72,8 +72,12 @@ const subscriptionStatusLabels = {
 } as const;
 const subscriptionErrorLabel = (errorCode: string) => ({
   hub_request_failed: "hub 요청에 실패했습니다.",
+  hub_timeout: "hub 응답 시간이 초과되었습니다.",
+  hub_network: "hub 네트워크 요청에 실패했습니다.",
   hub_denied: "hub가 구독 요청을 거부했습니다.",
-}[errorCode] ?? "구독 상태를 확인하고 다시 시도해 주세요.");
+}[errorCode] ?? (errorCode.startsWith("hub_http_")
+  ? `hub가 HTTP ${errorCode.slice("hub_http_".length)}로 응답했습니다.`
+  : "구독 상태를 확인하고 다시 시도해 주세요."));
 
 export function ChannelMonitorSection() {
   const queryClient = useQueryClient();
@@ -92,12 +96,19 @@ export function ChannelMonitorSection() {
     (monitor) => monitor.externalChannelId === normalizedNewChannelId,
   );
   const selectedMonitor = monitors.find((monitor) => monitor.id === selectedMonitorId) ?? null;
+  const verifiedSubscriptionActive = selectedMonitor?.subscription?.status === "active" &&
+    selectedMonitor.subscription.verifiedAt !== null &&
+    selectedMonitor.subscription.leaseExpiresAt !== null;
   const transportReleased = !selectedMonitor?.subscription ||
-    selectedMonitor.subscription.status === "unsubscribed";
+    ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status) ||
+    (selectedMonitor.subscription.status === "active" && !verifiedSubscriptionActive);
   const canRequestSubscription = !selectedMonitor?.subscription ||
-    ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status);
+    ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status) ||
+    (selectedMonitor.subscription.status === "active" && !verifiedSubscriptionActive);
   const canRequestUnsubscribe = Boolean(
-    selectedMonitor?.subscription && selectedMonitor.subscription.status !== "unsubscribed",
+    selectedMonitor?.subscription &&
+    (["pending", "renewing", "unsubscribing"].includes(selectedMonitor.subscription.status) ||
+      verifiedSubscriptionActive),
   );
   const candidates = useMemo(
     () => candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
@@ -436,7 +447,7 @@ export function ChannelMonitorSection() {
                           구독
                         </Button>
                       ) : null}
-                      {selectedMonitor.subscription?.status === "active" ? (
+                      {verifiedSubscriptionActive ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -472,7 +483,10 @@ export function ChannelMonitorSection() {
                     <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-2">
                       <p>
                         구독 상태 <strong>{selectedMonitor.subscription
-                          ? subscriptionStatusLabels[selectedMonitor.subscription.status]
+                          ? selectedMonitor.subscription.status === "active" &&
+                              !verifiedSubscriptionActive
+                            ? "구독 상태 복구 필요"
+                            : subscriptionStatusLabels[selectedMonitor.subscription.status]
                           : "미구독"}</strong>
                       </p>
                       <p>lease 만료 <strong>{formatAt(selectedMonitor.subscription?.leaseExpiresAt ?? null)}</strong></p>
