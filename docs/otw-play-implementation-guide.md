@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-8 구현·병합·배포 closeout 완료, 운영 공개 `0/0` 유지
+상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` 유지
 
-기준일: 2026-08-21
+기준일: 2026-08-26
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -14,11 +14,11 @@
 ## 1. 문서 목적
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
-테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-8의
-구현·병합·production 배포는 완료되었다. 현재 단계는 flag `0/0`을 유지하면서 인증
-관리자 스모크, 예약 source-health, 운영 catalog와 단계적 공개·rollback을 지속
-검증하는 것이다. 저장 플레이리스트와 방송 가창·키리누키 등은 제품 요구사항의
-P0~P4 우선순위를 따르는 후속 범위다.
+테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-9A~C와
+P0-B polling foundation의 구현·병합·production 배포는 완료되었다. production Clerk 전환과 실제 로그인·관리자
+스모크도 완료했다. 현재 단계는 flag `0/0`을 유지하면서 예약 source-health, 운영
+catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
+가창·키리누키 등은 제품 요구사항의 P0~P4 우선순위를 따르는 후속 범위다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -34,13 +34,13 @@ flowchart LR
 
 ### 1.1 현재 권위 상태
 
-2026-08-25 closeout 기준 현재 상태는 다음과 같다.
+2026-08-26 Clerk production 전환 closeout 기준 현재 상태는 다음과 같다.
 
 - PR-9A~C와 P0-B polling foundation을 포함한 PR #74가 `master`에 병합되었고
   merge SHA는 `981371ee5c5b60303acb28198d958fc778d655a5`이다.
-- merge-connected deployment가 Worker version
-  `32ccd5ea-766f-4bf2-ae96-b1c8042e6a1f`을 제공한다.
-- 원격 D1에는 migration 0053–0062가 적용되어 pending migration이 없다.
+- 현재 production deployment는 Worker version
+  `789f32ad-21ce-4678-9669-5823ce9df9c7`을 제공한다.
+- 원격 D1에는 migration 0053–0063이 적용되어 pending migration이 없다.
   catalog/read-model revision은 `3/3`이며 운영 catalog에는 song 1개, published
   performance 1개, playable source 1개가 있다.
 - 운영 config는 의도대로 `public_read_enabled=0`, `navigation_visible=0`이다.
@@ -54,12 +54,21 @@ flowchart LR
   `approved_kirinuki` channel도 없다.
 - scheduled source health, structured telemetry, 감사 가능한 release command와 운영
   UI가 구현되었다. source health due count는 0이다.
-- production 관리 화면은 Clerk development instance를 사용한다. 관리자 세션은
-  동작하지만 production auth canary의 권위로 사용하지 않고 production instance 전환
-  뒤 다시 검증한다.
+- Clerk production instance의 custom domain DNS, Application `2/2`, Email `3/3`,
+  Frontend API·Account Portal SSL 발급을 확인했다. Google OAuth custom production
+  connection·redirect와 external app의 Production 게시 상태도 확인했다. development
+  사용자 22명을 `22/22` 이관했고 production 사용자 수 readback도 22명이다.
+- production build의 `pk_live` key, issuer `https://clerk.otw-schedule.info`, JWKS,
+  production admin ID와 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp`
+  exact-origin 검증이 적용되었다. 실제 로그인 뒤 사용자 메뉴와 `/admin/operations`,
+  `/admin/settings`, `/admin/logs`의 권위 데이터를 오류 없이 확인해 GATE-07을 해결했다.
+- 사용자 ID 이관 전 production D1 backup을 생성했고 `music_catalog_events.actor_user_id`
+  12건을 development ID에서 대응 production ID로 치환했다. 원격 readback은 이전 ID
+  0건, production ID 12건이며 다른 사용자 참조 필드는 변경 대상이 없었다.
 
-이 snapshot은 PR-9 코드 closeout의 권위 기준이다. 인증 스모크, catalog 정비와 실제
-flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지 않는다.
+이 snapshot은 PR-9 코드와 Clerk production 전환 closeout의 권위 기준이다. catalog
+정비와 실제 flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지
+않는다.
 
 ## 2. 구현 착수 gate
 
@@ -89,16 +98,19 @@ PR-3에서도 해당 route contract나 실행 경로를 만들지 않는다.
 | GATE-04 | 회원 제안 수정·철회                  | 해결됨                  | DEC-054: 본인 pending_review만 CAS 수정·철회     |
 | GATE-05 | 거절 사유를 회원에게 보이는 범위     | 해결됨                  | 상태·일반 안내만 노출, 내부 code·note 비공개     |
 | GATE-06 | 회원별 제출 제한                     | 해결됨                  | KST 일 5회 + 사용자별 edge 60초당 3회            |
-| GATE-07 | production 인증 권위                 | 운영 전 미해결          | Clerk production instance·issuer·JWKS·admin ID   |
-| GATE-08 | clip channel 자동 수집 권리          | 운영 전 미해결          | 운영 주체·candidate-only 근거·해제 절차 기록      |
+| GATE-07 | production 인증 권위                 | 해결됨 (2026-08-26)     | `pk_live`·domain/SSL·issuer/JWKS·admin ID·`azp` exact-origin 및 실제 관리자 스모크 |
+| GATE-08 | clip channel 자동 수집 권리          | 해결됨 (2026-08-26)     | 키리누키 제작자 메일 서면 동의 및 `approved_kirinuki` 등록 |
 
 결정되지 않은 slice만 보류하고 독립적인 domain, schema, 공개 read와 관리자
 draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TBD와 변경 이력에
 먼저 반영한다.
 
 GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원 수정·철회
-command와 control은 PR-9A에서 구현되었다. GATE-07·08은 독립적인 WebSub 로컬 구현을
-막지 않지만 production migration·배포·monitor·구독·canary를 막는다.
+command와 control은 PR-9A에서 구현되었고 GATE-07은 Clerk production 전환과 실제
+관리자 스모크로 해결되었다. GATE-08은 키리누키 제작자의 메일 서면 동의로 해결되었다.
+migration `0063`은 2026-08-26 production D1에 적용했지만 approval·monitor·subscription
+row는 아직 0개다. WebSub secret, Worker/UI production 배포, monitor·구독과 P0-A/P0-B
+canary는 각 운영 흐름의 실제 readback으로 완료한다.
 
 ## 3. 전달 전략
 
@@ -1357,8 +1369,9 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
   운영 API `401`·`no-store`, 공개 flag `0/0`을 확인했다.
 - 로컬 `master`를 원격 SHA `9b27ee9e37f796eb5d7674fd708b5623ff650f79`로
   fast-forward하고 병합된 PR-8A/B/C 로컬 브랜치와 remote-tracking ref를 정리했다.
-- 인증 관리자 운영 화면 스모크, due source의 다음 Cron readback, 초기 catalog 범위
-  결정·정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 차후 지속 확인한다.
+- 인증 관리자 운영 화면 스모크는 2026-08-26 Clerk production 전환에서 완료했다.
+  due source의 다음 Cron readback, 초기 catalog 범위 결정·정비,
+  `0/0 → 1/0 → 1/1`과 rollback rehearsal은 차후 지속 확인한다.
 - 후속 기능 우선순위는 2026-08-20 추가 조사에 따라 아래 24절과 제품 요구사항의
   DEC-052~058로 대체되었다.
 
@@ -1424,15 +1437,16 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
 - PR #74와 migration 0057–0062, Queue/DLQ consumer, proposal lifecycle, playlist
   ingestion·review·draft conversion 및 polling channel monitor를 완료 상태로 반영했다.
 - production P0-A 입력은 OTW 공식 `Cover Song` playlist
-  `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개로 고정한다. production Clerk
-  instance 전환 뒤에만 인증 UI에서 실행하고 draft 변환·게시 없이 Queue와 D1 job/candidate
-  readback을 확인한다.
-- 현재 권리 승인 channel은 0개다. legacy `kirinuki_channels`를 `approved_kirinuki`나
-  자동화 승인으로 승격하지 않는다. 운영 주체·candidate-only 수집 근거·해제 절차가
-  기록되기 전 production monitor와 WebSub subscription을 만들지 않는다.
-- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 로컬
-  구현과 Draft PR까지만 진행한다. remote migration, secret, 배포와 실제 hub 구독은
-  GATE-07·08이 해결될 때까지 보류한다.
+  `PLlU0BLctZTmBYMD3Pny-fh2NcQxxqMrSv`의 최근 5개로 고정한다. production Clerk 인증
+  UI와 관리자 권한은 검증을 마쳤다. draft 변환·게시 없이
+  Queue와 D1 job/candidate readback을 확인한다.
+- 자동 수집 대상 키리누키 제작자의 메일 서면 동의는 확보했다. legacy
+  `kirinuki_channels`를 `approved_kirinuki`나 자동화 승인으로 자동 승격하지 않으며,
+  활성 `approved_kirinuki` channel ID 등록 시 서버가 표준 승인·감사 레코드를 생성한다.
+- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 Draft
+  PR에서 검증했다. additive remote migration `0063`은 production D1에 적용했고 remote
+  doctor와 신규 table/column readback을 통과했다. secret, Worker/UI 배포와 실제 hub
+  구독 및 전달 readback이 남았다.
 - 구독이 허용된 뒤에도 backfill 0으로 시작하고 실제 upload notification을 최대 7일
   기다려 `hub → callback → Queue → videos.list → singing_clip candidate` readback이
   성공해야 E2E 완료로 판정한다. challenge 성공만으로 완료를 선언하지 않는다.

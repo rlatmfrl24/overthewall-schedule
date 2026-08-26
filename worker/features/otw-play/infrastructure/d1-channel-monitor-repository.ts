@@ -2,6 +2,7 @@ import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorStatus,
+  OtwPlayWebsubSubscriptionStatus,
 } from "@contracts/otw-play";
 import {
   IngestionRepositoryError,
@@ -30,6 +31,7 @@ type MonitorRow = {
   next_check_at: number;
   last_seen_video_id: string | null;
   last_seen_published_at: number | null;
+  last_recent_reconciled_at: number | null;
   last_error_code: string | null;
   candidate_count: number;
   pending_candidate_count: number;
@@ -37,11 +39,51 @@ type MonitorRow = {
   version: number;
   created_at: number;
   updated_at: number;
+  approval_scope: "candidate_collection" | null;
+  approval_status: "approved" | "revoked" | null;
+  operator_reference: string | null;
+  approval_reference: string | null;
+  revocation_procedure: string | null;
+  approved_by_user_id: string | null;
+  approved_at: number | null;
+  revoked_by_user_id: string | null;
+  revoked_at: number | null;
+  approval_version: number | null;
+  subscription_id: string | null;
+  subscription_status: OtwPlayWebsubSubscriptionStatus | null;
+  subscription_pending_mode: "subscribe" | "unsubscribe" | null;
+  subscription_secret_version: number | null;
+  subscription_requested_at: number | null;
+  subscription_verified_at: number | null;
+  subscription_lease_expires_at: number | null;
+  subscription_last_notification_at: number | null;
+  subscription_last_error_code: string | null;
+  subscription_version: number | null;
 };
 
 const monitorSelect = `SELECT monitor.*,
   channel.display_name AS channel_display_name,
   channel.external_channel_id,
+  approval.scope AS approval_scope,
+  approval.status AS approval_status,
+  approval.operator_reference,
+  approval.approval_reference,
+  approval.revocation_procedure,
+  approval.approved_by_user_id,
+  approval.approved_at,
+  approval.revoked_by_user_id,
+  approval.revoked_at,
+  approval.version AS approval_version,
+  subscription.id AS subscription_id,
+  subscription.status AS subscription_status,
+  subscription.pending_mode AS subscription_pending_mode,
+  subscription.secret_version AS subscription_secret_version,
+  subscription.requested_at AS subscription_requested_at,
+  subscription.verified_at AS subscription_verified_at,
+  subscription.lease_expires_at AS subscription_lease_expires_at,
+  subscription.last_notification_at AS subscription_last_notification_at,
+  subscription.last_error_code AS subscription_last_error_code,
+  subscription.version AS subscription_version,
   (SELECT COUNT(*) FROM music_channel_upload_candidate_origins AS origin
     WHERE origin.monitor_id = monitor.id
       AND origin.monitor_generation = monitor.generation) AS candidate_count,
@@ -51,7 +93,12 @@ const monitorSelect = `SELECT monitor.*,
       AND origin.monitor_generation = monitor.generation
       AND candidate.status NOT IN ('ignored', 'converted')) AS pending_candidate_count
  FROM music_channel_upload_monitors AS monitor
- JOIN music_channels AS channel ON channel.id = monitor.channel_id`;
+ JOIN music_channels AS channel ON channel.id = monitor.channel_id
+ LEFT JOIN music_channel_automation_approvals AS approval
+   ON approval.channel_id = monitor.channel_id
+ LEFT JOIN music_channel_websub_subscriptions AS subscription
+   ON subscription.monitor_id = monitor.id
+  AND subscription.monitor_generation = monitor.generation`;
 
 const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
   id: row.id,
@@ -66,7 +113,49 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
   lastSeenVideoId: row.last_seen_video_id,
   lastSeenPublishedAt:
     row.last_seen_published_at === null ? null : Number(row.last_seen_published_at),
+  lastRecentReconciledAt: row.last_recent_reconciled_at === null
+    ? null
+    : Number(row.last_recent_reconciled_at),
   lastErrorCode: row.last_error_code,
+  automationApproval: row.approval_scope && row.approval_status &&
+      row.operator_reference && row.approval_reference &&
+      row.revocation_procedure && row.approved_by_user_id &&
+      row.approved_at !== null && row.approval_version !== null
+    ? {
+        scope: row.approval_scope,
+        status: row.approval_status,
+        operatorReference: row.operator_reference,
+        approvalReference: row.approval_reference,
+        revocationProcedure: row.revocation_procedure,
+        approvedByUserId: row.approved_by_user_id,
+        approvedAt: Number(row.approved_at),
+        revokedByUserId: row.revoked_by_user_id,
+        revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
+        version: Number(row.approval_version),
+      }
+    : null,
+  subscription: row.subscription_id && row.subscription_status &&
+      row.subscription_secret_version !== null &&
+      row.subscription_requested_at !== null && row.subscription_version !== null
+    ? {
+        id: row.subscription_id,
+        status: row.subscription_status,
+        pendingMode: row.subscription_pending_mode,
+        secretVersion: Number(row.subscription_secret_version),
+        requestedAt: Number(row.subscription_requested_at),
+        verifiedAt: row.subscription_verified_at === null
+          ? null
+          : Number(row.subscription_verified_at),
+        leaseExpiresAt: row.subscription_lease_expires_at === null
+          ? null
+          : Number(row.subscription_lease_expires_at),
+        lastNotificationAt: row.subscription_last_notification_at === null
+          ? null
+          : Number(row.subscription_last_notification_at),
+        lastErrorCode: row.subscription_last_error_code,
+        version: Number(row.subscription_version),
+      }
+    : null,
   candidateCount: Number(row.candidate_count),
   pendingCandidateCount: Number(row.pending_candidate_count),
   generation: Number(row.generation),
@@ -82,14 +171,28 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     this.database = database;
   }
 
+  async findApprovableChannel(externalChannelId: string) {
+    return await this.readChannel(externalChannelId, false);
+  }
+
   async findEligibleChannel(externalChannelId: string) {
+    return await this.readChannel(externalChannelId, true);
+  }
+
+  private async readChannel(externalChannelId: string, requireApproval: boolean) {
     return await this.database.prepare(
       `SELECT id, external_channel_id, display_name
-       FROM music_channels
+       FROM music_channels AS channel
        WHERE external_channel_id = ? AND provider = 'youtube'
           AND channel_role = 'approved_kirinuki'
-          AND verification_status = 'approved' AND active = 1`,
-    ).bind(externalChannelId).first<EligibleChannelMonitorTarget & {
+          AND verification_status = 'approved' AND active = 1
+          AND (? = 0 OR EXISTS (
+            SELECT 1 FROM music_channel_automation_approvals AS approval
+            WHERE approval.channel_id = channel.id
+              AND approval.scope = 'candidate_collection'
+              AND approval.status = 'approved'
+          ))`,
+    ).bind(externalChannelId, requireApproval ? 1 : 0).first<EligibleChannelMonitorTarget & {
       external_channel_id: string;
       display_name: string;
     }>().then((row) => row ? ({
@@ -185,6 +288,32 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   async create(input: Parameters<ChannelMonitorRepository["create"]>[0]) {
     await this.database.batch([
       this.database.prepare(
+        `INSERT INTO music_channel_automation_approvals (
+          channel_id, scope, status, operator_reference, approval_reference,
+          revocation_procedure, approved_by_user_id, approved_at,
+          version, created_at, updated_at
+        ) VALUES (?, 'candidate_collection', 'approved', ?, ?, ?, ?, ?, 0, ?, ?)
+        ON CONFLICT(channel_id) DO UPDATE SET
+          scope = 'candidate_collection', status = 'approved',
+          operator_reference = excluded.operator_reference,
+          approval_reference = excluded.approval_reference,
+          revocation_procedure = excluded.revocation_procedure,
+          approved_by_user_id = excluded.approved_by_user_id,
+          approved_at = excluded.approved_at,
+          revoked_by_user_id = NULL, revoked_at = NULL,
+          version = music_channel_automation_approvals.version + 1,
+          updated_at = excluded.updated_at`,
+      ).bind(
+        input.channel.id,
+        input.approval.operatorReference.trim(),
+        input.approval.approvalReference.trim(),
+        input.approval.revocationProcedure.trim(),
+        input.actorUserId,
+        input.now,
+        input.now,
+        input.now,
+      ),
+      this.database.prepare(
         `INSERT INTO music_channel_upload_monitors (
           id, channel_id, uploads_playlist_id, status, check_interval_minutes,
           next_check_at, last_seen_video_id, generation, created_by_user_id,
@@ -199,6 +328,25 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         input.lastSeenVideoId,
         input.actorUserId,
         input.now,
+        input.now,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_catalog_events (
+          id, aggregate_type, aggregate_id, event_type, actor_kind,
+          actor_user_id, detail_json, created_at
+        ) VALUES (?, 'channel_automation_approval', ?,
+          'channel_automation_approval.approved', 'admin', ?, ?, ?)`,
+      ).bind(
+        input.approvalEventId,
+        input.channel.id,
+        input.actorUserId,
+        JSON.stringify({
+          scope: "candidate_collection",
+          operatorReference: input.approval.operatorReference.trim(),
+          approvalReference: input.approval.approvalReference.trim(),
+          revocationProcedure: input.approval.revocationProcedure.trim(),
+          publicationAuthorized: false,
+        }),
         input.now,
       ),
       this.database.prepare(
@@ -350,6 +498,105 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     return this.get(input.id);
   }
 
+  async revokeApproval(
+    input: Parameters<ChannelMonitorRepository["revokeApproval"]>[0],
+  ) {
+    const results = await this.database.batch([
+      this.database.prepare(
+        `UPDATE music_channel_automation_approvals
+         SET status = 'revoked', revoked_by_user_id = ?, revoked_at = ?,
+           version = version + 1, updated_at = ?
+         WHERE channel_id = (
+           SELECT channel_id FROM music_channel_upload_monitors
+           WHERE id = ? AND version = ? AND deleted_at IS NULL
+         )
+           AND status = 'approved' AND version = ?`,
+      ).bind(
+        input.actorUserId,
+        input.now,
+        input.now,
+        input.id,
+        input.expectedVersion,
+        input.expectedApprovalVersion,
+      ),
+      this.database.prepare(
+        `UPDATE music_channel_upload_monitors
+         SET status = 'paused', lease_until = NULL,
+           next_check_at = ?, version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ? AND deleted_at IS NULL
+           AND changes() = 1
+           AND EXISTS (
+             SELECT 1 FROM music_channel_automation_approvals AS approval
+             WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+               AND approval.status = 'revoked'
+               AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?
+           )`,
+      ).bind(
+        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        input.now,
+        input.id,
+        input.expectedVersion,
+        input.actorUserId,
+        input.now,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_catalog_events (
+          id, aggregate_type, aggregate_id, event_type, actor_kind,
+          actor_user_id, detail_json, created_at
+        ) SELECT ?, 'channel_automation_approval', monitor.channel_id,
+          'channel_automation_approval.revoked', 'admin', ?, ?, ?
+          FROM music_channel_upload_monitors AS monitor
+          JOIN music_channel_automation_approvals AS approval
+            ON approval.channel_id = monitor.channel_id
+          WHERE changes() = 1 AND monitor.id = ? AND approval.status = 'revoked'
+            AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?`,
+      ).bind(
+        input.approvalEventId,
+        input.actorUserId,
+        JSON.stringify({ scope: "candidate_collection" }),
+        input.now,
+        input.id,
+        input.actorUserId,
+        input.now,
+      ),
+      this.database.prepare(
+        `INSERT INTO music_catalog_events (
+          id, aggregate_type, aggregate_id, event_type, actor_kind,
+          actor_user_id, detail_json, created_at
+        ) SELECT ?, 'channel_monitor', ?, 'channel_monitor.status_changed',
+          'admin', ?, ?, ?
+          WHERE changes() = 1 AND EXISTS (
+            SELECT 1 FROM music_channel_upload_monitors AS monitor
+            JOIN music_channel_automation_approvals AS approval
+              ON approval.channel_id = monitor.channel_id
+            WHERE monitor.id = ? AND monitor.status = 'paused'
+              AND approval.status = 'revoked'
+              AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?
+          )`,
+      ).bind(
+        input.monitorEventId,
+        input.id,
+        input.actorUserId,
+        JSON.stringify({ status: "paused", reason: "authority_revoked" }),
+        input.now,
+        input.id,
+        input.actorUserId,
+        input.now,
+      ),
+    ]);
+    if (
+      Number(results[0]?.meta.changes ?? 0) !== 1 ||
+      Number(results[1]?.meta.changes ?? 0) !== 1
+    ) {
+      await this.get(input.id);
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor or candidate-collection approval changed during review",
+      );
+    }
+    return this.get(input.id);
+  }
+
   async remove(input: Parameters<ChannelMonitorRepository["remove"]>[0]) {
     const [result] = await this.database.batch([
       this.database.prepare(
@@ -389,9 +636,36 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
               AND channel.channel_role = 'approved_kirinuki'
               AND channel.verification_status = 'approved' AND channel.active = 1
          )
+         AND EXISTS (
+           SELECT 1 FROM music_channel_automation_approvals AS approval
+           WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+             AND approval.scope = 'candidate_collection'
+             AND approval.status = 'approved'
+         )
        ORDER BY next_check_at ASC, id ASC LIMIT ?`,
     ).bind(now, now, limit).all<{ id: string }>();
     return resultsOf(result).map((row) => row.id);
+  }
+
+  async listRecentDueIds(now: number, limit: number) {
+    const result = await this.database.prepare(
+      `SELECT monitor.id
+       FROM music_channel_upload_monitors AS monitor
+       JOIN music_channels AS channel ON channel.id = monitor.channel_id
+       JOIN music_channel_automation_approvals AS approval
+         ON approval.channel_id = monitor.channel_id
+       WHERE monitor.status = 'active' AND monitor.deleted_at IS NULL
+         AND (monitor.lease_until IS NULL OR monitor.lease_until <= ?)
+         AND (monitor.last_recent_reconciled_at IS NULL
+           OR monitor.last_recent_reconciled_at <= ?)
+         AND channel.provider = 'youtube'
+         AND channel.channel_role = 'approved_kirinuki'
+         AND channel.verification_status = 'approved' AND channel.active = 1
+         AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
+       ORDER BY COALESCE(monitor.last_recent_reconciled_at, 0) ASC, monitor.id ASC
+       LIMIT ?`,
+    ).bind(now, now - 24 * 60 * 60_000, limit).all<{ id: string }>();
+    return (result.results ?? []).map((row) => row.id);
   }
 
   async claim(id: string, now: number) {
@@ -406,6 +680,12 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
               AND channel.provider = 'youtube'
               AND channel.channel_role = 'approved_kirinuki'
               AND channel.verification_status = 'approved' AND channel.active = 1
+         )
+         AND EXISTS (
+           SELECT 1 FROM music_channel_automation_approvals AS approval
+           WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+             AND approval.scope = 'candidate_collection'
+             AND approval.status = 'approved'
          )`,
     ).bind(now + LEASE_MS, now, id, now).run();
     return Number(result.meta.changes ?? 0) === 1 ? this.get(id) : null;
@@ -444,6 +724,12 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                 SELECT 1 FROM music_channel_upload_monitors
                 WHERE id = ? AND version = ? AND generation = ?
                   AND status = 'active' AND deleted_at IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM music_channel_automation_approvals AS approval
+                    WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+                      AND approval.scope = 'candidate_collection'
+                      AND approval.status = 'approved'
+                  )
               )
             ON CONFLICT(provider, external_video_id) DO UPDATE SET
               title = excluded.title, channel_id = excluded.channel_id,
@@ -492,6 +778,12 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                   SELECT 1 FROM music_channel_upload_monitors
                   WHERE id = ? AND version = ? AND generation = ?
                     AND status = 'active' AND deleted_at IS NULL
+                    AND EXISTS (
+                      SELECT 1 FROM music_channel_automation_approvals AS approval
+                      WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+                        AND approval.scope = 'candidate_collection'
+                        AND approval.status = 'approved'
+                    )
                 )
             ON CONFLICT(monitor_id, candidate_id) DO NOTHING`,
           ).bind(
@@ -510,7 +802,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const claim = await this.database.prepare(
       `SELECT 1 AS matched FROM music_channel_upload_monitors
        WHERE id = ? AND version = ? AND generation = ?
-         AND status = 'active' AND deleted_at IS NULL`,
+         AND status = 'active' AND deleted_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM music_channel_automation_approvals AS approval
+           WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+             AND approval.scope = 'candidate_collection'
+             AND approval.status = 'approved'
+         )`,
     ).bind(
       input.monitorId,
       input.expectedVersion,
@@ -536,7 +834,13 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          last_seen_published_at = ?, last_error_code = NULL, lease_until = NULL,
          version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
-          AND status = 'active' AND deleted_at IS NULL`,
+          AND status = 'active' AND deleted_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM music_channel_automation_approvals AS approval
+            WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+              AND approval.scope = 'candidate_collection'
+              AND approval.status = 'approved'
+          )`,
     ).bind(
       input.now,
       input.now + CHECK_INTERVAL_MINUTES * 60_000,
@@ -551,6 +855,37 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       throw new IngestionRepositoryError(
         "stale_message",
         "Channel monitor changed during reconciliation",
+      );
+    }
+    return this.get(input.id);
+  }
+
+  async completeSupplemental(
+    input: Parameters<ChannelMonitorRepository["completeSupplemental"]>[0],
+  ) {
+    const result = await this.database.prepare(
+      `UPDATE music_channel_upload_monitors
+       SET last_recent_reconciled_at = ?, lease_until = NULL,
+         version = version + 1, updated_at = ?
+       WHERE id = ? AND version = ? AND generation = ?
+         AND status = 'active' AND deleted_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM music_channel_automation_approvals AS approval
+           WHERE approval.channel_id = music_channel_upload_monitors.channel_id
+             AND approval.scope = 'candidate_collection'
+             AND approval.status = 'approved'
+         )`,
+    ).bind(
+      input.now,
+      input.now,
+      input.id,
+      input.expectedVersion,
+      input.monitorGeneration,
+    ).run();
+    if (Number(result.meta.changes ?? 0) !== 1) {
+      throw new IngestionRepositoryError(
+        "stale_message",
+        "Channel monitor changed during supplemental reconciliation",
       );
     }
     return this.get(input.id);

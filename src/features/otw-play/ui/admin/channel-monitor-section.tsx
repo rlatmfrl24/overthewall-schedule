@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
+import { Bell, BellOff, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
 import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
@@ -11,8 +11,12 @@ import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/ui/toast";
 import {
   createOtwPlayChannelMonitor,
+  backfillOtwPlayChannelMonitor,
   deleteOtwPlayChannelMonitor,
   reconcileOtwPlayChannelMonitor,
+  renewOtwPlayChannelMonitor,
+  subscribeOtwPlayChannelMonitor,
+  unsubscribeOtwPlayChannelMonitor,
   updateOtwPlayChannelMonitor,
   updateOtwPlayImportCandidate,
 } from "../../api/admin";
@@ -57,6 +61,19 @@ const monitorErrorLabel = (errorCode: string) =>
   errorCode === "gap_suspected"
     ? "기준 영상 확인 필요 · 안전을 위해 감시 중단"
     : "마지막 업로드 확인 실패";
+const subscriptionStatusLabels = {
+  pending: "구독 확인 대기",
+  active: "구독 활성",
+  renewing: "갱신 확인 대기",
+  unsubscribing: "구독 해제 확인 대기",
+  unsubscribed: "구독 해제됨",
+  denied: "hub 요청 거부",
+  failed: "구독 요청 실패",
+} as const;
+const subscriptionErrorLabel = (errorCode: string) => ({
+  hub_request_failed: "hub 요청에 실패했습니다.",
+  hub_denied: "hub가 구독 요청을 거부했습니다.",
+}[errorCode] ?? "구독 상태를 확인하고 다시 시도해 주세요.");
 
 export function ChannelMonitorSection() {
   const queryClient = useQueryClient();
@@ -64,6 +81,7 @@ export function ChannelMonitorSection() {
   const monitorsQuery = useOtwPlayChannelMonitors();
   const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
   const [newChannelId, setNewChannelId] = useState("");
+  const [backfillCount, setBackfillCount] = useState("1");
   const [editChannelId, setEditChannelId] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -74,6 +92,13 @@ export function ChannelMonitorSection() {
     (monitor) => monitor.externalChannelId === normalizedNewChannelId,
   );
   const selectedMonitor = monitors.find((monitor) => monitor.id === selectedMonitorId) ?? null;
+  const transportReleased = !selectedMonitor?.subscription ||
+    selectedMonitor.subscription.status === "unsubscribed";
+  const canRequestSubscription = !selectedMonitor?.subscription ||
+    ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status);
+  const canRequestUnsubscribe = Boolean(
+    selectedMonitor?.subscription && selectedMonitor.subscription.status !== "unsubscribed",
+  );
   const candidates = useMemo(
     () => candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [candidatesQuery.data],
@@ -107,7 +132,9 @@ export function ChannelMonitorSection() {
     ) return;
     setBusy("create");
     try {
-      const monitor = await createOtwPlayChannelMonitor({ externalChannelId });
+      const monitor = await createOtwPlayChannelMonitor({
+        externalChannelId,
+      });
       setSelectedMonitorId(monitor.id);
       setNewChannelId("");
       await refresh(monitor.id);
@@ -118,7 +145,7 @@ export function ChannelMonitorSection() {
     } catch {
       toast({
         variant: "error",
-        description: "수집 대상을 추가하지 못했습니다. 승인·활성 상태인 노래 클립 채널인지 확인해 주세요.",
+        description: "수집 대상을 추가하지 못했습니다. 채널 관리에 등록된 활성 노래 클립 채널인지 확인해 주세요.",
       });
     } finally {
       setBusy(null);
@@ -232,6 +259,51 @@ export function ChannelMonitorSection() {
     }
   };
 
+  const runTransportAction = async (
+    action: "subscribe" | "renew" | "unsubscribe",
+  ) => {
+    if (!selectedMonitor) return;
+    setBusy(action);
+    try {
+      if (action === "subscribe") await subscribeOtwPlayChannelMonitor(selectedMonitor.id);
+      else if (action === "renew") await renewOtwPlayChannelMonitor(selectedMonitor.id);
+      else await unsubscribeOtwPlayChannelMonitor(selectedMonitor.id);
+      await refresh();
+      toast({
+        variant: "success",
+        description: action === "unsubscribe"
+          ? "구독 해제 요청을 보냈습니다. hub 확인 상태를 기다립니다."
+          : "WebSub 요청을 보냈습니다. hub callback 확인 상태를 기다립니다.",
+      });
+    } catch {
+      toast({
+        variant: "error",
+        description: "WebSub 요청을 처리하지 못했습니다. secret·공개 origin과 구독 상태를 확인해 주세요.",
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const backfill = async () => {
+    if (!selectedMonitor) return;
+    const count = Number(backfillCount);
+    if (!Number.isSafeInteger(count) || count < 1 || count > 20) return;
+    setBusy("backfill");
+    try {
+      const result = await backfillOtwPlayChannelMonitor(selectedMonitor.id, { count });
+      await refresh();
+      toast({
+        variant: "success",
+        description: `최근 ${result.checkedVideoCount}개를 확인해 신규 검수 제안 ${result.discoveredCount}개를 추가했습니다.`,
+      });
+    } catch {
+      toast({ variant: "error", description: "명시적 최근 영상 가져오기에 실패했습니다." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="border-b">
@@ -240,18 +312,18 @@ export function ChannelMonitorSection() {
           <div className="space-y-1">
             <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              별도 승인된 노래 클립 YouTube 채널을 6시간마다 확인합니다. 등록 이전 영상은 소급하지 않고,
-              새 영상은 singing clip 검수함에만 보관하며 자동 공개하지 않습니다.
+              등록한 노래 클립 YouTube 채널은 WebSub 알림을 우선 사용하고 6시간 polling을 fallback으로 유지합니다.
+              등록 이전 영상은 자동 소급하지 않으며, 새 영상은 singing clip 검수함에만 보관하고 자동 공개하지 않습니다.
             </p>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-5 pt-6">
-        <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(260px,1fr)_auto] md:items-end">
+        <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
             <FieldDescription>
-              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 채널 관리에서 노래 클립 채널로 승인·활성화된 대상만 추가됩니다.
+              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 추가 시 현재 최신 영상을 기준점으로 저장합니다.
             </FieldDescription>
             <Input
               id="new-monitor-channel-id"
@@ -266,7 +338,7 @@ export function ChannelMonitorSection() {
             ) : null}
           </Field>
           <Button
-            className="h-11"
+            className="h-11 sm:justify-self-end"
             disabled={
               !YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedNewChannelId) ||
               newChannelAlreadyMonitored ||
@@ -354,6 +426,38 @@ export function ChannelMonitorSection() {
                         {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                         지금 대조
                       </Button>
+                      {canRequestSubscription ? (
+                        <Button
+                          size="sm"
+                          disabled={busy !== null || selectedMonitor.status !== "active" || selectedMonitor.automationApproval?.status !== "approved"}
+                          onClick={() => void runTransportAction("subscribe")}
+                        >
+                          {busy === "subscribe" ? <Loader2 className="animate-spin" /> : <Bell />}
+                          구독
+                        </Button>
+                      ) : null}
+                      {selectedMonitor.subscription?.status === "active" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => void runTransportAction("renew")}
+                        >
+                          {busy === "renew" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                          갱신
+                        </Button>
+                      ) : null}
+                      {canRequestUnsubscribe ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null || selectedMonitor.subscription?.status === "unsubscribing"}
+                          onClick={() => void runTransportAction("unsubscribe")}
+                        >
+                          {busy === "unsubscribe" ? <Loader2 className="animate-spin" /> : <BellOff />}
+                          구독 해제
+                        </Button>
+                      ) : null}
                       {selectedMonitor.lastErrorCode === "gap_suspected" ? (
                         <Button
                           size="sm"
@@ -365,10 +469,48 @@ export function ChannelMonitorSection() {
                         </Button>
                       ) : null}
                     </div>
+                    <div className="grid gap-2 rounded-lg bg-muted/30 p-3 text-sm sm:grid-cols-2">
+                      <p>
+                        구독 상태 <strong>{selectedMonitor.subscription
+                          ? subscriptionStatusLabels[selectedMonitor.subscription.status]
+                          : "미구독"}</strong>
+                      </p>
+                      <p>lease 만료 <strong>{formatAt(selectedMonitor.subscription?.leaseExpiresAt ?? null)}</strong></p>
+                      <p>마지막 알림 <strong>{formatAt(selectedMonitor.subscription?.lastNotificationAt ?? null)}</strong></p>
+                      <p>최근 50개 대조 <strong>{formatAt(selectedMonitor.lastRecentReconciledAt)}</strong></p>
+                      {selectedMonitor.subscription?.lastErrorCode ? (
+                        <p className="text-destructive sm:col-span-2">
+                          구독 오류: {subscriptionErrorLabel(selectedMonitor.subscription.lastErrorCode)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Field>
+                      <FieldLabel htmlFor="monitor-backfill-count">명시적 최근 영상 가져오기</FieldLabel>
+                      <FieldDescription>이 채널의 최근 1~20개 영상을 검수 후보로 확인합니다.</FieldDescription>
+                      <div className="flex gap-2">
+                        <Input
+                          id="monitor-backfill-count"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={backfillCount}
+                          onChange={(event) => setBackfillCount(event.target.value)}
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={busy !== null || selectedMonitor.status !== "active" || Number(backfillCount) < 1 || Number(backfillCount) > 20}
+                          onClick={() => void backfill()}
+                        >
+                          {busy === "backfill" ? <Loader2 className="animate-spin" /> : null}
+                          가져오기
+                        </Button>
+                      </div>
+                    </Field>
                     <Field>
                       <FieldLabel htmlFor="edit-monitor-channel-id">채널 ID 수정</FieldLabel>
                       <FieldDescription>
-                        변경하면 이전 채널의 제안 연결을 이 대상에서 분리하고 새 채널의 최신 영상부터 확인합니다.
+                        구독 해제가 끝나고 채널 관리에 등록된 활성 노래 클립 채널로만 변경할 수 있습니다.
+                        새 채널은 현재 대상을 삭제한 뒤 위에서 등록하세요.
                       </FieldDescription>
                       <div className="flex flex-col gap-2 sm:flex-row">
                         <Input
@@ -382,6 +524,7 @@ export function ChannelMonitorSection() {
                           variant="outline"
                           disabled={
                             busy !== null ||
+                            !transportReleased ||
                             !YOUTUBE_CHANNEL_ID_PATTERN.test(editChannelId.trim()) ||
                             editChannelId.trim() === selectedMonitor.externalChannelId
                           }
@@ -393,12 +536,17 @@ export function ChannelMonitorSection() {
                         <Button
                           variant="outline"
                           className="text-destructive hover:text-destructive"
-                          disabled={busy !== null}
+                          disabled={busy !== null || !transportReleased}
                           onClick={() => setDeleteOpen(true)}
                         >
                           <Trash2 /> 삭제
                         </Button>
                       </div>
+                      {!transportReleased ? (
+                        <FieldDescription>
+                          구독 해제 확인이 완료된 뒤 채널 변경 또는 대상 삭제를 진행할 수 있습니다.
+                        </FieldDescription>
+                      ) : null}
                     </Field>
                   </div>
                   <div className="divide-y">
@@ -488,7 +636,7 @@ export function ChannelMonitorSection() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="수집 대상 채널을 삭제할까요?"
-        description="자동 확인을 중단하고 이 채널과 연결된 자동 제안 이력을 대상 목록에서 분리합니다. 이미 생성된 영상 후보 자체는 삭제하지 않습니다."
+        description="구독 해제가 완료된 수집 대상만 삭제할 수 있습니다. 자동 확인을 중단하고 연결된 자동 제안 이력을 대상 목록에서 분리하며, 구독·후보·감사 기록은 삭제하지 않습니다."
         confirmLabel="수집 대상 삭제"
         destructive
         isProcessing={busy === "delete"}

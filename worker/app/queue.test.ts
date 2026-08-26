@@ -10,6 +10,13 @@ const service = vi.hoisted(() => ({
 vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
+const websubService = vi.hoisted(() => ({
+  process: vi.fn(),
+  markDeadLetter: vi.fn(),
+}));
+vi.mock("./websub", () => ({
+  createOtwPlayWebsubService: () => websubService,
+}));
 
 const batch = (
   queue: string,
@@ -31,6 +38,8 @@ describe("OTW Play ingestion queue handler", () => {
   beforeEach(() => {
     service.process.mockReset();
     service.markDeadLetter.mockReset();
+    websubService.process.mockReset();
+    websubService.markDeadLetter.mockReset();
   });
 
   it("acks successful and malformed main-queue deliveries", async () => {
@@ -70,5 +79,28 @@ describe("OTW Play ingestion queue handler", () => {
       "queue_retries_exhausted",
     );
     expect(service.markDeadLetter).toHaveBeenCalledBefore(ack);
+  });
+
+  it("dispatches versioned WebSub messages without changing the playlist shape", async () => {
+    const websubMessage = {
+      schemaVersion: 1,
+      messageType: "channel_websub",
+      deliveryId: "delivery-1",
+    };
+    const ack = vi.fn();
+    await handleQueue(batch("otw-play-ingestion", websubMessage, ack), {} as Env);
+    expect(websubService.process).toHaveBeenCalledWith(websubMessage);
+    expect(service.process).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledOnce();
+
+    const retry = vi.fn();
+    websubService.process.mockRejectedValueOnce(new Error("metadata unavailable"));
+    await handleQueue(batch("otw-play-ingestion", websubMessage, vi.fn(), retry), {} as Env);
+    expect(retry).toHaveBeenCalledOnce();
+
+    const deadAck = vi.fn();
+    await handleQueue(batch("otw-play-ingestion-dlq", websubMessage, deadAck), {} as Env);
+    expect(websubService.markDeadLetter).toHaveBeenCalledWith(websubMessage);
+    expect(deadAck).toHaveBeenCalledOnce();
   });
 });

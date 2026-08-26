@@ -16,7 +16,10 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
   nextCheckAt: 100,
   lastSeenVideoId: "AAAAAAAAAAA",
   lastSeenPublishedAt: 50,
+  lastRecentReconciledAt: null,
   lastErrorCode: null,
+  automationApproval: null,
+  subscription: null,
   candidateCount: 0,
   pendingCandidateCount: 0,
   generation: 0,
@@ -27,12 +30,19 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
 });
 
 const repository = () => ({
+  findApprovableChannel: vi.fn(async (externalChannelId) => ({
+    id: "channel-1",
+    externalChannelId,
+    displayName: "Approved Clips",
+  })),
   findEligibleChannel: vi.fn(async (externalChannelId) => ({
     id: "channel-1",
     externalChannelId,
     displayName: "Approved Clips",
   })),
-  findByExternalChannel: vi.fn(async () => null),
+  findByExternalChannel: vi.fn<ChannelMonitorRepository["findByExternalChannel"]>(
+    async () => null,
+  ),
   get: vi.fn(async () => monitor()),
   list: vi.fn(async () => []),
   listCandidates: vi.fn<ChannelMonitorRepository["listCandidates"]>(
@@ -57,13 +67,34 @@ const repository = () => ({
     version: input.expectedVersion + 1,
   })),
   remove: vi.fn(async ({ id }) => ({ id })),
-  listDueIds: vi.fn(async () => []),
+  listDueIds: vi.fn<ChannelMonitorRepository["listDueIds"]>(async () => []),
+  listRecentDueIds: vi.fn<ChannelMonitorRepository["listRecentDueIds"]>(async () => []),
   claim: vi.fn(async () => monitor()),
   recordCandidates: vi.fn(async () => 1),
   complete: vi.fn(async (input) => monitor({
     lastSeenVideoId: input.lastSeenVideoId,
     lastSeenPublishedAt: input.lastSeenPublishedAt,
     lastCheckedAt: input.now,
+  })),
+  completeSupplemental: vi.fn(async (input) => monitor({
+    lastRecentReconciledAt: input.now,
+    version: input.expectedVersion + 1,
+  })),
+  revokeApproval: vi.fn(async (input) => monitor({
+    status: "paused",
+    automationApproval: {
+      scope: "candidate_collection",
+      status: "revoked",
+      operatorReference: "operator-proof",
+      approvalReference: "rights-ticket",
+      revocationProcedure: "pause and unsubscribe",
+      approvedByUserId: "admin-1",
+      approvedAt: 90,
+      revokedByUserId: input.actorUserId,
+      revokedAt: input.now,
+      version: input.expectedApprovalVersion + 1,
+    },
+    version: input.expectedVersion + 1,
   })),
   markGapSuspected: vi.fn(async (input) => monitor({
     status: "paused",
@@ -144,13 +175,37 @@ describe("ChannelMonitorService", () => {
     });
     const service = new ChannelMonitorService(repo, reader, () => "monitor-1", () => 100);
 
-    await expect(service.create("UC1234567890123456789012", "admin-1")).resolves.toMatchObject({
+    await expect(service.create(
+      "UC1234567890123456789012",
+      "admin-1",
+    )).resolves.toMatchObject({
       lastSeenVideoId: "AAAAAAAAAAA",
     });
     expect(repo.recordCandidates).not.toHaveBeenCalled();
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
       lastSeenVideoId: "AAAAAAAAAAA",
+      approval: {
+        scope: "candidate_collection",
+        operatorReference: "approved_kirinuki channel registration",
+        approvalReference: "written email consent confirmed before monitor creation",
+        revocationProcedure: "pause collection, unsubscribe WebSub, then remove the monitor",
+        confirmed: true,
+      },
     }));
+  });
+
+  it("does not treat an existing monitor without active rights as an approved create", async () => {
+    const repo = repository();
+    repo.findByExternalChannel.mockResolvedValueOnce(monitor({
+      automationApproval: null,
+    }));
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.create(
+      "UC1234567890123456789012",
+      "admin-1",
+    )).rejects.toMatchObject({ code: "validation_failed" });
+    expect(repo.create).not.toHaveBeenCalled();
   });
 
   it("repoints a monitor by external channel ID and resets its watermark", async () => {
@@ -187,6 +242,7 @@ describe("ChannelMonitorService", () => {
 
   it("deletes a monitor with optimistic concurrency", async () => {
     const repo = repository();
+    repo.get.mockResolvedValueOnce(monitor({ version: 3 }));
     const service = new ChannelMonitorService(repo, youtube());
 
     await expect(service.remove("monitor-1", 3, "admin-1")).resolves.toEqual({ id: "monitor-1" });
@@ -269,5 +325,163 @@ describe("ChannelMonitorService", () => {
       eventId: "event-reset",
       now: 500,
     });
+  });
+
+  it("backfills only an explicit recent 1 to 20 item window", async () => {
+    const repo = repository();
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [
+        { playlistItemId: "item-c", videoId: "CCCCCCCCCCC", position: 0 },
+        { playlistItemId: "item-b", videoId: "BBBBBBBBBBB", position: 1 },
+        { playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 2 },
+      ],
+      nextPageToken: "next",
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "unused", () => 600);
+
+    await expect(service.backfill("monitor-1", 2)).resolves.toMatchObject({
+      discoveredCount: 1,
+      checkedVideoCount: 2,
+      capped: true,
+    });
+    expect(reader.readVideos).toHaveBeenCalledWith(["CCCCCCCCCCC", "BBBBBBBBBBB"]);
+    await expect(service.backfill("monitor-1", 0)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+    await expect(service.backfill("monitor-1", 21)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+  });
+
+  it("reconciles only uploads newer than the watermark in the daily recent window", async () => {
+    const repo = repository();
+    repo.listRecentDueIds.mockResolvedValueOnce(["monitor-1"]);
+    const reader = youtube();
+    reader.readPlaylistPage.mockResolvedValueOnce({
+      items: [
+        { playlistItemId: "item-c", videoId: "CCCCCCCCCCC", position: 0 },
+        { playlistItemId: "item-b", videoId: "BBBBBBBBBBB", position: 1 },
+        { playlistItemId: "item-a", videoId: "AAAAAAAAAAA", position: 2 },
+        { playlistItemId: "item-old", videoId: "OOOOOOOOOOO", position: 3 },
+      ],
+      nextPageToken: null,
+    });
+    const service = new ChannelMonitorService(repo, reader, () => "unused", () => 700);
+
+    await expect(service.runRecentDue()).resolves.toEqual([{
+      id: "monitor-1",
+      ok: true,
+      discoveredCount: 1,
+    }]);
+    expect(reader.readVideos).toHaveBeenCalledWith(["CCCCCCCCCCC", "BBBBBBBBBBB"]);
+    expect(repo.completeSupplemental).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 0,
+      monitorGeneration: 0,
+      now: 700,
+    });
+  });
+
+  it("revokes collection authority, pauses the monitor, and requests unsubscribe", async () => {
+    const repo = repository();
+    const approved = monitor({
+      status: "paused",
+      version: 3,
+      automationApproval: {
+        scope: "candidate_collection",
+        status: "revoked",
+        operatorReference: "operator-proof",
+        approvalReference: "rights-ticket",
+        revocationProcedure: "pause and unsubscribe",
+        approvedByUserId: "admin-1",
+        approvedAt: 100,
+        revokedByUserId: "admin-2",
+        revokedAt: 800,
+        version: 2,
+      },
+      subscription: {
+        id: "subscription-1",
+        status: "active",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: 110,
+        leaseExpiresAt: 1_000,
+        lastNotificationAt: null,
+        lastErrorCode: null,
+        version: 1,
+      },
+    });
+    repo.revokeApproval.mockResolvedValueOnce(approved);
+    repo.get.mockResolvedValue(approved);
+    const unsubscribe = vi.fn(async () => undefined);
+    const service = new ChannelMonitorService(
+      repo,
+      youtube(),
+      () => "event-revoke",
+      () => 800,
+      unsubscribe,
+    );
+
+    await service.revokeApproval("monitor-1", 2, 1, "admin-2");
+
+    expect(repo.revokeApproval).toHaveBeenCalledWith({
+      id: "monitor-1",
+      expectedVersion: 2,
+      expectedApprovalVersion: 1,
+      actorUserId: "admin-2",
+      approvalEventId: "event-revoke",
+      monitorEventId: "event-revoke",
+      now: 800,
+    });
+    expect(unsubscribe).toHaveBeenCalledWith("monitor-1", "admin-2");
+  });
+
+  it("blocks deletion and target changes until the current lease is released", async () => {
+    const repo = repository();
+    repo.get.mockResolvedValue(monitor({
+      subscription: {
+        id: "subscription-1",
+        status: "active",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: 110,
+        leaseExpiresAt: 1_000,
+        lastNotificationAt: null,
+        lastErrorCode: null,
+        version: 1,
+      },
+    }));
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.remove("monitor-1", 0, "admin-1"))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.updateTarget(
+      "monitor-1",
+      0,
+      "UC2222222222222222222222",
+      "admin-1",
+    )).rejects.toMatchObject({ code: "validation_failed" });
+    expect(repo.remove).not.toHaveBeenCalled();
+    expect(repo.updateTarget).not.toHaveBeenCalled();
+
+    repo.get.mockResolvedValue(monitor({
+      subscription: {
+        id: "subscription-1",
+        status: "failed",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: 100,
+        verifiedAt: null,
+        leaseExpiresAt: null,
+        lastNotificationAt: null,
+        lastErrorCode: "hub_request_failed",
+        version: 2,
+      },
+    }));
+    await expect(service.remove("monitor-1", 0, "admin-1"))
+      .rejects.toMatchObject({ code: "validation_failed" });
   });
 });

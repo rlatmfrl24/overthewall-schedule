@@ -2,7 +2,10 @@ import type {
   OtwPlayChannelMonitorReconcileDto,
   OtwPlayChannelMonitorStatus,
 } from "@contracts/otw-play";
-import type { ChannelMonitorRepository } from "./ports/channel-monitor-repository";
+import type {
+  ChannelMonitorAutomationApprovalInput,
+  ChannelMonitorRepository,
+} from "./ports/channel-monitor-repository";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeIngestionReader,
@@ -15,23 +18,74 @@ import {
 } from "../domain/channel-monitor-cursor";
 
 const MAX_RECONCILIATION_VIDEOS = 250;
+// A failed or denied subscribe/renew/unsubscribe request can still leave the
+// previous Hub lease alive. Only an acknowledged unsubscribe is safe for
+// target replacement or deletion.
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["unsubscribed"]);
+const PREAPPROVED_COLLECTION_AUTHORITY = {
+  scope: "candidate_collection",
+  operatorReference: "approved_kirinuki channel registration",
+  approvalReference: "written email consent confirmed before monitor creation",
+  revocationProcedure: "pause collection, unsubscribe WebSub, then remove the monitor",
+  confirmed: true,
+} as const satisfies ChannelMonitorAutomationApprovalInput;
 
 export class ChannelMonitorService {
   private readonly repository: ChannelMonitorRepository;
   private readonly youtube: OtwPlayYouTubeIngestionReader;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly unsubscribeTransport?: (
+    monitorId: string,
+    actorUserId: string,
+  ) => Promise<unknown>;
 
   constructor(
     repository: ChannelMonitorRepository,
     youtube: OtwPlayYouTubeIngestionReader,
     createId: () => string = () => crypto.randomUUID(),
     clock: () => number = Date.now,
+    unsubscribeTransport?: (
+      monitorId: string,
+      actorUserId: string,
+    ) => Promise<unknown>,
   ) {
     this.repository = repository;
     this.youtube = youtube;
     this.createId = createId;
     this.clock = clock;
+    this.unsubscribeTransport = unsubscribeTransport;
+  }
+
+  private assertTransportReleased(
+    monitor: Awaited<ReturnType<ChannelMonitorRepository["get"]>>,
+  ) {
+    if (
+      monitor.subscription &&
+      !TERMINAL_SUBSCRIPTION_STATUSES.has(monitor.subscription.status)
+    ) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Unsubscribe the current WebSub lease before deleting or changing the monitor target",
+      );
+    }
+  }
+
+  private async requestTransportStop(monitorId: string, actorUserId: string) {
+    const monitor = await this.repository.get(monitorId);
+    if (
+      !this.unsubscribeTransport ||
+      !monitor.subscription ||
+      TERMINAL_SUBSCRIPTION_STATUSES.has(monitor.subscription.status) ||
+      monitor.subscription.status === "unsubscribing"
+    ) return monitor;
+    try {
+      await this.unsubscribeTransport(monitorId, actorUserId);
+    } catch {
+      // The authority/status mutation already blocks collection. The persisted
+      // transport error and scheduled cleanup keep unsubscribe retryable.
+    }
+    return this.repository.get(monitorId);
   }
 
   list() {
@@ -59,10 +113,19 @@ export class ChannelMonitorService {
     };
   }
 
-  async create(externalChannelId: string, actorUserId: string) {
+  async create(
+    externalChannelId: string,
+    actorUserId: string,
+  ) {
     const existing = await this.repository.findByExternalChannel(externalChannelId);
-    if (existing) return existing;
-    const channel = await this.repository.findEligibleChannel(externalChannelId);
+    if (existing) {
+      if (existing.automationApproval?.status === "approved") return existing;
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "The existing monitor does not have an active candidate-collection approval",
+      );
+    }
+    const channel = await this.repository.findApprovableChannel(externalChannelId);
     if (!channel) {
       throw new IngestionRepositoryError(
         "validation_failed",
@@ -80,21 +143,23 @@ export class ChannelMonitorService {
     return this.repository.create({
       id: this.createId(),
       eventId: this.createId(),
+      approvalEventId: this.createId(),
       channel,
       uploadsPlaylistId: uploads.uploadsPlaylistId,
       lastSeenVideoId: page.items[0]?.videoId ?? null,
+      approval: PREAPPROVED_COLLECTION_AUTHORITY,
       actorUserId,
       now: this.clock(),
     });
   }
 
-  updateStatus(
+  async updateStatus(
     id: string,
     expectedVersion: number,
     status: OtwPlayChannelMonitorStatus,
     actorUserId: string,
   ) {
-    return this.repository.updateStatus({
+    const monitor = await this.repository.updateStatus({
       id,
       expectedVersion,
       status,
@@ -102,6 +167,9 @@ export class ChannelMonitorService {
       eventId: this.createId(),
       now: this.clock(),
     });
+    return status === "paused"
+      ? this.requestTransportStop(monitor.id, actorUserId)
+      : monitor;
   }
 
   async updateTarget(
@@ -118,6 +186,7 @@ export class ChannelMonitorService {
       );
     }
     if (current.externalChannelId === externalChannelId) return current;
+    this.assertTransportReleased(current);
     const duplicate = await this.repository.findByExternalChannel(externalChannelId);
     if (duplicate && duplicate.id !== id) {
       throw new IngestionRepositoryError(
@@ -189,7 +258,33 @@ export class ChannelMonitorService {
     });
   }
 
-  remove(id: string, expectedVersion: number, actorUserId: string) {
+  async revokeApproval(
+    id: string,
+    expectedVersion: number,
+    expectedApprovalVersion: number,
+    actorUserId: string,
+  ) {
+    const monitor = await this.repository.revokeApproval({
+      id,
+      expectedVersion,
+      expectedApprovalVersion,
+      actorUserId,
+      approvalEventId: this.createId(),
+      monitorEventId: this.createId(),
+      now: this.clock(),
+    });
+    return this.requestTransportStop(monitor.id, actorUserId);
+  }
+
+  async remove(id: string, expectedVersion: number, actorUserId: string) {
+    const current = await this.repository.get(id);
+    if (current.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Channel monitor changed during review",
+      );
+    }
+    this.assertTransportReleased(current);
     return this.repository.remove({
       id,
       expectedVersion,
@@ -313,6 +408,96 @@ export class ChannelMonitorService {
     for (const id of ids) {
       try {
         const result = await this.reconcile(id);
+        results.push({ id, ok: true, discoveredCount: result.discoveredCount });
+      } catch {
+        results.push({ id, ok: false, discoveredCount: 0 });
+      }
+    }
+    return results;
+  }
+
+  async backfill(id: string, count: number): Promise<OtwPlayChannelMonitorReconcileDto> {
+    if (!Number.isSafeInteger(count) || count < 1 || count > 20) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Backfill count must be between 1 and 20",
+      );
+    }
+    return this.reconcileSupplemental(id, count, true);
+  }
+
+  async reconcileRecent(id: string): Promise<OtwPlayChannelMonitorReconcileDto> {
+    return this.reconcileSupplemental(id, 50, false);
+  }
+
+  private async reconcileSupplemental(
+    id: string,
+    count: number,
+    includeBeforeWatermark: boolean,
+  ): Promise<OtwPlayChannelMonitorReconcileDto> {
+    const monitor = await this.repository.claim(id, this.clock());
+    if (!monitor) {
+      throw new IngestionRepositoryError(
+        "unavailable",
+        "The channel monitor is paused or already being checked",
+      );
+    }
+    try {
+      const page = await this.youtube.readPlaylistPage(monitor.uploadsPlaylistId, null);
+      const recentItems = page.items.slice(0, count);
+      const watermarkIndex = monitor.lastSeenVideoId === null
+        ? -1
+        : recentItems.findIndex((item) => item.videoId === monitor.lastSeenVideoId);
+      const selected = includeBeforeWatermark || monitor.lastSeenVideoId === null
+        ? recentItems
+        : watermarkIndex >= 0
+          ? recentItems.slice(0, watermarkIndex)
+          : [];
+      const ids = [...new Set(selected.map((item) => item.videoId))];
+      const observations = await this.youtube.readVideos(ids);
+      const authoritative = observations.filter((item) =>
+        item.video === null || item.video.channelId === monitor.externalChannelId
+      );
+      const discoveredCount = await this.repository.recordCandidates({
+        monitorId: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
+        observations: authoritative,
+        now: this.clock(),
+      });
+      const completed = await this.repository.completeSupplemental({
+        id: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
+        now: this.clock(),
+      });
+      return {
+        monitor: completed,
+        discoveredCount,
+        checkedVideoCount: authoritative.length,
+        capped: page.nextPageToken !== null && page.items.length >= count,
+        gapSuspected: false,
+      };
+    } catch (error) {
+      await this.repository.fail({
+        id: monitor.id,
+        expectedVersion: monitor.version,
+        monitorGeneration: monitor.generation,
+        errorCode: error instanceof OtwPlayYouTubeMetadataError
+          ? `youtube_${error.code}`
+          : "supplemental_reconciliation_failed",
+        now: this.clock(),
+      });
+      throw error;
+    }
+  }
+
+  async runRecentDue(limit = 10) {
+    const ids = await this.repository.listRecentDueIds(this.clock(), limit);
+    const results: Array<{ id: string; ok: boolean; discoveredCount: number }> = [];
+    for (const id of ids) {
+      try {
+        const result = await this.reconcileRecent(id);
         results.push({ id, ok: true, discoveredCount: result.discoveredCount });
       } catch {
         results.push({ id, ok: false, discoveredCount: 0 });

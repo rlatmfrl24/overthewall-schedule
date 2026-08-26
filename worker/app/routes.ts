@@ -46,10 +46,13 @@ import {
   createMemberSubmissionHandler,
   createIngestionHandler,
   createChannelMonitorHandler,
+  createWebsubAdminHandler,
+  createWebsubCallbackHandler,
   createReleaseHandler,
 } from "../features/otw-play";
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayChannelMonitorService } from "./channel-monitors";
+import { createOtwPlayWebsubService } from "./websub";
 import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 import {
   collectNaverCafePostsForSources,
@@ -237,6 +240,13 @@ const handleOtwPlayIngestion = withPlayOperationsTelemetry(
 );
 const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
   createChannelMonitorHandler(createOtwPlayChannelMonitorService),
+  resolvePlayTelemetry,
+);
+const handleOtwPlayWebsubCallback = createWebsubCallbackHandler(
+  createOtwPlayWebsubService,
+);
+const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
+  createWebsubAdminHandler(createOtwPlayWebsubService),
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(
@@ -503,6 +513,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayPublicCatalog,
   },
   {
+    id: "otw-play.youtube-webhook",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.youtubeWebhook.pattern,
+    methods: methods(
+      get(PUBLIC_NO_STORE),
+      post({
+        auth: "public-write",
+        cache: "no-store",
+        successStatus: 204,
+      }),
+    ),
+    handler: handleOtwPlayWebsubCallback,
+  },
+  {
     id: "otw-play.submission.preflight",
     owner: "otw-play",
     path: apiRoutes.otwPlay.submissions.preflight.pattern,
@@ -639,6 +663,42 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "otw-play.admin.channel-monitors.reconcile",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.reconcileChannelMonitor.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
+  },
+  {
+    id: "otw-play.admin.channel-monitors.revoke-approval",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.revokeChannelMonitorApproval.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayChannelMonitors,
+  },
+  ...[
+    {
+      action: "subscribe",
+      path: apiRoutes.otwPlay.admin.subscribeChannelMonitor.pattern,
+    },
+    {
+      action: "renew",
+      path: apiRoutes.otwPlay.admin.renewChannelMonitor.pattern,
+    },
+    {
+      action: "unsubscribe",
+      path: apiRoutes.otwPlay.admin.unsubscribeChannelMonitor.pattern,
+    },
+  ].map(
+    ({ action, path }): WorkerRouteDefinition => ({
+      id: `otw-play.admin.channel-monitors.${action}`,
+      owner: "otw-play",
+      path,
+      methods: methods(post(ADMIN_NO_STORE)),
+      handler: handleOtwPlayWebsubAdmin,
+    }),
+  ),
+  {
+    id: "otw-play.admin.channel-monitors.backfill",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.backfillChannelMonitor.pattern,
     methods: methods(post(ADMIN_NO_STORE)),
     handler: handleOtwPlayChannelMonitors,
   },

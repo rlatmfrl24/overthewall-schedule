@@ -54,6 +54,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "5.10.1",
     "html-to-image": "^1.11.13",
     "lucide-react": "^0.554.0",
     "motion": "^12.23.25",

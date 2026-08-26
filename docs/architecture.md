@@ -647,7 +647,9 @@ auto-update 설정과 실행 주기를 확인해 필요할 때 CHZZK VOD 수집�
 route의 `auth`는 계약을 설명하는 metadata이고 실제 JWT·관리자·visibility
 검사는 각 HTTP adapter가 수행한다. Clerk JWT는 Worker가 JWKS로 signature,
 issuer, 만료·`nbf`를 검증하고, `CLERK_JWT_AUDIENCE`가 설정된 경우에만
-audience를 추가 검증한다.
+audience를 추가 검증한다. `CLERK_AUTHORIZED_PARTIES`가 설정되면 token의 `azp`를
+정규화된 exact origin allowlist와 비교하고 누락·불일치를 거부한다. production은
+`https://otw-schedule.info`를 명시하며, HTTP origin은 localhost loopback만 허용한다.
 
 frontend와 Worker가 공유하는 payload의 기본 소유자는 `contracts`다.
 `contracts/api-routes.ts`는 양쪽에서 사용하는 route pattern과 URL builder를

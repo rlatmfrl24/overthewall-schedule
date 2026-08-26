@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  backfillOtwPlayChannelMonitor,
   createOtwPlayCatalogEntry,
   createOtwPlayChannelMonitor,
   convertOtwPlayImportCandidates,
@@ -17,8 +18,12 @@ import {
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
+  renewOtwPlayChannelMonitor,
+  revokeOtwPlayChannelMonitorApproval,
   recheckOtwPlaySource,
   retryOtwPlayImportJob,
+  subscribeOtwPlayChannelMonitor,
+  unsubscribeOtwPlayChannelMonitor,
   updateOtwPlayImportCandidate,
   updateOtwPlayAdminRelease,
   updateOtwPlayChannelMonitor,
@@ -194,7 +199,9 @@ describe("OTW Play admin API", () => {
       "/api/play/admin/channel-monitors",
       {
         method: "POST",
-        json: { externalChannelId: "UC1111111111111111111111" },
+        json: {
+          externalChannelId: "UC1111111111111111111111",
+        },
         auth: "required",
       },
     );
@@ -244,6 +251,48 @@ describe("OTW Play admin API", () => {
         json: { expectedVersion: 5, resetWatermark: true },
         auth: "required",
       },
+    );
+  });
+
+  it("uses explicit WebSub commands and a bounded backfill payload", async () => {
+    await subscribeOtwPlayChannelMonitor("monitor / one");
+    await renewOtwPlayChannelMonitor("monitor / one");
+    await unsubscribeOtwPlayChannelMonitor("monitor / one");
+    await revokeOtwPlayChannelMonitorApproval("monitor / one", {
+      expectedVersion: 3,
+      expectedApprovalVersion: 2,
+      confirmed: true,
+    });
+    await backfillOtwPlayChannelMonitor("monitor / one", { count: 20 });
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/subscribe",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/renew",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/unsubscribe",
+      { method: "POST", json: {}, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/revoke-approval",
+      {
+        method: "POST",
+        json: { expectedVersion: 3, expectedApprovalVersion: 2, confirmed: true },
+        auth: "required",
+      },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/play/admin/channel-monitors/monitor%20%2F%20one/backfill",
+      { method: "POST", json: { count: 20 }, auth: "required" },
     );
   });
 

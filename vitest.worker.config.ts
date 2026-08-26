@@ -52,6 +52,7 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   "0060_ancient_cardiac.sql",
   "0061_otw-play-member-entity-backfill.sql",
   "0062_colorful_magma.sql",
+  "0063_youthful_jamie_braddock.sql",
 ] as const;
 
 export default defineConfig({

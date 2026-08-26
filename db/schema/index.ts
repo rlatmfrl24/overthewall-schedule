@@ -2121,6 +2121,64 @@ export const musicIngestionCandidates = sqliteTable(
 export type MusicIngestionCandidate = typeof musicIngestionCandidates.$inferSelect;
 export type NewMusicIngestionCandidate = typeof musicIngestionCandidates.$inferInsert;
 
+export const musicChannelAutomationApprovals = sqliteTable(
+  "music_channel_automation_approvals",
+  {
+    channel_id: text("channel_id")
+      .primaryKey()
+      .references(() => musicChannels.id, { onDelete: "restrict" }),
+    scope: text().$type<"candidate_collection">().notNull(),
+    status: text().$type<"approved" | "revoked">().notNull(),
+    operator_reference: text("operator_reference").notNull(),
+    approval_reference: text("approval_reference").notNull(),
+    revocation_procedure: text("revocation_procedure").notNull(),
+    approved_by_user_id: text("approved_by_user_id").notNull(),
+    approved_at: integer("approved_at").notNull(),
+    revoked_by_user_id: text("revoked_by_user_id"),
+    revoked_at: integer("revoked_at"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_music_channel_automation_approvals_status_channel").on(
+      table.status,
+      table.channel_id,
+    ),
+    check(
+      "music_channel_automation_approvals_required_check",
+      sql`${table.scope} = 'candidate_collection'
+        AND ${table.status} IN ('approved', 'revoked')
+        AND length(trim(${table.operator_reference})) > 0
+        AND length(trim(${table.approval_reference})) > 0
+        AND length(trim(${table.revocation_procedure})) > 0
+        AND length(trim(${table.approved_by_user_id})) > 0`,
+    ),
+    check(
+      "music_channel_automation_approvals_revocation_check",
+      sql`(${table.status} = 'approved'
+          AND ${table.revoked_by_user_id} IS NULL
+          AND ${table.revoked_at} IS NULL)
+        OR (${table.status} = 'revoked'
+          AND length(trim(${table.revoked_by_user_id})) > 0
+          AND typeof(${table.revoked_at}) = 'integer'
+          AND ${table.revoked_at} >= ${table.approved_at})`,
+    ),
+    check(
+      "music_channel_automation_approvals_version_time_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0
+        AND typeof(${table.approved_at}) = 'integer' AND ${table.approved_at} >= 0
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicChannelAutomationApproval =
+  typeof musicChannelAutomationApprovals.$inferSelect;
+export type NewMusicChannelAutomationApproval =
+  typeof musicChannelAutomationApprovals.$inferInsert;
+
 export const musicChannelUploadMonitors = sqliteTable(
   "music_channel_upload_monitors",
   {
@@ -2135,6 +2193,7 @@ export const musicChannelUploadMonitors = sqliteTable(
     next_check_at: integer("next_check_at").notNull(),
     last_seen_video_id: text("last_seen_video_id"),
     last_seen_published_at: integer("last_seen_published_at"),
+    last_recent_reconciled_at: integer("last_recent_reconciled_at"),
     last_error_code: text("last_error_code"),
     lease_until: integer("lease_until"),
     generation: integer().notNull().default(0),
@@ -2185,6 +2244,182 @@ export const musicChannelUploadMonitors = sqliteTable(
     ),
   ],
 );
+
+export const musicChannelWebsubSubscriptions = sqliteTable(
+  "music_channel_websub_subscriptions",
+  {
+    id: text().primaryKey(),
+    monitor_id: text("monitor_id")
+      .notNull()
+      .references(() => musicChannelUploadMonitors.id, { onDelete: "restrict" }),
+    monitor_generation: integer("monitor_generation").notNull(),
+    topic_url: text("topic_url").notNull(),
+    callback_token_hash: text("callback_token_hash").notNull(),
+    secret_version: integer("secret_version").notNull(),
+    status: text()
+      .$type<
+        | "pending"
+        | "active"
+        | "renewing"
+        | "unsubscribing"
+        | "unsubscribed"
+        | "denied"
+        | "failed"
+      >()
+      .notNull(),
+    pending_mode: text("pending_mode").$type<"subscribe" | "unsubscribe">(),
+    requested_at: integer("requested_at").notNull(),
+    verified_at: integer("verified_at"),
+    lease_expires_at: integer("lease_expires_at"),
+    last_notification_at: integer("last_notification_at"),
+    last_error_code: text("last_error_code"),
+    version: integer().notNull().default(0),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_channel_websub_subscriptions_monitor_generation").on(
+      table.monitor_id,
+      table.monitor_generation,
+    ),
+    uniqueIndex("uidx_music_channel_websub_subscriptions_callback_hash").on(
+      table.callback_token_hash,
+    ),
+    index("idx_music_channel_websub_subscriptions_lease").on(
+      table.status,
+      table.lease_expires_at,
+      table.id,
+    ),
+    check(
+      "music_channel_websub_subscriptions_identity_check",
+      sql`length(trim(${table.id})) > 0
+        AND ${table.monitor_generation} >= 0
+        AND length(${table.topic_url}) = 80
+        AND substr(${table.topic_url}, 1, 56) = 'https://www.youtube.com/xml/feeds/videos.xml?channel_id='
+        AND length(${table.callback_token_hash}) = 64
+        AND ${table.callback_token_hash} NOT GLOB '*[^a-f0-9]*'
+        AND typeof(${table.secret_version}) = 'integer'
+        AND ${table.secret_version} >= 1`,
+    ),
+    check(
+      "music_channel_websub_subscriptions_status_check",
+      sql`${table.status} IN ('pending', 'active', 'renewing', 'unsubscribing',
+        'unsubscribed', 'denied', 'failed')
+        AND (${table.pending_mode} IS NULL
+          OR ${table.pending_mode} IN ('subscribe', 'unsubscribe'))
+        AND ((${table.status} IN ('pending', 'renewing') AND ${table.pending_mode} = 'subscribe')
+          OR (${table.status} = 'unsubscribing' AND ${table.pending_mode} = 'unsubscribe')
+          OR (${table.status} IN ('active', 'unsubscribed', 'denied', 'failed')
+            AND ${table.pending_mode} IS NULL))`,
+    ),
+    check(
+      "music_channel_websub_subscriptions_time_check",
+      sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0
+        AND typeof(${table.requested_at}) = 'integer' AND ${table.requested_at} >= 0
+        AND (${table.verified_at} IS NULL
+          OR (typeof(${table.verified_at}) = 'integer' AND ${table.verified_at} >= 0))
+        AND (${table.lease_expires_at} IS NULL
+          OR (typeof(${table.lease_expires_at}) = 'integer'
+            AND ${table.lease_expires_at} >= ${table.requested_at}))
+        AND (${table.last_notification_at} IS NULL
+          OR (typeof(${table.last_notification_at}) = 'integer'
+            AND ${table.last_notification_at} >= 0))
+        AND (${table.last_error_code} IS NULL OR length(trim(${table.last_error_code})) > 0)
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type MusicChannelWebsubSubscription =
+  typeof musicChannelWebsubSubscriptions.$inferSelect;
+export type NewMusicChannelWebsubSubscription =
+  typeof musicChannelWebsubSubscriptions.$inferInsert;
+
+export const musicChannelWebsubDeliveries = sqliteTable(
+  "music_channel_websub_deliveries",
+  {
+    id: text().primaryKey(),
+    subscription_id: text("subscription_id")
+      .notNull()
+      .references(() => musicChannelWebsubSubscriptions.id, { onDelete: "restrict" }),
+    monitor_id: text("monitor_id")
+      .notNull()
+      .references(() => musicChannelUploadMonitors.id, { onDelete: "restrict" }),
+    monitor_generation: integer("monitor_generation").notNull(),
+    external_channel_id: text("external_channel_id").notNull(),
+    external_video_id: text("external_video_id").notNull(),
+    provider_updated_at: integer("provider_updated_at").notNull(),
+    status: text()
+      .$type<
+        | "pending"
+        | "enqueued"
+        | "processing"
+        | "completed"
+        | "rejected"
+        | "failed"
+        | "dead_letter"
+      >()
+      .notNull(),
+    attempt_count: integer("attempt_count").notNull().default(0),
+    last_error_code: text("last_error_code"),
+    received_at: integer("received_at").notNull(),
+    enqueued_at: integer("enqueued_at"),
+    processed_at: integer("processed_at"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_music_channel_websub_deliveries_event").on(
+      table.subscription_id,
+      table.external_video_id,
+      table.provider_updated_at,
+    ),
+    index("idx_music_channel_websub_deliveries_status_received").on(
+      table.status,
+      table.received_at,
+      table.id,
+    ),
+    index("idx_music_channel_websub_deliveries_monitor_received").on(
+      table.monitor_id,
+      sql`${table.received_at} DESC`,
+      table.id,
+    ),
+    check(
+      "music_channel_websub_deliveries_identity_check",
+      sql`length(trim(${table.id})) > 0
+        AND typeof(${table.monitor_generation}) = 'integer'
+        AND ${table.monitor_generation} >= 0
+        AND length(${table.external_channel_id}) = 24
+        AND substr(${table.external_channel_id}, 1, 2) = 'UC'
+        AND substr(${table.external_channel_id}, 3) NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND length(${table.external_video_id}) = 11
+        AND ${table.external_video_id} NOT GLOB '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "music_channel_websub_deliveries_status_check",
+      sql`${table.status} IN ('pending', 'enqueued', 'processing', 'completed',
+        'rejected', 'failed', 'dead_letter')
+        AND typeof(${table.attempt_count}) = 'integer'
+        AND ${table.attempt_count} >= 0
+        AND (${table.last_error_code} IS NULL OR length(trim(${table.last_error_code})) > 0)`,
+    ),
+    check(
+      "music_channel_websub_deliveries_time_check",
+      sql`typeof(${table.provider_updated_at}) = 'integer' AND ${table.provider_updated_at} >= 0
+        AND typeof(${table.received_at}) = 'integer' AND ${table.received_at} >= 0
+        AND (${table.enqueued_at} IS NULL
+          OR (typeof(${table.enqueued_at}) = 'integer' AND ${table.enqueued_at} >= ${table.received_at}))
+        AND (${table.processed_at} IS NULL
+          OR (typeof(${table.processed_at}) = 'integer' AND ${table.processed_at} >= ${table.received_at}))
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.received_at}`,
+    ),
+  ],
+);
+
+export type MusicChannelWebsubDelivery =
+  typeof musicChannelWebsubDeliveries.$inferSelect;
+export type NewMusicChannelWebsubDelivery =
+  typeof musicChannelWebsubDeliveries.$inferInsert;
 
 export const musicChannelUploadCandidateOrigins = sqliteTable(
   "music_channel_upload_candidate_origins",

@@ -80,6 +80,14 @@ export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository"
 export { ChannelMonitorService } from "./application/channel-monitor-service";
 export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
 export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
+export { WebsubError, WebsubService } from "./application/websub-service";
+export type { OtwPlayWebsubQueueMessage } from "./application/ports/websub-repository";
+export { D1WebsubRepository } from "./infrastructure/d1-websub-repository";
+export { GoogleWebsubHubClient } from "./infrastructure/google-websub-hub";
+export {
+  createWebsubAdminHandler,
+  createWebsubCallbackHandler,
+} from "./http/websub-handler";
 export {
   createIngestionHandler,
   createIngestionQueueHandler,

@@ -7,6 +7,13 @@ type TestEnv = Env & { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
 const db = testEnv.otw_db;
 const NOW = Date.UTC(2026, 7, 24, 5);
+const approval = {
+  scope: "candidate_collection" as const,
+  operatorReference: "operator-proof",
+  approvalReference: "rights-ticket",
+  revocationProcedure: "pause and unsubscribe",
+  confirmed: true as const,
+};
 
 const observation = (videoId: string, title = `Video ${videoId}`) => ({
   videoId,
@@ -27,8 +34,12 @@ beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_monitor'"),
+    db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_automation_approval'"),
+    db.prepare("DELETE FROM music_channel_websub_deliveries"),
+    db.prepare("DELETE FROM music_channel_websub_subscriptions"),
     db.prepare("DELETE FROM music_channel_upload_candidate_origins"),
     db.prepare("DELETE FROM music_channel_upload_monitors"),
+    db.prepare("DELETE FROM music_channel_automation_approvals"),
     db.prepare("DELETE FROM music_ingestion_candidates WHERE candidate_kind = 'singing_clip'"),
     db.prepare(
       `DELETE FROM music_channels WHERE id IN (
@@ -51,6 +62,28 @@ beforeEach(async () => {
       'otw_official', 'approved', 1, 0, ?, ?
     )`,
   ).bind(NOW, NOW, NOW, NOW, NOW, NOW).run();
+  await db.prepare(
+    `INSERT INTO music_channel_automation_approvals (
+      channel_id, scope, status, operator_reference, approval_reference,
+      revocation_procedure, approved_by_user_id, approved_at,
+      version, created_at, updated_at
+    ) VALUES
+      ('monitor-channel', 'candidate_collection', 'approved', ?, ?, ?, 'admin-0', ?, 0, ?, ?),
+      ('monitor-channel-next', 'candidate_collection', 'approved', ?, ?, ?, 'admin-0', ?, 0, ?, ?)`,
+  ).bind(
+    approval.operatorReference,
+    approval.approvalReference,
+    approval.revocationProcedure,
+    NOW,
+    NOW,
+    NOW,
+    approval.operatorReference,
+    approval.approvalReference,
+    approval.revocationProcedure,
+    NOW,
+    NOW,
+    NOW,
+  ).run();
 });
 
 describe("D1ChannelMonitorRepository", () => {
@@ -65,9 +98,11 @@ describe("D1ChannelMonitorRepository", () => {
     const created = await repository.create({
       id: "monitor-1",
       eventId: "event-monitor-created",
+      approvalEventId: "event-monitor-approval",
       channel: channel!,
       uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
       lastSeenVideoId: "AAAAAAAAAAA",
+      approval,
       actorUserId: "admin-1",
       now: NOW,
     });
@@ -180,9 +215,11 @@ describe("D1ChannelMonitorRepository", () => {
     const created = await repository.create({
       id: "monitor-pagination",
       eventId: "event-pagination-created",
+      approvalEventId: "event-pagination-approval",
       channel: channel!,
       uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
       lastSeenVideoId: null,
+      approval,
       actorUserId: "admin-1",
       now: NOW,
     });
@@ -215,9 +252,11 @@ describe("D1ChannelMonitorRepository", () => {
     const created = await repository.create({
       id: "monitor-gap",
       eventId: "event-gap-created",
+      approvalEventId: "event-gap-approval",
       channel: channel!,
       uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
       lastSeenVideoId: "AAAAAAAAAAA",
+      approval,
       actorUserId: "admin-1",
       now: NOW,
     });
@@ -249,5 +288,65 @@ describe("D1ChannelMonitorRepository", () => {
       lastSeenVideoId: "BBBBBBBBBBB",
       lastErrorCode: null,
     });
+  });
+
+  it("atomically revokes candidate collection authority and pauses the monitor", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({
+      id: "monitor-revoke",
+      eventId: "event-revoke-created",
+      approvalEventId: "event-revoke-approved",
+      channel: channel!,
+      uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
+      lastSeenVideoId: "AAAAAAAAAAA",
+      approval,
+      actorUserId: "admin-1",
+      now: NOW,
+    });
+
+    const revoked = await repository.revokeApproval({
+      id: created.id,
+      expectedVersion: created.version,
+      expectedApprovalVersion: created.automationApproval!.version,
+      actorUserId: "admin-2",
+      approvalEventId: "event-revoke-authority",
+      monitorEventId: "event-revoke-paused",
+      now: NOW + 1_000,
+    });
+
+    expect(revoked).toMatchObject({
+      status: "paused",
+      version: created.version + 1,
+      automationApproval: {
+        status: "revoked",
+        revokedByUserId: "admin-2",
+        revokedAt: NOW + 1_000,
+        version: created.automationApproval!.version + 1,
+      },
+    });
+    await expect(repository.claim(created.id, NOW + 2_000)).resolves.toBeNull();
+    const events = await db.prepare(
+      `SELECT aggregate_type, event_type, actor_user_id
+       FROM music_catalog_events
+       WHERE id IN ('event-revoke-authority', 'event-revoke-paused')
+       ORDER BY aggregate_type ASC`,
+    ).all<{
+      aggregate_type: string;
+      event_type: string;
+      actor_user_id: string;
+    }>();
+    expect(events.results).toEqual([
+      {
+        aggregate_type: "channel_automation_approval",
+        event_type: "channel_automation_approval.revoked",
+        actor_user_id: "admin-2",
+      },
+      {
+        aggregate_type: "channel_monitor",
+        event_type: "channel_monitor.status_changed",
+        actor_user_id: "admin-2",
+      },
+    ]);
   });
 });

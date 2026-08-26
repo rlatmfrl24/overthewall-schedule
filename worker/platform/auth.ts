@@ -7,6 +7,7 @@ type JwtHeader = {
 
 type JwtPayload = Record<string, unknown> & {
   aud?: unknown;
+  azp?: unknown;
   exp?: unknown;
   iss?: unknown;
   nbf?: unknown;
@@ -55,6 +56,43 @@ const getNumericClaim = (value: unknown) =>
 
 const normalizeIssuer = (value: string | null | undefined) =>
   value?.trim().replace(/\/+$/, "") || null;
+
+const normalizeAuthorizedParty = (value: string) => {
+  try {
+    const url = new URL(value.trim());
+    const isLoopbackHttp =
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (url.protocol !== "https:" && !isLoopbackHttp) return null;
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.pathname !== "" && url.pathname !== "/")
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+};
+
+const parseAuthorizedParties = (value: string) => {
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.length === 0) return null;
+  const normalized: string[] = [];
+  for (const entry of entries) {
+    const party = normalizeAuthorizedParty(entry);
+    if (!party) return null;
+    normalized.push(party);
+  }
+  return [...new Set(normalized)];
+};
 
 const base64UrlToBytes = (value: string) => {
   const padded = value
@@ -118,8 +156,12 @@ const getAuthConfig = (env: Env) => {
     configuredJwksUrl ??
     (issuer ? parseHttpsUrl(`${issuer}${CLERK_JWKS_SUFFIX}`) : null);
   const audience = getStringClaim(env.CLERK_JWT_AUDIENCE);
+  const configuredAuthorizedParties = env.CLERK_AUTHORIZED_PARTIES?.trim();
+  const authorizedParties = configuredAuthorizedParties
+    ? parseAuthorizedParties(configuredAuthorizedParties)
+    : null;
 
-  if (!jwksUrl || !issuer) {
+  if (!jwksUrl || !issuer || (configuredAuthorizedParties && !authorizedParties)) {
     return null;
   }
 
@@ -127,6 +169,7 @@ const getAuthConfig = (env: Env) => {
     jwksUrl: jwksUrl.toString(),
     issuer,
     audience,
+    authorizedParties,
   };
 };
 
@@ -205,6 +248,17 @@ const verifyAudience = (claim: unknown, expectedAudience: string | null) => {
   return false;
 };
 
+const verifyAuthorizedParty = (
+  claim: unknown,
+  authorizedParties: string[] | null,
+) => {
+  if (!authorizedParties) return true;
+  const party = getStringClaim(claim);
+  if (!party) return false;
+  const normalized = normalizeAuthorizedParty(party);
+  return normalized ? authorizedParties.includes(normalized) : false;
+};
+
 const getDisplayName = (payload: JwtPayload) =>
   getStringClaim(payload.name) ??
   getStringClaim(payload.full_name) ??
@@ -239,7 +293,8 @@ const verifyClerkToken = async (
     !expiresAt ||
     expiresAt <= currentTime - JWT_CLOCK_SKEW_SECONDS ||
     (notBefore !== null && notBefore > currentTime + JWT_CLOCK_SKEW_SECONDS) ||
-    !verifyAudience(parsed.payload.aud, config.audience)
+    !verifyAudience(parsed.payload.aud, config.audience) ||
+    !verifyAuthorizedParty(parsed.payload.azp, config.authorizedParties)
   ) {
     return { ok: false, reason: "invalid" };
   }

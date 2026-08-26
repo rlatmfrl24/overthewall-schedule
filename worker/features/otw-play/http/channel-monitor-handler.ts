@@ -65,7 +65,8 @@ export const createChannelMonitorHandler = (
         : "";
       if (
         !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
-        Object.keys(body ?? {}).some((key) => key !== "externalChannelId")
+        Object.keys(body ?? {}).length !== 1 ||
+        !Object.hasOwn(body ?? {}, "externalChannelId")
       ) {
         return errorJson(
           requestId,
@@ -74,7 +75,9 @@ export const createChannelMonitorHandler = (
           "A valid externalChannelId is required",
         );
       }
-      return json({ data: await service.create(externalChannelId, auth.user.id) }, 201);
+      return json({
+        data: await service.create(externalChannelId, auth.user.id),
+      }, 201);
     }
     const candidatesId = pathId(url.pathname, "/candidates");
     if (request.method === "GET" && candidatesId) {
@@ -107,6 +110,58 @@ export const createChannelMonitorHandler = (
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "An empty object is required");
       }
       return json({ data: await service.reconcile(reconcileId) });
+    }
+    const backfillId = pathId(url.pathname, "/backfill");
+    if (request.method === "POST" && backfillId) {
+      const body = await readObject(request);
+      const count = body?.count;
+      if (
+        !body ||
+        Object.keys(body).length !== 1 ||
+        !Object.hasOwn(body, "count") ||
+        !Number.isSafeInteger(count) ||
+        Number(count) < 1 ||
+        Number(count) > 20
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "count must be an integer between 1 and 20",
+        );
+      }
+      return json({ data: await service.backfill(backfillId, Number(count)) });
+    }
+    const revokeApprovalId = pathId(url.pathname, "/revoke-approval");
+    if (request.method === "POST" && revokeApprovalId) {
+      const body = await readObject(request);
+      const expectedVersion = body?.expectedVersion;
+      const expectedApprovalVersion = body?.expectedApprovalVersion;
+      if (
+        !body ||
+        Object.keys(body).length !== 3 ||
+        !Object.hasOwn(body, "expectedVersion") ||
+        !Object.hasOwn(body, "expectedApprovalVersion") ||
+        !Object.hasOwn(body, "confirmed") ||
+        !Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0 ||
+        !Number.isSafeInteger(expectedApprovalVersion) || Number(expectedApprovalVersion) < 0 ||
+        body.confirmed !== true
+      ) {
+        return errorJson(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Current monitor and approval versions with explicit confirmation are required",
+        );
+      }
+      return json({
+        data: await service.revokeApproval(
+          revokeApprovalId,
+          Number(expectedVersion),
+          Number(expectedApprovalVersion),
+          auth.user.id,
+        ),
+      });
     }
     const monitorId = pathId(url.pathname, "");
     if (request.method === "PATCH" && monitorId) {

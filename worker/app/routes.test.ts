@@ -104,6 +104,10 @@ const PUBLIC_WRITE_POST = {
   cache: "no-store",
   successStatus: 200,
 } as const;
+const PUBLIC_WRITE_POST_NO_CONTENT = {
+  ...PUBLIC_WRITE_POST,
+  successStatus: 204,
+} as const;
 const PUBLIC_WRITE_POST_CREATED = {
   ...PUBLIC_WRITE_POST,
   successStatus: 201,
@@ -241,6 +245,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [OTW_PLAY_DETAIL_GET],
   },
   {
+    id: "otw-play.youtube-webhook",
+    owner: "otw-play",
+    path: "/api/play/webhooks/youtube/:token",
+    methods: [PUBLIC_GET, PUBLIC_WRITE_POST_NO_CONTENT],
+  },
+  {
     id: "otw-play.submission.preflight",
     owner: "otw-play",
     path: "/api/play/submissions/preflight",
@@ -346,6 +356,36 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "otw-play.admin.channel-monitors.reconcile",
     owner: "otw-play",
     path: "/api/play/admin/channel-monitors/:id/reconcile",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.revoke-approval",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/revoke-approval",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.subscribe",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/subscribe",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.renew",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/renew",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.unsubscribe",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/unsubscribe",
+    methods: [ADMIN_POST],
+  },
+  {
+    id: "otw-play.admin.channel-monitors.backfill",
+    owner: "otw-play",
+    path: "/api/play/admin/channel-monitors/:id/backfill",
     methods: [ADMIN_POST],
   },
   {
