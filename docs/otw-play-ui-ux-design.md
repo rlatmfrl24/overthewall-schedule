@@ -777,8 +777,8 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   사용자 메뉴의 계정 관리·로그아웃과 `/admin/operations`, `/admin/settings`,
   `/admin/logs` 진입 및 권위 데이터 readback이 동작한다. 개발 instance session이나
   UI-only 성공 화면을 fallback으로 사용하지 않는다.
-- WebSub UI는 Draft PR 범위이며 production에는 미배포다. additive migration `0063`만
-  production D1에 적용됐고 관련 row는 0개다. production 인증 GATE-07과 자동 수집 권리
+- WebSub UI와 callback·lease 관리 code, additive migration `0063`, 공개 origin과 secret은
+  production에 적용됐고 관련 row는 0개다. production 인증 GATE-07과 자동 수집 권리
   GATE-08은 해결되었다. 등록 폼은 채널 ID와 추가 action만 제공하며 운영 주체·승인
   근거·해제 절차·권리 checkbox를 반복 입력시키지 않는다. 등록 뒤 화면은 수집 상태와
   WebSub 구독·갱신·해제 관리에 집중한다.

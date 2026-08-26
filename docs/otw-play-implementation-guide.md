@@ -109,8 +109,9 @@ GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원
 command와 control은 PR-9A에서 구현되었고 GATE-07은 Clerk production 전환과 실제
 관리자 스모크로 해결되었다. GATE-08은 키리누키 제작자의 메일 서면 동의로 해결되었다.
 migration `0063`은 2026-08-26 production D1에 적용했지만 approval·monitor·subscription
-row는 아직 0개다. WebSub secret, Worker/UI production 배포, monitor·구독과 P0-A/P0-B
-canary는 각 운영 흐름의 실제 readback으로 완료한다.
+row는 아직 0개다. WebSub Worker/UI와 `OTW_PLAY_PUBLIC_ORIGIN`을 production에 배포하고
+`OTW_PLAY_WEBSUB_SECRET_V1`도 등록했다. 동의받은 정확한 채널을 `approved_kirinuki`로
+확정한 뒤 monitor·구독과 P0-A/P0-B canary를 각 운영 흐름의 실제 readback으로 완료한다.
 
 ## 3. 전달 전략
 
