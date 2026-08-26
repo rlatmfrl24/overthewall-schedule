@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-9A~C·P0-B polling foundation 구현·배포 완료, 운영 공개 `0/0` 설계 기준선
+상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` 설계 기준선
 
-기준일: 2026-08-25
+기준일: 2026-08-26
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -1669,12 +1669,12 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 
 - PR-8A, PR-8B, PR-8C는 production Worker에 반영되었고 source-health migration
   `0056`과 Analytics Engine binding·조회 secret도 적용되었다.
-- 권위 D1의 catalog/read-model revision은 `2/2`, 공개 flag는 의도대로
+- 권위 D1의 catalog/read-model revision은 `3/3`, 공개 flag는 의도대로
   `public_read_enabled=0`, `navigation_visible=0`이다. `/play` 직접 요청은 `200`과
   `noindex,nofollow`, `no-store`를 반환하고 sitemap에는 Play 항목을 포함하지 않는다.
-- 남은 인증 관리자 운영 화면 스모크, 예약 source-health 실행 추적, 초기 catalog
-  정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 구현 누락이 아니라 공개 전후에
-  지속 확인할 운영 gate다.
+- production Clerk 로그인과 관리자 운영 화면 스모크는 완료했다. 예약 source-health
+  실행 추적, 초기 catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 구현 누락이
+  아니라 공개 전후에 지속 확인할 운영 gate다.
 - 후속 capability는 제품 요구사항의 P0~P4 우선순위를 따른다. 새 UI/API/schema를
   먼저 만들지 않고 각 단계의 권리·개인정보·감사·외부 API 결정을 선행한다.
 
@@ -1687,20 +1687,26 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - production catalog/read-model revision은 `3/3`, 공개 flag는 `0/0`이다. 운영
   ingestion job, candidate, channel monitor는 모두 0이며 승인된 clip 자동화 channel도
   0개다.
-- production은 Clerk development instance를 사용하므로 인증 관리자 canary를 실행하지
-  않는다. Clerk production instance 전환은 OTW Play 공개 전환과 같은 변경 창에서
-  수행한다. `pk_live` build key, production issuer/JWKS/admin ID, OAuth redirect/domain과
-  Worker의 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp` exact-origin
-  검증이 완료될 때까지 개발 session을 우회 수단으로 사용하지 않는다.
-- legacy `kirinuki_channels`는 clip 수집 권리의 권위가 아니다. 채널별 운영 주체,
-  candidate-only 수집 승인 근거, 해제 절차와 승인·철회 actor/time/version을 별도
-  approval aggregate로 보존하고, 유효한 approval이 없으면 monitor, WebSub, backfill,
-  reconciliation을 모두 거부한다.
+- production은 Clerk production instance를 권위로 사용한다. custom domain DNS와
+  Application·Email·SSL 검증, Google OAuth custom production connection·redirect와
+  external app의 Production 게시 상태, `pk_live` build key, production issuer/JWKS/admin ID,
+  `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp`
+  exact-origin 검증을 완료했다. development 사용자 22명은 production에 `22/22`
+  이관했고, 실제 로그인에서 user menu와 `/admin/operations`, `/admin/settings`,
+  `/admin/logs`의 권위 readback을 확인했다. development session fallback은 사용하지 않는다.
+- 이관 전 production D1 backup을 생성한 뒤 `music_catalog_events.actor_user_id` 12건을
+  대응 production 사용자 ID로 치환했다. 원격 readback에서 이전 ID는 0건, production
+  ID는 12건이며 나머지 사용자 참조 필드는 변경 대상이 없었다.
+- legacy `kirinuki_channels`는 clip 수집 권리의 권위가 아니다. 메일 서면 동의를 확보한
+  대상은 `approved_kirinuki` 활성 channel로 등록하고, monitor 생성 시 서버가
+  candidate-only 범위·표준 해제 절차·승인 actor/time/version을 approval aggregate로
+  보존한다. 유효한 approval이 없으면 monitor, WebSub, backfill, reconciliation을 모두
+  거부하되 관리자 UI/API에서 동일한 동의 근거를 반복 입력받지 않는다.
 - `music_channel_upload_monitors`는 channel/watermark 권위로 유지한다. WebSub는 별도
   subscription과 delivery transport aggregate를 사용하고 기존 Queue message와
   `singing_clip` candidate idempotency 경계를 재사용한다.
 - WebSub contract·callback·Queue·scheduler·관리자 UI는 Draft PR에서 검증했다. additive
   migration `0063`은 2026-08-26 production D1에 적용했고 신규 approval·subscription·
   delivery table과 reconciliation column readback을 통과했다. 모든 신규 row는 0개다.
-  secret 등록, Worker/UI production 배포와 실제 구독은 인증과 권리 gate가 모두
-  해제될 때까지 금지한다.
+  GATE-07·08은 해결되었고 secret 등록, Worker/UI production 배포와 실제 구독·전달
+  readback이 남았다.

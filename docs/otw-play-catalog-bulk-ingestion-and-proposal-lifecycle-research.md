@@ -392,8 +392,9 @@ confirm dialog에 다음을 명시한다.
 | PR-9C | 완료·배포 | 관리자 검수 grid, 행별 sticky 보완·공식 채널 승인, 재생 불가 일괄 제외, job 전체 ready draft 변환·재시도 |
 | PR-9D | polling foundation 완료, WebSub 후속 | approved clip channel의 `singing_clip` candidate inbox. 현재 권리 승인 channel 0개 |
 
-PR-9A~C 구현은 완료되었다. production canary는 Clerk production instance와 권리 gate가
-해제된 뒤 실제 인증 UI·Queue·D1 readback으로 별도 확인한다.
+PR-9A~C 구현과 Clerk production instance 전환·실제 관리자 스모크는 완료되었다.
+production canary는 남은 권리 GATE-08이 해제된 뒤 실제 인증 UI·Queue·D1 readback으로
+별도 확인한다.
 
 ## 12. 수용 기준
 

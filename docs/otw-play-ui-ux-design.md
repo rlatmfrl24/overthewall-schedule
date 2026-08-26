@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-9A~C·P0-B polling foundation 구현·배포 완료, 운영 공개 `0/0` UI/UX 기준선
+상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` UI/UX 기준선
 
-기준일: 2026-08-25
+기준일: 2026-08-26
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -773,9 +773,12 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   `singing_clip` 검수·제외만 제공한다.
 - production 승인 clip channel은 0개다. legacy channel을 선택했다는 이유만으로 권리
   승인을 표시하거나 monitor/WebSub action을 활성화하지 않는다.
-- production 인증은 Clerk production instance 전환 전까지 보류한다. 전환은 OTW Play
-  공개 전환과 같은 변경 창에서 수행하며 개발 instance session으로 P0-A/P0-B 성공
-  화면을 만들지 않는다.
+- production Clerk session으로 실제 로그인하면 로그인 버튼 대신 사용자 메뉴가 보이고,
+  사용자 메뉴의 계정 관리·로그아웃과 `/admin/operations`, `/admin/settings`,
+  `/admin/logs` 진입 및 권위 데이터 readback이 동작한다. 개발 instance session이나
+  UI-only 성공 화면을 fallback으로 사용하지 않는다.
 - WebSub UI는 Draft PR 범위이며 production에는 미배포다. additive migration `0063`만
-  production D1에 적용됐고 관련 row는 0개다. 권리 승인·인증·secret이 준비되지 않은
-  상태를 일반 오류가 아니라 명시적인 운영 gate로 보여 준다.
+  production D1에 적용됐고 관련 row는 0개다. production 인증 GATE-07과 자동 수집 권리
+  GATE-08은 해결되었다. 등록 폼은 채널 ID와 추가 action만 제공하며 운영 주체·승인
+  근거·해제 절차·권리 checkbox를 반복 입력시키지 않는다. 등록 뒤 화면은 수집 상태와
+  WebSub 구독·갱신·해제 관리에 집중한다.
