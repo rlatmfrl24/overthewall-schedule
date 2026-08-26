@@ -253,7 +253,9 @@ const draftFromItem = (
   });
   draft.showExternalParticipantInput = draft.externalParticipants.length > 0;
   draft.relationType = input.relationType;
-  draft.releaseType = input.releaseType;
+  draft.releaseType = input.releaseType === "broadcast"
+    ? "official_video"
+    : input.releaseType;
   draft.participationType = input.participationType;
   draft.internalNote = input.internalNote ?? "";
   return draft;

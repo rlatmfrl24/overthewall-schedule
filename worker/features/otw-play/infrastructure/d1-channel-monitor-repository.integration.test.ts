@@ -41,6 +41,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_channel_upload_monitors"),
     db.prepare("DELETE FROM music_channel_automation_approvals"),
     db.prepare("DELETE FROM music_ingestion_candidates WHERE candidate_kind = 'singing_clip'"),
+    db.prepare("DELETE FROM music_ingestion_candidates WHERE external_video_id = 'ZZZZZZZZZZZ'"),
     db.prepare(
       `DELETE FROM music_channels WHERE id IN (
         'monitor-channel', 'monitor-channel-next', 'monitor-channel-official'
@@ -87,6 +88,55 @@ beforeEach(async () => {
 });
 
 describe("D1ChannelMonitorRepository", () => {
+  it("promotes a nonterminal playlist candidate to singing clip authority", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({
+      id: "monitor-kind",
+      eventId: "event-monitor-kind",
+      approvalEventId: "event-monitor-kind-approval",
+      channel: channel!,
+      uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
+      lastSeenVideoId: "AAAAAAAAAAA",
+      approval,
+      actorUserId: "admin-1",
+      now: NOW,
+    });
+    const claimed = await repository.claim(created.id, NOW + 1);
+    await db.prepare(
+      `INSERT INTO music_ingestion_candidates (
+        id, provider, external_video_id, candidate_kind, status, classification,
+        review_input_json, reviewed_by_user_id, channel_id, availability_status,
+        first_discovered_at, last_discovered_at, retention_expires_at,
+        version, created_at, updated_at
+      ) VALUES (
+        'youtube:ZZZZZZZZZZZ', 'youtube', 'ZZZZZZZZZZZ', 'official_video',
+        'ready', 'eligible', '{}', 'admin-reviewer',
+        'UCmmmmmmmmmmmmmmmmmmmmmm', 'playable', ?, ?, ?, 0, ?, ?
+      )`,
+    ).bind(NOW, NOW, NOW + 86_400_000, NOW, NOW).run();
+
+    await repository.recordCandidates({
+      monitorId: created.id,
+      expectedVersion: claimed!.version,
+      monitorGeneration: claimed!.generation,
+      observations: [observation("ZZZZZZZZZZZ", "Promoted Singing Clip")],
+      now: NOW + 2,
+    });
+
+    await expect(db.prepare(
+      `SELECT candidate_kind, status, classification, review_input_json,
+        reviewed_by_user_id FROM music_ingestion_candidates
+       WHERE external_video_id = 'ZZZZZZZZZZZ'`,
+    ).first()).resolves.toEqual({
+      candidate_kind: "singing_clip",
+      status: "needs_input",
+      classification: "scope_review",
+      review_input_json: null,
+      reviewed_by_user_id: null,
+    });
+  });
+
   it("keeps target generations isolated and preserves monitor audit history on deletion", async () => {
     const repository = new D1ChannelMonitorRepository(db);
     const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");

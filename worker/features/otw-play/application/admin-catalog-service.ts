@@ -155,6 +155,31 @@ export class AdminCatalogService {
     return metadata;
   }
 
+  private validateSourceSegment(
+    startSeconds: number,
+    endSeconds: number | null | undefined,
+    durationSeconds: number | null,
+  ) {
+    if (
+      !Number.isSafeInteger(startSeconds) ||
+      startSeconds < 0 ||
+      (endSeconds !== null &&
+        endSeconds !== undefined &&
+        (!Number.isSafeInteger(endSeconds) || endSeconds <= startSeconds)) ||
+      (durationSeconds !== null &&
+        (startSeconds >= durationSeconds ||
+          (endSeconds !== null &&
+            endSeconds !== undefined &&
+            endSeconds > durationSeconds)))
+    ) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "The source segment is invalid",
+        { startSeconds: "invalid_segment" },
+      );
+    }
+  }
+
   async preflightCatalogEntry(
     input: OtwPlayAdminCatalogEntryPreflightRequest,
   ) {
@@ -165,37 +190,30 @@ export class AdminCatalogService {
         { startSeconds: "invalid" },
       );
     }
-    return this.repository.preflightCatalogEntry(
-      await this.readVerifiedVideo(input.youtubeUrl),
-      input.startSeconds,
-    );
+    const video = await this.readVerifiedVideo(input.youtubeUrl);
+    this.validateSourceSegment(input.startSeconds, null, video.durationSeconds);
+    return this.repository.preflightCatalogEntry(video, input.startSeconds);
   }
 
   async createCatalogEntry(
     input: OtwPlayAdminCreateCatalogEntryRequest,
     actor: AdminCatalogActor,
     candidateConversion?: {
-      jobId: string;
+      jobId: string | null;
       candidateId: string;
       expectedVersion: number;
       eventId: string;
     },
   ) {
     validateVersion(input.expectedCatalogRevision);
-    if (
-      !Number.isSafeInteger(input.startSeconds) ||
-      input.startSeconds < 0 ||
-      (input.endSeconds !== null &&
-        input.endSeconds !== undefined &&
-        (!Number.isSafeInteger(input.endSeconds) ||
-          input.endSeconds <= input.startSeconds))
-    ) {
+    if (input.releaseType === "broadcast" && input.publicationTarget !== "draft") {
       throw new AdminCatalogServiceError(
         "invalid_request",
-        "The source segment is invalid",
-        { startSeconds: "invalid_segment" },
+        "Broadcast entries must be reviewed as drafts before publication support is enabled",
+        { publicationTarget: "draft_required" },
       );
     }
+    this.validateSourceSegment(input.startSeconds, input.endSeconds, null);
 
     const subjects = [
       ...input.participants.map((item) => item.subject),
@@ -231,6 +249,11 @@ export class AdminCatalogService {
     }
 
     const video = await this.readVerifiedVideo(input.youtubeUrl);
+    this.validateSourceSegment(
+      input.startSeconds,
+      input.endSeconds,
+      video.durationSeconds,
+    );
     const performanceId = this.createId();
     const result = await this.repository.createCatalogEntry({
       input,
@@ -406,6 +429,11 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     const video = await this.verifyVideo(input);
+    this.validateSourceSegment(
+      input.source.startSeconds,
+      input.source.endSeconds,
+      video.durationSeconds,
+    );
     const performanceId = this.createId();
     const result = await this.repository.createPerformance({
       input,
@@ -454,6 +482,11 @@ export class AdminCatalogService {
       }
     }
     const video = await this.verifyVideo(input);
+    this.validateSourceSegment(
+      input.source.startSeconds,
+      input.source.endSeconds,
+      video.durationSeconds,
+    );
     const result = await this.repository.updatePerformance({
       input,
       video,

@@ -131,7 +131,7 @@ export interface AdminCreateCatalogEntryCommand {
     proposalEventId: string;
   };
   candidateConversion?: {
-    jobId: string;
+    jobId: string | null;
     candidateId: string;
     expectedVersion: number;
     eventId: string;

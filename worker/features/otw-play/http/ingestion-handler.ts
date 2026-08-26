@@ -20,6 +20,7 @@ import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metada
 import { IngestionCursorError } from "../domain/ingestion-cursor";
 import {
   parseCreatePlaylistImport,
+  parseConvertIngestionCandidate,
   parseConvertIngestionCandidates,
   parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
@@ -153,6 +154,25 @@ export const createIngestionHandler = (
         { data: await service.createJob(admin.user.id, parsed.value) },
         202,
       );
+    }
+    const convertCandidateId = pathId(
+      url.pathname,
+      /^\/api\/play\/admin\/import-candidates\/([^/]+)\/convert$/u,
+    );
+    if (request.method === "POST" && convertCandidateId) {
+      const parsed = await readBody(request, parseConvertIngestionCandidate);
+      if (!parsed.ok) {
+        return errorResponse(
+          requestId,
+          400,
+          "PLAY_ADMIN_INVALID_REQUEST",
+          "Invalid ingestion candidate conversion request",
+          parsed.fields,
+        );
+      }
+      return responseJson({
+        data: await service.convertCandidate(convertCandidateId, parsed.value, actor),
+      });
     }
     const candidateId = pathId(
       url.pathname,

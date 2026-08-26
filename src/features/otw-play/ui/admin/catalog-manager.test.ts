@@ -1517,6 +1517,22 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
   });
 
+  it("keeps automatic upload monitoring mounted when the catalog request fails", async () => {
+    fetchCatalogMock.mockRejectedValueOnce(new Error("catalog unavailable"));
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await screen.findByText("OTW Play 카탈로그");
+    fireEvent.click(screen.getByRole("button", { name: "자동 검수" }));
+
+    expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
+    expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain(
+      "검수·등록만 일시 중단",
+    );
+  });
+
   it("shows the actionable preflight API error and request id", async () => {
     preflightEntryMock.mockRejectedValueOnce(
       new ApiError("YouTube metadata is temporarily unavailable", 503, {

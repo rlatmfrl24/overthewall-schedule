@@ -17,6 +17,7 @@ import type {
   IngestionReviewCandidate,
   OtwPlayIngestionQueueMessage,
 } from "./ports/ingestion-repository";
+import { IngestionRepositoryError } from "./ports/ingestion-repository";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeIngestionReader,
@@ -153,6 +154,12 @@ const youtube = (itemCount = 51) => ({
   readVideo: vi.fn(async () => null),
   readChannel: vi.fn(async () => null),
 }) satisfies OtwPlayYouTubeIngestionReader;
+
+const adminActor = {
+  userId: "admin-1",
+  displayName: "Admin",
+  ipAddress: null,
+};
 
 describe("IngestionService", () => {
   it("preflights bounded 50-item pages and rejects an implicit 5,001-item truncation", async () => {
@@ -577,6 +584,162 @@ describe("IngestionService", () => {
         outcome: "validation_failed",
       }),
     );
+  });
+
+  it("converts a reviewed monitored singing clip into a non-public broadcast draft", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockResolvedValue({
+      id: "candidate-clip",
+      version: 2,
+      videoId: "AAAAAAAAAAA",
+      candidateKind: "singing_clip",
+      status: "ready",
+      classification: "eligible",
+      catalogChannelId: "channel-kirinuki",
+      reviewInput: {
+        song: { kind: "existing", songId: "song-1" },
+        participants: [{
+          subject: { kind: "entity", entityId: "entity-1" },
+          participantRole: "vocal",
+          creditOrder: 0,
+        }],
+        relationType: "cover",
+        releaseType: "broadcast",
+        participationType: "solo",
+        startSeconds: 12,
+        endSeconds: 185,
+        internalNote: "개별 영상 검수 완료",
+      },
+      linkedPerformanceId: null,
+    });
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 4,
+      channel: {
+        state: "approved" as const,
+        catalogChannelId: "channel-kirinuki",
+        channelRole: "approved_kirinuki" as const,
+      },
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "performance-broadcast" } },
+      catalogRevision: 5,
+    }));
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-clip",
+      () => 100,
+      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
+    );
+
+    await expect(service.convertCandidate("candidate-clip", {
+      expectedVersion: 2,
+    }, {
+      userId: "admin-1",
+      displayName: "Admin",
+      ipAddress: null,
+    })).resolves.toEqual({
+      candidateId: "candidate-clip",
+      outcome: "created",
+      performanceId: "performance-broadcast",
+      errorCode: null,
+    });
+    expect(preflightCatalogEntry).toHaveBeenCalledWith({
+      youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
+      startSeconds: 12,
+    });
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startSeconds: 12,
+        endSeconds: 185,
+        releaseType: "broadcast",
+        publicationTarget: "draft",
+        channel: { kind: "existing", channelId: "channel-kirinuki" },
+      }),
+      expect.objectContaining({ userId: "admin-1" }),
+      expect.objectContaining({
+        jobId: null,
+        candidateId: "candidate-clip",
+        expectedVersion: 2,
+      }),
+    );
+  });
+
+  it("checks active channel authority before accepting a duplicate conversion", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockResolvedValue({
+      id: "candidate-clip",
+      version: 2,
+      videoId: "AAAAAAAAAAA",
+      candidateKind: "singing_clip",
+      status: "ready",
+      classification: "eligible",
+      catalogChannelId: null,
+      reviewInput: {
+        song: { kind: "existing", songId: "song-1" },
+        participants: [{
+          subject: { kind: "entity", entityId: "entity-1" },
+          participantRole: "vocal",
+          creditOrder: 0,
+        }],
+        relationType: "cover",
+        releaseType: "broadcast",
+        participationType: "solo",
+        startSeconds: 0,
+        endSeconds: null,
+        internalNote: null,
+      },
+      linkedPerformanceId: null,
+    });
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 4,
+      channel: {
+        state: "approved" as const,
+        catalogChannelId: "channel-kirinuki",
+        channelRole: "approved_kirinuki" as const,
+      },
+      duplicate: { performanceId: "performance-existing" },
+    }));
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-clip",
+      () => 100,
+      { preflightCatalogEntry, createCatalogEntry: vi.fn() } as unknown as AdminCatalogService,
+    );
+
+    await expect(service.convertCandidate("candidate-clip", {
+      expectedVersion: 2,
+    }, adminActor)).resolves.toMatchObject({
+      outcome: "validation_failed",
+      performanceId: null,
+    });
+    expect(repo.recordConversionOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "validation_failed", performanceId: null }),
+    );
+  });
+
+  it("returns a missing single candidate without attempting an event write", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockRejectedValue(
+      new IngestionRepositoryError("not_found", "Ingestion candidate not found"),
+    );
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-clip",
+      () => 100,
+      { preflightCatalogEntry: vi.fn(), createCatalogEntry: vi.fn() } as unknown as AdminCatalogService,
+    );
+
+    await expect(service.convertCandidate("missing-candidate", {
+      expectedVersion: 0,
+    }, adminActor)).rejects.toMatchObject({ code: "not_found" });
+    expect(repo.recordConversionOutcome).not.toHaveBeenCalled();
   });
 
   it("bulk ignores job-owned candidates and returns stale rows for separate review", async () => {

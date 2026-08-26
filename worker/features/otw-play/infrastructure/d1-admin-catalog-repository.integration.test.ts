@@ -340,6 +340,162 @@ describe("D1AdminCatalogRepository", () => {
     expect(Number(published?.count)).toBe(0);
   });
 
+  it("converts an approved kirinuki candidate into a private broadcast draft", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const singer = await createEntity(repository, "Clip Singer");
+    const createdChannel = await repository.createChannel(
+      {
+        externalChannelId: `UC${"K".repeat(22)}`,
+        displayName: "Approved Clip Channel",
+        channelRole: "approved_kirinuki",
+        entityIds: [singer.data.id],
+      },
+      actor,
+      { channelId: "clip-channel", eventId: "clip-channel-created" },
+      NOW,
+    );
+    const channel = await repository.updateChannel(
+      {
+        id: createdChannel.data.id,
+        externalChannelId: createdChannel.data.externalChannelId,
+        displayName: createdChannel.data.displayName,
+        channelRole: createdChannel.data.channelRole,
+        verificationStatus: "approved",
+        active: true,
+        entityIds: createdChannel.data.entityIds,
+        expectedVersion: createdChannel.data.version,
+      },
+      actor,
+      "clip-channel-approved",
+      NOW,
+    );
+    const song = await repository.createSong(
+      {
+        slug: "clip-song",
+        title: "Clip Song",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown",
+        aliases: [],
+        originalArtists: [{
+          entityId: singer.data.id,
+          creditOrder: 0,
+          isPrimary: true,
+        }],
+      },
+      actor,
+      { songId: "clip-song", eventId: "clip-song-created" },
+      NOW,
+    );
+    await db.prepare(
+      `INSERT INTO music_ingestion_candidates (
+        id, provider, external_video_id, candidate_kind, status,
+        classification, title, channel_id, channel_title,
+        availability_status, metadata_checked_at, review_input_json,
+        reviewed_by_user_id, first_discovered_at, last_discovered_at,
+        retention_expires_at, version, created_at, updated_at
+      ) VALUES ('youtube:BBBBBBBBBBB', 'youtube', 'BBBBBBBBBBB',
+        'singing_clip', 'ready', 'eligible', 'Reviewed Singing Clip', ?,
+        'Approved Clip Channel', 'playable', ?, '{}', ?, ?, ?, ?, 0, ?, ?)`,
+    ).bind(
+      channel.data.externalChannelId,
+      NOW,
+      actor.userId,
+      NOW,
+      NOW,
+      NOW + 90 * 86_400_000,
+      NOW,
+      NOW,
+    ).run();
+    const video = {
+      videoId: "BBBBBBBBBBB",
+      channelId: channel.data.externalChannelId,
+      channelTitle: channel.data.displayName,
+      title: "Reviewed Singing Clip",
+      thumbnailUrl: null,
+      durationSeconds: 300,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const preflight = await repository.preflightCatalogEntry(video, 45);
+    const result = await repository.createCatalogEntry({
+      input: {
+        expectedCatalogRevision: preflight.catalogRevision,
+        youtubeUrl: "https://www.youtube.com/watch?v=BBBBBBBBBBB",
+        startSeconds: 45,
+        endSeconds: 165,
+        song: { kind: "existing", songId: song.data.id },
+        participants: [{
+          subject: { kind: "entity", entityId: singer.data.id },
+          participantRole: "vocal",
+          creditOrder: 0,
+        }],
+        channel: { kind: "existing", channelId: channel.data.id },
+        relationType: "cover",
+        releaseType: "broadcast",
+        participationType: "solo",
+        publicationTarget: "draft",
+      },
+      video,
+      actor,
+      now: NOW + 1,
+      ids: {
+        entityIds: {},
+        entityEventIds: {},
+        channelId: "unused-clip-channel",
+        channelEventId: "unused-clip-channel-event",
+        songId: "unused-clip-song",
+        songEventId: "unused-clip-song-event",
+        performanceId: "clip-performance",
+        performanceEventId: "clip-performance-event",
+        sourceId: "clip-source",
+      },
+      candidateConversion: {
+        jobId: null,
+        candidateId: "youtube:BBBBBBBBBBB",
+        expectedVersion: 0,
+        eventId: "clip-candidate-converted-event",
+      },
+    });
+
+    expect(result.data.performance).toMatchObject({
+      id: "clip-performance",
+      releaseType: "broadcast",
+      publicationStatus: "draft",
+    });
+    await expect(db.prepare(
+      `SELECT status, classification, linked_performance_id,
+        last_conversion_outcome, version
+       FROM music_ingestion_candidates WHERE id = 'youtube:BBBBBBBBBBB'`,
+    ).first<Record<string, unknown>>()).resolves.toMatchObject({
+      status: "converted",
+      classification: "existing_catalog",
+      linked_performance_id: "clip-performance",
+      last_conversion_outcome: "created",
+      version: 1,
+    });
+    await expect(db.prepare(
+      `SELECT source_role, start_seconds, end_seconds
+       FROM music_performance_sources WHERE performance_id = 'clip-performance'`,
+    ).first<Record<string, unknown>>()).resolves.toMatchObject({
+      source_role: "kirinuki",
+      start_seconds: 45,
+      end_seconds: 165,
+    });
+    const published = await db.prepare(
+      "SELECT COUNT(*) AS count FROM music_performances WHERE publication_status = 'published'",
+    ).first<{ count: number }>();
+    expect(Number(published?.count)).toBe(0);
+    await expect(repository.transitionPerformance(
+      "clip-performance",
+      result.data.performance.version,
+      "published",
+      actor,
+      "clip-performance-publish-blocked",
+      NOW + 2,
+    )).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
   it("creates a member, external identity, channel, song, performance, event, and projection in one catalog batch", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const memberChannelId = `UC${"M".repeat(22)}`;

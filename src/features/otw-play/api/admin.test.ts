@@ -3,6 +3,7 @@ import {
   backfillOtwPlayChannelMonitor,
   createOtwPlayCatalogEntry,
   createOtwPlayChannelMonitor,
+  convertOtwPlayImportCandidate,
   convertOtwPlayImportCandidates,
   createOtwPlayPerformance,
   deleteOtwPlayPerformance,
@@ -165,12 +166,13 @@ describe("OTW Play admin API", () => {
     );
   });
 
-  it("uses encoded candidate conversion and retry command routes", async () => {
+  it("uses encoded single and playlist candidate conversion routes", async () => {
     const update = { expectedVersion: 2, action: "ignore" as const };
     const convert = {
       candidates: [{ id: "candidate / one", expectedVersion: 3 }],
     };
     await updateOtwPlayImportCandidate("candidate / one", update);
+    await convertOtwPlayImportCandidate("candidate / one", { expectedVersion: 3 });
     await convertOtwPlayImportCandidates("job / one", convert);
     await retryOtwPlayImportJob("job / one");
     expect(apiFetchMock).toHaveBeenNthCalledWith(
@@ -180,11 +182,16 @@ describe("OTW Play admin API", () => {
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
+      "/api/play/admin/import-candidates/candidate%20%2F%20one/convert",
+      { method: "POST", json: { expectedVersion: 3 }, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
       "/api/play/admin/imports/job%20%2F%20one/convert",
       { method: "POST", json: convert, auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       "/api/play/admin/imports/job%20%2F%20one/retry",
       { method: "POST", json: {}, auth: "required" },
     );

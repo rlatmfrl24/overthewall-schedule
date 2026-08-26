@@ -1,6 +1,7 @@
 import {
   OTW_PLAY_INGESTION_CANDIDATE_STATUSES,
   type OtwPlayIngestionCandidateStatus,
+  type OtwPlayConvertIngestionCandidateRequest,
   type OtwPlayConvertIngestionCandidatesRequest,
   type OtwPlayCreatePlaylistImportRequest,
   type OtwPlayIgnoreIngestionCandidatesRequest,
@@ -127,6 +128,8 @@ const parseCandidateReviewInput = (
       "relationType",
       "releaseType",
       "participationType",
+      "startSeconds",
+      "endSeconds",
       "internalNote",
     ])
   ) {
@@ -135,8 +138,8 @@ const parseCandidateReviewInput = (
   const parsed = parseCreateCatalogEntry({
     expectedCatalogRevision: 0,
     youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
-    startSeconds: 0,
-    endSeconds: null,
+    startSeconds: value.startSeconds ?? 0,
+    endSeconds: value.endSeconds ?? null,
     ...value,
     channel: { kind: "existing", channelId: "candidate-channel" },
     publicationTarget: "draft",
@@ -150,6 +153,8 @@ const parseCandidateReviewInput = (
     relationType,
     releaseType,
     participationType,
+    startSeconds,
+    endSeconds,
     internalNote,
   } = parsed.value;
   return {
@@ -160,9 +165,22 @@ const parseCandidateReviewInput = (
       relationType,
       releaseType,
       participationType,
+      ...(value.startSeconds !== undefined ? { startSeconds } : {}),
+      ...(value.endSeconds !== undefined ? { endSeconds } : {}),
       internalNote,
     },
   };
+};
+
+export const parseConvertIngestionCandidate = (
+  value: unknown,
+): IngestionInputResult<OtwPlayConvertIngestionCandidateRequest> => {
+  if (!isObject(value) || !hasExactKeys(value, ["expectedVersion"])) {
+    return { ok: false, fields: { body: "invalid_shape" } };
+  }
+  return Number.isSafeInteger(value.expectedVersion) && Number(value.expectedVersion) >= 0
+    ? { ok: true, value: { expectedVersion: Number(value.expectedVersion) } }
+    : { ok: false, fields: { expectedVersion: "invalid" } };
 };
 
 export const parseUpdateIngestionCandidate = (

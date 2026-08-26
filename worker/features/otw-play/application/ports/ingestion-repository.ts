@@ -125,7 +125,7 @@ export interface IngestionRepository {
     now: number;
   }): Promise<IngestionReviewCandidate>;
   recordConversionOutcome(command: {
-    jobId: string;
+    jobId: string | null;
     candidateId: string;
     expectedVersion: number;
     outcome: Exclude<OtwPlayIngestionConversionOutcome, "created">;

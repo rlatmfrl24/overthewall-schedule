@@ -767,8 +767,10 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `노래 클립 자동 후보`는 OTW·멤버 공식 channel 등록과 분리한다. 유효한 candidate
   수집 승인이 있는 clip channel만 monitor와 transport action을 제공한다. subscription
   상태, lease, 마지막 알림·대조, 안전한 오류와 subscribe/pause/renew/reconcile/backfill
-  action을 표시하되 방송·키리누키 foundation 전에는 `singing_clip` catalog draft action을
-  제공하지 않는다.
+  action을 표시한다. 각 `singing_clip` 후보의 `검수·등록` action은 영상 확인 링크와 함께
+  곡 연결·신규 곡, 원곡 가수, 가창 참여자·역할, 관계·참여 형태, 시작·종료 구간과 내부
+  메모를 한 dialog에서 입력한다. 성공하면 비공개 `broadcast` draft를 만들고 카탈로그로
+  이동하며 자동 게시하지 않는다.
 - 멤버 노래책은 외부 음악 관계자용 credit database처럼 보이지 않게 current member의
   `부른 곡·오리지널·커버·협업·만든 곡`을 중심으로 구성한다. 추가 참여 정보도 OTW
   멤버의 작사·작곡·편곡·연주·제작만 표시한다.
@@ -779,8 +781,10 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 ### 19.7 PR-9 운영 UI closeout
 
 - playlist 수집 진행률, Queue 완료 readback, candidate 검수·보완·일괄 제외와 ready
-  candidate의 draft 변환은 구현·배포되었다. 6시간 channel monitor는
-  `singing_clip` 검수·제외만 제공한다.
+  candidate의 draft 변환은 구현·배포되었다. 6시간 channel monitor의 `singing_clip`은
+  현재 변경에서 제외뿐 아니라 개별 `검수·등록`으로 곡·가창자·segment를 확인하고
+  비공개 방송 가창 draft를 생성할 수 있다. 방송일·원본 방송·setlist와 공개 action은
+  제공하지 않으며 production 배포·실제 후보 readback은 별도 release gate다.
 - production 승인 clip channel은 0개다. legacy channel을 선택했다는 이유만으로 권리
   승인을 표시하거나 monitor/WebSub action을 활성화하지 않는다.
 - production Clerk session으로 실제 로그인하면 로그인 버튼 대신 사용자 메뉴가 보이고,
