@@ -240,6 +240,7 @@ describe("ChannelMonitorSection", () => {
         lastRecentReconciledAt: 1756101600000,
         subscription: {
           status: "active",
+          verifiedAt: 1756100000000,
           leaseExpiresAt: 1756274400000,
           lastNotificationAt: 1756105200000,
           lastErrorCode: null,
@@ -282,7 +283,7 @@ describe("ChannelMonitorSection", () => {
     ));
   });
 
-  it("keeps failed WebSub intents releasable but blocks target deletion", async () => {
+  it("offers retry instead of unsubscribe for a failed WebSub intent", async () => {
     monitorsQueryMock.mockReturnValue({
       data: [{
         ...monitor,
@@ -305,9 +306,35 @@ describe("ChannelMonitorSection", () => {
 
     expect(await screen.findByText("구독 요청 실패")).toBeTruthy();
     expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "구독 해제" }));
-    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
+    expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("treats an unverified active row as recoverable instead of renewable", async () => {
+    monitorsQueryMock.mockReturnValue({
+      data: [{
+        ...monitor,
+        subscription: {
+          status: "active",
+          verifiedAt: null,
+          leaseExpiresAt: null,
+          lastNotificationAt: null,
+          lastErrorCode: "hub_request_failed",
+        },
+      }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+
+    render(createElement(ChannelMonitorSection), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("구독 상태 복구 필요")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "갱신" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
   });
 
 });

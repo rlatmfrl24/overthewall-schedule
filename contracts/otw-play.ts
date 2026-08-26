@@ -972,6 +972,11 @@ export interface OtwPlayAdminChannelDto {
   version: number;
 }
 
+export interface OtwPlayAdminChannelLookupDto {
+  externalChannelId: string;
+  displayName: string;
+}
+
 export interface OtwPlayAdminSourceDto {
   id: string;
   provider: OtwPlayProvider;

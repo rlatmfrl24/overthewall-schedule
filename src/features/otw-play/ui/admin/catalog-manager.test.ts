@@ -24,6 +24,7 @@ const updateReleaseMock = vi.hoisted(() => vi.fn());
 const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
 const createChannelMock = vi.hoisted(() => vi.fn());
+const lookupChannelMock = vi.hoisted(() => vi.fn());
 const updateChannelMock = vi.hoisted(() => vi.fn());
 const updateSongMock = vi.hoisted(() => vi.fn());
 const updatePerformanceMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
     createOtwPlayChannel: createChannelMock,
+    lookupOtwPlayChannel: lookupChannelMock,
     updateOtwPlayChannel: updateChannelMock,
     updateOtwPlaySong: updateSongMock,
     updateOtwPlayPerformance: updatePerformanceMock,
@@ -133,8 +135,13 @@ describe("OtwPlayCatalogManager", () => {
     updateReleaseMock.mockReset();
     recheckSourceMock.mockReset();
     createChannelMock.mockReset();
+    lookupChannelMock.mockReset();
     updateChannelMock.mockReset();
     createChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    lookupChannelMock.mockResolvedValue({
+      externalChannelId: `UC${"F".repeat(22)}`,
+      displayName: "정리된 공식 채널",
+    });
     updateChannelMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     publishPerformanceMock.mockReset();
     publishPerformanceMock.mockResolvedValue({});
@@ -707,7 +714,7 @@ describe("OtwPlayCatalogManager", () => {
     });
   });
 
-  it("keeps advanced identity edits after a failed command without exposing slug editing", async () => {
+  it("keeps external identity edits in the unified channel screen after a failed command", async () => {
     fetchCatalogMock.mockResolvedValueOnce({
       ...catalog,
       entities: [
@@ -731,7 +738,8 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "외부 주체 관리" }));
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    expect(screen.getByRole("heading", { name: "승인 채널·외부 주체 관리" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "외부 인물 수정" }));
     const nameInput = screen.getByLabelText(
       "외부 identity 표시명",
@@ -757,15 +765,23 @@ describe("OtwPlayCatalogManager", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
 
-    expect(screen.getByRole("heading", { name: "승인 채널 관리" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "승인 채널·외부 주체 관리" })).toBeTruthy();
     expect(screen.getByText(/검수 대기로 생성/)).toBeTruthy();
     const channelId = screen.getByLabelText("YouTube channel ID");
     const displayName = screen.getByLabelText("채널 표시명");
     const submit = screen.getByRole("button", { name: "채널 등록" });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect((displayName as HTMLInputElement).readOnly).toBe(true);
+    expect(screen.queryByText("소유·연결 주체")).toBeNull();
 
     fireEvent.change(channelId, { target: { value: `UC${"F".repeat(22)}` } });
-    fireEvent.change(displayName, { target: { value: "정리된 공식 채널" } });
+    fireEvent.click(screen.getByRole("button", { name: "채널 조회" }));
+    await waitFor(() => expect(lookupChannelMock).toHaveBeenCalledWith(
+      `UC${"F".repeat(22)}`,
+    ));
+    await waitFor(() => expect((displayName as HTMLInputElement).value).toBe(
+      "정리된 공식 채널",
+    ));
     fireEvent.click(screen.getByLabelText("채널 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "승인 키리누키" }));
     expect((submit as HTMLButtonElement).disabled).toBe(false);

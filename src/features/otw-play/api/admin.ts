@@ -5,6 +5,7 @@ import type {
   OtwPlayAdminCatalogEntryPreflightRequest,
   OtwPlayAdminCatalogEntryResultDto,
   OtwPlayAdminChannelDto,
+  OtwPlayAdminChannelLookupDto,
   OtwPlayAdminCommandResponse,
   OtwPlayAdminCreateChannelRequest,
   OtwPlayAdminCreateCatalogEntryRequest,
@@ -344,6 +345,13 @@ export const createOtwPlayChannel = (json: OtwPlayAdminCreateChannelRequest) =>
     apiRoutes.otwPlay.admin.channels.build(),
     { method: "POST", json },
   );
+export const lookupOtwPlayChannel = (externalChannelId: string) =>
+  adminRequest<{ data: OtwPlayAdminChannelLookupDto }>(
+    withRouteSearch(
+      apiRoutes.otwPlay.admin.channelLookup.build(),
+      new URLSearchParams({ externalChannelId }),
+    ),
+  ).then((response) => response.data);
 export const updateOtwPlayChannel = (json: OtwPlayAdminUpdateChannelRequest) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminChannelDto>>(
     apiRoutes.otwPlay.admin.channels.build(),

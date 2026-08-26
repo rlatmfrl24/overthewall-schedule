@@ -1705,8 +1705,13 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - `music_channel_upload_monitors`는 channel/watermark 권위로 유지한다. WebSub는 별도
   subscription과 delivery transport aggregate를 사용하고 기존 Queue message와
   `singing_clip` candidate idempotency 경계를 재사용한다.
-- WebSub contract·callback·Queue·scheduler·관리자 UI는 Draft PR에서 검증했다. additive
-  migration `0063`은 2026-08-26 production D1에 적용했고 신규 approval·subscription·
-  delivery table과 reconciliation column readback을 통과했다. 모든 신규 row는 0개다.
-  GATE-07·08은 해결되었고 secret 등록, Worker/UI production 배포와 실제 구독·전달
-  readback이 남았다.
+- WebSub contract·callback·Queue·scheduler·관리자 UI와 additive migration `0063`은
+  2026-08-26 production에 배포되었다. 현재 권위 readback은 approval 1개, 활성 monitor
+  1개, subscription 1개, delivery 0개다. 최초 hub 요청 실패 뒤 해당 subscription은
+  `active` 문자열이지만 `verified_at`·`lease_expires_at`이 모두 null인 false-active로
+  남았으며, 실제 callback verification과 전달 readback은 아직 없다.
+- WebSub subscription의 `active`는 callback verification을 완료하고 non-null lease 만료
+  시각을 받은 경우에만 권위 상태다. verification·lease가 없는 legacy `active` row는 신규
+  subscribe로 복구할 수 있으며 renew 대상으로 취급하지 않는다. hub 요청이 실패하면 기존에
+  검증된 active row만 active를 보존하고, 그 외 row는 `failed`로 기록한다. timeout·network·
+  HTTP status 같은 비민감 오류 code만 저장하며 408·429·5xx와 transport 실패는 1회 재시도한다.

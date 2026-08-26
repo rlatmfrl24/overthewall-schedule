@@ -50,6 +50,31 @@ describe("OTW Play admin catalog handler", () => {
     expect(readCatalog).toHaveBeenCalledOnce();
   });
 
+  it("looks up an authoritative YouTube channel display name", async () => {
+    const lookupChannel = vi.fn(async (externalChannelId: string) => ({
+      externalChannelId,
+      displayName: "조회된 채널",
+    }));
+    const handler = createAdminCatalogHandler(
+      () => ({ lookupChannel }) as unknown as AdminCatalogService,
+    );
+    const response = await handler(
+      new Request(
+        "https://example.com/api/play/admin/channels/lookup?externalChannelId=UC1111111111111111111111",
+      ),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      data: {
+        externalChannelId: "UC1111111111111111111111",
+        displayName: "조회된 채널",
+      },
+    });
+    expect(lookupChannel).toHaveBeenCalledWith("UC1111111111111111111111");
+  });
+
   it("serves the lazy source-health dashboard with admin no-store semantics", async () => {
     const readDashboard = vi.fn(async () => ({
       generatedAt: 123,

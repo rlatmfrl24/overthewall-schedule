@@ -59,6 +59,7 @@ const subscription: WebsubSubscriptionAuthority = {
   status: "active",
   pendingMode: null,
   requestedAt: NOW,
+  verifiedAt: NOW,
   leaseExpiresAt: NOW + 86_400_000,
   monitorStatus: "active",
   monitorDeletedAt: null,
@@ -364,6 +365,54 @@ describe("WebsubService", () => {
       subscription.id,
       "hub_request_failed",
       "active",
+      NOW,
+    );
+  });
+
+  it("repairs an unverified active row as a fresh subscription and never restores it as active", async () => {
+    const repo = repository();
+    repo.getCurrentSubscription.mockResolvedValue({
+      ...subscription,
+      verifiedAt: null,
+      leaseExpiresAt: null,
+    });
+    repo.getMonitor.mockResolvedValue({
+      ...monitor,
+      subscription: {
+        id: subscription.id,
+        status: "active",
+        pendingMode: null,
+        secretVersion: 1,
+        requestedAt: NOW,
+        verifiedAt: null,
+        leaseExpiresAt: null,
+        lastNotificationAt: null,
+        lastErrorCode: "hub_request_failed",
+        version: 2,
+      },
+    });
+    const service = new WebsubService(
+      repo,
+      youtube(),
+      { request: vi.fn(async () => { throw new Error("hub unavailable"); }) },
+      { send: vi.fn() },
+      { 1: "root-secret" },
+      "https://example.com",
+      () => "event-1",
+      () => NOW,
+    );
+
+    await expect(service.subscribe("monitor-1", "admin-1"))
+      .rejects.toMatchObject({ code: "hub_failed", retryable: true });
+    expect(repo.prepareSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      id: subscription.id,
+      status: "pending",
+      pendingMode: "subscribe",
+    }));
+    expect(repo.markSubscriptionFailed).toHaveBeenCalledWith(
+      subscription.id,
+      "hub_request_failed",
+      "failed",
       NOW,
     );
   });

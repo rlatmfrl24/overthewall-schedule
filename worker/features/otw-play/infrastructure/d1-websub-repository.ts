@@ -38,6 +38,7 @@ type SubscriptionRow = {
   status: OtwPlayWebsubSubscriptionStatus;
   pending_mode: "subscribe" | "unsubscribe" | null;
   requested_at: number;
+  verified_at: number | null;
   lease_expires_at: number | null;
   monitor_status: "active" | "paused";
   monitor_deleted_at: number | null;
@@ -55,6 +56,7 @@ const toSubscription = (row: SubscriptionRow): WebsubSubscriptionAuthority => ({
   status: row.status,
   pendingMode: row.pending_mode,
   requestedAt: Number(row.requested_at),
+  verifiedAt: row.verified_at === null ? null : Number(row.verified_at),
   leaseExpiresAt: row.lease_expires_at === null ? null : Number(row.lease_expires_at),
   monitorStatus: row.monitor_status,
   monitorDeletedAt: row.monitor_deleted_at === null ? null : Number(row.monitor_deleted_at),

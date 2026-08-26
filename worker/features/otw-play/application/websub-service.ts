@@ -16,6 +16,7 @@ import type {
   WebsubQueueSender,
   WebsubRepository,
 } from "./ports/websub-repository";
+import { WebsubHubRequestError } from "./ports/websub-repository";
 
 const CHALLENGE_PATTERN = /^[\x20-\x7E]{1,2048}$/u;
 const MAX_LEASE_SECONDS = 365 * 24 * 60 * 60;
@@ -155,13 +156,16 @@ export class WebsubService {
       monitor.id,
       monitor.generation,
     );
+    const currentIsVerifiedActive = current?.status === "active" &&
+      current.verifiedAt !== null &&
+      current.leaseExpiresAt !== null;
     if (
-      renewal && current?.status !== "active" &&
+      renewal && !currentIsVerifiedActive &&
       !(retryRenewal && current?.status === "renewing")
     ) {
       throw new WebsubError("invalid_request", "Only an active subscription can be renewed");
     }
-    if (mode === "subscribe" && !renewal && current?.status === "active") {
+    if (mode === "subscribe" && !renewal && currentIsVerifiedActive) {
       throw new WebsubError("invalid_request", "The monitor is already subscribed");
     }
     if (mode === "unsubscribe" && (!current || current.status === "unsubscribed")) {
@@ -184,7 +188,7 @@ export class WebsubService {
         await this.repository.markSubscriptionFailed(
           id,
           error instanceof WebsubError ? error.code : "callback_configuration_failed",
-          renewal || mode === "unsubscribe" ? "active" : "failed",
+          currentIsVerifiedActive ? "active" : "failed",
           this.clock(),
         ).catch(() => undefined);
       }
@@ -227,11 +231,11 @@ export class WebsubService {
         callbackUrl,
         hubSecret: secrets.hubSecret,
       });
-    } catch {
+    } catch (error) {
       await this.repository.markSubscriptionFailed(
         id,
-        "hub_request_failed",
-        renewal || mode === "unsubscribe" ? "active" : "failed",
+        error instanceof WebsubHubRequestError ? error.code : "hub_request_failed",
+        currentIsVerifiedActive ? "active" : "failed",
         this.clock(),
       );
       throw new WebsubError("hub_failed", "WebSub hub request failed", true);
