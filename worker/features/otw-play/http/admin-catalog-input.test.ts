@@ -216,7 +216,7 @@ describe("OTW Play admin input", () => {
     ).toEqual({ ok: false, fields: { body: "invalid_song" } });
   });
 
-  it("keeps classification axes separate and rejects broadcast from the MVP writer", () => {
+  it("keeps classification axes separate and binds broadcast to kirinuki sources", () => {
     const base = {
       songId: "song-1",
       relationType: "cover",
@@ -242,6 +242,19 @@ describe("OTW Play admin input", () => {
     expect(parseCreatePerformance(base)).toMatchObject({ ok: true });
     expect(
       parseCreatePerformance({ ...base, releaseType: "broadcast" }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseCreatePerformance({
+        ...base,
+        releaseType: "broadcast",
+        source: { ...base.source, sourceRole: "kirinuki" },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      parseCreatePerformance({
+        ...base,
+        source: { ...base.source, sourceRole: "kirinuki" },
+      }),
     ).toMatchObject({ ok: false });
     expect(
       parseCreatePerformance({ ...base, participationType: "published" }),

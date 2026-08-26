@@ -201,11 +201,17 @@ describe("OTW Play ingestion handler", () => {
 
   it("routes candidate CAS, bulk ignore, partial conversion, and retry commands with the admin actor", async () => {
     const updateCandidate = vi.fn(async () => ({ id: "candidate-1", version: 2 }));
+    const convertCandidate = vi.fn(async () => ({
+      candidateId: "candidate-1",
+      outcome: "created",
+      performanceId: "performance-1",
+      errorCode: null,
+    }));
     const ignoreCandidates = vi.fn(async () => ({ results: [] }));
     const convertCandidates = vi.fn(async () => ({ results: [] }));
     const retryJob = vi.fn(async () => ({ job: { id: "job-1" }, enqueued: 1 }));
     const handler = createIngestionHandler(
-      () => ({ updateCandidate, ignoreCandidates, convertCandidates, retryJob }) as unknown as IngestionService,
+      () => ({ updateCandidate, convertCandidate, ignoreCandidates, convertCandidates, retryJob }) as unknown as IngestionService,
     );
     const candidateResponse = await handler(new Request(
       "https://example.com/api/play/admin/import-candidates/candidate-1",
@@ -224,6 +230,13 @@ describe("OTW Play ingestion handler", () => {
         }),
       },
     ), env);
+    const singleConvertResponse = await handler(new Request(
+      "https://example.com/api/play/admin/import-candidates/candidate-1/convert",
+      {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 2 }),
+      },
+    ), env);
     const ignoreResponse = await handler(new Request(
       "https://example.com/api/play/admin/imports/job-1/ignore",
       {
@@ -239,6 +252,7 @@ describe("OTW Play ingestion handler", () => {
     ), env);
     expect(candidateResponse.status).toBe(200);
     expect(convertResponse.status).toBe(200);
+    expect(singleConvertResponse.status).toBe(200);
     expect(ignoreResponse.status).toBe(200);
     expect(retryResponse.status).toBe(200);
     expect(updateCandidate).toHaveBeenCalledWith(
@@ -249,6 +263,11 @@ describe("OTW Play ingestion handler", () => {
     expect(convertCandidates).toHaveBeenCalledWith(
       "job-1",
       { candidates: [{ id: "candidate-1", expectedVersion: 2 }] },
+      expect.objectContaining({ userId: "admin-1" }),
+    );
+    expect(convertCandidate).toHaveBeenCalledWith(
+      "candidate-1",
+      { expectedVersion: 2 },
       expect.objectContaining({ userId: "admin-1" }),
     );
     expect(ignoreCandidates).toHaveBeenCalledWith(

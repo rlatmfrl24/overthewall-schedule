@@ -34,6 +34,8 @@ import type {
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayConvertIngestionCandidatesResponse,
   OtwPlayIngestionCandidatePageDto,
+  OtwPlayConvertIngestionCandidateRequest,
+  OtwPlayIngestionConversionResultDto,
   OtwPlayIgnoreIngestionCandidatesRequest,
   OtwPlayIgnoreIngestionCandidatesResponse,
   OtwPlayIngestionReviewCandidateDto,
@@ -198,6 +200,14 @@ export const updateOtwPlayImportCandidate = (
 ) => adminRequest<{ data: OtwPlayIngestionReviewCandidateDto }>(
   apiRoutes.otwPlay.admin.importCandidate.build(candidateId),
   { method: "PATCH", json },
+).then((response) => response.data);
+
+export const convertOtwPlayImportCandidate = (
+  candidateId: string,
+  json: OtwPlayConvertIngestionCandidateRequest,
+) => adminRequest<{ data: OtwPlayIngestionConversionResultDto }>(
+  apiRoutes.otwPlay.admin.convertImportCandidate.build(candidateId),
+  { method: "POST", json },
 ).then((response) => response.data);
 
 export const convertOtwPlayImportCandidates = (

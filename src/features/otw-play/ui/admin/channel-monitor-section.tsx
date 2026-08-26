@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, BellOff, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
+import type {
+  OtwPlayAdminCatalogDto,
+  OtwPlayChannelMonitorCandidateDto,
+} from "@contracts/otw-play";
+import { Bell, BellOff, ClipboardCheck, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
 import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
@@ -24,6 +28,7 @@ import {
   useOtwPlayChannelMonitorCandidates,
   useOtwPlayChannelMonitors,
 } from "../../queries/use-admin-catalog";
+import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
@@ -79,7 +84,13 @@ const subscriptionErrorLabel = (errorCode: string) => ({
   ? `hub가 HTTP ${errorCode.slice("hub_http_".length)}로 응답했습니다.`
   : "구독 상태를 확인하고 다시 시도해 주세요."));
 
-export function ChannelMonitorSection() {
+export function ChannelMonitorSection({
+  catalog,
+  onOpenCatalog,
+}: {
+  catalog: OtwPlayAdminCatalogDto;
+  onOpenCatalog: () => void;
+}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const monitorsQuery = useOtwPlayChannelMonitors();
@@ -88,6 +99,8 @@ export function ChannelMonitorSection() {
   const [backfillCount, setBackfillCount] = useState("1");
   const [editChannelId, setEditChannelId] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reviewCandidate, setReviewCandidate] =
+    useState<OtwPlayChannelMonitorCandidateDto | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const candidatesQuery = useOtwPlayChannelMonitorCandidates(selectedMonitorId);
   const monitors = useMemo(() => monitorsQuery.data ?? [], [monitorsQuery.data]);
@@ -324,7 +337,8 @@ export function ChannelMonitorSection() {
             <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
               등록한 노래 클립 YouTube 채널은 WebSub 알림을 우선 사용하고 6시간 polling을 fallback으로 유지합니다.
-              등록 이전 영상은 자동 소급하지 않으며, 새 영상은 singing clip 검수함에만 보관하고 자동 공개하지 않습니다.
+              등록 이전 영상은 자동 소급하지 않습니다. 새 영상은 singing clip 후보로 보관하고,
+              관리자 검수·등록 뒤 비공개 draft로 만들 수 있으며 자동 공개하지 않습니다.
             </p>
           </div>
         </div>
@@ -598,33 +612,46 @@ export function ChannelMonitorSection() {
                             <Badge variant="outline">{availabilityLabels[candidate.availabilityStatus]}</Badge>
                           </div>
                           <p className="mt-2 text-xs text-muted-foreground">
-                            업로드 {formatAt(candidate.publishedAt)} · 자동 공개/변환 안 함
+                            업로드 {formatAt(candidate.publishedAt)} · 관리자 검수 후 비공개 draft 생성
                           </p>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy !== null}
-                          onClick={async () => {
-                            setBusy(`ignore:${candidate.candidateId}`);
-                            try {
-                              await updateOtwPlayImportCandidate(candidate.candidateId, {
-                                expectedVersion: candidate.candidateVersion,
-                                action: "ignore",
-                              });
-                              await refresh();
-                            } catch {
-                              toast({
-                                variant: "error",
-                                description: "검수 제안을 제외하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
-                              });
-                            } finally {
-                              setBusy(null);
+                        <div className="flex shrink-0 flex-col gap-2">
+                          <Button
+                            size="sm"
+                            disabled={
+                              busy !== null ||
+                              candidate.availabilityStatus !== "playable" ||
+                              candidate.catalogChannelId === null
                             }
-                          }}
-                        >
-                          <EyeOff /> 제외
-                        </Button>
+                            onClick={() => setReviewCandidate(candidate)}
+                          >
+                            <ClipboardCheck /> 검수·등록
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy !== null}
+                            onClick={async () => {
+                              setBusy(`ignore:${candidate.candidateId}`);
+                              try {
+                                await updateOtwPlayImportCandidate(candidate.candidateId, {
+                                  expectedVersion: candidate.candidateVersion,
+                                  action: "ignore",
+                                });
+                                await refresh();
+                              } catch {
+                                toast({
+                                  variant: "error",
+                                  description: "검수 제안을 제외하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
+                                });
+                              } finally {
+                                setBusy(null);
+                              }
+                            }}
+                          >
+                            <EyeOff /> 제외
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     {candidatesQuery.hasNextPage ? (
@@ -655,6 +682,18 @@ export function ChannelMonitorSection() {
         destructive
         isProcessing={busy === "delete"}
         onConfirm={() => void removeMonitor()}
+      />
+      <SingingClipReviewDialog
+        candidate={reviewCandidate}
+        catalog={catalog}
+        onOpenChange={(open) => !open && setReviewCandidate(null)}
+        onConverted={async () => {
+          await Promise.all([
+            refresh(),
+            queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog() }),
+          ]);
+          onOpenCatalog();
+        }}
       />
     </Card>
   );

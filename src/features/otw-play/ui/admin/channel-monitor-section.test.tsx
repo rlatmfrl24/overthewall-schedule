@@ -70,6 +70,11 @@ const monitor = {
     updatedAt: 100,
 };
 
+const sectionProps = {
+  catalog: { songs: [], entities: [] } as never,
+  onOpenCatalog: vi.fn(),
+};
+
 beforeEach(() => {
   monitorsQueryMock.mockReturnValue({
     data: [monitor],
@@ -84,12 +89,17 @@ beforeEach(() => {
         candidateVersion: 3,
         videoId: "BBBBBBBBBBB",
         title: "New Singing Clip",
+        channelTitle: "Approved Clips",
         thumbnailUrl: null,
+        durationSeconds: 180,
         publishedAt: 150,
         availabilityStatus: "playable",
         status: "needs_input",
         classification: "scope_review",
         exclusionReason: null,
+        catalogChannelId: "channel-1",
+        reviewInput: null,
+        linkedPerformanceId: null,
         discoveredAt: 160,
       }],
       nextCursor: null,
@@ -113,7 +123,7 @@ afterEach(() => {
 });
 
 describe("ChannelMonitorSection", () => {
-  it("shows new uploads as review-only singing clip proposals", async () => {
+  it("shows new uploads with a manual draft registration path", async () => {
     reconcileMock.mockResolvedValue({
       discoveredCount: 1,
       checkedVideoCount: 1,
@@ -121,7 +131,7 @@ describe("ChannelMonitorSection", () => {
     });
     updateCandidateMock.mockResolvedValue({});
 
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
@@ -130,7 +140,8 @@ describe("ChannelMonitorSection", () => {
     expect(screen.getByText("정보 입력 필요")).toBeTruthy();
     expect(screen.getByText("노래 영상 여부 확인")).toBeTruthy();
     expect(screen.getByText("재생 가능")).toBeTruthy();
-    expect(screen.getByText(/자동 공개\/변환 안 함/)).toBeTruthy();
+    expect(screen.getByText(/관리자 검수 후 비공개 draft 생성/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /검수·등록/ })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /지금 대조/ }));
     await waitFor(() => expect(reconcileMock).toHaveBeenCalledWith("monitor-1"));
@@ -149,7 +160,7 @@ describe("ChannelMonitorSection", () => {
       isError: false,
       refetch: vi.fn(),
     });
-    const view = render(createElement(ChannelMonitorSection), {
+    const view = render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
     expect(screen.getByText("수집 대상 채널을 불러오는 중입니다.")).toBeTruthy();
@@ -161,7 +172,7 @@ describe("ChannelMonitorSection", () => {
       isError: true,
       refetch: vi.fn(),
     });
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
     expect(screen.getByText("수집 대상 채널을 불러오지 못했습니다.")).toBeTruthy();
@@ -179,7 +190,7 @@ describe("ChannelMonitorSection", () => {
       refetch: vi.fn(),
     });
     updateMonitorMock.mockResolvedValue({ id: "monitor-1" });
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
@@ -196,7 +207,7 @@ describe("ChannelMonitorSection", () => {
     createMonitorMock.mockResolvedValue({ id: "monitor-1" });
     updateMonitorMock.mockResolvedValue({ id: "monitor-1" });
     deleteMonitorMock.mockResolvedValue({ id: "monitor-1" });
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
@@ -255,7 +266,7 @@ describe("ChannelMonitorSection", () => {
     unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
     backfillMock.mockResolvedValue({ discoveredCount: 0, checkedVideoCount: 20, capped: false });
 
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
@@ -300,7 +311,7 @@ describe("ChannelMonitorSection", () => {
     });
     unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
 
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
@@ -327,7 +338,7 @@ describe("ChannelMonitorSection", () => {
       refetch: vi.fn(),
     });
 
-    render(createElement(ChannelMonitorSection), {
+    render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 

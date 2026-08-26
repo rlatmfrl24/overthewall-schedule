@@ -70,10 +70,16 @@ import {
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];
 
-const relationLabel = (value: string) => (value === "original" ? "오리지널" : "공식 커버");
+const relationLabel = (value: string) => (value === "original" ? "오리지널" : "커버");
 const publicationLabel = (value: string) =>
   value === "published" ? "게시됨" : value === "withdrawn" ? "철회됨" : "임시 저장";
-const releaseLabel = (value: string) => (value === "official_mv" ? "공식 MV" : "공식 영상");
+const releaseLabel = (value: string) => ({
+  official_mv: "공식 MV",
+  official_video: "공식 영상",
+  broadcast: "방송 가창",
+  live: "라이브",
+  shorts: "Shorts",
+}[value] ?? value);
 const participationLabel = (value: string) =>
   ({ solo: "솔로", duet: "듀엣", unit: "유닛", group: "그룹", external_collab: "외부 협업" })[value] ?? value;
 
@@ -105,6 +111,7 @@ export function WorkflowCatalog({
   const draftPerformances = catalog.performances.filter(
     (performance) =>
       performance.publicationStatus === "draft" &&
+      performance.releaseType !== "broadcast" &&
       activeSongIds.has(performance.songId),
   );
   const draftSongCount = new Set(
@@ -136,12 +143,15 @@ export function WorkflowCatalog({
           <RefreshCw className="h-3.5 w-3.5" /> source 재확인
         </Button>
       )}
-      {performance.publicationStatus === "draft" && (
+      {performance.publicationStatus === "draft" && performance.releaseType !== "broadcast" && (
         <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
           title: "가창을 게시할까요?",
           description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
           action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
         })}>게시</Button>
+      )}
+      {performance.publicationStatus === "draft" && performance.releaseType === "broadcast" && (
+        <Badge variant="outline">비공개 검수 draft</Badge>
       )}
       {(performance.publicationStatus === "draft" || performance.publicationStatus === "withdrawn") && (
         <Button
@@ -384,7 +394,7 @@ function PerformanceEditDialog({
   const [channelId, setChannelId] = useState("");
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
-  const [sourceRole, setSourceRole] = useState<"official" | "alternate">(
+  const [sourceRole, setSourceRole] = useState<"official" | "kirinuki" | "alternate">(
     "official",
   );
   const [note, setNote] = useState("");
@@ -401,11 +411,7 @@ function PerformanceEditDialog({
     const source = performance.sources[0];
     setSongId(performance.songId);
     setRelation(performance.relationType);
-    setReleaseType(
-      performance.releaseType === "official_mv"
-        ? "official_mv"
-        : "official_video",
-    );
+    setReleaseType(performance.releaseType);
     setParticipation(performance.participationType);
     setQuality(performance.qualityStatus);
     setReleasedAt(toDateTimeLocal(performance.releasedAt));
@@ -451,7 +457,13 @@ function PerformanceEditDialog({
         ? ""
         : String(source.endSeconds),
     );
-    setSourceRole(source?.sourceRole === "alternate" ? "alternate" : "official");
+    setSourceRole(
+      source?.sourceRole === "kirinuki"
+        ? "kirinuki"
+        : source?.sourceRole === "alternate"
+          ? "alternate"
+          : "official",
+    );
     setNote(performance.internalNote ?? "");
   }, [catalog.entities, performance]);
 
@@ -512,7 +524,7 @@ function PerformanceEditDialog({
         <DialogHeader>
           <DialogTitle>가창 정보 수정</DialogTitle>
           <DialogDescription>
-            연결된 곡, 참여자, 분류와 공식 영상 source를 한 번에 수정합니다.
+              연결된 곡, 참여자, 분류와 영상 source를 한 번에 수정합니다.
           </DialogDescription>
         </DialogHeader>
         {performance && (
@@ -570,6 +582,7 @@ function PerformanceEditDialog({
                   <SelectContent>
                     <SelectItem value="official_video">공식 영상</SelectItem>
                     <SelectItem value="official_mv">공식 MV</SelectItem>
+                    <SelectItem value="broadcast">방송 가창</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -699,7 +712,7 @@ function PerformanceEditDialog({
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label>공식 채널</Label>
+                <Label>영상 채널</Label>
                 <Select value={channelId} onValueChange={setChannelId}>
                   <SelectTrigger aria-label="공식 채널">
                     <SelectValue placeholder="채널 선택" />
@@ -739,7 +752,7 @@ function PerformanceEditDialog({
                 <Select
                   value={sourceRole}
                   onValueChange={(value) =>
-                    setSourceRole(value as "official" | "alternate")
+                    setSourceRole(value as "official" | "kirinuki" | "alternate")
                   }
                 >
                   <SelectTrigger aria-label="source 역할">
@@ -747,6 +760,7 @@ function PerformanceEditDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="official">공식 source</SelectItem>
+                    <SelectItem value="kirinuki">키리누키 source</SelectItem>
                     <SelectItem value="alternate">대체 source</SelectItem>
                   </SelectContent>
                 </Select>

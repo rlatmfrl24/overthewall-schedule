@@ -40,6 +40,13 @@ const ingestionOfficialChannelRoleSql =
     .map((role) => `'${role}'`)
     .join(", ");
 
+const ingestionCandidateChannelRoleSql = `(
+  (candidate.candidate_kind = 'official_video'
+    AND channel.channel_role IN (${ingestionOfficialChannelRoleSql}))
+  OR (candidate.candidate_kind = 'singing_clip'
+    AND channel.channel_role = 'approved_kirinuki')
+)`;
+
 type CatalogMetaRow = { revision: number; read_model_revision: number };
 type EntityRow = {
   id: string;
@@ -1415,6 +1422,41 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   async createPerformance(command: AdminCreatePerformanceCommand) {
     const { input, video, actor, now, ids } = command;
     const meta = await this.readRevision();
+    const selectedChannel = await this.database.prepare(
+      `SELECT channel_role, verification_status, active
+       FROM music_channels WHERE id = ?`,
+    ).bind(input.source.channelId).first<{
+      channel_role: OtwPlayAdminChannelDto["channelRole"];
+      verification_status: OtwPlayAdminChannelDto["verificationStatus"];
+      active: number;
+    }>();
+    if (!selectedChannel) {
+      throw new AdminCatalogRepositoryError("not_found", "Source channel not found");
+    }
+    if (
+      input.releaseType === "broadcast" &&
+      (input.source.sourceRole !== "kirinuki" ||
+        selectedChannel.channel_role !== "approved_kirinuki" ||
+        selectedChannel.verification_status !== "approved" ||
+        !selectedChannel.active)
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Broadcast drafts require an approved Kirinuki source",
+        { sourceRole: "approved_kirinuki_required" },
+      );
+    }
+    if (
+      input.releaseType !== "broadcast" &&
+      (input.source.sourceRole === "kirinuki" ||
+        selectedChannel.channel_role === "approved_kirinuki")
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Kirinuki sources require the broadcast release type",
+        { releaseType: "broadcast_required" },
+      );
+    }
     const existingSource = await this.database
       .prepare(
         `SELECT id FROM music_media_sources
@@ -1537,23 +1579,28 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       const candidate = await this.database.prepare(
         `SELECT 1 AS matched FROM music_ingestion_candidates AS candidate
          WHERE candidate.id = ? AND candidate.status = 'ready'
-           AND candidate.version = ? AND candidate.classification = 'eligible'
-           AND candidate.candidate_kind = 'official_video'
-           AND EXISTS (
+            AND candidate.version = ? AND candidate.classification = 'eligible'
+            AND ((candidate.candidate_kind = 'official_video'
+                AND ? IN ('official_mv', 'official_video'))
+              OR (candidate.candidate_kind = 'singing_clip' AND ? = 'broadcast'))
+            AND EXISTS (
              SELECT 1 FROM music_channels AS channel
              WHERE channel.provider = 'youtube'
                AND channel.external_channel_id = candidate.channel_id
                AND channel.verification_status = 'approved'
                AND channel.active = 1
-               AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
-           )
-           AND EXISTS (
-             SELECT 1 FROM music_ingestion_candidate_origins AS origin
-             WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
-           )`,
+                AND ${ingestionCandidateChannelRoleSql}
+            )
+            AND (? IS NULL OR EXISTS (
+              SELECT 1 FROM music_ingestion_candidate_origins AS origin
+              WHERE origin.candidate_id = candidate.id AND origin.job_id = ?
+            ))`,
       ).bind(
         candidateConversion.candidateId,
         candidateConversion.expectedVersion,
+        input.releaseType,
+        input.releaseType,
+        candidateConversion.jobId,
         candidateConversion.jobId,
       ).first<{ matched: number }>();
       if (!candidate) {
@@ -1848,6 +1895,23 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         { publicationTarget: "channel_not_approved" },
       );
     }
+    if (
+      input.releaseType === "broadcast" &&
+      (!channelApproved || channelRole !== "approved_kirinuki")
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Broadcast drafts require an approved active Kirinuki channel",
+        { channel: "approved_kirinuki_required" },
+      );
+    }
+    if (input.releaseType !== "broadcast" && channelRole === "approved_kirinuki") {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Kirinuki channels can only create broadcast drafts",
+        { releaseType: "broadcast_required" },
+      );
+    }
 
     if (channelChanged) {
       if (matchedChannel) {
@@ -2126,13 +2190,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         .prepare(
           `INSERT INTO music_performance_sources (
           performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary
-        ) VALUES (?, ?, ?, ?, 'official', 0, 1)`,
+        ) VALUES (?, ?, ?, ?, ?, 0, 1)`,
         )
         .bind(
           ids.performanceId,
           sourceId,
           input.startSeconds,
           input.endSeconds ?? null,
+          input.releaseType === "broadcast" ? "kirinuki" : "official",
         ),
       ...projectionStatements(this.database, songId),
       this.database
@@ -2201,21 +2266,26 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
              last_conversion_error_code = NULL,
              last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
              version = version + 1, updated_at = ?
-           WHERE id = ? AND status = 'ready' AND version = ?
-              AND classification = 'eligible'
-              AND candidate_kind = 'official_video'
-             AND EXISTS (
-               SELECT 1 FROM music_ingestion_candidate_origins AS origin
-               WHERE origin.candidate_id = music_ingestion_candidates.id
-                 AND origin.job_id = ?
-             )
-             AND EXISTS (
+            WHERE id = ? AND status = 'ready' AND version = ?
+               AND classification = 'eligible'
+               AND ((candidate_kind = 'official_video'
+                   AND ? IN ('official_mv', 'official_video'))
+                 OR (candidate_kind = 'singing_clip' AND ? = 'broadcast'))
+              AND (? IS NULL OR EXISTS (
+                SELECT 1 FROM music_ingestion_candidate_origins AS origin
+                WHERE origin.candidate_id = music_ingestion_candidates.id
+                  AND origin.job_id = ?
+              ))
+              AND EXISTS (
                SELECT 1 FROM music_channels AS channel
                WHERE channel.provider = 'youtube'
                  AND channel.external_channel_id = music_ingestion_candidates.channel_id
                  AND channel.verification_status = 'approved'
                  AND channel.active = 1
-                 AND channel.channel_role IN (${ingestionOfficialChannelRoleSql})
+                  AND ((music_ingestion_candidates.candidate_kind = 'official_video'
+                      AND channel.channel_role IN (${ingestionOfficialChannelRoleSql}))
+                    OR (music_ingestion_candidates.candidate_kind = 'singing_clip'
+                      AND channel.channel_role = 'approved_kirinuki'))
              )`,
         ).bind(
           ids.performanceId,
@@ -2224,6 +2294,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
           candidateConversion.candidateId,
           candidateConversion.expectedVersion,
+          input.releaseType,
+          input.releaseType,
+          candidateConversion.jobId,
           candidateConversion.jobId,
         ),
         versionGuard(this.database),
@@ -2475,6 +2548,43 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
         "A participant can only be credited once",
+      );
+    }
+    const selectedChannel = catalog.channels.find(
+      (channel) =>
+        channel.id === input.source.channelId &&
+        channel.externalChannelId === video.channelId,
+    );
+    if (!selectedChannel) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "The selected source channel does not match YouTube metadata",
+        { channel: "mismatch" },
+      );
+    }
+    if (
+      input.releaseType === "broadcast" &&
+      (current.publication_status !== "draft" ||
+        input.source.sourceRole !== "kirinuki" ||
+        selectedChannel.channelRole !== "approved_kirinuki" ||
+        selectedChannel.verificationStatus !== "approved" ||
+        !selectedChannel.active)
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Broadcast drafts require an approved Kirinuki source",
+        { sourceRole: "approved_kirinuki_required" },
+      );
+    }
+    if (
+      input.releaseType !== "broadcast" &&
+      (input.source.sourceRole === "kirinuki" ||
+        selectedChannel.channelRole === "approved_kirinuki")
+    ) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Kirinuki sources require the broadcast release type",
+        { releaseType: "broadcast_required" },
       );
     }
     if (current.publication_status === "withdrawn") {

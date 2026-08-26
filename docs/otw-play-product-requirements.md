@@ -111,11 +111,11 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-050 | 운영 공개는 public read와 navigation을 분리한 단계적 전환으로 수행한다. | 확정 | PR-8A 직접 경로·SEO, PR-8B source health, PR-8C 관측·운영 switch가 모두 검증된 뒤 `public_read_enabled=1`로 익명 직접 경로를 먼저 확인하고 마지막에 `navigation_visible=1`을 적용한다. 검색 색인과 sitemap 포함은 `navigation_visible=1`에서만 허용한다. 코드 병합이나 배포만으로 두 flag를 자동 활성화하지 않는다. |
 | DEC-051 | PR-8C 관측과 공개 switch는 PR-8B source-health 위에 stack하고 운영 관측 backend를 분리한다. | 확정 | Workers Logs는 개별 진단, Analytics Engine `otw_play_events`는 24시간 집계와 관리자 화면을 담당한다. 요청별 지표는 D1에 저장하지 않으며, 모든 공개·rollback 전환은 감사 가능한 단일 관리자 command만 사용한다. |
 | DEC-052 | PR-8 이후 최우선 프로그램은 playlist 벌크 catalog 수집과 회원 proposal 수정·철회다. | 확정 | P0-A로 두 흐름을 함께 추진하고, P0-B 노래 clip channel 후보함, P0-C 운영 공개 지속 검증, P1 멤버 참여 정보·노래책·SEO 순으로 진행한다. 권리·개인정보·외부 API gate는 각 slice 전에 확정한다. |
-| DEC-053 | playlist와 channel 자동화는 회원 proposal이 아닌 공유 system ingestion candidate를 생성한다. | 확정 | video identity와 discovery origin을 dedupe한다. playlist candidate만 관리자 검수 뒤 catalog draft로 전환할 수 있으며 `singing_clip` 변환은 DEC-057을 따른다. 자동 publish, 가짜 submitter와 title 기반 권위 확정은 금지한다. |
+| DEC-053 | playlist와 channel 자동화는 회원 proposal이 아닌 공유 system ingestion candidate를 생성한다. | 확정 | video identity와 discovery origin을 dedupe한다. playlist와 `singing_clip` candidate는 각각의 관리자 검수·승인 경계를 통과한 뒤 catalog draft로만 전환할 수 있다. 자동 publish, 가짜 submitter와 title 기반 권위 확정은 금지한다. |
 | DEC-054 | 회원은 자신의 `pending_review` proposal만 version CAS로 수정하거나 철회할 수 있다. | 확정 | URL을 포함한 editable snapshot 변경은 duplicate preflight를 다시 수행한다. 철회는 불가역이며 승인·거절·철회 뒤에는 새 proposal을 사용한다. 공개 catalog revision은 수정·철회로 변경하지 않는다. |
 | DEC-055 | 상세 credit은 작품·가창/녹음·영상·발매 scope와 출처를 분리하고 멤버 노래책은 verified published 관계에서 파생한다. | 부분 대체됨 | 전체 음악 관계자 credit graph는 채택하지 않는다. scope 분리 원칙 중 OTW 멤버 참여 정보에 필요한 부분만 DEC-058이 대체한다. |
 | DEC-056 | playlist 벌크 입력은 API가 익명 조회할 수 있는 `public`·`unlisted`만 지원하고 `private`와 OAuth는 범위에서 제외한다. | 확정 | 한 job 5,000개, page·영상 batch 50개, D1 job + Queue/DLQ, 3회 retry와 idempotency를 적용한다. active candidate 90일, ignored/blocked 180일을 상한으로 두고 YouTube API data는 30일 안에 refresh 또는 삭제한다. 식별자·API 사실만 자동 적용하며 음악적 의미는 추천값으로 둔다. |
-| DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용하며 자동 publish하지 않는다. 방송·키리누키 모델과 channel 권리·승인 gate 전에는 catalog draft로도 변환하지 않는다. |
+| DEC-057 | channel 자동화는 OTW·멤버 공식 channel이 아니라 관리자가 승인한 노래 방송 clip channel의 신규 upload를 `singing_clip` system candidate로 수집한다. | 확정 | OTW·멤버 공식 영상은 관리자 단건·playlist로 직접 추가한다. clip candidate는 WebSub + 6시간 reconciliation, backfill 0, title 기반 triage만 사용한다. 승인된 `approved_kirinuki` 채널 후보도 자동 publish하지 않으며 개별 관리자 검수 뒤 DEC-067의 비공개 draft로만 전환한다. |
 | DEC-058 | 추가 credit 범위는 OTW 멤버의 가창과 작품·편곡·제작 참여로 제한하고 외부 음악 관계자용 상세 credit·contributor graph는 만들지 않는다. | 확정 | 기존 원곡 가수와 외부 가창 참여자 표시는 유지하되 새 범용 credit 대상이 아니다. 멤버 노래책은 published 관계에서 파생하며 1곡부터 직접 URL, 3곡부터 navigation·SEO를 허용한다. current member를 우선하고 대표 오리지널곡은 관리자 최대 5곡 pin + 최신순 fallback으로 정한다. |
 | DEC-059 | playlist 후보 검수는 공통값 일괄 설정 대신 행별 보완과 즉시 적용 미리보기를 사용한다. | 확정 | 선택 checkbox는 사용하지 않는다. sticky 검수 form은 곡 연결·신규 생성, 원곡 가수, 가창자·역할과 공개 분류를 편집하고, 실제 저장 draft와 필수 누락 미리보기는 각 영상 아래의 가로 배치 영역에서 편집 중에도 즉시 갱신한다. ready 완료 후보는 job 전체에서 일괄 변환한다. |
 | DEC-060 | playlist 후보 검수 CAS는 background metadata 갱신과 실제 관리자 검수 충돌을 구분한다. | 확정 | 행을 열 때의 version·review input·status를 baseline으로 보존한다. Queue·단건 metadata refresh는 수동 결정인 `ready`, `ignored`, `converted`와 review input을 덮어쓰지 않는다. version만 달라지고 review state가 의미상 같으면 현재 channel·실제 candidate 분류 정책을 다시 검증한 뒤 저장을 허용한다. 실제 동시 검수는 `409 PLAY_ADMIN_STALE_WRITE`, 기존 catalog·proposal·channel/policy 상태로 저장할 수 없는 경우는 validation으로 구분한다. 목록의 origin 분류 `existing_candidate`는 실제 candidate 분류와 함께 표시한다. |
@@ -125,6 +125,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-064 | production P0-A·P0-B canary는 Clerk production instance와 채널별 자동 수집 권리 승인 뒤에만 수행한다. | 확정 | Clerk production 전환, 사용자 `22/22` 이관, production JWT의 `CLERK_AUTHORIZED_PARTIES=https://otw-schedule.info` 기반 `azp` 검증과 실제 관리자 스모크를 완료해 GATE-07은 해결했다. 자동 수집 대상은 키리누키 제작자의 메일 서면 동의를 확보했으므로 GATE-08도 해결되었다. legacy `kirinuki_channels` row는 자동 승인으로 해석하지 않고 `approved_kirinuki`로 등록된 활성 채널만 허용한다. monitor 등록 UI/API는 채널 ID만 받고 서버가 표준 승인·감사 기록을 생성하며, 운영자에게 동일한 동의 근거와 해제 절차를 다시 입력시키지 않는다. |
 | DEC-065 | 승인 채널은 자동 검수와 분리된 관리자 1차 탭에서 관리하고 상태·관측 화면은 한눈에 비교 가능한 고밀도 작업면을 사용한다. | 확정 | `승인 채널` 탭은 `approved_kirinuki`를 포함한 역할 등록, 검수 승인과 활성화를 제공하며 신규 등록의 pending 기본값과 명시적 승인 경계는 유지한다. `소스 상태`는 요약·세 목록·행 작업을 하나의 panel로, `운영·공개`는 공개 권위·최근 변경·24시간 지표·route·event를 소수의 panel로 묶되 권위 readback과 confirmation은 바꾸지 않는다. |
 | DEC-066 | 승인 채널과 외부 주체는 하나의 관리 작업면에서 다루고, YouTube 채널 표시명은 입력한 채널 ID의 권위 조회 결과를 사용한다. | 확정 | 별도 `외부 주체 관리` Sheet와 채널 등록의 소유·연결 주체 선택을 제거한다. 채널 ID 조회가 성공하면 표시명을 읽기 전용으로 자동 입력하며 조회한 ID와 현재 입력이 같을 때만 등록한다. 기존 채널 수정 시 저장된 주체 연결은 보존한다. WebSub `active`는 callback 검증과 유효 lease가 모두 있는 상태만 의미하며, 검증·lease가 없는 legacy active는 재구독 가능한 복구 상태로 표시하고 hub 실패가 이를 active로 되돌리지 못하게 한다. |
+| DEC-067 | 승인 채널의 `singing_clip` 후보는 같은 자동 검수 작업면에서 개별 검수한 뒤 비공개 방송 가창 draft로 전환한다. | 확정 | 운영자는 후보의 곡·원곡 가수·가창 참여자와 역할·관계·참여 형태·시작/종료 구간을 확인한다. 서버는 활성 `approved_kirinuki` 채널, `broadcast` release와 `kirinuki` source 조합만 허용하고 candidate CAS와 draft 생성을 한 D1 batch로 처리한다. 이 경로는 publish action을 제공하지 않으며 원본 방송 연결·방송일·setlist·공개 read model은 P3 범위로 남긴다. |
 
 ## 4. 제품 원칙
 
@@ -454,8 +455,10 @@ detail로 자동 복사하지 않는다.
 - ADM-027: 일부 항목 실패는 성공 항목을 되돌리지 않고 실패 항목만 재시도할 수 있어야 한다.
 - ADM-028: 관리자가 별도로 승인한 노래 방송 clip channel을 구독해 신규 upload를 `singing_clip` system candidate로 만들고 lease·notification·reconciliation 상태를 확인할 수 있어야 한다. OTW·멤버 공식 channel은 이 자동 구독 범위가 아니다.
 - ADM-029: 자동 수집 후보는 실제 관리자 검수와 기존 publish command 없이는 공개될 수 없어야 한다.
-- ADM-030: `singing_clip` candidate는 방송·키리누키 foundation, 원본 방송·가창자·곡·
-  segment와 clip 게시 승인 검수가 끝나기 전 catalog draft로 변환할 수 없어야 한다.
+- ADM-030: `singing_clip` candidate는 활성 `approved_kirinuki` 채널에서 수집되고 관리자가
+  곡·원곡 가수·가창자·역할·segment를 검수한 경우에만 `broadcast` + `kirinuki` 조합의
+  비공개 catalog draft로 변환할 수 있어야 한다. 이 경로는 자동·수동 publish action을
+  제공하지 않아야 한다.
 - ADM-031: 관리자는 OTW 멤버의 작사·작곡·편곡·연주·제작 참여와 공식 근거를
   song/performance scope에 입력·수정할 수 있어야 한다.
 - ADM-032: 관리자는 current member별 대표 오리지널곡을 최대 5곡까지 pin·정렬할 수
@@ -499,9 +502,9 @@ detail로 자동 복사하지 않는다.
 
 자동 수집 candidate는 회원 제안이나 카탈로그 공개 상태에 추가하지 않는다. playlist와
 clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_kind`로
-구분한다. playlist candidate는 관리자 검수 뒤 catalog draft로 변환할 수 있지만,
-`singing_clip`은 방송·키리누키 모델과 승인 정책이 준비되기 전에는 draft 변환을
-허용하지 않는다.
+구분한다. playlist candidate는 관리자 검수 뒤 공식 영상 draft로 변환한다. `singing_clip`은
+활성 `approved_kirinuki` 채널과 개별 검수 완료를 서버에서 다시 확인한 뒤 비공개
+`broadcast` draft로만 변환하며 candidate 상태와 draft 생성을 원자적으로 반영한다.
 
 ### 10.3 운영
 
@@ -588,11 +591,11 @@ clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_
 | 우선순위 | 범위 | 완료 또는 착수 gate |
 | --- | --- | --- |
 | P0-A | catalog 입력 효율·proposal lifecycle | PR-9A~C로 구현·배포 완료했고 production Clerk 인증 UI도 검증했다. OTW 공식 `Cover Song` playlist 최근 5개 canary를 실행하되 draft 변환·게시 없이 Queue와 D1 readback만 확인한다. |
-| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation·review-only candidate foundation과 WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill을 production에 배포했다. additive migration `0063`, 공개 origin과 WebSub secret도 적용했다. 채널별 메일 서면 동의는 확보했으며 동의받은 정확한 채널 확정, monitor·구독과 실제 알림 흐름 검증이 남았다. |
+| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation candidate foundation과 WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill을 production에 배포했다. additive migration `0063`, 공개 origin과 WebSub secret도 적용했다. 현재 변경은 승인 채널 후보의 곡·가창자·segment 개별 검수와 비공개 broadcast draft 변환 경로를 구현했으며 배포 뒤 실제 알림→후보→draft 운영 readback이 남았다. 채널별 메일 서면 동의는 확보했다. |
 | P0-C | 운영 공개·안정화 지속 확인 | Clerk production instance, production issuer/JWKS/admin ID, origin 검증과 실제 관리자 스모크를 완료했다. source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 공개 전후 지속 확인한다. |
 | P1 | 멤버 참여 정보·멤버별 노래책·SEO | existing participant와 최소 member contribution을 사용해 current member의 부른 곡·오리지널·커버·협업·만든 곡 page를 제공한다. 외부 음악 관계자 상세 credit, contributor·album graph는 범위에서 제외한다. |
 | P2 | 큐레이션·저장 경험 | 운영자 큐레이션 playlist를 먼저 제공하고 사용자 저장·공개/비공개·공유, 좋아요·최근 들은 곡·멤버 라디오를 순차 검토한다. |
-| P3 | 방송 가창·키리누키 | 날짜별 가창 기록, 방송 타임스탬프, setlist, 승인된 키리누키와 원본 방송 fallback을 추가하고 P0-B `singing_clip` 후보의 draft 변환을 연다. TBD-004·005를 먼저 해결한다. |
+| P3 | 방송 가창·키리누키 | P0-B의 비공개 `singing_clip` draft를 확장해 방송일·원본 방송 연결·타임스탬프, setlist, 키리누키와 원본 방송 fallback 및 공개 read model을 추가한다. TBD-004·005를 먼저 해결한다. |
 | P4 | 개인화·외부 생태계 | 행동 기반 추천과 Spotify·Apple Music 등 외부 서비스 연동은 권리·개인정보·API 비용과 사용자 가치가 확인된 뒤 검토한다. 자동 공개나 AI 단독 곡 확정은 계속 금지한다. |
 
 P0-A code와 P0-B polling foundation은 완료되었고 production 인증 GATE-07과 자동 수집
@@ -769,6 +772,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-26 | DEC-065 확정. 승인 채널을 `고급 관리`에서 별도 `승인 채널` 탭으로 이동하고 `approved_kirinuki` 역할·명시적 승인·활성화 흐름을 연결. `소스 상태`와 `운영·공개`는 분산된 반복 card를 요약·상세·작업이 인접한 고밀도 panel로 통합 |
 | 2026-08-26 | DEC-066 확정. 승인 채널과 외부 주체를 한 작업면으로 통합하고 채널 등록의 소유·연결 주체 선택을 제거. YouTube 채널 ID 조회로 권위 표시명을 자동 입력하며, callback 검증·lease가 없는 false-active WebSub row를 복구 대상으로 분류하고 transient hub 요청 1회 재시도와 비민감 오류 code 보존을 추가 |
 | 2026-08-26 | production WebSub 재구독의 `hub_network`를 Cloudflare runtime의 `fetch` receiver 손실에 따른 `Illegal invocation`으로 재현. 전역 fetch를 인스턴스 method로 호출하지 않는 wrapper로 수정하고 동일 `GoogleWebsubHubClient`의 Cloudflare remote preview 요청이 Google hub에서 수락되는 것을 확인 |
+| 2026-08-26 | DEC-067 확정. `노래 클립 자동 후보`에 `검수·등록` 경로를 추가해 승인된 `approved_kirinuki` 후보의 곡·가창자·역할·segment를 확인한 뒤 `broadcast` + `kirinuki` 비공개 draft로 원자 변환. 자동·수동 publish와 P3 원본 방송·setlist·공개 read model은 계속 차단 |
 
 ## 19. 참고
 

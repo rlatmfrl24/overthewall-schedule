@@ -1,4 +1,5 @@
 import type {
+  OtwPlayConvertIngestionCandidateRequest,
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayIngestionConversionOutcome,
   OtwPlayIngestionConversionResultDto,
@@ -600,26 +601,58 @@ export class IngestionService {
     input: OtwPlayConvertIngestionCandidatesRequest,
     actor: AdminCatalogActor,
   ) {
+    await this.repository.getJob(jobId);
+    return this.convertCandidateSelections(jobId, input.candidates, actor);
+  }
+
+  async convertCandidate(
+    candidateId: string,
+    input: OtwPlayConvertIngestionCandidateRequest,
+    actor: AdminCatalogActor,
+  ) {
+    const response = await this.convertCandidateSelections(
+      null,
+      [{ id: candidateId, expectedVersion: input.expectedVersion }],
+      actor,
+    );
+    return response.results[0]!;
+  }
+
+  private async convertCandidateSelections(
+    jobId: string | null,
+    selections: OtwPlayConvertIngestionCandidatesRequest["candidates"],
+    actor: AdminCatalogActor,
+  ) {
     if (!this.catalog) {
       throw new IngestionServiceError(
         "unavailable",
         "Catalog draft conversion is unavailable",
       );
     }
-    await this.repository.getJob(jobId);
     const results: OtwPlayIngestionConversionResultDto[] = [];
-    for (const selection of input.candidates) {
+    for (const selection of selections) {
       try {
         const candidate = await this.repository.readReviewCandidate(
           jobId,
           selection.id,
         );
+        const releaseType = candidate.reviewInput?.releaseType;
+        const candidateKindMatchesReview =
+          candidate.candidateKind === "official_video"
+            ? releaseType === "official_mv" || releaseType === "official_video"
+            : releaseType === "broadcast";
+        const startSeconds = candidate.reviewInput?.startSeconds ?? 0;
+        const endSeconds = candidate.reviewInput?.endSeconds ?? null;
         if (
           candidate.version !== selection.expectedVersion ||
-          candidate.candidateKind !== "official_video" ||
           candidate.status !== "ready" ||
           candidate.classification !== "eligible" ||
-          !candidate.reviewInput
+          !candidate.reviewInput ||
+          !candidateKindMatchesReview ||
+          !Number.isSafeInteger(startSeconds) ||
+          startSeconds < 0 ||
+          (endSeconds !== null &&
+            (!Number.isSafeInteger(endSeconds) || endSeconds <= startSeconds))
         ) {
           throw new IngestionRepositoryError(
             candidate.version !== selection.expectedVersion
@@ -631,7 +664,7 @@ export class IngestionService {
         const youtubeUrl = `https://www.youtube.com/watch?v=${candidate.videoId}`;
         const preflight = await this.catalog.preflightCatalogEntry({
           youtubeUrl,
-          startSeconds: 0,
+          startSeconds,
         });
         if (preflight.duplicate) {
           const outcome = await this.repository.recordConversionOutcome({
@@ -653,11 +686,14 @@ export class IngestionService {
           });
           continue;
         }
+        const channelRoleAllowed = candidate.candidateKind === "singing_clip"
+          ? preflight.channel.channelRole === "approved_kirinuki"
+          : isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole);
         if (
           preflight.channel.state !== "approved" ||
           !preflight.channel.catalogChannelId ||
           preflight.channel.catalogChannelId !== candidate.catalogChannelId ||
-          !isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole)
+          !channelRoleAllowed
         ) {
           throw new IngestionRepositoryError(
             "validation_failed",
@@ -668,8 +704,8 @@ export class IngestionService {
           {
             expectedCatalogRevision: preflight.catalogRevision,
             youtubeUrl,
-            startSeconds: 0,
-            endSeconds: null,
+            startSeconds,
+            endSeconds,
             ...candidate.reviewInput,
             channel: {
               kind: "existing",

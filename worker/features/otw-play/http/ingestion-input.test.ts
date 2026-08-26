@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseCreatePlaylistImport,
+  parseConvertIngestionCandidate,
   parseConvertIngestionCandidates,
   parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
@@ -192,6 +193,14 @@ describe("OTW Play ingestion input", () => {
         { id: "candidate-1", expectedVersion: 1 },
       ],
     })).toEqual({ ok: false, fields: { candidates: "invalid" } });
+    expect(parseConvertIngestionCandidate({ expectedVersion: 3 })).toEqual({
+      ok: true,
+      value: { expectedVersion: 3 },
+    });
+    expect(parseConvertIngestionCandidate({ expectedVersion: 3, force: true })).toEqual({
+      ok: false,
+      fields: { body: "invalid_shape" },
+    });
     expect(parseIgnoreIngestionCandidates({
       candidates: [{ id: "candidate-1", expectedVersion: 1 }],
     })).toEqual({

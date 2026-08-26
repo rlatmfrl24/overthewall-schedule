@@ -256,12 +256,17 @@ export interface OtwPlayChannelMonitorCandidateDto {
   candidateVersion: number;
   videoId: string;
   title: string | null;
+  channelTitle: string | null;
   thumbnailUrl: string | null;
+  durationSeconds: number | null;
   publishedAt: number | null;
   availabilityStatus: OtwPlaySourceAvailabilityStatus;
   status: OtwPlayIngestionCandidateStatus;
   classification: OtwPlayIngestionClassification;
   exclusionReason: string | null;
+  catalogChannelId: string | null;
+  reviewInput: OtwPlayIngestionReviewInput | null;
+  linkedPerformanceId: string | null;
   discoveredAt: number;
 }
 
@@ -374,8 +379,13 @@ export interface OtwPlayIngestionReviewInput {
   song: OtwPlayAdminCatalogSongDecision;
   participants: OtwPlayAdminCatalogParticipantInput[];
   relationType: OtwPlayRelationType;
-  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  releaseType: Extract<
+    OtwPlayReleaseType,
+    "official_mv" | "official_video" | "broadcast"
+  >;
   participationType: OtwPlayParticipationType;
+  startSeconds?: number;
+  endSeconds?: number | null;
   internalNote?: string | null;
 }
 
@@ -416,6 +426,10 @@ export type OtwPlayUpdateIngestionCandidateRequest =
 
 export interface OtwPlayConvertIngestionCandidatesRequest {
   candidates: Array<{ id: string; expectedVersion: number }>;
+}
+
+export interface OtwPlayConvertIngestionCandidateRequest {
+  expectedVersion: number;
 }
 
 export interface OtwPlayIgnoreIngestionCandidatesRequest {
@@ -1329,7 +1343,10 @@ export interface OtwPlayAdminCreateCatalogEntryRequest {
   participants: OtwPlayAdminCatalogParticipantInput[];
   channel: OtwPlayAdminCatalogChannelDecision;
   relationType: OtwPlayRelationType;
-  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  releaseType: Extract<
+    OtwPlayReleaseType,
+    "official_mv" | "official_video" | "broadcast"
+  >;
   participationType: OtwPlayParticipationType;
   publicationTarget: Extract<OtwPlayPublicationStatus, "draft" | "published">;
   internalNote?: string | null;
@@ -1388,7 +1405,7 @@ export interface OtwPlayAdminPerformanceWriteInput {
     channelId: string;
     startSeconds: number;
     endSeconds?: number | null;
-    sourceRole: Extract<OtwPlaySourceRole, "official" | "alternate">;
+    sourceRole: Extract<OtwPlaySourceRole, "official" | "kirinuki" | "alternate">;
   };
 }
 

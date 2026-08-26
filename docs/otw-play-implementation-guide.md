@@ -1389,20 +1389,21 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
 1. 완료 — PR-9A: 회원 `pending_review` proposal 수정·철회 contract, CAS, audit와 UI
 2. 완료 — PR-9B: ingestion job/candidate schema, Queue/DLQ와 playlist 수집
 3. 완료 — PR-9C: 벌크 후보 grid, 행별 sticky 보완·공식 채널 인라인 승인, 영상 아래 가로 변경 예정 항목, 확인된 재생 불가 후보의 job 단위 일괄 제외와 job 전체 ready 후보의 catalog draft 변환
-4. 부분 완료 — P0-B polling foundation: approved clip channel의 6시간 uploads
-   reconciliation, 250개 cap, watermark·gap·generation과 review-only candidate inbox
-5. 다음 개발 — PR-9D1: approved 노래 clip channel WebSub, lease renewal, daily recent-50과
+4. 완료 — P0-B polling foundation: approved clip channel의 6시간 uploads
+   reconciliation, 250개 cap, watermark·gap·generation과 candidate inbox
+5. 완료 — PR-9D1: approved 노래 clip channel WebSub, lease renewal, daily recent-50과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
 6. P1A: 기존 participant 기반 member songbook과 queue
 7. P1B: 최소 song/performance member contribution과 관리자 편집·곡 상세
 8. P1C: member contribution 정정 제안과 3곡 이상 current member SEO·sitemap
-9. P3/PR-9D2: 방송·키리누키 foundation 뒤 `singing_clip` candidate의 broadcast draft
-   변환
+9. 구현 완료·배포 대기 — PR-9D2: `singing_clip` candidate의 곡·가창자·segment 검수와
+   비공개 broadcast draft 변환. P3에서 방송일·원본 방송·setlist·공개 read model을 확장
 
 P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증은 위 개발과 병행하는
 지속 운영 항목이다. PR-9D1은 PR-9B candidate pipeline보다 먼저 구현하지 않는다.
-playlist candidate는 관리자 검수 뒤 draft로 변환할 수 있지만 `singing_clip`은 P3
-foundation 전에는 inbox에만 머문다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
+playlist candidate는 관리자 검수 뒤 공식 영상 draft로 변환한다. `singing_clip`은 활성
+`approved_kirinuki` 채널과 곡·가창자·segment 검수를 다시 확인한 뒤 `broadcast` +
+`kirinuki` 비공개 draft로만 변환한다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
 외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
 계획에서 제외한다.
 

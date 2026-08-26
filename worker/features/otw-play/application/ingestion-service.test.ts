@@ -579,6 +579,87 @@ describe("IngestionService", () => {
     );
   });
 
+  it("converts a reviewed monitored singing clip into a non-public broadcast draft", async () => {
+    const repo = repository();
+    repo.readReviewCandidate.mockResolvedValue({
+      id: "candidate-clip",
+      version: 2,
+      videoId: "AAAAAAAAAAA",
+      candidateKind: "singing_clip",
+      status: "ready",
+      classification: "eligible",
+      catalogChannelId: "channel-kirinuki",
+      reviewInput: {
+        song: { kind: "existing", songId: "song-1" },
+        participants: [{
+          subject: { kind: "entity", entityId: "entity-1" },
+          participantRole: "vocal",
+          creditOrder: 0,
+        }],
+        relationType: "cover",
+        releaseType: "broadcast",
+        participationType: "solo",
+        startSeconds: 12,
+        endSeconds: 185,
+        internalNote: "개별 영상 검수 완료",
+      },
+      linkedPerformanceId: null,
+    });
+    const preflightCatalogEntry = vi.fn(async () => ({
+      catalogRevision: 4,
+      channel: {
+        state: "approved" as const,
+        catalogChannelId: "channel-kirinuki",
+        channelRole: "approved_kirinuki" as const,
+      },
+      duplicate: null,
+    }));
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "performance-broadcast" } },
+      catalogRevision: 5,
+    }));
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => "event-clip",
+      () => 100,
+      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogService,
+    );
+
+    await expect(service.convertCandidate("candidate-clip", {
+      expectedVersion: 2,
+    }, {
+      userId: "admin-1",
+      displayName: "Admin",
+      ipAddress: null,
+    })).resolves.toEqual({
+      candidateId: "candidate-clip",
+      outcome: "created",
+      performanceId: "performance-broadcast",
+      errorCode: null,
+    });
+    expect(preflightCatalogEntry).toHaveBeenCalledWith({
+      youtubeUrl: "https://www.youtube.com/watch?v=AAAAAAAAAAA",
+      startSeconds: 12,
+    });
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startSeconds: 12,
+        endSeconds: 185,
+        releaseType: "broadcast",
+        publicationTarget: "draft",
+        channel: { kind: "existing", channelId: "channel-kirinuki" },
+      }),
+      expect.objectContaining({ userId: "admin-1" }),
+      expect.objectContaining({
+        jobId: null,
+        candidateId: "candidate-clip",
+        expectedVersion: 2,
+      }),
+    );
+  });
+
   it("bulk ignores job-owned candidates and returns stale rows for separate review", async () => {
     const repo = repository();
     repo.readReviewCandidate.mockImplementation(async (

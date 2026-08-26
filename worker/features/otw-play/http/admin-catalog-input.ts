@@ -193,6 +193,7 @@ const parsePerformanceCore = (value: JsonObject) => {
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
+    "broadcast",
   ] as const);
   const participationType = inValues(
     value.participationType,
@@ -214,7 +215,7 @@ const parsePerformanceCore = (value: JsonObject) => {
       ? null
       : integer(source.endSeconds);
   const sourceRole = source
-    ? inValues(source.sourceRole, ["official", "alternate"] as const)
+    ? inValues(source.sourceRole, ["official", "kirinuki", "alternate"] as const)
     : null;
   if (
     !songId ||
@@ -229,6 +230,8 @@ const parsePerformanceCore = (value: JsonObject) => {
     !channelId ||
     startSeconds === null ||
     !sourceRole ||
+    (releaseType === "broadcast" && sourceRole !== "kirinuki") ||
+    (releaseType !== "broadcast" && sourceRole === "kirinuki") ||
     (source.endSeconds !== null &&
       source.endSeconds !== undefined &&
       endSeconds === null) ||
@@ -416,6 +419,9 @@ export const parseApproveProposal = (
     publicationTarget: "published",
   });
   if (!parsed.ok) return fail(parsed.fields);
+  if (parsed.value.releaseType === "broadcast") {
+    return fail({ releaseType: "official_required" });
+  }
   return {
     ok: true,
     value: {
@@ -580,6 +586,7 @@ export const parseUpdatePerformance = (
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
+    "broadcast",
   ] as const);
   const participationType = inValues(
     value.participationType,
@@ -620,7 +627,7 @@ export const parseUpdatePerformance = (
       ? null
       : integer(source.endSeconds);
   const sourceRole = source
-    ? inValues(source.sourceRole, ["official", "alternate"] as const)
+    ? inValues(source.sourceRole, ["official", "kirinuki", "alternate"] as const)
     : null;
   const parsedParticipants = participants?.filter(
     (participant): participant is NonNullable<typeof participant> =>
@@ -652,6 +659,8 @@ export const parseUpdatePerformance = (
     !channelId ||
     startSeconds === null ||
     !sourceRole ||
+    (releaseType === "broadcast" && sourceRole !== "kirinuki") ||
+    (releaseType !== "broadcast" && sourceRole === "kirinuki") ||
     (source.endSeconds !== null &&
       source.endSeconds !== undefined &&
       endSeconds === null) ||
@@ -731,6 +740,7 @@ export const parseCreateCatalogEntry = (
   const releaseType = inValues(value.releaseType, [
     "official_mv",
     "official_video",
+    "broadcast",
   ] as const);
   const participationType = inValues(
     value.participationType,
@@ -889,6 +899,7 @@ export const parseCreateCatalogEntry = (
     !relationType ||
     (song?.kind === "from_video" && relationType !== "original") ||
     !releaseType ||
+    (releaseType === "broadcast" && publicationTarget !== "draft") ||
     !participationType ||
     !publicationTarget ||
     (value.internalNote !== undefined && value.internalNote !== null && internalNote === null) ||

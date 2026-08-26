@@ -88,8 +88,10 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 구현했으며 회원 제안 상태에 섞지 않는다.
 `candidate_kind`는 최소 `catalog_video|singing_clip`을 구분한다. public·unlisted
 playlist의 `catalog_video`는 관리자 검수 뒤 draft 변환이 가능하지만 approved 노래
-clip channel의 `singing_clip`은 방송·키리누키 foundation 전에는 inbox에서만
-검수한다. 어느 종류도 자동 publish하지 않는다.
+clip channel의 `singing_clip`은 관리자 개별 검수 뒤 `release_type=broadcast`,
+`source_role=kirinuki`, `publication_status=draft`로만 변환한다. 활성
+`approved_kirinuki` channel과 candidate version을 변환 batch에서 다시 검증하며 어느
+종류도 자동 publish하지 않는다.
 
 추가 credit은 범용 contributor graph가 아니라 OTW 멤버의 song/performance 참여로
 제한한다. 가창은 기존 participant를 재사용하고 작사·작곡·편곡·연주·제작만 정확한
@@ -1682,8 +1684,10 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 
 - PR-9A~C의 회원 proposal 수정·철회, playlist ingestion job/candidate, Queue/DLQ,
   관리자 검수·draft 변환 흐름은 production에 반영되었다. P0-B의 6시간·최대 250개
-  uploads playlist polling monitor도 구현·배포되었으며 `singing_clip`은 검수·제외만
-  가능하고 service와 D1 양쪽에서 draft 변환·publish를 거부한다.
+  uploads playlist polling monitor도 구현·배포되었다. 현재 변경에서 `singing_clip`은
+  승인 채널과 개별 검수값을 service와 D1 양쪽에서 검증한 뒤 비공개 방송 가창 draft로
+  변환할 수 있으며 publish는 계속 거부한다. production 배포와 실제 후보 변환 readback은
+  아직 수행하지 않았다.
 - production catalog/read-model revision은 `3/3`, 공개 flag는 `0/0`이다. 운영
   ingestion job, candidate, channel monitor는 모두 0이며 승인된 clip 자동화 channel도
   0개다.
@@ -1719,3 +1723,8 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   호출하지 않는다. receiver가 바뀌면 hub 요청 전에 `Illegal invocation`이 발생하므로 안전한
   wrapper 안에서 원본 fetch를 direct call한다. 같은 client의 Cloudflare remote preview
   요청이 hub에서 수락되는 것을 배포 전 회귀 gate로 사용한다.
+- channel monitor 후보의 단건 변환은 playlist job 소속을 요구하지 않는 candidate command를
+  사용한다. review 저장 뒤 현재 version으로 변환하며 catalog entry와 candidate의
+  `converted`·`linked_performance_id`·audit event를 같은 D1 batch에서 반영한다. 허용 조합은
+  `singing_clip + approved_kirinuki + broadcast + kirinuki + draft`뿐이며 원본 방송 연결,
+  방송일·setlist와 public projection은 P3까지 범위 밖이다.

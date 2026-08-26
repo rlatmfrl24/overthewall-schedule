@@ -615,6 +615,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayIngestion,
   },
   {
+    id: "otw-play.admin.import-candidate.convert",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.convertImportCandidate.pattern,
+    methods: methods(post(ADMIN_NO_STORE)),
+    handler: handleOtwPlayIngestion,
+  },
+  {
     id: "otw-play.admin.import-job.convert",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.convertImportJob.pattern,

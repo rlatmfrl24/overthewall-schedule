@@ -136,6 +136,11 @@ export const apiRoutes = {
           (id: string) =>
             `/api/play/admin/import-candidates/${encodeURIComponent(id)}` as const,
         ),
+        convertImportCandidate: dynamicRoute(
+          "/api/play/admin/import-candidates/:id/convert",
+          (id: string) =>
+            `/api/play/admin/import-candidates/${encodeURIComponent(id)}/convert` as const,
+        ),
         convertImportJob: dynamicRoute(
           "/api/play/admin/imports/:jobId/convert",
           (jobId: string) =>

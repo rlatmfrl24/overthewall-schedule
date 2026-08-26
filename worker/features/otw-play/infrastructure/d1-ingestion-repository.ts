@@ -41,6 +41,20 @@ const officialChannelRoleSql = OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES
   .map((role) => `'${role}'`)
   .join(", ");
 
+const reviewChannelRoleSql = `(
+  (candidate.candidate_kind = 'official_video'
+    AND channel.channel_role IN (${officialChannelRoleSql}))
+  OR (candidate.candidate_kind = 'singing_clip'
+    AND channel.channel_role = 'approved_kirinuki')
+)`;
+
+const reviewChannelRoleForUpdateSql = `(
+  (music_ingestion_candidates.candidate_kind = 'official_video'
+    AND channel.channel_role IN (${officialChannelRoleSql}))
+  OR (music_ingestion_candidates.candidate_kind = 'singing_clip'
+    AND channel.channel_role = 'approved_kirinuki')
+)`;
+
 type JobRow = {
   id: string;
   source_external_id: string;
@@ -414,7 +428,7 @@ export class D1IngestionRepository implements IngestionRepository {
           WHERE channel.provider = 'youtube'
             AND channel.external_channel_id = candidate.channel_id
             AND channel.verification_status = 'approved' AND channel.active = 1
-            AND channel.channel_role IN (${officialChannelRoleSql})
+            AND ${reviewChannelRoleSql}
           LIMIT 1) AS catalog_channel_id,
         candidate.thumbnail_url,
         candidate.duration_seconds, candidate.provider_published_at,
@@ -1097,7 +1111,7 @@ export class D1IngestionRepository implements IngestionRepository {
           WHERE channel.provider = 'youtube'
             AND channel.external_channel_id = candidate.channel_id
             AND channel.verification_status = 'approved' AND channel.active = 1
-            AND channel.channel_role IN (${officialChannelRoleSql})
+            AND ${reviewChannelRoleSql}
           LIMIT 1) AS catalog_channel_id,
         candidate.review_input_json, candidate.linked_performance_id
        FROM music_ingestion_candidates AS candidate
@@ -1204,7 +1218,7 @@ export class D1IngestionRepository implements IngestionRepository {
              WHERE channel.provider = 'youtube'
                AND channel.external_channel_id = music_ingestion_candidates.channel_id
                AND channel.verification_status = 'approved' AND channel.active = 1
-               AND channel.channel_role IN (${officialChannelRoleSql})
+                AND ${reviewChannelRoleForUpdateSql}
            )`,
       ).bind(
         JSON.stringify(command.input),
@@ -1309,12 +1323,16 @@ export class D1IngestionRepository implements IngestionRepository {
     const unavailable = command.observation.availabilityStatus !== "playable";
     const kids = video?.madeForKids === true;
     const policyBlocked = channel?.verification_status === "revoked" || channel?.active === 0;
+    const current = await this.readReviewCandidateById(command.candidateId);
     const approved = channel?.verification_status === "approved" &&
-      channel.active === 1 && OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES.includes(
-        channel.channel_role as (typeof OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES)[number],
+      channel.active === 1 && (
+        current.candidateKind === "singing_clip"
+          ? channel.channel_role === "approved_kirinuki"
+          : OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES.includes(
+            channel.channel_role as (typeof OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES)[number],
+          )
       );
     const scopeReview = video?.scopeReview === true;
-    const current = await this.readReviewCandidateById(command.candidateId);
     const classification = existingSource
       ? "existing_catalog"
       : existingProposal
@@ -1396,7 +1414,7 @@ export class D1IngestionRepository implements IngestionRepository {
   }
 
   async recordConversionOutcome(command: {
-    jobId: string;
+    jobId: string | null;
     candidateId: string;
     expectedVersion: number;
     outcome: "duplicate" | "stale" | "validation_failed" | "retryable_failed";
@@ -1407,10 +1425,12 @@ export class D1IngestionRepository implements IngestionRepository {
     now: number;
   }) {
     const duplicate = command.outcome === "duplicate";
-    const belongsToJob = await this.database.prepare(
-      `SELECT 1 AS matched FROM music_ingestion_candidate_origins
-       WHERE candidate_id = ? AND job_id = ? LIMIT 1`,
-    ).bind(command.candidateId, command.jobId).first<{ matched: number }>();
+    const belongsToJob = command.jobId === null
+      ? true
+      : Boolean(await this.database.prepare(
+        `SELECT 1 AS matched FROM music_ingestion_candidate_origins
+         WHERE candidate_id = ? AND job_id = ? LIMIT 1`,
+      ).bind(command.candidateId, command.jobId).first<{ matched: number }>());
     if (!belongsToJob) {
       await this.database.prepare(
         `INSERT INTO music_ingestion_events (
@@ -1438,13 +1458,12 @@ export class D1IngestionRepository implements IngestionRepository {
            last_conversion_outcome = ?, last_conversion_error_code = ?,
            last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
            version = version + 1, updated_at = ?
-         WHERE id = ? AND version = ? AND status = 'ready'
-           AND candidate_kind = 'official_video'
-           AND EXISTS (
-             SELECT 1 FROM music_ingestion_candidate_origins AS origin
-             WHERE origin.candidate_id = music_ingestion_candidates.id
-               AND origin.job_id = ?
-           )`,
+          WHERE id = ? AND version = ? AND status = 'ready'
+            AND (? IS NULL OR EXISTS (
+              SELECT 1 FROM music_ingestion_candidate_origins AS origin
+              WHERE origin.candidate_id = music_ingestion_candidates.id
+                AND origin.job_id = ?
+            ))`,
       ).bind(
         duplicate ? 1 : 0,
         duplicate ? 1 : 0,
@@ -1457,6 +1476,7 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
         command.candidateId,
         command.expectedVersion,
+        command.jobId,
         command.jobId,
       ),
       this.database.prepare(

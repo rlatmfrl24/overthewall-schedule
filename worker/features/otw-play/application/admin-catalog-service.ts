@@ -175,13 +175,20 @@ export class AdminCatalogService {
     input: OtwPlayAdminCreateCatalogEntryRequest,
     actor: AdminCatalogActor,
     candidateConversion?: {
-      jobId: string;
+      jobId: string | null;
       candidateId: string;
       expectedVersion: number;
       eventId: string;
     },
   ) {
     validateVersion(input.expectedCatalogRevision);
+    if (input.releaseType === "broadcast" && input.publicationTarget !== "draft") {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "Broadcast entries must be reviewed as drafts before publication support is enabled",
+        { publicationTarget: "draft_required" },
+      );
+    }
     if (
       !Number.isSafeInteger(input.startSeconds) ||
       input.startSeconds < 0 ||
