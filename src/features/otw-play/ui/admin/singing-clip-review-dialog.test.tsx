@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
 const updateCandidateMock = vi.hoisted(() => vi.fn());
 const convertCandidateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
+const fetchActiveMembersMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
   updateOtwPlayImportCandidate: updateCandidateMock,
@@ -15,12 +16,17 @@ vi.mock("../../api/admin", () => ({
 }));
 
 vi.mock("@/features/members", () => ({
-  fetchActiveMembers: vi.fn().mockResolvedValue([]),
+  fetchActiveMembers: fetchActiveMembersMock,
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
   useToast: () => ({ toast: toastMock }),
 }));
+
+beforeEach(() => {
+  fetchActiveMembersMock.mockReset();
+  fetchActiveMembersMock.mockResolvedValue([]);
+});
 
 afterEach(() => {
   cleanup();
@@ -76,6 +82,82 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it("offers active members as canonical original artists", async () => {
+    const { reviewInput, candidate, catalog } = reviewFixture();
+    const createSongReviewInput = {
+      ...reviewInput,
+      song: {
+        kind: "create" as const,
+        title: "Member Original",
+        isOtwOriginal: true,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown" as const,
+        aliases: [],
+        originalArtists: [],
+        tags: [],
+      },
+    };
+    const candidateWithNewSong = {
+      ...candidate,
+      reviewInput: createSongReviewInput,
+    };
+    fetchActiveMembersMock.mockResolvedValue([{
+      uid: 1,
+      code: "member",
+      name: "현재 멤버",
+      oshi_mark: "🌙",
+      unit_name: "테스트 유닛",
+    }]);
+    updateCandidateMock.mockImplementation(async (_candidateId, command) => ({
+      version: 4,
+      status: "ready",
+      reviewInput: command.input,
+    }));
+    convertCandidateMock.mockResolvedValue({
+      candidateId: candidate.candidateId,
+      outcome: "created",
+      performanceId: "performance-1",
+      errorCode: null,
+    });
+
+    render(
+      createElement(SingingClipReviewDialog, {
+        candidate: candidateWithNewSong,
+        catalog,
+        onOpenChange: vi.fn(),
+        onConverted: vi.fn().mockResolvedValue(undefined),
+        onReviewStateChanged: vi.fn().mockResolvedValue(undefined),
+      }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    const artistSearch = screen.getByLabelText("원곡 가수 검색");
+    fireEvent.change(artistSearch, { target: { value: "현재 멤버" } });
+    fireEvent.click(await screen.findByRole("option", { name: /현재 멤버/ }));
+    expect(screen.getByText(/현재 멤버 🌙 · 테스트 유닛/)).toBeTruthy();
+
+    const saveButton = screen.getByRole("button", {
+      name: "검수 완료 후 draft 생성",
+    });
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      candidate.candidateId,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          song: expect.objectContaining({
+            originalArtists: [{
+              subject: { kind: "member", memberUid: 1 },
+              creditOrder: 0,
+              isPrimary: true,
+            }],
+          }),
+        }),
+      }),
+    ));
+  });
+
   it("saves the review before converting the candidate to a private draft", async () => {
     const { reviewInput, candidate, catalog } = reviewFixture();
     const onOpenChange = vi.fn();

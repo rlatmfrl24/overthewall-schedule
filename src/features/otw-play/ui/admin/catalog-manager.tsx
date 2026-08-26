@@ -402,9 +402,10 @@ export function OtwPlayCatalogManager() {
           onOpenCatalog={() => setSection("catalog")}
         />
       )}
-      {section === "automatic-review" && catalog && (
+      {section === "automatic-review" && (
         <ChannelMonitorSection
-          catalog={catalog}
+          catalog={catalog ?? null}
+          catalogLoading={catalogQuery.isLoading}
           onOpenCatalog={() => setSection("catalog")}
         />
       )}

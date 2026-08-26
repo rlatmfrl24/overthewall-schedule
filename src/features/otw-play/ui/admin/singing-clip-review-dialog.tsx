@@ -317,7 +317,7 @@ export function SingingClipReviewDialog({
                   <div className="sm:col-span-2">
                     <SubjectPicker
                       label="원곡 가수"
-                      members={[]}
+                      members={membersQuery.data ?? []}
                       entities={catalog.entities}
                       selected={originalArtists}
                       onChange={setOriginalArtists}

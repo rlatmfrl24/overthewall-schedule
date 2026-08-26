@@ -86,9 +86,11 @@ const subscriptionErrorLabel = (errorCode: string) => ({
 
 export function ChannelMonitorSection({
   catalog,
+  catalogLoading = false,
   onOpenCatalog,
 }: {
-  catalog: OtwPlayAdminCatalogDto;
+  catalog: OtwPlayAdminCatalogDto | null;
+  catalogLoading?: boolean;
   onOpenCatalog: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -354,6 +356,16 @@ export function ChannelMonitorSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-5 pt-6">
+        {!catalog ? (
+          <div
+            role="status"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm"
+          >
+            {catalogLoading
+              ? "카탈로그를 불러오는 동안 검수·등록만 잠시 기다려 주세요. 채널 감시와 WebSub 작업은 계속 사용할 수 있습니다."
+              : "카탈로그를 불러오지 못해 검수·등록만 일시 중단했습니다. 채널 감시, WebSub, 대조와 제외 작업은 계속 사용할 수 있습니다."}
+          </div>
+        ) : null}
         <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
@@ -629,6 +641,7 @@ export function ChannelMonitorSection({
                           <Button
                             size="sm"
                             disabled={
+                              catalog === null ||
                               busy !== null ||
                               candidate.availabilityStatus !== "playable" ||
                               candidate.catalogChannelId === null ||
@@ -694,19 +707,21 @@ export function ChannelMonitorSection({
         isProcessing={busy === "delete"}
         onConfirm={() => void removeMonitor()}
       />
-      <SingingClipReviewDialog
-        candidate={reviewCandidate}
-        catalog={catalog}
-        onOpenChange={(open) => !open && setReviewCandidate(null)}
-        onConverted={async () => {
-          await Promise.all([
-            refresh(),
-            queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog() }),
-          ]);
-          onOpenCatalog();
-        }}
-        onReviewStateChanged={() => refresh()}
-      />
+      {catalog ? (
+        <SingingClipReviewDialog
+          candidate={reviewCandidate}
+          catalog={catalog}
+          onOpenChange={(open) => !open && setReviewCandidate(null)}
+          onConverted={async () => {
+            await Promise.all([
+              refresh(),
+              queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog() }),
+            ]);
+            onOpenCatalog();
+          }}
+          onReviewStateChanged={() => refresh()}
+        />
+      ) : null}
     </Card>
   );
 }

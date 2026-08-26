@@ -153,6 +153,38 @@ describe("ChannelMonitorSection", () => {
     ));
   });
 
+  it("keeps monitor operations available while the catalog is unavailable", async () => {
+    reconcileMock.mockResolvedValue({
+      discoveredCount: 1,
+      checkedVideoCount: 1,
+      capped: false,
+    });
+    updateCandidateMock.mockResolvedValue({});
+
+    render(createElement(ChannelMonitorSection, {
+      ...sectionProps,
+      catalog: null,
+    }), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("New Singing Clip")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain(
+      "검수·등록만 일시 중단",
+    );
+    expect(screen.getByRole("button", { name: /검수·등록/ }).hasAttribute("disabled"))
+      .toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /지금 대조/ }));
+    await waitFor(() => expect(reconcileMock).toHaveBeenCalledWith("monitor-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: /제외/ }));
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:BBBBBBBBBBB",
+      { expectedVersion: 3, action: "ignore" },
+    ));
+  });
+
   it("disables review registration for policy-blocked candidates", async () => {
     candidatesQueryMock.mockReturnValue({
       data: { pages: [{
