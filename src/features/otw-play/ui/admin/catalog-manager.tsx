@@ -45,18 +45,12 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Settings2,
   Trash2,
   Video,
 } from "lucide-react";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@/shared/ui/sheet";
-import {
   createOtwPlayChannel,
+  lookupOtwPlayChannel,
   approveOtwPlayProposal,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
@@ -188,7 +182,6 @@ export function OtwPlayCatalogManager() {
   const [saving, setSaving] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [preselectedSongId, setPreselectedSongId] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const catalog = catalogQuery.data;
   const refresh = async () => {
@@ -318,20 +311,15 @@ export function OtwPlayCatalogManager() {
         actions={
           <div className="flex flex-wrap gap-2">
             {catalog && (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setPreselectedSongId(null);
-                    setRegistrationOpen(true);
-                  }}
-                >
-                  <Video className="h-4 w-4" /> 새 영상 등록
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setAdvancedOpen(true)}>
-                  <Settings2 className="h-4 w-4" /> 외부 주체 관리
-                </Button>
-              </>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setPreselectedSongId(null);
+                  setRegistrationOpen(true);
+                }}
+              >
+                <Video className="h-4 w-4" /> 새 영상 등록
+              </Button>
             )}
             <Button
               variant="ghost"
@@ -463,33 +451,13 @@ export function OtwPlayCatalogManager() {
       )}
 
       {catalog && (
-        <>
-          <CatalogEntryDialog
-            open={registrationOpen}
-            onOpenChange={setRegistrationOpen}
-            catalog={catalog}
-            preselectedSongId={preselectedSongId}
-            onSaved={refresh}
-          />
-          <Sheet open={advancedOpen} onOpenChange={setAdvancedOpen}>
-            <SheetContent className="w-full gap-0 overflow-y-auto p-0 sm:max-w-4xl">
-              <div className="border-b bg-background p-6 pr-12">
-                <SheetTitle className="text-lg">외부 주체 관리</SheetTitle>
-                <SheetDescription className="mt-1.5 max-w-2xl leading-relaxed">
-                  카탈로그에 연결할 외부 인물·그룹을 보정합니다. 승인 채널은
-                  상단의 별도 탭에서 관리하며 현재 멤버 정보는 members가 권위입니다.
-                </SheetDescription>
-              </div>
-              <div className="space-y-6 p-4 pb-10 sm:p-6">
-                <EntitySection
-                  items={catalog.entities.filter((item) => item.memberUid === null)}
-                  saving={effectiveSaving}
-                  run={run}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
-        </>
+        <CatalogEntryDialog
+          open={registrationOpen}
+          onOpenChange={setRegistrationOpen}
+          catalog={catalog}
+          preselectedSongId={preselectedSongId}
+          onSaved={refresh}
+        />
       )}
     </div>
   );
@@ -1357,14 +1325,14 @@ function EntitySection({
   };
 
   return (
-    <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="text-base">외부 인물·그룹</CardTitle>
+    <section aria-labelledby="external-entities-title" className="space-y-4 border-t pt-4">
+      <div>
+        <h3 id="external-entities-title" className="text-sm font-semibold">외부 인물·그룹</h3>
         <p className="text-sm leading-relaxed text-muted-foreground">
           영상 등록에서 만든 외부 가수·참여자·그룹의 표시명과 보관 상태를 관리합니다.
         </p>
-      </CardHeader>
-      <CardContent className="space-y-5">
+      </div>
+      <div className="space-y-5">
         {editing && (
           <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
             <div>
@@ -1458,8 +1426,8 @@ function EntitySection({
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -1478,7 +1446,6 @@ function ChannelSection({
     externalChannelId: "",
     displayName: "",
     channelRole: "member_music" as OtwPlayChannelRole,
-    entityIds: [] as string[],
     verificationStatus: "pending" as const,
     active: false,
   };
@@ -1486,17 +1453,45 @@ function ChannelSection({
     externalChannelId: string;
     displayName: string;
     channelRole: OtwPlayChannelRole;
-    entityIds: string[];
     verificationStatus: "pending" | "approved" | "revoked";
     active: boolean;
   }>(empty);
   const [editing, setEditing] = useState<OtwPlayAdminChannelDto | null>(null);
+  const [lookupStatus, setLookupStatus] = useState<
+    "idle" | "loading" | "verified" | "error"
+  >("idle");
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [verifiedChannelId, setVerifiedChannelId] = useState<string | null>(null);
+  const lookupRequestRef = useRef(0);
+  const lookupChannel = async () => {
+    const externalChannelId = form.externalChannelId.trim();
+    if (!/^UC[A-Za-z0-9_-]{22}$/u.test(externalChannelId)) return;
+    const requestId = lookupRequestRef.current + 1;
+    lookupRequestRef.current = requestId;
+    setLookupStatus("loading");
+    setLookupError(null);
+    try {
+      const channel = await lookupOtwPlayChannel(externalChannelId);
+      if (lookupRequestRef.current !== requestId) return;
+      setForm((current) => current.externalChannelId.trim() === externalChannelId
+        ? { ...current, externalChannelId, displayName: channel.displayName }
+        : current);
+      setVerifiedChannelId(externalChannelId);
+      setLookupStatus("verified");
+    } catch (error) {
+      if (lookupRequestRef.current !== requestId) return;
+      console.error("OTW Play channel lookup failed", error);
+      setLookupStatus("error");
+      setVerifiedChannelId(null);
+      setLookupError("채널을 확인하지 못했습니다. ID와 YouTube API 상태를 확인해 주세요.");
+    }
+  };
   const submit = async () => {
     const core = {
-      externalChannelId: form.externalChannelId,
+      externalChannelId: form.externalChannelId.trim(),
       displayName: form.displayName,
       channelRole: form.channelRole,
-      entityIds: form.entityIds,
+      entityIds: editing?.entityIds ?? [],
     };
     const succeeded = await run(editing ? "채널 수정" : "채널 등록", () =>
       editing
@@ -1512,15 +1507,18 @@ function ChannelSection({
     if (!succeeded) return;
     setEditing(null);
     setForm(empty);
+    setLookupStatus("idle");
+    setLookupError(null);
+    setVerifiedChannelId(null);
   };
   return (
     <Card>
       <CardHeader className="border-b px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base"><h2 id="approved-channels-title">승인 채널 관리</h2></CardTitle>
+            <CardTitle className="text-base"><h2 id="approved-channels-title">승인 채널·외부 주체 관리</h2></CardTitle>
             <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              YouTube 채널의 역할·검수·활성 상태를 확정합니다. 자동 검수는 승인·활성화된 채널만 사용합니다.
+              승인 채널과 영상 등록에서 생성된 외부 인물·그룹을 한 화면에서 관리합니다.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -1549,29 +1547,52 @@ function ChannelSection({
           <Field
             label="YouTube 채널 ID"
             htmlFor="advanced-channel-id"
-            description="YouTube의 UC로 시작하는 권위 channel ID를 입력합니다."
+            description="UC로 시작하는 channel ID를 입력한 뒤 조회하세요."
           >
-            <Input
-              id="advanced-channel-id"
-              aria-label="YouTube channel ID"
-              value={form.externalChannelId}
-              onChange={(e) =>
-                setForm({ ...form, externalChannelId: e.target.value })
-              }
-            />
+            <div className="flex gap-2">
+              <Input
+                id="advanced-channel-id"
+                aria-label="YouTube channel ID"
+                value={form.externalChannelId}
+                onChange={(event) => {
+                  lookupRequestRef.current += 1;
+                  setForm({
+                    ...form,
+                    externalChannelId: event.target.value,
+                    displayName: "",
+                  });
+                  setLookupStatus("idle");
+                  setLookupError(null);
+                  setVerifiedChannelId(null);
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  !/^UC[A-Za-z0-9_-]{22}$/u.test(form.externalChannelId.trim()) ||
+                  lookupStatus === "loading" ||
+                  saving !== null
+                }
+                onClick={() => void lookupChannel()}
+              >
+                {lookupStatus === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                채널 조회
+              </Button>
+            </div>
+            {lookupError ? <p role="alert" className="text-xs text-destructive">{lookupError}</p> : null}
           </Field>
           <Field
             label="채널 표시명"
             htmlFor="advanced-channel-display-name"
-            description="관리 화면과 출처 정보에 표시할 이름입니다."
+            description="YouTube 조회 결과를 자동으로 사용합니다."
           >
             <Input
               id="advanced-channel-display-name"
               aria-label="채널 표시명"
               value={form.displayName}
-              onChange={(e) =>
-                setForm({ ...form, displayName: e.target.value })
-              }
+              placeholder="채널 조회 후 자동 입력"
+              readOnly
             />
           </Field>
           <Field label="채널 역할" description="공개 source 우선순위와 공식성 판단에 사용합니다.">
@@ -1599,39 +1620,6 @@ function ChannelSection({
                 ))}
               </SelectContent>
             </Select>
-          </Field>
-          <Field
-            label="소유·연결 주체"
-            description={form.channelRole === "approved_kirinuki"
-              ? "서면 동의를 확보한 키리누키 채널은 연결 주체 없이 등록할 수 있습니다."
-              : "이 채널을 공식적으로 소유하거나 운영하는 멤버·그룹을 모두 선택합니다."}
-          >
-            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border bg-background p-2">
-              {entities.length === 0 && (
-                <p className="p-2 text-sm text-muted-foreground">선택할 identity가 없습니다.</p>
-              )}
-              {entities.map((entity) => (
-                <label
-                  key={entity.id}
-                  htmlFor={`advanced-channel-owner-${entity.id}`}
-                  className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted"
-                >
-                  <Checkbox
-                    id={`advanced-channel-owner-${entity.id}`}
-                    checked={form.entityIds.includes(entity.id)}
-                    onCheckedChange={(checked) =>
-                      setForm({
-                        ...form,
-                        entityIds: checked === true
-                          ? [...form.entityIds, entity.id]
-                          : form.entityIds.filter((id) => id !== entity.id),
-                      })
-                    }
-                  />
-                  {entity.displayName}
-                </label>
-              ))}
-            </div>
           </Field>
           </div>
         {editing && (
@@ -1680,15 +1668,24 @@ function ChannelSection({
                 variant="outline"
                 disabled={saving !== null}
                 onClick={() => {
+                  lookupRequestRef.current += 1;
                   setEditing(null);
                   setForm(empty);
+                  setLookupStatus("idle");
+                  setLookupError(null);
+                  setVerifiedChannelId(null);
                 }}
               >
                 취소
               </Button>
             )}
             <Button
-              disabled={!form.externalChannelId.trim() || !form.displayName.trim() || saving !== null}
+              disabled={
+                !form.displayName.trim() ||
+                verifiedChannelId !== form.externalChannelId.trim() ||
+                lookupStatus !== "verified" ||
+                saving !== null
+              }
               onClick={() => void submit()}
             >
               {editing ? "채널 수정 저장" : "채널 등록"}
@@ -1726,15 +1723,18 @@ function ChannelSection({
                       variant="ghost"
                       aria-label={`${item.displayName} 수정`}
                       onClick={() => {
+                        lookupRequestRef.current += 1;
                         setEditing(item);
                         setForm({
                           externalChannelId: item.externalChannelId,
                           displayName: item.displayName,
                           channelRole: item.channelRole,
-                          entityIds: item.entityIds,
                           verificationStatus: item.verificationStatus,
                           active: item.active,
                         });
+                        setLookupStatus("verified");
+                        setLookupError(null);
+                        setVerifiedChannelId(item.externalChannelId);
                       }}
                     >
                       <Pencil className="h-4 w-4" />
@@ -1746,6 +1746,11 @@ function ChannelSection({
           </Table>
           </div>
         </div>
+        <EntitySection
+          items={entities.filter((item) => item.memberUid === null)}
+          saving={saving}
+          run={run}
+        />
       </CardContent>
     </Card>
   );

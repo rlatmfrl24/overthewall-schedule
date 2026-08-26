@@ -56,6 +56,8 @@ const validateVersion = (value: number) => {
   }
 };
 
+const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/u;
+
 const subjectKey = (subject: OtwPlayAdminCatalogSubjectInput) =>
   subject.kind === "member"
     ? `member:${subject.memberUid}`
@@ -109,6 +111,29 @@ export class AdminCatalogService {
 
   readProposals(status?: string) {
     return this.repository.readProposals(status);
+  }
+
+  async lookupChannel(externalChannelId: string) {
+    const normalizedChannelId = externalChannelId.trim();
+    if (!YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedChannelId)) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "A valid YouTube channel ID is required",
+        { externalChannelId: "invalid" },
+      );
+    }
+    const metadata = await this.youtube.readChannel(normalizedChannelId);
+    if (!metadata || metadata.channelId !== normalizedChannelId) {
+      throw new AdminCatalogServiceError(
+        "validation_failed",
+        "YouTube channel metadata could not be verified",
+        { externalChannelId: "unverified" },
+      );
+    }
+    return {
+      externalChannelId: metadata.channelId,
+      displayName: metadata.displayName,
+    };
   }
 
   private async readVerifiedVideo(youtubeUrl: string) {
@@ -522,14 +547,7 @@ export class AdminCatalogService {
     input: OtwPlayAdminCreateChannelRequest,
     actor: AdminCatalogActor,
   ) {
-    const metadata = await this.youtube.readChannel(input.externalChannelId);
-    if (!metadata || metadata.channelId !== input.externalChannelId) {
-      throw new AdminCatalogServiceError(
-        "validation_failed",
-        "YouTube channel metadata could not be verified",
-        { externalChannelId: "unverified" },
-      );
-    }
+    const metadata = await this.lookupChannel(input.externalChannelId);
     const channelId = this.createId();
     const result = await this.repository.createChannel(
       { ...input, displayName: metadata.displayName },
@@ -551,14 +569,7 @@ export class AdminCatalogService {
     actor: AdminCatalogActor,
   ) {
     validateVersion(input.expectedVersion);
-    const metadata = await this.youtube.readChannel(input.externalChannelId);
-    if (!metadata || metadata.channelId !== input.externalChannelId) {
-      throw new AdminCatalogServiceError(
-        "validation_failed",
-        "YouTube channel metadata could not be verified",
-        { externalChannelId: "unverified" },
-      );
-    }
+    const metadata = await this.lookupChannel(input.externalChannelId);
     const result = await this.repository.updateChannel(
       { ...input, displayName: metadata.displayName },
       actor,

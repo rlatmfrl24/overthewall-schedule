@@ -467,6 +467,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_POST],
   },
   {
+    id: "otw-play.admin.channel.lookup",
+    owner: "otw-play",
+    path: "/api/play/admin/channels/lookup",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "otw-play.admin.channels",
     owner: "otw-play",
     path: "/api/play/admin/channels",

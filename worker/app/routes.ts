@@ -803,6 +803,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.channel.lookup",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.channelLookup.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.channels",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.channels.pattern,

@@ -336,6 +336,28 @@ export const createAdminCatalogHandler =
         );
       }
 
+      if (url.pathname === "/api/play/admin/channels/lookup") {
+        if (request.method !== "GET") {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: { ...NO_STORE_HEADERS, Allow: "GET" },
+          });
+        }
+        if ([...url.searchParams.keys()].some((key) => key !== "externalChannelId")) {
+          return errorResponse(
+            requestId,
+            400,
+            "PLAY_ADMIN_INVALID_REQUEST",
+            "Unknown query parameter",
+          );
+        }
+        return responseJson({
+          data: await service.lookupChannel(
+            url.searchParams.get("externalChannelId") ?? "",
+          ),
+        });
+      }
+
       if (url.pathname === "/api/play/admin/channels") {
         if (request.method === "POST") {
           const parsed = await readBody(request, parseCreateChannel);

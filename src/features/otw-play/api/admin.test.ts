@@ -15,6 +15,7 @@ import {
   fetchOtwPlayAdminSourceHealth,
   fetchOtwPlayChannelMonitorCandidates,
   fetchOtwPlayImportJobItems,
+  lookupOtwPlayChannel,
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
@@ -43,6 +44,7 @@ describe("OTW Play admin API", () => {
     await fetchOtwPlayAdminSourceHealth();
     await fetchOtwPlayAdminObservability();
     await fetchOtwPlayAdminRelease();
+    await lookupOtwPlayChannel("UC1111111111111111111111");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/catalog",
       { auth: "required" },
@@ -57,6 +59,10 @@ describe("OTW Play admin API", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/play/admin/release",
+      { auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/play/admin/channels/lookup?externalChannelId=UC1111111111111111111111",
       { auth: "required" },
     );
   });
