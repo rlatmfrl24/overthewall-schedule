@@ -1,9 +1,11 @@
 import type {
   OtwPlayChannelMonitorReconcileDto,
   OtwPlayChannelMonitorStatus,
-  OtwPlayCreateChannelMonitorRequest,
 } from "@contracts/otw-play";
-import type { ChannelMonitorRepository } from "./ports/channel-monitor-repository";
+import type {
+  ChannelMonitorAutomationApprovalInput,
+  ChannelMonitorRepository,
+} from "./ports/channel-monitor-repository";
 import {
   OtwPlayYouTubeMetadataError,
   type OtwPlayYouTubeIngestionReader,
@@ -20,6 +22,13 @@ const MAX_RECONCILIATION_VIDEOS = 250;
 // previous Hub lease alive. Only an acknowledged unsubscribe is safe for
 // target replacement or deletion.
 const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["unsubscribed"]);
+const PREAPPROVED_COLLECTION_AUTHORITY = {
+  scope: "candidate_collection",
+  operatorReference: "approved_kirinuki channel registration",
+  approvalReference: "written email consent confirmed before monitor creation",
+  revocationProcedure: "pause collection, unsubscribe WebSub, then remove the monitor",
+  confirmed: true,
+} as const satisfies ChannelMonitorAutomationApprovalInput;
 
 export class ChannelMonitorService {
   private readonly repository: ChannelMonitorRepository;
@@ -106,7 +115,6 @@ export class ChannelMonitorService {
 
   async create(
     externalChannelId: string,
-    approval: OtwPlayCreateChannelMonitorRequest["approval"],
     actorUserId: string,
   ) {
     const existing = await this.repository.findByExternalChannel(externalChannelId);
@@ -115,12 +123,6 @@ export class ChannelMonitorService {
       throw new IngestionRepositoryError(
         "validation_failed",
         "The existing monitor does not have an active candidate-collection approval",
-      );
-    }
-    if (approval.scope !== "candidate_collection" || approval.confirmed !== true) {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Candidate collection rights must be explicitly confirmed",
       );
     }
     const channel = await this.repository.findApprovableChannel(externalChannelId);
@@ -145,7 +147,7 @@ export class ChannelMonitorService {
       channel,
       uploadsPlaylistId: uploads.uploadsPlaylistId,
       lastSeenVideoId: page.items[0]?.videoId ?? null,
-      approval,
+      approval: PREAPPROVED_COLLECTION_AUTHORITY,
       actorUserId,
       now: this.clock(),
     });

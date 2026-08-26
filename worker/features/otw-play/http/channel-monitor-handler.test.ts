@@ -33,13 +33,6 @@ describe("OTW Play channel monitor handler", () => {
         method: "POST",
         body: JSON.stringify({
           externalChannelId: "UC1234567890123456789012",
-          approval: {
-            scope: "candidate_collection",
-            operatorReference: "operator-proof",
-            approvalReference: "rights-ticket",
-            revocationProcedure: "pause and unsubscribe",
-            confirmed: true,
-          },
         }),
       },
     ), env);
@@ -51,13 +44,6 @@ describe("OTW Play channel monitor handler", () => {
     expect(created.status).toBe(201);
     expect(create).toHaveBeenCalledWith(
       "UC1234567890123456789012",
-      {
-        scope: "candidate_collection",
-        operatorReference: "operator-proof",
-        approvalReference: "rights-ticket",
-        revocationProcedure: "pause and unsubscribe",
-        confirmed: true,
-      },
       "admin-1",
     );
     expect(checked.status).toBe(200);
@@ -189,19 +175,12 @@ describe("OTW Play channel monitor handler", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("rejects monitor creation without explicit candidate-collection rights", async () => {
+  it("rejects unexpected manual approval fields", async () => {
     const create = vi.fn();
     const handler = createChannelMonitorHandler(
       () => ({ create }) as unknown as ChannelMonitorService,
     );
-    const missing = await handler(new Request(
-      "https://example.com/api/play/admin/channel-monitors",
-      {
-        method: "POST",
-        body: JSON.stringify({ externalChannelId: "UC1234567890123456789012" }),
-      },
-    ), env);
-    const unconfirmed = await handler(new Request(
+    const response = await handler(new Request(
       "https://example.com/api/play/admin/channel-monitors",
       {
         method: "POST",
@@ -218,8 +197,7 @@ describe("OTW Play channel monitor handler", () => {
       },
     ), env);
 
-    expect(missing.status).toBe(400);
-    expect(unconfirmed.status).toBe(400);
+    expect(response.status).toBe(400);
     expect(create).not.toHaveBeenCalled();
   });
 

@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Bell, BellOff, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, ShieldOff, Trash2 } from "lucide-react";
+import { Bell, BellOff, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
 import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import { Checkbox } from "@/shared/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/ui/toast";
@@ -16,7 +15,6 @@ import {
   deleteOtwPlayChannelMonitor,
   reconcileOtwPlayChannelMonitor,
   renewOtwPlayChannelMonitor,
-  revokeOtwPlayChannelMonitorApproval,
   subscribeOtwPlayChannelMonitor,
   unsubscribeOtwPlayChannelMonitor,
   updateOtwPlayChannelMonitor,
@@ -83,14 +81,9 @@ export function ChannelMonitorSection() {
   const monitorsQuery = useOtwPlayChannelMonitors();
   const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
   const [newChannelId, setNewChannelId] = useState("");
-  const [operatorReference, setOperatorReference] = useState("");
-  const [approvalReference, setApprovalReference] = useState("");
-  const [revocationProcedure, setRevocationProcedure] = useState("");
-  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [backfillCount, setBackfillCount] = useState("1");
   const [editChannelId, setEditChannelId] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [revokeOpen, setRevokeOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const candidatesQuery = useOtwPlayChannelMonitorCandidates(selectedMonitorId);
   const monitors = useMemo(() => monitorsQuery.data ?? [], [monitorsQuery.data]);
@@ -135,30 +128,15 @@ export function ChannelMonitorSection() {
     const externalChannelId = normalizedNewChannelId;
     if (
       !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
-      newChannelAlreadyMonitored ||
-      !operatorReference.trim() ||
-      !approvalReference.trim() ||
-      !revocationProcedure.trim() ||
-      !rightsConfirmed
+      newChannelAlreadyMonitored
     ) return;
     setBusy("create");
     try {
       const monitor = await createOtwPlayChannelMonitor({
         externalChannelId,
-        approval: {
-          scope: "candidate_collection",
-          operatorReference: operatorReference.trim(),
-          approvalReference: approvalReference.trim(),
-          revocationProcedure: revocationProcedure.trim(),
-          confirmed: true,
-        },
       });
       setSelectedMonitorId(monitor.id);
       setNewChannelId("");
-      setOperatorReference("");
-      setApprovalReference("");
-      setRevocationProcedure("");
-      setRightsConfirmed(false);
       await refresh(monitor.id);
       toast({
         variant: "success",
@@ -167,7 +145,7 @@ export function ChannelMonitorSection() {
     } catch {
       toast({
         variant: "error",
-        description: "수집 대상을 추가하지 못했습니다. 승인·활성 상태인 노래 클립 채널인지 확인해 주세요.",
+        description: "수집 대상을 추가하지 못했습니다. 채널 관리에 등록된 활성 노래 클립 채널인지 확인해 주세요.",
       });
     } finally {
       setBusy(null);
@@ -281,37 +259,6 @@ export function ChannelMonitorSection() {
     }
   };
 
-  const revokeApproval = async () => {
-    if (!selectedMonitor?.automationApproval || selectedMonitor.automationApproval.status !== "approved") {
-      return;
-    }
-    setBusy("revoke");
-    try {
-      const revokedMonitor = await revokeOtwPlayChannelMonitorApproval(selectedMonitor.id, {
-        expectedVersion: selectedMonitor.version,
-        expectedApprovalVersion: selectedMonitor.automationApproval.version,
-        confirmed: true,
-      });
-      setRevokeOpen(false);
-      await refresh();
-      const unsubscribeWillRetry = Boolean(revokedMonitor.subscription?.lastErrorCode);
-      toast({
-        variant: unsubscribeWillRetry ? "info" : "success",
-        description: unsubscribeWillRetry
-          ? "후보 수집 승인은 철회했습니다. hub 구독 해제 요청은 실패해 자동 정리 작업에서 다시 시도합니다."
-          : "후보 수집 승인을 철회하고 감시를 중단했습니다. 활성 구독은 해제를 요청합니다.",
-      });
-    } catch {
-      await refresh();
-      toast({
-        variant: "error",
-        description: "후보 수집 승인을 철회하지 못했습니다. 최신 승인 상태를 확인해 주세요.",
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const runTransportAction = async (
     action: "subscribe" | "renew" | "unsubscribe",
   ) => {
@@ -331,7 +278,7 @@ export function ChannelMonitorSection() {
     } catch {
       toast({
         variant: "error",
-        description: "WebSub 요청을 처리하지 못했습니다. 권리·secret·공개 origin과 상태를 확인해 주세요.",
+        description: "WebSub 요청을 처리하지 못했습니다. secret·공개 origin과 구독 상태를 확인해 주세요.",
       });
     } finally {
       setBusy(null);
@@ -365,18 +312,18 @@ export function ChannelMonitorSection() {
           <div className="space-y-1">
             <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
             <p className="text-sm leading-relaxed text-muted-foreground">
-              별도 승인된 노래 클립 YouTube 채널은 WebSub 알림을 우선 사용하고 6시간 polling을 fallback으로 유지합니다.
+              등록한 노래 클립 YouTube 채널은 WebSub 알림을 우선 사용하고 6시간 polling을 fallback으로 유지합니다.
               등록 이전 영상은 자동 소급하지 않으며, 새 영상은 singing clip 검수함에만 보관하고 자동 공개하지 않습니다.
             </p>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-5 pt-6">
-        <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-2">
+        <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
             <FieldDescription>
-              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 채널 관리에서 노래 클립 채널로 승인·활성화된 대상만 추가됩니다.
+              UC로 시작하는 24자리 YouTube 채널 ID를 입력하세요. 추가 시 현재 최신 영상을 기준점으로 저장합니다.
             </FieldDescription>
             <Input
               id="new-monitor-channel-id"
@@ -390,52 +337,11 @@ export function ChannelMonitorSection() {
               <p className="text-sm text-destructive">이미 수집 대상으로 등록된 채널입니다.</p>
             ) : null}
           </Field>
-          <Field>
-            <FieldLabel htmlFor="monitor-operator-reference">운영 주체 확인 근거</FieldLabel>
-            <Input
-              id="monitor-operator-reference"
-              value={operatorReference}
-              onChange={(event) => setOperatorReference(event.target.value)}
-              placeholder="운영 주체를 확인한 문서·연락 기록"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="monitor-approval-reference">비공개 후보 수집 승인 근거</FieldLabel>
-            <Input
-              id="monitor-approval-reference"
-              value={approvalReference}
-              onChange={(event) => setApprovalReference(event.target.value)}
-              placeholder="candidate_collection 승인 문서·티켓"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="monitor-revocation-procedure">승인 해제 절차</FieldLabel>
-            <Input
-              id="monitor-revocation-procedure"
-              value={revocationProcedure}
-              onChange={(event) => setRevocationProcedure(event.target.value)}
-              placeholder="요청 접수·중단·unsubscribe 절차"
-            />
-          </Field>
-          <label className="flex items-start gap-3 rounded-lg border bg-background p-3 text-sm md:col-span-2">
-            <Checkbox
-              aria-label="후보 수집 권리 확인"
-              checked={rightsConfirmed}
-              onCheckedChange={(checked) => setRightsConfirmed(checked === true)}
-            />
-            <span>
-              이 승인은 비공개 검수 후보 수집만 허용하며 변환·게시 권한이 아님을 확인했습니다.
-            </span>
-          </label>
           <Button
-            className="h-11 md:col-span-2 md:justify-self-end"
+            className="h-11 sm:justify-self-end"
             disabled={
               !YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedNewChannelId) ||
               newChannelAlreadyMonitored ||
-              !operatorReference.trim() ||
-              !approvalReference.trim() ||
-              !revocationProcedure.trim() ||
-              !rightsConfirmed ||
               busy !== null
             }
             onClick={() => void createMonitor()}
@@ -487,9 +393,6 @@ export function ChannelMonitorSection() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     미처리 {monitor.pendingCandidateCount}개 · 누적 {monitor.candidateCount}개
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    권리 {monitor.automationApproval?.status === "approved" ? "후보 수집 승인" : "승인 없음"}
-                  </p>
                   {monitor.lastErrorCode ? (
                     <p className="mt-2 text-xs text-destructive">
                       {monitorErrorLabel(monitor.lastErrorCode)}
@@ -523,17 +426,6 @@ export function ChannelMonitorSection() {
                         {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                         지금 대조
                       </Button>
-                      {selectedMonitor.automationApproval?.status === "approved" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          disabled={busy !== null}
-                          onClick={() => setRevokeOpen(true)}
-                        >
-                          <ShieldOff /> 권리 승인 철회
-                        </Button>
-                      ) : null}
                       {canRequestSubscription ? (
                         <Button
                           size="sm"
@@ -594,7 +486,7 @@ export function ChannelMonitorSection() {
                     </div>
                     <Field>
                       <FieldLabel htmlFor="monitor-backfill-count">명시적 최근 영상 가져오기</FieldLabel>
-                      <FieldDescription>권리 승인된 채널의 최근 1~20개만 검수 후보로 확인합니다.</FieldDescription>
+                      <FieldDescription>이 채널의 최근 1~20개 영상을 검수 후보로 확인합니다.</FieldDescription>
                       <div className="flex gap-2">
                         <Input
                           id="monitor-backfill-count"
@@ -617,8 +509,8 @@ export function ChannelMonitorSection() {
                     <Field>
                       <FieldLabel htmlFor="edit-monitor-channel-id">채널 ID 수정</FieldLabel>
                       <FieldDescription>
-                        구독 해제가 끝나고 후보 수집 승인이 이미 존재하는 채널로만 변경할 수 있습니다.
-                        새 채널은 현재 대상을 삭제한 뒤 위 채널 추가에서 승인 근거와 함께 등록하세요.
+                        구독 해제가 끝나고 채널 관리에 등록된 활성 노래 클립 채널로만 변경할 수 있습니다.
+                        새 채널은 현재 대상을 삭제한 뒤 위에서 등록하세요.
                       </FieldDescription>
                       <div className="flex flex-col gap-2 sm:flex-row">
                         <Input
@@ -741,20 +633,10 @@ export function ChannelMonitorSection() {
         )}
       </CardContent>
       <ConfirmActionDialog
-        open={revokeOpen}
-        onOpenChange={setRevokeOpen}
-        title="후보 수집 권리 승인을 철회할까요?"
-        description="즉시 감시를 일시 정지하고 WebSub 구독 해제를 요청합니다. 승인·구독·후보·감사 이력은 삭제하지 않습니다. 다시 수집하려면 새로운 승인 근거가 필요합니다."
-        confirmLabel="권리 승인 철회"
-        destructive
-        isProcessing={busy === "revoke"}
-        onConfirm={() => void revokeApproval()}
-      />
-      <ConfirmActionDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="수집 대상 채널을 삭제할까요?"
-        description="구독 해제가 완료된 수집 대상만 삭제할 수 있습니다. 자동 확인을 중단하고 연결된 자동 제안 이력을 대상 목록에서 분리하며, 승인·구독·후보·감사 기록은 삭제하지 않습니다."
+        description="구독 해제가 완료된 수집 대상만 삭제할 수 있습니다. 자동 확인을 중단하고 연결된 자동 제안 이력을 대상 목록에서 분리하며, 구독·후보·감사 기록은 삭제하지 않습니다."
         confirmLabel="수집 대상 삭제"
         destructive
         isProcessing={busy === "delete"}

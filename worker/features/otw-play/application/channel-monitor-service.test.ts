@@ -177,13 +177,6 @@ describe("ChannelMonitorService", () => {
 
     await expect(service.create(
       "UC1234567890123456789012",
-      {
-        scope: "candidate_collection",
-        operatorReference: "operator-proof",
-        approvalReference: "rights-ticket",
-        revocationProcedure: "pause and unsubscribe",
-        confirmed: true,
-      },
       "admin-1",
     )).resolves.toMatchObject({
       lastSeenVideoId: "AAAAAAAAAAA",
@@ -191,7 +184,13 @@ describe("ChannelMonitorService", () => {
     expect(repo.recordCandidates).not.toHaveBeenCalled();
     expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
       lastSeenVideoId: "AAAAAAAAAAA",
-      approval: expect.objectContaining({ scope: "candidate_collection" }),
+      approval: {
+        scope: "candidate_collection",
+        operatorReference: "approved_kirinuki channel registration",
+        approvalReference: "written email consent confirmed before monitor creation",
+        revocationProcedure: "pause collection, unsubscribe WebSub, then remove the monitor",
+        confirmed: true,
+      },
     }));
   });
 
@@ -204,13 +203,6 @@ describe("ChannelMonitorService", () => {
 
     await expect(service.create(
       "UC1234567890123456789012",
-      {
-        scope: "candidate_collection",
-        operatorReference: "operator-proof",
-        approvalReference: "rights-ticket",
-        revocationProcedure: "pause and unsubscribe",
-        confirmed: true,
-      },
       "admin-1",
     )).rejects.toMatchObject({ code: "validation_failed" });
     expect(repo.create).not.toHaveBeenCalled();

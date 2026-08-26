@@ -187,13 +187,6 @@ describe("OTW Play admin API", () => {
   it("uses external YouTube channel IDs for collection-target CRUD", async () => {
     await createOtwPlayChannelMonitor({
       externalChannelId: "UC1111111111111111111111",
-      approval: {
-        scope: "candidate_collection",
-        operatorReference: "operator-proof",
-        approvalReference: "rights-ticket",
-        revocationProcedure: "pause and unsubscribe",
-        confirmed: true,
-      },
     });
     await updateOtwPlayChannelMonitor("monitor-1", {
       expectedVersion: 3,
@@ -208,13 +201,6 @@ describe("OTW Play admin API", () => {
         method: "POST",
         json: {
           externalChannelId: "UC1111111111111111111111",
-          approval: {
-            scope: "candidate_collection",
-            operatorReference: "operator-proof",
-            approvalReference: "rights-ticket",
-            revocationProcedure: "pause and unsubscribe",
-            confirmed: true,
-          },
         },
         auth: "required",
       },

@@ -2,7 +2,6 @@ import type {
   OtwPlayChannelMonitorCandidateDto,
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorStatus,
-  OtwPlayCreateChannelMonitorRequest,
 } from "@contracts/otw-play";
 import type { OtwPlayYouTubeVideoObservation } from "./youtube-metadata";
 import type { ChannelMonitorCandidateCursor } from "../../domain/channel-monitor-cursor";
@@ -11,6 +10,14 @@ export interface EligibleChannelMonitorTarget {
   id: string;
   externalChannelId: string;
   displayName: string;
+}
+
+export interface ChannelMonitorAutomationApprovalInput {
+  scope: "candidate_collection";
+  operatorReference: string;
+  approvalReference: string;
+  revocationProcedure: string;
+  confirmed: true;
 }
 
 export interface ChannelMonitorRepository {
@@ -31,7 +38,7 @@ export interface ChannelMonitorRepository {
     channel: EligibleChannelMonitorTarget;
     uploadsPlaylistId: string;
     lastSeenVideoId: string | null;
-    approval: OtwPlayCreateChannelMonitorRequest["approval"];
+    approval: ChannelMonitorAutomationApprovalInput;
     actorUserId: string;
     now: number;
   }): Promise<OtwPlayChannelMonitorDto>;

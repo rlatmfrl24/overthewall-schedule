@@ -13,7 +13,6 @@ const updateCandidateMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 const renewMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
-const revokeApprovalMock = vi.hoisted(() => vi.fn());
 const backfillMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
@@ -27,7 +26,6 @@ vi.mock("../../api/admin", () => ({
   subscribeOtwPlayChannelMonitor: subscribeMock,
   renewOtwPlayChannelMonitor: renewMock,
   unsubscribeOtwPlayChannelMonitor: unsubscribeMock,
-  revokeOtwPlayChannelMonitorApproval: revokeApprovalMock,
   backfillOtwPlayChannelMonitor: backfillMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
 }));
@@ -205,26 +203,13 @@ describe("ChannelMonitorSection", () => {
     fireEvent.change(screen.getByLabelText("수집 대상 채널 ID"), {
       target: { value: "UC1111111111111111111111" },
     });
-    fireEvent.change(screen.getByLabelText("운영 주체 확인 근거"), {
-      target: { value: "operator-proof" },
-    });
-    fireEvent.change(screen.getByLabelText("비공개 후보 수집 승인 근거"), {
-      target: { value: "rights-ticket" },
-    });
-    fireEvent.change(screen.getByLabelText("승인 해제 절차"), {
-      target: { value: "pause and unsubscribe" },
-    });
-    fireEvent.click(screen.getByLabelText("후보 수집 권리 확인"));
+    expect(screen.queryByLabelText("운영 주체 확인 근거")).toBeNull();
+    expect(screen.queryByLabelText("비공개 후보 수집 승인 근거")).toBeNull();
+    expect(screen.queryByLabelText("승인 해제 절차")).toBeNull();
+    expect(screen.queryByLabelText("후보 수집 권리 확인")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "채널 추가" }));
     await waitFor(() => expect(createMonitorMock).toHaveBeenCalledWith({
       externalChannelId: "UC1111111111111111111111",
-      approval: {
-        scope: "candidate_collection",
-        operatorReference: "operator-proof",
-        approvalReference: "rights-ticket",
-        revocationProcedure: "pause and unsubscribe",
-        confirmed: true,
-      },
     }));
 
     fireEvent.change(screen.getByLabelText("채널 ID 수정"), {
@@ -274,9 +259,7 @@ describe("ChannelMonitorSection", () => {
     });
 
     expect(await screen.findByText("구독 활성")).toBeTruthy();
-    expect(screen.getByText((_, element) =>
-      element?.tagName === "P" && element.textContent?.includes("권리 후보 수집 승인") === true,
-    )).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /권리 승인 철회/ })).toBeNull();
     expect(screen.getByText((_, element) =>
       element?.tagName === "P" && element.textContent?.includes("마지막 알림") === true,
     )).toBeTruthy();
@@ -327,21 +310,4 @@ describe("ChannelMonitorSection", () => {
     await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
   });
 
-  it("revokes candidate collection authority through an explicit confirmation", async () => {
-    revokeApprovalMock.mockResolvedValue({});
-    render(createElement(ChannelMonitorSection), {
-      wrapper: createQueryWrapper(),
-    });
-
-    fireEvent.click(await screen.findByRole("button", { name: /권리 승인 철회/ }));
-    const confirmationButtons = await screen.findAllByRole("button", {
-      name: /권리 승인 철회/,
-    });
-    fireEvent.click(confirmationButtons.at(-1)!);
-
-    await waitFor(() => expect(revokeApprovalMock).toHaveBeenCalledWith(
-      "monitor-1",
-      { expectedVersion: 2, expectedApprovalVersion: 0, confirmed: true },
-    ));
-  });
 });

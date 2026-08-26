@@ -272,13 +272,6 @@ export interface OtwPlayChannelMonitorCandidatePageDto {
 
 export interface OtwPlayCreateChannelMonitorRequest {
   externalChannelId: string;
-  approval: {
-    scope: "candidate_collection";
-    operatorReference: string;
-    approvalReference: string;
-    revocationProcedure: string;
-    confirmed: true;
-  };
 }
 
 export interface OtwPlayChannelMonitorBackfillRequest {

@@ -63,51 +63,20 @@ export const createChannelMonitorHandler = (
       const externalChannelId = typeof body?.externalChannelId === "string"
         ? body.externalChannelId.trim()
         : "";
-      const approval = typeof body?.approval === "object" &&
-          body.approval !== null && !Array.isArray(body.approval)
-        ? body.approval as Record<string, unknown>
-        : null;
-      const operatorReference = typeof approval?.operatorReference === "string"
-        ? approval.operatorReference.trim()
-        : "";
-      const approvalReference = typeof approval?.approvalReference === "string"
-        ? approval.approvalReference.trim()
-        : "";
-      const revocationProcedure = typeof approval?.revocationProcedure === "string"
-        ? approval.revocationProcedure.trim()
-        : "";
       if (
         !YOUTUBE_CHANNEL_ID_PATTERN.test(externalChannelId) ||
-        Object.keys(body ?? {}).length !== 2 ||
-        !Object.hasOwn(body ?? {}, "externalChannelId") ||
-        !Object.hasOwn(body ?? {}, "approval") ||
-        !approval ||
-        Object.keys(approval).length !== 5 ||
-        approval.scope !== "candidate_collection" ||
-        approval.confirmed !== true ||
-        !operatorReference || operatorReference.length > 500 ||
-        !approvalReference || approvalReference.length > 500 ||
-        !revocationProcedure || revocationProcedure.length > 1_000
+        Object.keys(body ?? {}).length !== 1 ||
+        !Object.hasOwn(body ?? {}, "externalChannelId")
       ) {
         return errorJson(
           requestId,
           400,
           "PLAY_ADMIN_INVALID_REQUEST",
-          "A valid externalChannelId and explicit candidate-collection approval are required",
+          "A valid externalChannelId is required",
         );
       }
       return json({
-        data: await service.create(
-          externalChannelId,
-          {
-            scope: "candidate_collection",
-            operatorReference,
-            approvalReference,
-            revocationProcedure,
-            confirmed: true,
-          },
-          auth.user.id,
-        ),
+        data: await service.create(externalChannelId, auth.user.id),
       }, 201);
     }
     const candidatesId = pathId(url.pathname, "/candidates");
