@@ -768,6 +768,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-26 | PR #76을 merge commit `c7b0607`로 병합하고 WebSub Worker/UI를 production에 배포. `OTW_PLAY_PUBLIC_ORIGIN=https://otw-schedule.info`와 `OTW_PLAY_WEBSUB_SECRET_V1` 등록을 확인하고, secret 반영 version `8241864f`의 binding readback과 미등록 callback의 `404`·`no-store`, 공개 화면/API 회귀 확인을 통과. 공개 flag와 approval·monitor·subscription·delivery는 모두 비활성/0을 유지하며 동의받은 정확한 채널 확정만 등록 gate로 남김 |
 | 2026-08-26 | DEC-065 확정. 승인 채널을 `고급 관리`에서 별도 `승인 채널` 탭으로 이동하고 `approved_kirinuki` 역할·명시적 승인·활성화 흐름을 연결. `소스 상태`와 `운영·공개`는 분산된 반복 card를 요약·상세·작업이 인접한 고밀도 panel로 통합 |
 | 2026-08-26 | DEC-066 확정. 승인 채널과 외부 주체를 한 작업면으로 통합하고 채널 등록의 소유·연결 주체 선택을 제거. YouTube 채널 ID 조회로 권위 표시명을 자동 입력하며, callback 검증·lease가 없는 false-active WebSub row를 복구 대상으로 분류하고 transient hub 요청 1회 재시도와 비민감 오류 code 보존을 추가 |
+| 2026-08-26 | production WebSub 재구독의 `hub_network`를 Cloudflare runtime의 `fetch` receiver 손실에 따른 `Illegal invocation`으로 재현. 전역 fetch를 인스턴스 method로 호출하지 않는 wrapper로 수정하고 동일 `GoogleWebsubHubClient`의 Cloudflare remote preview 요청이 Google hub에서 수락되는 것을 확인 |
 
 ## 19. 참고
 

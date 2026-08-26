@@ -9,7 +9,10 @@ export class GoogleWebsubHubClient implements WebsubHubClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(fetchImpl: typeof fetch = fetch) {
-    this.fetchImpl = fetchImpl;
+    // Cloudflare runtime functions retain their invocation receiver. Wrapping the
+    // dependency keeps `fetch` as a direct call instead of invoking it as an
+    // instance method (`this.fetchImpl(...)`), which throws `Illegal invocation`.
+    this.fetchImpl = (input, init) => fetchImpl(input, init);
   }
 
   async request(input: Parameters<WebsubHubClient["request"]>[0]) {
