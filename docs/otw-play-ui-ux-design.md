@@ -510,9 +510,11 @@ identity·새 외부/그룹 칩을 사용한다. 게시 상태는 이 form의 en
 목록의 게시·철회 confirm action으로 유지한다. 저장 실패 시 dialog와 모든 입력을
 보존하며 성공한 authoritative readback 뒤에만 닫는다.
 
-채널과 외부 identity 관리는 `고급 관리` 우측 Sheet에만 둔다. 고급 관리는 목록과
-현재 편집 form을 시각적으로 분리하고, label·help·action이 한 입력 단위로 읽히는
-1열 또는 2열 반응형 form을 사용한다. 현재 멤버 identity는 `members`가 권위이므로
+승인 채널은 상단 `승인 채널` 1차 탭에서 등록·검수·활성 상태와 전체·활성·키리누키
+요약을 함께 관리한다. 신규 등록은 pending으로 생성하고 같은 탭의 목록 수정에서만
+승인·활성화한다. `approved_kirinuki`는 메일 서면 동의를 확보한 채널에만 선택한다.
+외부 identity는 `외부 주체 관리` 우측 Sheet에 두고, 목록과 현재 편집 form을 시각적으로
+분리하며 label·help·action이 한 입력 단위로 읽히는 반응형 form을 사용한다. 현재 멤버 identity는 `members`가 권위이므로
 수동 UID·slug 편집을 제공하지 않는다. 입력 오류가 발생해도
 dialog, 현재 단계와 모든 입력값을 유지한다.
 
@@ -694,6 +696,9 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `소스 상태` section 진입 시에만 운영 query를 시작한다. 최근 복구는 7일, 각 목록은
   최대 50개이며 연결 곡·가창은 총 개수와 최대 5개 요약을 표시한다. loading, empty,
   API 오류와 stale-write를 각각 구분한다.
+- 세 요약 수치와 `재확인 필요`·`재생 불가`·`최근 복구` 목록은 하나의 작업 panel 안에
+  배치하고 반복 card header·여백을 제거한다. 각 행의 상태·연결·시각·작업은 desktop
+  table과 mobile compact row에서 같은 순서로 읽혀야 한다.
 - 수동 점검이 외부 장애 때문에 `retry_scheduled`로 끝나면 현재 availability를 유지한
   채 `외부 API 재시도 대기`와 다음 점검 시각을 표시한다. 성공 toast나 삭제 상태로
   오인시키지 않으며 관리자 catalog와 source-health query를 함께 갱신한다.
@@ -719,6 +724,9 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   token, Cloudflare 오류 본문과 관리자 신원은 화면에 노출하지 않는다.
 - 운영 화면은 cache hit/miss, 오류율, source 점검 결과와 최근 flag 변경 actor·시각을
   확인할 수 있어야 한다. 원문 검색어, 회원 note와 credential은 표시하지 않는다.
+- 공개 권위 두 단계는 별도 대형 card 대신 한 panel의 compact row로 비교하고, 최근 변경도
+  같은 panel에 붙인다. 24시간 지표는 하나의 6열 summary band, route와 event는 같은
+  observability panel에 배치해 반복 card와 긴 세로 간격을 만들지 않는다.
 
 ### 19.4 PR-8 UI 완료 조건
 
