@@ -586,7 +586,7 @@ clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_
 | 우선순위 | 범위 | 완료 또는 착수 gate |
 | --- | --- | --- |
 | P0-A | catalog 입력 효율·proposal lifecycle | PR-9A~C로 구현·배포 완료했고 production Clerk 인증 UI도 검증했다. OTW 공식 `Cover Song` playlist 최근 5개 canary를 실행하되 draft 변환·게시 없이 Queue와 D1 readback만 확인한다. |
-| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation·review-only candidate foundation은 배포 완료했다. WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill은 Draft PR로 구현했고 additive migration `0063`은 production D1에 적용했다. 채널별 메일 서면 동의는 확보했으며 production code·secret·monitor·구독의 배포 및 실제 흐름 검증이 남았다. |
+| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation·review-only candidate foundation과 WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill을 production에 배포했다. additive migration `0063`, 공개 origin과 WebSub secret도 적용했다. 채널별 메일 서면 동의는 확보했으며 동의받은 정확한 채널 확정, monitor·구독과 실제 알림 흐름 검증이 남았다. |
 | P0-C | 운영 공개·안정화 지속 확인 | Clerk production instance, production issuer/JWKS/admin ID, origin 검증과 실제 관리자 스모크를 완료했다. source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 공개 전후 지속 확인한다. |
 | P1 | 멤버 참여 정보·멤버별 노래책·SEO | existing participant와 최소 member contribution을 사용해 current member의 부른 곡·오리지널·커버·협업·만든 곡 page를 제공한다. 외부 음악 관계자 상세 credit, contributor·album graph는 범위에서 제외한다. |
 | P2 | 큐레이션·저장 경험 | 운영자 큐레이션 playlist를 먼저 제공하고 사용자 저장·공개/비공개·공유, 좋아요·최근 들은 곡·멤버 라디오를 순차 검토한다. |
@@ -594,9 +594,9 @@ clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_
 | P4 | 개인화·외부 생태계 | 행동 기반 추천과 Spotify·Apple Music 등 외부 서비스 연동은 권리·개인정보·API 비용과 사용자 가치가 확인된 뒤 검토한다. 자동 공개나 AI 단독 곡 확정은 계속 금지한다. |
 
 P0-A code와 P0-B polling foundation은 완료되었고 production 인증 GATE-07과 자동 수집
-권리 GATE-08도 해결되었다. P0-B WebSub transport은 Draft PR과 비활성 production
-schema까지 준비되었다. production code 배포·secret·monitor·구독과 P0-A/P0-B canary는
-각 흐름의 배포·운영 readback으로 완료한다. P0-C는 개발 순서와 무관한 지속 운영 항목이며, P1 이후는 별도
+권리 GATE-08도 해결되었다. P0-B WebSub transport code·schema·secret·공개 origin은
+production 적용과 안전한 미등록 callback 거부 readback까지 완료했다. 정확한 승인 채널의
+monitor·구독과 P0-A/P0-B canary는 각 흐름의 운영 readback으로 완료한다. P0-C는 개발 순서와 무관한 지속 운영 항목이며, P1 이후는 별도
 schema·API·UI 설계와 gate를 거쳐야 한다.
 우선순위를 바꾸면 DEC-052와 이 표를 함께 갱신한다.
 
@@ -763,6 +763,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-26 | P0-B WebSub Draft PR의 additive migration `0063`을 production D1에 선적용하고 remote doctor·table/column readback을 통과. approval·monitor·subscription·delivery row와 공개 flag는 `0/0`으로 유지. Clerk production 전환 전 `azp` exact-origin 검증을 추가하고 code·secret·실제 구독은 GATE-07·08 뒤로 유지 |
 | 2026-08-26 | Clerk production instance 전환 closeout 완료. development 사용자 22명을 `22/22` 이관하고 custom domain DNS·Application `2/2`·Email `3/3`·SSL, Google OAuth custom production connection·redirect·Production 게시 상태, `pk_live`, production issuer/JWKS/admin ID와 `azp` exact-origin을 확인. 실제 로그인과 `/admin/operations`·`/admin/settings`·`/admin/logs` readback을 통과하고 production D1 backup 뒤 audit actor 12건을 production ID로 치환해 GATE-07을 해결. GATE-08, 공개 flag `0/0`, monitor·WebSub·backfill 상태는 변경하지 않음 |
 | 2026-08-26 | 자동 수집 대상 키리누키 제작자의 메일 서면 동의를 확보해 GATE-08을 해결. monitor 등록을 채널 ID 단일 입력으로 단순화하고 `approved_kirinuki` 서버 검증과 표준 승인·감사 레코드는 유지. 권리 입력·표시·철회 UI는 제거하고 수집 및 WebSub 관리에 집중 |
+| 2026-08-26 | PR #76을 merge commit `c7b0607`로 병합하고 WebSub Worker/UI를 production에 배포. `OTW_PLAY_PUBLIC_ORIGIN=https://otw-schedule.info`와 `OTW_PLAY_WEBSUB_SECRET_V1` 등록을 확인하고, secret 반영 version `8241864f`의 binding readback과 미등록 callback의 `404`·`no-store`, 공개 화면/API 회귀 확인을 통과. 공개 flag와 approval·monitor·subscription·delivery는 모두 비활성/0을 유지하며 동의받은 정확한 채널 확정만 등록 gate로 남김 |
 
 ## 19. 참고
 
