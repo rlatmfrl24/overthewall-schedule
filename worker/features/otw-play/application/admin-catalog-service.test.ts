@@ -102,6 +102,62 @@ describe("AdminCatalogService", () => {
     );
   });
 
+  it("rejects source segments outside the authoritative YouTube duration", async () => {
+    const video = {
+      videoId: "dQw4w9WgXcQ",
+      channelId: `UC${"M".repeat(22)}`,
+      channelTitle: "Member Channel",
+      title: "Verified title",
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: 123,
+      availabilityStatus: "playable" as const,
+    };
+    const preflightCatalogEntry = vi.fn();
+    const createCatalogEntry = vi.fn();
+    const service = new AdminCatalogService(
+      { preflightCatalogEntry, createCatalogEntry } as unknown as AdminCatalogRepository,
+      { readChannel: vi.fn(), readVideo: vi.fn(async () => video) },
+      { record: vi.fn(async () => undefined) },
+      () => "generated-id",
+      false,
+    );
+
+    await expect(service.preflightCatalogEntry({
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 180,
+    })).rejects.toMatchObject({
+      code: "invalid_request",
+      fields: { startSeconds: "invalid_segment" },
+    });
+    await expect(service.createCatalogEntry({
+      expectedCatalogRevision: 4,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 10,
+      endSeconds: 181,
+      song: { kind: "existing", songId: "song-1" },
+      participants: [{
+        subject: { kind: "member", memberUid: 1 },
+        participantRole: "vocal",
+        creditOrder: 0,
+      }],
+      channel: {
+        kind: "recognized_member",
+        memberUid: 1,
+        channelRole: "member_music",
+      },
+      relationType: "cover",
+      releaseType: "official_video",
+      participationType: "solo",
+      publicationTarget: "draft",
+    }, actor)).rejects.toMatchObject({
+      code: "invalid_request",
+      fields: { startSeconds: "invalid_segment" },
+    });
+    expect(preflightCatalogEntry).not.toHaveBeenCalled();
+    expect(createCatalogEntry).not.toHaveBeenCalled();
+  });
+
   it("coordinates successful admin lifecycle commands and audit mirrors", async () => {
     const result = { data: { id: "resource-1" }, catalogRevision: 2 };
     const repository = {

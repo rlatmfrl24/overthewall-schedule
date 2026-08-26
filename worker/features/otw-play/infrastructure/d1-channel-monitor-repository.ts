@@ -764,6 +764,60 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                   )
               )
             ON CONFLICT(provider, external_video_id) DO UPDATE SET
+              candidate_kind = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN 'singing_clip'
+                ELSE music_ingestion_candidates.candidate_kind
+              END,
+              status = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN excluded.status
+                ELSE music_ingestion_candidates.status
+              END,
+              classification = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN excluded.classification
+                ELSE music_ingestion_candidates.classification
+              END,
+              exclusion_reason = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN excluded.exclusion_reason
+                ELSE music_ingestion_candidates.exclusion_reason
+              END,
+              review_input_json = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN NULL
+                ELSE music_ingestion_candidates.review_input_json
+              END,
+              reviewed_by_user_id = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN NULL
+                ELSE music_ingestion_candidates.reviewed_by_user_id
+              END,
+              last_conversion_outcome = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN NULL
+                ELSE music_ingestion_candidates.last_conversion_outcome
+              END,
+              last_conversion_error_code = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN NULL
+                ELSE music_ingestion_candidates.last_conversion_error_code
+              END,
+              last_conversion_attempt_at = CASE
+                WHEN music_ingestion_candidates.candidate_kind <> 'singing_clip'
+                  AND music_ingestion_candidates.status NOT IN ('converted', 'ignored')
+                  THEN NULL
+                ELSE music_ingestion_candidates.last_conversion_attempt_at
+              END,
               title = excluded.title, channel_id = excluded.channel_id,
               channel_title = excluded.channel_title, thumbnail_url = excluded.thumbnail_url,
               duration_seconds = excluded.duration_seconds,

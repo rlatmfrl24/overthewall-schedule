@@ -427,6 +427,54 @@ describe("D1IngestionRepository", () => {
       classification: "eligible",
       reviewInput: clipReviewInput,
     });
+
+    const reviewEvent = await db.prepare(
+      "SELECT detail_json FROM music_ingestion_events WHERE id = ?",
+    ).bind("event-singing-clip-review").first<{ detail_json: string }>();
+    expect(JSON.parse(reviewEvent!.detail_json)).toEqual({
+      changedFields: [
+        "song",
+        "participants",
+        "relationType",
+        "releaseType",
+        "participationType",
+        "startSeconds",
+        "endSeconds",
+        "internalNote",
+      ],
+    });
+
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:RRRRRRRRRRR",
+      expectedVersion: 1,
+      input: { ...clipReviewInput, releaseType: "official_video" },
+      actorUserId: "admin-reviewer",
+      eventId: "event-invalid-singing-clip-review",
+      now: NOW + 2,
+    })).rejects.toMatchObject({ code: "validation_failed" });
+
+    await db.prepare(
+      "UPDATE music_channels SET active = 0 WHERE id = 'ingestion-kirinuki-channel'",
+    ).run();
+    await expect(repository.recordConversionOutcome({
+      jobId: null,
+      candidateId: "youtube:RRRRRRRRRRR",
+      expectedVersion: 1,
+      outcome: "duplicate",
+      performanceId: "performance-existing",
+      errorCode: "duplicate_source",
+      actorUserId: "admin-reviewer",
+      eventId: "event-revoked-duplicate",
+      now: NOW + 3,
+    })).resolves.toBe("stale");
+    await expect(repository.readReviewCandidate(
+      null,
+      "youtube:RRRRRRRRRRR",
+    )).resolves.toMatchObject({
+      version: 1,
+      status: "ready",
+      linkedPerformanceId: null,
+    });
   });
 
   it("shows a repeated discovery as an existing candidate without changing its global decision", async () => {

@@ -77,11 +77,13 @@ export function SingingClipReviewDialog({
   catalog,
   onOpenChange,
   onConverted,
+  onReviewStateChanged,
 }: {
   candidate: OtwPlayChannelMonitorCandidateDto | null;
   catalog: OtwPlayAdminCatalogDto;
   onOpenChange: (open: boolean) => void;
   onConverted: (performanceId: string | null) => Promise<void>;
+  onReviewStateChanged: () => Promise<void>;
 }) {
   const { toast } = useToast();
   const membersQuery = useQuery({
@@ -101,10 +103,23 @@ export function SingingClipReviewDialog({
   const [endSeconds, setEndSeconds] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [reviewBaseline, setReviewBaseline] = useState<{
+    version: number;
+    status: OtwPlayChannelMonitorCandidateDto["status"];
+    reviewInput: OtwPlayChannelMonitorCandidateDto["reviewInput"];
+  } | null>(null);
 
   useEffect(() => {
-    if (!candidate) return;
+    if (!candidate) {
+      setReviewBaseline(null);
+      return;
+    }
     const input = candidate.reviewInput;
+    setReviewBaseline({
+      version: candidate.candidateVersion,
+      status: candidate.status,
+      reviewInput: input,
+    });
     setSongId(input?.song.kind === "existing" ? input.song.songId : "__new");
     setSongTitle(
       input?.song.kind === "create" ? input.song.title : candidate.title ?? "",
@@ -138,6 +153,7 @@ export function SingingClipReviewDialog({
   const durationSeconds = candidate?.durationSeconds ?? null;
   const segmentValid = Number.isSafeInteger(parsedStart) && parsedStart >= 0 &&
     (parsedEnd === null || (Number.isSafeInteger(parsedEnd) && parsedEnd > parsedStart)) &&
+    (durationSeconds === null || parsedStart < durationSeconds) &&
     (durationSeconds === null || parsedEnd === null || parsedEnd <= durationSeconds);
   const songValid = songId !== "__new" ||
     (songTitle.trim().length > 0 && originalArtists.length > 0);
@@ -147,6 +163,7 @@ export function SingingClipReviewDialog({
     participants.length > 0 &&
     songValid &&
     segmentValid &&
+    reviewBaseline !== null &&
     !saving;
 
   const updateParticipantSubjects = (subjects: SelectedSubject[]) => {
@@ -160,8 +177,9 @@ export function SingingClipReviewDialog({
   };
 
   const save = async () => {
-    if (!candidate || !canSave) return;
+    if (!candidate || !canSave || !reviewBaseline) return;
     setSaving(true);
+    let reviewSaved = false;
     try {
       const reviewInput = {
         song: songId === "__new"
@@ -194,11 +212,17 @@ export function SingingClipReviewDialog({
         internalNote: internalNote.trim() || null,
       };
       const reviewed = await updateOtwPlayImportCandidate(candidate.candidateId, {
-        expectedVersion: candidate.candidateVersion,
-        expectedReviewInput: candidate.reviewInput,
-        expectedReviewStatus: candidate.status,
+        expectedVersion: reviewBaseline.version,
+        expectedReviewInput: reviewBaseline.reviewInput,
+        expectedReviewStatus: reviewBaseline.status,
         action: "save",
         input: reviewInput,
+      });
+      reviewSaved = true;
+      setReviewBaseline({
+        version: reviewed.version,
+        status: reviewed.status,
+        reviewInput: reviewed.reviewInput,
       });
       const converted = await convertOtwPlayImportCandidate(candidate.candidateId, {
         expectedVersion: reviewed.version,
@@ -215,6 +239,9 @@ export function SingingClipReviewDialog({
       onOpenChange(false);
       await onConverted(converted.performanceId);
     } catch {
+      if (reviewSaved) {
+        await onReviewStateChanged().catch(() => undefined);
+      }
       toast({
         variant: "error",
         description: "검수 영상을 draft로 저장하지 못했습니다. 최신 후보와 입력값을 확인해 주세요.",

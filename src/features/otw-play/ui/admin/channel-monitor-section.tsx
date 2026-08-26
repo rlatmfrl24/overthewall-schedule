@@ -129,6 +129,16 @@ export function ChannelMonitorSection({
   );
 
   useEffect(() => {
+    if (!reviewCandidate) return;
+    const latest = candidates.find(
+      (candidate) => candidate.candidateId === reviewCandidate.candidateId,
+    );
+    if (latest && latest.candidateVersion !== reviewCandidate.candidateVersion) {
+      setReviewCandidate(latest);
+    }
+  }, [candidates, reviewCandidate]);
+
+  useEffect(() => {
     if (!selectedMonitorId && monitors[0]) setSelectedMonitorId(monitors[0].id);
     if (selectedMonitorId && !monitors.some((monitor) => monitor.id === selectedMonitorId)) {
       setSelectedMonitorId(monitors[0]?.id ?? null);
@@ -621,7 +631,8 @@ export function ChannelMonitorSection({
                             disabled={
                               busy !== null ||
                               candidate.availabilityStatus !== "playable" ||
-                              candidate.catalogChannelId === null
+                              candidate.catalogChannelId === null ||
+                              !["eligible", "scope_review"].includes(candidate.classification)
                             }
                             onClick={() => setReviewCandidate(candidate)}
                           >
@@ -694,6 +705,7 @@ export function ChannelMonitorSection({
           ]);
           onOpenCatalog();
         }}
+        onReviewStateChanged={() => refresh()}
       />
     </Card>
   );

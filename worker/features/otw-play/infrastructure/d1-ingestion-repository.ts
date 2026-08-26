@@ -1203,6 +1203,15 @@ export class D1IngestionRepository implements IngestionRepository {
         "Ingestion candidate is not eligible for review saving",
       );
     }
+    const reviewMatchesCandidateKind = current.candidateKind === "official_video"
+      ? ["official_mv", "official_video"].includes(command.input.releaseType)
+      : command.input.releaseType === "broadcast";
+    if (!reviewMatchesCandidateKind) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Candidate kind does not match the reviewed release type",
+      );
+    }
     await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_candidates
@@ -1213,6 +1222,9 @@ export class D1IngestionRepository implements IngestionRepository {
          WHERE id = ? AND version = ?
            AND classification IN ('eligible', 'scope_review')
            AND status <> 'converted'
+           AND ((candidate_kind = 'official_video'
+               AND ? IN ('official_mv', 'official_video'))
+             OR (candidate_kind = 'singing_clip' AND ? = 'broadcast'))
            AND EXISTS (
              SELECT 1 FROM music_channels AS channel
              WHERE channel.provider = 'youtube'
@@ -1226,6 +1238,8 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
         command.candidateId,
         expectedVersion,
+        command.input.releaseType,
+        command.input.releaseType,
       ),
       this.database.prepare(
         `INSERT INTO music_ingestion_events (
@@ -1241,6 +1255,8 @@ export class D1IngestionRepository implements IngestionRepository {
           "relationType",
           "releaseType",
           "participationType",
+          "startSeconds",
+          "endSeconds",
           "internalNote",
         ] }),
         command.now,
@@ -1458,8 +1474,15 @@ export class D1IngestionRepository implements IngestionRepository {
            last_conversion_outcome = ?, last_conversion_error_code = ?,
            last_conversion_attempt_at = ?, reviewed_by_user_id = ?,
            version = version + 1, updated_at = ?
-          WHERE id = ? AND version = ? AND status = 'ready'
-            AND (? IS NULL OR EXISTS (
+           WHERE id = ? AND version = ? AND status = 'ready'
+             AND (? = 0 OR EXISTS (
+               SELECT 1 FROM music_channels AS channel
+               WHERE channel.provider = 'youtube'
+                 AND channel.external_channel_id = music_ingestion_candidates.channel_id
+                 AND channel.verification_status = 'approved' AND channel.active = 1
+                 AND ${reviewChannelRoleForUpdateSql}
+             ))
+             AND (? IS NULL OR EXISTS (
               SELECT 1 FROM music_ingestion_candidate_origins AS origin
               WHERE origin.candidate_id = music_ingestion_candidates.id
                 AND origin.job_id = ?
@@ -1476,6 +1499,7 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
         command.candidateId,
         command.expectedVersion,
+        duplicate ? 1 : 0,
         command.jobId,
         command.jobId,
       ),

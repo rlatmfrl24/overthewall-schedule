@@ -153,6 +153,46 @@ describe("ChannelMonitorSection", () => {
     ));
   });
 
+  it("disables review registration for policy-blocked candidates", async () => {
+    candidatesQueryMock.mockReturnValue({
+      data: { pages: [{
+        items: [{
+          candidateId: "youtube:BBBBBBBBBBB",
+          candidateVersion: 3,
+          videoId: "BBBBBBBBBBB",
+          title: "Blocked Singing Clip",
+          channelTitle: "Approved Clips",
+          thumbnailUrl: null,
+          durationSeconds: 180,
+          publishedAt: 150,
+          availabilityStatus: "playable",
+          status: "blocked",
+          classification: "policy_blocked",
+          exclusionReason: "made_for_kids",
+          catalogChannelId: "channel-1",
+          reviewInput: null,
+          linkedPerformanceId: null,
+          discoveredAt: 160,
+        }],
+        nextCursor: null,
+      }] },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    });
+
+    render(createElement(ChannelMonitorSection, sectionProps), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(await screen.findByText("Blocked Singing Clip")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /검수·등록/ }).hasAttribute("disabled"))
+      .toBe(true);
+  });
+
   it("shows monitor loading and failure states instead of an empty result", () => {
     monitorsQueryMock.mockReturnValue({
       data: undefined,

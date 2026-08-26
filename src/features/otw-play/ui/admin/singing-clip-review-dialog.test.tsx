@@ -27,24 +27,25 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("SingingClipReviewDialog", () => {
-  it("saves the review before converting the candidate to a private draft", async () => {
-    const reviewInput = {
-      song: { kind: "existing" as const, songId: "song-1" },
-      participants: [{
-        subject: { kind: "entity" as const, entityId: "entity-1" },
-        participantRole: "vocal" as const,
-        creditOrder: 0,
-        creditNameSnapshot: "Singer",
-      }],
-      relationType: "cover" as const,
-      releaseType: "broadcast" as const,
-      participationType: "solo" as const,
-      startSeconds: 30,
-      endSeconds: 150,
-      internalNote: "source checked",
-    };
-    const candidate = {
+const reviewFixture = () => {
+  const reviewInput = {
+    song: { kind: "existing" as const, songId: "song-1" },
+    participants: [{
+      subject: { kind: "entity" as const, entityId: "entity-1" },
+      participantRole: "vocal" as const,
+      creditOrder: 0,
+      creditNameSnapshot: "Singer",
+    }],
+    relationType: "cover" as const,
+    releaseType: "broadcast" as const,
+    participationType: "solo" as const,
+    startSeconds: 30,
+    endSeconds: 150,
+    internalNote: "source checked",
+  };
+  return {
+    reviewInput,
+    candidate: {
       candidateId: "youtube:BBBBBBBBBBB",
       candidateVersion: 3,
       videoId: "BBBBBBBBBBB",
@@ -61,8 +62,8 @@ describe("SingingClipReviewDialog", () => {
       reviewInput,
       linkedPerformanceId: null,
       discoveredAt: 100,
-    } as const;
-    const catalog = {
+    } as const,
+    catalog: {
       songs: [{ id: "song-1", title: "Existing Song", archivedAt: null }],
       entities: [{
         id: "entity-1",
@@ -70,10 +71,21 @@ describe("SingingClipReviewDialog", () => {
         displayName: "Singer",
         entityKind: "person",
       }],
-    } as never;
+    } as never,
+  };
+};
+
+describe("SingingClipReviewDialog", () => {
+  it("saves the review before converting the candidate to a private draft", async () => {
+    const { reviewInput, candidate, catalog } = reviewFixture();
     const onOpenChange = vi.fn();
     const onConverted = vi.fn().mockResolvedValue(undefined);
-    updateCandidateMock.mockResolvedValue({ version: 4 });
+    const onReviewStateChanged = vi.fn().mockResolvedValue(undefined);
+    updateCandidateMock.mockResolvedValue({
+      version: 4,
+      status: "ready",
+      reviewInput,
+    });
     convertCandidateMock.mockResolvedValue({
       candidateId: candidate.candidateId,
       outcome: "created",
@@ -87,6 +99,7 @@ describe("SingingClipReviewDialog", () => {
         catalog,
         onOpenChange,
         onConverted,
+        onReviewStateChanged,
       }),
       { wrapper: createQueryWrapper() },
     );
@@ -118,5 +131,78 @@ describe("SingingClipReviewDialog", () => {
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
       variant: "success",
     }));
+  });
+
+  it("keeps the action disabled when the start exceeds the video duration", async () => {
+    const { candidate, catalog } = reviewFixture();
+    render(
+      createElement(SingingClipReviewDialog, {
+        candidate,
+        catalog,
+        onOpenChange: vi.fn(),
+        onConverted: vi.fn(),
+        onReviewStateChanged: vi.fn(),
+      }),
+      { wrapper: createQueryWrapper() },
+    );
+    const saveButton = screen.getByRole("button", {
+      name: "검수 완료 후 draft 생성",
+    });
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), {
+      target: { value: "180" },
+    });
+    expect(saveButton.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("reuses the saved review baseline after conversion failure", async () => {
+    const { reviewInput, candidate, catalog } = reviewFixture();
+    const onConverted = vi.fn().mockResolvedValue(undefined);
+    const onReviewStateChanged = vi.fn().mockResolvedValue(undefined);
+    updateCandidateMock
+      .mockResolvedValueOnce({ version: 4, status: "ready", reviewInput })
+      .mockResolvedValueOnce({ version: 6, status: "ready", reviewInput });
+    convertCandidateMock
+      .mockResolvedValueOnce({
+        candidateId: candidate.candidateId,
+        outcome: "validation_failed",
+        performanceId: null,
+        errorCode: "validation_failed",
+      })
+      .mockResolvedValueOnce({
+        candidateId: candidate.candidateId,
+        outcome: "created",
+        performanceId: "performance-1",
+        errorCode: null,
+      });
+    render(
+      createElement(SingingClipReviewDialog, {
+        candidate,
+        catalog,
+        onOpenChange: vi.fn(),
+        onConverted,
+        onReviewStateChanged,
+      }),
+      { wrapper: createQueryWrapper() },
+    );
+    const saveButton = screen.getByRole("button", {
+      name: "검수 완료 후 draft 생성",
+    });
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(onReviewStateChanged).toHaveBeenCalledOnce());
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledTimes(2));
+    expect(updateCandidateMock).toHaveBeenNthCalledWith(2, candidate.candidateId, {
+      expectedVersion: 4,
+      expectedReviewInput: reviewInput,
+      expectedReviewStatus: "ready",
+      action: "save",
+      input: reviewInput,
+    });
+    await waitFor(() => expect(onConverted).toHaveBeenCalledWith("performance-1"));
   });
 });

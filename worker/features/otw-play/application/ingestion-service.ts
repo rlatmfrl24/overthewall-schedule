@@ -666,6 +666,20 @@ export class IngestionService {
           youtubeUrl,
           startSeconds,
         });
+        const channelRoleAllowed = candidate.candidateKind === "singing_clip"
+          ? preflight.channel.channelRole === "approved_kirinuki"
+          : isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole);
+        if (
+          preflight.channel.state !== "approved" ||
+          !preflight.channel.catalogChannelId ||
+          preflight.channel.catalogChannelId !== candidate.catalogChannelId ||
+          !channelRoleAllowed
+        ) {
+          throw new IngestionRepositoryError(
+            "validation_failed",
+            "Candidate channel is not approved and active",
+          );
+        }
         if (preflight.duplicate) {
           const outcome = await this.repository.recordConversionOutcome({
             jobId,
@@ -685,20 +699,6 @@ export class IngestionService {
             errorCode: outcome === "duplicate" ? "duplicate_source" : "stale_write",
           });
           continue;
-        }
-        const channelRoleAllowed = candidate.candidateKind === "singing_clip"
-          ? preflight.channel.channelRole === "approved_kirinuki"
-          : isOtwPlayIngestionOfficialChannelRole(preflight.channel.channelRole);
-        if (
-          preflight.channel.state !== "approved" ||
-          !preflight.channel.catalogChannelId ||
-          preflight.channel.catalogChannelId !== candidate.catalogChannelId ||
-          !channelRoleAllowed
-        ) {
-          throw new IngestionRepositoryError(
-            "validation_failed",
-            "Candidate channel is not approved and active",
-          );
         }
         const created = await this.catalog.createCatalogEntry(
           {
@@ -728,6 +728,13 @@ export class IngestionService {
           errorCode: null,
         });
       } catch (error) {
+        if (
+          jobId === null &&
+          error instanceof IngestionRepositoryError &&
+          error.code === "not_found"
+        ) {
+          throw error;
+        }
         if (
           error instanceof AdminCatalogRepositoryError &&
           error.code === "duplicate_source"

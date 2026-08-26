@@ -27,6 +27,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_channel_upload_monitors"),
     db.prepare("DELETE FROM music_channel_automation_approvals"),
     db.prepare("DELETE FROM music_ingestion_candidates WHERE candidate_kind = 'singing_clip'"),
+    db.prepare("DELETE FROM music_ingestion_candidates WHERE external_video_id = 'BBBBBBBBBBB'"),
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type IN ('channel_monitor', 'channel_automation_approval', 'websub_subscription')"),
     db.prepare("DELETE FROM music_channels WHERE id = 'websub-channel'"),
   ]);
@@ -82,6 +83,18 @@ const prepareActiveSubscription = async () => {
 describe("D1WebsubRepository", () => {
   it("deduplicates deliveries and title updates without duplicating candidates or origins", async () => {
     const { repository, subscription } = await prepareActiveSubscription();
+    await db.prepare(
+      `INSERT INTO music_ingestion_candidates (
+        id, provider, external_video_id, candidate_kind, status, classification,
+        review_input_json, reviewed_by_user_id, channel_id, availability_status,
+        first_discovered_at, last_discovered_at, retention_expires_at,
+        version, created_at, updated_at
+      ) VALUES (
+        'youtube:BBBBBBBBBBB', 'youtube', 'BBBBBBBBBBB', 'official_video',
+        'ready', 'eligible', '{}', 'admin-reviewer', ?, 'playable',
+        ?, ?, ?, 0, ?, ?
+      )`,
+    ).bind(CHANNEL_ID, NOW, NOW, NOW + 86_400_000, NOW, NOW).run();
     const first = await repository.recordDelivery({
       id: "delivery-1",
       subscription,
@@ -181,9 +194,18 @@ describe("D1WebsubRepository", () => {
     });
 
     const candidate = await db.prepare(
-      `SELECT title, status, classification, exclusion_reason FROM music_ingestion_candidates
+      `SELECT candidate_kind, title, status, classification, exclusion_reason,
+        review_input_json, reviewed_by_user_id FROM music_ingestion_candidates
        WHERE provider = 'youtube' AND external_video_id = 'BBBBBBBBBBB'`,
-    ).first<{ title: string; status: string; classification: string; exclusion_reason: string }>();
+    ).first<{
+      candidate_kind: string;
+      title: string;
+      status: string;
+      classification: string;
+      exclusion_reason: string;
+      review_input_json: string | null;
+      reviewed_by_user_id: string | null;
+    }>();
     const counts = await db.prepare(
       `SELECT
         (SELECT COUNT(*) FROM music_ingestion_candidates
@@ -194,10 +216,13 @@ describe("D1WebsubRepository", () => {
           WHERE external_video_id = 'BBBBBBBBBBB') AS deliveries`,
     ).first<{ candidates: number; origins: number; deliveries: number }>();
     expect(candidate).toEqual({
+      candidate_kind: "singing_clip",
       title: "Policy update",
       status: "blocked",
       classification: "policy_blocked",
       exclusion_reason: "made_for_kids",
+      review_input_json: null,
+      reviewed_by_user_id: null,
     });
     expect(counts).toEqual({ candidates: 1, origins: 1, deliveries: 3 });
   });
