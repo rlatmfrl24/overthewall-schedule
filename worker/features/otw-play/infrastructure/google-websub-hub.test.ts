@@ -27,6 +27,16 @@ describe("GoogleWebsubHubClient", () => {
     });
   });
 
+  it("does not invoke an injected fetch implementation as an instance method", async () => {
+    const fetcher = vi.fn(function (this: unknown) {
+      if (this !== undefined) throw new TypeError("Illegal invocation");
+      return Promise.resolve(new Response(null, { status: 202 }));
+    }) as unknown as typeof fetch;
+
+    await expect(new GoogleWebsubHubClient(fetcher).request(request)).resolves.toBeUndefined();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("retries a transient hub response once", async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
