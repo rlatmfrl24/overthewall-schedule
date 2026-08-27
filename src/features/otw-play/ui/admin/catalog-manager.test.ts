@@ -93,6 +93,7 @@ const proposal = {
   segmentStartSeconds: 0,
   submittedTitle: "검수할 공식 커버",
   suggestedSongId: null,
+  tags: ["J-POP"],
   submittedNote: "제출 메모",
   status: "pending_review" as const,
   version: 2,
@@ -423,6 +424,7 @@ describe("OtwPlayCatalogManager", () => {
       name: "확인 후 승인·게시",
     }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
+    expect(within(screen.getByLabelText("선택한 장르(분류)")).getByText("J-POP")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     await waitFor(() => expect(preflightEntryMock).toHaveBeenCalledWith({
@@ -433,11 +435,11 @@ describe("OtwPlayCatalogManager", () => {
       target: { value: "관리자가 정정한 곡명" },
     });
     fireEvent.click(screen.getByRole("button", { name: "K-POP" }));
-    const songTagInput = screen.getByLabelText("음악 분류");
+    const songTagInput = screen.getByLabelText("장르(분류)");
     fireEvent.change(songTagInput, { target: { value: "K POP" } });
     fireEvent.keyDown(songTagInput, { key: "Enter" });
     expect(
-      within(screen.getByLabelText("선택한 음악 분류")).getAllByText("K-POP"),
+      within(screen.getByLabelText("선택한 장르(분류)")).getAllByText("K-POP"),
     ).toHaveLength(1);
     expect(screen.queryByText("K POP")).toBeNull();
     fireEvent.click(screen.getByLabelText("참여자 가창 역할"));
@@ -463,7 +465,7 @@ describe("OtwPlayCatalogManager", () => {
           song: expect.objectContaining({
             kind: "create",
             title: "관리자가 정정한 곡명",
-            tags: ["K-POP"],
+            tags: ["J-POP", "K-POP"],
           }),
           participants: [
             expect.objectContaining({ participantRole: "featured_vocal" }),

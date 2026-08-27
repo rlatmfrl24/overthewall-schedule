@@ -66,7 +66,8 @@ import {
   useOtwPlayAdminRelease,
   useOtwPlayAdminSourceHealth,
 } from "../../queries/use-admin-catalog";
-import { CatalogEntryDialog, SongTagPicker } from "./catalog-entry-dialog";
+import { CatalogEntryDialog } from "./catalog-entry-dialog";
+import { SongTagPicker } from "../song-tag-picker";
 import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
@@ -552,7 +553,7 @@ function ProposalSection({
     }
     setReviewTitle(selected.submittedTitle);
     setReviewSongId(selected.suggestedSongId ?? "__new");
-    setReviewSongTags([]);
+    setReviewSongTags(selected.suggestedSongId ? [] : selected.tags);
     setReviewParticipants(
       selected.participants.map((participant) => ({
         rowKey: `proposal-participant-${participant.creditOrder}`,
@@ -739,6 +740,12 @@ function ProposalSection({
                   .map((artist) => artist.submittedNameSnapshot)
                   .join(", ") || "미입력"}
               </div>
+              {selected.tags.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span>장르(분류):</span>
+                  {selected.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                </div>
+              ) : null}
               <div>
                 참여자:{" "}
                 {selected.participants
@@ -949,7 +956,13 @@ function ProposalSection({
                     onValueChange={(value) => {
                       setReviewSongId(value);
                       const song = catalog.songs.find((item) => item.id === value);
-                      if (song) setReviewTitle(song.title);
+                      if (song) {
+                        setReviewTitle(song.title);
+                        setReviewSongTags([]);
+                      } else {
+                        setReviewTitle(selected.submittedTitle);
+                        setReviewSongTags(selected.tags);
+                      }
                       setSingingCreditConfirmed(false);
                     }}
                   >

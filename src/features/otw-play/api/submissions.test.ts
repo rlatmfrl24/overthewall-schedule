@@ -24,6 +24,7 @@ describe("OTW Play member submission API", () => {
       youtubeUrl: preflight.youtubeUrl,
       title: "Cover Song",
       suggestedSongId: null,
+      tags: ["J-POP"],
       originalArtists: [{ kind: "external" as const, displayName: "Artist" }],
       participants: [
         { kind: "member" as const, memberUid: 1, participantRole: "vocal" as const },
@@ -68,6 +69,7 @@ describe("OTW Play member submission API", () => {
       youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
       title: "Edited Cover",
       suggestedSongId: null,
+      tags: ["록"],
       originalArtists: [{ kind: "external" as const, displayName: "Artist" }],
       participants: [{ kind: "member" as const, memberUid: 1 }],
       note: null,

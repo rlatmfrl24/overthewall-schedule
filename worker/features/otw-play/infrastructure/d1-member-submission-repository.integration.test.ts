@@ -20,6 +20,7 @@ const input = (suffix: string): OtwPlayCreateSubmissionRequest => ({
   youtubeUrl: `https://www.youtube.com/watch?v=VID${suffix.padStart(8, "0")}`,
   title: `회원 커버 ${suffix}`,
   suggestedSongId: null,
+  tags: ["J-POP"],
   originalArtists: [{ kind: "external", displayName: `원곡 가수 ${suffix}` }],
   participants: [{ kind: "member", memberUid: 991, participantRole: "chorus" }],
   note: null,
@@ -84,6 +85,7 @@ describe("D1MemberSubmissionRepository", () => {
     expect(first.idempotentReplay).toBe(false);
     expect(first.data).toMatchObject({
       status: "pending_review",
+      tags: ["J-POP"],
       participants: [{ displayName: "제안 멤버", participantRole: "chorus" }],
       originalArtists: [{ displayName: "원곡 가수 1" }],
     });
@@ -119,6 +121,12 @@ describe("D1MemberSubmissionRepository", () => {
       create(repository, "member-a", "1", {
         clientRequestId: input("1").clientRequestId,
         title: "다른 payload",
+      }),
+    ).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(
+      create(repository, "member-a", "1", {
+        clientRequestId: input("1").clientRequestId,
+        tags: ["록"],
       }),
     ).rejects.toMatchObject({ code: "idempotency_conflict" });
   });
@@ -236,6 +244,7 @@ describe("D1MemberSubmissionRepository", () => {
         youtubeUrl: "https://youtu.be/EDIT0000001",
         title: "수정된 커버",
         suggestedSongId: null,
+        tags: ["록", "발라드"],
         originalArtists: [{ kind: "external", displayName: "수정 가수" }],
         participants: [
           { kind: "member", memberUid: 991, participantRole: "featured_vocal" },
@@ -251,6 +260,7 @@ describe("D1MemberSubmissionRepository", () => {
       withdrawable: true,
       youtubeVideoId: "EDIT0000001",
       title: "수정된 커버",
+      tags: ["록", "발라드"],
       participants: [
         { memberUid: 991, participantRole: "featured_vocal" },
         { memberUid: null, displayName: "외부 참여자", participantRole: "chorus" },
@@ -268,6 +278,7 @@ describe("D1MemberSubmissionRepository", () => {
       changedFields: expect.arrayContaining([
         "youtubeUrl",
         "title",
+        "tags",
         "originalArtists",
         "participants",
         "note",
@@ -317,6 +328,89 @@ describe("D1MemberSubmissionRepository", () => {
          WHERE catalog.id = 1`,
       ).first(),
     ).resolves.toEqual(revisionBefore);
+  });
+
+  it("preserves omitted tags, clears explicit tags, and clears tags for an existing song", async () => {
+    const repository = new D1MemberSubmissionRepository(db);
+    const preserved = await create(repository, "member-a", "1");
+
+    const afterOmitted = await repository.update({
+      userId: "member-a",
+      proposalId: preserved.data.id,
+      eventId: "event-member-tags-omitted",
+      videoId: preserved.data.youtubeVideoId,
+      canonicalUrl: preserved.data.youtubeUrl,
+      now: NOW + 210,
+      input: {
+        expectedVersion: 0,
+        youtubeUrl: preserved.data.youtubeUrl,
+        title: "분류 유지 수정",
+        suggestedSongId: null,
+        originalArtists: [{ kind: "external", displayName: "원곡 가수 1" }],
+        participants: [{ kind: "member", memberUid: 991, participantRole: "chorus" }],
+        note: null,
+      },
+    });
+    expect(afterOmitted.tags).toEqual(["J-POP"]);
+    await expect(
+      db.prepare(
+        "SELECT detail_json FROM music_catalog_events WHERE id = 'event-member-tags-omitted'",
+      ).first<{ detail_json: string }>(),
+    ).resolves.toMatchObject({
+      detail_json: expect.not.stringContaining('"tags"'),
+    });
+
+    const afterExplicitClear = await repository.update({
+      userId: "member-a",
+      proposalId: preserved.data.id,
+      eventId: "event-member-tags-cleared",
+      videoId: preserved.data.youtubeVideoId,
+      canonicalUrl: preserved.data.youtubeUrl,
+      now: NOW + 211,
+      input: {
+        expectedVersion: 1,
+        youtubeUrl: preserved.data.youtubeUrl,
+        title: "분류 유지 수정",
+        suggestedSongId: null,
+        tags: [],
+        originalArtists: [{ kind: "external", displayName: "원곡 가수 1" }],
+        participants: [{ kind: "member", memberUid: 991, participantRole: "chorus" }],
+        note: null,
+      },
+    });
+    expect(afterExplicitClear.tags).toEqual([]);
+
+    await db.prepare(
+      `INSERT INTO music_songs (
+         id, slug, title, normalized_title, dedupe_key, is_otw_original,
+         original_release_precision, version, created_at, updated_at
+       ) VALUES (
+         'submission-candidate-existing-tags', 'existing-tags', '기존 곡',
+         '기존 곡', 'existing-tags-key', 0, 'unknown', 0, ?, ?
+       )`,
+    ).bind(NOW, NOW).run();
+    const linked = await create(repository, "member-a", "2");
+    const afterExistingSong = await repository.update({
+      userId: "member-a",
+      proposalId: linked.data.id,
+      eventId: "event-member-tags-existing-song",
+      videoId: linked.data.youtubeVideoId,
+      canonicalUrl: linked.data.youtubeUrl,
+      now: NOW + 212,
+      input: {
+        expectedVersion: 0,
+        youtubeUrl: linked.data.youtubeUrl,
+        title: linked.data.title,
+        suggestedSongId: "submission-candidate-existing-tags",
+        originalArtists: [{ kind: "external", displayName: "원곡 가수 2" }],
+        participants: [{ kind: "member", memberUid: 991, participantRole: "chorus" }],
+        note: null,
+      },
+    });
+    expect(afterExistingSong).toMatchObject({
+      suggestedSongId: "submission-candidate-existing-tags",
+      tags: [],
+    });
   });
 
   it("lets only one concurrent member or admin-facing CAS transition win", async () => {

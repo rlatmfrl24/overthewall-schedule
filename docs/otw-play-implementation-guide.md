@@ -942,6 +942,7 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 8. 참여자별 가창 역할 입력과 member DTO 역할 readback
 9. 관리자 승인용 곡·원곡 가수·참여자·역할 편집
 10. 공개 Discover·목록·상세·Player의 메인 보컬 우선 presentation
+11. 새 곡 제안 장르(분류)의 입력·draft 복원·D1 snapshot·관리자 검수 초기값·승인 song tag 저장
 
 회원 제출은 `settings.otw_play_submission_daily_limit=5`와 KST day window를 D1
 권위로 사용한다. Cloudflare Rate Limiting binding은 사용자 ID별 60초당 3회를
@@ -956,6 +957,7 @@ DEC-046에 따라 두 shell은 공통 `OtwPlayFrame` header를 사용한다. 전
 - 회원 payload로 original을 요청해도 관계가 cover로 고정되거나 요청이 거부됨
 - token, note, 검색어가 log에 남지 않음
 - 동일 idempotency retry가 같은 row 반환
+- 새 곡 제안 tags가 idempotency·CAS 수정·관리자 승인 readback에서 보존되고 기존 곡 연결에는 포함되지 않음
 - pending duplicate 409
 - 일일 제한 429, edge limit이 D1 권위를 대체하지 않음
 - 같은 proposal 동시 승인 시 한 요청만 성공
@@ -1414,6 +1416,9 @@ P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증�
 playlist candidate는 관리자 검수 뒤 공식 영상 draft로 변환한다. `singing_clip`은 활성
 `approved_kirinuki` 채널과 곡·가창자·segment 검수를 다시 확인한 뒤 `broadcast` +
 `kirinuki` 비공개 draft로만 변환한다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
+두 검수 경로에서 신규 곡을 만들 때 `SongTagPicker`로 음악 라벨을 입력·추가·삭제하고,
+candidate `review_input_json.song.tags`에 저장해 재진입과 최종 D1 변환까지 보존한다. 기존 곡
+연결은 song 권위의 `tags`를 읽기 전용으로 표시하며 검수 저장에서 기존 곡을 암묵적으로 수정하지 않는다.
 외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
 계획에서 제외한다.
 

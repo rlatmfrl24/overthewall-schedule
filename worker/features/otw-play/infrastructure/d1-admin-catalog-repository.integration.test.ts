@@ -2091,9 +2091,9 @@ describe("D1AdminCatalogRepository", () => {
           `INSERT INTO music_cover_proposals (
         id, submitted_by_user_id, idempotency_key, submitted_url,
         youtube_video_id, segment_start_seconds, submitted_title,
-        status, version, created_at, updated_at
+        submitted_tags_json, status, version, created_at, updated_at
       ) VALUES (?, 'member-1', 'proposal-key', ?, 'dQw4w9WgXcQ', 0,
-        'Proposal Song', 'pending_review', 0, ?, ?)`,
+        'Proposal Song', '["J-POP"]', 'pending_review', 0, ?, ?)`,
         )
         .bind(proposalId, "https://youtu.be/dQw4w9WgXcQ", NOW, NOW),
       db
@@ -2111,6 +2111,10 @@ describe("D1AdminCatalogRepository", () => {
       ) VALUES (?, 0, ?, 'Proposal Artist')`,
         )
         .bind(proposalId, artist.data.id),
+    ]);
+
+    await expect(repository.readProposals("pending_review")).resolves.toEqual([
+      expect.objectContaining({ id: proposalId, tags: ["J-POP"] }),
     ]);
 
     const revisionBeforeApproval = (await repository.readCatalog()).revision;
@@ -2145,6 +2149,7 @@ describe("D1AdminCatalogRepository", () => {
             originalReleaseDate: null,
             originalReleasePrecision: "unknown",
             aliases: [],
+            tags: ["J-POP"],
             originalArtists: [
               {
                 subject: { kind: "entity", entityId: artist.data.id },
@@ -2215,6 +2220,8 @@ describe("D1AdminCatalogRepository", () => {
     expect(catalog.revision).toBe(catalog.readModelRevision);
     expect(catalog.revision).toBe(revisionBeforeApproval + 1);
     expect(catalog.songs.map((song) => song.title)).toContain("Proposal Song");
+    expect(catalog.songs.find((song) => song.title === "Proposal Song")?.tags)
+      .toEqual(["J-POP"]);
     expect(
       catalog.performances.find(
         (performance) => performance.id === result.data.approvedPerformanceId,

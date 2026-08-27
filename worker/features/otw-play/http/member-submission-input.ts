@@ -7,6 +7,7 @@ import type {
   OtwPlayWithdrawSubmissionRequest,
 } from "@contracts/otw-play";
 import { OTW_PLAY_PARTICIPANT_ROLES } from "@contracts/otw-play";
+import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 
 export type MemberSubmissionInputResult<T> =
   | { ok: true; value: T }
@@ -120,6 +121,17 @@ const parseParticipants = (value: unknown) => {
     : null;
 };
 
+const parseSongTags = (value: unknown): string[] | null => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 10) return null;
+  const tags = value.map((item) => text(item, 40));
+  if (tags.some((item) => item === null)) return null;
+  const normalized = tags.map((item) => normalizeOtwPlaySearchText(item!));
+  return normalized.every(Boolean) && new Set(normalized).size === tags.length
+    ? (tags as string[])
+    : null;
+};
+
 export const parseSubmissionPreflight = (
   value: unknown,
 ): MemberSubmissionInputResult<OtwPlaySubmissionPreflightRequest> => {
@@ -144,6 +156,7 @@ export const parseCreateSubmission = (
       "youtubeUrl",
       "title",
       "suggestedSongId",
+      "tags",
       "originalArtists",
       "participants",
       "note",
@@ -155,6 +168,7 @@ export const parseCreateSubmission = (
   const youtubeUrl = text(value.youtubeUrl, 500);
   const title = text(value.title, 300);
   const suggestedSongId = optionalText(value.suggestedSongId, 128);
+  const tags = parseSongTags(value.tags);
   const note = optionalText(value.note, 1_000);
   const originalArtists = parseSubjects(value.originalArtists, 1, 20);
   const participants = parseParticipants(value.participants);
@@ -163,12 +177,14 @@ export const parseCreateSubmission = (
     !UUID_V4_PATTERN.test(clientRequestId) ||
     !youtubeUrl ||
     !title ||
+    !tags ||
     !originalArtists ||
     !participants ||
     (value.suggestedSongId !== undefined &&
       value.suggestedSongId !== null &&
       !suggestedSongId) ||
-    (value.note !== undefined && value.note !== null && value.note !== "" && !note)
+    (value.note !== undefined && value.note !== null && value.note !== "" && !note) ||
+    (suggestedSongId !== null && tags.length > 0)
   ) {
     return { ok: false, fields: { body: "invalid_submission" } };
   }
@@ -179,6 +195,7 @@ export const parseCreateSubmission = (
       youtubeUrl,
       title,
       suggestedSongId,
+      tags,
       originalArtists,
       participants,
       note,
@@ -196,6 +213,7 @@ export const parseUpdateSubmission = (
       "youtubeUrl",
       "title",
       "suggestedSongId",
+      "tags",
       "originalArtists",
       "participants",
       "note",
@@ -205,6 +223,7 @@ export const parseUpdateSubmission = (
   ) {
     return { ok: false, fields: { body: "invalid_update" } };
   }
+  const hasTags = Object.prototype.hasOwnProperty.call(value, "tags");
   const { expectedVersion, ...snapshot } = value;
   const parsed = parseCreateSubmission({
     ...snapshot,
@@ -218,6 +237,7 @@ export const parseUpdateSubmission = (
       youtubeUrl: parsed.value.youtubeUrl,
       title: parsed.value.title,
       suggestedSongId: parsed.value.suggestedSongId,
+      ...(hasTags ? { tags: parsed.value.tags } : {}),
       originalArtists: parsed.value.originalArtists,
       participants: parsed.value.participants,
       note: parsed.value.note,

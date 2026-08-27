@@ -129,6 +129,7 @@ describe("d1 doctor schema coverage", () => {
         "idempotency_key",
         "youtube_video_id",
         "segment_start_seconds",
+        "submitted_tags_json",
         "status",
         "version",
         "approved_performance_id",

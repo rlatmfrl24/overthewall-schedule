@@ -246,7 +246,7 @@ describe("IngestionSection", () => {
     const preview = screen.getAllByRole("region", {
       name: "Candidate Video 변경 예정 항목",
     })[0]!;
-    expect(preview.querySelector("dl")?.className).toContain("2xl:grid-cols-5");
+    expect(preview.querySelector("dl")?.className).toContain("2xl:grid-cols-6");
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
@@ -388,6 +388,14 @@ describe("IngestionSection", () => {
     fireEvent.keyDown(songSelect, { key: "Enter" });
     fireEvent.click(await screen.findByRole("option", { name: "새 곡 입력" }));
 
+    const songLabelInput = screen.getByLabelText("장르(분류)");
+    fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
+    fireEvent.click(screen.getByRole("button", { name: "J-POP 제거" }));
+    fireEvent.change(songLabelInput, { target: { value: "City Pop" } });
+    fireEvent.keyDown(songLabelInput, { key: "Enter" });
+    expect(within(screen.getByLabelText("선택한 장르(분류)")).getByText("City Pop"))
+      .toBeTruthy();
+
     const artistSearch = screen.getByLabelText("원곡 가수 검색");
     fireEvent.change(artistSearch, { target: { value: "Guest Artist" } });
     fireEvent.click(await screen.findByRole("option", { name: /Guest Artist/ }));
@@ -405,6 +413,7 @@ describe("IngestionSection", () => {
     })[0]!;
     expect(within(preview).getByText("새 곡 생성 · Candidate Video")).toBeTruthy();
     expect(within(preview).getByText("Guest Artist, New Original Artist")).toBeTruthy();
+    expect(within(preview).getByText("City Pop")).toBeTruthy();
     expect(within(preview).getByText(
       "Singer · 메인 보컬, Guest Vocal · 메인 보컬",
     )).toBeTruthy();
@@ -417,6 +426,7 @@ describe("IngestionSection", () => {
         input: expect.objectContaining({
           song: expect.objectContaining({
             kind: "create",
+            tags: ["City Pop"],
             originalArtists: [
               expect.objectContaining({
                 subject: { kind: "entity", entityId: "entity-external" },
@@ -500,6 +510,60 @@ describe("IngestionSection", () => {
               participantRole: "featured_vocal",
             }),
           ]),
+        }),
+      }),
+    ));
+  });
+
+  it("restores and edits labels saved in a candidate review", async () => {
+    const savedReviewInput = {
+      ...candidate().reviewInput,
+      song: {
+        kind: "create" as const,
+        title: "Saved Labeled Song",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown" as const,
+        aliases: [],
+        originalArtists: [{
+          subject: { kind: "entity" as const, entityId: "entity-1" },
+          creditOrder: 0,
+          isPrimary: true,
+        }],
+        tags: ["보컬로이드"],
+      },
+    };
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{ ...candidate(), reviewInput: savedReviewInput }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    const selectedLabels = screen.getByLabelText("선택한 장르(분류)");
+    expect(within(selectedLabels).getByText("보컬로이드")).toBeTruthy();
+    fireEvent.click(within(selectedLabels).getByRole("button", {
+      name: "보컬로이드 제거",
+    }));
+    const labelInput = screen.getByLabelText("장르(분류)");
+    fireEvent.change(labelInput, { target: { value: "라이브" } });
+    fireEvent.click(screen.getByRole("button", { name: /^추가$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
+
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      "youtube:AAAAAAAAAAA",
+      expect.objectContaining({
+        expectedReviewInput: savedReviewInput,
+        input: expect.objectContaining({
+          song: expect.objectContaining({ tags: ["라이브"] }),
         }),
       }),
     ));
