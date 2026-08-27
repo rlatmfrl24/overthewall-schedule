@@ -1,6 +1,6 @@
 # OTW Play 카탈로그 벌크 수집·제안 수정/철회 조사 보고서
 
-상태: PR-9A~C 구현·배포 완료, 운영 canary 인증 gate 대기
+상태: PR-9A~D1 구현·배포 closeout 완료, playlist·신규 upload 운영 canary 대기
 
 조사일: 2026-08-20
 
@@ -390,11 +390,11 @@ confirm dialog에 다음을 명시한다.
 | PR-9A | 완료·배포 | 회원 proposal 수정·철회 contract, CAS, audit, UI |
 | PR-9B | 완료·배포 | ingestion job/candidate schema, Queue/DLQ, playlist preflight·수집 |
 | PR-9C | 완료·배포 | 관리자 검수 grid, 행별 sticky 보완·공식 채널 승인, 재생 불가 일괄 제외, job 전체 ready draft 변환·재시도 |
-| PR-9D | polling foundation 완료, WebSub 후속 | approved clip channel의 `singing_clip` candidate inbox. 현재 권리 승인 channel 0개 |
+| PR-9D1 | 구현·배포 완료 | approved clip channel의 monitor·WebSub·`singing_clip` candidate inbox와 비공개 draft 검수. 실제 신규 upload canary는 별도 운영 gate |
 
 PR-9A~C 구현과 Clerk production instance 전환·실제 관리자 스모크는 완료되었다.
-production canary는 남은 권리 GATE-08이 해제된 뒤 실제 인증 UI·Queue·D1 readback으로
-별도 확인한다.
+GATE-08과 실제 WebSub 구독 설정도 완료했다. P0-A 최근 5개 playlist와 P0-B 실제 신규
+upload canary는 인증 UI·Queue·D1 readback으로 별도 확인한다.
 
 ## 12. 수용 기준
 
@@ -424,3 +424,14 @@ production canary는 남은 권리 GATE-08이 해제된 뒤 실제 인증 UI·Qu
 DEC-054의 본인 `pending_review`만 version CAS 수정·불가역 철회 정책도 확정된
 불변식이다. 자동 publish 금지, 실제 actor 보존, approved channel 검증과 CAS는
 구현 과정에서 완화하지 않는다.
+
+## 14. 2026-08-27 closeout
+
+- PR-9A~C의 proposal lifecycle, playlist ingestion, Queue/DLQ, candidate 검수·일괄 제외·
+  draft 변환은 완료 상태다.
+- PR-9D1의 polling·WebSub transport와 `singing_clip` 개별 검수·비공개 draft 변환도
+  완료 상태다. 신규 곡 tag와 외부 identity 정리·승인 채널 주체 교정은 PR #82–#84에서
+  운영 보완을 마쳤고 migration `0064` production 적용과 제안 tag column readback도
+  운영자 확인으로 완료 처리했다.
+- 남은 gate는 P0-A playlist canary, P0-B 실제 신규 upload→candidate→draft canary,
+  YouTube compliance 확대 확인이다.

@@ -1,10 +1,10 @@
 # OTW Play 제품 요구사항
 
-상태: Living Baseline
+상태: Living Baseline — 구현 완료 항목 closeout 반영
 
-단계: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` 유지
+단계: PR-1~PR-9D1과 2026-08-27 관리자 운영 보완 병합 완료, 운영 공개 `0/0` 유지
 
-최종 갱신일: 2026-08-26
+최종 갱신일: 2026-08-27
 
 문서 역할: 차후 개발을 위한 현재 요구사항 기준선
 
@@ -596,19 +596,38 @@ clip channel discovery는 별도 candidate aggregate를 공유하되 `candidate_
 | 우선순위 | 범위 | 완료 또는 착수 gate |
 | --- | --- | --- |
 | P0-A | catalog 입력 효율·proposal lifecycle | PR-9A~C로 구현·배포 완료했고 production Clerk 인증 UI도 검증했다. OTW 공식 `Cover Song` playlist 최근 5개 canary를 실행하되 draft 변환·게시 없이 Queue와 D1 readback만 확인한다. |
-| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation candidate foundation과 WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill을 production에 배포했다. additive migration `0063`, 공개 origin과 WebSub secret도 적용했다. 현재 변경은 승인 채널 후보의 곡·가창자·segment 개별 검수와 비공개 broadcast draft 변환 경로를 구현했으며 배포 뒤 실제 알림→후보→draft 운영 readback이 남았다. 채널별 메일 서면 동의는 확보했다. |
+| P0-B | 노래 clip channel 자동 후보함 | 6시간·250개 cap polling, watermark·gap·generation candidate foundation, WebSub callback·lease renewal·daily recent-50·최근 1~20개 backfill, 승인 채널 후보의 개별 검수와 비공개 broadcast draft 변환을 production code에 반영했다. additive migration `0063`, 공개 origin·secret과 실제 구독 설정도 완료했다. 실제 신규 upload가 `알림 → 후보 → 검수 → draft`를 통과하는 운영 canary만 남았다. |
 | P0-C | 운영 공개·안정화 지속 확인 | Clerk production instance, production issuer/JWKS/admin ID, origin 검증과 실제 관리자 스모크를 완료했다. source-health readback, catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 공개 전후 지속 확인한다. |
 | P1 | 멤버 참여 정보·멤버별 노래책·SEO | existing participant와 최소 member contribution을 사용해 current member의 부른 곡·오리지널·커버·협업·만든 곡 page를 제공한다. 외부 음악 관계자 상세 credit, contributor·album graph는 범위에서 제외한다. |
 | P2 | 큐레이션·저장 경험 | 운영자 큐레이션 playlist를 먼저 제공하고 사용자 저장·공개/비공개·공유, 좋아요·최근 들은 곡·멤버 라디오를 순차 검토한다. |
 | P3 | 방송 가창·키리누키 | P0-B의 비공개 `singing_clip` draft를 확장해 방송일·원본 방송 연결·타임스탬프, setlist, 키리누키와 원본 방송 fallback 및 공개 read model을 추가한다. TBD-004·005를 먼저 해결한다. |
 | P4 | 개인화·외부 생태계 | 행동 기반 추천과 Spotify·Apple Music 등 외부 서비스 연동은 권리·개인정보·API 비용과 사용자 가치가 확인된 뒤 검토한다. 자동 공개나 AI 단독 곡 확정은 계속 금지한다. |
 
-P0-A code와 P0-B polling foundation은 완료되었고 production 인증 GATE-07과 자동 수집
-권리 GATE-08도 해결되었다. P0-B WebSub transport code·schema·secret·공개 origin은
-production 적용과 안전한 미등록 callback 거부 readback까지 완료했다. 정확한 승인 채널의
-monitor·구독과 P0-A/P0-B canary는 각 흐름의 운영 readback으로 완료한다. P0-C는 개발 순서와 무관한 지속 운영 항목이며, P1 이후는 별도
+P0-A code와 P0-B polling·WebSub·검수 foundation은 완료되었고 production 인증 GATE-07과
+자동 수집 권리 GATE-08도 해결되었다. 정확한 승인 채널의 monitor·WebSub 구독 설정까지
+완료했으며 P0-A playlist canary와 P0-B 실제 신규 upload canary는 각 흐름의 운영
+readback으로 완료한다. P0-C는 개발 순서와 무관한 지속 운영 항목이며, P1 이후는 별도
 schema·API·UI 설계와 gate를 거쳐야 한다.
 우선순위를 바꾸면 DEC-052와 이 표를 함께 갱신한다.
+
+#### 2026-08-27 구현 closeout
+
+완료된 delivery는 다음과 같다.
+
+- PR #76–#80: WebSub callback·subscription·renewal·reconciliation·backfill, 공개 origin과
+  secret 적용, false-active 복구와 Cloudflare `fetch` invocation 수정
+- PR #81: `singing_clip` 후보의 곡·원곡 가수·가창자·segment 검수와 비공개
+  `broadcast + kirinuki` draft 원자 변환, 자동 검수 가용성 회귀 수정
+- PR #82: 외부 인물·그룹 영구 삭제와 저장된 후보 검수·승인 채널 참조 보호
+- PR #83: 후보 검수·자동 검수의 신규 곡 라벨 입력·추가·삭제·복원과 회원 제안 라벨 보존,
+  운영자 확인에 따른 migration `0064` production 적용·`submitted_tags_json` readback 완료
+- PR #84: 기존 승인 채널의 연결 주체 표시·검색·교체·해제와 변경 전후 감사 event
+
+다음은 구현 누락이 아니라 별도 운영 또는 후속 제품 gate다.
+
+- P0-A 최근 5개 playlist Queue·D1 canary와 P0-B 실제 신규 upload→candidate→draft canary
+- 공개 전 catalog 정비와 `0/0 → 1/0 → 1/1`·rollback 검증
+- P3 방송일·원본 방송·setlist·공개 read model, P1 이후의 별도 capability
 
 ## 13. 품질 및 정책 요구사항
 
@@ -676,7 +695,7 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 과거 문서인 archive/music-player-member-mvp-review.md의 회원 전용, 단일 트랙
 중심 모델과 MVP 플레이리스트 가능성은 현재 요구사항으로 간주하지 않는다.
 
-## 16. 구현 착수 전 미결정 사항
+## 16. 미결정 사항과 해결 이력
 
 | ID | 항목 | 현재 권장안 |
 | --- | --- | --- |
@@ -688,14 +707,15 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 | TBD-013 | 거절 사유 및 승인 결과를 회원에게 알리는 방식 | DEC-045로 해결: 상태와 일반 문의 안내만 표시, 내부 code·note 비공개 |
 | TBD-014 | 회원별 제출 빈도와 중복·스팸 제한 | DEC-045로 해결: KST 일 5회, edge 60초당 3회, 동일 pending/catalog video 차단 |
 | TBD-015 | playlist import의 private playlist OAuth 지원 | DEC-056으로 해결: private는 제품 범위에서 제외하고 public·unlisted만 지원 |
-| TBD-016 | channel 자동화 canary와 과거 backfill 범위 | DEC-057로 기본 정책 해결: approved 노래 clip channel 1개, backfill 0, 필요 시 최근 20개 수동 import. 실제 channel ID는 운영 전 지정 필요 |
+| TBD-016 | channel 자동화 canary와 과거 backfill 범위 | DEC-057로 해결: approved 노래 clip channel 1개, backfill 0, 필요 시 최근 20개 수동 import |
 | TBD-017 | 상세 credit 최초 role·출처 범위 | DEC-058로 해결: OTW 멤버의 가창·작사·작곡·편곡·제작 참여만 공식 출처로 검수하고 외부 음악 관계자 상세 credit은 제외 |
 | TBD-018 | 다채널 YouTube API Data aggregation·Made for Kids·branding compliance | approved clip channel production 확대 전 채널 권리·운영 관계와 YouTube API compliance 확인 필수 |
-| TBD-019 | 최초 자동 구독 노래 clip channel | 실제 channel URL/ID, 운영 주체, clip 사용·게시 승인 범위를 운영 전에 확인 |
+| TBD-019 | 최초 자동 구독 노래 clip channel | 해결: 메일 서면 동의를 받은 정확한 채널을 승인·monitor·WebSub 구독 대상으로 등록. 실제 ID와 운영 연락 정보는 문서가 아니라 권위 운영 데이터로 보존 |
 
 기존 TBD-002는 DEC-019로 해결되었다. TBD-001·003·006·007·008은 DEC-029로,
 TBD-010은 DEC-044로, TBD-013·014는 DEC-045로, TBD-012는 DEC-054로,
-TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
+TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로, TBD-019는 DEC-064~066과
+production WebSub 설정으로 해결되었다.
 공개 catalog API는 익명이고 회원 제안은 로그인, 검수와 공개 상태 변경은 관리자
 권한을 사용한다.
 
@@ -782,6 +802,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-27 | DEC-068 확정. 승인 채널 작업면에서 미참조 외부 인물·그룹 identity의 영구 삭제를 제공하고, 멤버 기반 또는 곡·가창·채널·projection·제안·비종료 후보 검수 참조 대상은 서버에서 차단. 별칭·event·두 revision의 원자성을 삭제 계약에 포함 |
 | 2026-08-27 | DEC-069 확정. playlist 후보 검수와 `singing_clip` 자동 검수의 신규 곡 입력에 공통 음악 라벨 추가·자유 입력·삭제와 저장값 복원을 제공하고, 기존 곡은 권위 라벨을 읽기 전용으로 표시 |
 | 2026-08-27 | DEC-066 보완. 신규 승인 채널 등록에서는 주체 선택을 계속 제외하되, 기존 채널 편집 화면에 현재 연결 표시·검색·교체·해제·명시적 확인을 추가하고 변경 전후 entity ID를 `channel.updated` 감사 event에 기록 |
+| 2026-08-27 | PR #76–#84 구현 closeout. WebSub 설정, `singing_clip` 비공개 draft 검수, 외부 identity 삭제, 신규 곡 라벨, 승인 채널 연결 주체 교정과 migration `0064` production 적용을 완료로 분류. 실제 신규 upload canary와 공개 flag 전환은 별도 운영 gate로 유지 |
 
 ## 19. 참고
 

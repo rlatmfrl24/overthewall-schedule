@@ -1,8 +1,8 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` 설계 기준선
+상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 공개 `0/0` 설계 기준선
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -1700,6 +1700,9 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 
 ## 19. PR-9 closeout과 WebSub 전달 경계
 
+이 절은 2026-08-26 당시의 production aggregate와 장애 진단 snapshot을 보존한다.
+이후 완료된 구현과 현재 잔여 gate는 20절을 권위로 사용한다.
+
 - PR-9A~C의 회원 proposal 수정·철회, playlist ingestion job/candidate, Queue/DLQ,
   관리자 검수·draft 변환 흐름은 production에 반영되었다. P0-B의 6시간·최대 250개
   uploads playlist polling monitor도 구현·배포되었다. 현재 변경에서 `singing_clip`은
@@ -1746,3 +1749,23 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
   `converted`·`linked_performance_id`·audit event를 같은 D1 batch에서 반영한다. 허용 조합은
   `singing_clip + approved_kirinuki + broadcast + kirinuki + draft`뿐이며 원본 방송 연결,
   방송일·setlist와 public projection은 P3까지 범위 밖이다.
+
+## 20. 2026-08-27 구현 closeout
+
+다음 설계 slice는 구현·병합과 production Worker build를 완료했다.
+
+- WebSub subscription·callback·renewal·unsubscribe, daily recent-50 reconciliation,
+  최근 1~20개 backfill, false-active 복구와 안전한 hub 오류 보존
+- `singing_clip` candidate review에서 곡·원곡 가수·가창자·역할·segment를 확정하고
+  비공개 `broadcast + kirinuki` draft와 candidate terminal state를 한 D1 batch로 저장
+- 외부 identity 삭제 시 곡·가창·채널·projection·proposal·비종료 candidate review
+  참조를 모두 확인하고 alias·event·revision을 원자 정리
+- 후보 검수와 회원 제안의 song tag 저장·복원, 기존 곡 tag 권위 보존
+- 기존 승인 채널의 `music_channel_entities` 교정과 변경 전후 `channel.updated` event
+
+구독 설정 완료는 실제 신규 upload delivery 완료와 구분한다. P0-B E2E closeout은
+`WebSub → callback → Queue → videos.list → singing_clip candidate → reviewed draft`의
+production readback을 요구한다. 또한 migration `0064`의 production 적용과
+`music_cover_proposals.submitted_tags_json` readback은 운영자 확인으로 완료 처리했다.
+공개 config의 2026-08-27 readback은 catalog revision `24`, flag `0/0`이며 P3의
+원본 방송·방송일·setlist·public projection은 계속 후속 범위다.

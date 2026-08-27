@@ -1,8 +1,8 @@
 # OTW Play UI/UX 설계
 
-상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` UI/UX 기준선
+상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 공개 `0/0` UI/UX 기준선
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -794,6 +794,9 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 
 ### 19.7 PR-9 운영 UI closeout
 
+이 절의 production row 수는 2026-08-26 당시 snapshot이다. 이후 완료된 화면은
+19.8절을 권위로 사용한다.
+
 - playlist 수집 진행률, Queue 완료 readback, candidate 검수·보완·일괄 제외와 ready
   candidate의 draft 변환은 구현·배포되었다. 6시간 channel monitor의 `singing_clip`은
   현재 변경에서 제외뿐 아니라 개별 `검수·등록`으로 곡·가창자·segment를 확인하고
@@ -810,3 +813,20 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   GATE-08은 해결되었다. 등록 폼은 채널 ID와 추가 action만 제공하며 운영 주체·승인
   근거·해제 절차·권리 checkbox를 반복 입력시키지 않는다. 등록 뒤 화면은 수집 상태와
   WebSub 구독·갱신·해제 관리에 집중한다.
+
+### 19.8 2026-08-27 운영 화면 closeout
+
+- `승인 채널`은 등록과 기존 행 편집을 분리한다. 신규 등록은 채널 ID 조회와 권위
+  표시명·역할만 받으며, 기존 행 편집에서만 현재 연결 주체를 표시하고 검색·교체·해제한다.
+  연결 변경은 영향 안내 confirm과 권위 catalog 재조회 뒤 완료한다.
+- 외부 인물·그룹 목록은 참조 상태와 삭제 불가 이유를 표시하고, 미참조 row만 영구 삭제
+  confirm을 제공한다. 멤버 identity는 삭제 대상으로 노출하지 않는다.
+- playlist 후보와 `노래 클립 자동 후보`의 신규 곡은 같은 tag picker를 사용해 추천값·
+  자유 입력·삭제·복원을 제공한다. 기존 곡은 권위 tag를 읽기 전용으로 표시한다.
+- `singing_clip` 후보는 같은 monitor surface에서 `검수·등록` dialog로 곡·원곡 가수·
+  가창자·역할·segment를 입력하고 비공개 draft를 만든다. catalog loading 실패 시에도
+  monitor·WebSub·대조·제외 control은 계속 접근할 수 있다.
+- migration `0064` production 적용과 신규 곡 label 저장 column readback은 운영자 확인으로
+  완료 처리했다.
+  구현 완료 화면과 별개로 실제 신규 upload canary와 공개 `0/0 → 1/0 → 1/1` 전환은
+  운영 gate로 유지한다.
