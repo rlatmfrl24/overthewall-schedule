@@ -117,34 +117,34 @@ describe("app navigation", () => {
     expect(multiviewItem?.to).toBe("/multiview");
   });
 
-  it("shows the catalog OTW Play entry only to admins when the navigation gate is open", () => {
+  it("applies the anonymous OTW Play navigation flag independently from preview", () => {
     const hidden = getPublicNavigationSections({
       isAdmin: false,
       memberPosts: { visible: false, requiresAuth: false },
-      otwPlayVisible: false,
+      otwPlayNavigationVisible: false,
     });
     const nonAdmin = getPublicNavigationSections({
       isAdmin: false,
       memberPosts: { visible: false, requiresAuth: false },
-      otwPlayVisible: true,
+      otwPlayNavigationVisible: true,
     });
     const visible = getPublicNavigationSections({
-      isAdmin: true,
+      isAdmin: false,
       memberPosts: { visible: false, requiresAuth: false },
-      otwPlayVisible: true,
+      otwPlayNavigationVisible: true,
     });
     expect(
       hidden.flatMap(({ items }) => items).some(({ id }) => id === "otw-play"),
     ).toBe(false);
     expect(
-      nonAdmin.flatMap(({ items }) => items).some(({ id }) => id === "otw-play"),
-    ).toBe(false);
+      nonAdmin.flatMap(({ items }) => items).find(({ id }) => id === "otw-play")?.to,
+    ).toBe("/play");
     expect(
       visible.flatMap(({ items }) => items).find(({ id }) => id === "otw-play")?.to,
     ).toBe("/play");
   });
 
-  it("uses one OTW Play entry for signed-in members and admins", () => {
+  it("uses one OTW Play entry for signed-in members and administrator preview", () => {
     const signedOut = getPublicNavigationSections({
       isAdmin: false,
       isSignedIn: false,
@@ -159,7 +159,8 @@ describe("app navigation", () => {
       isAdmin: true,
       isSignedIn: true,
       memberPosts: { visible: false, requiresAuth: false },
-      otwPlayVisible: true,
+      otwPlayNavigationVisible: false,
+      otwPlayAdminPreviewAvailable: true,
     });
     const items = (sections: typeof member) =>
       sections.flatMap((section) => section.items);
@@ -174,6 +175,18 @@ describe("app navigation", () => {
     expect(items(admin).filter(({ id }) => id === "otw-play")).toHaveLength(1);
     expect(items(admin).some(({ id }) => id === "otw-play-submit")).toBe(false);
     expect(items(admin).find(({ id }) => id === "otw-play")?.to).toBe("/play");
+  });
+
+  it("sends signed-in members to the public catalog when navigation is open", () => {
+    const member = getPublicNavigationSections({
+      isAdmin: false,
+      isSignedIn: true,
+      memberPosts: { visible: false, requiresAuth: false },
+      otwPlayNavigationVisible: true,
+    }).flatMap((section) => section.items).find(({ id }) => id === "otw-play");
+
+    expect(member).toMatchObject({ to: "/play" });
+    expect(member?.requiresAuth).toBeUndefined();
   });
 
   it("keeps the unified OTW Play item active across proposal routes", () => {

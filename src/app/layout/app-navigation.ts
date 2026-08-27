@@ -64,7 +64,8 @@ type PublicNavigationOptions = {
   isAdmin: boolean;
   isSignedIn?: boolean;
   memberPosts: MemberPostsNavState;
-  otwPlayVisible?: boolean;
+  otwPlayNavigationVisible?: boolean;
+  otwPlayAdminPreviewAvailable?: boolean;
 };
 
 const FAN_CAFE_URL = "https://cafe.naver.com/otwoffical";
@@ -115,8 +116,16 @@ export function getPublicNavigationSections({
   isAdmin,
   isSignedIn = false,
   memberPosts,
-  otwPlayVisible = false,
+  otwPlayNavigationVisible = false,
+  otwPlayAdminPreviewAvailable = false,
 }: PublicNavigationOptions): NavSection[] {
+  const otwPlayDestination: InternalNavTo | null = otwPlayNavigationVisible
+    ? "/play"
+    : isAdmin && otwPlayAdminPreviewAvailable
+      ? "/play"
+      : !isAdmin && isSignedIn
+        ? "/play/submit"
+        : null;
   const sections: NavSection[] = [
     {
       id: "schedule",
@@ -156,15 +165,16 @@ export function getPublicNavigationSections({
           group: "content",
           to: "/vods",
         },
-        ...((isAdmin && otwPlayVisible) || (!isAdmin && isSignedIn)
+        ...(otwPlayDestination
           ? [
               {
                 id: "otw-play",
                 label: "OTW Play",
                 icon: Music2,
                 group: "content" as const,
-                to: (isAdmin ? "/play" : "/play/submit") as InternalNavTo,
-                requiresAuth: !isAdmin || undefined,
+                to: otwPlayDestination,
+                requiresAuth:
+                  otwPlayDestination === "/play/submit" ? true : undefined,
               },
             ]
           : []),
@@ -230,9 +240,9 @@ export function usePublicNavigationSections() {
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();
   const otwPlayConfig = useOtwPlayConfig({
-    enabled: isAdmin,
-    adminPreview: true,
+    enabled: true,
   });
+  const otwPlayFlags = otwPlayConfig.data?.data;
 
   return getPublicNavigationSections({
     isAdmin,
@@ -242,7 +252,10 @@ export function usePublicNavigationSections() {
       cafeEnabled: cafePostsEnabled,
       cafeVisibility: cafePostsVisibility,
     }),
-    otwPlayVisible: Boolean(otwPlayConfig.data),
+    otwPlayNavigationVisible: Boolean(
+      otwPlayFlags?.publicReadEnabled && otwPlayFlags.navigationVisible,
+    ),
+    otwPlayAdminPreviewAvailable: Boolean(isAdmin && otwPlayFlags),
   });
 }
 
