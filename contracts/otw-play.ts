@@ -168,9 +168,11 @@ export interface OtwPlayIngestionJobCountsDto {
 export interface OtwPlayIngestionJobDto {
   id: string;
   playlistId: string;
-  playlistTitle: string;
+  playlistTitle: string | null;
   playlistOwnerChannelId: string;
-  playlistOwnerChannelTitle: string;
+  playlistOwnerChannelTitle: string | null;
+  sourceMetadataCheckedAt: number | null;
+  retentionExpiresAt: number | null;
   mode: OtwPlayPlaylistImportMode;
   rangeStartPosition: number;
   rangeEndExclusive: number;
@@ -224,7 +226,19 @@ export interface OtwPlayWebsubSubscriptionDto {
   leaseExpiresAt: number | null;
   lastNotificationAt: number | null;
   lastErrorCode: string | null;
+  effectiveActive: boolean;
+  recoveryReason: string | null;
   version: number;
+}
+
+export interface OtwPlayDeliveryHealthDto {
+  pendingCount: number;
+  failedCount: number;
+  deadLetterCount: number;
+  lastReceivedAt: number | null;
+  lastProcessedAt: number | null;
+  lastFailedAt: number | null;
+  lastErrorCode: string | null;
 }
 
 export interface OtwPlayChannelMonitorDto {
@@ -245,6 +259,8 @@ export interface OtwPlayChannelMonitorDto {
   subscription: OtwPlayWebsubSubscriptionDto | null;
   candidateCount: number;
   pendingCandidateCount: number;
+  previousGenerationPendingCount: number;
+  deliveryHealth: OtwPlayDeliveryHealthDto;
   generation: number;
   version: number;
   createdAt: number;
@@ -268,6 +284,8 @@ export interface OtwPlayChannelMonitorCandidateDto {
   reviewInput: OtwPlayIngestionReviewInput | null;
   linkedPerformanceId: string | null;
   discoveredAt: number;
+  monitorGeneration: number;
+  retentionExpiresAt: number;
 }
 
 export interface OtwPlayChannelMonitorCandidatePageDto {
@@ -346,6 +364,7 @@ export interface OtwPlayIngestionCandidateItemDto {
   availabilityStatus: OtwPlaySourceAvailabilityStatus;
   madeForKids: boolean | null;
   metadataCheckedAt: number | null;
+  retentionExpiresAt: number;
   reviewInput: OtwPlayIngestionReviewInput | null;
   lastConversionOutcome: OtwPlayIngestionConversionOutcome | null;
   lastConversionErrorCode: string | null;

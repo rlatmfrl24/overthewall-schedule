@@ -18,17 +18,24 @@ import type {
 export type IngestionRepositoryErrorCode =
   | "not_found"
   | "idempotency_conflict"
+  | "stale_write"
   | "stale_message"
   | "validation_failed"
   | "unavailable";
 
 export class IngestionRepositoryError extends Error {
   readonly code: IngestionRepositoryErrorCode;
+  readonly fields?: Record<string, string>;
 
-  constructor(code: IngestionRepositoryErrorCode, message: string) {
+  constructor(
+    code: IngestionRepositoryErrorCode,
+    message: string,
+    fields?: Record<string, string>,
+  ) {
     super(message);
     this.name = "IngestionRepositoryError";
     this.code = code;
+    this.fields = fields;
   }
 }
 

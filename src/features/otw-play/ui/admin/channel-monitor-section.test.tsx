@@ -2,6 +2,7 @@
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/shared/api/client";
 import { createQueryWrapper } from "@/test/query-client";
 import { ChannelMonitorSection } from "./channel-monitor-section";
 
@@ -17,6 +18,7 @@ const backfillMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
 const candidatesQueryMock = vi.hoisted(() => vi.fn());
+const previousCandidatesQueryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../api/admin", () => ({
   createOtwPlayChannelMonitor: createMonitorMock,
@@ -33,6 +35,7 @@ vi.mock("../../api/admin", () => ({
 vi.mock("../../queries/use-admin-catalog", () => ({
   useOtwPlayChannelMonitors: monitorsQueryMock,
   useOtwPlayChannelMonitorCandidates: candidatesQueryMock,
+  useOtwPlayPreviousGenerationCandidates: previousCandidatesQueryMock,
 }));
 
 const monitor = {
@@ -64,6 +67,16 @@ const monitor = {
     subscription: null,
     candidateCount: 1,
     pendingCandidateCount: 1,
+    previousGenerationPendingCount: 0,
+    deliveryHealth: {
+      pendingCount: 0,
+      failedCount: 0,
+      deadLetterCount: 0,
+      lastReceivedAt: null,
+      lastProcessedAt: null,
+      lastFailedAt: null,
+      lastErrorCode: null,
+    },
     generation: 0,
     version: 2,
     createdAt: 100,
@@ -101,9 +114,20 @@ beforeEach(() => {
         reviewInput: null,
         linkedPerformanceId: null,
         discoveredAt: 160,
+        monitorGeneration: 0,
+        retentionExpiresAt: Date.now() + 30 * 86_400_000,
       }],
       nextCursor: null,
     }] },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  });
+  previousCandidatesQueryMock.mockReturnValue({
+    data: { pages: [{ items: [], nextCursor: null }] },
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
@@ -316,17 +340,49 @@ describe("ChannelMonitorSection", () => {
     ));
   });
 
+  it("preserves edited channel input after a stale-write refetch", async () => {
+    updateMonitorMock.mockRejectedValueOnce(new ApiError(
+      "stale",
+      409,
+      {
+        code: "PLAY_ADMIN_STALE_WRITE",
+        fields: { expectedVersion: "2", actualVersion: "3" },
+      },
+    ));
+    render(createElement(ChannelMonitorSection, sectionProps), {
+      wrapper: createQueryWrapper(),
+    });
+    const input = screen.getByLabelText("채널 ID 수정") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { value: "UC2222222222222222222222" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      variant: "error",
+      description: expect.stringContaining("입력은 유지했습니다. (요청 2, 현재 3)"),
+    })));
+    expect(input.value).toBe("UC2222222222222222222222");
+  });
+
   it("shows subscription state and runs explicit WebSub and bounded backfill actions", async () => {
     monitorsQueryMock.mockReturnValue({
       data: [{
         ...monitor,
         lastRecentReconciledAt: 1756101600000,
         subscription: {
+          id: "subscription-1",
           status: "active",
+          pendingMode: null,
+          secretVersion: 1,
+          requestedAt: 1756099000000,
           verifiedAt: 1756100000000,
           leaseExpiresAt: 1756274400000,
           lastNotificationAt: 1756105200000,
           lastErrorCode: null,
+          effectiveActive: true,
+          recoveryReason: null,
+          version: 1,
         },
       }],
       isLoading: false,

@@ -8,6 +8,11 @@ export const PLAY_TELEMETRY_EVENTS = [
   "play.catalog.updated",
   "play.source.unavailable",
   "play.source.recovered",
+  "play.source.checked",
+  "play.ingestion.updated",
+  "play.monitor.updated",
+  "play.websub.received",
+  "play.websub.updated",
   "play.youtube.verify_failed",
   "play.concurrent_write_conflict",
   "play.release.updated",
@@ -24,7 +29,8 @@ export type PlayTelemetryTrigger =
   | "PUT"
   | "PATCH"
   | "DELETE"
-  | "scheduled";
+  | "scheduled"
+  | "queue";
 
 export interface PlayTelemetryEvent {
   schemaVersion: 1;

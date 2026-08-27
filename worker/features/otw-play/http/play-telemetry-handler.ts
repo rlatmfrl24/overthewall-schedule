@@ -32,6 +32,10 @@ const decodeResourceId = (pathname: string) => {
 const routeId = (pathname: string) =>
   pathname
     .replace(
+      /\/webhooks\/youtube\/[^/]+(?=\/|$)/u,
+      "/webhooks/youtube/:token",
+    )
+    .replace(
       /(\/(?:admin\/)?(?:submissions|performances|sources))\/[^/]+(?=\/|$)/u,
       "$1/:id",
     )
@@ -58,7 +62,7 @@ const sourceTransitionEvent = (
     };
   }
   if (response.check?.status !== "checked" || !response.check.changed) {
-    return { event: "play.catalog.updated", recordKind: "request" };
+    return { event: "play.source.checked", recordKind: "request" };
   }
   const previous = response.check.previousAvailability;
   const current = response.check.currentAvailability;
@@ -103,9 +107,30 @@ const successEvent = async (
   }
   if (/\/sources\/[^/]+\/recheck$/u.test(pathname)) {
     return sourceTransitionEvent(await readSafeResponse(response)) ?? {
-      event: "play.catalog.updated",
+      event: "play.source.checked",
       recordKind: "request",
     };
+  }
+  if (pathname.includes("/webhooks/youtube/")) {
+    return { event: "play.websub.received" };
+  }
+  if (/\/channel-monitors\/[^/]+\/(?:subscribe|renew|unsubscribe)$/u.test(pathname)) {
+    return { event: "play.websub.updated" };
+  }
+  if (pathname.includes("/admin/channel-monitors")) {
+    return request.method === "GET"
+      ? { event: "play.catalog.read", recordKind: "request" }
+      : { event: "play.monitor.updated" };
+  }
+  if (pathname.includes("/admin/import")) {
+    return request.method === "GET"
+      ? { event: "play.catalog.read", recordKind: "request" }
+      : { event: "play.ingestion.updated" };
+  }
+  if (pathname === "/api/play/admin/release") {
+    return request.method === "GET"
+      ? { event: "play.catalog.read", recordKind: "request" }
+      : { event: "play.release.updated" };
   }
   if (
     pathname.startsWith("/api/play/admin/") &&

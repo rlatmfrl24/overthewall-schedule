@@ -11,8 +11,17 @@ const XML_CONTENT_TYPES = new Set([
 ]);
 const noStoreHeaders = { "Cache-Control": "no-store" };
 
-const jsonError = (status: number, code: string, message: string) =>
-  Response.json({ error: { code, message } }, { status, headers: noStoreHeaders });
+const jsonError = (
+  requestId: string,
+  status: number,
+  code: "PLAY_ADMIN_INVALID_REQUEST" | "PLAY_ADMIN_NOT_FOUND" |
+    "PLAY_ADMIN_VALIDATION_FAILED" | "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE" |
+    "PLAY_ADMIN_INTERNAL_ERROR",
+  message: string,
+) => Response.json(
+  { error: { code, message, requestId } },
+  { status, headers: noStoreHeaders },
+);
 
 const readEmptyObject = async (request: Request) => {
   try {
@@ -134,7 +143,7 @@ export const createWebsubCallbackHandler = (
     return new Response(null, { status: 204, headers: noStoreHeaders });
   } catch (error) {
     if (error instanceof WebsubError) {
-      if (error.code === "not_found") {
+      if (error.code === "not_found" || error.code === "authority_denied") {
         return new Response("Not Found", { status: 404, headers: noStoreHeaders });
       }
       if (error.retryable) {
@@ -164,14 +173,15 @@ const adminAction = (pathname: string) => {
 export const createWebsubAdminHandler = (
   resolveService: (env: Env) => WebsubService,
 ) => async (request: Request, env: Env): Promise<Response> => {
+  const requestId = request.headers.get("CF-Ray")?.trim() || crypto.randomUUID();
   const auth = await requireAdminUser(request, env);
   if (!auth.ok) return auth.response;
   const action = adminAction(new URL(request.url).pathname);
   if (request.method !== "POST" || !action) {
-    return jsonError(404, "PLAY_ADMIN_NOT_FOUND", "WebSub action not found");
+    return jsonError(requestId, 404, "PLAY_ADMIN_NOT_FOUND", "WebSub action not found");
   }
   if (!await readEmptyObject(request)) {
-    return jsonError(400, "PLAY_ADMIN_INVALID_REQUEST", "An empty object is required");
+    return jsonError(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "An empty object is required");
   }
   try {
     const service = resolveService(env);
@@ -183,13 +193,22 @@ export const createWebsubAdminHandler = (
     return Response.json({ data }, { headers: noStoreHeaders });
   } catch (error) {
     if (error instanceof WebsubError) {
-      const status = error.code === "not_found"
-        ? 404
-        : error.retryable
-          ? 503
-          : 409;
-      return jsonError(status, `PLAY_WEBSUB_${error.code.toUpperCase()}`, error.message);
+      if (error.code === "not_found") {
+        return jsonError(requestId, 404, "PLAY_ADMIN_NOT_FOUND", error.message);
+      }
+      if (error.code === "invalid_request") {
+        return jsonError(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", error.message);
+      }
+      if (error.code === "authority_denied") {
+        return jsonError(requestId, 409, "PLAY_ADMIN_VALIDATION_FAILED", error.message);
+      }
+      return jsonError(
+        requestId,
+        503,
+        "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        error.message,
+      );
     }
-    return jsonError(500, "PLAY_ADMIN_INTERNAL_ERROR", "WebSub action failed");
+    return jsonError(requestId, 500, "PLAY_ADMIN_INTERNAL_ERROR", "WebSub action failed");
   }
 };

@@ -7,6 +7,7 @@ import type {
 import { Bell, BellOff, ClipboardCheck, EyeOff, Loader2, Pause, Play, Radar, RefreshCw, Trash2 } from "lucide-react";
 import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
+import { ApiError } from "@/shared/api/client";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
@@ -27,11 +28,18 @@ import {
 import {
   useOtwPlayChannelMonitorCandidates,
   useOtwPlayChannelMonitors,
+  useOtwPlayPreviousGenerationCandidates,
 } from "../../queries/use-admin-catalog";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
 
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
+const formatRetention = (value: number) => {
+  const remainingDays = Math.ceil((value - Date.now()) / (24 * 60 * 60 * 1000));
+  return remainingDays > 0
+    ? `${remainingDays}일 남음`
+    : `만료됨 · ${new Date(value).toLocaleString("ko-KR")}`;
+};
 const YOUTUBE_CHANNEL_ID_PATTERN = /^UC[A-Za-z0-9_-]{22}$/;
 const candidateStatusLabels = {
   discovered: "검수 대기",
@@ -100,20 +108,23 @@ export function ChannelMonitorSection({
   const [newChannelId, setNewChannelId] = useState("");
   const [backfillCount, setBackfillCount] = useState("1");
   const [editChannelId, setEditChannelId] = useState("");
+  const [editChannelDirty, setEditChannelDirty] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [reviewCandidate, setReviewCandidate] =
     useState<OtwPlayChannelMonitorCandidateDto | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const candidatesQuery = useOtwPlayChannelMonitorCandidates(selectedMonitorId);
+  const previousCandidatesQuery = useOtwPlayPreviousGenerationCandidates(
+    selectedMonitorId,
+  );
   const monitors = useMemo(() => monitorsQuery.data ?? [], [monitorsQuery.data]);
   const normalizedNewChannelId = newChannelId.trim();
   const newChannelAlreadyMonitored = monitors.some(
     (monitor) => monitor.externalChannelId === normalizedNewChannelId,
   );
   const selectedMonitor = monitors.find((monitor) => monitor.id === selectedMonitorId) ?? null;
-  const verifiedSubscriptionActive = selectedMonitor?.subscription?.status === "active" &&
-    selectedMonitor.subscription.verifiedAt !== null &&
-    selectedMonitor.subscription.leaseExpiresAt !== null;
+  const verifiedSubscriptionActive =
+    selectedMonitor?.subscription?.effectiveActive === true;
   const transportReleased = !selectedMonitor?.subscription ||
     ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status) ||
     (selectedMonitor.subscription.status === "active" && !verifiedSubscriptionActive);
@@ -128,6 +139,10 @@ export function ChannelMonitorSection({
   const candidates = useMemo(
     () => candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [candidatesQuery.data],
+  );
+  const previousCandidates = useMemo(
+    () => previousCandidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [previousCandidatesQuery.data],
   );
 
   useEffect(() => {
@@ -148,16 +163,33 @@ export function ChannelMonitorSection({
   }, [monitors, selectedMonitorId]);
 
   useEffect(() => {
-    setEditChannelId(selectedMonitor?.externalChannelId ?? "");
-  }, [selectedMonitor?.externalChannelId, selectedMonitor?.id]);
+    if (!editChannelDirty) {
+      setEditChannelId(selectedMonitor?.externalChannelId ?? "");
+    }
+  }, [editChannelDirty, selectedMonitor?.externalChannelId, selectedMonitor?.id]);
 
   const refresh = async (monitorId = selectedMonitorId) => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.channelMonitors() });
     if (monitorId) {
       await queryClient.invalidateQueries({
-        queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId),
+        queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId, "current"),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId, "previous"),
       });
     }
+  };
+
+  const handleMutationError = async (error: unknown, fallback: string) => {
+    if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
+      await refresh();
+      toast({
+        variant: "error",
+        description: `다른 작업이 먼저 반영되어 최신 상태를 다시 불러왔습니다. 입력은 유지했습니다. (요청 ${error.fields?.expectedVersion ?? "?"}, 현재 ${error.fields?.actualVersion ?? "?"})`,
+      });
+      return;
+    }
+    toast({ variant: "error", description: fallback });
   };
 
   const createMonitor = async () => {
@@ -201,16 +233,17 @@ export function ChannelMonitorSection({
         expectedVersion: selectedMonitor.version,
         externalChannelId,
       });
+      setEditChannelDirty(false);
       await refresh();
       toast({
         variant: "success",
         description: "수집 대상 채널을 변경하고 새 채널의 최신 영상을 기준점으로 저장했습니다.",
       });
-    } catch {
-      toast({
-        variant: "error",
-        description: "채널 ID를 수정하지 못했습니다. 승인 상태와 최신 버전을 확인해 주세요.",
-      });
+    } catch (error) {
+      await handleMutationError(
+        error,
+        "채널 ID를 수정하지 못했습니다. 승인 상태와 최신 버전을 확인해 주세요.",
+      );
     } finally {
       setBusy(null);
     }
@@ -227,11 +260,11 @@ export function ChannelMonitorSection({
       setSelectedMonitorId(null);
       await refresh(null);
       toast({ variant: "success", description: "수집 대상 채널을 삭제했습니다." });
-    } catch {
-      toast({
-        variant: "error",
-        description: "수집 대상을 삭제하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
-      });
+    } catch (error) {
+      await handleMutationError(
+        error,
+        "수집 대상을 삭제하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
+      );
     } finally {
       setBusy(null);
     }
@@ -246,8 +279,11 @@ export function ChannelMonitorSection({
         status: selectedMonitor.status === "active" ? "paused" : "active",
       });
       await refresh();
-    } catch {
-      toast({ variant: "error", description: "감시 상태를 변경하지 못했습니다. 최신 상태를 다시 확인해 주세요." });
+    } catch (error) {
+      await handleMutationError(
+        error,
+        "감시 상태를 변경하지 못했습니다. 최신 상태를 다시 확인해 주세요.",
+      );
     } finally {
       setBusy(null);
     }
@@ -285,11 +321,11 @@ export function ChannelMonitorSection({
         variant: "success",
         description: "현재 최신 영상을 새 기준점으로 저장하고 감시를 재개했습니다.",
       });
-    } catch {
-      toast({
-        variant: "error",
-        description: "기준점을 재설정하지 못했습니다. 채널 승인과 최신 상태를 확인해 주세요.",
-      });
+    } catch (error) {
+      await handleMutationError(
+        error,
+        "기준점을 재설정하지 못했습니다. 채널 승인과 최신 상태를 확인해 주세요.",
+      );
     } finally {
       setBusy(null);
     }
@@ -420,7 +456,10 @@ export function ChannelMonitorSection({
                 <button
                   type="button"
                   key={monitor.id}
-                  onClick={() => setSelectedMonitorId(monitor.id)}
+                  onClick={() => {
+                    setEditChannelDirty(false);
+                    setSelectedMonitorId(monitor.id);
+                  }}
                   className={`w-full rounded-xl border p-4 text-left transition-colors ${
                     monitor.id === selectedMonitorId ? "border-primary bg-primary/5" : "hover:bg-muted/40"
                   }`}
@@ -440,6 +479,11 @@ export function ChannelMonitorSection({
                   <p className="mt-1 text-xs text-muted-foreground">
                     미처리 {monitor.pendingCandidateCount}개 · 누적 {monitor.candidateCount}개
                   </p>
+                  {monitor.previousGenerationPendingCount > 0 ? (
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                      이전 generation 미처리 {monitor.previousGenerationPendingCount}개
+                    </p>
+                  ) : null}
                   {monitor.lastErrorCode ? (
                     <p className="mt-2 text-xs text-destructive">
                       {monitorErrorLabel(monitor.lastErrorCode)}
@@ -528,6 +572,20 @@ export function ChannelMonitorSection({
                       <p>lease 만료 <strong>{formatAt(selectedMonitor.subscription?.leaseExpiresAt ?? null)}</strong></p>
                       <p>마지막 알림 <strong>{formatAt(selectedMonitor.subscription?.lastNotificationAt ?? null)}</strong></p>
                       <p>최근 50개 대조 <strong>{formatAt(selectedMonitor.lastRecentReconciledAt)}</strong></p>
+                      <p>delivery 대기 <strong>{selectedMonitor.deliveryHealth.pendingCount}</strong></p>
+                      <p>delivery 실패 / DLQ <strong>{selectedMonitor.deliveryHealth.failedCount} / {selectedMonitor.deliveryHealth.deadLetterCount}</strong></p>
+                      <p>마지막 수신 <strong>{formatAt(selectedMonitor.deliveryHealth.lastReceivedAt)}</strong></p>
+                      <p>마지막 처리 <strong>{formatAt(selectedMonitor.deliveryHealth.lastProcessedAt)}</strong></p>
+                      {selectedMonitor.subscription?.recoveryReason ? (
+                        <p className="text-destructive sm:col-span-2">
+                          구독 복구 사유: {selectedMonitor.subscription.recoveryReason}
+                        </p>
+                      ) : null}
+                      {selectedMonitor.deliveryHealth.lastErrorCode ? (
+                        <p className="text-destructive sm:col-span-2">
+                          delivery 오류: {selectedMonitor.deliveryHealth.lastErrorCode} · {formatAt(selectedMonitor.deliveryHealth.lastFailedAt)}
+                        </p>
+                      ) : null}
                       {selectedMonitor.subscription?.lastErrorCode ? (
                         <p className="text-destructive sm:col-span-2">
                           구독 오류: {subscriptionErrorLabel(selectedMonitor.subscription.lastErrorCode)}
@@ -567,7 +625,10 @@ export function ChannelMonitorSection({
                           id="edit-monitor-channel-id"
                           className="h-10 font-mono"
                           value={editChannelId}
-                          onChange={(event) => setEditChannelId(event.target.value)}
+                          onChange={(event) => {
+                            setEditChannelDirty(true);
+                            setEditChannelId(event.target.value);
+                          }}
                           aria-invalid={!YOUTUBE_CHANNEL_ID_PATTERN.test(editChannelId.trim())}
                         />
                         <Button
@@ -636,6 +697,9 @@ export function ChannelMonitorSection({
                           <p className="mt-2 text-xs text-muted-foreground">
                             업로드 {formatAt(candidate.publishedAt)} · 관리자 검수 후 비공개 draft 생성
                           </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            API metadata 보존 {formatRetention(candidate.retentionExpiresAt)}
+                          </p>
                         </div>
                         <div className="flex shrink-0 flex-col gap-2">
                           <Button
@@ -689,6 +753,55 @@ export function ChannelMonitorSection({
                           이전 미처리 영상 더 보기
                         </Button>
                       </div>
+                    ) : null}
+                    {selectedMonitor.previousGenerationPendingCount > 0 ||
+                    previousCandidatesQuery.isLoading ||
+                    previousCandidatesQuery.isError ? (
+                      <section
+                        aria-label="이전 generation 미처리 후보"
+                        className="space-y-3 border-t bg-amber-50/40 p-4 dark:bg-amber-950/10"
+                      >
+                        <div>
+                          <h3 className="font-semibold">
+                            이전 generation 미처리 {selectedMonitor.previousGenerationPendingCount}개
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            현재 generation inbox와 분리된 운영 목록입니다. 전환 시 재삽입하지 않습니다.
+                          </p>
+                        </div>
+                        {previousCandidatesQuery.isLoading ? (
+                          <p className="text-sm text-muted-foreground">이전 후보를 불러오는 중입니다.</p>
+                        ) : previousCandidatesQuery.isError ? (
+                          <div className="flex items-center gap-2 text-sm text-destructive">
+                            이전 후보를 불러오지 못했습니다.
+                            <Button size="sm" variant="outline" onClick={() => void previousCandidatesQuery.refetch()}>
+                              다시 불러오기
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {previousCandidates.map((candidate) => (
+                              <div key={`${candidate.monitorGeneration}:${candidate.candidateId}`} className="flex items-center gap-3 rounded-lg border bg-background p-3">
+                                <div className="min-w-0 flex-1">
+                                  <a className="line-clamp-1 font-medium hover:underline" href={`https://www.youtube.com/watch?v=${candidate.videoId}`} target="_blank" rel="noreferrer">
+                                    {candidate.title ?? candidate.videoId}
+                                  </a>
+                                  <p className="text-xs text-muted-foreground">generation {candidate.monitorGeneration} · 발견 {formatAt(candidate.discoveredAt)}</p>
+                                  <p className="text-xs text-muted-foreground">API metadata 보존 {formatRetention(candidate.retentionExpiresAt)}</p>
+                                </div>
+                                <Button size="sm" variant="outline" disabled={catalog === null || busy !== null} onClick={() => setReviewCandidate(candidate)}>
+                                  <ClipboardCheck /> 검수
+                                </Button>
+                              </div>
+                            ))}
+                            {previousCandidatesQuery.hasNextPage ? (
+                              <Button size="sm" variant="outline" disabled={previousCandidatesQuery.isFetchingNextPage} onClick={() => void previousCandidatesQuery.fetchNextPage()}>
+                                이전 generation 더 보기
+                              </Button>
+                            ) : null}
+                          </div>
+                        )}
+                      </section>
                     ) : null}
                   </div>
                 </>

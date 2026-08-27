@@ -84,9 +84,10 @@ const missingReviewInputEntityReferenceSql = `EXISTS (
 type JobRow = {
   id: string;
   source_external_id: string;
-  source_title: string;
+  source_title: string | null;
   owner_channel_id: string;
-  owner_channel_title: string;
+  owner_channel_title: string | null;
+  source_metadata_checked_at: number | null;
   import_mode: "all_new" | "recent";
   range_start_position: number;
   requested_item_count: number;
@@ -164,6 +165,12 @@ const toJobDto = (row: JobRow): OtwPlayIngestionJobDto => ({
   playlistTitle: row.source_title,
   playlistOwnerChannelId: row.owner_channel_id,
   playlistOwnerChannelTitle: row.owner_channel_title,
+  sourceMetadataCheckedAt: row.source_metadata_checked_at === null
+    ? null
+    : Number(row.source_metadata_checked_at),
+  retentionExpiresAt: row.source_metadata_checked_at === null
+    ? null
+    : Number(row.source_metadata_checked_at) + API_DATA_RETENTION_MS,
   mode: row.import_mode,
   rangeStartPosition: Number(row.range_start_position),
   rangeEndExclusive:
@@ -329,11 +336,11 @@ export class D1IngestionRepository implements IngestionRepository {
         this.database.prepare(
           `INSERT INTO music_ingestion_jobs (
             id, source_kind, source_external_id, source_url, source_title,
-            owner_channel_id, owner_channel_title, import_mode,
+            owner_channel_id, owner_channel_title, source_metadata_checked_at, import_mode,
             range_start_position, requested_item_count, status,
             actor_user_id, idempotency_key,
             created_at, updated_at
-          ) VALUES (?, 'playlist_import', ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
+          ) VALUES (?, 'playlist_import', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
         ).bind(
           command.jobId,
           command.preflight.playlistId,
@@ -341,6 +348,7 @@ export class D1IngestionRepository implements IngestionRepository {
           command.preflight.title,
           command.preflight.ownerChannelId,
           command.preflight.ownerChannelTitle,
+          command.now,
           command.input.mode,
           command.preflight.rangeStartPosition,
           command.preflight.requestedItemCount,
@@ -459,7 +467,8 @@ export class D1IngestionRepository implements IngestionRepository {
         candidate.thumbnail_url,
         candidate.duration_seconds, candidate.provider_published_at,
         candidate.availability_status, candidate.made_for_kids,
-        candidate.metadata_checked_at, candidate.review_input_json,
+        candidate.metadata_checked_at, candidate.retention_expires_at,
+        candidate.review_input_json,
         candidate.last_conversion_outcome,
         candidate.last_conversion_error_code,
         candidate.last_conversion_attempt_at,
@@ -498,6 +507,7 @@ export class D1IngestionRepository implements IngestionRepository {
           availability_status: OtwPlaySourceAvailabilityStatus;
           made_for_kids: number | null;
           metadata_checked_at: number | null;
+          retention_expires_at: number;
           review_input_json: string | null;
           last_conversion_outcome: OtwPlayIngestionCandidateItemDto["lastConversionOutcome"];
           last_conversion_error_code: string | null;
@@ -527,6 +537,7 @@ export class D1IngestionRepository implements IngestionRepository {
         availability_status: OtwPlaySourceAvailabilityStatus;
         made_for_kids: number | null;
         metadata_checked_at: number | null;
+        retention_expires_at: number;
         review_input_json: string | null;
         last_conversion_outcome: OtwPlayIngestionCandidateItemDto["lastConversionOutcome"];
         last_conversion_error_code: string | null;
@@ -562,6 +573,7 @@ export class D1IngestionRepository implements IngestionRepository {
           row.metadata_checked_at === null
             ? null
             : Number(row.metadata_checked_at),
+        retentionExpiresAt: Number(row.retention_expires_at),
         reviewInput: parseReviewInput(row.review_input_json),
         lastConversionOutcome: row.last_conversion_outcome,
         lastConversionErrorCode: row.last_conversion_error_code,
@@ -1122,6 +1134,27 @@ export class D1IngestionRepository implements IngestionRepository {
         cleared += Number(results[index]?.meta.changes ?? 0);
       }
     }
+    const jobs = resultsOf(await this.database.prepare(
+      `SELECT id FROM music_ingestion_jobs
+       WHERE source_metadata_checked_at IS NOT NULL
+         AND source_metadata_checked_at <= ?
+       ORDER BY source_metadata_checked_at, id LIMIT ?`,
+    ).bind(now - API_DATA_RETENTION_MS, limit).all<{ id: string }>());
+    for (const chunk of chunksOf(jobs, 50)) {
+      const results = await this.database.batch(chunk.map((job) =>
+        this.database.prepare(
+          `UPDATE music_ingestion_jobs
+           SET source_title = NULL, owner_channel_title = NULL,
+             source_metadata_checked_at = NULL, updated_at = ?
+           WHERE id = ? AND source_metadata_checked_at IS NOT NULL
+             AND source_metadata_checked_at <= ?`,
+        ).bind(now, job.id, now - API_DATA_RETENTION_MS),
+      ));
+      cleared += results.reduce(
+        (count, result) => count + Number(result.meta.changes ?? 0),
+        0,
+      );
+    }
     return cleared;
   }
 
@@ -1255,6 +1288,7 @@ export class D1IngestionRepository implements IngestionRepository {
          SET review_input_json = ?, reviewed_by_user_id = ?, status = 'ready',
            classification = 'eligible', exclusion_reason = NULL,
            last_conversion_outcome = NULL, last_conversion_error_code = NULL,
+           last_conversion_attempt_at = NULL,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ?
            AND classification IN ('eligible', 'scope_review', 'channel_review')
@@ -1319,7 +1353,7 @@ export class D1IngestionRepository implements IngestionRepository {
            reviewed_by_user_id = ?, retention_expires_at = MAX(
              retention_expires_at, ?
            ), last_conversion_outcome = NULL,
-           last_conversion_error_code = NULL,
+           last_conversion_error_code = NULL, last_conversion_attempt_at = NULL,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND status <> 'converted'`,
       ).bind(

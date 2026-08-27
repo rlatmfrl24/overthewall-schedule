@@ -237,6 +237,9 @@ export class D1WebsubRepository implements WebsubRepository {
             JOIN music_channel_automation_approvals AS approval
               ON approval.channel_id = monitor.channel_id
             WHERE subscription.id = ? AND subscription.status = 'active'
+              AND subscription.verified_at IS NOT NULL
+              AND subscription.lease_expires_at IS NOT NULL
+              AND subscription.lease_expires_at > ?
               AND subscription.monitor_id = ?
               AND subscription.monitor_generation = ?
               AND monitor.generation = subscription.monitor_generation
@@ -259,6 +262,7 @@ export class D1WebsubRepository implements WebsubRepository {
         input.now,
         input.now,
         input.subscription.id,
+        input.now,
         input.subscription.monitorId,
         input.subscription.monitorGeneration,
       ),
@@ -267,6 +271,9 @@ export class D1WebsubRepository implements WebsubRepository {
          SET last_notification_at = MAX(COALESCE(last_notification_at, 0), ?),
            version = version + 1, updated_at = ?
          WHERE id = ? AND status = 'active'
+           AND verified_at IS NOT NULL
+           AND lease_expires_at IS NOT NULL
+           AND lease_expires_at > ?
            AND EXISTS (
              SELECT 1 FROM music_channel_upload_monitors AS monitor
              JOIN music_channels AS channel ON channel.id = monitor.channel_id
@@ -281,7 +288,7 @@ export class D1WebsubRepository implements WebsubRepository {
                 AND approval.scope = 'candidate_collection'
                AND approval.status = 'approved'
            )`,
-      ).bind(input.now, input.now, input.subscription.id),
+      ).bind(input.now, input.now, input.subscription.id, input.now),
     ]);
     if (Number(insert?.meta.changes ?? 0) === 1) {
       return { id: input.id, shouldEnqueue: true };
