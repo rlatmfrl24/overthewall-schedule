@@ -1680,6 +1680,14 @@ export const musicCoverProposals = sqliteTable(
       sql`typeof(${table.segment_start_seconds}) = 'integer' AND ${table.segment_start_seconds} >= 0`,
     ),
     check(
+      "music_cover_proposals_tags_json_check",
+      sql`CASE
+        WHEN typeof(${table.submitted_tags_json}) <> 'text' THEN 0
+        WHEN json_valid(${table.submitted_tags_json}) = 0 THEN 0
+        ELSE json_type(${table.submitted_tags_json}) = 'array'
+      END`,
+    ),
+    check(
       "music_cover_proposals_status_check",
       sql`${table.status} IN ('pending_review', 'approved', 'rejected', 'withdrawn')`,
     ),
@@ -1979,6 +1987,8 @@ export const musicIngestionJobs = sqliteTable(
     check(
       "music_ingestion_jobs_mode_count_check",
       sql`${table.import_mode} IN ('all_new', 'recent')
+        AND typeof(${table.range_start_position}) = 'integer'
+        AND ${table.range_start_position} >= 0
         AND typeof(${table.requested_item_count}) = 'integer'
         AND ${table.requested_item_count} >= 0
         AND ${table.requested_item_count} <= 5000`,
@@ -2104,6 +2114,36 @@ export const musicIngestionCandidates = sqliteTable(
       "music_ingestion_candidates_availability_check",
       sql`${table.availability_status} IN ('unknown', 'playable', 'private',
         'embed_disabled', 'deleted', 'region_blocked', 'unavailable')`,
+    ),
+    check(
+      "music_ingestion_candidates_review_json_check",
+      sql`CASE
+        WHEN ${table.review_input_json} IS NULL THEN 1
+        WHEN typeof(${table.review_input_json}) <> 'text' THEN 0
+        WHEN json_valid(${table.review_input_json}) = 0 THEN 0
+        ELSE json_type(${table.review_input_json}) = 'object'
+      END`,
+    ),
+    check(
+      "music_ingestion_candidates_boolean_check",
+      sql`${table.made_for_kids} IS NULL
+        OR (typeof(${table.made_for_kids}) = 'integer'
+          AND ${table.made_for_kids} IN (0, 1))`,
+    ),
+    check(
+      "music_ingestion_candidates_conversion_check",
+      sql`CASE
+        WHEN ${table.last_conversion_outcome} IS NULL THEN
+          ${table.last_conversion_error_code} IS NULL
+          AND ${table.last_conversion_attempt_at} IS NULL
+        WHEN ${table.last_conversion_outcome} NOT IN ('created', 'duplicate', 'stale',
+          'validation_failed', 'retryable_failed') THEN 0
+        WHEN typeof(${table.last_conversion_attempt_at}) <> 'integer'
+          OR ${table.last_conversion_attempt_at} < ${table.created_at} THEN 0
+        WHEN ${table.last_conversion_error_code} IS NOT NULL
+          AND length(trim(${table.last_conversion_error_code})) = 0 THEN 0
+        ELSE 1
+      END`,
     ),
     check(
       "music_ingestion_candidates_version_time_check",
@@ -2243,9 +2283,20 @@ export const musicChannelUploadMonitors = sqliteTable(
     check(
       "music_channel_upload_monitors_version_time_check",
       sql`typeof(${table.version}) = 'integer' AND ${table.version} >= 0
+        AND typeof(${table.generation}) = 'integer' AND ${table.generation} >= 0
         AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
         AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}
-        AND typeof(${table.next_check_at}) = 'integer' AND ${table.next_check_at} >= 0`,
+        AND typeof(${table.next_check_at}) = 'integer' AND ${table.next_check_at} >= 0
+        AND (${table.last_checked_at} IS NULL
+          OR (typeof(${table.last_checked_at}) = 'integer' AND ${table.last_checked_at} >= 0))
+        AND (${table.last_seen_published_at} IS NULL
+          OR (typeof(${table.last_seen_published_at}) = 'integer' AND ${table.last_seen_published_at} >= 0))
+        AND (${table.last_recent_reconciled_at} IS NULL
+          OR (typeof(${table.last_recent_reconciled_at}) = 'integer' AND ${table.last_recent_reconciled_at} >= 0))
+        AND (${table.lease_until} IS NULL
+          OR (typeof(${table.lease_until}) = 'integer' AND ${table.lease_until} >= 0))
+        AND (${table.deleted_at} IS NULL
+          OR (typeof(${table.deleted_at}) = 'integer' AND ${table.deleted_at} >= ${table.created_at}))`,
     ),
   ],
 );
@@ -2298,6 +2349,7 @@ export const musicChannelWebsubSubscriptions = sqliteTable(
     check(
       "music_channel_websub_subscriptions_identity_check",
       sql`length(trim(${table.id})) > 0
+        AND typeof(${table.monitor_generation}) = 'integer'
         AND ${table.monitor_generation} >= 0
         AND length(${table.topic_url}) = 80
         AND substr(${table.topic_url}, 1, 56) = 'https://www.youtube.com/xml/feeds/videos.xml?channel_id='
@@ -2453,6 +2505,16 @@ export const musicChannelUploadCandidateOrigins = sqliteTable(
       table.monitor_generation,
       sql`${table.discovered_at} DESC`,
       table.candidate_id,
+    ),
+    check(
+      "music_channel_upload_origins_generation_time_check",
+      sql`typeof(${table.monitor_generation}) = 'integer'
+        AND ${table.monitor_generation} >= 0
+        AND typeof(${table.discovered_at}) = 'integer'
+        AND ${table.discovered_at} >= 0
+        AND (${table.provider_published_at} IS NULL
+          OR (typeof(${table.provider_published_at}) = 'integer'
+            AND ${table.provider_published_at} >= 0))`,
     ),
   ],
 );
