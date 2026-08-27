@@ -363,6 +363,21 @@ describe("OtwPlayCatalogManager", () => {
     expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
   });
 
+  it("renders a proposal query failure instead of an empty review queue and retries", async () => {
+    fetchProposalsMock
+      .mockRejectedValueOnce(new Error("proposal unavailable"))
+      .mockResolvedValueOnce([proposal]);
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    expect(await screen.findByText(/제안 목록을 불러오지 못했습니다\. 빈 목록으로 간주하지 않습니다/)).toBeTruthy();
+    expect(screen.queryByText("대기 중인 제안이 없습니다.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect((await screen.findAllByText("검수할 공식 커버")).length).toBeGreaterThan(0);
+    expect(fetchProposalsMock).toHaveBeenCalledTimes(2);
+  });
+
   it("refreshes release, observability, and source health after an audited switch", async () => {
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
     await screen.findByText("OTW Play 카탈로그");
@@ -1226,10 +1241,10 @@ describe("OtwPlayCatalogManager", () => {
     expect(within(dialog).getByLabelText("데이터 품질")).toBeTruthy();
     expect(within(dialog).getByLabelText("가창 공개일시")).toBeTruthy();
     expect(within(dialog).getByLabelText("YouTube URL")).toBeTruthy();
-    expect(within(dialog).getByLabelText("공식 채널")).toBeTruthy();
+    expect(within(dialog).getByLabelText("source 1 채널")).toBeTruthy();
     expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
     expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
-    expect(within(dialog).getByLabelText("source 역할")).toBeTruthy();
+    expect(within(dialog).getByLabelText("source 1 역할")).toBeTruthy();
     expect(within(dialog).getByLabelText("내부 메모")).toBeTruthy();
 
     fireEvent.click(
@@ -1270,7 +1285,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.click(await screen.findByRole("option", { name: "업데이트 필요" }));
     fireEvent.click(within(dialog).getByLabelText("현재 멤버 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "피처링 보컬" }));
-    fireEvent.click(within(dialog).getByLabelText("source 역할"));
+    fireEvent.click(within(dialog).getByLabelText("source 1 역할"));
     fireEvent.click(await screen.findByRole("option", { name: "대체 source" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "전체 정보 저장" }));
 
@@ -1293,13 +1308,15 @@ describe("OtwPlayCatalogManager", () => {
           creditNameSnapshot: "수정한 멤버 크레딧",
         },
       ],
-      source: {
+      sources: [{
         youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
         channelId: "channel-approved",
         startSeconds: 12,
         endSeconds: 170,
         sourceRole: "alternate",
-      },
+        priority: 0,
+        isPrimary: true,
+      }],
     });
   });
 

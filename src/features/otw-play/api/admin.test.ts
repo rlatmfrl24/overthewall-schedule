@@ -153,12 +153,14 @@ describe("OTW Play admin API", () => {
         creditOrder: 0,
         creditNameSnapshot: "Singer",
       }],
-      source: {
+      sources: [{
         youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
         channelId: "channel-1",
         startSeconds: 0,
         sourceRole: "official" as const,
-      },
+        priority: 0,
+        isPrimary: true,
+      }],
     };
     await createOtwPlayPerformance(input);
     expect(apiFetchMock).toHaveBeenCalledWith(

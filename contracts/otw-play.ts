@@ -1394,6 +1394,16 @@ export interface OtwPlayAdminUpdateSongRequest
   originalArtists: OtwPlayAdminCatalogArtistInput[];
 }
 
+export interface OtwPlayAdminPerformanceSourceInput {
+  youtubeUrl: string;
+  channelId: string;
+  startSeconds: number;
+  endSeconds?: number | null;
+  sourceRole: Extract<OtwPlaySourceRole, "official" | "kirinuki" | "alternate">;
+  priority: number;
+  isPrimary: boolean;
+}
+
 export interface OtwPlayAdminPerformanceWriteInput {
   songId: string;
   relationType: OtwPlayRelationType;
@@ -1403,13 +1413,7 @@ export interface OtwPlayAdminPerformanceWriteInput {
   releasedAt: number | null;
   internalNote?: string | null;
   participants: OtwPlayAdminEntityReferenceInput[];
-  source: {
-    youtubeUrl: string;
-    channelId: string;
-    startSeconds: number;
-    endSeconds?: number | null;
-    sourceRole: Extract<OtwPlaySourceRole, "official" | "kirinuki" | "alternate">;
-  };
+  sources: OtwPlayAdminPerformanceSourceInput[];
 }
 
 export type OtwPlayAdminCreatePerformanceRequest =
