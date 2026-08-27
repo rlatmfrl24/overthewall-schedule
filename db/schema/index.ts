@@ -888,6 +888,9 @@ export const musicEntities = sqliteTable(
     uniqueIndex("uidx_music_entities_member_uid")
       .on(table.member_uid)
       .where(sql`${table.member_uid} IS NOT NULL`),
+    uniqueIndex("uidx_music_entities_external_kind_normalized_name")
+      .on(table.entity_kind, table.normalized_name)
+      .where(sql`${table.member_uid} IS NULL`),
     index("idx_music_entities_normalized_name_id").on(
       table.normalized_name,
       table.id,

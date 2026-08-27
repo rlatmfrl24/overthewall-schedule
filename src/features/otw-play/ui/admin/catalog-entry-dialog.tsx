@@ -55,6 +55,29 @@ export type SelectedSubject = {
   subject: OtwPlayAdminCatalogSubjectInput;
 };
 
+type NewExternalSelectedSubject = SelectedSubject & {
+  subject: Extract<OtwPlayAdminCatalogSubjectInput, { kind: "new_external" }>;
+};
+
+const normalizeSubjectName = (value: string) =>
+  value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase();
+
+const uniqueNewExternalSubjects = (
+  subjects: readonly SelectedSubject[],
+): NewExternalSelectedSubject[] => {
+  const unique = new Map<string, NewExternalSelectedSubject>();
+  for (const subject of subjects) {
+    if (subject.subject.kind === "new_external") {
+      unique.set(subject.key, subject as NewExternalSelectedSubject);
+    }
+  }
+  return [...unique.values()];
+};
+
 const STEPS = ["영상 확인", "영상 유형", "참여자와 분류", "검토와 저장"];
 
 type VideoKind = "original" | "cover" | "karaoke";
@@ -114,6 +137,7 @@ export function SubjectPicker({
   helpText = "기존 외부 identity 후보를 먼저 보여주며, 새 칩은 자동 병합하지 않고 별도 identity로 저장합니다.",
   members,
   entities,
+  draftSubjects = [],
   selected,
   onChange,
   allowGroup = true,
@@ -124,6 +148,7 @@ export function SubjectPicker({
   helpText?: string;
   members: Member[];
   entities: OtwPlayAdminEntityDto[];
+  draftSubjects?: SelectedSubject[];
   selected: SelectedSubject[];
   onChange: (items: SelectedSubject[]) => void;
   allowGroup?: boolean;
@@ -132,15 +157,19 @@ export function SubjectPicker({
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const listboxId = useId();
-  const normalized = query.trim().toLocaleLowerCase();
+  const normalized = normalizeSubjectName(query);
   const selectedKeys = new Set(selected.map((item) => item.key));
+  const availableDraftSubjects = uniqueNewExternalSubjects([
+    ...draftSubjects,
+    ...selected,
+  ]);
   const memberMatches = members
     .filter(
       (member) =>
         !selectedKeys.has(`member:${member.uid}`) &&
         (!normalized ||
-          member.name.toLocaleLowerCase().includes(normalized) ||
-          member.code.toLocaleLowerCase().includes(normalized)),
+          normalizeSubjectName(member.name).includes(normalized) ||
+          normalizeSubjectName(member.code).includes(normalized)),
     )
     .slice(0, 6);
   const entityMatches = entities
@@ -150,17 +179,41 @@ export function SubjectPicker({
         (includeMemberEntities || entity.memberUid === null) &&
         !selectedKeys.has(`entity:${entity.id}`) &&
         (!normalized ||
-          entity.displayName.toLocaleLowerCase().includes(normalized)),
+          normalizeSubjectName(entity.displayName).includes(normalized)),
     )
     .slice(0, 6);
-  const suggestionCount = memberMatches.length + entityMatches.length;
+  const draftMatches = availableDraftSubjects
+    .filter(
+      (subject) =>
+        !selectedKeys.has(subject.key) &&
+        (!normalized || normalizeSubjectName(subject.label).includes(normalized)),
+    )
+    .slice(0, 6);
+  const exactMatchExists = Boolean(normalized) && [
+    ...members.map((member) => member.name),
+    ...entities
+      .filter(
+        (entity) =>
+          entity.archivedAt === null &&
+          (includeMemberEntities || entity.memberUid === null),
+      )
+      .map((entity) => entity.displayName),
+    ...availableDraftSubjects.map((subject) => subject.label),
+  ].some((name) => normalizeSubjectName(name) === normalized);
+  const suggestionCount =
+    memberMatches.length + entityMatches.length + draftMatches.length;
   const selectSuggestion = (index: number) => {
     if (index < memberMatches.length) {
       const member = memberMatches[index];
       if (member) onChange([...selected, subjectFromMember(member)]);
-    } else {
+    } else if (index < memberMatches.length + entityMatches.length) {
       const entity = entityMatches[index - memberMatches.length];
       if (entity) onChange([...selected, subjectFromEntity(entity)]);
+    } else {
+      const draft = draftMatches[
+        index - memberMatches.length - entityMatches.length
+      ];
+      if (draft) onChange([...selected, draft]);
     }
     setQuery("");
     setActiveIndex(0);
@@ -291,16 +344,42 @@ export function SubjectPicker({
             </button>
             );
           })}
-          <div className="mt-1 grid gap-1 border-t pt-1 sm:grid-cols-2">
-            <Button type="button" variant="ghost" size="sm" onClick={() => addNew("person")}>
-              <UserRoundPlus className="h-4 w-4" /> 외부 인물로 추가
-            </Button>
-            {allowGroup && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => addNew("group")}>
-                <UsersRound className="h-4 w-4" /> 그룹으로 추가
+          {draftMatches.map((subject, draftIndex) => {
+            const index = memberMatches.length + entityMatches.length + draftIndex;
+            return (
+              <button
+                key={subject.key}
+                type="button"
+                id={`${listboxId}-option-${index}`}
+                role="option"
+                aria-selected={activeIndex === index}
+                className={`flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none ${activeIndex === index ? "bg-accent" : ""}`}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => selectSuggestion(index)}
+              >
+                <span>{subject.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  이번 작업에서 추가한 {subject.subject.entityKind === "group" ? "그룹" : "외부 인물"}
+                </span>
+              </button>
+            );
+          })}
+          {exactMatchExists ? (
+            <p className="mt-1 border-t px-3 py-2 text-xs text-muted-foreground" role="status">
+              동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요.
+            </p>
+          ) : (
+            <div className="mt-1 grid gap-1 border-t pt-1 sm:grid-cols-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => addNew("person")}>
+                <UserRoundPlus className="h-4 w-4" /> 외부 인물로 추가
               </Button>
-            )}
-          </div>
+              {allowGroup && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => addNew("group")}>
+                  <UsersRound className="h-4 w-4" /> 그룹으로 추가
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
       <p className="text-xs text-muted-foreground">{helpText}</p>
@@ -349,6 +428,11 @@ export function CatalogEntryDialog({
   const [saving, setSaving] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const draftExternalSubjects = uniqueNewExternalSubjects([
+    ...coverOriginalArtists,
+    ...participants,
+    ...channelOwners,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -592,6 +676,7 @@ export function CatalogEntryDialog({
                       helpText="첫 번째 가수를 대표 원곡 가수로 저장합니다. 기존 후보는 직접 선택할 때만 재사용합니다."
                       members={members}
                       entities={catalog.entities}
+                      draftSubjects={draftExternalSubjects}
                       selected={coverOriginalArtists}
                       onChange={setCoverOriginalArtists}
                     />
@@ -612,13 +697,14 @@ export function CatalogEntryDialog({
 
             {step === 2 && (
               <>
-                <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} selected={participants} onChange={setParticipants} />
+                <SubjectPicker label="가창 참여자" members={members} entities={catalog.entities} draftSubjects={draftExternalSubjects} selected={participants} onChange={setParticipants} />
                 {needsChannelOwnerChoice && (
                   <div className="rounded-lg border p-3">
                     <SubjectPicker
                       label="채널 소유·연결 주체"
                       members={members}
                       entities={catalog.entities}
+                      draftSubjects={draftExternalSubjects}
                       selected={channelOwners}
                       onChange={setChannelOwners}
                     />

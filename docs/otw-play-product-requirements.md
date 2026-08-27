@@ -131,6 +131,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-070 | 공개 진입과 플레이어는 역할×flag 매트릭스와 명시적 presentation 상태 머신을 따른다. | 확정 | 익명 config는 `auth: omit`으로 읽는다. `0/0`은 익명을 차단하고 관리자만 preview API를 사용하며, `1/0`은 직접 URL을 공개하되 navigation·index·sitemap을 숨기고, `1/1`은 모두 공개한다. flag-on 관리자는 실제 public API/cache를 사용한다. `launcher|full|mini`는 재생 상태와 분리하며 숨은 presentation에서는 iframe을 load하거나 재생하지 않는다. 닫기·route 이탈·host 제거는 pause를 선행하고 session은 queue/current metadata만 복원한다. |
 | DEC-071 | 관리자 catalog와 WebSub 운영 화면은 다중 source, 명시적 실패, 권위 상태와 generation 경계를 보존한다. | 확정 | performance는 primary가 정확히 하나인 `sources[]`를 저장하며 Worker는 한 릴리스 동안 legacy `source`를 정규화한다. proposal·ingestion·monitor·observability 실패를 빈 목록과 구분하고 CAS 충돌은 입력을 보존한 `409 PLAY_ADMIN_STALE_WRITE`로 처리한다. WebSub effective active는 `active + verified + future lease`이며 이전 generation 미처리 후보는 현재 inbox와 분리한다. |
 | DEC-072 | OTW Play 권위·보존과 schema drift 수정은 새 additive migration 두 개로 전달하고 공개 전환과 분리한다. | 확정 | `0065`는 WebSub active CHECK와 ingestion source metadata 30일 보존을, `0066`은 proposal child FK `ON DELETE SET NULL`과 JSON·enum·boolean/timestamp·range/generation strict CHECK를 적용한다. migration·배포·flag 변경은 각각 별도 운영 승인과 권위 readback이 필요하다. |
+| DEC-073 | 새 외부 인물·그룹은 현재 관리자 작업 안에서 하나의 임시 identity로 즉시 공유하고, 동일 이름의 저장된 또는 임시 주체가 있으면 중복 생성하지 않는다. | 확정 | 원곡 가수·가창 참여자·채널 소유 주체 입력은 같은 `clientKey`를 재사용한다. 이름은 NFKC·공백·대소문자를 정규화해 정확히 일치하는 후보를 판단하되 관리자가 기존 후보를 명시적으로 선택한다. 기존의 정규화 이름 중복은 `0067` migration에서 가장 오래된 active identity로 모든 참조를 이동한 뒤 한 행으로 통합하고, 외부 identity의 `(entity_kind, normalized_name)` 부분 unique index로 재발을 차단한다. command 성공 뒤에는 권위 catalog를 다시 읽어 외부 주체 관리 목록에 반영한다. |
 
 ## 4. 제품 원칙
 
@@ -451,7 +452,7 @@ detail로 자동 복사하지 않는다.
 - ADM-018: 관리자 승인만 회원 제안을 공개 카탈로그 항목으로 전환할 수 있어야 한다.
 - ADM-019: 오리지널곡은 관리자만 등록하고 게시할 수 있어야 한다.
 - ADM-020: 관리자 최상위 작업은 카탈로그와 제안 검수로 제한하고, 곡 아래에 모든 가창 버전과 상태·참여자·채널·source를 함께 확인할 수 있어야 한다.
-- ADM-021: 현재 멤버는 `members` 권위 데이터를 자동완성하고, 검색되지 않는 외부 인물·그룹은 칩으로 추가하되 기존 identity와 자동 병합하지 않아야 한다.
+- ADM-021: 현재 멤버는 `members` 권위 데이터를 자동완성하고, 검색되지 않는 외부 인물·그룹은 칩으로 추가해야 한다. 같은 관리자 작업에서 새로 만든 외부 identity는 다른 주체 입력에도 즉시 후보로 반영하고 동일 이름의 저장된·임시 후보가 있으면 새 생성 action 대신 기존 후보 선택을 요구해야 한다. 저장 계층은 정규화 이름이 같은 외부 identity의 중복 생성을 거부하고, 기존 중복 통합 시 모든 연결 참조를 대표 identity로 이동해야 한다.
 - ADM-022: 공식 채널은 별도 선행 등록을 요구하지 않는다. 권위 멤버 채널은 자동 연결하고 미등록 채널은 인라인 승인 또는 pending draft를 선택해야 한다.
 - ADM-023: 통합 등록은 metadata 재검증, entity·channel·song·performance·event·projection과 두 revision을 하나의 D1 batch로 반영해야 한다.
 - ADM-024: 관리자는 YouTube playlist URL에서 전체 항목을 page 단위로 수집하고 진행률과 항목별 결과를 다시 열어볼 수 있어야 한다.
@@ -806,6 +807,8 @@ production WebSub 설정으로 해결되었다.
 | 2026-08-27 | DEC-069 확정. playlist 후보 검수와 `singing_clip` 자동 검수의 신규 곡 입력에 공통 음악 라벨 추가·자유 입력·삭제와 저장값 복원을 제공하고, 기존 곡은 권위 라벨을 읽기 전용으로 표시 |
 | 2026-08-27 | DEC-066 보완. 신규 승인 채널 등록에서는 주체 선택을 계속 제외하되, 기존 채널 편집 화면에 현재 연결 표시·검색·교체·해제·명시적 확인을 추가하고 변경 전후 entity ID를 `channel.updated` 감사 event에 기록 |
 | 2026-08-27 | PR #76–#84 구현 closeout. WebSub 설정, `singing_clip` 비공개 draft 검수, 외부 identity 삭제, 신규 곡 라벨, 승인 채널 연결 주체 교정과 migration `0064` production 적용을 완료로 분류. 실제 신규 upload canary와 공개 flag 전환은 별도 운영 gate로 유지 |
+| 2026-08-28 | DEC-073 확정. 새 외부 인물·그룹을 현재 등록·후보 검수 작업의 모든 주체 입력에 즉시 공유하고, 정규화된 동일 이름의 저장된·임시 후보가 있으면 중복 생성 대신 명시적 기존 후보 선택을 요구 |
+| 2026-08-28 | migration `0067`을 local·production D1에 적용. 저장된 외부 주체 중복 2개 그룹의 모든 참조를 오래된 대표 identity로 이동해 한 행으로 통합하고, 외부 `(entity_kind, normalized_name)` partial unique index와 `entity.merged` 감사 event를 추가 |
 
 ## 19. 참고
 

@@ -58,6 +58,8 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   "0065_otw_play_authority_retention.sql",
   "0066_otw_play_integrity_drift.sql",
 ] as const;
+const OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME =
+  "0067_otw-play-external-identity-consolidation.sql";
 
 export default defineConfig({
   resolve: {
@@ -116,6 +118,9 @@ export default defineConfig({
       const otwPlaySourceHealthMigration = migrationsByName.get(
         OTW_PLAY_SOURCE_HEALTH_MIGRATION_NAME,
       );
+      const otwPlayExternalIdentityConsolidationMigration = migrationsByName.get(
+        OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME,
+      );
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
@@ -158,6 +163,11 @@ export default defineConfig({
           `Expected exact ordered OTW Play public catalog test migrations: ${OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.join(", ")}`,
         );
       }
+      if (!otwPlayExternalIdentityConsolidationMigration) {
+        throw new Error(
+          `Expected OTW Play external identity consolidation migration: ${OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME}`,
+        );
+      }
 
       return {
         miniflare: {
@@ -178,6 +188,9 @@ export default defineConfig({
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
               otwPlaySourceHealthMigration ? [otwPlaySourceHealthMigration] : [],
             OTW_PLAY_RELEASE_MIGRATIONS: otwPlayReleaseMigrations,
+            OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: [
+              otwPlayExternalIdentityConsolidationMigration,
+            ],
           },
         },
       };

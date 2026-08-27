@@ -1859,6 +1859,10 @@ export function IngestionSection({
                             helpText="기존 OTW 멤버·외부 가수를 검색해 선택하거나, 없는 가수는 새 외부 identity로 추가합니다."
                             members={[]}
                             entities={catalog.entities}
+                            draftSubjects={[
+                              ...draft.originalArtists,
+                              ...draft.externalParticipants,
+                            ]}
                             selected={draft.originalArtists}
                             onChange={(originalArtists) => updateDraft({ originalArtists })}
                             includeMemberEntities
@@ -1973,6 +1977,10 @@ export function IngestionSection({
                             helpText="기존 외부 identity를 선택하거나 새 외부 인물·그룹을 추가합니다."
                             members={[]}
                             entities={catalog.entities}
+                            draftSubjects={[
+                              ...draft.originalArtists,
+                              ...draft.externalParticipants,
+                            ]}
                             selected={draft.externalParticipants}
                             onChange={(subjects) => {
                               const currentByKey = new Map(

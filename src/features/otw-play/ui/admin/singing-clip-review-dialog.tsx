@@ -113,6 +113,11 @@ export function SingingClipReviewDialog({
     status: OtwPlayChannelMonitorCandidateDto["status"];
     reviewInput: OtwPlayChannelMonitorCandidateDto["reviewInput"];
   } | null>(null);
+  const draftExternalSubjects = [...originalArtists, ...participants].filter(
+    (subject, index, subjects) =>
+      subject.subject.kind === "new_external" &&
+      subjects.findIndex((candidate) => candidate.key === subject.key) === index,
+  );
 
   useEffect(() => {
     if (!candidate) {
@@ -329,6 +334,7 @@ export function SingingClipReviewDialog({
                       label="원곡 가수"
                       members={membersQuery.data ?? []}
                       entities={catalog.entities}
+                      draftSubjects={draftExternalSubjects}
                       selected={originalArtists}
                       onChange={setOriginalArtists}
                     />
@@ -391,6 +397,7 @@ export function SingingClipReviewDialog({
                 label="가창 참여자"
                 members={membersQuery.data ?? []}
                 entities={catalog.entities}
+                draftSubjects={draftExternalSubjects}
                 selected={participants}
                 onChange={updateParticipantSubjects}
               />

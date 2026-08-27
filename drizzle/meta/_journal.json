@@ -463,6 +463,13 @@
       "when": 1787807073596,
       "tag": "0066_otw_play_integrity_drift",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1787873118787,
+      "tag": "0067_otw-play-external-identity-consolidation",
+      "breakpoints": true
     }
   ]
 }

@@ -1710,6 +1710,83 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
+  it("reuses a new external identity across integrated registration fields", async () => {
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByText(/멤버 채널 자동 인식/);
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.change(screen.getByLabelText("원곡 제목"), {
+      target: { value: "중복 방지 원곡" },
+    });
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
+      target: { value: "DECO*27" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+
+    fireEvent.change(screen.getByLabelText("가창 참여자 검색"), {
+      target: { value: "DECO*27" },
+    });
+    expect(screen.getByText("동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요."))
+      .toBeTruthy();
+    expect(screen.queryByRole("button", { name: /외부 인물로 추가/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /DECO\*27/ }));
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: "임시 저장" }));
+
+    await waitFor(() => expect(createEntryMock).toHaveBeenCalledTimes(1));
+    const request = createEntryMock.mock.calls[0]?.[0];
+    expect(request.song.kind).toBe("create");
+    expect(request.song.originalArtists[0]?.subject.kind).toBe("new_external");
+    expect(request.participants[0]?.subject).toEqual(
+      request.song.originalArtists[0]?.subject,
+    );
+  });
+
+  it("requires selecting an exact saved external identity instead of creating a duplicate", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      entities: [{
+        id: "entity-deco-27",
+        memberUid: null,
+        entityKind: "person",
+        displayName: "DECO*27",
+        normalizedName: "deco*27",
+        slug: "deco-27",
+        version: 0,
+        archivedAt: null,
+      }],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    fireEvent.change(screen.getByLabelText("YouTube URL"), {
+      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByText(/멤버 채널 자동 인식/);
+    fireEvent.click(screen.getByRole("button", { name: /다음/ }));
+    fireEvent.click(screen.getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.change(screen.getByLabelText("원곡 가수 검색"), {
+      target: { value: "  deco*27  " },
+    });
+
+    expect(await screen.findByRole("option", { name: /DECO\*27/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /외부 인물로 추가/ })).toBeNull();
+    expect(screen.getByText("동일한 이름의 주체가 이미 있습니다. 위 후보를 선택하세요."))
+      .toBeTruthy();
+  });
+
   it("opens automatic upload review in its own workflow tab", async () => {
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),
