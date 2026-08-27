@@ -1544,6 +1544,7 @@ function ChannelSection({
     channelRole: "member_music" as OtwPlayChannelRole,
     verificationStatus: "pending" as const,
     active: false,
+    entityIds: [] as string[],
   };
   const [form, setForm] = useState<{
     externalChannelId: string;
@@ -1551,8 +1552,11 @@ function ChannelSection({
     channelRole: OtwPlayChannelRole;
     verificationStatus: "pending" | "approved" | "revoked";
     active: boolean;
+    entityIds: string[];
   }>(empty);
   const [editing, setEditing] = useState<OtwPlayAdminChannelDto | null>(null);
+  const [entitySearch, setEntitySearch] = useState("");
+  const [confirmingEntityChange, setConfirmingEntityChange] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<
     "idle" | "loading" | "verified" | "error"
   >("idle");
@@ -1582,12 +1586,12 @@ function ChannelSection({
       setLookupError("채널을 확인하지 못했습니다. ID와 YouTube API 상태를 확인해 주세요.");
     }
   };
-  const submit = async () => {
+  const persist = async () => {
     const core = {
       externalChannelId: form.externalChannelId.trim(),
       displayName: form.displayName,
       channelRole: form.channelRole,
-      entityIds: editing?.entityIds ?? [],
+      entityIds: editing ? form.entityIds : [],
     };
     const succeeded = await run(editing ? "채널 수정" : "채널 등록", () =>
       editing
@@ -1606,7 +1610,40 @@ function ChannelSection({
     setLookupStatus("idle");
     setLookupError(null);
     setVerifiedChannelId(null);
+    setEntitySearch("");
+    setConfirmingEntityChange(false);
   };
+  const entityIdsChanged =
+    editing !== null &&
+    JSON.stringify([...editing.entityIds].sort()) !==
+      JSON.stringify([...form.entityIds].sort());
+  const submit = () => {
+    if (entityIdsChanged) {
+      setConfirmingEntityChange(true);
+      return;
+    }
+    void persist();
+  };
+  const normalizedEntitySearch = entitySearch
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase();
+  const selectableEntities = entities
+    .filter(
+      (entity) =>
+        entity.archivedAt === null || form.entityIds.includes(entity.id),
+    )
+    .filter((entity) => {
+      if (!normalizedEntitySearch) return true;
+      return [entity.displayName, entity.slug].some((value) =>
+        value
+          .normalize("NFKC")
+          .toLocaleLowerCase()
+          .includes(normalizedEntitySearch),
+      );
+    })
+    .sort((left, right) => left.displayName.localeCompare(right.displayName, "ko"));
+  const entityById = new Map(entities.map((entity) => [entity.id, entity]));
   return (
     <Card>
       <CardHeader className="border-b px-4 py-3">
@@ -1719,40 +1756,92 @@ function ChannelSection({
           </Field>
           </div>
         {editing && (
-          <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
-            <Field label="검수 상태" description="승인됨 상태에서만 채널을 활성화할 수 있습니다.">
-              <Select
-                value={form.verificationStatus}
-                onValueChange={(value) =>
-                  setForm({
-                    ...form,
-                    verificationStatus: value as typeof form.verificationStatus,
-                    active: value === "approved" ? form.active : false,
-                  })
-                }
-              >
-                <SelectTrigger aria-label="채널 검수 상태">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">검수 대기</SelectItem>
-                  <SelectItem value="approved">승인됨</SelectItem>
-                  <SelectItem value="revoked">철회됨</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
-              <Checkbox
-                id="advanced-channel-active"
-                checked={form.active}
-                disabled={form.verificationStatus !== "approved"}
-                onCheckedChange={(checked) => setForm({ ...form, active: checked === true })}
+          <div className="space-y-4 border-t pt-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="검수 상태" description="승인됨 상태에서만 채널을 활성화할 수 있습니다.">
+                <Select
+                  value={form.verificationStatus}
+                  onValueChange={(value) =>
+                    setForm({
+                      ...form,
+                      verificationStatus: value as typeof form.verificationStatus,
+                      active: value === "approved" ? form.active : false,
+                    })
+                  }
+                >
+                  <SelectTrigger aria-label="채널 검수 상태">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">검수 대기</SelectItem>
+                    <SelectItem value="approved">승인됨</SelectItem>
+                    <SelectItem value="revoked">철회됨</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="flex items-start gap-3 rounded-lg border bg-background p-3">
+                <Checkbox
+                  id="advanced-channel-active"
+                  checked={form.active}
+                  disabled={form.verificationStatus !== "approved"}
+                  onCheckedChange={(checked) =>
+                    setForm({ ...form, active: checked === true })
+                  }
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="advanced-channel-active">카탈로그 source에 사용</Label>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    비활성 채널의 영상은 공개 source 후보로 선택되지 않습니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-3 rounded-lg border bg-background p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <Label htmlFor="advanced-channel-entity-search">연결 주체</Label>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    이 채널을 실제로 소유하거나 운영하는 멤버·외부 인물·그룹을 선택하세요. 연결 없이 저장할 수도 있습니다.
+                  </p>
+                </div>
+                <Badge variant="outline">선택 {form.entityIds.length}/30</Badge>
+              </div>
+              <Input
+                id="advanced-channel-entity-search"
+                value={entitySearch}
+                onChange={(event) => setEntitySearch(event.target.value)}
+                placeholder="표시명 또는 slug 검색"
               />
-              <div className="space-y-1">
-                <Label htmlFor="advanced-channel-active">카탈로그 source에 사용</Label>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  비활성 채널의 영상은 공개 source 후보로 선택되지 않습니다.
-                </p>
+              <div className="max-h-56 overflow-y-auto rounded-md border">
+                {selectableEntities.length === 0 ? (
+                  <p className="p-3 text-sm text-muted-foreground">검색 결과가 없습니다.</p>
+                ) : selectableEntities.map((entity) => {
+                  const checked = form.entityIds.includes(entity.id);
+                  const kindLabel = entity.memberUid !== null
+                    ? "멤버"
+                    : entity.entityKind === "group" ? "외부 그룹" : "외부 인물";
+                  return (
+                    <label
+                      key={entity.id}
+                      className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/40"
+                    >
+                      <Checkbox
+                        checked={checked}
+                        aria-label={`${entity.displayName} 연결`}
+                        disabled={!checked && form.entityIds.length >= 30}
+                        onCheckedChange={(nextChecked) => setForm((current) => ({
+                          ...current,
+                          entityIds: nextChecked === true
+                            ? [...current.entityIds, entity.id]
+                            : current.entityIds.filter((entityId) => entityId !== entity.id),
+                        }))}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm">{entity.displayName}</span>
+                      <Badge variant={entity.memberUid !== null ? "secondary" : "outline"}>{kindLabel}</Badge>
+                      {entity.archivedAt !== null ? <Badge variant="outline">보관됨</Badge> : null}
+                    </label>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1770,6 +1859,8 @@ function ChannelSection({
                   setLookupStatus("idle");
                   setLookupError(null);
                   setVerifiedChannelId(null);
+                  setEntitySearch("");
+                  setConfirmingEntityChange(false);
                 }}
               >
                 취소
@@ -1782,7 +1873,7 @@ function ChannelSection({
                 lookupStatus !== "verified" ||
                 saving !== null
               }
-              onClick={() => void submit()}
+              onClick={submit}
             >
               {editing ? "채널 수정 저장" : "채널 등록"}
             </Button>
@@ -1796,6 +1887,7 @@ function ChannelSection({
               <TableRow>
                 <TableHead>채널</TableHead>
                 <TableHead>역할</TableHead>
+                <TableHead>연결 주체</TableHead>
                 <TableHead>검수</TableHead>
                 <TableHead>활성</TableHead>
                 <TableHead />
@@ -1811,6 +1903,19 @@ function ChannelSection({
                     </div>
                   </TableCell>
                   <TableCell>{channelRoleLabels[item.channelRole]}</TableCell>
+                  <TableCell>
+                    {item.entityIds.length === 0 ? (
+                      <span className="text-muted-foreground">없음</span>
+                    ) : (
+                      <div className="flex max-w-72 flex-wrap gap-1">
+                        {item.entityIds.map((entityId) => (
+                          <Badge key={entityId} variant="outline">
+                            {entityById.get(entityId)?.displayName ?? entityId}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>{channelVerificationLabels[item.verificationStatus]}</TableCell>
                   <TableCell>{item.active ? "예" : "아니오"}</TableCell>
                   <TableCell className="text-right">
@@ -1827,10 +1932,13 @@ function ChannelSection({
                           channelRole: item.channelRole,
                           verificationStatus: item.verificationStatus,
                           active: item.active,
+                          entityIds: [...item.entityIds],
                         });
                         setLookupStatus("verified");
                         setLookupError(null);
                         setVerifiedChannelId(item.externalChannelId);
+                        setEntitySearch("");
+                        setConfirmingEntityChange(false);
                       }}
                     >
                       <Pencil className="h-4 w-4" />
@@ -1849,6 +1957,15 @@ function ChannelSection({
           run={run}
         />
       </CardContent>
+      <ConfirmActionDialog
+        open={confirmingEntityChange}
+        onOpenChange={setConfirmingEntityChange}
+        title="채널 연결 주체를 변경할까요?"
+        description="연결 주체를 바꾸면 채널의 소유·소속 관계와 외부 주체 삭제 가능 여부가 함께 변경됩니다. 선택한 연결로 저장할까요?"
+        confirmLabel="연결 변경 저장"
+        isProcessing={saving !== null}
+        onConfirm={() => void persist()}
+      />
     </Card>
   );
 }

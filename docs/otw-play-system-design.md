@@ -1117,6 +1117,12 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 
 승인, 반려, publish, withdraw와 draft·identity 삭제 command에는 `expectedVersion`을 요구한다.
 
+승인 채널의 주체 연결은 `music_channel_entities`가 권위다. 신규 채널 등록은 빈 연결로
+시작할 수 있고, 기존 채널 수정은 전달받은 `entityIds` 집합으로 연결 row를 전부 교체한다.
+채널 row의 `expectedVersion` CAS, 기존 연결 삭제, 새 연결 삽입, catalog/read-model revision,
+변경 전후 채널 속성과 entity ID 집합을 담은 `channel.updated` event를 하나의 D1 batch로
+처리한다. 따라서 주체 교정 실패 시 기존 연결과 revision이 함께 보존된다.
+
 외부 identity 삭제는 `member_uid IS NULL`이며 곡 원곡 가수, 가창 참여자, 승인 채널,
 공개 performance sort key, 검수 제안, 비종료 ingestion candidate의 저장된 검수 어디에서도
 참조하지 않는 row에만 허용한다. 후보 검수 저장은 선택한 기존 identity가 현재 존재하고
