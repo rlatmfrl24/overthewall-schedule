@@ -9,6 +9,7 @@ import type {
   OtwPlayAdminCreateCatalogEntryRequest,
   OtwPlayAdminCreateEntityRequest,
   OtwPlayAdminCreatePerformanceRequest,
+  OtwPlayAdminPerformanceSourceInput,
   OtwPlayAdminCreateSongRequest,
   OtwPlayAdminPerformanceDto,
   OtwPlayAdminEntityDto,
@@ -64,25 +65,31 @@ export class AdminCatalogRepositoryError extends Error {
 
 export interface AdminCreatePerformanceCommand {
   input: OtwPlayAdminCreatePerformanceRequest;
-  video: VerifiedYouTubeVideo;
+  sources: Array<{
+    input: OtwPlayAdminPerformanceSourceInput;
+    video: VerifiedYouTubeVideo;
+    sourceId: string;
+  }>;
   actor: AdminCatalogActor;
   now: number;
   ids: {
     performanceId: string;
-    sourceId: string;
     eventId: string;
   };
 }
 
 export interface AdminUpdatePerformanceCommand {
   input: OtwPlayAdminUpdatePerformanceRequest;
-  video: VerifiedYouTubeVideo;
+  sources: Array<{
+    input: OtwPlayAdminPerformanceSourceInput;
+    video: VerifiedYouTubeVideo;
+    sourceId: string;
+  }>;
   actor: AdminCatalogActor;
   now: number;
   ids: {
     entityIds: Record<string, string>;
     entityEventIds: Record<string, string>;
-    sourceId: string;
     eventId: string;
   };
 }

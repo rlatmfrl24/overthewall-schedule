@@ -312,7 +312,7 @@ describe("OTW Play admin input", () => {
             },
           },
         ],
-        source: { sourceRole: "alternate" },
+        sources: [{ sourceRole: "alternate", priority: 0, isPrimary: true }],
       },
     });
     expect(

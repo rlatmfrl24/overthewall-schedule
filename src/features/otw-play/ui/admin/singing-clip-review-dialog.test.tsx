@@ -68,6 +68,8 @@ const reviewFixture = () => {
       reviewInput,
       linkedPerformanceId: null,
       discoveredAt: 100,
+      monitorGeneration: 0,
+      retentionExpiresAt: 2_592_000_100,
     } as const,
     catalog: {
       songs: [{ id: "song-1", title: "Existing Song", archivedAt: null }],

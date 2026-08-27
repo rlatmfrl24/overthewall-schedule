@@ -365,12 +365,14 @@ describe("AdminCatalogService", () => {
               creditNameSnapshot: "Member",
             },
           ],
-          source: {
+          sources: [{
             youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
             channelId: "channel-internal",
             startSeconds: 0,
             sourceRole: "official",
-          },
+            priority: 0,
+            isPrimary: true,
+          }],
         },
         actor,
       ),
@@ -454,20 +456,22 @@ describe("AdminCatalogService", () => {
               creditNameSnapshot: "Guest",
             },
           ],
-          source: {
+          sources: [{
             youtubeUrl: "https://youtu.be/ASRCBcCY_qE",
             channelId: "channel-1",
             startSeconds: 12,
             endSeconds: 170,
             sourceRole: "alternate",
-          },
+            priority: 0,
+            isPrimary: true,
+          }],
         },
         actor,
       ),
     ).resolves.toMatchObject({ catalogRevision: 8 });
     expect(updatePerformance).toHaveBeenCalledWith(
       expect.objectContaining({
-        video,
+        sources: [expect.objectContaining({ video })],
         now: 123,
         ids: {
           entityIds: {
@@ -478,7 +482,6 @@ describe("AdminCatalogService", () => {
             "member:1": expect.any(String),
             "external:guest-chip": expect.any(String),
           },
-          sourceId: expect.any(String),
           eventId: expect.any(String),
         },
       }),
@@ -699,12 +702,14 @@ describe("AdminCatalogService", () => {
           creditNameSnapshot: "Member",
         },
       ],
-      source: {
+      sources: [{
         youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
         channelId: channel.id,
         startSeconds: 0,
         sourceRole: "official" as const,
-      },
+        priority: 0,
+        isPrimary: true,
+      }],
     };
 
     await expect(
@@ -724,7 +729,7 @@ describe("AdminCatalogService", () => {
       service.createPerformance(
         {
           ...input,
-          source: { ...input.source, youtubeUrl: "https://example.com/video" },
+          sources: [{ ...input.sources[0]!, youtubeUrl: "https://example.com/video" }],
         },
         actor,
       ),

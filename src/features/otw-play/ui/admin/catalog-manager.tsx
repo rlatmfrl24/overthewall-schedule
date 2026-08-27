@@ -399,6 +399,9 @@ export function OtwPlayCatalogManager() {
           catalog={catalog}
           proposals={proposalsQuery.data ?? []}
           loading={proposalsQuery.isLoading}
+          fetching={proposalsQuery.isFetching}
+          error={proposalsQuery.error}
+          refetch={proposalsQuery.refetch}
           saving={effectiveSaving}
           run={run}
         />
@@ -497,6 +500,9 @@ function ProposalSection({
   catalog,
   proposals,
   loading,
+  fetching,
+  error,
+  refetch,
   saving,
   run,
 }: {
@@ -505,6 +511,9 @@ function ProposalSection({
     ? NonNullable<T>
     : never;
   loading: boolean;
+  fetching: boolean;
+  error: Error | null;
+  refetch: () => Promise<unknown>;
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
@@ -717,7 +726,16 @@ function ProposalSection({
         <p className="text-sm text-muted-foreground">
           최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
         </p>
-        {selected && (
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+            <span>제안 목록을 불러오지 못했습니다. 빈 목록으로 간주하지 않습니다: {error.message}</span>
+            <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>
+              {fetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              다시 시도
+            </Button>
+          </div>
+        ) : null}
+        {!error && selected && (
           <div className="grid gap-4 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
             <div className="aspect-video overflow-hidden rounded-lg bg-black">
               <iframe
@@ -1222,11 +1240,11 @@ function ProposalSection({
             </div>
           </div>
         )}
-        {proposals.length === 0 ? (
+        {!error && proposals.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
             대기 중인 제안이 없습니다.
           </div>
-        ) : (
+        ) : !error ? (
           <div className="overflow-x-auto">
             <Table className="min-w-[850px]">
               <TableHeader>
@@ -1325,7 +1343,7 @@ function ProposalSection({
               </TableBody>
             </Table>
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

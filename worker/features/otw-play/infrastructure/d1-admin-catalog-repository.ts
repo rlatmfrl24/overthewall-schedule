@@ -1543,7 +1543,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
 
   private sourceInsert(
     sourceId: string,
-    video: AdminCreatePerformanceCommand["video"],
+    video: AdminCreatePerformanceCommand["sources"][number]["video"],
     internalChannelId: string,
     now: number,
   ) {
@@ -1572,60 +1572,90 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   async createPerformance(command: AdminCreatePerformanceCommand) {
-    const { input, video, actor, now, ids } = command;
+    const { input, sources, actor, now, ids } = command;
     const meta = await this.readRevision();
-    const selectedChannel = await this.database.prepare(
-      `SELECT channel_role, verification_status, active
-       FROM music_channels WHERE id = ?`,
-    ).bind(input.source.channelId).first<{
-      channel_role: OtwPlayAdminChannelDto["channelRole"];
-      verification_status: OtwPlayAdminChannelDto["verificationStatus"];
-      active: number;
-    }>();
-    if (!selectedChannel) {
-      throw new AdminCatalogRepositoryError("not_found", "Source channel not found");
+    const resolvedSources: Array<
+      (typeof sources)[number] & { resolvedSourceId: string; existing: boolean }
+    > = [];
+    const resolvedVideoIds = new Map<string, string>();
+    for (const source of sources) {
+      const selectedChannel = await this.database.prepare(
+        `SELECT channel_role, verification_status, active
+         FROM music_channels WHERE id = ?`,
+      ).bind(source.input.channelId).first<{
+        channel_role: OtwPlayAdminChannelDto["channelRole"];
+        verification_status: OtwPlayAdminChannelDto["verificationStatus"];
+        active: number;
+      }>();
+      if (!selectedChannel) {
+        throw new AdminCatalogRepositoryError("not_found", "Source channel not found");
+      }
+      if (
+        input.releaseType === "broadcast" &&
+        (source.input.sourceRole !== "kirinuki" ||
+          selectedChannel.channel_role !== "approved_kirinuki" ||
+          selectedChannel.verification_status !== "approved" ||
+          !selectedChannel.active)
+      ) {
+        throw new AdminCatalogRepositoryError(
+          "validation_failed",
+          "Broadcast drafts require approved Kirinuki sources",
+          { sources: "approved_kirinuki_required" },
+        );
+      }
+      if (
+        input.releaseType !== "broadcast" &&
+        (source.input.sourceRole === "kirinuki" ||
+          selectedChannel.channel_role === "approved_kirinuki")
+      ) {
+        throw new AdminCatalogRepositoryError(
+          "validation_failed",
+          "Kirinuki sources require the broadcast release type",
+          { releaseType: "broadcast_required" },
+        );
+      }
+      const locallyResolved = resolvedVideoIds.get(source.video.videoId);
+      const existingSource = locallyResolved
+        ? { id: locallyResolved }
+        : await this.database
+            .prepare(
+              `SELECT id FROM music_media_sources
+               WHERE provider = 'youtube' AND external_id = ?`,
+            )
+            .bind(source.video.videoId)
+            .first<{ id: string }>();
+      const resolvedSourceId = existingSource?.id ?? source.sourceId;
+      resolvedVideoIds.set(source.video.videoId, resolvedSourceId);
+      resolvedSources.push({
+        ...source,
+        resolvedSourceId,
+        existing: Boolean(existingSource),
+      });
     }
-    if (
-      input.releaseType === "broadcast" &&
-      (input.source.sourceRole !== "kirinuki" ||
-        selectedChannel.channel_role !== "approved_kirinuki" ||
-        selectedChannel.verification_status !== "approved" ||
-        !selectedChannel.active)
-    ) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "Broadcast drafts require an approved Kirinuki source",
-        { sourceRole: "approved_kirinuki_required" },
-      );
-    }
-    if (
-      input.releaseType !== "broadcast" &&
-      (input.source.sourceRole === "kirinuki" ||
-        selectedChannel.channel_role === "approved_kirinuki")
-    ) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "Kirinuki sources require the broadcast release type",
-        { releaseType: "broadcast_required" },
-      );
-    }
-    const existingSource = await this.database
-      .prepare(
-        `SELECT id FROM music_media_sources
-      WHERE provider = 'youtube' AND external_id = ?`,
-      )
-      .bind(video.videoId)
-      .first<{ id: string }>();
-    const sourceId = existingSource?.id ?? ids.sourceId;
+    const primarySource = resolvedSources.find((source) => source.input.isPrimary)!;
     const dedupeKey = createPerformanceDedupeKeyMaterial({
       songId: input.songId,
-      sourceId,
-      startSeconds: input.source.startSeconds,
+      sourceId: primarySource.resolvedSourceId,
+      startSeconds: primarySource.input.startSeconds,
     });
     const statements: D1PreparedStatement[] = [
-      ...(existingSource
-        ? []
-        : [this.sourceInsert(sourceId, video, input.source.channelId, now)]),
+      ...resolvedSources
+        .filter(
+          (source, index, all) =>
+            !source.existing &&
+            all.findIndex(
+              (candidate) =>
+                candidate.resolvedSourceId === source.resolvedSourceId,
+            ) === index,
+        )
+        .map((source) =>
+          this.sourceInsert(
+            source.resolvedSourceId,
+            source.video,
+            source.input.channelId,
+            now,
+          ),
+        ),
       this.database
         .prepare(
           `INSERT INTO music_performances (
@@ -1662,19 +1692,23 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             participant.creditNameSnapshot?.trim() || participant.entityId,
           ),
       ),
-      this.database
-        .prepare(
-          `INSERT INTO music_performance_sources (
-        performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary
-      ) VALUES (?, ?, ?, ?, ?, 0, 1)`,
-        )
-        .bind(
-          ids.performanceId,
-          sourceId,
-          input.source.startSeconds,
-          input.source.endSeconds ?? null,
-          input.source.sourceRole,
-        ),
+      ...resolvedSources.map((source) =>
+        this.database
+          .prepare(
+            `INSERT INTO music_performance_sources (
+          performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            ids.performanceId,
+            source.resolvedSourceId,
+            source.input.startSeconds,
+            source.input.endSeconds ?? null,
+            source.input.sourceRole,
+            source.input.priority,
+            source.input.isPrimary ? 1 : 0,
+          ),
+      ),
       ...projectionStatements(this.database, input.songId),
       this.database
         .prepare(
@@ -1686,7 +1720,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           ids.eventId,
           ids.performanceId,
           actor.userId,
-          eventJson({ songId: input.songId, publicationStatus: "draft" }),
+          eventJson({
+            songId: input.songId,
+            publicationStatus: "draft",
+            sourceCount: resolvedSources.length,
+          }),
           now,
         ),
     ];
@@ -2529,7 +2567,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
   }
 
   async updatePerformance(command: AdminUpdatePerformanceCommand) {
-    const { input, video, actor, now, ids } = command;
+    const { input, sources, actor, now, ids } = command;
     const meta = await this.readRevision();
     const catalog = await this.readCatalog();
     const current = await this.database
@@ -2702,36 +2740,44 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         "A participant can only be credited once",
       );
     }
-    const selectedChannel = catalog.channels.find(
-      (channel) =>
-        channel.id === input.source.channelId &&
-        channel.externalChannelId === video.channelId,
-    );
-    if (!selectedChannel) {
-      throw new AdminCatalogRepositoryError(
-        "validation_failed",
-        "The selected source channel does not match YouTube metadata",
-        { channel: "mismatch" },
+    const selectedChannels = sources.map(({ input: sourceInput, video }) => {
+      const channel = catalog.channels.find(
+        (item) =>
+          item.id === sourceInput.channelId &&
+          item.externalChannelId === video.channelId,
       );
-    }
+      if (!channel) {
+        throw new AdminCatalogRepositoryError(
+          "validation_failed",
+          "A selected source channel does not match YouTube metadata",
+          { sources: "channel_mismatch" },
+        );
+      }
+      return channel;
+    });
     if (
       input.releaseType === "broadcast" &&
       (current.publication_status !== "draft" ||
-        input.source.sourceRole !== "kirinuki" ||
-        selectedChannel.channelRole !== "approved_kirinuki" ||
-        selectedChannel.verificationStatus !== "approved" ||
-        !selectedChannel.active)
+        sources.some((source, index) =>
+          source.input.sourceRole !== "kirinuki" ||
+          selectedChannels[index]?.channelRole !== "approved_kirinuki" ||
+          selectedChannels[index]?.verificationStatus !== "approved" ||
+          !selectedChannels[index]?.active
+        ))
     ) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
-        "Broadcast drafts require an approved Kirinuki source",
-        { sourceRole: "approved_kirinuki_required" },
+        "Broadcast drafts require approved Kirinuki sources",
+        { sources: "approved_kirinuki_required" },
       );
     }
     if (
       input.releaseType !== "broadcast" &&
-      (input.source.sourceRole === "kirinuki" ||
-        selectedChannel.channelRole === "approved_kirinuki")
+      sources.some(
+        (source, index) =>
+          source.input.sourceRole === "kirinuki" ||
+          selectedChannels[index]?.channelRole === "approved_kirinuki",
+      )
     ) {
       throw new AdminCatalogRepositoryError(
         "validation_failed",
@@ -2759,32 +2805,54 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           "A published correction requires an actual singing credit",
         );
       }
-      const eligibleChannel = await this.database
-        .prepare(
-          `SELECT 1 AS eligible
-        FROM music_channels WHERE id = ?
-          AND verification_status = 'approved' AND active = 1
-          AND channel_role IN (
-            'otw_official', 'unit_official', 'member_music', 'member_main', 'project_official'
-          )`,
-        )
-        .bind(input.source.channelId)
-        .first<{ eligible: number }>();
-      if (!eligibleChannel) {
+      const allChannelsEligible = selectedChannels.every(
+        (channel) =>
+          channel.verificationStatus === "approved" &&
+          channel.active &&
+          [
+            "otw_official",
+            "unit_official",
+            "member_music",
+            "member_main",
+            "project_official",
+          ].includes(channel.channelRole),
+      );
+      if (!allChannelsEligible) {
         throw new AdminCatalogRepositoryError(
           "validation_failed",
-          "A published correction requires an approved active official channel",
+          "A published correction requires approved active official channels",
         );
       }
     }
-    const existingSource = await this.database
-      .prepare(
-        `SELECT id FROM music_media_sources
-      WHERE provider = 'youtube' AND external_id = ?`,
-      )
-      .bind(video.videoId)
-      .first<{ id: string }>();
-    const sourceId = existingSource?.id ?? ids.sourceId;
+    const resolvedSources: Array<
+      (typeof sources)[number] & { resolvedSourceId: string; existing: boolean }
+    > = [];
+    const resolvedVideoIds = new Map<string, string>();
+    for (const source of sources) {
+      const locallyResolved = resolvedVideoIds.get(source.video.videoId);
+      const existingSource = locallyResolved
+        ? { id: locallyResolved }
+        : await this.database
+            .prepare(
+              `SELECT id FROM music_media_sources
+               WHERE provider = 'youtube' AND external_id = ?`,
+            )
+            .bind(source.video.videoId)
+            .first<{ id: string }>();
+      const resolvedSourceId = existingSource?.id ?? source.sourceId;
+      resolvedVideoIds.set(source.video.videoId, resolvedSourceId);
+      resolvedSources.push({
+        ...source,
+        resolvedSourceId,
+        existing: Boolean(existingSource),
+      });
+    }
+    const primarySource = resolvedSources.find((source) => source.input.isPrimary)!;
+    const dedupeKey = createPerformanceDedupeKeyMaterial({
+      songId: input.songId,
+      sourceId: primarySource.resolvedSourceId,
+      startSeconds: primarySource.input.startSeconds,
+    });
     const previousSourceRows = await this.database
       .prepare(
         "SELECT source_id FROM music_performance_sources WHERE performance_id = ?",
@@ -2800,13 +2868,14 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         .bind(input.id),
       this.database
         .prepare(
-          `UPDATE music_performances SET song_id = ?, relation_type = ?,
+          `UPDATE music_performances SET song_id = ?, dedupe_key = ?, relation_type = ?,
         release_type = ?, participation_type = ?, quality_status = ?, released_at = ?,
         internal_note = ?, version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND publication_status IN ('draft', 'published')`,
         )
         .bind(
           input.songId,
+          dedupeKey,
           input.relationType,
           input.releaseType,
           input.participationType,
@@ -2818,29 +2887,42 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.expectedVersion,
         ),
       versionGuard(this.database),
-      ...(existingSource
-        ? [
-            this.database
-              .prepare(
-                `UPDATE music_media_sources SET channel_id = ?, title = ?, thumbnail_url = ?,
-                duration_seconds = ?, provider_published_at = ?, availability_status = ?,
-                last_checked_at = ?, next_check_at = ?, version = version + 1,
-                updated_at = ? WHERE id = ?`,
-              )
-              .bind(
-                input.source.channelId,
-                video.title,
-                video.thumbnailUrl,
-                video.durationSeconds,
-                video.publishedAt,
-                video.availabilityStatus,
+      ...resolvedSources
+        .filter(
+          (source, index, all) =>
+            all.findIndex(
+              (candidate) =>
+                candidate.resolvedSourceId === source.resolvedSourceId,
+            ) === index,
+        )
+        .map((source) =>
+          source.existing
+            ? this.database
+                .prepare(
+                  `UPDATE music_media_sources SET channel_id = ?, title = ?, thumbnail_url = ?,
+                  duration_seconds = ?, provider_published_at = ?, availability_status = ?,
+                  last_checked_at = ?, next_check_at = ?, version = version + 1,
+                  updated_at = ? WHERE id = ?`,
+                )
+                .bind(
+                  source.input.channelId,
+                  source.video.title,
+                  source.video.thumbnailUrl,
+                  source.video.durationSeconds,
+                  source.video.publishedAt,
+                  source.video.availabilityStatus,
+                  now,
+                  getNextSourceCheckAt(source.video.availabilityStatus, now),
+                  now,
+                  source.resolvedSourceId,
+                )
+            : this.sourceInsert(
+                source.resolvedSourceId,
+                source.video,
+                source.input.channelId,
                 now,
-                getNextSourceCheckAt(video.availabilityStatus, now),
-                now,
-                sourceId,
               ),
-          ]
-        : [this.sourceInsert(sourceId, video, input.source.channelId, now)]),
+        ),
       this.database
         .prepare(
           "DELETE FROM music_performance_participants WHERE performance_id = ?",
@@ -2866,21 +2948,30 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           "DELETE FROM music_performance_sources WHERE performance_id = ?",
         )
         .bind(input.id),
-      this.database
-        .prepare(
-          `INSERT INTO music_performance_sources
-        (performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary)
-        VALUES (?, ?, ?, ?, ?, 0, 1)`,
-        )
-        .bind(
-          input.id,
-          sourceId,
-          input.source.startSeconds,
-          input.source.endSeconds ?? null,
-          input.source.sourceRole,
-        ),
+      ...resolvedSources.map((source) =>
+        this.database
+          .prepare(
+            `INSERT INTO music_performance_sources
+          (performance_id, source_id, start_seconds, end_seconds, source_role, priority, is_primary)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            input.id,
+            source.resolvedSourceId,
+            source.input.startSeconds,
+            source.input.endSeconds ?? null,
+            source.input.sourceRole,
+            source.input.priority,
+            source.input.isPrimary ? 1 : 0,
+          ),
+      ),
       ...previousSourceRows.results
-        .filter((row) => row.source_id !== sourceId)
+        .filter(
+          (row) =>
+            !resolvedSources.some(
+              (source) => source.resolvedSourceId === row.source_id,
+            ),
+        )
         .map((row) =>
           this.database
             .prepare(
@@ -2913,6 +3004,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           eventJson({
             songId: input.songId,
             version: input.expectedVersion + 1,
+            sourceCount: resolvedSources.length,
           }),
           now,
         ),

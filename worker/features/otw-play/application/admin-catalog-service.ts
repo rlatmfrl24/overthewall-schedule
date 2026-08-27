@@ -410,61 +410,86 @@ export class AdminCatalogService {
     return result;
   }
 
-  private async verifyVideo(
-    input: Pick<OtwPlayAdminCreatePerformanceRequest, "source">,
+  private async verifyPerformanceSources(
+    input: Pick<OtwPlayAdminCreatePerformanceRequest, "sources">,
   ) {
-    const videoId = extractYouTubeVideoId(input.source.youtubeUrl);
-    if (!videoId) {
+    if (
+      input.sources.length === 0 ||
+      input.sources.filter((source) => source.isPrimary).length !== 1 ||
+      new Set(input.sources.map((source) => source.priority)).size !==
+        input.sources.length
+    ) {
       throw new AdminCatalogServiceError(
         "invalid_request",
-        "A supported YouTube video URL is required",
-        { "source.youtubeUrl": "invalid" },
-      );
-    }
-    const metadata = await this.youtube.readVideo(videoId);
-    if (!metadata) {
-      throw new AdminCatalogServiceError(
-        "external_service_unavailable",
-        "YouTube video metadata is unavailable",
+        "Sources require one primary item and unique priorities",
+        { sources: "invalid" },
       );
     }
     const catalog = await this.repository.readCatalog();
-    const channel = catalog.channels.find(
-      (item) => item.id === input.source.channelId,
-    );
-    if (
-      !channel ||
-      metadata.videoId !== videoId ||
-      metadata.channelId !== channel.externalChannelId
-    ) {
-      throw new AdminCatalogServiceError(
-        "validation_failed",
-        "YouTube video and channel metadata do not match",
-        { "source.channelId": "mismatch" },
+    const seenSegments = new Set<string>();
+    const verified = [];
+    for (const [index, source] of input.sources.entries()) {
+      const videoId = extractYouTubeVideoId(source.youtubeUrl);
+      if (!videoId) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "A supported YouTube video URL is required",
+          { [`sources.${index}.youtubeUrl`]: "invalid" },
+        );
+      }
+      const segmentKey = `${videoId}:${source.startSeconds}:${source.endSeconds ?? ""}`;
+      if (seenSegments.has(segmentKey)) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "Duplicate source segments are not allowed",
+          { sources: "duplicate_segment" },
+        );
+      }
+      seenSegments.add(segmentKey);
+      const metadata = await this.youtube.readVideo(videoId);
+      if (!metadata) {
+        throw new AdminCatalogServiceError(
+          "external_service_unavailable",
+          "YouTube video metadata is unavailable",
+        );
+      }
+      const channel = catalog.channels.find(
+        (item) => item.id === source.channelId,
       );
+      if (
+        !channel ||
+        metadata.videoId !== videoId ||
+        metadata.channelId !== channel.externalChannelId
+      ) {
+        throw new AdminCatalogServiceError(
+          "validation_failed",
+          "YouTube video and channel metadata do not match",
+          { [`sources.${index}.channelId`]: "mismatch" },
+        );
+      }
+      this.validateSourceSegment(
+        source.startSeconds,
+        source.endSeconds,
+        metadata.durationSeconds,
+      );
+      verified.push({ input: source, video: metadata, sourceId: this.createId() });
     }
-    return metadata;
+    return verified;
   }
 
   async createPerformance(
     input: OtwPlayAdminCreatePerformanceRequest,
     actor: AdminCatalogActor,
   ) {
-    const video = await this.verifyVideo(input);
-    this.validateSourceSegment(
-      input.source.startSeconds,
-      input.source.endSeconds,
-      video.durationSeconds,
-    );
+    const sources = await this.verifyPerformanceSources(input);
     const performanceId = this.createId();
     const result = await this.repository.createPerformance({
       input,
-      video,
+      sources,
       actor,
       now: this.clock(),
       ids: {
         performanceId,
-        sourceId: this.createId(),
         eventId: this.createId(),
       },
     });
@@ -503,21 +528,15 @@ export class AdminCatalogService {
         entityEventIds[key] = this.createId();
       }
     }
-    const video = await this.verifyVideo(input);
-    this.validateSourceSegment(
-      input.source.startSeconds,
-      input.source.endSeconds,
-      video.durationSeconds,
-    );
+    const sources = await this.verifyPerformanceSources(input);
     const result = await this.repository.updatePerformance({
       input,
-      video,
+      sources,
       actor,
       now: this.clock(),
       ids: {
         entityIds,
         entityEventIds,
-        sourceId: this.createId(),
         eventId: this.createId(),
       },
     });

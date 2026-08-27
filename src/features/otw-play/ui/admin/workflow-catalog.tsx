@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminPerformanceDto,
+  OtwPlayAdminPerformanceSourceInput,
   OtwPlayAdminSongDto,
   OtwPlayParticipantRole,
   OtwPlayParticipationType,
@@ -44,6 +45,7 @@ import {
 import { Textarea } from "@/shared/ui/textarea";
 import {
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Loader2,
   Pencil,
@@ -82,6 +84,37 @@ const releaseLabel = (value: string) => ({
 }[value] ?? value);
 const participationLabel = (value: string) =>
   ({ solo: "솔로", duet: "듀엣", unit: "유닛", group: "그룹", external_collab: "외부 협업" })[value] ?? value;
+
+const orderedPerformanceSources = (performance: OtwPlayAdminPerformanceDto) =>
+  [...performance.sources].sort((left, right) => left.priority - right.priority);
+
+function PerformanceSourceSummary({
+  catalog,
+  performance,
+}: {
+  catalog: OtwPlayAdminCatalogDto;
+  performance: OtwPlayAdminPerformanceDto;
+}) {
+  const sources = orderedPerformanceSources(performance);
+  if (sources.length === 0) {
+    return <div className="text-xs text-muted-foreground">source 없음</div>;
+  }
+  return (
+    <div className="mt-1 space-y-0.5 text-xs text-muted-foreground" aria-label={`${performance.id} source 목록`}>
+      {sources.map((relation) => {
+        const channel = catalog.channels.find((item) => item.id === relation.source.channelId);
+        return (
+          <div key={`${relation.source.id}:${relation.startSeconds}`} className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0">{relation.priority + 1}{relation.isPrimary ? " · 대표" : ""}</span>
+            <span className="truncate" title={`${channel?.displayName ?? "채널 없음"} · ${relation.source.title ?? relation.source.externalId}`}>
+              {channel?.displayName ?? "채널 없음"} · {relation.source.title ?? relation.source.externalId}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function WorkflowCatalog({
   catalog,
@@ -273,11 +306,19 @@ export function WorkflowCatalog({
                       <TableCell><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
                     </TableRow>,
                   ];
-                  if (open) rows.push(...performances.map((performance) => {
-                    const source = performance.sources[0]?.source;
-                    const channel = catalog.channels.find((item) => item.id === source?.channelId);
-                    return <TableRow key={performance.id}><TableCell /><TableCell><div className="pl-5 text-sm font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><div className="pl-5 text-xs text-muted-foreground">{source?.title ?? "source 없음"}</div></TableCell><TableCell>{channel?.displayName ?? "채널 없음"}</TableCell><TableCell><Badge variant={performance.publicationStatus === "published" ? "secondary" : performance.publicationStatus === "withdrawn" ? "destructive" : "outline"}>{publicationLabel(performance.publicationStatus)}</Badge></TableCell><TableCell>{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</TableCell><TableCell>{performanceActions(performance)}</TableCell></TableRow>;
-                  }));
+                  if (open) rows.push(...performances.map((performance) => (
+                    <TableRow key={performance.id}>
+                      <TableCell />
+                      <TableCell>
+                        <div className="pl-5 text-sm font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div>
+                        <div className="pl-5"><PerformanceSourceSummary catalog={catalog} performance={performance} /></div>
+                      </TableCell>
+                      <TableCell>{orderedPerformanceSources(performance).map((relation) => catalog.channels.find((item) => item.id === relation.source.channelId)?.displayName ?? "채널 없음").join(", ") || "채널 없음"}</TableCell>
+                      <TableCell><Badge variant={performance.publicationStatus === "published" ? "secondary" : performance.publicationStatus === "withdrawn" ? "destructive" : "outline"}>{publicationLabel(performance.publicationStatus)}</Badge></TableCell>
+                      <TableCell>{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</TableCell>
+                      <TableCell>{performanceActions(performance)}</TableCell>
+                    </TableRow>
+                  )));
                   return rows;
                 })}
               </TableBody>
@@ -287,7 +328,7 @@ export function WorkflowCatalog({
           <div className="space-y-3 md:hidden">
             {activeSongs.map((song) => {
               const performances = catalog.performances.filter((item) => item.songId === song.id);
-              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => { const source = performance.sources[0]?.source; const channel = catalog.channels.find((item) => item.id === source?.channelId); return <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div><div className="mt-1 text-xs text-muted-foreground">{channel?.displayName ?? "채널 없음"} · {source?.title ?? "source 없음"}</div><div className="mt-2">{performanceActions(performance)}</div></div>; })}</div></CardContent></Card>;
+              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div><PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
             })}
           </div>
         </>
@@ -363,6 +404,16 @@ type EditableParticipant = SelectedSubject & {
   creditNameSnapshot: string;
 };
 
+type EditablePerformanceSource = Omit<
+  OtwPlayAdminPerformanceSourceInput,
+  "startSeconds" | "endSeconds" | "priority"
+> & {
+  key: string;
+  sourceVersion?: number;
+  startSeconds: string;
+  endSeconds: string;
+};
+
 const toDateTimeLocal = (value: number | null) => {
   if (value === null) return "";
   const date = new Date(value);
@@ -390,13 +441,7 @@ function PerformanceEditDialog({
   const [quality, setQuality] = useState<OtwPlayQualityStatus>("ok");
   const [releasedAt, setReleasedAt] = useState("");
   const [participants, setParticipants] = useState<EditableParticipant[]>([]);
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [channelId, setChannelId] = useState("");
-  const [startSeconds, setStartSeconds] = useState("0");
-  const [endSeconds, setEndSeconds] = useState("");
-  const [sourceRole, setSourceRole] = useState<"official" | "kirinuki" | "alternate">(
-    "official",
-  );
+  const [sources, setSources] = useState<EditablePerformanceSource[]>([]);
   const [note, setNote] = useState("");
   const membersQuery = useQuery({
     queryKey: queryKeys.members.active(),
@@ -408,7 +453,6 @@ function PerformanceEditDialog({
 
   useEffect(() => {
     if (!performance) return;
-    const source = performance.sources[0];
     setSongId(performance.songId);
     setRelation(performance.relationType);
     setReleaseType(performance.releaseType);
@@ -445,24 +489,24 @@ function PerformanceEditDialog({
         };
       }),
     );
-    setYoutubeUrl(
-      source
-        ? `https://www.youtube.com/watch?v=${source.source.externalId}`
-        : "",
-    );
-    setChannelId(source?.source.channelId ?? "");
-    setStartSeconds(String(source?.startSeconds ?? 0));
-    setEndSeconds(
-      source?.endSeconds === null || source?.endSeconds === undefined
-        ? ""
-        : String(source.endSeconds),
-    );
-    setSourceRole(
-      source?.sourceRole === "kirinuki"
-        ? "kirinuki"
-        : source?.sourceRole === "alternate"
-          ? "alternate"
-          : "official",
+    setSources(
+      [...performance.sources]
+        .sort((left, right) => left.priority - right.priority)
+        .map((source) => ({
+          key: source.source.id,
+          sourceVersion: source.source.version,
+          youtubeUrl: `https://www.youtube.com/watch?v=${source.source.externalId}`,
+          channelId: source.source.channelId,
+          startSeconds: String(source.startSeconds),
+          endSeconds: source.endSeconds === null ? "" : String(source.endSeconds),
+          sourceRole:
+            source.sourceRole === "kirinuki"
+              ? "kirinuki"
+              : source.sourceRole === "alternate"
+                ? "alternate"
+                : "official",
+          isPrimary: source.isPrimary,
+        })),
     );
     setNote(performance.internalNote ?? "");
   }, [catalog.entities, performance]);
@@ -503,20 +547,47 @@ function PerformanceEditDialog({
       });
     });
   };
-  const parsedStart = Number(startSeconds);
-  const parsedEnd = endSeconds.trim() ? Number(endSeconds) : null;
-  const validRange =
-    Number.isInteger(parsedStart) &&
-    parsedStart >= 0 &&
-    (parsedEnd === null ||
-      (Number.isInteger(parsedEnd) && parsedEnd > parsedStart));
+  const parsedSources = sources.map((source, priority) => ({
+    youtubeUrl: source.youtubeUrl.trim(),
+    channelId: source.channelId,
+    startSeconds: Number(source.startSeconds),
+    endSeconds: source.endSeconds.trim() ? Number(source.endSeconds) : null,
+    sourceRole: source.sourceRole,
+    priority,
+    isPrimary: source.isPrimary,
+  }));
+  const validSources =
+    parsedSources.length > 0 &&
+    parsedSources.filter((source) => source.isPrimary).length === 1 &&
+    parsedSources.every(
+      (source) =>
+        source.youtubeUrl.length > 0 &&
+        source.channelId.length > 0 &&
+        Number.isInteger(source.startSeconds) &&
+        source.startSeconds >= 0 &&
+        (source.endSeconds === null ||
+          (Number.isInteger(source.endSeconds) &&
+            source.endSeconds > source.startSeconds)),
+    );
   const canSave =
     performance !== null &&
     songId.length > 0 &&
     participants.length > 0 &&
-    youtubeUrl.trim().length > 0 &&
-    channelId.length > 0 &&
-    validRange;
+    validSources;
+
+  const updateSource = (
+    key: string,
+    update: Partial<EditablePerformanceSource>,
+  ) => setSources((current) =>
+    current.map((source) => source.key === key ? { ...source, ...update } : source),
+  );
+  const moveSource = (index: number, direction: -1 | 1) => setSources((current) => {
+    const target = index + direction;
+    if (target < 0 || target >= current.length) return current;
+    const next = [...current];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    return next;
+  });
 
   return (
     <Dialog open={performance !== null} onOpenChange={onOpenChange}>
@@ -702,69 +773,114 @@ function PerformanceEditDialog({
               ))}
             </section>
 
-            <section className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-performance-youtube-url">YouTube URL</Label>
-                <Input
-                  id="edit-performance-youtube-url"
-                  value={youtubeUrl}
-                  onChange={(event) => setYoutubeUrl(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>영상 채널</Label>
-                <Select value={channelId} onValueChange={setChannelId}>
-                  <SelectTrigger aria-label="공식 채널">
-                    <SelectValue placeholder="채널 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {catalog.channels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.id}>
-                        {channel.displayName} · {channel.verificationStatus} ·
-                        {channel.active ? " 활성" : " 비활성"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-performance-start">시작 위치(초)</Label>
-                <Input
-                  id="edit-performance-start"
-                  type="number"
-                  min={0}
-                  value={startSeconds}
-                  onChange={(event) => setStartSeconds(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-performance-end">종료 위치(초)</Label>
-                <Input
-                  id="edit-performance-end"
-                  type="number"
-                  min={0}
-                  value={endSeconds}
-                  onChange={(event) => setEndSeconds(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>source 역할</Label>
-                <Select
-                  value={sourceRole}
-                  onValueChange={(value) =>
-                    setSourceRole(value as "official" | "kirinuki" | "alternate")
-                  }
+            <section className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">영상 source</h3>
+                  <p className="text-xs text-muted-foreground">
+                    위에서부터 재생 우선순위가 적용되며 대표 source는 정확히 하나여야 합니다.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSources((current) => [
+                    ...current,
+                    {
+                      key: `new-${Date.now()}-${current.length}`,
+                      youtubeUrl: "",
+                      channelId: "",
+                      startSeconds: "0",
+                      endSeconds: "",
+                      sourceRole: releaseType === "broadcast" ? "kirinuki" : "alternate",
+                      isPrimary: current.length === 0,
+                    },
+                  ])}
                 >
-                  <SelectTrigger aria-label="source 역할">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="official">공식 source</SelectItem>
-                    <SelectItem value="kirinuki">키리누키 source</SelectItem>
-                    <SelectItem value="alternate">대체 source</SelectItem>
-                  </SelectContent>
-                </Select>
+                  <Plus /> source 추가
+                </Button>
               </div>
+              {sources.map((source, index) => (
+                <div key={source.key} className="space-y-3 rounded-xl border p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={source.isPrimary ? "default" : "outline"}>
+                        우선순위 {index + 1}{source.isPrimary ? " · 대표" : ""}
+                      </Badge>
+                      <label className="flex items-center gap-2 text-xs">
+                        <input
+                          type="radio"
+                          name="performance-primary-source"
+                          checked={source.isPrimary}
+                          onChange={() => setSources((current) => current.map((item) => ({
+                            ...item,
+                            isPrimary: item.key === source.key,
+                          })))}
+                        />
+                        대표 지정
+                      </label>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`source ${index + 1} 위로 이동`} disabled={index === 0} onClick={() => moveSource(index, -1)}><ChevronUp /></Button>
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`source ${index + 1} 아래로 이동`} disabled={index === sources.length - 1} onClick={() => moveSource(index, 1)}><ChevronDown /></Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`source ${index + 1} 삭제`}
+                        disabled={sources.length === 1}
+                        onClick={() => setSources((current) => {
+                          const next = current.filter((item) => item.key !== source.key);
+                          if (source.isPrimary && next[0]) next[0] = { ...next[0], isPrimary: true };
+                          return next;
+                        })}
+                      ><Trash2 /></Button>
+                      {source.sourceVersion !== undefined ? (
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`source ${index + 1} 재검사`}
+                          disabled={!source.youtubeUrl.trim() || !source.channelId}
+                          onClick={() => void run(`source:${source.key}`, () =>
+                            recheckOtwPlaySource(source.key, {
+                              expectedVersion: source.sourceVersion!,
+                              youtubeUrl: source.youtubeUrl.trim(),
+                              channelId: source.channelId,
+                            }),
+                          )}
+                        ><RefreshCw /></Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor={`edit-source-url-${source.key}`}>YouTube URL</Label>
+                      <Input id={`edit-source-url-${source.key}`} value={source.youtubeUrl} onChange={(event) => updateSource(source.key, { youtubeUrl: event.target.value })} />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>영상 채널</Label>
+                      <Select value={source.channelId} onValueChange={(channelId) => updateSource(source.key, { channelId })}>
+                        <SelectTrigger aria-label={`source ${index + 1} 채널`}><SelectValue placeholder="채널 선택" /></SelectTrigger>
+                        <SelectContent>{catalog.channels.map((channel) => (
+                          <SelectItem key={channel.id} value={channel.id}>{channel.displayName} · {channel.verificationStatus} · {channel.active ? " 활성" : " 비활성"}</SelectItem>
+                        ))}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5"><Label htmlFor={`edit-source-start-${source.key}`}>시작 위치(초)</Label><Input id={`edit-source-start-${source.key}`} type="number" min={0} value={source.startSeconds} onChange={(event) => updateSource(source.key, { startSeconds: event.target.value })} /></div>
+                    <div className="space-y-1.5"><Label htmlFor={`edit-source-end-${source.key}`}>종료 위치(초)</Label><Input id={`edit-source-end-${source.key}`} type="number" min={0} value={source.endSeconds} onChange={(event) => updateSource(source.key, { endSeconds: event.target.value })} /></div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label>source 역할</Label>
+                      <Select value={source.sourceRole} onValueChange={(sourceRole) => updateSource(source.key, { sourceRole: sourceRole as EditablePerformanceSource["sourceRole"] })}>
+                        <SelectTrigger aria-label={`source ${index + 1} 역할`}><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="official">공식 source</SelectItem><SelectItem value="kirinuki">키리누키 source</SelectItem><SelectItem value="alternate">대체 source</SelectItem></SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="edit-performance-note">내부 메모</Label>
                 <Textarea
@@ -772,6 +888,7 @@ function PerformanceEditDialog({
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                 />
+              </div>
               </div>
             </section>
           </div>
@@ -809,13 +926,7 @@ function PerformanceEditDialog({
                     creditNameSnapshot:
                       participant.creditNameSnapshot.trim() || participant.label,
                   })),
-                  source: {
-                    youtubeUrl: youtubeUrl.trim(),
-                    channelId,
-                    startSeconds: parsedStart,
-                    endSeconds: parsedEnd,
-                    sourceRole,
-                  },
+                  sources: parsedSources,
                 }),
               ).then((ok) => ok && onOpenChange(false));
             }}

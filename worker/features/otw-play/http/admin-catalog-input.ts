@@ -206,17 +206,65 @@ const parsePerformanceCore = (value: JsonObject) => {
   const releasedAt =
     value.releasedAt === null ? null : integer(value.releasedAt);
   const participants = parseEntityReferences(value.participants, "participant");
-  const source = isObject(value.source) ? value.source : null;
-  const youtubeUrl = source ? nonEmptyString(source.youtubeUrl, 500) : null;
-  const channelId = source ? nonEmptyString(source.channelId, 128) : null;
-  const startSeconds = source ? integer(source.startSeconds) : null;
-  const endSeconds =
-    source?.endSeconds === null || source?.endSeconds === undefined
-      ? null
-      : integer(source.endSeconds);
-  const sourceRole = source
-    ? inValues(source.sourceRole, ["official", "kirinuki", "alternate"] as const)
-    : null;
+  const rawSources = Array.isArray(value.sources)
+    ? value.sources
+    : isObject(value.source)
+      ? [{ ...value.source, priority: 0, isPrimary: true }]
+      : null;
+  const sources = rawSources?.map((raw) => {
+    if (!isObject(raw)) return null;
+    const youtubeUrl = nonEmptyString(raw.youtubeUrl, 500);
+    const channelId = nonEmptyString(raw.channelId, 128);
+    const startSeconds = integer(raw.startSeconds);
+    const endSeconds =
+      raw.endSeconds === null || raw.endSeconds === undefined
+        ? null
+        : integer(raw.endSeconds);
+    const sourceRole = inValues(raw.sourceRole, [
+      "official",
+      "kirinuki",
+      "alternate",
+    ] as const);
+    const priority = integer(raw.priority);
+    if (
+      !youtubeUrl ||
+      !channelId ||
+      startSeconds === null ||
+      !sourceRole ||
+      priority === null ||
+      typeof raw.isPrimary !== "boolean" ||
+      (raw.endSeconds !== null &&
+        raw.endSeconds !== undefined &&
+        endSeconds === null) ||
+      (endSeconds !== null && endSeconds <= startSeconds)
+    ) return null;
+    return {
+      youtubeUrl,
+      channelId,
+      startSeconds,
+      endSeconds,
+      sourceRole,
+      priority,
+      isPrimary: raw.isPrimary,
+    };
+  });
+  const parsedSources = sources?.filter(
+    (source): source is NonNullable<typeof source> => source !== null,
+  );
+  const validSources =
+    rawSources !== null &&
+    rawSources.length > 0 &&
+    rawSources.length <= 20 &&
+    parsedSources?.length === rawSources.length &&
+    parsedSources.filter((source) => source.isPrimary).length === 1 &&
+    new Set(parsedSources.map((source) => source.priority)).size ===
+      parsedSources.length &&
+    new Set(
+      parsedSources.map(
+        (source) =>
+          `${source.youtubeUrl}\u0000${source.startSeconds}\u0000${source.endSeconds ?? ""}`,
+      ),
+    ).size === parsedSources.length;
   if (
     !songId ||
     !relationType ||
@@ -225,17 +273,12 @@ const parsePerformanceCore = (value: JsonObject) => {
     !qualityStatus ||
     (value.releasedAt !== null && releasedAt === null) ||
     !participants ||
-    !source ||
-    !youtubeUrl ||
-    !channelId ||
-    startSeconds === null ||
-    !sourceRole ||
-    (releaseType === "broadcast" && sourceRole !== "kirinuki") ||
-    (releaseType !== "broadcast" && sourceRole === "kirinuki") ||
-    (source.endSeconds !== null &&
-      source.endSeconds !== undefined &&
-      endSeconds === null) ||
-    (endSeconds !== null && endSeconds <= startSeconds)
+    !validSources ||
+    !parsedSources ||
+    (releaseType === "broadcast" &&
+      parsedSources.some((source) => source.sourceRole !== "kirinuki")) ||
+    (releaseType !== "broadcast" &&
+      parsedSources.some((source) => source.sourceRole === "kirinuki"))
   )
     return null;
   return {
@@ -247,7 +290,7 @@ const parsePerformanceCore = (value: JsonObject) => {
     releasedAt,
     internalNote: nullableString(value.internalNote, 2_000),
     participants,
-    source: { youtubeUrl, channelId, startSeconds, endSeconds, sourceRole },
+    sources: parsedSources.sort((left, right) => left.priority - right.priority),
   } satisfies OtwPlayAdminCreatePerformanceRequest;
 };
 
@@ -618,17 +661,36 @@ export const parseUpdatePerformance = (
           : null;
       })
     : null;
-  const source = isObject(value.source) ? value.source : null;
-  const youtubeUrl = source ? nonEmptyString(source.youtubeUrl, 500) : null;
-  const channelId = source ? nonEmptyString(source.channelId, 128) : null;
-  const startSeconds = source ? integer(source.startSeconds) : null;
-  const endSeconds =
-    source?.endSeconds === null || source?.endSeconds === undefined
+  const rawSources = Array.isArray(value.sources)
+    ? value.sources
+    : isObject(value.source)
+      ? [{ ...value.source, priority: 0, isPrimary: true }]
+      : null;
+  const parsedSources = rawSources?.map((raw) => {
+    if (!isObject(raw)) return null;
+    const youtubeUrl = nonEmptyString(raw.youtubeUrl, 500);
+    const channelId = nonEmptyString(raw.channelId, 128);
+    const startSeconds = integer(raw.startSeconds);
+    const endSeconds = raw.endSeconds === null || raw.endSeconds === undefined
       ? null
-      : integer(source.endSeconds);
-  const sourceRole = source
-    ? inValues(source.sourceRole, ["official", "kirinuki", "alternate"] as const)
-    : null;
+      : integer(raw.endSeconds);
+    const sourceRole = inValues(raw.sourceRole, [
+      "official",
+      "kirinuki",
+      "alternate",
+    ] as const);
+    const priority = integer(raw.priority);
+    return youtubeUrl && channelId && startSeconds !== null && sourceRole &&
+      priority !== null && typeof raw.isPrimary === "boolean" &&
+      (endSeconds === null || endSeconds > startSeconds)
+      ? { youtubeUrl, channelId, startSeconds, endSeconds, sourceRole, priority, isPrimary: raw.isPrimary }
+      : null;
+  }).filter((source): source is NonNullable<typeof source> => source !== null);
+  const validSources = rawSources !== null && rawSources.length > 0 &&
+    rawSources.length <= 20 && parsedSources?.length === rawSources.length &&
+    parsedSources.filter((source) => source.isPrimary).length === 1 &&
+    new Set(parsedSources.map((source) => source.priority)).size === parsedSources.length &&
+    new Set(parsedSources.map((source) => `${source.youtubeUrl}\u0000${source.startSeconds}\u0000${source.endSeconds ?? ""}`)).size === parsedSources.length;
   const parsedParticipants = participants?.filter(
     (participant): participant is NonNullable<typeof participant> =>
       participant !== null,
@@ -654,17 +716,10 @@ export const parseUpdatePerformance = (
     parsedParticipants.length !== participants?.length ||
     new Set(participantOrders).size !== participantOrders.length ||
     new Set(participantKeys).size !== participantKeys.length ||
-    !source ||
-    !youtubeUrl ||
-    !channelId ||
-    startSeconds === null ||
-    !sourceRole ||
-    (releaseType === "broadcast" && sourceRole !== "kirinuki") ||
-    (releaseType !== "broadcast" && sourceRole === "kirinuki") ||
-    (source.endSeconds !== null &&
-      source.endSeconds !== undefined &&
-      endSeconds === null) ||
-    (endSeconds !== null && endSeconds <= startSeconds)
+    !validSources ||
+    !parsedSources ||
+    (releaseType === "broadcast" && parsedSources.some((source) => source.sourceRole !== "kirinuki")) ||
+    (releaseType !== "broadcast" && parsedSources.some((source) => source.sourceRole === "kirinuki"))
   ) {
     return fail({ body: "invalid_performance" });
   }
@@ -683,13 +738,7 @@ export const parseUpdatePerformance = (
       participants: parsedParticipants.sort(
         (left, right) => left.creditOrder - right.creditOrder,
       ),
-      source: {
-        youtubeUrl,
-        channelId,
-        startSeconds,
-        endSeconds,
-        sourceRole,
-      },
+      sources: parsedSources.sort((left, right) => left.priority - right.priority),
     },
   };
 };
