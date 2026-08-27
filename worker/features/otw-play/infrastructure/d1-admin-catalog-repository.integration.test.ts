@@ -2050,6 +2050,67 @@ describe("D1AdminCatalogRepository", () => {
     );
   });
 
+  it("replaces channel subject links atomically and records the correction", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const wrongSubject = await createEntity(repository, "Wrong Channel Group", "group");
+    const correctSubject = await createEntity(repository, "Correct Channel Owner");
+    const created = await repository.createChannel(
+      {
+        externalChannelId: `UC${"S".repeat(22)}`,
+        displayName: "Subject Correction Channel",
+        channelRole: "member_main",
+        entityIds: [wrongSubject.data.id],
+      },
+      actor,
+      { channelId: id("channel"), eventId: id("event") },
+      NOW,
+    );
+    const before = await repository.readCatalog();
+    const eventId = id("event");
+
+    const updated = await repository.updateChannel(
+      {
+        id: created.data.id,
+        externalChannelId: created.data.externalChannelId,
+        displayName: created.data.displayName,
+        channelRole: created.data.channelRole,
+        verificationStatus: "approved",
+        active: true,
+        entityIds: [correctSubject.data.id],
+        expectedVersion: created.data.version,
+      },
+      actor,
+      eventId,
+      NOW + 1,
+    );
+
+    expect(updated.data.entityIds).toEqual([correctSubject.data.id]);
+    expect(updated.catalogRevision).toBe(before.revision + 1);
+    const linkRows = await db
+      .prepare(
+        "SELECT entity_id FROM music_channel_entities WHERE channel_id = ? ORDER BY entity_id",
+      )
+      .bind(created.data.id)
+      .all<{ entity_id: string }>();
+    expect(linkRows.results).toEqual([{ entity_id: correctSubject.data.id }]);
+    const event = await db
+      .prepare(
+        "SELECT before_json, after_json FROM music_catalog_events WHERE id = ?",
+      )
+      .bind(eventId)
+      .first<{ before_json: string; after_json: string }>();
+    expect(JSON.parse(event?.before_json ?? "{}")).toMatchObject({
+      entityIds: [wrongSubject.data.id],
+      verificationStatus: "pending",
+      active: false,
+    });
+    expect(JSON.parse(event?.after_json ?? "{}")).toMatchObject({
+      entityIds: [correctSubject.data.id],
+      verificationStatus: "approved",
+      active: true,
+    });
+  });
+
   it("approves a proposal with canonical catalog, events, and projection in one batch", async () => {
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Proposal Singer");

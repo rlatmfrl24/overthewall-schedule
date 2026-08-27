@@ -13,6 +13,8 @@ import type {
   OtwPlayAdminSongDto,
   OtwPlayAdminUpdateChannelRequest,
   OtwPlayAdminUpdateEntityRequest,
+  OtwPlayChannelRole,
+  OtwPlayChannelVerificationStatus,
 } from "@contracts/otw-play";
 import {
   createPerformanceDedupeKeyMaterial,
@@ -3196,10 +3198,28 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     now: number,
   ) {
     const meta = await this.readRevision();
-    const current = await this.database
-      .prepare("SELECT external_channel_id FROM music_channels WHERE id = ?")
-      .bind(input.id)
-      .first<{ external_channel_id: string }>();
+    const [current, currentEntityRows] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT external_channel_id, display_name, channel_role,
+            verification_status, active
+          FROM music_channels WHERE id = ?`,
+        )
+        .bind(input.id)
+        .first<{
+          external_channel_id: string;
+          display_name: string;
+          channel_role: OtwPlayChannelRole;
+          verification_status: OtwPlayChannelVerificationStatus;
+          active: number;
+        }>(),
+      this.database
+        .prepare(
+          "SELECT entity_id FROM music_channel_entities WHERE channel_id = ? ORDER BY entity_id",
+        )
+        .bind(input.id)
+        .all<{ entity_id: string }>(),
+    ]);
     if (!current) {
       throw new AdminCatalogRepositoryError("not_found", "Channel not found");
     }
@@ -3217,6 +3237,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         );
       }
     }
+    const currentEntityIds = currentEntityRows.results.map((row) => row.entity_id);
+    const nextEntityIds = [...input.entityIds].sort();
     const statements: D1PreparedStatement[] = [
       this.database
         .prepare(
@@ -3238,7 +3260,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare("DELETE FROM music_channel_entities WHERE channel_id = ?")
         .bind(input.id),
-      ...input.entityIds.map((entityId) =>
+      ...nextEntityIds.map((entityId) =>
         this.database
           .prepare(
             "INSERT INTO music_channel_entities (channel_id, entity_id) VALUES (?, ?)",
@@ -3248,16 +3270,28 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database
         .prepare(
           `INSERT INTO music_catalog_events
-        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, after_json, created_at)
-        VALUES (?, 'channel', ?, 'channel.updated', 'admin', ?, ?, ?)`,
+        (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id, before_json, after_json, created_at)
+        VALUES (?, 'channel', ?, 'channel.updated', 'admin', ?, ?, ?, ?)`,
         )
         .bind(
           eventId,
           input.id,
           actor.userId,
           eventJson({
+            externalChannelId: current.external_channel_id,
+            displayName: current.display_name,
+            channelRole: current.channel_role,
+            verificationStatus: current.verification_status,
+            active: Boolean(current.active),
+            entityIds: currentEntityIds,
+          }),
+          eventJson({
+            externalChannelId: input.externalChannelId,
+            displayName: input.displayName.trim(),
+            channelRole: input.channelRole,
             verificationStatus: input.verificationStatus,
             active: input.active,
+            entityIds: nextEntityIds,
           }),
           now,
         ),

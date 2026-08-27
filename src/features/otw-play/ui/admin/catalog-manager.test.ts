@@ -951,6 +951,78 @@ describe("OtwPlayCatalogManager", () => {
     }));
   });
 
+  it("corrects an existing channel subject link after explicit confirmation", async () => {
+    const channelId = `UC${"S".repeat(22)}`;
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      entities: [
+        {
+          id: "external-wrong",
+          memberUid: null,
+          entityKind: "group",
+          displayName: "잘못 연결된 그룹",
+          normalizedName: "잘못 연결된 그룹",
+          slug: "wrong-group",
+          version: 1,
+          archivedAt: null,
+        },
+        {
+          id: "member-correct",
+          memberUid: 42,
+          entityKind: "person",
+          displayName: "올바른 멤버",
+          normalizedName: "올바른 멤버",
+          slug: "correct-member",
+          version: 2,
+          archivedAt: null,
+        },
+      ],
+      channels: [{
+        id: "channel-subject-correction",
+        provider: "youtube",
+        externalChannelId: channelId,
+        displayName: "연결 교정 채널",
+        channelRole: "member_main",
+        verificationStatus: "approved",
+        active: true,
+        entityIds: ["external-wrong"],
+        version: 5,
+      }],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    expect(screen.getAllByText("잘못 연결된 그룹").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("연결 주체")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "연결 교정 채널 수정" }));
+
+    expect(screen.getByLabelText("연결 주체")).toBeTruthy();
+    const wrongSubject = screen.getByRole("checkbox", { name: "잘못 연결된 그룹 연결" });
+    const correctSubject = screen.getByRole("checkbox", { name: "올바른 멤버 연결" });
+    expect((wrongSubject as HTMLButtonElement).dataset.state).toBe("checked");
+    expect((correctSubject as HTMLButtonElement).dataset.state).toBe("unchecked");
+    fireEvent.click(wrongSubject);
+    fireEvent.click(correctSubject);
+    fireEvent.click(screen.getByRole("button", { name: "채널 수정 저장" }));
+
+    expect(await screen.findByText("채널 연결 주체를 변경할까요?")).toBeTruthy();
+    expect(updateChannelMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "연결 변경 저장" }));
+
+    await waitFor(() => expect(updateChannelMock).toHaveBeenCalledWith({
+      id: "channel-subject-correction",
+      expectedVersion: 5,
+      externalChannelId: channelId,
+      displayName: "연결 교정 채널",
+      channelRole: "member_main",
+      entityIds: ["member-correct"],
+      verificationStatus: "approved",
+      active: true,
+    }));
+  });
+
   it("edits original artists as reusable chips without exposing the original release date", async () => {
     fetchCatalogMock.mockResolvedValue({
       ...catalog,
