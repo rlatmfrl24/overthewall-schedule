@@ -1,6 +1,6 @@
 # OTW Play UI/UX 설계
 
-상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 공개 `0/0` UI/UX 기준선
+상태: 아키텍처 하드닝 상호작용 계약 반영, 운영 공개 `0/0` UI/UX 기준선
 
 기준일: 2026-08-27
 
@@ -96,15 +96,15 @@ MVP의 시각 목표는 일반적인 영상 목록이 아니라 **오버더월�
 | `/play/songs/$songSlug` | 관리자 preview | 곡 정보와 공식 가창 버전 비교 | Song detail |
 | `/play/submit` | 로그인 회원 | 공식 커버곡 등록 제안 | Submission wizard |
 | `/play/submissions` | 로그인 회원 | 자신의 제안 상태 확인 | My submissions |
-| `/admin/music` | 관리자 | 카탈로그 운영 개요 | Music operations |
+| `/admin/otw-play` | 관리자 | 카탈로그 운영 개요 | OTW Play operations |
 
 관리자 preview는 준비 중 화면의 대체 mock이 아니라 실제 공개 catalog DTO와
 player 흐름을 사용한다. 다만 모든 API 요청은 관리자 bearer와 preview header를
 요구하고 `no-store`로 처리한다. 비로그인·비관리자는 nested catalog 요청을 전혀
 시작하지 않으며, 공개 flag가 꺼져 있다는 사실만으로 관리자 UI를 다시 준비 중
 화면으로 가리지 않는다.
-| `/admin/music/catalog` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
-| `/admin/music/submissions` | 관리자 | 회원 제안 검수 | Review queue |
+| `/admin/otw-play`의 `카탈로그` | 관리자 | 곡·가창·소스 등록 및 편집 | Catalog manager |
+| `/admin/otw-play`의 `제안 검수` | 관리자 | 회원 제안 검수 | Review queue |
 
 catalog 화면의 상위 탭은 `발견`, `곡 검색` 두 개만 둔다. 발견은 기존 Home·Discover의
 재발견 역할을 함께 소유하고, 오리지널과 커버는 별도 상단 진입점이 아니라
@@ -830,3 +830,37 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   완료 처리했다.
   구현 완료 화면과 별개로 실제 신규 upload canary와 공개 `0/0 → 1/0 → 1/1` 전환은
   운영 gate로 유지한다.
+
+## 20. 아키텍처 하드닝 UI/UX 계약
+
+### 20.1 진입과 공개 상태
+
+- `0/0`: 익명은 차단 안내를 보고 catalog request를 시작하지 않는다. 관리자는 명확한
+  `관리자 미리보기` 배너와 preview API를 사용한다.
+- `1/0`: 익명 직접 `/play`와 곡 상세는 열리지만 전역 navigation에는 보이지 않고
+  `noindex`·sitemap 제외를 유지한다.
+- `1/1`: 직접 경로, navigation, canonical index와 sitemap을 모두 연다.
+- 로그인 회원의 `새 곡 제안`·`내 제안`은 위 flag와 독립적으로 접근 가능하다.
+
+### 20.2 플레이어 상태와 접근성
+
+`launcher`, `full`, `mini`는 재생 상태와 독립적인 presentation이다. play action은 먼저
+visible presentation을 연 다음 단일 iframe을 load한다. 닫기 전에 항상 pause하고,
+full→mini 전환도 자동 재생을 이어 가지 않는다. mini 확장 역시 자동 resume하지 않는다.
+session 복원은 launcher에서 queue와 현재 metadata만 보여 주며 사용자가 다시 재생하기 전에는
+iframe을 생성하지 않는다. 전체 화면에는 `role=dialog`, modal semantics, Escape, focus trap과
+닫은 뒤 focus 복귀를 제공한다. 오류 상태는 retry, 대체 공식 source 전환과 YouTube 열기를
+구분한다. queue layout은 `xl` 경계 하나를 사용해 1024–1279px에서도 모바일 queue가 보인다.
+
+### 20.3 관리자 회복 가능 상태
+
+- performance form은 모든 source를 한 목록에서 추가·삭제·재정렬하고 primary를 정확히 하나
+  선택하며 각 source를 개별 재검사할 수 있어야 한다.
+- proposal, ingestion, monitor, observability query 실패는 빈 상태 대신 오류, retry와
+  기존 데이터가 있으면 stale 표시를 제공한다.
+- monitor CAS 충돌은 입력을 지우지 않고 authoritative refetch 결과와 함께 재시도를 안내한다.
+- subscription은 raw status 외에 `effectiveActive`와 `recoveryReason`을 표시한다. delivery
+  pending/failed/DLQ와 최근 수신·처리·실패를 같은 monitor에서 확인한다.
+- 이전 generation 미처리 후보는 현재 inbox와 섞지 않고 별도 경고 목록으로 표시한다.
+- ingestion candidate/job은 metadata `retentionExpiresAt`과 남은 기간을 표시해 API-derived
+  제목이 언제 refresh 또는 clear되는지 운영자가 판단할 수 있게 한다.

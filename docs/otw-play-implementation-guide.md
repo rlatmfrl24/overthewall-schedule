@@ -1,6 +1,6 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 canary·공개 gate 분리
+상태: 아키텍처 하드닝 구현·검증 기준 반영, 운영 canary·공개 gate 분리
 
 기준일: 2026-08-27
 
@@ -1499,3 +1499,27 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
   canary까지 완료했다고 선언하지 않는다.
 - PR #83의 migration `0064` production 적용과
   `music_cover_proposals.submitted_tags_json` readback을 운영자 확인으로 완료 처리했다.
+
+## 26. 아키텍처 하드닝 전달 플랜
+
+이 절은 기존 player의 pause 없는 full→mini 설명과 prelaunch 관리자 전용 shell을
+대체한다. 구현 중과 코드 배포 뒤에도 운영 D1 flag는 `0/0`으로 유지한다.
+
+1. 공개 shell은 anonymous/member/admin × `0/0`, `1/0`, `1/1` 매트릭스로 검증한다.
+   flag-on 관리자는 preview가 아니라 public cache 경로를 사용한다.
+2. player presentation은 `launcher|full|mini`로 관리한다. 명시적 play intent가 surface를
+   먼저 연 뒤 iframe을 만들며 닫기·route 이탈·host 제거는 pause를 선행한다. session
+   hydration은 queue/current metadata만 복원한다. queue breakpoint는 `xl` 하나다.
+3. admin performance create/update는 `sources[]`와 legacy ingress 정규화를 함께 검증한다.
+   모든 source CRUD, primary·priority, revision/event/projection 원자성을 D1 integration
+   test로 확인한다.
+4. WebSub callback과 Queue는 effective-active 권위, 고정 `PLAY_ADMIN_*` 오류 + `requestId`,
+   delivery health telemetry를 사용한다. 이전 generation 후보는 독립 query로 검증한다.
+5. migration `0065`와 `0066`은 각각 독립 PR로 전달한다. 각 PR에는 schema, 신규 SQL,
+   snapshot/journal, 전체 chain validate-only와 FK/invalid INSERT integration 증거를 포함한다.
+6. 기능 PR은 `origin/master` 기반으로 분리하고 최종 통합 브랜치에서
+   `architecture:check`, `typecheck:test`, lint, Worker/D1/UI tests와 `preflight`를 실행한다.
+
+production 작업은 자동으로 수행하지 않는다. 명시적 승인 뒤 remote migration → 코드 배포 →
+관리자/member read-only smoke → 실제 신규 upload canary → `1/0` → 24시간 관측·rollback
+readback → `1/1` 순으로 진행한다.
