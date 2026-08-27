@@ -69,7 +69,11 @@ import {
   ChoiceGroup,
   type ChoiceOption,
 } from "./ingestion-form-controls";
-import { SubjectPicker, type SelectedSubject } from "./catalog-entry-dialog";
+import {
+  SubjectPicker,
+  type SelectedSubject,
+} from "./catalog-entry-dialog";
+import { SongTagPicker } from "../song-tag-picker";
 
 type ExternalParticipantDraft = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
@@ -88,6 +92,7 @@ type RowDraft = {
   isDirty: boolean;
   songId: string;
   songTitle: string;
+  songTags: string[];
   isOtwOriginal: boolean;
   originalArtists: SelectedSubject[];
   participants: Record<string, OtwPlayParticipantRole>;
@@ -144,6 +149,7 @@ const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
   isDirty: false,
   songId: "__new",
   songTitle: item.title ?? "",
+  songTags: [],
   isOtwOriginal: false,
   originalArtists: [],
   participants: {},
@@ -220,6 +226,7 @@ const draftFromItem = (
   const input = item.reviewInput;
   if (!input) return draft;
   draft.songId = input.song.kind === "existing" ? input.song.songId : "__new";
+  draft.songTags = input.song.kind === "existing" ? [] : [...(input.song.tags ?? [])];
   if (input.song.kind === "create") {
     draft.songTitle = input.song.title;
     draft.isOtwOriginal = input.song.isOtwOriginal;
@@ -301,6 +308,7 @@ const buildReviewInput = (
           creditOrder,
           isPrimary: creditOrder === 0,
         })),
+        tags: draft.songTags,
       };
   if (
     song.kind === "create" &&
@@ -510,6 +518,9 @@ function ReviewApplicationPreview({
   const songTitle = draft.songId === "__new"
     ? draft.songTitle.trim()
     : existingSong?.title ?? draft.songId;
+  const songTags = draft.songId === "__new"
+    ? draft.songTags
+    : existingSong?.tags ?? [];
   const participants = [
     ...Object.entries(draft.participants).map(([entityId, role]) => ({
       key: `entity:${entityId}`,
@@ -548,7 +559,7 @@ function ReviewApplicationPreview({
         </Badge>
       </div>
 
-      <dl className="grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-5">
+      <dl className="grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-6">
         <div className="min-w-0 rounded-md border bg-background p-2.5">
           <dt className="mb-1 text-muted-foreground">곡</dt>
           <dd className="line-clamp-2 font-medium">
@@ -562,6 +573,12 @@ function ReviewApplicationPreview({
             {draft.songId === "__new"
               ? draft.originalArtists.map((artist) => artist.label).join(", ") || "입력 필요"
               : "기존 곡 정보 유지"}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">장르(분류)</dt>
+          <dd className="line-clamp-2 font-medium">
+            {songTags.join(", ") || "없음"}
           </dd>
         </div>
         <div className="min-w-0 rounded-md border bg-background p-2.5">
@@ -1807,8 +1824,24 @@ export function IngestionSection({
                             onChange={(originalArtists) => updateDraft({ originalArtists })}
                             includeMemberEntities
                           />
+                          <div className="rounded-lg border bg-background p-3">
+                            <SongTagPicker
+                              key={item.candidateId}
+                              tags={draft.songTags}
+                              onChange={(songTags) => updateDraft({ songTags })}
+                              label="장르(분류)"
+                              inputId={`song-tags-${item.candidateId}`}
+                              placeholder="장르 또는 분류 입력"
+                              selectedLabel="선택한 장르(분류)"
+                              description="카탈로그 검색·필터에 사용할 라벨입니다. 최대 10개까지 추가하거나 삭제할 수 있습니다."
+                            />
+                          </div>
                         </>
-                      ) : null}
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          기존 곡의 라벨은 위 미리보기에서 확인할 수 있으며, 변경은 카탈로그의 곡 편집에서 관리합니다.
+                        </p>
+                      )}
                     </fieldset>
 
                     <fieldset className="space-y-3 rounded-lg border bg-muted/10 p-4">

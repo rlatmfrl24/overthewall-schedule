@@ -165,6 +165,7 @@ export function OtwPlaySubmissionsPage() {
               <Badge>{labels[detail.data.status]}</Badge>
             </div>
             <dl className="space-y-3 text-sm">
+              {detail.data.tags.length > 0 ? <div><dt className="text-muted-foreground">장르(분류)</dt><dd className="flex flex-wrap gap-1.5">{detail.data.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</dd></div> : null}
               <div><dt className="text-muted-foreground">원곡 가수</dt><dd>{detail.data.originalArtists.map((item) => item.displayName).join(", ")}</dd></div>
               <div><dt className="text-muted-foreground">참여자</dt><dd>{detail.data.participants.map((item) => `${item.displayName} · ${roleLabels[item.participantRole]}`).join(", ")}</dd></div>
               {detail.data.note ? <div><dt className="text-muted-foreground">내 메모</dt><dd className="whitespace-pre-wrap">{detail.data.note}</dd></div> : null}

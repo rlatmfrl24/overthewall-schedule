@@ -49,6 +49,7 @@ import {
   updateOtwPlaySubmission,
 } from "../../api/submissions";
 import { useMyOtwPlaySubmission } from "../../queries/use-member-submissions";
+import { SongTagPicker } from "../song-tag-picker";
 
 const steps = ["영상 확인", "곡과 참여자", "검토·제출"] as const;
 const PARTICIPANT_LIMIT = 30;
@@ -63,6 +64,7 @@ type SubmissionDraft = {
   title: string;
   songMode: "new" | "existing";
   suggestedSongId: string | null;
+  songTags: string[];
   originalArtists: string[];
   memberUids: number[];
   externalParticipants: string[];
@@ -89,6 +91,7 @@ const readSubmissionDraft = (
       typeof draft.youtubeUrl !== "string" ||
       typeof draft.title !== "string" ||
       (draft.songMode !== "new" && draft.songMode !== "existing") ||
+      (draft.songTags !== undefined && !Array.isArray(draft.songTags)) ||
       !Array.isArray(draft.originalArtists) ||
       !Array.isArray(draft.memberUids) ||
       !Array.isArray(draft.externalParticipants) ||
@@ -103,6 +106,7 @@ const readSubmissionDraft = (
       title: draft.title,
       songMode: draft.songMode,
       suggestedSongId: typeof draft.suggestedSongId === "string" ? draft.suggestedSongId : null,
+      songTags: (draft.songTags ?? []).filter((item): item is string => typeof item === "string"),
       originalArtists: draft.originalArtists.filter((item): item is string => typeof item === "string"),
       memberUids: draft.memberUids.filter((item): item is number => Number.isSafeInteger(item) && item > 0),
       externalParticipants: draft.externalParticipants.filter((item): item is string => typeof item === "string"),
@@ -393,6 +397,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const [title, setTitle] = useState(initialDraft?.title ?? "");
   const [songMode, setSongMode] = useState<"new" | "existing">(initialDraft?.songMode ?? "new");
   const [suggestedSongId, setSuggestedSongId] = useState<string | null>(initialDraft?.suggestedSongId ?? null);
+  const [songTags, setSongTags] = useState<string[]>(initialDraft?.songTags ?? []);
   const [originalArtists, setOriginalArtists] = useState<string[]>(initialDraft?.originalArtists ?? []);
   const [memberUids, setMemberUids] = useState<number[]>(initialDraft?.memberUids ?? []);
   const [externalParticipants, setExternalParticipants] = useState<string[]>(initialDraft?.externalParticipants ?? []);
@@ -424,6 +429,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
         youtubeUrl: input.youtubeUrl,
         title: input.title,
         suggestedSongId: input.suggestedSongId,
+        tags: input.tags,
         originalArtists: input.originalArtists,
         participants: input.participants,
         note: input.note,
@@ -479,6 +485,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       setTitle(submission.title);
       setSongMode(submission.suggestedSongId ? "existing" : "new");
       setSuggestedSongId(submission.suggestedSongId);
+      setSongTags(submission.tags);
       setOriginalArtists(submission.originalArtists.map((artist) => artist.displayName));
       setMemberUids(memberParticipants.map((participant) => participant.memberUid!));
       setExternalParticipants(external.map((participant) => participant.displayName));
@@ -501,6 +508,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       youtubeUrl: submission.youtubeUrl,
       title: submission.title,
       suggestedSongId: submission.suggestedSongId,
+      tags: submission.tags,
       originalArtists: submission.originalArtists.map((artist) => ({
         memberUid: artist.memberUid,
         displayName: artist.displayName,
@@ -519,11 +527,11 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     if (success || (editId && initializedEditId.current !== editId)) return;
     const draft: SubmissionDraft = {
       step, clientRequestId, expectedVersion, youtubeUrl, title, songMode, suggestedSongId,
-      originalArtists, memberUids, externalParticipants, memberRoles,
+      songTags, originalArtists, memberUids, externalParticipants, memberRoles,
       externalRoles, note, preflight,
     };
     sessionStorage.setItem(draftKey, JSON.stringify(draft));
-  }, [clientRequestId, draftKey, editId, expectedVersion, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, step, success, suggestedSongId, title, youtubeUrl]);
+  }, [clientRequestId, draftKey, editId, expectedVersion, externalParticipants, externalRoles, memberRoles, memberUids, note, originalArtists, preflight, songMode, songTags, step, success, suggestedSongId, title, youtubeUrl]);
 
   const selectedMembers = useMemo(
     () => (members.data ?? []).filter((member) => memberUids.includes(member.uid)),
@@ -546,6 +554,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       youtubeUrl,
       title,
       suggestedSongId,
+      tags: songMode === "new" ? songTags : [],
       originalArtists: originalArtists.map((displayName) => ({
         memberUid: originalArtistMemberUids[displayName] ?? null,
         displayName,
@@ -560,11 +569,11 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
       })),
       note: note || null,
     }),
-    [members.data, note, originalArtistMemberUids, originalArtists, participants, suggestedSongId, title, youtubeUrl],
+    [members.data, note, originalArtistMemberUids, originalArtists, participants, songMode, songTags, suggestedSongId, title, youtubeUrl],
   );
   const dirty = !success && (editId
     ? editBaseline !== null && currentEditSnapshot !== editBaseline
-    : Boolean(youtubeUrl || title || originalArtists.length || memberUids.length || externalParticipants.length || note));
+    : Boolean(youtubeUrl || title || songTags.length || originalArtists.length || memberUids.length || externalParticipants.length || note));
   const shouldBlock = useCallback(
     () => dirty && !window.confirm("저장하지 않은 곡 제안 변경이 있습니다. 이 페이지를 나가시겠습니까?"),
     [dirty],
@@ -652,7 +661,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     preflightRequestId.current += 1;
     sessionStorage.removeItem(draftKey);
     setStep(0); setClientRequestId(newClientRequestId()); setYoutubeUrl(""); setTitle("");
-    setSongMode("new"); setSuggestedSongId(null); setOriginalArtists([]); setMemberUids([]);
+    setSongMode("new"); setSuggestedSongId(null); setSongTags([]); setOriginalArtists([]); setMemberUids([]);
     setExternalParticipants([]); setMemberRoles({}); setExternalRoles({}); setNote(""); setPreflight(null); setCandidateSearchAttempted(false);
     setMessage(null); setSuccess(null);
   };
@@ -768,6 +777,18 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
                 </div>
               ) : null}
               {songMode === "existing" && !suggestedSongId ? <p className="text-sm text-muted-foreground">기존 곡을 검색한 뒤 후보를 선택해 주세요.</p> : null}
+              {songMode === "new" ? (
+                <SongTagPicker
+                  tags={songTags}
+                  onChange={setSongTags}
+                  inputId="submission-song-tags"
+                  description="새로 등록할 곡의 장르나 분류를 선택하거나 직접 입력해 주세요. 선택 사항이며 최대 10개까지 저장됩니다."
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  기존 곡을 연결하면 카탈로그에 저장된 장르(분류)를 그대로 사용합니다.
+                </p>
+              )}
               <ChipInput
                 id="submission-original-artists"
                 label="원곡 가수"
@@ -804,6 +825,9 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
             <div className="rounded-xl bg-muted/50 p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2"><Badge>{songMode === "existing" ? "기존 곡 연결" : "새 곡"}</Badge><strong className="text-base">{title}</strong></div>
               <div className="mt-4 space-y-3">
+                {songMode === "new" && songTags.length > 0 ? (
+                  <div><p className="mb-2 text-xs text-muted-foreground">장르(분류)</p><div className="flex flex-wrap gap-2">{songTags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div>
+                ) : null}
                 <div><p className="mb-2 text-xs text-muted-foreground">원곡 가수</p><div className="flex flex-wrap gap-2">{originalArtists.map((artist) => <Badge key={artist} variant="outline">{artist}</Badge>)}</div></div>
                 <div><p className="mb-2 text-xs text-muted-foreground">참여자</p><div className="flex flex-wrap gap-2">{selectedMembers.map((member) => <Badge key={member.uid} variant="secondary">{member.oshi_mark} {member.name} · {participantRoleLabel[memberRoles[member.uid] ?? "vocal"]}</Badge>)}{externalParticipants.map((name) => <Badge key={name} variant="outline">{name} · {participantRoleLabel[externalRoles[name] ?? "vocal"]}</Badge>)}</div></div>
               </div>
@@ -815,7 +839,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
             <p className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm"><AlertCircle className="mr-1 inline size-4" /> 승인 전에는 제안과 메모가 공개되지 않습니다. 반려 시 회원 화면에는 상태만 표시되고 내부 검수 사유는 공개되지 않습니다.</p>
             <div className="flex flex-col-reverse justify-between gap-2 sm:flex-row">
               <Button variant="ghost" onClick={() => setStep(1)}><ChevronLeft /> 이전</Button>
-              <Button disabled={submitMutation.isPending || Boolean(editId && expectedVersion === null)} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null })}>
+              <Button disabled={submitMutation.isPending || Boolean(editId && expectedVersion === null)} onClick={() => submitMutation.mutate({ clientRequestId, youtubeUrl, title, suggestedSongId, tags: songMode === "new" ? songTags : [], originalArtists: originalArtists.map((displayName) => originalArtistMemberUids[displayName] ? { kind: "member", memberUid: originalArtistMemberUids[displayName] } : { kind: "external", displayName }), participants, note: note || null })}>
                 {submitMutation.isPending ? <LoaderCircle className="animate-spin" /> : null}{submitMutation.isPending ? (editId ? "저장 중" : "제출 중") : (editId ? "수정 저장" : "최종 제출")}
               </Button>
             </div>

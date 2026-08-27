@@ -1611,6 +1611,7 @@ export const musicCoverProposals = sqliteTable(
       .notNull()
       .default(0),
     submitted_title: text("submitted_title").notNull(),
+    submitted_tags_json: text("submitted_tags_json").notNull().default("[]"),
     suggested_song_id: text("suggested_song_id").references(
       () => musicSongs.id,
       { onDelete: "set null" },

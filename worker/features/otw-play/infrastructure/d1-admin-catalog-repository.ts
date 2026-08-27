@@ -139,6 +139,17 @@ type SourceRow = {
 const resultsOf = <T>(result: D1Result<T>): T[] =>
   Array.isArray(result.results) ? result.results : [];
 
+const parseTagsJson = (value: string) => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 const group = <T>(rows: readonly T[], key: (row: T) => string) => {
   const map = new Map<string, T[]>();
   for (const row of rows) {
@@ -681,7 +692,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     const statement = this.database.prepare(`SELECT proposal.id,
       proposal.submitted_by_user_id, proposal.submitted_url, proposal.youtube_video_id,
       proposal.segment_start_seconds, proposal.submitted_title, proposal.suggested_song_id,
-      proposal.submitted_note, proposal.status, proposal.version,
+      proposal.submitted_tags_json, proposal.submitted_note, proposal.status, proposal.version,
       proposal.reviewed_by_user_id, proposal.reviewed_at, proposal.review_result_code,
       proposal.review_note, proposal.approved_performance_id, proposal.created_at
       FROM music_cover_proposals AS proposal ${where}
@@ -700,7 +711,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       ]);
     type ProposalRow = Omit<
       OtwPlayAdminProposalDto,
-      "participants" | "originalArtists"
+      "participants" | "originalArtists" | "tags"
     > & {
       submitted_by_user_id: string;
       submitted_url: string;
@@ -708,6 +719,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       segment_start_seconds: number;
       submitted_title: string;
       suggested_song_id: string | null;
+      submitted_tags_json: string;
       submitted_note: string | null;
       reviewed_by_user_id: string | null;
       reviewed_at: number | null;
@@ -741,6 +753,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       segmentStartSeconds: Number(row.segment_start_seconds),
       submittedTitle: row.submitted_title,
       suggestedSongId: row.suggested_song_id,
+      tags: parseTagsJson(row.submitted_tags_json),
       submittedNote: row.submitted_note,
       status: row.status,
       version: Number(row.version),

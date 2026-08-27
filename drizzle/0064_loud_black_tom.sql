@@ -1,0 +1,1 @@
+ALTER TABLE `music_cover_proposals` ADD `submitted_tags_json` text DEFAULT '[]' NOT NULL;

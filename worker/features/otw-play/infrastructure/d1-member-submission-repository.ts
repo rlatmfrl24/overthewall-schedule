@@ -21,6 +21,7 @@ type ProposalRow = {
   submitted_url: string;
   youtube_video_id: string;
   submitted_title: string;
+  submitted_tags_json: string;
   suggested_song_id: string | null;
   submitted_note: string | null;
   status: OtwPlayMemberSubmissionStatus;
@@ -64,6 +65,17 @@ const normalizeSnapshot = (value: string) =>
 
 const placeholders = (count: number) => Array(count).fill("?").join(", ");
 
+const parseTagsJson = (value: string) => {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
 const groupChildren = (rows: ChildRow[]) => {
   const map = new Map<string, ChildRow[]>();
   for (const row of rows) {
@@ -74,7 +86,7 @@ const groupChildren = (rows: ChildRow[]) => {
 
 const proposalSelect = `SELECT proposal.id, proposal.idempotency_key,
   proposal.submitted_url, proposal.youtube_video_id, proposal.submitted_title,
-  proposal.suggested_song_id, proposal.submitted_note, proposal.status,
+  proposal.submitted_tags_json, proposal.suggested_song_id, proposal.submitted_note, proposal.status,
   proposal.version, proposal.created_at, proposal.updated_at,
   song.id AS approved_song_id, song.slug AS approved_song_slug,
   song.title AS approved_song_title,
@@ -278,6 +290,7 @@ export class D1MemberSubmissionRepository
       youtubeVideoId: row.youtube_video_id,
       title: row.submitted_title,
       suggestedSongId: row.suggested_song_id,
+      tags: parseTagsJson(row.submitted_tags_json),
       note: row.submitted_note,
       status: row.status,
       version: Number(row.version),
@@ -369,6 +382,7 @@ export class D1MemberSubmissionRepository
       existing.youtubeUrl === canonicalUrl &&
       normalizeSnapshot(existing.title) === normalizeSnapshot(input.title) &&
       existing.suggestedSongId === (input.suggestedSongId ?? null) &&
+      JSON.stringify(existing.tags) === JSON.stringify(input.tags ?? []) &&
       (existing.note ?? null) === (input.note?.trim() || null) &&
       JSON.stringify(storedParticipants.map((item) => [
         item.submitted_member_uid === null
@@ -471,9 +485,9 @@ export class D1MemberSubmissionRepository
         `INSERT INTO music_cover_proposals (
           id, submitted_by_user_id, idempotency_key, submitted_url,
           youtube_video_id, segment_start_seconds, submitted_title,
-          suggested_song_id, submitted_note, status, version, created_at, updated_at
+          submitted_tags_json, suggested_song_id, submitted_note, status, version, created_at, updated_at
         )
-        SELECT ?, ?, ?, ?, ?, 0, ?, ?, ?, 'pending_review', 0, ?, ?
+        SELECT ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'pending_review', 0, ?, ?
         WHERE (
           SELECT COUNT(*) FROM music_cover_proposals
           WHERE submitted_by_user_id = ? AND created_at >= ? AND created_at < ?
@@ -486,6 +500,7 @@ export class D1MemberSubmissionRepository
         canonicalUrl,
         videoId,
         normalizeSnapshot(input.title),
+        JSON.stringify(input.tags ?? []),
         input.suggestedSongId ?? null,
         input.note?.trim() || null,
         now,
@@ -701,6 +716,9 @@ export class D1MemberSubmissionRepository
       memberUid: artist.submittedMemberUid,
       displayName: artist.displayName,
     }));
+    const nextTags = input.suggestedSongId
+      ? []
+      : (input.tags ?? current.tags);
     const changedFields = [
       current.youtubeUrl !== canonicalUrl ? "youtubeUrl" : null,
       normalizeSnapshot(current.title) !== normalizeSnapshot(input.title)
@@ -708,6 +726,9 @@ export class D1MemberSubmissionRepository
         : null,
       current.suggestedSongId !== (input.suggestedSongId ?? null)
         ? "suggestedSongId"
+        : null,
+      JSON.stringify(current.tags) !== JSON.stringify(nextTags)
+        ? "tags"
         : null,
       JSON.stringify(
         current.originalArtists.map((artist) => ({
@@ -733,7 +754,7 @@ export class D1MemberSubmissionRepository
       .prepare(
         `UPDATE music_cover_proposals
          SET submitted_url = ?, youtube_video_id = ?, submitted_title = ?,
-             suggested_song_id = ?, submitted_note = ?, version = version + 1,
+             submitted_tags_json = ?, suggested_song_id = ?, submitted_note = ?, version = version + 1,
              updated_at = ?
          WHERE id = ? AND submitted_by_user_id = ?
            AND status = 'pending_review' AND version = ?
@@ -752,6 +773,7 @@ export class D1MemberSubmissionRepository
         canonicalUrl,
         videoId,
         normalizeSnapshot(input.title),
+        JSON.stringify(nextTags),
         input.suggestedSongId ?? null,
         input.note?.trim() || null,
         now,

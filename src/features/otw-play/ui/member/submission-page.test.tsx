@@ -66,6 +66,7 @@ const submission = {
   youtubeVideoId: preflight.videoId,
   title: "테스트 커버",
   suggestedSongId: null,
+  tags: ["J-POP"],
   note: null,
   status: "pending_review",
   createdAt: 1,
@@ -288,6 +289,19 @@ describe("OtwPlaySubmissionPage", () => {
     expect(mocks.create.mock.calls[0]?.[0].participants).toEqual([
       { kind: "member", memberUid: 1, participantRole: "chorus" },
     ]);
+  });
+
+  it("submits editable genre classifications only for a new song", async () => {
+    renderPage();
+    await verifyVideo();
+    fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
+    expect(screen.getByLabelText("선택한 장르(분류)").textContent).toContain("J-POP");
+    await completeDetails();
+    expect(screen.getByText("장르(분류)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "최종 제출" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+    expect(mocks.create.mock.calls[0]?.[0].tags).toEqual(["J-POP"]);
   });
 
   it("keeps wizard values and the idempotency key after a submit failure", async () => {

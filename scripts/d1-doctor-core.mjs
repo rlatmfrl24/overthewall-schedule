@@ -109,6 +109,7 @@ export const REQUIRED_D1_COLUMNS = {
     "youtube_video_id",
     "segment_start_seconds",
     "submitted_title",
+    "submitted_tags_json",
     "suggested_song_id",
     "submitted_note",
     "status",

@@ -36,7 +36,11 @@ import {
   convertOtwPlayImportCandidate,
   updateOtwPlayImportCandidate,
 } from "../../api/admin";
-import { SubjectPicker, type SelectedSubject } from "./catalog-entry-dialog";
+import {
+  SubjectPicker,
+  type SelectedSubject,
+} from "./catalog-entry-dialog";
+import { SongTagPicker } from "../song-tag-picker";
 
 type SelectedParticipant = SelectedSubject & {
   participantRole: OtwPlayParticipantRole;
@@ -94,6 +98,7 @@ export function SingingClipReviewDialog({
   });
   const [songId, setSongId] = useState("__new");
   const [songTitle, setSongTitle] = useState("");
+  const [songTags, setSongTags] = useState<string[]>([]);
   const [originalArtists, setOriginalArtists] = useState<SelectedSubject[]>([]);
   const [participants, setParticipants] = useState<SelectedParticipant[]>([]);
   const [relationType, setRelationType] = useState<OtwPlayRelationType>("cover");
@@ -124,6 +129,7 @@ export function SingingClipReviewDialog({
     setSongTitle(
       input?.song.kind === "create" ? input.song.title : candidate.title ?? "",
     );
+    setSongTags(input?.song.kind === "existing" ? [] : [...(input?.song.tags ?? [])]);
     setOriginalArtists(
       input?.song.kind === "create"
         ? input.song.originalArtists.map((artist) =>
@@ -151,6 +157,10 @@ export function SingingClipReviewDialog({
   const parsedStart = Number(startSeconds);
   const parsedEnd = endSeconds.trim() ? Number(endSeconds) : null;
   const durationSeconds = candidate?.durationSeconds ?? null;
+  const selectedExistingSong = songId === "__new"
+    ? null
+    : catalog.songs.find((song) => song.id === songId) ?? null;
+  const selectedExistingSongTags = selectedExistingSong?.tags ?? [];
   const segmentValid = Number.isSafeInteger(parsedStart) && parsedStart >= 0 &&
     (parsedEnd === null || (Number.isSafeInteger(parsedEnd) && parsedEnd > parsedStart)) &&
     (durationSeconds === null || parsedStart < durationSeconds) &&
@@ -195,7 +205,7 @@ export function SingingClipReviewDialog({
                 creditOrder,
                 isPrimary: creditOrder === 0,
               })),
-              tags: [],
+              tags: songTags,
             }
           : { kind: "existing" as const, songId },
         participants: participants.map((participant, creditOrder) => ({
@@ -323,8 +333,34 @@ export function SingingClipReviewDialog({
                       onChange={setOriginalArtists}
                     />
                   </div>
+                  <div className="rounded-lg border p-3 sm:col-span-2">
+                    <SongTagPicker
+                      key={candidate.candidateId}
+                      tags={songTags}
+                      onChange={setSongTags}
+                      label="장르(분류)"
+                      inputId="clip-song-tags"
+                      placeholder="장르 또는 분류 입력"
+                      selectedLabel="선택한 장르(분류)"
+                      description="카탈로그 검색·필터에 사용할 라벨입니다. 최대 10개까지 추가하거나 삭제할 수 있습니다."
+                    />
+                  </div>
                 </>
-              ) : null}
+              ) : (
+                <div className="sm:col-span-2">
+                  <Label>장르(분류)</Label>
+                  <div className="mt-2 flex flex-wrap gap-1.5" aria-label="기존 곡 장르(분류)">
+                    {selectedExistingSongTags.length > 0
+                      ? selectedExistingSongTags.map((tag) => (
+                          <Badge key={tag} variant="secondary">{tag}</Badge>
+                        ))
+                      : <span className="text-sm text-muted-foreground">등록된 라벨 없음</span>}
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    기존 곡 장르(분류) 변경은 카탈로그의 곡 편집에서 관리합니다.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>곡 관계</Label>
                 <Select value={relationType} onValueChange={(value) => setRelationType(value as OtwPlayRelationType)}>

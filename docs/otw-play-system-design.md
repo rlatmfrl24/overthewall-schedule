@@ -559,7 +559,7 @@ sequenceDiagram
   participant A as SubmitCoverProposal
   participant P as Proposal repository
 
-  U->>H: URL, 곡, 원곡 가수, 참여자, clientRequestId
+  U->>H: URL, 곡, 새 곡 tags, 원곡 가수, 참여자, clientRequestId
   H->>H: JWT · 길이 · enum · YouTube ID 검증
   H->>A: normalized command
   A->>P: exact duplicate · 일일 제한 확인
@@ -652,7 +652,7 @@ channel/entity 연결의 중복을 막는다. source relation은 `source_id`를 
 
 | 테이블                                  | 핵심 열                                                                                                                   | 역할                   |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `music_cover_proposals`                 | submitter, idempotency key, URL/video ID, 제출 제목, suggested song, note, status, version, review lock, reviewer, result | 제안 aggregate         |
+| `music_cover_proposals`                 | submitter, idempotency key, URL/video ID, 제출 제목, 제출 tags JSON, suggested song, note, status, version, review lock, reviewer, result | 제안 aggregate         |
 | `music_cover_proposal_participants`     | proposal, 순서, resolved entity nullable, 제출명 snapshot, 역할                                                           | 승인 전 참여자 입력    |
 | `music_cover_proposal_original_artists` | proposal, 순서, resolved entity nullable, 제출명 snapshot                                                                 | 승인 전 원곡 가수 입력 |
 | `music_catalog_events`                  | aggregate, event, actor, before/after, 제한된 detail, 시각                                                                | append-only 권위 이력  |
@@ -670,7 +670,7 @@ Clerk 사용자 정보는 `sub`만 저장하고 이메일 같은 불필요한 �
 - `idempotency_key TEXT NOT NULL`: 후속 API의 `clientRequestId`를 영구 저장
 - `submitted_url TEXT NOT NULL`, `youtube_video_id TEXT NOT NULL`,
   `segment_start_seconds INTEGER NOT NULL DEFAULT 0`
-- `submitted_title TEXT NOT NULL`, `suggested_song_id TEXT NULL`,
+- `submitted_title TEXT NOT NULL`, `submitted_tags_json TEXT NOT NULL DEFAULT '[]'`, `suggested_song_id TEXT NULL`,
   `submitted_note TEXT NULL`
 - `status TEXT NOT NULL DEFAULT 'pending_review'`,
   `version INTEGER NOT NULL DEFAULT 0`
@@ -1571,6 +1571,9 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 ## 17. 완료된 PR-7.2 곡 분류와 player 지속성
 
 DEC-049에 따라 `music_song_tags(song_id, tag_key, display_name)`를 곡 소유 child로 둔다. `tag_key`는 NFKC 기반 검색 정규화 결과이며 `(song_id, tag_key)`로 중복을 막는다. 관리자 song/create-entry command는 최대 10개·표시명 40자의 태그를 같은 D1 batch에 저장하고 public/admin read model은 `tags`를 반환한다. 태그 vocabulary는 DB enum으로 고정하지 않는다.
+playlist candidate와 `singing_clip` candidate의 신규 곡 검수도 동일한 `song.tags` command를
+사용한다. candidate JSON 저장·CAS 비교·재진입에서 라벨을 보존하고 최종 catalog 변환이
+`music_song_tags`를 같은 batch에 생성한다. `song.kind=existing`은 기존 곡 라벨을 수정하지 않는다.
 
 `/play`의 발견 index와 곡 검색·상세는 같은 pathless catalog layout 아래에 두어 `OtwPlayPlayerProvider`와 단일 iframe host가 탭 이동으로 재마운트되지 않게 한다. member submission layout은 계속 분리되어 public catalog/player를 시작하지 않는다.
 

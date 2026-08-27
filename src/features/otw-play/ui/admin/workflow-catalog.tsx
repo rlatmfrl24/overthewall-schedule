@@ -62,10 +62,10 @@ import {
   withdrawOtwPlayPerformance,
 } from "../../api/admin";
 import {
-  SongTagPicker,
   SubjectPicker,
   type SelectedSubject,
 } from "./catalog-entry-dialog";
+import { SongTagPicker } from "../song-tag-picker";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];

@@ -118,6 +118,7 @@ describe("OtwPlaySubmissionsPage", () => {
       data: {
         title: "승인된 제안",
         status: "approved",
+        tags: ["J-POP"],
         originalArtists: [{ displayName: "원곡 가수" }],
         participants: [{ displayName: "메인 보컬", participantRole: "vocal" }],
         note: null,
@@ -132,6 +133,7 @@ describe("OtwPlaySubmissionsPage", () => {
     screen.getByRole("button", { name: /승인된 제안/ }).click();
 
     expect(screen.getByText("승인되어 카탈로그에 반영되었습니다.")).toBeTruthy();
+    expect(screen.getByText("J-POP")).toBeTruthy();
     expect(screen.queryByText("승인되었습니다. 운영 공개 준비 중입니다.")).toBeNull();
     expect(screen.getByRole("link", { name: "관리자 미리보기에서 확인" })).toBeTruthy();
   });

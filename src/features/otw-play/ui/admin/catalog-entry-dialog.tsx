@@ -46,6 +46,7 @@ import {
   createOtwPlayCatalogEntry,
   preflightOtwPlayCatalogEntry,
 } from "../../api/admin";
+import { SongTagPicker } from "../song-tag-picker";
 
 export type SelectedSubject = {
   key: string;
@@ -53,98 +54,6 @@ export type SelectedSubject = {
   detail?: string;
   subject: OtwPlayAdminCatalogSubjectInput;
 };
-
-const RECOMMENDED_SONG_TAGS = ["K-POP", "J-POP", "보컬로이드"] as const;
-const SONG_TAG_WHITESPACE_PATTERN = /\s+/gu;
-const SONG_TAG_PUNCTUATION_PATTERN = /\p{P}+/gu;
-
-const songTagKey = (value: string) =>
-  value
-    .normalize("NFKC")
-    .trim()
-    .replace(SONG_TAG_WHITESPACE_PATTERN, " ")
-    .toLowerCase()
-    .replace(SONG_TAG_PUNCTUATION_PATTERN, " ")
-    .replace(SONG_TAG_WHITESPACE_PATTERN, " ")
-    .trim();
-
-export function SongTagPicker({
-  tags,
-  onChange,
-}: {
-  tags: string[];
-  onChange: (tags: string[]) => void;
-}) {
-  const [value, setValue] = useState("");
-  const includesTag = (candidate: string) =>
-    tags.some((item) => songTagKey(item) === songTagKey(candidate));
-  const add = (raw: string) => {
-    const tag = raw.normalize("NFKC").trim();
-    const key = songTagKey(tag);
-    if (!tag || !key || tags.length >= 10) return;
-    if (includesTag(tag)) {
-      setValue("");
-      return;
-    }
-    onChange([...tags, tag]);
-    setValue("");
-  };
-  return (
-    <div className="space-y-2">
-      <Label htmlFor="otw-play-song-tag">음악 분류</Label>
-      <div className="flex flex-wrap gap-1.5">
-        {RECOMMENDED_SONG_TAGS.map((tag) => (
-          <Button
-            key={tag}
-            type="button"
-            size="sm"
-            variant={includesTag(tag) ? "secondary" : "outline"}
-            disabled={includesTag(tag)}
-            onClick={() => add(tag)}
-          >
-            {tag}
-          </Button>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <Input
-          id="otw-play-song-tag"
-          value={value}
-          maxLength={40}
-          placeholder="직접 분류 입력"
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            add(value);
-          }}
-        />
-        <Button type="button" variant="outline" onClick={() => add(value)}>
-          추가
-        </Button>
-      </div>
-      {tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5" aria-label="선택한 음악 분류">
-          {tags.map((tag) => (
-            <Badge key={tag} className="gap-1">
-              {tag}
-              <button
-                type="button"
-                aria-label={`${tag} 제거`}
-                onClick={() => onChange(tags.filter((item) => item !== tag))}
-              >
-                <X className="size-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-      <p className="text-xs text-muted-foreground">
-        곡 자체의 장르·씬 분류입니다. 가창 형태와 별도로 최대 10개까지 입력할 수 있습니다.
-      </p>
-    </div>
-  );
-}
 
 const STEPS = ["영상 확인", "영상 유형", "참여자와 분류", "검토와 저장"];
 

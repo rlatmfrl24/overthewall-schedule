@@ -854,6 +854,7 @@ export interface OtwPlayCreateSubmissionRequest {
   youtubeUrl: string;
   title: string;
   suggestedSongId?: string | null;
+  tags?: string[];
   originalArtists: OtwPlaySubmissionSubjectInput[];
   participants: OtwPlaySubmissionParticipantInput[];
   note?: string | null;
@@ -880,6 +881,7 @@ export interface OtwPlayMemberSubmissionDto {
   youtubeVideoId: string;
   title: string;
   suggestedSongId: string | null;
+  tags: string[];
   note: string | null;
   status: OtwPlayMemberSubmissionStatus;
   version: number;
@@ -1207,6 +1209,7 @@ export interface OtwPlayAdminProposalDto {
   segmentStartSeconds: number;
   submittedTitle: string;
   suggestedSongId: string | null;
+  tags: string[];
   submittedNote: string | null;
   status: OtwPlayProposalStatus;
   version: number;

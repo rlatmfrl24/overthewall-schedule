@@ -20,6 +20,9 @@ describe("member submission input", () => {
   it("accepts only the member submission snapshot contract", () => {
     const legacy = parseCreateSubmission(valid());
     expect(legacy.ok && legacy.value.participants[0]?.participantRole).toBe("vocal");
+    expect(legacy.ok && legacy.value.tags).toEqual([]);
+    const tagged = parseCreateSubmission({ ...valid(), tags: ["J-POP", "록"] });
+    expect(tagged.ok && tagged.value.tags).toEqual(["J-POP", "록"]);
     const classified = parseCreateSubmission({
       ...valid(),
       participants: [
@@ -54,6 +57,9 @@ describe("member submission input", () => {
     expect(parseCreateSubmission({ ...valid(), clientRequestId: "bad" }).ok).toBe(false);
     expect(parseCreateSubmission({ ...valid(), note: "가".repeat(1001) }).ok).toBe(false);
     expect(parseCreateSubmission({ ...valid(), originalArtists: [] }).ok).toBe(false);
+    expect(parseCreateSubmission({ ...valid(), tags: ["J-POP", "j pop"] }).ok).toBe(false);
+    expect(parseCreateSubmission({ ...valid(), tags: Array.from({ length: 11 }, (_, index) => `tag-${index}`) }).ok).toBe(false);
+    expect(parseCreateSubmission({ ...valid(), tags: ["tag"], suggestedSongId: "song-existing" }).ok).toBe(false);
     expect(
       parseCreateSubmission({
         ...valid(),
@@ -71,11 +77,22 @@ describe("member submission input", () => {
       youtubeUrl: base.youtubeUrl,
       title: base.title,
       suggestedSongId: base.suggestedSongId,
+      tags: ["J-POP"],
       originalArtists: base.originalArtists,
       participants: base.participants,
       note: base.note,
     };
     expect(parseUpdateSubmission({ ...editable, expectedVersion: 0 }).ok).toBe(true);
+    const editableWithoutTags: Partial<typeof editable> = { ...editable };
+    delete editableWithoutTags.tags;
+    const withoutTags = parseUpdateSubmission({
+      ...editableWithoutTags,
+      expectedVersion: 0,
+    });
+    expect(withoutTags.ok).toBe(true);
+    expect(
+      withoutTags.ok && Object.prototype.hasOwnProperty.call(withoutTags.value, "tags"),
+    ).toBe(false);
     expect(parseUpdateSubmission({ ...editable, expectedVersion: -1 }).ok).toBe(false);
     expect(parseWithdrawSubmission({ expectedVersion: 3 })).toEqual({
       ok: true,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
@@ -82,6 +82,80 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it("restores, adds, and removes labels for a new song before saving", async () => {
+    const { reviewInput, candidate, catalog } = reviewFixture();
+    const createSongReviewInput = {
+      ...reviewInput,
+      song: {
+        kind: "create" as const,
+        title: "Labeled Song",
+        isOtwOriginal: false,
+        originalReleaseDate: null,
+        originalReleasePrecision: "unknown" as const,
+        aliases: [],
+        originalArtists: [{
+          subject: { kind: "entity" as const, entityId: "entity-1" },
+          creditOrder: 0,
+          isPrimary: true,
+        }],
+        tags: ["K-POP"],
+      },
+    };
+    const candidateWithNewSong = {
+      ...candidate,
+      reviewInput: createSongReviewInput,
+    };
+    updateCandidateMock.mockImplementation(async (_candidateId, command) => ({
+      version: 4,
+      status: "ready",
+      reviewInput: command.input,
+    }));
+    convertCandidateMock.mockResolvedValue({
+      candidateId: candidate.candidateId,
+      outcome: "created",
+      performanceId: "performance-1",
+      errorCode: null,
+    });
+
+    render(
+      createElement(SingingClipReviewDialog, {
+        candidate: candidateWithNewSong,
+        catalog,
+        onOpenChange: vi.fn(),
+        onConverted: vi.fn().mockResolvedValue(undefined),
+        onReviewStateChanged: vi.fn().mockResolvedValue(undefined),
+      }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    const selectedLabels = screen.getByLabelText("선택한 장르(분류)");
+    expect(within(selectedLabels).getByText("K-POP")).toBeTruthy();
+    fireEvent.click(within(selectedLabels).getByRole("button", { name: "K-POP 제거" }));
+    const labelInput = screen.getByLabelText("장르(분류)");
+    fireEvent.change(labelInput, { target: { value: "라이브" } });
+    fireEvent.keyDown(labelInput, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "J-POP" }));
+    fireEvent.click(screen.getByRole("button", { name: "J-POP 제거" }));
+
+    const saveButton = screen.getByRole("button", {
+      name: "검수 완료 후 draft 생성",
+    });
+    await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
+      candidate.candidateId,
+      expect.objectContaining({
+        input: expect.objectContaining({
+          song: expect.objectContaining({
+            kind: "create",
+            tags: ["라이브"],
+          }),
+        }),
+      }),
+    ));
+  });
+
   it("offers active members as canonical original artists", async () => {
     const { reviewInput, candidate, catalog } = reviewFixture();
     const createSongReviewInput = {
