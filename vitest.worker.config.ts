@@ -55,6 +55,8 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   "0062_colorful_magma.sql",
   "0063_youthful_jamie_braddock.sql",
   "0064_loud_black_tom.sql",
+  "0065_otw_play_authority_retention.sql",
+  "0066_otw_play_integrity_drift.sql",
 ] as const;
 
 export default defineConfig({
@@ -90,6 +92,8 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration] : [];
         });
+      const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.slice(0, -2);
+      const otwPlayHardeningMigrations = otwPlayIngestionMigrations.slice(-2);
       const otwPlayPreSourceHealthMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES
           .filter(
@@ -167,6 +171,8 @@ export default defineConfig({
             OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
               otwPlayPublicCatalogMigrations,
             OTW_PLAY_INGESTION_MIGRATIONS: otwPlayIngestionMigrations,
+            OTW_PLAY_PRE_HARDENING_MIGRATIONS: otwPlayPreHardeningMigrations,
+            OTW_PLAY_HARDENING_MIGRATIONS: otwPlayHardeningMigrations,
             OTW_PLAY_PRE_SOURCE_HEALTH_MIGRATIONS:
               otwPlayPreSourceHealthMigrations,
             OTW_PLAY_SOURCE_HEALTH_MIGRATIONS:
