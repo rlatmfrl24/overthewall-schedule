@@ -22,7 +22,7 @@ import {
   VolumeX,
   Youtube,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
@@ -93,7 +93,9 @@ export function OtwPlayPlayerQueuePanel() {
   const currentLoadFailed = Boolean(
     currentItem && player.retryableItemIds.has(currentItem.id),
   );
-  const previousCurrentItemIdRef = useRef<string | null>(null);
+  const previousPlaybackIntentVersionRef = useRef(0);
+  const playerSectionRef = useRef<HTMLElement | null>(null);
+  const focusReturnRef = useRef<HTMLElement | null>(null);
   const [mobilePresentation, setMobilePresentation] =
     useState<MobilePlayerPresentation>("launcher");
   const [shortRailView, setShortRailView] = useState<"player" | "queue">("player");
@@ -113,14 +115,24 @@ export function OtwPlayPlayerQueuePanel() {
         : "off";
 
   useEffect(() => {
-    const previousCurrentItemId = previousCurrentItemIdRef.current;
     if (currentItemId === null) {
       setMobilePresentation("launcher");
-    } else if (previousCurrentItemId === null) {
+    } else if (
+      player.playbackIntentVersion > previousPlaybackIntentVersionRef.current
+    ) {
       setMobilePresentation("full");
     }
-    previousCurrentItemIdRef.current = currentItemId;
-  }, [currentItemId]);
+    previousPlaybackIntentVersionRef.current = player.playbackIntentVersion;
+  }, [currentItemId, player.playbackIntentVersion]);
+
+  const playbackSurfaceActive =
+    isDesktopPlayerViewport || mobilePresentation !== "launcher";
+  const setPlaybackSurfaceActive = player.setPlaybackSurfaceActive;
+
+  useEffect(() => {
+    setPlaybackSurfaceActive(playbackSurfaceActive);
+    return () => setPlaybackSurfaceActive(false);
+  }, [playbackSurfaceActive, setPlaybackSurfaceActive]);
 
   useEffect(() => {
     if (!miniPlayerActive) return;
@@ -129,12 +141,25 @@ export function OtwPlayPlayerQueuePanel() {
     }
   }, [isDesktopPlayerViewport, isPhonePlayerViewport, miniPlayerActive]);
 
+  useEffect(() => {
+    if (!mobilePlayerOpen || isDesktopPlayerViewport) return;
+    focusReturnRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    playerSectionRef.current?.focus();
+    return () => {
+      focusReturnRef.current?.focus();
+      focusReturnRef.current = null;
+    };
+  }, [isDesktopPlayerViewport, mobilePlayerOpen]);
+
   const closeMobilePlayer = () => {
+    if (current) player.pause();
     if (isMiniPlayerViewport && current) {
       setMobilePresentation("mini");
       return;
     }
-    if (current) player.pause();
     setMobilePresentation("launcher");
   };
 
@@ -145,6 +170,35 @@ export function OtwPlayPlayerQueuePanel() {
 
   const expandMiniPlayer = () => {
     setMobilePresentation("full");
+  };
+
+  const handleDialogKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!mobilePlayerOpen || isDesktopPlayerViewport) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMobilePlayer();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => !element.hidden);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      event.currentTarget.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
   };
 
   const VolumeIcon =
@@ -160,7 +214,14 @@ export function OtwPlayPlayerQueuePanel() {
       className="pointer-events-none fixed inset-0 z-[70] xl:pointer-events-auto xl:static xl:flex xl:h-full xl:min-h-0 xl:w-[380px] xl:shrink-0 xl:flex-col xl:overflow-hidden xl:border-l xl:bg-card xl:text-card-foreground"
     >
       <section
+        ref={playerSectionRef}
         aria-label="OTW Play 재생 플레이어"
+        role={mobilePlayerOpen && !isDesktopPlayerViewport ? "dialog" : "region"}
+        aria-modal={
+          mobilePlayerOpen && !isDesktopPlayerViewport ? true : undefined
+        }
+        tabIndex={mobilePlayerOpen && !isDesktopPlayerViewport ? -1 : undefined}
+        onKeyDown={handleDialogKeyDown}
         data-player-presentation={mobilePresentation}
         className={cn(
           "pointer-events-auto bg-background text-foreground",
@@ -327,6 +388,38 @@ export function OtwPlayPlayerQueuePanel() {
               </div>
 
               <PlaybackProgress player={player} />
+
+              {player.status === "blocked" || player.status === "error" ? (
+                <div
+                  role="alert"
+                  className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+                >
+                  <p className="font-medium">
+                    {player.status === "blocked"
+                      ? "브라우저가 자동 재생을 차단했습니다."
+                      : "현재 소스를 재생하지 못했습니다."}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={player.retryPlayback}
+                    >
+                      <RefreshCw /> 다시 시도
+                    </Button>
+                    <Button asChild size="sm" variant="ghost">
+                      <a
+                        href={`https://www.youtube.com/watch?v=${encodeURIComponent(current.source.externalId)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink /> YouTube에서 열기
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               <div
                 data-testid="otw-play-transport-controls"
@@ -506,6 +599,11 @@ export function OtwPlayPlayerQueuePanel() {
         player={player}
         hiddenForShortPlayer={current !== null && shortRailView === "player"}
       />
+      {player.announcement ? (
+        <p className="sr-only" aria-live="polite">
+          {player.announcement}
+        </p>
+      ) : null}
     </aside>
   );
 }
@@ -733,11 +831,6 @@ function DesktopQueue({
           </p>
         </div>
       )}
-      {player.announcement ? (
-        <p className="sr-only" aria-live="polite">
-          {player.announcement}
-        </p>
-      ) : null}
     </section>
   );
 }
@@ -792,7 +885,7 @@ function MobilePlayerQueue({
   player: OtwPlayPlayerContext;
 }) {
   return (
-    <section aria-label="모바일 플레이큐" className="mt-7 border-t pt-5 lg:hidden">
+    <section aria-label="모바일 플레이큐" className="mt-7 border-t pt-5 xl:hidden">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <ListMusic className="size-4" /> 플레이큐
