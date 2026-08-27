@@ -28,12 +28,36 @@ import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
 
 export function OtwPlayShell({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
+  const publicConfig = useOtwPlayConfig();
+  const isAdmin = isLoaded && isAdminUser(user?.id);
+
+  if (publicConfig.isPending) {
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" /> OTW Play 공개 상태 확인 중
+        </div>
+      </main>
+    );
+  }
+
+  if (publicConfig.isError || !publicConfig.data) {
+    return <OtwPlayConfigError onRetry={() => void publicConfig.refetch()} />;
+  }
+
+  if (publicConfig.data.data.publicReadEnabled) {
+    return (
+      <OtwPlayCatalogRequestProvider>
+        <OtwPlayExperience>{children}</OtwPlayExperience>
+      </OtwPlayCatalogRequestProvider>
+    );
+  }
 
   if (!isLoaded) {
     return (
       <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" /> 관리자 권한 확인 중
+          <LoaderCircle className="size-4 animate-spin" /> 관리자 미리보기 권한 확인 중
         </div>
       </main>
     );
@@ -42,8 +66,8 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
   if (!isSignedIn) {
     return (
       <OtwPlayAccessCard
-        title="로그인이 필요합니다"
-        description="현재 OTW Play 화면은 관리자만 이용할 수 있습니다."
+        title="OTW Play 공개 준비 중입니다"
+        description="현재는 관리자 미리보기만 제공됩니다. 관리자라면 로그인해 주세요."
       >
         <SignInButton>
           <Button className="w-full rounded-full">로그인</Button>
@@ -52,12 +76,16 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAdminUser(user?.id)) {
+  if (!isAdmin) {
     return (
       <OtwPlayAccessCard
-        title="접근 권한이 없습니다"
-        description="관리자 권한이 있는 계정으로 로그인해 주세요."
-      />
+        title="OTW Play 공개 준비 중입니다"
+        description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
+      >
+        <Link to="/play/submit" search={{ edit: undefined }} className="w-full">
+          <Button className="w-full rounded-full">곡 제안하기</Button>
+        </Link>
+      </OtwPlayAccessCard>
     );
   }
 
@@ -102,6 +130,23 @@ function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
   );
 }
 
+function OtwPlayConfigError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="flex min-h-0 flex-1 items-center justify-center p-5">
+      <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
+        <AlertTriangle className="mx-auto mb-3 size-8 text-amber-500" />
+        <h1 className="text-lg font-semibold">OTW Play 상태를 확인하지 못했습니다</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          잠시 후 다시 시도해 주세요.
+        </p>
+        <Button className="mt-4" variant="outline" onClick={onRetry}>
+          <RefreshCw /> 다시 시도
+        </Button>
+      </div>
+    </main>
+  );
+}
+
 function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
   const config = useOtwPlayConfig({ adminPreview: true });
 
@@ -115,29 +160,26 @@ function AdminPreviewOtwPlayShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (config.isError) {
-    return (
-      <main className="flex min-h-0 flex-1 items-center justify-center p-5">
-        <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
-          <AlertTriangle className="mx-auto mb-3 size-8 text-amber-500" />
-          <h1 className="text-lg font-semibold">카탈로그 상태를 확인하지 못했습니다</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            OTW Play 동기화 상태를 확인한 뒤 다시 시도해 주세요.
-          </p>
-          <Button className="mt-4" variant="outline" onClick={() => void config.refetch()}>
-            <RefreshCw /> 다시 시도
-          </Button>
-        </div>
-      </main>
-    );
+  if (config.isError || !config.data) {
+    return <OtwPlayConfigError onRetry={() => void config.refetch()} />;
   }
 
+  return <OtwPlayExperience adminPreview>{children}</OtwPlayExperience>;
+}
+
+function OtwPlayExperience({
+  adminPreview = false,
+  children,
+}: {
+  adminPreview?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <OtwPlayPlayerProvider adminPreview>
+    <OtwPlayPlayerProvider adminPreview={adminPreview}>
       <OtwPlayFrame
         search={<PlayHeaderSearch />}
         status={
-          !config.data?.data.publicReadEnabled ? (
+          adminPreview ? (
             <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
               <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
             </span>
