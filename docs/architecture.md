@@ -3,7 +3,7 @@
 ## 문서 상태
 
 - 상태: 현재 구현의 기준 문서
-- 기준일: 2026-08-25
+- 기준일: 2026-08-27
 - 대상: React 웹 앱, Cloudflare Worker, D1, R2, Queue, 외부 콘텐츠 API
 
 이 문서는 OTW Schedule의 현재 코드 소유권과 의존성 규칙을 정의한다.
@@ -743,3 +743,35 @@ pnpm sync:agent-cursor:check
   case를 호출한다.
 - `/multiview`는 extension 없이 동작하는 공개 Mul.Live iframe과 반복
   `c=` query parameter를 유지한다.
+
+## 13. OTW Play 계층과 연계성
+
+OTW Play도 Worker 공통 의존 방향을 그대로 따른다. HTTP parser/handler는 transport와
+인증·오류 envelope만 소유하고, application service가 공개 경계, CAS, WebSub 권위와
+원자 command를 조합한다. domain/port는 D1, Queue, telemetry, YouTube 구현을 알지 못하며
+infrastructure adapter가 port를 구현한다.
+
+```mermaid
+flowchart LR
+  public["public / member / admin UI"] --> http["HTTP handlers + strict input"]
+  http --> app["application services"]
+  app --> ports["domain policies + ports"]
+  d1["D1 repositories"] --> ports
+  yt["YouTube + WebSub"] --> ports
+  queue["Cloudflare Queue + telemetry"] --> ports
+  app --> read["catalog/read-model revision"]
+```
+
+주요 연계 규칙은 다음과 같다.
+
+- 공개 shell은 익명 config를 먼저 읽고 `0/0`, `1/0`, `1/1` 매트릭스를 적용한다.
+  member submission은 public flag와 분리하고 admin preview는 flag-off에서만 사용한다.
+- performance write는 `sources[]`를 권위로 삼고 source relation, revision, event와 projection을
+  하나의 D1 batch에서 갱신한다. legacy 단일 `source` 호환은 Worker ingress에만 둔다.
+- player의 presentation과 playback을 분리한다. visible host가 없으면 iframe load/play를
+  허용하지 않고, 닫기·route 이탈·host 제거 시 pause를 선행한다.
+- WebSub callback은 active + verified + future lease와 monitor/approval을 application에서
+  확인한 뒤에만 delivery와 Queue를 갱신한다. current/previous generation candidate query는
+  별도 port method와 query key를 사용한다.
+- `0065`는 WebSub 권위와 30일 source metadata retention을, `0066`은 D1 FK·CHECK drift를
+  보정한다. 두 migration, Worker 배포와 공개 flag 변경은 서로 독립된 운영 승인 대상이다.

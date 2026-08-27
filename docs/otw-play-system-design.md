@@ -1,6 +1,6 @@
 # OTW Play 시스템·DB 설계
 
-상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 공개 `0/0` 설계 기준선
+상태: 아키텍처 하드닝 구현 계약 반영, 운영 공개 `0/0` 설계 기준선
 
 기준일: 2026-08-27
 
@@ -86,8 +86,8 @@ capability는 제품 언어에 맞춰 `otw-play`를 사용한다.
 
 자동 수집의 `candidate`는 PR-9B에서 별도 `music_ingestion_candidates` aggregate로
 구현했으며 회원 제안 상태에 섞지 않는다.
-`candidate_kind`는 최소 `catalog_video|singing_clip`을 구분한다. public·unlisted
-playlist의 `catalog_video`는 관리자 검수 뒤 draft 변환이 가능하지만 approved 노래
+`candidate_kind`는 최소 `official_video|singing_clip`을 구분한다. public·unlisted
+playlist의 `official_video`는 관리자 검수 뒤 draft 변환이 가능하지만 approved 노래
 clip channel의 `singing_clip`은 관리자 개별 검수 뒤 `release_type=broadcast`,
 `source_role=kirinuki`, `publication_status=draft`로만 변환한다. 활성
 `approved_kirinuki` channel과 candidate version을 변환 batch에서 다시 검증하며 어느
@@ -1769,3 +1769,50 @@ production readback을 요구한다. 또한 migration `0064`의 production 적�
 `music_cover_proposals.submitted_tags_json` readback은 운영자 확인으로 완료 처리했다.
 공개 config의 2026-08-27 readback은 catalog revision `24`, flag `0/0`이며 P3의
 원본 방송·방송일·setlist·public projection은 계속 후속 범위다.
+
+## 21. 아키텍처 하드닝 기준선
+
+### 21.1 공개·인증 경계
+
+`GET /api/play/config`는 익명 요청으로 flag와 revision만 반환한다. `public_read_enabled=0`
+에서는 익명 catalog를 `404`로 닫고 관리자 preview만 bearer + preview header의 별도
+`no-store` 경로를 사용한다. `public_read_enabled=1`이면 관리자도 public API와 revision
+cache를 사용한다. `navigation_visible`은 navigation, canonical index와 sitemap만 제어하며
+로그인 회원의 `/play/submit`, `/play/submissions` 권한에는 관여하지 않는다.
+
+### 21.2 catalog write와 원자성
+
+performance write 입력의 권위 필드는 `sources[]`다. 각 원소는 YouTube URL, channel ID,
+segment, source role, priority, primary 여부를 가지며 최소 1개, primary 정확히 1개,
+priority·segment 중복 금지를 HTTP parser와 application service에서 모두 검증한다. 한
+호환 릴리스 동안 Worker ingress만 legacy `source`를 단일 배열로 정규화한다. create/update는
+source relation 추가·삭제·순서·대표 변경, catalog revision, event와 projection을 하나의
+D1 batch로 커밋한다.
+
+### 21.3 WebSub와 generation 권위
+
+subscription의 유효 active 조건은 다음 하나다.
+
+```text
+status = active && verified_at IS NOT NULL && lease_expires_at > now
+```
+
+callback은 이 조건과 활성 monitor·approval을 다시 확인한다. 실패하면 delivery insert,
+`last_notification_at`, Queue enqueue를 모두 수행하지 않고 `404`와 `no-store`로 종료한다.
+관리자 read model은 `effectiveActive`, `recoveryReason`, monitor별 delivery health와
+이전 generation 미처리 개수를 제공한다. current inbox 조회는 현재 generation만 포함하고
+이전 generation 후보는 별도 query/surface로 읽는다. callback과 Queue telemetry는
+request/delivery ID와 결과 code만 남기며 feed 원문, 서명, URL query는 기록하지 않는다.
+
+### 21.4 보존과 migration
+
+- `0065_otw_play_authority_retention.sql`: false-active subscription을 `failed`로 복구하고
+  active verification/lease CHECK를 추가한다. ingestion job의 API-derived 제목은 nullable
+  snapshot이며 `source_metadata_checked_at`과 DTO `retentionExpiresAt`을 사용한다.
+- `0066_otw_play_integrity_drift.sql`: proposal participant/original-artist의 submitter FK를
+  실제 D1 `ON DELETE SET NULL`로 복원한다. JSON shape, conversion outcome,
+  boolean/timestamp pair, range/generation strict non-negative integer CHECK를 추가한다.
+
+두 migration은 기존 파일을 수정하지 않는 순차 rebuild다. 복사 전에 invalid row를 scan하고,
+inbound child backup → parent/child rebuild → data copy → index/FK 재생성 →
+`PRAGMA foreign_key_check` 순서로 검증한다. production 적용은 코드 배포와 flag 변경과 별도다.

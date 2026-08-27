@@ -1,8 +1,8 @@
 # OTW Play 제품 요구사항
 
-상태: Living Baseline — 구현 완료 항목 closeout 반영
+상태: Living Baseline — 아키텍처 하드닝 구현 계약 반영
 
-단계: PR-1~PR-9D1과 2026-08-27 관리자 운영 보완 병합 완료, 운영 공개 `0/0` 유지
+단계: PR-1~PR-9D1 이후 아키텍처 하드닝 전달 준비, 운영 공개 `0/0` 유지
 
 최종 갱신일: 2026-08-27
 
@@ -88,7 +88,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
 | DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
 | DEC-029 | 공개 OTW Play는 `/play` 안에서 Discover, 곡 목록, 곡 상세와 단일 YouTube player를 하나의 연속 경험으로 제공한다. | 확정 | 내비게이션 라벨은 `OTW Play`이며 두 공개 flag가 모두 켜졌을 때만 표시한다. player는 `/play/*` 안에서만 유지하고 카탈로그 복귀 동작은 DEC-041의 폭별 visible player 정책을 따르며 Play 이탈 시 stop·destroy한다. 대기열은 versioned `sessionStorage` 세션 상태이며 외부 참여자는 공개 프로필 없이 정확한 catalog filter만 제공한다. |
-| DEC-030 | 현재 `/play/*` UI는 운영 공개 전 관리자 preview로 제한한다. | 확정 | 비로그인·비관리자는 config와 catalog 요청을 시작하지 않고 로그인 또는 권한 안내만 본다. 관리자는 Worker가 다시 인증한 전용 `no-store` preview 요청으로 공개 flag가 꺼진 상태에서도 실제 UI를 검증한다. 이 우회는 read-model revision 일치 조건을 유지하고 익명 public GET의 flag-off 계약을 바꾸지 않는다. 관리자 내비게이션은 preview config 확인 후 표시한다. |
+| DEC-030 | 현재 `/play/*` UI는 운영 공개 전 관리자 preview로 제한한다. | 대체됨 | 역할×공개 flag 진입 규칙은 DEC-070이 대체한다. |
 | DEC-031 | 공개 Play의 첫 화면과 탐색 화면을 분리하고 재생 조작은 셸에 지속한다. | 대체됨 | Home과 Discover의 기능 중복을 제거하는 DEC-033으로 정보 구조를 단순화한다. player 지속 범위는 유지한다. |
 | DEC-032 | Play 상단 chrome은 기존 좌측 메뉴의 기준선에 맞추고 대표 배너는 명시적 사용자 조작으로 전환한다. | 확정 | 상단 Play header는 64px 기준선에 맞춘다. 대표 배너는 화살표·indicator·키보드·마우스 drag·가로 wheel로 수동 전환하며 자동 순환하지 않는다. player chrome은 DEC-034·037을 따른다. |
 | DEC-033 | 공개 Play의 중복 탐색 진입점을 `발견`과 `곡 검색` 두 개로 통합한다. | 확정 | 발견은 기존 Home·Discover의 대표곡, 멤버와 최근 곡 탐색 역할을 함께 소유한다. `/play/discover`는 `/play`로 호환 redirect한다. `전체 곡`, `오리지널`, `커버` 상단 탭은 `곡 검색` 하나로 합치고 관계 구분은 `/play/songs`의 URL 동기화 필터로 제공한다. |
@@ -99,7 +99,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-038 | 우측 player 정보 계층은 재생 조작, source attribution, 재생 진행 순으로 고정한다. | 부분 대체됨 | `재생 중`·`재생 대기` 상태 문구와 단일 control row, seekable progress 계약은 유지한다. 참여자·작업·게시 채널의 상세 계층은 DEC-042가 대체한다. |
 | DEC-039 | YouTube iframe chrome은 공식 player parameter가 허용하는 범위에서 최소화한다. | 확정 | OTW Play 자체 transport·progress를 사용하므로 native controls, fullscreen button, iframe keyboard control과 annotation을 끄고 related video는 같은 channel로 제한한다. 폐기된 `showinfo`·`modestbranding`이나 iframe을 덮는 overlay는 사용하지 않는다. CC 강제 비활성 parameter는 공식 지원되지 않으므로 `cc_load_policy=1`을 설정하지 않고 사용자 YouTube caption preference를 따른다. |
 | DEC-040 | 데스크톱 우측 player rail은 화면 높이에 따라 정보를 압축하되 iframe과 queue 조작 가능성을 함께 보존한다. | 확정 | 높이 720px 미만에서는 게시 채널 출처 행을 먼저 숨기고 참여자 identity와 이름은 한 줄 말줄임으로 유지한다. 참여자 옆 YouTube·곡 상세 action과 iframe 200px, queue 최소 144px은 보존한다. 높이 640px 미만은 단일 iframe을 계속 보인 채 `현재 재생`과 `플레이큐` 상세 영역을 전환하며, 전환은 pause·재마운트·두 번째 iframe을 만들지 않는다. rail과 queue는 `min-height: 0` 내부 스크롤 경계를 가진다. |
-| DEC-041 | 640–1279px에서 전체 `Now Playing`을 닫으면 같은 player를 우측 하단 visible miniplayer로 축소한다. | 확정 | miniplayer는 216px card 안에 200×200px 단일 iframe과 곡명·play/pause·전체 화면 확장 action을 제공한다. 카탈로그 복귀, full↔mini 전환과 queue 항목 변경은 pause·자동 resume·host 재마운트를 만들지 않는다. 폭이 640px 미만으로 줄어들면 전체 player를 다시 열어 숨은 재생을 막고, 그 폭에서 카탈로그 복귀는 기존처럼 pause 후 launcher를 표시한다. 1280px 이상 rail과 `/play` 이탈 stop·destroy는 유지한다. |
+| DEC-041 | 640–1279px에서 전체 `Now Playing`을 닫으면 같은 player를 우측 하단 visible miniplayer로 축소한다. | 부분 대체됨 | miniplayer의 단일 visible host는 유지한다. 닫기 전 pause와 명시적 재개 경계는 DEC-070이 대체한다. |
 | DEC-042 | player 정보 계층은 영상 다음에 곡명과 메인 참여자를 먼저 식별하고, 분류·재생 조작·출처를 단계적으로 제공한다. | 확정 | 현재 멤버는 권위 profile image와 이름, 외부 인물은 중립 person icon, 그룹은 group icon으로 표시한다. YouTube 외부 링크와 곡 상세 action은 참여자 이름 옆에 둔다. 음악 분류와 가창 분류는 identity 아래 보조 metadata로 두고, seek progress와 transport를 연속 배치한다. 게시 채널은 transport 아래에 YouTube icon·`게시 채널` label·channel 이름만 표시하며 참여자 profile image를 channel avatar처럼 재사용하지 않는다. 긴 참여자·channel 이름은 한 줄 말줄임과 title을 제공한다. |
 | DEC-043 | 로그인 회원은 운영 공개 flag와 분리된 인증 경로에서 공식 커버만 제안하고 자신의 제안만 조회한다. | 확정 | `/play/submit`, `/play/submissions`는 관리자 catalog preview와 다른 member shell을 사용한다. 제출 단계에서는 YouTube API를 호출하거나 외부 identity를 생성하지 않고, status·submitter·reviewer·publication은 서버가 소유한다. |
 | DEC-044 | 공식 커버 승인은 `official_cover_v1` 정책을 만족할 때만 proposal과 published catalog를 같은 D1 batch로 전이한다. | 확정 | 승인·활성 상태의 OTW·유닛·멤버 음악·멤버 메인·승인 프로젝트 공식 채널, 최신 YouTube video/channel·playable 일치와 관리자의 실제 가창 credit 확인을 모두 요구한다. |
@@ -128,6 +128,9 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-067 | 승인 채널의 `singing_clip` 후보는 같은 자동 검수 작업면에서 개별 검수한 뒤 비공개 방송 가창 draft로 전환한다. | 확정 | 운영자는 후보의 곡·원곡 가수·가창 참여자와 역할·관계·참여 형태·시작/종료 구간을 확인한다. 서버는 활성 `approved_kirinuki` 채널, `broadcast` release와 `kirinuki` source 조합만 허용하고 candidate CAS와 draft 생성을 한 D1 batch로 처리한다. 이 경로는 publish action을 제공하지 않으며 원본 방송 연결·방송일·setlist·공개 read model은 P3 범위로 남긴다. |
 | DEC-068 | 관리자는 더 이상 쓰지 않는 외부 인물·그룹 identity를 승인 채널 작업면에서 영구 삭제할 수 있다. | 확정 | `member_uid`가 없는 외부 identity만 대상이며 곡 원곡 가수, 가창 참여자, 승인 채널, 공개 sort key, 제안 또는 비종료 후보의 저장된 검수가 참조하면 삭제를 거부한다. 성공 시 별칭은 cascade 정리하고 `entity.deleted` event와 catalog/read-model revision을 같은 D1 batch에서 반영한다. |
 | DEC-069 | playlist 후보 검수와 `singing_clip` 자동 검수에서 신규 곡의 음악 라벨을 같은 입력 방식으로 관리한다. | 확정 | 추천 라벨과 자유 입력을 모두 지원하고 선택 라벨은 즉시 삭제할 수 있어야 한다. 저장된 검수를 다시 열면 라벨을 복원하며, 기존 곡을 연결한 경우에는 해당 곡의 권위 라벨을 읽기 전용으로 보여 주고 변경은 카탈로그 곡 편집에서 수행한다. |
+| DEC-070 | 공개 진입과 플레이어는 역할×flag 매트릭스와 명시적 presentation 상태 머신을 따른다. | 확정 | 익명 config는 `auth: omit`으로 읽는다. `0/0`은 익명을 차단하고 관리자만 preview API를 사용하며, `1/0`은 직접 URL을 공개하되 navigation·index·sitemap을 숨기고, `1/1`은 모두 공개한다. flag-on 관리자는 실제 public API/cache를 사용한다. `launcher|full|mini`는 재생 상태와 분리하며 숨은 presentation에서는 iframe을 load하거나 재생하지 않는다. 닫기·route 이탈·host 제거는 pause를 선행하고 session은 queue/current metadata만 복원한다. |
+| DEC-071 | 관리자 catalog와 WebSub 운영 화면은 다중 source, 명시적 실패, 권위 상태와 generation 경계를 보존한다. | 확정 | performance는 primary가 정확히 하나인 `sources[]`를 저장하며 Worker는 한 릴리스 동안 legacy `source`를 정규화한다. proposal·ingestion·monitor·observability 실패를 빈 목록과 구분하고 CAS 충돌은 입력을 보존한 `409 PLAY_ADMIN_STALE_WRITE`로 처리한다. WebSub effective active는 `active + verified + future lease`이며 이전 generation 미처리 후보는 현재 inbox와 분리한다. |
+| DEC-072 | OTW Play 권위·보존과 schema drift 수정은 새 additive migration 두 개로 전달하고 공개 전환과 분리한다. | 확정 | `0065`는 WebSub active CHECK와 ingestion source metadata 30일 보존을, `0066`은 proposal child FK `ON DELETE SET NULL`과 JSON·enum·boolean/timestamp·range/generation strict CHECK를 적용한다. migration·배포·flag 변경은 각각 별도 운영 승인과 권위 readback이 필요하다. |
 
 ## 4. 제품 원칙
 
