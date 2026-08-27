@@ -17,7 +17,7 @@
 테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-9D1,
 WebSub 관리, `singing_clip` 비공개 draft 검수와 2026-08-27 관리자 운영 보완의
 구현·병합은 완료되었다. production Clerk 전환과 실제 로그인·관리자 스모크도 완료했다.
-현재 단계는 flag `0/0`을 유지하면서 migration `0064`, P0-A/P0-B 운영 canary, 예약
+현재 단계는 flag `0/0`을 유지하면서 P0-A/P0-B 운영 canary, 예약
 source-health, 운영 catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
 가창·키리누키 등은 제품 요구사항의 P0~P4 우선순위를 따르는 후속 범위다.
 
@@ -41,7 +41,7 @@ flowchart LR
   merge SHA는 `981371ee5c5b60303acb28198d958fc778d655a5`이다.
 - 현재 production deployment는 Worker version
   `789f32ad-21ce-4678-9669-5823ce9df9c7`을 제공한다.
-- 원격 D1에는 migration 0053–0063이 적용되어 pending migration이 없다.
+- 원격 D1에는 migration 0053–0064가 적용되어 pending migration이 없다.
   catalog/read-model revision은 `3/3`이며 운영 catalog에는 song 1개, published
   performance 1개, playable source 1개가 있다.
 - 운영 config는 의도대로 `public_read_enabled=0`, `navigation_visible=0`이다.
@@ -82,13 +82,14 @@ flowchart LR
   원자 변환하는 경로와 monitor surface 회귀 보완을 완료했다.
 - PR #82–#84에서 외부 identity 안전 삭제, 두 후보 검수 화면의 신규 곡 라벨,
   기존 승인 채널의 연결 주체 교정과 감사 기록을 완료했다.
+- 운영자 확인에 따라 migration `0064`의 production 적용과
+  `music_cover_proposals.submitted_tags_json` readback을 완료 처리했다.
 - 2026-08-27 공개 config readback은 catalog revision `24`,
   `public_read_enabled=0`, `navigation_visible=0`이다.
 
-closeout에서 제외하는 잔여 gate는 migration `0064` production 적용/readback,
-P0-A playlist canary, 실제 신규 upload의 `WebSub → Queue → candidate → 검수 → draft`
-readback, catalog 정비와 공개·rollback 전환이다. PR #83의 Workers build 성공은
-migration `0064` 적용 증거를 대체하지 않는다.
+closeout에서 제외하는 잔여 gate는 P0-A playlist canary, 실제 신규 upload의
+`WebSub → Queue → candidate → 검수 → draft` readback, catalog 정비와
+공개·rollback 전환이다.
 
 ## 2. 구현 착수 gate
 
@@ -166,7 +167,7 @@ canary는 각 운영 흐름의 권위 readback으로 완료한다.
 | PR-9B | playlist ingestion job·Queue/DLQ                | 완료      | migration 0057–0062 적용                        |
 | PR-9C | candidate 검수·draft 변환                      | 완료      | 자동 publish 없음                               |
 | PR-9D1 | clip monitor·WebSub·비공개 draft 검수          | 구현 완료 | 실제 신규 upload canary 별도                    |
-| 운영 보완 | 외부 identity 삭제·라벨·채널 주체 교정      | 완료      | PR #82–#84, migration `0064` 적용은 별도 gate  |
+| 운영 보완 | 외부 identity 삭제·라벨·채널 주체 교정      | 완료      | PR #82–#84, migration `0064` production 적용 완료 |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -1496,5 +1497,5 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
   `hub → callback → Queue → videos.list → singing_clip candidate → reviewed draft`
   readback이 성공해야 P0-B 운영 canary를 완료한다. challenge·구독 성공만으로 이
   canary까지 완료했다고 선언하지 않는다.
-- PR #83의 migration `0064`는 production 적용과 column readback이 확인되기 전까지
-  release gate로 유지한다.
+- PR #83의 migration `0064` production 적용과
+  `music_cover_proposals.submitted_tags_json` readback을 운영자 확인으로 완료 처리했다.

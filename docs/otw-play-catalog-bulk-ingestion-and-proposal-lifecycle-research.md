@@ -431,6 +431,7 @@ DEC-054의 본인 `pending_review`만 version CAS 수정·불가역 철회 정�
   draft 변환은 완료 상태다.
 - PR-9D1의 polling·WebSub transport와 `singing_clip` 개별 검수·비공개 draft 변환도
   완료 상태다. 신규 곡 tag와 외부 identity 정리·승인 채널 주체 교정은 PR #82–#84에서
-  운영 보완을 마쳤다.
+  운영 보완을 마쳤고 migration `0064` production 적용과 제안 tag column readback도
+  운영자 확인으로 완료 처리했다.
 - 남은 gate는 P0-A playlist canary, P0-B 실제 신규 upload→candidate→draft canary,
-  migration `0064` production readback과 YouTube compliance 확대 확인이다.
+  YouTube compliance 확대 확인이다.

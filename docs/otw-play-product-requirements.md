@@ -619,12 +619,12 @@ schema·API·UI 설계와 gate를 거쳐야 한다.
 - PR #81: `singing_clip` 후보의 곡·원곡 가수·가창자·segment 검수와 비공개
   `broadcast + kirinuki` draft 원자 변환, 자동 검수 가용성 회귀 수정
 - PR #82: 외부 인물·그룹 영구 삭제와 저장된 후보 검수·승인 채널 참조 보호
-- PR #83: 후보 검수·자동 검수의 신규 곡 라벨 입력·추가·삭제·복원과 회원 제안 라벨 보존
+- PR #83: 후보 검수·자동 검수의 신규 곡 라벨 입력·추가·삭제·복원과 회원 제안 라벨 보존,
+  운영자 확인에 따른 migration `0064` production 적용·`submitted_tags_json` readback 완료
 - PR #84: 기존 승인 채널의 연결 주체 표시·검색·교체·해제와 변경 전후 감사 event
 
 다음은 구현 누락이 아니라 별도 운영 또는 후속 제품 gate다.
 
-- migration `0064`의 production 적용과 `submitted_tags_json` readback
 - P0-A 최근 5개 playlist Queue·D1 canary와 P0-B 실제 신규 upload→candidate→draft canary
 - 공개 전 catalog 정비와 `0/0 → 1/0 → 1/1`·rollback 검증
 - P3 방송일·원본 방송·setlist·공개 read model, P1 이후의 별도 capability
@@ -802,7 +802,7 @@ production WebSub 설정으로 해결되었다.
 | 2026-08-27 | DEC-068 확정. 승인 채널 작업면에서 미참조 외부 인물·그룹 identity의 영구 삭제를 제공하고, 멤버 기반 또는 곡·가창·채널·projection·제안·비종료 후보 검수 참조 대상은 서버에서 차단. 별칭·event·두 revision의 원자성을 삭제 계약에 포함 |
 | 2026-08-27 | DEC-069 확정. playlist 후보 검수와 `singing_clip` 자동 검수의 신규 곡 입력에 공통 음악 라벨 추가·자유 입력·삭제와 저장값 복원을 제공하고, 기존 곡은 권위 라벨을 읽기 전용으로 표시 |
 | 2026-08-27 | DEC-066 보완. 신규 승인 채널 등록에서는 주체 선택을 계속 제외하되, 기존 채널 편집 화면에 현재 연결 표시·검색·교체·해제·명시적 확인을 추가하고 변경 전후 entity ID를 `channel.updated` 감사 event에 기록 |
-| 2026-08-27 | PR #76–#84 구현 closeout. WebSub 설정, `singing_clip` 비공개 draft 검수, 외부 identity 삭제, 신규 곡 라벨, 승인 채널 연결 주체 교정을 완료로 분류. migration `0064`, 실제 신규 upload canary, 공개 flag 전환은 별도 운영 gate로 유지 |
+| 2026-08-27 | PR #76–#84 구현 closeout. WebSub 설정, `singing_clip` 비공개 draft 검수, 외부 identity 삭제, 신규 곡 라벨, 승인 채널 연결 주체 교정과 migration `0064` production 적용을 완료로 분류. 실제 신규 upload canary와 공개 flag 전환은 별도 운영 gate로 유지 |
 
 ## 19. 참고
 

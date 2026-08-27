@@ -826,5 +826,7 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
 - `singing_clip` 후보는 같은 monitor surface에서 `검수·등록` dialog로 곡·원곡 가수·
   가창자·역할·segment를 입력하고 비공개 draft를 만든다. catalog loading 실패 시에도
   monitor·WebSub·대조·제외 control은 계속 접근할 수 있다.
-- 구현 완료 화면과 별개로 실제 신규 upload canary, migration `0064` readback,
-  공개 `0/0 → 1/0 → 1/1` 전환은 운영 gate로 유지한다.
+- migration `0064` production 적용과 신규 곡 label 저장 column readback은 운영자 확인으로
+  완료 처리했다.
+  구현 완료 화면과 별개로 실제 신규 upload canary와 공개 `0/0 → 1/0 → 1/1` 전환은
+  운영 gate로 유지한다.

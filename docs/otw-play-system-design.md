@@ -1766,6 +1766,6 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 구독 설정 완료는 실제 신규 upload delivery 완료와 구분한다. P0-B E2E closeout은
 `WebSub → callback → Queue → videos.list → singing_clip candidate → reviewed draft`의
 production readback을 요구한다. 또한 migration `0064`의 production 적용과
-`music_cover_proposals.submitted_tags_json` readback은 Worker build와 별도 gate다.
+`music_cover_proposals.submitted_tags_json` readback은 운영자 확인으로 완료 처리했다.
 공개 config의 2026-08-27 readback은 catalog revision `24`, flag `0/0`이며 P3의
 원본 방송·방송일·setlist·public projection은 계속 후속 범위다.
