@@ -95,7 +95,7 @@ describe("OTW Play operations telemetry wrapper", () => {
       recordKind: "request",
     }));
     expect(write).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      event: "play.catalog.updated",
+      event: "play.source.checked",
       recordKind: "request",
       resourceId: "source-1",
     }));

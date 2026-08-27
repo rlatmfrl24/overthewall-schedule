@@ -123,6 +123,14 @@ const officialChannelRoleLabels: Record<OtwPlayPublicChannelRole, string> = {
   project_official: "승인 프로젝트",
 };
 
+const retentionLabel = (expiresAt: number | null) => {
+  if (expiresAt === null) return "API metadata 보존 종료";
+  const remainingMs = expiresAt - Date.now();
+  if (remainingMs <= 0) return `보존 만료 · ${new Date(expiresAt).toLocaleString("ko-KR")}`;
+  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  return `${new Date(expiresAt).toLocaleString("ko-KR")} 만료 · ${remainingDays}일 남음`;
+};
+
 const primaryChannelOwnershipOptions = [
   {
     value: "member",
@@ -1346,6 +1354,14 @@ export function IngestionSection({
         <CardContent className="pt-4">
           {jobsQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">가져오기 이력을 불러오는 중입니다.</p>
+          ) : jobsQuery.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+              <span>가져오기 이력을 불러오지 못했습니다. 저장된 작업이 없는 것으로 간주하지 않습니다.</span>
+              <Button size="sm" variant="outline" disabled={jobsQuery.isFetching} onClick={() => void jobsQuery.refetch()}>
+                {jobsQuery.isFetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                다시 시도
+              </Button>
+            </div>
           ) : (jobsQuery.data?.length ?? 0) === 0 ? (
             <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
               저장된 가져오기 작업이 없습니다.
@@ -1364,16 +1380,19 @@ export function IngestionSection({
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <span className="line-clamp-2 font-semibold">{historyJob.playlistTitle}</span>
+                    <span className="line-clamp-2 font-semibold">{historyJob.playlistTitle ?? historyJob.playlistId}</span>
                     <Badge variant={historyJob.status === "completed" ? "secondary" : "outline"}>
                       {historyJob.status}
                     </Badge>
                   </div>
                   <p className="mt-2 truncate text-xs text-muted-foreground">
-                    {historyJob.playlistOwnerChannelTitle}
+                    {historyJob.playlistOwnerChannelTitle ?? historyJob.playlistOwnerChannelId}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {new Date(historyJob.createdAt).toLocaleString("ko-KR")} · 후보 {historyJob.counts.discovered}개
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {retentionLabel(historyJob.retentionExpiresAt)}
                   </p>
                 </button>
               ))}
@@ -1382,11 +1401,21 @@ export function IngestionSection({
         </CardContent>
       </Card>
 
+      {activeJobId && jobQuery.isError ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-5 text-sm">
+          <span>선택한 수집 job의 권위 상태를 불러오지 못했습니다.</span>
+          <Button size="sm" variant="outline" disabled={jobQuery.isFetching} onClick={() => void jobQuery.refetch()}>
+            다시 시도
+          </Button>
+        </div>
+      ) : null}
+
       {job && (
         <Card>
-          <CardHeader><CardTitle className="text-base">2. 수집 진행률 · {job.playlistTitle}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">2. 수집 진행률 · {job.playlistTitle ?? job.playlistId}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2"><Badge>{job.status}</Badge>{Object.entries(job.counts).map(([key, value]) => <Badge key={key} variant="outline">{key} {value}</Badge>)}</div>
+            <p className="text-xs text-muted-foreground">source metadata {retentionLabel(job.retentionExpiresAt)}</p>
             {job.lastErrorCode && <p className="text-sm text-destructive">최근 오류: {job.lastErrorCode}</p>}
             <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 권위 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 message 재시도</Button>}</div>
           </CardContent>
@@ -1430,6 +1459,14 @@ export function IngestionSection({
 
             <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(28rem,32rem)] 2xl:grid-cols-[minmax(0,1fr)_36rem]" : ""}`}>
               <div className="min-w-0 space-y-3">
+                {itemsQuery.isError ? (
+                  <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+                    <span>후보 목록을 불러오지 못했습니다. 빈 검수함으로 간주하지 않습니다.</span>
+                    <Button size="sm" variant="outline" disabled={itemsQuery.isFetching} onClick={() => void itemsQuery.refetch()}>
+                      다시 시도
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="hidden overflow-hidden rounded-xl border md:block">
                   <Table className="table-fixed">
                     <TableHeader>
@@ -1462,6 +1499,7 @@ export function IngestionSection({
                                   <a className="text-xs text-primary underline" href={sourceUrl(item.videoId)} target="_blank" rel="noreferrer">
                                     YouTube 원문 <ExternalLink className="inline size-3" />
                                   </a>
+                                  <div className="mt-1 text-[11px] text-muted-foreground">metadata {retentionLabel(item.retentionExpiresAt)}</div>
                                 </div>
                               </div>
                             </TableCell>
@@ -1514,6 +1552,7 @@ export function IngestionSection({
                           <div className="min-w-0">
                             <div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div>
                             <div className="text-xs text-muted-foreground">#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</div>
+                            <div className="text-[11px] text-muted-foreground">metadata {retentionLabel(item.retentionExpiresAt)}</div>
                           </div>
                         </div>
                         <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />

@@ -72,10 +72,25 @@ export const useOtwPlayChannelMonitors = () => useQuery({
 });
 
 export const useOtwPlayChannelMonitorCandidates = (monitorId: string | null) => useInfiniteQuery({
-  queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId ?? "none"),
+  queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId ?? "none", "current"),
   queryFn: ({ pageParam }) => fetchOtwPlayChannelMonitorCandidates(monitorId!, {
     limit: 50,
     cursor: pageParam,
+  }),
+  initialPageParam: null as string | null,
+  getNextPageParam: (page) => page.nextCursor,
+  enabled: Boolean(monitorId),
+  staleTime: 5_000,
+});
+
+export const useOtwPlayPreviousGenerationCandidates = (
+  monitorId: string | null,
+) => useInfiniteQuery({
+  queryKey: queryKeys.otwPlay.channelMonitorCandidates(monitorId ?? "none", "previous"),
+  queryFn: ({ pageParam }) => fetchOtwPlayChannelMonitorCandidates(monitorId!, {
+    limit: 50,
+    cursor: pageParam,
+    scope: "previous",
   }),
   initialPageParam: null as string | null,
   getNextPageParam: (page) => page.nextCursor,

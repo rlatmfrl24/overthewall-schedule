@@ -30,6 +30,7 @@ export interface ChannelMonitorRepository {
     id: string,
     limit: number,
     cursor: ChannelMonitorCandidateCursor | null,
+    generationScope?: "current" | "previous",
   ): Promise<{ items: OtwPlayChannelMonitorCandidateDto[]; hasMore: boolean }>;
   create(input: {
     id: string;

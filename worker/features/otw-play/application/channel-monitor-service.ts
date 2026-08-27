@@ -88,11 +88,31 @@ export class ChannelMonitorService {
     return this.repository.get(monitorId);
   }
 
+  private async requireVersion(id: string, expectedVersion: number) {
+    const current = await this.repository.get(id);
+    if (current.version !== expectedVersion) {
+      throw new IngestionRepositoryError(
+        "stale_write",
+        "Channel monitor changed during review",
+        {
+          expectedVersion: String(expectedVersion),
+          actualVersion: String(current.version),
+        },
+      );
+    }
+    return current;
+  }
+
   list() {
     return this.repository.list();
   }
 
-  async listCandidates(id: string, limit = 50, cursorValue: string | null = null) {
+  async listCandidates(
+    id: string,
+    limit = 50,
+    cursorValue: string | null = null,
+    generationScope: "current" | "previous" = "current",
+  ) {
     const cursor = cursorValue
       ? decodeChannelMonitorCandidateCursor(cursorValue)
       : null;
@@ -100,6 +120,7 @@ export class ChannelMonitorService {
       id,
       Math.max(1, Math.min(100, limit)),
       cursor,
+      generationScope,
     );
     const last = result.items.at(-1);
     return {
@@ -159,6 +180,7 @@ export class ChannelMonitorService {
     status: OtwPlayChannelMonitorStatus,
     actorUserId: string,
   ) {
+    await this.requireVersion(id, expectedVersion);
     const monitor = await this.repository.updateStatus({
       id,
       expectedVersion,
@@ -178,13 +200,7 @@ export class ChannelMonitorService {
     externalChannelId: string,
     actorUserId: string,
   ) {
-    const current = await this.repository.get(id);
-    if (current.version !== expectedVersion) {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
-    }
+    const current = await this.requireVersion(id, expectedVersion);
     if (current.externalChannelId === externalChannelId) return current;
     this.assertTransportReleased(current);
     const duplicate = await this.repository.findByExternalChannel(externalChannelId);
@@ -226,13 +242,7 @@ export class ChannelMonitorService {
     expectedVersion: number,
     actorUserId: string,
   ) {
-    const current = await this.repository.get(id);
-    if (current.version !== expectedVersion) {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
-    }
+    const current = await this.requireVersion(id, expectedVersion);
     const channel = await this.repository.findEligibleChannel(current.externalChannelId);
     if (!channel) {
       throw new IngestionRepositoryError(
@@ -264,6 +274,7 @@ export class ChannelMonitorService {
     expectedApprovalVersion: number,
     actorUserId: string,
   ) {
+    await this.requireVersion(id, expectedVersion);
     const monitor = await this.repository.revokeApproval({
       id,
       expectedVersion,
@@ -277,13 +288,7 @@ export class ChannelMonitorService {
   }
 
   async remove(id: string, expectedVersion: number, actorUserId: string) {
-    const current = await this.repository.get(id);
-    if (current.version !== expectedVersion) {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
-    }
+    const current = await this.requireVersion(id, expectedVersion);
     this.assertTransportReleased(current);
     return this.repository.remove({
       id,

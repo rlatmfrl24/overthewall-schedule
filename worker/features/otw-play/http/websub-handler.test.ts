@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
-import type { WebsubService } from "../application/websub-service";
+import { WebsubError, type WebsubService } from "../application/websub-service";
 import {
   createWebsubAdminHandler,
   createWebsubCallbackHandler,
@@ -59,6 +59,27 @@ describe("WebSub HTTP handlers", () => {
     expect(receiveNotification).not.toHaveBeenCalled();
   });
 
+  it("returns a safe no-store 404 when callback authority is inactive", async () => {
+    const receiveNotification = vi.fn(async () => {
+      throw new WebsubError("authority_denied", "internal authority detail");
+    });
+    const handler = createWebsubCallbackHandler(
+      () => ({ receiveNotification }) as unknown as WebsubService,
+    );
+    const response = await handler(new Request(
+      `https://example.com/api/play/webhooks/youtube/${token}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/atom+xml" },
+        body: "<feed />",
+      },
+    ), env);
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.text()).toBe("Not Found");
+  });
+
   it("routes explicit admin subscribe, renew, and unsubscribe commands", async () => {
     const subscribe = vi.fn(async () => ({ id: "monitor-1" }));
     const renew = vi.fn(async () => ({ id: "monitor-1" }));
@@ -76,5 +97,27 @@ describe("WebSub HTTP handlers", () => {
     expect(subscribe).toHaveBeenCalledWith("monitor-1", "admin-1");
     expect(renew).toHaveBeenCalledWith("monitor-1", "admin-1");
     expect(unsubscribe).toHaveBeenCalledWith("monitor-1", "admin-1");
+  });
+
+  it("maps admin WebSub failures to a fixed code and requestId envelope", async () => {
+    const subscribe = vi.fn(async () => {
+      throw new WebsubError("not_configured", "WebSub is not configured", true);
+    });
+    const handler = createWebsubAdminHandler(
+      () => ({ subscribe }) as unknown as WebsubService,
+    );
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1/subscribe",
+      { method: "POST", headers: { "CF-Ray": "request-123" }, body: "{}" },
+    ), env);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE",
+        message: "WebSub is not configured",
+        requestId: "request-123",
+      },
+    });
   });
 });

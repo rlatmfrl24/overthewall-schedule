@@ -22,6 +22,16 @@ const monitor = (overrides: Partial<OtwPlayChannelMonitorDto> = {}): OtwPlayChan
   subscription: null,
   candidateCount: 0,
   pendingCandidateCount: 0,
+  previousGenerationPendingCount: 0,
+  deliveryHealth: {
+    pendingCount: 0,
+    failedCount: 0,
+    deadLetterCount: 0,
+    lastReceivedAt: null,
+    lastProcessedAt: null,
+    lastFailedAt: null,
+    lastErrorCode: null,
+  },
   generation: 0,
   version: 0,
   createdAt: 100,
@@ -156,6 +166,8 @@ describe("ChannelMonitorService", () => {
           reviewInput: null,
           linkedPerformanceId: null,
           discoveredAt: 160,
+          monitorGeneration: 0,
+          retentionExpiresAt: 2_592_000_160,
         }],
         hasMore: true,
       })
@@ -168,7 +180,7 @@ describe("ChannelMonitorService", () => {
     expect(repo.listCandidates).toHaveBeenNthCalledWith(2, "monitor-1", 1, {
       discoveredAt: 160,
       candidateId: "youtube:BBBBBBBBBBB",
-    });
+    }, "current");
   });
 
   it("seeds the newest upload as a watermark without backfilling old videos", async () => {
@@ -256,6 +268,18 @@ describe("ChannelMonitorService", () => {
       expectedVersion: 3,
       actorUserId: "admin-1",
     }));
+  });
+
+  it("reports expected and actual versions before a stale monitor mutation", async () => {
+    const repo = repository();
+    repo.get.mockResolvedValueOnce(monitor({ version: 4 }));
+    const service = new ChannelMonitorService(repo, youtube());
+
+    await expect(service.remove("monitor-1", 3, "admin-1")).rejects.toMatchObject({
+      code: "stale_write",
+      fields: { expectedVersion: "3", actualVersion: "4" },
+    });
+    expect(repo.remove).not.toHaveBeenCalled();
   });
 
   it("adds only uploads newer than the stored watermark to review candidates", async () => {
@@ -415,11 +439,29 @@ describe("ChannelMonitorService", () => {
         leaseExpiresAt: 1_000,
         lastNotificationAt: null,
         lastErrorCode: null,
+        effectiveActive: true,
+        recoveryReason: null,
         version: 1,
       },
     });
     repo.revokeApproval.mockResolvedValueOnce(approved);
-    repo.get.mockResolvedValue(approved);
+    repo.get
+      .mockResolvedValueOnce(monitor({
+        version: 2,
+        automationApproval: {
+          scope: "candidate_collection",
+          status: "approved",
+          operatorReference: "operator-proof",
+          approvalReference: "rights-ticket",
+          revocationProcedure: "pause and unsubscribe",
+          approvedByUserId: "admin-1",
+          approvedAt: 100,
+          revokedByUserId: null,
+          revokedAt: null,
+          version: 1,
+        },
+      }))
+      .mockResolvedValueOnce(approved);
     const unsubscribe = vi.fn(async () => undefined);
     const service = new ChannelMonitorService(
       repo,
@@ -456,6 +498,8 @@ describe("ChannelMonitorService", () => {
         leaseExpiresAt: 1_000,
         lastNotificationAt: null,
         lastErrorCode: null,
+        effectiveActive: true,
+        recoveryReason: null,
         version: 1,
       },
     }));
@@ -483,6 +527,8 @@ describe("ChannelMonitorService", () => {
         leaseExpiresAt: null,
         lastNotificationAt: null,
         lastErrorCode: "hub_request_failed",
+        effectiveActive: false,
+        recoveryReason: "status_failed",
         version: 2,
       },
     }));

@@ -29,6 +29,8 @@ const job = (overrides: Partial<OtwPlayIngestionJobDto> = {}): OtwPlayIngestionJ
   playlistTitle: "Playlist",
   playlistOwnerChannelId: "UC123",
   playlistOwnerChannelTitle: "Official",
+  sourceMetadataCheckedAt: 100,
+  retentionExpiresAt: 2_592_000_100,
   mode: "all_new",
   rangeStartPosition: 0,
   rangeEndExclusive: 51,

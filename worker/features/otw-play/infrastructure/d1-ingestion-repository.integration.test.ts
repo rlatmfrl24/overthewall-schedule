@@ -1073,7 +1073,7 @@ describe("D1IngestionRepository", () => {
     ).resolves.toBe(0);
     await expect(
       repository.clearExpiredApiData(NOW + thirtyDays, 100),
-    ).resolves.toBe(1);
+    ).resolves.toBe(2);
     const candidate = await db.prepare(
       `SELECT title, channel_id, thumbnail_url, availability_status,
         metadata_checked_at, classification, status
@@ -1102,6 +1102,13 @@ describe("D1IngestionRepository", () => {
       actor_user_id: "system",
     });
     expect(retentionEvent?.detail_json).toBe('{"reason":"api_data_expired"}');
+    const retainedJob = await repository.getJob("job-1");
+    expect(retainedJob).toMatchObject({
+      playlistTitle: null,
+      playlistOwnerChannelTitle: null,
+      sourceMetadataCheckedAt: null,
+      retentionExpiresAt: null,
+    });
   });
 
   it("persists an explicit range with absolute playlist positions and server filters", async () => {

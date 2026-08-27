@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../../platform/types";
 import type { ChannelMonitorService } from "../application/channel-monitor-service";
+import { IngestionRepositoryError } from "../application/ports/ingestion-repository";
 import { createChannelMonitorHandler } from "./channel-monitor-handler";
 
 const requireAdminUserMock = vi.hoisted(() => vi.fn());
@@ -83,6 +84,38 @@ describe("OTW Play channel monitor handler", () => {
     expect(remove).toHaveBeenCalledWith("monitor-1", 5, "admin-1");
   });
 
+  it("returns the stale-write code with expected and authoritative versions", async () => {
+    const updateStatus = vi.fn(async () => {
+      throw new IngestionRepositoryError(
+        "stale_write",
+        "Channel monitor changed during review",
+        { expectedVersion: "4", actualVersion: "5" },
+      );
+    });
+    const handler = createChannelMonitorHandler(
+      () => ({ updateStatus }) as unknown as ChannelMonitorService,
+    );
+
+    const response = await handler(new Request(
+      "https://example.com/api/play/admin/channel-monitors/monitor-1",
+      {
+        method: "PATCH",
+        headers: { "CF-Ray": "request-456" },
+        body: JSON.stringify({ expectedVersion: 4, status: "paused" }),
+      },
+    ), env);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "PLAY_ADMIN_STALE_WRITE",
+        message: "Channel monitor changed during review",
+        requestId: "request-456",
+        fields: { expectedVersion: "4", actualVersion: "5" },
+      },
+    });
+  });
+
   it("resets a suspected-gap watermark through an explicit command", async () => {
     const resetWatermark = vi.fn(async () => ({
       id: "monitor-1",
@@ -150,7 +183,7 @@ describe("OTW Play channel monitor handler", () => {
       "https://example.com/api/play/admin/channel-monitors/monitor-1/candidates?limit=25&cursor=opaque",
     ), env);
     expect(response.status).toBe(200);
-    expect(listCandidates).toHaveBeenCalledWith("monitor-1", 25, "opaque");
+    expect(listCandidates).toHaveBeenCalledWith("monitor-1", 25, "opaque", "current");
 
     const duplicate = await handler(new Request(
       "https://example.com/api/play/admin/channel-monitors/monitor-1/candidates?cursor=a&cursor=b",

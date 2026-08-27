@@ -319,6 +319,9 @@ export class WebsubService {
     if (!subscription) throw new WebsubError("not_found", "Unknown callback token");
     if (
       subscription.status !== "active" ||
+      subscription.verifiedAt === null ||
+      subscription.leaseExpiresAt === null ||
+      subscription.leaseExpiresAt <= this.clock() ||
       subscription.monitorStatus !== "active" ||
       subscription.monitorDeletedAt !== null ||
       subscription.approvalStatus !== "approved"

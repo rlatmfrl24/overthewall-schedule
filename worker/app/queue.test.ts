@@ -7,6 +7,16 @@ const service = vi.hoisted(() => ({
   process: vi.fn(),
   markDeadLetter: vi.fn(),
 }));
+const telemetryWrite = vi.hoisted(() => vi.fn());
+vi.mock("../features/otw-play", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../features/otw-play")>();
+  return {
+    ...original,
+    CloudflarePlayTelemetryWriter: class {
+      write = telemetryWrite;
+    },
+  };
+});
 vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
@@ -40,6 +50,7 @@ describe("OTW Play ingestion queue handler", () => {
     service.markDeadLetter.mockReset();
     websubService.process.mockReset();
     websubService.markDeadLetter.mockReset();
+    telemetryWrite.mockReset();
   });
 
   it("acks successful and malformed main-queue deliveries", async () => {
@@ -92,15 +103,30 @@ describe("OTW Play ingestion queue handler", () => {
     expect(websubService.process).toHaveBeenCalledWith(websubMessage);
     expect(service.process).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();
+    expect(telemetryWrite).toHaveBeenCalledWith(expect.objectContaining({
+      event: "play.websub.updated",
+      requestId: "delivery-1",
+      resourceId: "delivery-1",
+      transition: "processed",
+      trigger: "queue",
+    }));
 
     const retry = vi.fn();
     websubService.process.mockRejectedValueOnce(new Error("metadata unavailable"));
     await handleQueue(batch("otw-play-ingestion", websubMessage, vi.fn(), retry), {} as Env);
     expect(retry).toHaveBeenCalledOnce();
+    expect(telemetryWrite).toHaveBeenLastCalledWith(expect.objectContaining({
+      transition: "retry",
+      status: 503,
+    }));
 
     const deadAck = vi.fn();
     await handleQueue(batch("otw-play-ingestion-dlq", websubMessage, deadAck), {} as Env);
     expect(websubService.markDeadLetter).toHaveBeenCalledWith(websubMessage);
     expect(deadAck).toHaveBeenCalledOnce();
+    expect(telemetryWrite).toHaveBeenLastCalledWith(expect.objectContaining({
+      transition: "dead_letter",
+      errorCode: "queue_retries_exhausted",
+    }));
   });
 });

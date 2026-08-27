@@ -34,12 +34,16 @@ export const queryKeys = {
         [...queryKeys.otwPlay.all, "admin", "imports"] as const,
       channelMonitors: () =>
         [...queryKeys.otwPlay.all, "admin", "channel-monitors"] as const,
-      channelMonitorCandidates: (monitorId: string) => [
+      channelMonitorCandidates: (
+        monitorId: string,
+        scope: "current" | "previous" = "current",
+      ) => [
         ...queryKeys.otwPlay.all,
         "admin",
         "channel-monitors",
         monitorId,
         "candidates",
+        scope,
       ] as const,
       importJobItems: (
         jobId: string,

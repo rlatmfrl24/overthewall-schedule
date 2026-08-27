@@ -48,6 +48,14 @@ type MonitorRow = {
   last_error_code: string | null;
   candidate_count: number;
   pending_candidate_count: number;
+  previous_generation_pending_count: number;
+  delivery_pending_count: number;
+  delivery_failed_count: number;
+  delivery_dead_letter_count: number;
+  delivery_last_received_at: number | null;
+  delivery_last_processed_at: number | null;
+  delivery_last_failed_at: number | null;
+  delivery_last_error_code: string | null;
   generation: number;
   version: number;
   created_at: number;
@@ -104,7 +112,35 @@ const monitorSelect = `SELECT monitor.*,
     JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
     WHERE origin.monitor_id = monitor.id
       AND origin.monitor_generation = monitor.generation
-      AND candidate.status NOT IN ('ignored', 'converted')) AS pending_candidate_count
+      AND candidate.status NOT IN ('ignored', 'converted')) AS pending_candidate_count,
+  (SELECT COUNT(*) FROM music_channel_upload_candidate_origins AS origin
+    JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
+    WHERE origin.monitor_id = monitor.id
+      AND origin.monitor_generation <> monitor.generation
+      AND NOT EXISTS (
+        SELECT 1 FROM music_channel_upload_candidate_origins AS current_origin
+        WHERE current_origin.monitor_id = monitor.id
+          AND current_origin.monitor_generation = monitor.generation
+          AND current_origin.candidate_id = origin.candidate_id
+      )
+      AND candidate.status NOT IN ('ignored', 'converted')) AS previous_generation_pending_count,
+  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id
+      AND delivery.status IN ('pending', 'enqueued', 'processing')) AS delivery_pending_count,
+  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id AND delivery.status = 'failed') AS delivery_failed_count,
+  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id AND delivery.status = 'dead_letter') AS delivery_dead_letter_count,
+  (SELECT MAX(delivery.received_at) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id) AS delivery_last_received_at,
+  (SELECT MAX(delivery.processed_at) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id) AS delivery_last_processed_at,
+  (SELECT MAX(delivery.updated_at) FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id
+      AND delivery.status IN ('failed', 'dead_letter')) AS delivery_last_failed_at,
+  (SELECT delivery.last_error_code FROM music_channel_websub_deliveries AS delivery
+    WHERE delivery.monitor_id = monitor.id AND delivery.last_error_code IS NOT NULL
+    ORDER BY delivery.updated_at DESC, delivery.id DESC LIMIT 1) AS delivery_last_error_code
  FROM music_channel_upload_monitors AS monitor
  JOIN music_channels AS channel ON channel.id = monitor.channel_id
  LEFT JOIN music_channel_automation_approvals AS approval
@@ -166,11 +202,36 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
           ? null
           : Number(row.subscription_last_notification_at),
         lastErrorCode: row.subscription_last_error_code,
+        effectiveActive:
+          row.subscription_status === "active" &&
+          row.subscription_verified_at !== null &&
+          row.subscription_lease_expires_at !== null &&
+          Number(row.subscription_lease_expires_at) > Date.now(),
+        recoveryReason:
+          row.subscription_status !== "active"
+            ? `status_${row.subscription_status}`
+            : row.subscription_verified_at === null
+              ? "unverified"
+              : row.subscription_lease_expires_at === null
+                ? "lease_missing"
+                : Number(row.subscription_lease_expires_at) <= Date.now()
+                  ? "lease_expired"
+                  : null,
         version: Number(row.subscription_version),
       }
     : null,
   candidateCount: Number(row.candidate_count),
   pendingCandidateCount: Number(row.pending_candidate_count),
+  previousGenerationPendingCount: Number(row.previous_generation_pending_count),
+  deliveryHealth: {
+    pendingCount: Number(row.delivery_pending_count),
+    failedCount: Number(row.delivery_failed_count),
+    deadLetterCount: Number(row.delivery_dead_letter_count),
+    lastReceivedAt: row.delivery_last_received_at === null ? null : Number(row.delivery_last_received_at),
+    lastProcessedAt: row.delivery_last_processed_at === null ? null : Number(row.delivery_last_processed_at),
+    lastFailedAt: row.delivery_last_failed_at === null ? null : Number(row.delivery_last_failed_at),
+    lastErrorCode: row.delivery_last_error_code,
+  },
   generation: Number(row.generation),
   version: Number(row.version),
   createdAt: Number(row.created_at),
@@ -182,6 +243,18 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
 
   constructor(database: D1Database) {
     this.database = database;
+  }
+
+  private async staleWrite(id: string, expectedVersion: number): Promise<never> {
+    const current = await this.get(id);
+    throw new IngestionRepositoryError(
+      "stale_write",
+      "Channel monitor changed during review",
+      {
+        expectedVersion: String(expectedVersion),
+        actualVersion: String(current.version),
+      },
+    );
   }
 
   async findApprovableChannel(externalChannelId: string) {
@@ -243,12 +316,22 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     id: string,
     limit: number,
     cursor: Parameters<ChannelMonitorRepository["listCandidates"]>[2],
+    generationScope: "current" | "previous" = "current",
   ) {
     const monitor = await this.get(id);
     const cursorSql = cursor
       ? `AND (origin.discovered_at < ?
         OR (origin.discovered_at = ? AND candidate.id < ?))`
       : "";
+    const generationSql = generationScope === "current"
+      ? "origin.monitor_generation = ?"
+      : `origin.monitor_generation <> ?
+         AND NOT EXISTS (
+           SELECT 1 FROM music_channel_upload_candidate_origins AS current_origin
+           WHERE current_origin.monitor_id = origin.monitor_id
+             AND current_origin.monitor_generation = ?
+             AND current_origin.candidate_id = origin.candidate_id
+         )`;
     const statement = this.database.prepare(
       `SELECT candidate.id AS candidate_id, candidate.version AS candidate_version,
         candidate.external_video_id, candidate.title, candidate.channel_title,
@@ -256,21 +339,23 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         candidate.provider_published_at, candidate.availability_status,
         candidate.status, candidate.classification, candidate.exclusion_reason,
         candidate.review_input_json, candidate.linked_performance_id,
+        candidate.retention_expires_at,
         (SELECT channel.id FROM music_channels AS channel
           WHERE channel.provider = 'youtube'
             AND channel.external_channel_id = candidate.channel_id
             AND channel.channel_role = 'approved_kirinuki'
             AND channel.verification_status = 'approved' AND channel.active = 1
           LIMIT 1) AS catalog_channel_id,
-        origin.discovered_at
+        origin.discovered_at, origin.monitor_generation
        FROM music_channel_upload_candidate_origins AS origin
        JOIN music_ingestion_candidates AS candidate ON candidate.id = origin.candidate_id
-       WHERE origin.monitor_id = ? AND origin.monitor_generation = ?
+       WHERE origin.monitor_id = ? AND ${generationSql}
          AND candidate.status NOT IN ('ignored', 'converted')
          ${cursorSql}
        ORDER BY origin.discovered_at DESC, candidate.id DESC LIMIT ?`,
     );
     const bindings: unknown[] = [id, monitor.generation];
+    if (generationScope === "previous") bindings.push(monitor.generation);
     if (cursor) {
       bindings.push(cursor.discoveredAt, cursor.discoveredAt, cursor.candidateId);
     }
@@ -292,6 +377,8 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       linked_performance_id: string | null;
       catalog_channel_id: string | null;
       discovered_at: number;
+      monitor_generation: number;
+      retention_expires_at: number;
     }>();
     const rows = resultsOf(result);
     const items = rows.slice(0, limit).map((row) => ({
@@ -313,6 +400,8 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       reviewInput: parseReviewInput(row.review_input_json),
       linkedPerformanceId: row.linked_performance_id,
       discoveredAt: Number(row.discovered_at),
+      monitorGeneration: Number(row.monitor_generation),
+      retentionExpiresAt: Number(row.retention_expires_at),
     }));
     return { items, hasMore: rows.length > limit };
   }
@@ -437,8 +526,18 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       ),
     ]);
     if (Number(result?.meta.changes ?? 0) !== 1) {
-      await this.get(input.id);
-      throw new IngestionRepositoryError("validation_failed", "Channel monitor changed during review");
+      const current = await this.get(input.id);
+      if (
+        current.version === input.expectedVersion &&
+        current.lastErrorCode === "gap_suspected" &&
+        input.status === "active"
+      ) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Reset the channel monitor watermark before resuming",
+        );
+      }
+      return this.staleWrite(input.id, input.expectedVersion);
     }
     return this.get(input.id);
   }
@@ -479,11 +578,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       ),
     ]);
     if (Number(updateResult?.meta.changes ?? 0) !== 1) {
-      await this.get(input.id);
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
+      return this.staleWrite(input.id, input.expectedVersion);
     }
     return this.get(input.id);
   }
@@ -521,11 +616,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       ),
     ]);
     if (Number(result?.meta.changes ?? 0) !== 1) {
-      await this.get(input.id);
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
+      return this.staleWrite(input.id, input.expectedVersion);
     }
     return this.get(input.id);
   }
@@ -620,11 +711,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       Number(results[0]?.meta.changes ?? 0) !== 1 ||
       Number(results[1]?.meta.changes ?? 0) !== 1
     ) {
-      await this.get(input.id);
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor or candidate-collection approval changed during review",
-      );
+      return this.staleWrite(input.id, input.expectedVersion);
     }
     return this.get(input.id);
   }
@@ -646,11 +733,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       ).bind(input.eventId, input.id, input.actorUserId, input.now),
     ]);
     if (Number(result?.meta.changes ?? 0) !== 1) {
-      await this.get(input.id);
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Channel monitor changed during review",
-      );
+      return this.staleWrite(input.id, input.expectedVersion);
     }
     return { id: input.id };
   }

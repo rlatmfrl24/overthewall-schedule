@@ -42,6 +42,16 @@ const monitor: OtwPlayChannelMonitorDto = {
   subscription: null,
   candidateCount: 0,
   pendingCandidateCount: 0,
+  previousGenerationPendingCount: 0,
+  deliveryHealth: {
+    pendingCount: 0,
+    failedCount: 0,
+    deadLetterCount: 0,
+    lastReceivedAt: null,
+    lastProcessedAt: null,
+    lastFailedAt: null,
+    lastErrorCode: null,
+  },
   generation: 0,
   version: 0,
   createdAt: NOW,
@@ -265,6 +275,38 @@ describe("WebsubService", () => {
     expect(repo.recordDelivery).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["unverified", { verifiedAt: null }],
+    ["missing lease", { leaseExpiresAt: null }],
+    ["expired", { leaseExpiresAt: NOW }],
+  ])("rejects %s active callbacks before delivery persistence or enqueue", async (_label, override) => {
+    const repo = repository();
+    repo.findSubscriptionByTokenHash.mockResolvedValueOnce({ ...subscription, ...override });
+    const queue = { send: vi.fn() };
+    const material = await deriveWebsubSecrets("root-secret", subscription.id, 0);
+    const payload = encoder.encode(
+      `<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"><link rel="self" href="${subscription.topicUrl}" /><entry><yt:videoId>BBBBBBBBBBB</yt:videoId><yt:channelId>${monitor.externalChannelId}</yt:channelId></entry></feed>`,
+    );
+    const service = new WebsubService(
+      repo,
+      youtube(),
+      { request: vi.fn() },
+      queue,
+      { 1: "root-secret" },
+      "https://example.com",
+      () => "delivery-1",
+      () => NOW,
+    );
+
+    await expect(service.receiveNotification({
+      token: material.callbackToken,
+      signature: await hmacHeader(material.hubSecret, payload),
+      payload,
+    })).rejects.toMatchObject({ code: "authority_denied" });
+    expect(repo.recordDelivery).not.toHaveBeenCalled();
+    expect(queue.send).not.toHaveBeenCalled();
+  });
+
   it("rejects revoked authority and authoritative channel mismatches", async () => {
     const repo = repository();
     const reader = youtube();
@@ -388,6 +430,8 @@ describe("WebsubService", () => {
         leaseExpiresAt: null,
         lastNotificationAt: null,
         lastErrorCode: "hub_request_failed",
+        effectiveActive: false,
+        recoveryReason: "unverified",
         version: 2,
       },
     });

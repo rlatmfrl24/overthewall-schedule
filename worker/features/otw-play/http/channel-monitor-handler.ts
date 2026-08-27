@@ -17,7 +17,8 @@ const errorJson = (
   status: number,
   code: OtwPlayAdminErrorCode,
   message: string,
-) => json({ error: { code, message, requestId } }, status);
+  fields?: Record<string, string>,
+) => json({ error: { code, message, requestId, ...(fields ? { fields } : {}) } }, status);
 
 const pathId = (pathname: string, suffix: string) => {
   const match = pathname.match(
@@ -81,25 +82,31 @@ export const createChannelMonitorHandler = (
     }
     const candidatesId = pathId(url.pathname, "/candidates");
     if (request.method === "GET" && candidatesId) {
-      if ([...url.searchParams.keys()].some((key) => !["limit", "cursor"].includes(key))) {
+      if ([...url.searchParams.keys()].some((key) => !["limit", "cursor", "scope"].includes(key))) {
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Unexpected query parameter");
       }
       if (
         url.searchParams.getAll("limit").length > 1 ||
-        url.searchParams.getAll("cursor").length > 1
+        url.searchParams.getAll("cursor").length > 1 ||
+        url.searchParams.getAll("scope").length > 1
       ) {
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "Duplicate query parameter");
       }
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit === null ? 50 : Number(rawLimit);
+      const scope = url.searchParams.get("scope") ?? "current";
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
         return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "limit must be between 1 and 100");
+      }
+      if (scope !== "current" && scope !== "previous") {
+        return errorJson(requestId, 400, "PLAY_ADMIN_INVALID_REQUEST", "scope must be current or previous");
       }
       return json({
         data: await service.listCandidates(
           candidatesId,
           limit,
           url.searchParams.get("cursor"),
+          scope,
         ),
       });
     }
@@ -256,6 +263,15 @@ export const createChannelMonitorHandler = (
       }
       if (error.code === "validation_failed") {
         return errorJson(requestId, 409, "PLAY_ADMIN_VALIDATION_FAILED", error.message);
+      }
+      if (error.code === "stale_write") {
+        return errorJson(
+          requestId,
+          409,
+          "PLAY_ADMIN_STALE_WRITE",
+          error.message,
+          error.fields,
+        );
       }
       return errorJson(requestId, 503, "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE", error.message);
     }

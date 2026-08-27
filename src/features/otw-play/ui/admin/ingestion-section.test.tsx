@@ -108,6 +108,7 @@ const candidate = (index = 0) => ({
   availabilityStatus: "playable" as const,
   madeForKids: false,
   metadataCheckedAt: 1,
+  retentionExpiresAt: 2_592_000_001,
   reviewInput: {
     song: { kind: "existing" as const, songId: "song-1" },
     participants: [{
@@ -159,7 +160,13 @@ describe("IngestionSection", () => {
     jobHookMock.mockReset();
     jobsHookMock.mockReset();
     toastMock.mockReset();
-    jobsHookMock.mockReturnValue({ data: [], isLoading: false });
+    jobsHookMock.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(async () => undefined),
+    });
     fetchItemsMock.mockResolvedValue({
       items: [candidate()],
       nextCursor: null,
@@ -167,17 +174,50 @@ describe("IngestionSection", () => {
     jobHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId
         ? {
-            id: "job-1",
-            playlistTitle: "Official Covers",
-            status: "completed",
-            counts: { discovered: 1, metadataChecked: 1, eligible: 1 },
-            lastErrorCode: null,
-          }
-        : undefined,
+             id: "job-1",
+             playlistId: "PL1234567890",
+             playlistTitle: "Official Covers",
+             playlistOwnerChannelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+             playlistOwnerChannelTitle: "Approved Channel",
+             sourceMetadataCheckedAt: 1,
+             retentionExpiresAt: 2_592_000_001,
+             mode: "all_new",
+             rangeStartPosition: 0,
+             rangeEndExclusive: 1,
+             requestedItemCount: 1,
+             status: "completed",
+             counts: {
+               discovered: 1,
+               metadataChecked: 1,
+               eligible: 1,
+               existingCatalog: 0,
+               existingProposal: 0,
+               existingCandidate: 0,
+               channelReview: 0,
+               unavailable: 0,
+               policyBlocked: 0,
+               scopeReview: 0,
+               playlistDuplicate: 0,
+               retryPending: 0,
+               permanentError: 0,
+             },
+             lastErrorCode: null,
+             nextRetryAt: null,
+             createdAt: 1,
+             startedAt: 1,
+             completedAt: 1,
+           }
+         : undefined,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(async () => undefined),
     }));
     itemsHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId ? { items: [candidate()], nextCursor: null } : undefined,
       isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(async () => undefined),
     }));
     preflightMock.mockResolvedValue({
       playlistId: "PL1234567890",
@@ -224,6 +264,27 @@ describe("IngestionSection", () => {
       }],
     });
     retryMock.mockResolvedValue(undefined);
+  });
+
+  it("renders an ingestion query failure instead of an empty history and retries", () => {
+    const refetch = vi.fn(async () => undefined);
+    jobsHookMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      isFetching: false,
+      refetch,
+    });
+
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    expect(screen.getByText("가져오기 이력을 불러오지 못했습니다. 저장된 작업이 없는 것으로 간주하지 않습니다.")).toBeTruthy();
+    expect(screen.queryByText("저장된 가져오기 작업이 없습니다.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(refetch).toHaveBeenCalledOnce();
   });
 
   it("runs the persisted playlist flow, saves row review, and converts only to draft", async () => {
@@ -312,6 +373,40 @@ describe("IngestionSection", () => {
 
     expect(await screen.findByText("Previously Imported Playlist")).toBeTruthy();
     await waitFor(() => expect(jobHookMock).toHaveBeenCalledWith("saved-job"));
+  });
+
+  it("renders a candidate query failure instead of an empty review inbox and retries", async () => {
+    const refetch = vi.fn(async () => undefined);
+    jobsHookMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(async () => undefined),
+      data: [{
+        id: "saved-job",
+        playlistTitle: "Previously Imported Playlist",
+        playlistOwnerChannelTitle: "Saved Channel",
+        status: "completed",
+        createdAt: 100,
+        counts: { discovered: 23 },
+      }],
+    });
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: undefined,
+      isLoading: false,
+      isError: Boolean(jobId),
+      isFetching: false,
+      refetch,
+    }));
+
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    expect(await screen.findByText("후보 목록을 불러오지 못했습니다. 빈 검수함으로 간주하지 않습니다.")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "다시 시도" }).at(-1)!);
+    expect(refetch).toHaveBeenCalled();
   });
 
   it("shows only the controls required by the selected import mode", () => {

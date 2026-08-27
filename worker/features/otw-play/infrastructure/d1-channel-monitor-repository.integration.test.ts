@@ -208,6 +208,18 @@ describe("D1ChannelMonitorRepository", () => {
       items: [],
       hasMore: false,
     });
+    await expect(repository.listCandidates(created.id, 50, null, "previous")).resolves.toEqual({
+      hasMore: false,
+      items: [expect.objectContaining({
+        videoId: "BBBBBBBBBBB",
+        monitorGeneration: 0,
+        status: "needs_input",
+      })],
+    });
+    await expect(repository.get(created.id)).resolves.toMatchObject({
+      pendingCandidateCount: 0,
+      previousGenerationPendingCount: 1,
+    });
 
     await expect(repository.recordCandidates({
       monitorId: created.id,

@@ -159,11 +159,16 @@ export const backfillOtwPlayChannelMonitor = (
 
 export const fetchOtwPlayChannelMonitorCandidates = (
   id: string,
-  options: { limit?: number; cursor?: string | null } = {},
+  options: {
+    limit?: number;
+    cursor?: string | null;
+    scope?: "current" | "previous";
+  } = {},
 ) => {
   const search = new URLSearchParams();
   if (options.limit !== undefined) search.set("limit", String(options.limit));
   if (options.cursor) search.set("cursor", options.cursor);
+  if (options.scope) search.set("scope", options.scope);
   return adminRequest<{ data: OtwPlayChannelMonitorCandidatePageDto }>(
     withRouteSearch(
       apiRoutes.otwPlay.admin.channelMonitorCandidates.build(id),

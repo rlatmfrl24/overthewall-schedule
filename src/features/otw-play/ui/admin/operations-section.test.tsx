@@ -131,6 +131,21 @@ describe("OTW Play operations section", () => {
     expect((screen.getByRole("button", { name: /공개 API canary 시작/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("renders an observability query failure with retry without hiding release controls", () => {
+    const refetchObservability = vi.fn(async () => undefined);
+    render(createElement(OperationsSection, {
+      ...props(),
+      observability: undefined,
+      observabilityError: new Error("analytics unavailable"),
+      refetchObservability,
+    }));
+
+    expect(screen.getByRole("alert").textContent).toContain("운영 지표를 불러오지 못했습니다");
+    expect(screen.getByRole("button", { name: /공개 API canary 시작/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(refetchObservability).toHaveBeenCalledOnce();
+  });
+
   it("requires confirmation, avoids optimistic state, invalidates, and restores focus", async () => {
     let resolveUpdate: ((value: unknown) => void) | undefined;
     updateReleaseMock.mockReturnValueOnce(

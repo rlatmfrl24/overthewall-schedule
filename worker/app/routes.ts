@@ -242,8 +242,9 @@ const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
   createChannelMonitorHandler(createOtwPlayChannelMonitorService),
   resolvePlayTelemetry,
 );
-const handleOtwPlayWebsubCallback = createWebsubCallbackHandler(
-  createOtwPlayWebsubService,
+const handleOtwPlayWebsubCallback = withPlayOperationsTelemetry(
+  createWebsubCallbackHandler(createOtwPlayWebsubService),
+  resolvePlayTelemetry,
 );
 const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
   createWebsubAdminHandler(createOtwPlayWebsubService),
