@@ -1931,9 +1931,10 @@ export const musicIngestionJobs = sqliteTable(
     source_kind: text("source_kind").notNull().default("playlist_import"),
     source_external_id: text("source_external_id").notNull(),
     source_url: text("source_url").notNull(),
-    source_title: text("source_title").notNull(),
+    source_title: text("source_title"),
     owner_channel_id: text("owner_channel_id").notNull(),
-    owner_channel_title: text("owner_channel_title").notNull(),
+    owner_channel_title: text("owner_channel_title"),
+    source_metadata_checked_at: integer("source_metadata_checked_at"),
     import_mode: text("import_mode").notNull(),
     range_start_position: integer("range_start_position").notNull().default(0),
     requested_item_count: integer("requested_item_count").notNull(),
@@ -1969,9 +1970,9 @@ export const musicIngestionJobs = sqliteTable(
         AND ${table.source_kind} = 'playlist_import'
         AND length(trim(${table.source_external_id})) > 0
         AND length(trim(${table.source_url})) > 0
-        AND length(trim(${table.source_title})) > 0
+        AND (${table.source_title} IS NULL OR length(trim(${table.source_title})) > 0)
         AND length(trim(${table.owner_channel_id})) > 0
-        AND length(trim(${table.owner_channel_title})) > 0
+        AND (${table.owner_channel_title} IS NULL OR length(trim(${table.owner_channel_title})) > 0)
         AND length(trim(${table.actor_user_id})) > 0
         AND length(trim(${table.idempotency_key})) > 0`,
     ),
@@ -1999,7 +2000,10 @@ export const musicIngestionJobs = sqliteTable(
         AND (${table.started_at} IS NULL
           OR (typeof(${table.started_at}) = 'integer' AND ${table.started_at} >= ${table.created_at}))
         AND (${table.completed_at} IS NULL
-          OR (typeof(${table.completed_at}) = 'integer' AND ${table.completed_at} >= ${table.created_at}))`,
+          OR (typeof(${table.completed_at}) = 'integer' AND ${table.completed_at} >= ${table.created_at}))
+        AND (${table.source_metadata_checked_at} IS NULL
+          OR (typeof(${table.source_metadata_checked_at}) = 'integer'
+            AND ${table.source_metadata_checked_at} >= ${table.created_at}))`,
     ),
   ],
 );
@@ -2311,7 +2315,9 @@ export const musicChannelWebsubSubscriptions = sqliteTable(
         AND ((${table.status} IN ('pending', 'renewing') AND ${table.pending_mode} = 'subscribe')
           OR (${table.status} = 'unsubscribing' AND ${table.pending_mode} = 'unsubscribe')
           OR (${table.status} IN ('active', 'unsubscribed', 'denied', 'failed')
-            AND ${table.pending_mode} IS NULL))`,
+            AND ${table.pending_mode} IS NULL))
+        AND (${table.status} <> 'active'
+          OR (${table.verified_at} IS NOT NULL AND ${table.lease_expires_at} IS NOT NULL))`,
     ),
     check(
       "music_channel_websub_subscriptions_time_check",
