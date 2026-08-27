@@ -55,18 +55,21 @@ type PlayPlayerContextValue = {
   muted: boolean;
   playbackPositionSeconds: number;
   playbackDurationSeconds: number;
+  playbackIntentVersion: number;
   panelExpanded: boolean;
   announcement: string;
   unavailableItemIds: ReadonlySet<string>;
   retryableItemIds: ReadonlySet<string>;
   trackForItem: (itemId: string) => OtwPlayTrack | null;
   setHostElement: (element: HTMLDivElement | null) => void;
+  setPlaybackSurfaceActive: (active: boolean) => void;
   play: (track: OtwPlayTrack) => void;
   enqueue: (track: OtwPlayTrack) => void;
   playNext: (track: OtwPlayTrack) => void;
   select: (index: number) => void;
   remove: (itemId: string) => void;
   retry: (itemId: string) => void;
+  retryPlayback: () => void;
   move: (itemId: string, direction: -1 | 1) => void;
   previous: () => void;
   next: (ended?: boolean) => void;
@@ -156,6 +159,8 @@ export function OtwPlayPlayerProvider({
   const [hostElement, setHostElement] = useState<HTMLDivElement | null>(null);
   const [hostVisible, setHostVisible] = useState(false);
   const [hasPlaybackIntent, setHasPlaybackIntent] = useState(false);
+  const [playbackIntentVersion, setPlaybackIntentVersion] = useState(0);
+  const [playbackSurfaceActive, setPlaybackSurfaceActive] = useState(false);
   const [playerReadyVersion, setPlayerReadyVersion] = useState(0);
   const [status, setStatus] = useState<PlayerStatus>("idle");
   const [volume, setVolumeState] = useState(100);
@@ -181,6 +186,11 @@ export function OtwPlayPlayerProvider({
   const currentTrackRef = useRef<OtwPlayTrack | null>(null);
   const failedSourceIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const playbackErrorInFlightKeysRef = useRef<Set<string>>(new Set());
+
+  const requestPlayback = useCallback(() => {
+    setHasPlaybackIntent(true);
+    setPlaybackIntentVersion((version) => version + 1);
+  }, []);
 
   const currentItem =
     queue.currentIndex === null ? null : queue.items[queue.currentIndex] ?? null;
@@ -363,9 +373,9 @@ export function OtwPlayPlayerProvider({
       } else {
         dispatch({ type: "select", index });
       }
-      setHasPlaybackIntent(true);
+      requestPlayback();
     },
-    [currentTrack, queue, tracks, unavailableItemIds],
+    [currentTrack, queue, requestPlayback, tracks, unavailableItemIds],
   );
   selectPlayableRef.current = selectPlayable;
 
@@ -476,7 +486,13 @@ export function OtwPlayPlayerProvider({
   };
 
   useEffect(() => {
-    if (!hasPlaybackIntent || !hostVisible || !hostElement || !currentTrack) return;
+    if (
+      !hasPlaybackIntent ||
+      !playbackSurfaceActive ||
+      !hostVisible ||
+      !hostElement ||
+      !currentTrack
+    ) return;
     if (playerRef.current || playerPromiseRef.current) return;
     setStatus("loading");
     const playerSession = ++playerSessionRef.current;
@@ -504,7 +520,11 @@ export function OtwPlayPlayerProvider({
         }
       },
       onAutoplayBlocked: () => {
-        if (playerSession === playerSessionRef.current) setStatus("blocked");
+        if (playerSession !== playerSessionRef.current) return;
+        setStatus("blocked");
+        setAnnouncement(
+          "브라우저가 자동 재생을 차단했습니다. 재생 버튼을 눌러 주세요.",
+        );
       },
     });
     playerPromiseRef.current = pendingPlayer;
@@ -528,7 +548,25 @@ export function OtwPlayPlayerProvider({
         setStatus("error");
       },
     );
-  }, [currentTrack, hasPlaybackIntent, hostElement, hostVisible]);
+  }, [
+    currentTrack,
+    hasPlaybackIntent,
+    hostElement,
+    hostVisible,
+    playbackSurfaceActive,
+  ]);
+
+  useEffect(() => {
+    if (playbackSurfaceActive || !playerRef.current) return;
+    playerRef.current.pause();
+    setStatus((current) => current === "idle" ? current : "paused");
+  }, [playbackSurfaceActive]);
+
+  useEffect(() => {
+    if (hostElement || !playerRef.current) return;
+    playerRef.current.pause();
+    setStatus((current) => current === "idle" ? current : "paused");
+  }, [hostElement]);
 
   useEffect(() => {
     if (playerReadyVersion === 0 || !playerRef.current || !currentItem || !currentTrack) return;
@@ -556,6 +594,7 @@ export function OtwPlayPlayerProvider({
   useEffect(() => {
     if (currentItem) return;
     playerSessionRef.current += 1;
+    playerRef.current?.pause();
     playerRef.current?.stop();
     playerRef.current?.destroy();
     playerRef.current = null;
@@ -570,6 +609,7 @@ export function OtwPlayPlayerProvider({
   useEffect(
     () => () => {
       playerSessionRef.current += 1;
+      playerRef.current?.pause();
       playerRef.current?.stop();
       playerRef.current?.destroy();
       playerRef.current = null;
@@ -608,7 +648,7 @@ export function OtwPlayPlayerProvider({
       ? { ...existingItem, sourceId: track.source.sourceId }
       : queueItemForTrack(track);
     register(track, { type: "play", item });
-    setHasPlaybackIntent(true);
+    requestPlayback();
     if (existingItem) {
       setAnnouncement(
         existingIndex === queue.currentIndex
@@ -616,7 +656,7 @@ export function OtwPlayPlayerProvider({
           : `${track.song.title}은(는) 이미 플레이큐에 있어 해당 항목을 재생합니다.`,
       );
     }
-  }, [queue.currentIndex, queue.items, register]);
+  }, [queue.currentIndex, queue.items, register, requestPlayback]);
   const enqueue = useCallback((track: OtwPlayTrack) => {
     const existingItem = queue.items.find(
       ({ performanceId }) => performanceId === track.performance.id,
@@ -657,6 +697,7 @@ export function OtwPlayPlayerProvider({
     muted,
     playbackPositionSeconds,
     playbackDurationSeconds,
+    playbackIntentVersion,
     panelExpanded,
     announcement,
     unavailableItemIds,
@@ -665,12 +706,13 @@ export function OtwPlayPlayerProvider({
       return tracks.get(itemId) ?? null;
     },
     setHostElement,
+    setPlaybackSurfaceActive,
     play,
     enqueue,
     playNext,
     select(index) {
       dispatch({ type: "select", index });
-      setHasPlaybackIntent(true);
+      requestPlayback();
     },
     remove(itemId) {
       dispatch({ type: "remove", itemId });
@@ -702,6 +744,23 @@ export function OtwPlayPlayerProvider({
       });
       setAnnouncement("가창 정보를 다시 불러옵니다.");
     },
+    retryPlayback() {
+      if (!currentItem || !currentTrack) return;
+      failedSourceIdsRef.current.delete(currentItem.id);
+      setUnavailableItemIds((current) => {
+        if (!current.has(currentItem.id)) return current;
+        const next = new Set(current);
+        next.delete(currentItem.id);
+        return next;
+      });
+      loadedKeyRef.current = null;
+      setStatus("loading");
+      setAnnouncement("재생을 다시 시도합니다.");
+      requestPlayback();
+      if (playerRef.current) {
+        setPlayerReadyVersion((version) => version + 1);
+      }
+    },
     move(itemId, direction) {
       dispatch({ type: "move", itemId, direction });
     },
@@ -732,7 +791,7 @@ export function OtwPlayPlayerProvider({
       setPanelExpanded(true);
     },
     resume() {
-      setHasPlaybackIntent(true);
+      requestPlayback();
       playerRef.current?.play();
     },
     seek,
@@ -763,7 +822,9 @@ export function OtwPlayPlayerProvider({
     playNext,
     playbackDurationSeconds,
     playbackPositionSeconds,
+    playbackIntentVersion,
     queue,
+    requestPlayback,
     selectPlayable,
     seek,
     status,

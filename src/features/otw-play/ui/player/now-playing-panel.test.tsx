@@ -20,6 +20,7 @@ import { OtwPlayPlayerQueuePanel } from "./now-playing-panel";
 
 const actions = {
   setHostElement: vi.fn(),
+  setPlaybackSurfaceActive: vi.fn(),
   previous: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
@@ -35,6 +36,7 @@ const actions = {
   move: vi.fn(),
   remove: vi.fn(),
   retry: vi.fn(),
+  retryPlayback: vi.fn(),
 };
 
 const emptyPlayer = {
@@ -46,6 +48,7 @@ const emptyPlayer = {
   muted: false,
   playbackPositionSeconds: 65,
   playbackDurationSeconds: 184,
+  playbackIntentVersion: 0,
   panelExpanded: false,
   unavailableItemIds: new Set<string>(),
   retryableItemIds: new Set<string>(),
@@ -215,6 +218,7 @@ describe("OTW Play player and queue rail", () => {
       },
       currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
       currentTrack: track,
+      playbackIntentVersion: 1,
       panelExpanded: true,
       trackForItem: () => track,
     });
@@ -229,9 +233,7 @@ describe("OTW Play player and queue rail", () => {
     expect(combinedRail.className).toContain("xl:h-full");
     expect(combinedRail.className).toContain("xl:min-h-0");
     expect(combinedRail.className).toContain("xl:overflow-hidden");
-    const playbackRegion = screen.getByRole("region", {
-      name: "OTW Play 재생 플레이어",
-    });
+    const playbackRegion = screen.getByLabelText("OTW Play 재생 플레이어");
     expect(playbackRegion.className).toContain("xl:border-b");
 
     expect(screen.getAllByLabelText("YouTube 영상 플레이어")).toHaveLength(1);
@@ -239,6 +241,9 @@ describe("OTW Play player and queue rail", () => {
       screen.queryByRole("button", { name: /재생 상세 (접기|펼치기)/ }),
     ).toBeNull();
     expect(screen.getByRole("region", { name: "모바일 플레이큐" })).toBeTruthy();
+    expect(
+      screen.getByRole("region", { name: "모바일 플레이큐" }).className,
+    ).toContain("xl:hidden");
     const volumeSliders = screen.getAllByRole("slider", { name: "재생 볼륨" });
     expect(volumeSliders).toHaveLength(1);
     fireEvent.change(volumeSliders[0], {
@@ -341,6 +346,7 @@ describe("OTW Play player and queue rail", () => {
       },
       currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
       currentTrack: track,
+      playbackIntentVersion: 1,
       trackForItem: () => track,
     });
 
@@ -384,7 +390,7 @@ describe("OTW Play player and queue rail", () => {
     expect(actions.pause).not.toHaveBeenCalled();
   });
 
-  it("keeps playback in one visible mini player when a 640-1279px catalog is reopened", () => {
+  it("pauses before moving a 640-1279px full player into the visible mini presentation", () => {
     createMatchMediaController({
       [MINI_PLAYER_QUERY]: true,
       [PHONE_PLAYER_QUERY]: false,
@@ -400,28 +406,27 @@ describe("OTW Play player and queue rail", () => {
       },
       currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
       currentTrack: track,
+      playbackIntentVersion: 1,
       status: "playing",
       trackForItem: () => track,
     };
     mocks.usePlayer.mockReturnValue(player);
 
     const { rerender } = render(<OtwPlayPlayerQueuePanel />);
-    const playerRegion = screen.getByRole("region", {
-      name: "OTW Play 재생 플레이어",
-    });
+    const playerRegion = screen.getByLabelText("OTW Play 재생 플레이어");
     const playerHost = screen.getByLabelText("YouTube 영상 플레이어");
 
     expect(playerRegion.getAttribute("data-player-presentation")).toBe("full");
     fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
 
-    expect(actions.pause).not.toHaveBeenCalled();
+    expect(actions.pause).toHaveBeenCalledOnce();
     expect(playerRegion.getAttribute("data-player-presentation")).toBe("mini");
     expect(screen.getByLabelText("YouTube 영상 플레이어")).toBe(playerHost);
     expect(screen.getAllByLabelText("YouTube 영상 플레이어")).toHaveLength(1);
     expect(screen.getByTestId("otw-play-mini-player-controls")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "미니 플레이어 일시정지" }));
-    expect(actions.pause).toHaveBeenCalledOnce();
+    expect(actions.pause).toHaveBeenCalledTimes(2);
 
     mocks.usePlayer.mockReturnValue({
       ...player,
@@ -458,16 +463,16 @@ describe("OTW Play player and queue rail", () => {
       },
       currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
       currentTrack: track,
+      playbackIntentVersion: 1,
       status: "playing",
       trackForItem: () => track,
     });
 
     render(<OtwPlayPlayerQueuePanel />);
-    const playerRegion = screen.getByRole("region", {
-      name: "OTW Play 재생 플레이어",
-    });
+    const playerRegion = screen.getByLabelText("OTW Play 재생 플레이어");
     fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
     expect(playerRegion.getAttribute("data-player-presentation")).toBe("mini");
+    expect(actions.pause).toHaveBeenCalledOnce();
 
     act(() => {
       media.set(MINI_PLAYER_QUERY, false);
@@ -475,10 +480,96 @@ describe("OTW Play player and queue rail", () => {
     });
 
     expect(playerRegion.getAttribute("data-player-presentation")).toBe("full");
-    expect(actions.pause).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
     expect(actions.pause).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
+    expect(actions.pause).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Now Playing 화면 열기" })).toBeTruthy();
+  });
+
+  it("reopens a phone launcher only after a new explicit playback intent", () => {
+    createMatchMediaController({
+      [MINI_PLAYER_QUERY]: false,
+      [PHONE_PLAYER_QUERY]: true,
+      [DESKTOP_PLAYER_QUERY]: false,
+    });
+    const player = {
+      ...emptyPlayer,
+      queue: {
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat: "off",
+        shuffled: false,
+      },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      currentTrack: track,
+      playbackIntentVersion: 1,
+      trackForItem: () => track,
+    };
+    mocks.usePlayer.mockReturnValue(player);
+
+    const { rerender } = render(<OtwPlayPlayerQueuePanel />);
+    const playerRegion = screen.getByLabelText("OTW Play 재생 플레이어");
+    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
+    expect(playerRegion.getAttribute("data-player-presentation")).toBe("launcher");
+
+    mocks.usePlayer.mockReturnValue({ ...player, playbackIntentVersion: 2 });
+    rerender(<OtwPlayPlayerQueuePanel />);
+    expect(playerRegion.getAttribute("data-player-presentation")).toBe("full");
+  });
+
+  it("exposes the phone full player as a modal dialog and closes it with Escape", () => {
+    createMatchMediaController({
+      [MINI_PLAYER_QUERY]: false,
+      [PHONE_PLAYER_QUERY]: true,
+      [DESKTOP_PLAYER_QUERY]: false,
+    });
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: {
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat: "off",
+        shuffled: false,
+      },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      currentTrack: track,
+      playbackIntentVersion: 1,
+      trackForItem: () => track,
+    });
+
+    render(<OtwPlayPlayerQueuePanel />);
+    const dialog = screen.getByRole("dialog", {
+      name: "OTW Play 재생 플레이어",
+    });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(document.activeElement).toBe(dialog);
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(actions.pause).toHaveBeenCalledOnce();
+    expect(dialog.getAttribute("data-player-presentation")).toBe("launcher");
+  });
+
+  it("shows blocked playback recovery actions without hiding the current source", () => {
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: {
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat: "off",
+        shuffled: false,
+      },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      currentTrack: track,
+      playbackIntentVersion: 1,
+      status: "blocked",
+      trackForItem: () => track,
+    });
+
+    render(<OtwPlayPlayerQueuePanel />);
+    expect(screen.getByRole("alert").textContent).toContain("자동 재생을 차단");
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(actions.retryPlayback).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole("link", { name: /YouTube에서 열기/ }).length).toBeGreaterThan(0);
   });
 
   it("keeps queue announcements available to assistive tech without a visible footer", () => {
@@ -507,9 +598,12 @@ describe("OTW Play player and queue rail", () => {
 
     render(<OtwPlayPlayerQueuePanel />);
 
-    expect(
-      screen.getByRole("region", { name: "OTW Play 재생 플레이어" }).className,
-    ).toContain("fixed inset-0 flex flex-col");
+    const playerRegion = screen.getByLabelText("OTW Play 재생 플레이어");
+    expect(playerRegion.getAttribute("data-player-presentation")).toBe("launcher");
+    expect(screen.getByRole("button", { name: "Now Playing 화면 열기" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Now Playing 화면 열기" }));
+    expect(playerRegion.getAttribute("data-player-presentation")).toBe("full");
     expect(screen.getByText("가창 정보를 불러오지 못했습니다")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "가창 정보 다시 불러오기" })[0]);
     expect(actions.retry).toHaveBeenCalledWith("item-1");

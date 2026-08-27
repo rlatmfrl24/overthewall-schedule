@@ -115,6 +115,11 @@ class VisibleIntersectionObserver {
 
 function Consumer() {
   const player = useOtwPlayPlayer();
+  const setPlaybackSurfaceActive = player.setPlaybackSurfaceActive;
+  React.useEffect(() => {
+    setPlaybackSurfaceActive(true);
+    return () => setPlaybackSurfaceActive(false);
+  }, [setPlaybackSurfaceActive]);
   return (
     <div>
       <div ref={player.setHostElement} data-testid="host" />
@@ -132,6 +137,12 @@ function Consumer() {
       <button type="button" onClick={() => player.setVolume(35)}>volume 35</button>
       <button type="button" onClick={player.toggleMuted}>toggle mute</button>
       <button type="button" onClick={() => player.seek(90)}>seek 90</button>
+      <button type="button" onClick={() => player.setPlaybackSurfaceActive(false)}>
+        hide surface
+      </button>
+      <button type="button" onClick={() => player.setPlaybackSurfaceActive(true)}>
+        show surface
+      </button>
       <button
         type="button"
         disabled={!player.currentItem}
@@ -148,6 +159,7 @@ function Consumer() {
       <span data-testid="muted">{String(player.muted)}</span>
       <span data-testid="position">{player.playbackPositionSeconds}</span>
       <span data-testid="duration">{player.playbackDurationSeconds}</span>
+      <span data-testid="intent-version">{player.playbackIntentVersion}</span>
     </div>
   );
 }
@@ -184,8 +196,25 @@ describe("OtwPlayPlayerProvider", () => {
     }));
 
     view.unmount();
+    expect(mocks.controller.pause).toHaveBeenCalled();
     expect(mocks.controller.stop).toHaveBeenCalled();
     expect(mocks.controller.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("pauses before a hidden playback surface and requires a new gesture to resume", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("intent-version").textContent).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "hide surface" }));
+    await waitFor(() => expect(mocks.controller.pause).toHaveBeenCalled());
+    expect(screen.getByTestId("status").textContent).toBe("paused");
+
+    fireEvent.click(screen.getByRole("button", { name: "show surface" }));
+    expect(mocks.controller.play).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    expect(screen.getByTestId("intent-version").textContent).toBe("2");
   });
 
   it("rehydrates identifier state without creating or autoplaying a player", async () => {
