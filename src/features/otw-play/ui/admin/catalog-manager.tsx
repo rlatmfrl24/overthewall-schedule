@@ -15,7 +15,7 @@ import type {
   OtwPlayParticipationType,
   OtwPlayReleaseType,
 } from "@contracts/otw-play";
-import { AdminSectionHeader } from "@/app/admin";
+import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
 import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import {
   createOtwPlayChannel,
+  deleteOtwPlayEntity,
   lookupOtwPlayChannel,
   approveOtwPlayProposal,
   publishOtwPlayPerformance,
@@ -239,12 +240,17 @@ export function OtwPlayCatalogManager() {
       return true;
     } catch (error) {
       console.error("OTW Play admin command failed", error);
+      const description =
+        error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE"
+          ? "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다."
+          : label === "외부 identity 삭제" &&
+              error instanceof ApiError &&
+              error.fields?.entity === "referenced"
+            ? "곡·가창·승인 채널·제안 또는 저장된 후보 검수에 연결된 외부 주체는 삭제할 수 없습니다. 연결을 먼저 교정하거나 보관 처리해 주세요."
+            : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`;
       toast({
         variant: "error",
-        description:
-          error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE"
-            ? "다른 점검이 먼저 반영되었습니다. 최신 상태를 다시 불러왔습니다."
-            : `${label.startsWith("source:") ? "source 재검사" : label} 작업에 실패했습니다.`,
+        description,
       });
       if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
         await refresh();
@@ -413,6 +419,23 @@ export function OtwPlayCatalogManager() {
         <ChannelSection
           items={catalog.channels}
           entities={catalog.entities}
+          referencedEntityIds={new Set([
+            ...catalog.songs.flatMap((song) =>
+              song.originalArtists.map((artist) => artist.entityId)
+            ),
+            ...catalog.performances.flatMap((performance) =>
+              performance.participants.map((participant) => participant.entityId)
+            ),
+            ...catalog.channels.flatMap((channel) => channel.entityIds),
+            ...(proposalsQuery.data ?? []).flatMap((proposal) => [
+              ...proposal.participants.flatMap((participant) =>
+                participant.resolvedEntityId ? [participant.resolvedEntityId] : []
+              ),
+              ...proposal.originalArtists.flatMap((artist) =>
+                artist.resolvedEntityId ? [artist.resolvedEntityId] : []
+              ),
+            ]),
+          ])}
           saving={effectiveSaving}
           run={run}
         />
@@ -1297,14 +1320,17 @@ function ProposalSection({
 
 function EntitySection({
   items,
+  referencedEntityIds,
   saving,
   run,
 }: {
   items: OtwPlayAdminEntityDto[];
+  referencedEntityIds: ReadonlySet<string>;
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState<OtwPlayAdminEntityDto | null>(null);
+  const [deleting, setDeleting] = useState<OtwPlayAdminEntityDto | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [archived, setArchived] = useState(false);
 
@@ -1408,31 +1434,80 @@ function EntitySection({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.displayName}</TableCell>
-                    <TableCell>
-                      {item.entityKind === "group" ? "그룹" : "외부 인물"}
-                    </TableCell>
-                    <TableCell>{item.archivedAt ? "보관" : "활성"}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`${item.displayName} 수정`}
-                        onClick={() => beginEdit(item)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {items.map((item) => {
+                  const deletionBlocked = referencedEntityIds.has(item.id);
+                  const deletionReasonId = `external-entity-delete-reason-${item.id}`;
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.displayName}</TableCell>
+                      <TableCell>
+                        {item.entityKind === "group" ? "그룹" : "외부 인물"}
+                      </TableCell>
+                      <TableCell>
+                        <div>{item.archivedAt ? "보관" : "활성"}</div>
+                        {deletionBlocked ? (
+                          <div
+                            id={deletionReasonId}
+                            className="text-xs text-muted-foreground"
+                          >
+                            연결 사용 중 · 삭제 불가
+                          </div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`${item.displayName} 수정`}
+                            onClick={() => beginEdit(item)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            aria-label={`${item.displayName} 삭제`}
+                            aria-describedby={deletionBlocked ? deletionReasonId : undefined}
+                            disabled={saving !== null || deletionBlocked}
+                            onClick={() => setDeleting(item)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
             </div>
           </div>
         )}
       </div>
+      <ConfirmActionDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="외부 주체를 삭제할까요?"
+        description={deleting
+          ? `“${deleting.displayName}” identity와 별칭을 영구 삭제합니다. 이 작업은 되돌릴 수 없으며, 연결된 곡·가창·승인 채널·제안·후보 검수가 있으면 삭제되지 않습니다.`
+          : "외부 identity를 영구 삭제합니다."}
+        confirmLabel="영구 삭제"
+        destructive
+        onConfirm={() => {
+          const target = deleting;
+          setDeleting(null);
+          if (!target) return;
+          void run("외부 identity 삭제", () =>
+            deleteOtwPlayEntity(target.id, {
+              expectedVersion: target.version,
+            })
+          ).then((succeeded) => {
+            if (succeeded && editing?.id === target.id) setEditing(null);
+          });
+        }}
+      />
     </section>
   );
 }
@@ -1440,11 +1515,13 @@ function EntitySection({
 function ChannelSection({
   items,
   entities,
+  referencedEntityIds,
   saving,
   run,
 }: {
   items: OtwPlayAdminChannelDto[];
   entities: OtwPlayAdminEntityDto[];
+  referencedEntityIds: ReadonlySet<string>;
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
@@ -1754,6 +1831,7 @@ function ChannelSection({
         </div>
         <EntitySection
           items={entities.filter((item) => item.memberUid === null)}
+          referencedEntityIds={referencedEntityIds}
           saving={saving}
           run={run}
         />

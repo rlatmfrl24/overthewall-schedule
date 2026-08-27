@@ -419,6 +419,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_POST_CREATED, ADMIN_PUT],
   },
   {
+    id: "otw-play.admin.entity.delete",
+    owner: "otw-play",
+    path: "/api/play/admin/entities/:id",
+    methods: [ADMIN_DELETE],
+  },
+  {
     id: "otw-play.admin.songs",
     owner: "otw-play",
     path: "/api/play/admin/songs",

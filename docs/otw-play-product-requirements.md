@@ -126,6 +126,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-065 | 승인 채널은 자동 검수와 분리된 관리자 1차 탭에서 관리하고 상태·관측 화면은 한눈에 비교 가능한 고밀도 작업면을 사용한다. | 확정 | `승인 채널` 탭은 `approved_kirinuki`를 포함한 역할 등록, 검수 승인과 활성화를 제공하며 신규 등록의 pending 기본값과 명시적 승인 경계는 유지한다. `소스 상태`는 요약·세 목록·행 작업을 하나의 panel로, `운영·공개`는 공개 권위·최근 변경·24시간 지표·route·event를 소수의 panel로 묶되 권위 readback과 confirmation은 바꾸지 않는다. |
 | DEC-066 | 승인 채널과 외부 주체는 하나의 관리 작업면에서 다루고, YouTube 채널 표시명은 입력한 채널 ID의 권위 조회 결과를 사용한다. | 확정 | 별도 `외부 주체 관리` Sheet와 채널 등록의 소유·연결 주체 선택을 제거한다. 채널 ID 조회가 성공하면 표시명을 읽기 전용으로 자동 입력하며 조회한 ID와 현재 입력이 같을 때만 등록한다. 기존 채널 수정 시 저장된 주체 연결은 보존한다. WebSub `active`는 callback 검증과 유효 lease가 모두 있는 상태만 의미하며, 검증·lease가 없는 legacy active는 재구독 가능한 복구 상태로 표시하고 hub 실패가 이를 active로 되돌리지 못하게 한다. |
 | DEC-067 | 승인 채널의 `singing_clip` 후보는 같은 자동 검수 작업면에서 개별 검수한 뒤 비공개 방송 가창 draft로 전환한다. | 확정 | 운영자는 후보의 곡·원곡 가수·가창 참여자와 역할·관계·참여 형태·시작/종료 구간을 확인한다. 서버는 활성 `approved_kirinuki` 채널, `broadcast` release와 `kirinuki` source 조합만 허용하고 candidate CAS와 draft 생성을 한 D1 batch로 처리한다. 이 경로는 publish action을 제공하지 않으며 원본 방송 연결·방송일·setlist·공개 read model은 P3 범위로 남긴다. |
+| DEC-068 | 관리자는 더 이상 쓰지 않는 외부 인물·그룹 identity를 승인 채널 작업면에서 영구 삭제할 수 있다. | 확정 | `member_uid`가 없는 외부 identity만 대상이며 곡 원곡 가수, 가창 참여자, 승인 채널, 공개 sort key, 제안 또는 비종료 후보의 저장된 검수가 참조하면 삭제를 거부한다. 성공 시 별칭은 cascade 정리하고 `entity.deleted` event와 catalog/read-model revision을 같은 D1 batch에서 반영한다. |
 
 ## 4. 제품 원칙
 
@@ -476,6 +477,9 @@ detail로 자동 복사하지 않는다.
   origin 가져오기 기록을 구분해 표시해야 한다. 신규 채널 승인은 OTW 공식 또는
   archive되지 않은 catalog member identity 공식 흐름을 기본으로 하고 외부 채널은 별도 추가·승인 확인과
   non-member 주체 연결을 요구해야 한다.
+- ADM-038: 관리자는 참조가 없는 외부 인물·그룹 identity를 되돌릴 수 없음 확인 뒤
+  삭제할 수 있어야 한다. 현재 멤버 identity 또는 곡·가창·승인 채널·공개 projection·제안·비종료 후보 검수가
+  참조하는 identity는 삭제할 수 없고 연결 교정이나 보관을 안내해야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -773,6 +777,7 @@ TBD-015·017과 TBD-016의 기본 정책은 DEC-056~058로 해결되었다.
 | 2026-08-26 | DEC-066 확정. 승인 채널과 외부 주체를 한 작업면으로 통합하고 채널 등록의 소유·연결 주체 선택을 제거. YouTube 채널 ID 조회로 권위 표시명을 자동 입력하며, callback 검증·lease가 없는 false-active WebSub row를 복구 대상으로 분류하고 transient hub 요청 1회 재시도와 비민감 오류 code 보존을 추가 |
 | 2026-08-26 | production WebSub 재구독의 `hub_network`를 Cloudflare runtime의 `fetch` receiver 손실에 따른 `Illegal invocation`으로 재현. 전역 fetch를 인스턴스 method로 호출하지 않는 wrapper로 수정하고 동일 `GoogleWebsubHubClient`의 Cloudflare remote preview 요청이 Google hub에서 수락되는 것을 확인 |
 | 2026-08-26 | DEC-067 확정. `노래 클립 자동 후보`에 `검수·등록` 경로를 추가해 승인된 `approved_kirinuki` 후보의 곡·가창자·역할·segment를 확인한 뒤 `broadcast` + `kirinuki` 비공개 draft로 원자 변환. 자동·수동 publish와 P3 원본 방송·setlist·공개 read model은 계속 차단 |
+| 2026-08-27 | DEC-068 확정. 승인 채널 작업면에서 미참조 외부 인물·그룹 identity의 영구 삭제를 제공하고, 멤버 기반 또는 곡·가창·채널·projection·제안·비종료 후보 검수 참조 대상은 서버에서 차단. 별칭·event·두 revision의 원자성을 삭제 계약에 포함 |
 
 ## 19. 참고
 

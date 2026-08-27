@@ -741,6 +741,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayAdminCatalog,
   },
   {
+    id: "otw-play.admin.entity.delete",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.deleteEntity.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
+    handler: handleOtwPlayAdminCatalog,
+  },
+  {
     id: "otw-play.admin.songs",
     owner: "otw-play",
     path: apiRoutes.otwPlay.admin.songs.pattern,

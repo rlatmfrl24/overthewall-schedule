@@ -65,17 +65,27 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_ingestion_jobs"),
     db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-%'"),
     db.prepare("DELETE FROM music_channels WHERE id LIKE 'ingestion-%'"),
+    db.prepare("DELETE FROM music_entities WHERE id = 'entity-1'"),
   ]);
-  await db.prepare(
-    `INSERT INTO music_channels (
-      id, provider, external_channel_id, display_name, channel_role,
-      verification_status, active, version, created_at, updated_at
-    ) VALUES
-      ('ingestion-approved-channel', 'youtube', 'UCaaaaaaaaaaaaaaaaaaaaaa',
-        'Approved', 'member_music', 'approved', 1, 0, ?, ?),
-      ('ingestion-kirinuki-channel', 'youtube', 'UCkkkkkkkkkkkkkkkkkkkkkk',
-        'Kirinuki', 'approved_kirinuki', 'approved', 1, 0, ?, ?)`,
-  ).bind(NOW, NOW, NOW, NOW).run();
+  await db.batch([
+    db.prepare(
+      `INSERT INTO music_channels (
+        id, provider, external_channel_id, display_name, channel_role,
+        verification_status, active, version, created_at, updated_at
+      ) VALUES
+        ('ingestion-approved-channel', 'youtube', 'UCaaaaaaaaaaaaaaaaaaaaaa',
+          'Approved', 'member_music', 'approved', 1, 0, ?, ?),
+        ('ingestion-kirinuki-channel', 'youtube', 'UCkkkkkkkkkkkkkkkkkkkkkk',
+          'Kirinuki', 'approved_kirinuki', 'approved', 1, 0, ?, ?)`,
+    ).bind(NOW, NOW, NOW, NOW),
+    db.prepare(
+      `INSERT INTO music_entities (
+        id, member_uid, entity_kind, display_name, normalized_name, slug,
+        version, created_at, updated_at
+      ) VALUES ('entity-1', NULL, 'person', 'Review Singer',
+        'review singer', 'review-singer', 0, ?, ?)`,
+    ).bind(NOW, NOW),
+  ]);
 });
 
 describe("D1IngestionRepository", () => {
@@ -361,6 +371,20 @@ describe("D1IngestionRepository", () => {
     await expect(repository.saveCandidateReview({
       candidateId: "youtube:SSSSSSSSSSS",
       expectedVersion: 1,
+      input: {
+        ...reviewInput,
+        participants: [{
+          ...reviewInput.participants[0],
+          subject: { kind: "entity", entityId: "missing-entity" },
+        }],
+      },
+      actorUserId: "admin-reviewer",
+      eventId: "event-missing-entity-review",
+      now: NOW + 3,
+    })).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:SSSSSSSSSSS",
+      expectedVersion: 1,
       input: reviewInput,
       actorUserId: "admin-reviewer",
       eventId: "event-scope-review",
@@ -377,6 +401,96 @@ describe("D1IngestionRepository", () => {
       eventId: "event-kirinuki-review",
       now: NOW + 3,
     })).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("uses a newly approved channel to continue a stale channel-review candidate", async () => {
+    const repository = new D1IngestionRepository(db);
+    const lateChannelId = `UC${"L".repeat(22)}`;
+    const created = await repository.createJob({
+      jobId: "job-late-channel",
+      actorUserId: "admin-1",
+      input: { ...input, idempotencyKey: "request-late-channel" },
+      preflight: { ...preflight, requestedItemCount: 1 },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [{
+          playlistItemId: "late-channel-item",
+          videoId: "LLLLLLLLLLL",
+          position: 0,
+        }],
+        nextPageToken: null,
+      },
+      NOW + 1,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      [{
+        videoId: "LLLLLLLLLLL",
+        availabilityStatus: "playable",
+        video: {
+          videoId: "LLLLLLLLLLL",
+          channelId: lateChannelId,
+          channelTitle: "Late Approved",
+          title: "Late Channel Candidate",
+          thumbnailUrl: null,
+          durationSeconds: 180,
+          publishedAt: NOW,
+          availabilityStatus: "playable",
+          madeForKids: false,
+          scopeReview: false,
+        },
+      }],
+      NOW + 2,
+    );
+    await expect(repository.readReviewCandidate(
+      null,
+      "youtube:LLLLLLLLLLL",
+    )).resolves.toMatchObject({
+      classification: "channel_review",
+      catalogChannelId: null,
+    });
+
+    await db.prepare(
+      `INSERT INTO music_channels (
+        id, provider, external_channel_id, display_name, channel_role,
+        verification_status, active, version, created_at, updated_at
+      ) VALUES ('ingestion-late-channel', 'youtube', ?, 'Late Approved',
+        'member_music', 'approved', 1, 0, ?, ?)`,
+    ).bind(lateChannelId, NOW + 3, NOW + 3).run();
+
+    await expect(repository.getJob("job-late-channel")).resolves.toMatchObject({
+      counts: { eligible: 1, channelReview: 0 },
+    });
+    const item = (
+      await repository.listItems("job-late-channel", 10, null)
+    ).page.items[0]!;
+    expect(item).toMatchObject({
+      classification: "eligible",
+      candidateClassification: "eligible",
+      catalogChannelId: "ingestion-late-channel",
+    });
+    await expect(repository.readReviewCandidate(
+      null,
+      item.candidateId,
+    )).resolves.toMatchObject({
+      classification: "eligible",
+      catalogChannelId: "ingestion-late-channel",
+    });
+    await expect(repository.saveCandidateReview({
+      candidateId: item.candidateId,
+      expectedVersion: item.candidateVersion,
+      input: reviewInput,
+      actorUserId: "admin-reviewer",
+      eventId: "event-late-channel-review",
+      now: NOW + 4,
+    })).resolves.toMatchObject({
+      classification: "eligible",
+      status: "ready",
+      catalogChannelId: "ingestion-late-channel",
+    });
   });
 
   it("saves a reviewed singing clip for an approved kirinuki channel", async () => {

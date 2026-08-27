@@ -438,30 +438,38 @@ const candidateClassificationLabels: Record<
   playlist_duplicate: "같은 플레이리스트 안의 중복 영상",
 };
 
+const currentCandidateClassification = (
+  item: OtwPlayIngestionCandidateItemDto,
+) => item.candidateClassification === "channel_review" && item.catalogChannelId
+  ? "eligible"
+  : item.candidateClassification;
+
 const candidateNextAction = (item: OtwPlayIngestionCandidateItemDto) => {
+  const classification = currentCandidateClassification(item);
   if (item.status === "ready") return "ready 완료 항목 일괄 저장";
   if (item.status === "converted" || item.status === "ignored") return "추가 조치 없음";
-  if (item.candidateClassification === "channel_review") return "행별 보완에서 공식 채널 승인";
-  if (item.candidateClassification === "pending_metadata") return "YouTube 정보 갱신 대기";
-  if (item.candidateClassification === "existing_catalog") return "기존 카탈로그 항목 확인";
-  if (item.candidateClassification === "existing_proposal") return "회원 제안 검수에서 처리";
-  if (item.candidateClassification === "unavailable") return "영상 제외 또는 metadata 재확인";
-  if (item.candidateClassification === "policy_blocked") return "채널 정책 검토";
-  if (item.candidateClassification === "scope_review") return "영상 범위 확인 후 행별 보완";
+  if (classification === "channel_review") return "행별 보완에서 공식 채널 승인";
+  if (classification === "pending_metadata") return "YouTube 정보 갱신 대기";
+  if (classification === "existing_catalog") return "기존 카탈로그 항목 확인";
+  if (classification === "existing_proposal") return "회원 제안 검수에서 처리";
+  if (classification === "unavailable") return "영상 제외 또는 metadata 재확인";
+  if (classification === "policy_blocked") return "채널 정책 검토";
+  if (classification === "scope_review") return "영상 범위 확인 후 행별 보완";
   if (item.status === "blocked") return "오류 사유 확인 후 metadata 갱신";
   return "행별 보완 후 ready로 저장";
 };
 
 function CandidateStateSummary({ item }: { item: OtwPlayIngestionCandidateItemDto }) {
   const status = candidateStatusPresentations[item.status];
-  const classification = candidateClassificationLabels[item.candidateClassification];
+  const currentClassification = currentCandidateClassification(item);
+  const classification = candidateClassificationLabels[currentClassification];
   const importedAs = candidateClassificationLabels[item.classification];
 
   return (
     <div
       className="space-y-1.5 whitespace-normal"
       aria-label={`${item.title ?? item.videoId} 현재 상태`}
-      title={`${item.status} / ${item.candidateClassification}`}
+      title={`${item.status} / ${currentClassification}`}
     >
       <Badge variant={status.variant}>{status.label}</Badge>
       <p className="text-xs leading-relaxed">
@@ -473,7 +481,7 @@ function CandidateStateSummary({ item }: { item: OtwPlayIngestionCandidateItemDt
         <span className="font-medium text-foreground">다음 조치</span>
         <span className="text-muted-foreground"> · {candidateNextAction(item)}</span>
       </p>
-      {item.classification !== item.candidateClassification ? (
+      {item.classification !== currentClassification ? (
         <p className="border-t pt-1 text-[11px] leading-relaxed text-muted-foreground">
           가져오기 기록 · {importedAs}
         </p>
@@ -608,31 +616,32 @@ const bulkIgnorableAvailability = new Set<
 const candidateReviewBlockedReason = (
   item: OtwPlayIngestionCandidateItemDto,
 ) => {
+  const classification = currentCandidateClassification(item);
   if (item.status === "converted") {
     return "이미 catalog draft로 변환된 후보입니다.";
   }
   if (item.status === "ignored") {
     return "이미 제외된 후보입니다.";
   }
-  if (item.candidateClassification === "existing_catalog") {
+  if (classification === "existing_catalog") {
     return "이미 카탈로그에 등록된 영상이므로 후보 검수값을 저장하지 않습니다.";
   }
-  if (item.candidateClassification === "existing_proposal") {
+  if (classification === "existing_proposal") {
     return "검수 대기 중인 회원 제안이 있어 후보 검수값을 저장하지 않습니다.";
   }
   if (
-    item.candidateClassification === "unavailable" ||
-    item.candidateClassification === "policy_blocked"
+    classification === "unavailable" ||
+    classification === "policy_blocked"
   ) {
     return "재생 가능 여부 또는 채널 정책을 먼저 확인해야 합니다.";
   }
-  if (item.candidateClassification === "pending_metadata") {
+  if (classification === "pending_metadata") {
     return "YouTube metadata 수집이 끝난 뒤 ready로 저장할 수 있습니다.";
   }
-  if (item.candidateClassification === "channel_review" || !item.catalogChannelId) {
+  if (!item.catalogChannelId) {
     return "아래에서 공식 채널을 승인하면 ready 검수를 이어갈 수 있습니다.";
   }
-  return ["eligible", "scope_review"].includes(item.candidateClassification)
+  return ["eligible", "scope_review"].includes(classification)
     ? null
     : "현재 후보 상태에서는 ready로 저장할 수 없습니다.";
 };

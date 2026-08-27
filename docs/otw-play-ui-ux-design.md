@@ -520,6 +520,12 @@ ID를 입력하고 `채널 조회`를 실행하면 YouTube 권위 표시명을 �
 `members`가 권위이므로 수동 UID·slug 편집을 제공하지 않는다. 입력 오류가 발생해도 현재
 작업면과 모든 입력값을 유지한다.
 
+외부 주체 행에는 수정과 삭제 action을 함께 제공한다. 현재 화면에서 곡·가창·승인 채널·제안
+참조를 확인한 identity의 삭제는 비활성화하고 상태 열에 이유를 항상 표시한다. 미참조 외부 인물·그룹은
+되돌릴 수 없는 영구 삭제 confirm을 거쳐 요청하며, 서버가 추가 참조를 발견해 거부하면
+연결을 먼저 교정하거나 보관 처리하라는 안내를 같은 작업면에 표시한다. 현재 멤버 identity는
+삭제 목록에 노출하지 않는다. 성공 뒤 optimistic removal 대신 catalog를 다시 읽는다.
+
 PR-5 관리자 진입점은 `/admin/otw-play`이며 Admin Center의 콘텐츠 관리 메뉴에서
 접근한다. 서버 command 성공 뒤 catalog와 proposal query를 invalidate해 authoritative
 readback을 다시 표시하고 optimistic removal은 하지 않는다. PR-7에서는

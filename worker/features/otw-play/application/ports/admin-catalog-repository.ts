@@ -171,6 +171,13 @@ export interface AdminCatalogRepository {
     eventId: string,
     now: number,
   ): Promise<OtwPlayAdminCommandResponse<OtwPlayAdminEntityDto>>;
+  deleteEntity(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ): Promise<OtwPlayAdminCommandResponse<{ id: string }>>;
   createSong(
     input: OtwPlayAdminCreateSongRequest,
     actor: AdminCatalogActor,

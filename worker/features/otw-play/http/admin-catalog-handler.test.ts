@@ -193,7 +193,11 @@ describe("OTW Play admin catalog handler", () => {
     expect(createSong).not.toHaveBeenCalled();
   });
 
-  it("deletes draft songs and performances through authenticated dynamic routes", async () => {
+  it("deletes catalog resources through authenticated dynamic routes", async () => {
+    const deleteEntity = vi.fn(async (id) => ({
+      data: { id },
+      catalogRevision: 1,
+    }));
     const deleteSong = vi.fn(async (id) => ({
       data: { id },
       catalogRevision: 2,
@@ -204,7 +208,15 @@ describe("OTW Play admin catalog handler", () => {
     }));
     const handler = createAdminCatalogHandler(
       () =>
-        ({ deleteSong, deletePerformance }) as unknown as AdminCatalogService,
+        ({ deleteEntity, deleteSong, deletePerformance }) as unknown as AdminCatalogService,
+    );
+    const entityResponse = await handler(
+      new Request("https://example.com/api/play/admin/entities/external%20one", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: 0 }),
+      }),
+      env,
     );
     const songResponse = await handler(
       new Request("https://example.com/api/play/admin/songs/song%20one", {
@@ -226,8 +238,14 @@ describe("OTW Play admin catalog handler", () => {
       env,
     );
 
+    expect(entityResponse.status).toBe(200);
     expect(songResponse.status).toBe(200);
     expect(performanceResponse.status).toBe(200);
+    expect(deleteEntity).toHaveBeenCalledWith(
+      "external one",
+      { expectedVersion: 0 },
+      expect.objectContaining({ userId: "admin" }),
+    );
     expect(deleteSong).toHaveBeenCalledWith(
       "song one",
       { expectedVersion: 1 },
