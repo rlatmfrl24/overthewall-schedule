@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: PR-9A~C·P0-B polling foundation 배포 및 Clerk production 전환 closeout 완료, 운영 공개 `0/0` 유지
+상태: PR-1~PR-9D1·관리자 운영 보완 closeout 완료, 운영 canary·공개 gate 분리
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -14,10 +14,11 @@
 ## 1. 문서 목적
 
 이 문서는 승인된 설계를 실제 구현으로 옮길 때의 순서, 파일 경계, migration,
-테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-9A~C와
-P0-B polling foundation의 구현·병합·production 배포는 완료되었다. production Clerk 전환과 실제 로그인·관리자
-스모크도 완료했다. 현재 단계는 flag `0/0`을 유지하면서 예약 source-health, 운영
-catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
+테스트, 운영 데이터 입력, 단계적 공개와 rollback 기준을 정의한다. PR-1~PR-9D1,
+WebSub 관리, `singing_clip` 비공개 draft 검수와 2026-08-27 관리자 운영 보완의
+구현·병합은 완료되었다. production Clerk 전환과 실제 로그인·관리자 스모크도 완료했다.
+현재 단계는 flag `0/0`을 유지하면서 migration `0064`, P0-A/P0-B 운영 canary, 예약
+source-health, 운영 catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
 가창·키리누키 등은 제품 요구사항의 P0~P4 우선순위를 따르는 후속 범위다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
@@ -70,6 +71,25 @@ flowchart LR
 정비와 실제 flag 전환은 별도 운영 기록으로 이어가며 이 문서의 완료 상태를 되돌리지
 않는다.
 
+### 1.2 2026-08-27 closeout delta
+
+8월 26일 snapshot 이후 완료된 변경은 다음과 같다.
+
+- PR #76–#80의 WebSub runtime/UI, migration `0063`, 공개 origin·secret, false-active
+  복구와 Cloudflare `fetch` invocation 수정이 병합·배포되었고, 승인된 실제 채널의
+  monitor·WebSub 구독 설정까지 완료했다.
+- PR #81에서 `singing_clip` 후보를 검수해 비공개 `broadcast + kirinuki` draft로
+  원자 변환하는 경로와 monitor surface 회귀 보완을 완료했다.
+- PR #82–#84에서 외부 identity 안전 삭제, 두 후보 검수 화면의 신규 곡 라벨,
+  기존 승인 채널의 연결 주체 교정과 감사 기록을 완료했다.
+- 2026-08-27 공개 config readback은 catalog revision `24`,
+  `public_read_enabled=0`, `navigation_visible=0`이다.
+
+closeout에서 제외하는 잔여 gate는 migration `0064` production 적용/readback,
+P0-A playlist canary, 실제 신규 upload의 `WebSub → Queue → candidate → 검수 → draft`
+readback, catalog 정비와 공개·rollback 전환이다. PR #83의 Workers build 성공은
+migration `0064` 적용 증거를 대체하지 않는다.
+
 ## 2. 구현 착수 gate
 
 ### 2.1 구현을 시작할 수 있는 기본 결정
@@ -108,10 +128,10 @@ draft 작업은 계속할 수 있다. 결정 결과는 요구사항 문서의 TB
 GATE-01·05·06은 DEC-043~045로, GATE-04는 DEC-054로 해결되었다. 회원 수정·철회
 command와 control은 PR-9A에서 구현되었고 GATE-07은 Clerk production 전환과 실제
 관리자 스모크로 해결되었다. GATE-08은 키리누키 제작자의 메일 서면 동의로 해결되었다.
-migration `0063`은 2026-08-26 production D1에 적용했지만 approval·monitor·subscription
-row는 아직 0개다. WebSub Worker/UI와 `OTW_PLAY_PUBLIC_ORIGIN`을 production에 배포하고
-`OTW_PLAY_WEBSUB_SECRET_V1`도 등록했다. 동의받은 정확한 채널을 `approved_kirinuki`로
-확정한 뒤 monitor·구독과 P0-A/P0-B canary를 각 운영 흐름의 실제 readback으로 완료한다.
+migration `0063`, WebSub Worker/UI, `OTW_PLAY_PUBLIC_ORIGIN`과
+`OTW_PLAY_WEBSUB_SECRET_V1`을 production에 적용했고 동의받은 정확한 채널의
+approval·monitor·구독 설정도 완료했다. P0-A playlist canary와 P0-B 실제 신규 upload
+canary는 각 운영 흐름의 권위 readback으로 완료한다.
 
 ## 3. 전달 전략
 
@@ -142,6 +162,11 @@ row는 아직 0개다. WebSub Worker/UI와 `OTW_PLAY_PUBLIC_ORIGIN`을 productio
 | PR-8A | 직접 경로, dynamic metadata와 sitemap          | 완료      | `0/0`에서 noindex·sitemap 제외                 |
 | PR-8B | scheduled source health와 운영 UI              | 완료      | migration 0056 적용, 예약 점검 활성            |
 | PR-8C | structured observability와 release switch      | 완료      | production 배포, flag `0/0` 유지               |
+| PR-9A | 회원 proposal 수정·철회                        | 완료      | production Clerk 권위                           |
+| PR-9B | playlist ingestion job·Queue/DLQ                | 완료      | migration 0057–0062 적용                        |
+| PR-9C | candidate 검수·draft 변환                      | 완료      | 자동 publish 없음                               |
+| PR-9D1 | clip monitor·WebSub·비공개 draft 검수          | 구현 완료 | 실제 신규 upload canary 별도                    |
+| 운영 보완 | 외부 identity 삭제·라벨·채널 주체 교정      | 완료      | PR #82–#84, migration `0064` 적용은 별도 gate  |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -1451,7 +1476,7 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
 조회해 100건 단위로 처리한다. 기본 items 조회는 `converted|ignored`를 제외하고, 운영 확인을
 위한 명시적 status filter에서는 해당 상태를 계속 조회할 수 있다.
 
-## 25. 2026-08-25 PR-9 closeout과 production gate
+## 25. PR-9·P0-B closeout과 production gate
 
 - PR #74와 migration 0057–0062, Queue/DLQ consumer, proposal lifecycle, playlist
   ingestion·review·draft conversion 및 polling channel monitor를 완료 상태로 반영했다.
@@ -1462,10 +1487,14 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
 - 자동 수집 대상 키리누키 제작자의 메일 서면 동의는 확보했다. legacy
   `kirinuki_channels`를 `approved_kirinuki`나 자동화 승인으로 자동 승격하지 않으며,
   활성 `approved_kirinuki` channel ID 등록 시 서버가 표준 승인·감사 레코드를 생성한다.
-- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill은 Draft
-  PR에서 검증했다. additive remote migration `0063`은 production D1에 적용했고 remote
-  doctor와 신규 table/column readback을 통과했다. secret, Worker/UI 배포와 실제 hub
-  구독 및 전달 readback이 남았다.
-- 구독이 허용된 뒤에도 backfill 0으로 시작하고 실제 upload notification을 최대 7일
-  기다려 `hub → callback → Queue → videos.list → singing_clip candidate` readback이
-  성공해야 E2E 완료로 판정한다. challenge 성공만으로 완료를 선언하지 않는다.
+- WebSub callback·lease renewal·daily recent-50·명시적 최근 1~20개 backfill,
+  additive migration `0063`, secret·공개 origin·Worker/UI와 실제 승인 채널의 구독
+  설정을 완료했다. false-active 복구와 Cloudflare `fetch` receiver 결함도 수정했다.
+- PR #81의 `singing_clip` 개별 검수·비공개 draft 변환, PR #82의 외부 identity 정리,
+  PR #83의 신규 곡 라벨, PR #84의 승인 채널 연결 주체 교정을 완료했다.
+- 실제 upload notification을 최대 7일 안에 관측해
+  `hub → callback → Queue → videos.list → singing_clip candidate → reviewed draft`
+  readback이 성공해야 P0-B 운영 canary를 완료한다. challenge·구독 성공만으로 이
+  canary까지 완료했다고 선언하지 않는다.
+- PR #83의 migration `0064`는 production 적용과 column readback이 확인되기 전까지
+  release gate로 유지한다.

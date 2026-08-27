@@ -1,7 +1,7 @@
 # OTW Play YouTube 노래 클립 채널 구독·신규 영상 후보 자동화 조사 보고서
 
-상태: 6시간 polling foundation 구현·배포 완료, WebSub Draft 구현·`0063` schema 적용,
-자동 수집 대상 메일 서면 동의 확보, code·secret·실제 구독 미배포
+상태: polling·WebSub·검수 draft 구현/배포와 승인 채널 구독 설정 완료,
+실제 신규 upload E2E canary 대기
 
 조사일: 2026-08-20
 
@@ -310,9 +310,9 @@ Aggregation 조항에 대한 별도 compliance 확인이 선행되어야 한다.
 | ID | 상태 | 확정값 또는 남은 확인 |
 | --- | --- | --- |
 | GATE-AUTO-01 | 해결 | P0-A Queue/DLQ, D1 job과 retention 정책 재사용 |
-| GATE-AUTO-02 | 운영 준비 | 대상 제작자 메일 서면 동의 확보. 활성 `approved_kirinuki` channel 1개를 backfill 0으로 시작하고 필요 시 최근 1~20개만 명시 실행 |
+| GATE-AUTO-02 | 해결 | 대상 제작자 메일 서면 동의와 활성 `approved_kirinuki` channel 1개의 approval·monitor·WebSub 구독 설정 완료. backfill 0 기본과 필요 시 최근 1~20개만 명시 실행 |
 | GATE-AUTO-03 | 해결 | Cloudflare root secret, channel별 파생 key, V1/V2 48시간 회전 |
-| GATE-AUTO-04 | 부분 완료 | 6시간 watermark reconciliation·실행당 250개 cap은 배포 완료, 일일 최근 50개는 WebSub 후속 |
+| GATE-AUTO-04 | 해결 | 6시간 watermark reconciliation·실행당 250개 cap과 일일 최근 50개 보조 대조 구현·배포 완료 |
 | GATE-AUTO-05 | 해결 | title keyword는 내부 triage priority만 사용, 관리자 override 필수 |
 | GATE-AUTO-06 | 해결 | 키리누키 제작자 메일 서면 동의 확보. monitor 등록은 채널 ID만 입력하고 표준 해제 절차·감사 기록은 서버에서 보존 |
 
@@ -320,7 +320,7 @@ Aggregation 조항에 대한 별도 compliance 확인이 선행되어야 한다.
 backfill 0, 6시간 reconciliation과 자동 draft/publish 금지다. OTW·멤버 공식 channel은
 이 자동화가 아니라 직접 입력 경로를 사용한다.
 
-## 13. 2026-08-24 구현 반영 범위
+## 13. 2026-08-24 polling foundation 반영 범위
 
 이번 Draft PR에는 사용자 요청의 주기 확인 경로를 먼저 반영했다.
 
@@ -347,10 +347,12 @@ backfill 0, 6시간 reconciliation과 자동 draft/publish 금지다. OTW·멤�
 - `candidate_kind='singing_clip'`은 service와 D1 변환 경계 모두에서 catalog draft 변환을
   거부한다.
 
-WebSub callback·subscription renewal·daily recent-50 보조 대조·명시적 최근 N개 backfill은
-PR-9D1 후속 전달 항목이다.
+이 시점에 남아 있던 WebSub callback·subscription renewal·daily recent-50 보조 대조와
+명시적 최근 N개 backfill은 PR #76–#80에서 후속 전달을 완료했다.
 
 ## 14. 2026-08-25 closeout과 gated WebSub 후속
+
+이 절은 WebSub 배포 전 gate snapshot이다. 현재 상태는 15절을 권위로 사용한다.
 
 - PR-9A~C의 proposal lifecycle, D1 ingestion job/candidate, Queue/DLQ와 관리자 검수는
   구현·배포 완료다. P0-B의 6시간·최대 250개 polling monitor도 production에 반영되었고
@@ -372,3 +374,20 @@ PR-9D1 후속 전달 항목이다.
   확인한 다음 구독한다. challenge 성공만으로 완료하지 않고 최대 7일 안의 실제 upload
   notification이 `hub → callback → Queue → videos.list → singing_clip candidate`를
   통과해야 완료다.
+
+## 15. 2026-08-27 closeout
+
+완료된 범위:
+
+- PR #76–#80의 WebSub callback·subscription state·renewal·unsubscribe·Queue,
+  daily recent-50 reconciliation, 최근 1~20개 backfill과 관리자 transport UI
+- production migration `0063`, 공개 origin, V1 secret, 승인 채널 approval·monitor와
+  실제 WebSub 구독 설정
+- false-active subscription 복구, transient hub 1회 재시도, 비민감 오류 code,
+  Cloudflare global `fetch`의 receiver 보존 결함 수정
+- PR #81의 `singing_clip` 개별 검수와 비공개 broadcast draft 변환
+
+남은 것은 구현 delivery가 아니라 실제 신규 upload canary다. 구독 challenge와 lease가
+성공해도 실제 알림이 `hub → callback → Queue → videos.list → candidate → reviewed draft`를
+통과하기 전에는 P0-B E2E를 완료로 판정하지 않는다. 자동 publish는 계속 금지하며
+방송일·원본 방송·setlist·public projection은 P3 범위다.
