@@ -690,6 +690,14 @@ metadata를 보존하고 availability만 `unavailable`로 갱신한다. embed �
 capability event가 authoritative audit이며 전역 admin audit mirror 실패는 성공한
 catalog batch를 되돌리지 않는다.
 
+`DELETE /api/play/admin/entities/:id`는 `expectedVersion`을 받고 `member_uid IS NULL`인
+외부 identity만 삭제한다. 곡 원곡 가수, 가창 참여자, 승인 채널, 공개 sort key 또는
+검수 제안·비종료 ingestion candidate의 저장된 검수 참조가 하나라도 있으면 422로 거부한다.
+후보 검수 저장도 기존·활성 identity를 다시 확인해 삭제와 동시에 실행되어도 dangling
+reference를 만들지 않는다. 성공 시 entity alias cascade,
+`entity.deleted` capability event와 catalog/read-model revision 증가를 하나의 D1 batch로
+처리한다. 현재 멤버 identity는 이 command로 삭제할 수 없다.
+
 `DELETE /api/play/admin/performances/:id`는 `draft|withdrawn`을 삭제하고,
 `DELETE /api/play/admin/songs/:id`는 보관되지 않은 곡에 연결된 performance가 없거나 모두
 `draft|withdrawn`일 때 곡과 performance를 함께 삭제한다. 현재 published, merge 대상과 승인
@@ -737,6 +745,8 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - draft·withdrawn performance 개별 삭제와 published가 없는 song 삭제의 원자성, orphan source 정리,
   event·projection·revision 동시 반영
 - 현재 published performance 및 해당 곡 hard delete 거부
+- 미참조 외부 인물·그룹 identity 삭제와 alias cascade, event·두 revision의 원자성
+- 현재 멤버 및 곡·가창·채널·sort key·제안·비종료 후보 검수 참조 identity 삭제 거부와 stale version 409
 
 ### 종료 조건
 
@@ -1421,7 +1431,9 @@ job `updatedAt`이 변할 때 items도 refetch해 완료 직전 candidate versio
 변경 예정 항목은 sticky form 내부나 별도 table 열이 아니라 desktop table과 mobile card의
 각 영상 아래에 가로 배치하고, 열린 행의 로컬 draft 변경을 저장 전에도 즉시 반영한다.
 `channel_review`는 같은 sticky form에서 공식 역할·소유 주체를 확인해 채널 승인·활성화와
-candidate metadata 재분류를 이어 간다. 기본 신규 승인 경로는 `otw_official` 또는
+candidate metadata 재분류를 이어 간다. 후보 수집 뒤 별도 관리 화면에서 채널이 승인된
+경우에도 현재 활성 승인 채널을 권위로 재평가해 오래된 `channel_review` 표시나 저장 조건이
+행별 `ready` 검수를 막지 않아야 한다. 기본 신규 승인 경로는 `otw_official` 또는
 `member_music|member_main`과 archive되지 않은 catalog member identity로 제한한다. 외부 채널은 별도 예외 모드에서
 `project_official`, 활성 non-member 주체와 명시적 외부 승인 확인을 모두 제출해야 하며 Worker가
 현재 catalog entity 상태와 조합을 다시 검증한다. 기본 소유 유형 2개는 sidebar 가용 폭을

@@ -23,6 +23,7 @@ const fetchChannelMonitorsMock = vi.hoisted(() => vi.fn());
 const updateReleaseMock = vi.hoisted(() => vi.fn());
 const recheckSourceMock = vi.hoisted(() => vi.fn());
 const updateEntityMock = vi.hoisted(() => vi.fn());
+const deleteEntityMock = vi.hoisted(() => vi.fn());
 const createChannelMock = vi.hoisted(() => vi.fn());
 const lookupChannelMock = vi.hoisted(() => vi.fn());
 const updateChannelMock = vi.hoisted(() => vi.fn());
@@ -51,6 +52,7 @@ vi.mock("../../api/admin", async (importOriginal) => {
     updateOtwPlayAdminRelease: updateReleaseMock,
     recheckOtwPlaySource: recheckSourceMock,
     updateOtwPlayEntity: updateEntityMock,
+    deleteOtwPlayEntity: deleteEntityMock,
     createOtwPlayChannel: createChannelMock,
     lookupOtwPlayChannel: lookupChannelMock,
     updateOtwPlayChannel: updateChannelMock,
@@ -255,6 +257,11 @@ describe("OtwPlayCatalogManager", () => {
       catalogRevision: 8,
     });
     updateEntityMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
+    deleteEntityMock.mockReset();
+    deleteEntityMock.mockResolvedValue({
+      data: { id: "external-1" },
+      catalogRevision: 8,
+    });
     updateSongMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     updatePerformanceMock.mockResolvedValue({ data: {}, catalogRevision: 8 });
     fetchMembersMock.mockResolvedValue([
@@ -755,6 +762,114 @@ describe("OtwPlayCatalogManager", () => {
       }),
     );
     expect(nameInput.value).toBe("입력 보존");
+    consoleError.mockRestore();
+  });
+
+  it("deletes only unreferenced external identities after irreversible confirmation", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      entities: [
+        {
+          id: "external-1",
+          memberUid: null,
+          entityKind: "person",
+          displayName: "삭제 가능한 외부 인물",
+          normalizedName: "삭제 가능한 외부 인물",
+          slug: "deletable-external",
+          version: 2,
+          archivedAt: null,
+        },
+        {
+          id: "external-linked",
+          memberUid: null,
+          entityKind: "group",
+          displayName: "연결된 외부 그룹",
+          normalizedName: "연결된 외부 그룹",
+          slug: "linked-external",
+          version: 4,
+          archivedAt: null,
+        },
+      ],
+      channels: [{
+        id: "channel-linked",
+        provider: "youtube",
+        externalChannelId: `UC${"L".repeat(22)}`,
+        displayName: "연결 채널",
+        channelRole: "approved_kirinuki",
+        verificationStatus: "approved",
+        active: true,
+        entityIds: ["external-linked"],
+        version: 1,
+      }],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    const linkedDelete = screen.getByRole("button", {
+      name: "연결된 외부 그룹 삭제",
+    }) as HTMLButtonElement;
+    expect(linkedDelete.disabled).toBe(true);
+    const linkedRow = linkedDelete.closest("tr");
+    expect(linkedRow).not.toBeNull();
+    expect(within(linkedRow!).getByText("연결 사용 중 · 삭제 불가")).toBeTruthy();
+    expect(linkedDelete.getAttribute("aria-describedby")).toBe(
+      "external-entity-delete-reason-external-linked",
+    );
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "삭제 가능한 외부 인물 삭제",
+    }));
+    expect(await screen.findByText("외부 주체를 삭제할까요?")).toBeTruthy();
+    expect(screen.getByText(/이 작업은 되돌릴 수 없으며/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "영구 삭제" }));
+
+    await waitFor(() => expect(deleteEntityMock).toHaveBeenCalledWith(
+      "external-1",
+      { expectedVersion: 2 },
+    ));
+    expect(toastMock).toHaveBeenCalledWith({
+      variant: "success",
+      description: "외부 identity 삭제 작업을 완료했습니다.",
+    });
+  });
+
+  it("explains how to resolve a server-discovered external identity reference", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      entities: [{
+        id: "external-1",
+        memberUid: null,
+        entityKind: "person",
+        displayName: "숨은 참조 인물",
+        normalizedName: "숨은 참조 인물",
+        slug: "hidden-reference",
+        version: 2,
+        archivedAt: null,
+      }],
+    });
+    deleteEntityMock.mockRejectedValueOnce(
+      new ApiError("Referenced entity", 422, {
+        code: "PLAY_ADMIN_VALIDATION_FAILED",
+        fields: { entity: "referenced" },
+      }),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(screen.getByRole("button", { name: "숨은 참조 인물 삭제" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영구 삭제" }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
+      variant: "error",
+      description: "곡·가창·승인 채널·제안 또는 저장된 후보 검수에 연결된 외부 주체는 삭제할 수 없습니다. 연결을 먼저 교정하거나 보관 처리해 주세요.",
+    }));
     consoleError.mockRestore();
   });
 

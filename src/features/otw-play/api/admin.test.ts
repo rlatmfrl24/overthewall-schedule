@@ -6,6 +6,7 @@ import {
   convertOtwPlayImportCandidate,
   convertOtwPlayImportCandidates,
   createOtwPlayPerformance,
+  deleteOtwPlayEntity,
   deleteOtwPlayPerformance,
   deleteOtwPlaySong,
   deleteOtwPlayChannelMonitor,
@@ -323,6 +324,7 @@ describe("OTW Play admin API", () => {
   });
 
   it("encodes dynamic command identifiers and expected versions", async () => {
+    await deleteOtwPlayEntity("external / one", { expectedVersion: 2 });
     await publishOtwPlayPerformance("performance / one", { expectedVersion: 3 });
     await rejectOtwPlayProposal("proposal / one", {
       expectedVersion: 2,
@@ -339,11 +341,16 @@ describe("OTW Play admin API", () => {
     });
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
+      "/api/play/admin/entities/external%20%2F%20one",
+      { method: "DELETE", json: { expectedVersion: 2 }, auth: "required" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
       "/api/play/admin/performances/performance%20%2F%20one/publish",
       { method: "POST", json: { expectedVersion: 3 }, auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       "/api/play/admin/submissions/proposal%20%2F%20one/reject",
       {
         method: "POST",
@@ -352,17 +359,17 @@ describe("OTW Play admin API", () => {
       },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      3,
+      4,
       "/api/play/admin/performances/performance%20%2F%20draft",
       { method: "DELETE", json: { expectedVersion: 4 }, auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      4,
+      5,
       "/api/play/admin/songs/song%20%2F%20draft",
       { method: "DELETE", json: { expectedVersion: 5 }, auth: "required" },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      5,
+      6,
       "/api/play/admin/sources/source%20%2F%20one/recheck",
       {
         method: "POST",

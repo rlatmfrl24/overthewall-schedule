@@ -279,6 +279,10 @@ export const createAdminCatalogHandler =
         return responseJson(result, request.method === "POST" ? 201 : 200);
       }
 
+      const deleteEntityId = pathId(
+        url.pathname,
+        /^\/api\/play\/admin\/entities\/([^/]+)$/u,
+      );
       const deleteSongId = pathId(
         url.pathname,
         /^\/api\/play\/admin\/songs\/([^/]+)$/u,
@@ -287,7 +291,10 @@ export const createAdminCatalogHandler =
         url.pathname,
         /^\/api\/play\/admin\/performances\/([^/]+)$/u,
       );
-      if ((deleteSongId || deletePerformanceId) && request.method === "DELETE") {
+      if (
+        (deleteEntityId || deleteSongId || deletePerformanceId) &&
+        request.method === "DELETE"
+      ) {
         const parsed = await readBody(request, parseVersionRequest);
         if (!parsed.ok)
           return errorResponse(
@@ -298,13 +305,15 @@ export const createAdminCatalogHandler =
             parsed.fields,
           );
         return responseJson(
-          deleteSongId
-            ? await service.deleteSong(deleteSongId, parsed.value, actor)
-            : await service.deletePerformance(
-                deletePerformanceId!,
-                parsed.value,
-                actor,
-              ),
+          deleteEntityId
+            ? await service.deleteEntity(deleteEntityId, parsed.value, actor)
+            : deleteSongId
+              ? await service.deleteSong(deleteSongId, parsed.value, actor)
+              : await service.deletePerformance(
+                  deletePerformanceId!,
+                  parsed.value,
+                  actor,
+                ),
         );
       }
 

@@ -1102,6 +1102,7 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | POST     | `/api/play/admin/catalog-entries/preflight` | URL·YouTube metadata·채널·중복과 현재 revision 확인 |
 | POST     | `/api/play/admin/catalog-entries`           | 곡·가창·identity·채널을 한 atomic command로 등록 |
 | POST/PUT | `/api/play/admin/entities`                  | 인물·그룹·원곡 가수 identity 생성·수정 |
+| DELETE   | `/api/play/admin/entities/:id`              | 미참조 외부 인물·그룹 identity 정리    |
 | POST/PUT | `/api/play/admin/songs`                     | 곡 생성·수정                           |
 | DELETE   | `/api/play/admin/songs/:id`                 | published가 없는 테스트·오입력 곡 정리 |
 | POST/PUT | `/api/play/admin/performances`              | 가창 draft 생성·전체 metadata 수정     |
@@ -1114,7 +1115,15 @@ route manifest의 auth는 현재 `member-policy`를 사용하고 handler에서 �
 | CRUD     | `/api/play/admin/channels`                  | 공식 채널 검수·활성 관리               |
 | POST     | `/api/play/admin/sources/:id/recheck`       | 소스 상태 재검사                       |
 
-승인, 반려, publish, withdraw와 draft 삭제 command에는 `expectedVersion`을 요구한다.
+승인, 반려, publish, withdraw와 draft·identity 삭제 command에는 `expectedVersion`을 요구한다.
+
+외부 identity 삭제는 `member_uid IS NULL`이며 곡 원곡 가수, 가창 참여자, 승인 채널,
+공개 performance sort key, 검수 제안, 비종료 ingestion candidate의 저장된 검수 어디에서도
+참조하지 않는 row에만 허용한다. 후보 검수 저장은 선택한 기존 identity가 현재 존재하고
+보관되지 않았는지 같은 write 조건에서 재확인한다. 현재 멤버
+identity와 참조 중인 외부 identity는 `422 PLAY_ADMIN_VALIDATION_FAILED`로 거부한다. 성공한
+삭제는 `music_entity_aliases`를 cascade 정리하고 `entity.deleted` event와 catalog/read-model
+revision을 같은 D1 batch에 기록한다.
 
 통합 등록의 preflight는 mutation 없이 authoritative YouTube video/channel metadata,
 동일 source segment, 기존 채널 상태와 `members.youtube_channel_id` 및 활성

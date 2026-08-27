@@ -323,6 +323,28 @@ export class AdminCatalogService {
     return result;
   }
 
+  async deleteEntity(
+    id: string,
+    input: OtwPlayAdminExpectedVersionRequest,
+    actor: AdminCatalogActor,
+  ) {
+    validateVersion(input.expectedVersion);
+    const result = await this.repository.deleteEntity(
+      id,
+      input.expectedVersion,
+      actor,
+      this.createId(),
+      this.clock(),
+    );
+    await bestEffortAudit(this.audit, {
+      eventType: "otw_play.entity.deleted",
+      resourceType: "music_entity",
+      resourceId: id,
+      actor,
+    });
+    return result;
+  }
+
   async createSong(
     input: OtwPlayAdminCreateSongRequest,
     actor: AdminCatalogActor,

@@ -294,6 +294,14 @@ export const updateOtwPlayEntity = (json: OtwPlayAdminUpdateEntityRequest) =>
     apiRoutes.otwPlay.admin.entities.build(),
     { method: "PUT", json },
   );
+export const deleteOtwPlayEntity = (
+  id: string,
+  json: OtwPlayAdminExpectedVersionRequest,
+) =>
+  adminRequest<OtwPlayAdminCommandResponse<{ id: string }>>(
+    apiRoutes.otwPlay.admin.deleteEntity.build(id),
+    { method: "DELETE", json },
+  );
 export const createOtwPlaySong = (json: OtwPlayAdminCreateSongRequest) =>
   adminRequest<OtwPlayAdminCommandResponse<OtwPlayAdminSongDto>>(
     apiRoutes.otwPlay.admin.songs.build(),

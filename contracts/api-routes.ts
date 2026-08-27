@@ -203,6 +203,11 @@ export const apiRoutes = {
       ),
       catalogEntries: staticRoute("/api/play/admin/catalog-entries"),
       entities: staticRoute("/api/play/admin/entities"),
+      deleteEntity: dynamicRoute(
+        "/api/play/admin/entities/:id",
+        (id: string) =>
+          `/api/play/admin/entities/${encodeURIComponent(id)}` as const,
+      ),
       songs: staticRoute("/api/play/admin/songs"),
       deleteSong: dynamicRoute(
         "/api/play/admin/songs/:id",

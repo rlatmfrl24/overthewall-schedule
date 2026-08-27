@@ -609,6 +609,39 @@ describe("IngestionSection", () => {
     });
   });
 
+  it("continues ready review when a previously blocked channel is already approved", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId
+        ? {
+            items: [{
+              ...candidate(),
+              status: "needs_input" as const,
+              classification: "channel_review" as const,
+              candidateClassification: "channel_review" as const,
+              catalogChannelId: "channel-1",
+            }],
+            nextCursor: null,
+          }
+        : undefined,
+      isLoading: false,
+    }));
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    await startImportAndOpenEditor();
+
+    expect(screen.getAllByLabelText("Candidate Video 현재 상태").every(
+      (summary) => summary.textContent?.includes("카탈로그 등록 가능"),
+    )).toBe(true);
+    expect(screen.queryByText(
+      "아래에서 공식 채널을 승인하면 ready 검수를 이어갈 수 있습니다.",
+    )).toBeNull();
+    expect(screen.queryByRole("group", { name: "공식 채널 승인" })).toBeNull();
+    expect(screen.getByRole("button", { name: "ready로 저장" }).hasAttribute("disabled"))
+      .toBe(false);
+  });
+
   it("requires an explicit exceptional approval before adding an external channel", async () => {
     itemsHookMock.mockImplementation((jobId: string | null) => ({
       data: jobId

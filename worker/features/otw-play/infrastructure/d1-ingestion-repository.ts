@@ -55,6 +55,32 @@ const reviewChannelRoleForUpdateSql = `(
     AND channel.channel_role = 'approved_kirinuki')
 )`;
 
+const approvedReviewChannelExistsSql = `EXISTS (
+  SELECT 1 FROM music_channels AS channel
+  WHERE channel.provider = 'youtube'
+    AND channel.external_channel_id = candidate.channel_id
+    AND channel.verification_status = 'approved' AND channel.active = 1
+    AND ${reviewChannelRoleSql}
+)`;
+
+const effectiveCandidateClassificationSql = `CASE
+  WHEN candidate.classification = 'channel_review'
+    AND ${approvedReviewChannelExistsSql}
+    THEN 'eligible'
+  ELSE candidate.classification
+END`;
+
+const missingReviewInputEntityReferenceSql = `EXISTS (
+  SELECT 1 FROM json_tree(?) AS entity_reference
+  WHERE entity_reference.key = 'entityId'
+    AND entity_reference.type = 'text'
+    AND NOT EXISTS (
+      SELECT 1 FROM music_entities AS entity
+      WHERE entity.id = entity_reference.atom
+        AND entity.archived_at IS NULL
+    )
+)`;
+
 type JobRow = {
   id: string;
   source_external_id: string;
@@ -89,7 +115,7 @@ type JobRow = {
 const itemClassificationSql = `CASE
   WHEN origin.is_playlist_duplicate = 1 THEN 'playlist_duplicate'
   WHEN candidate.first_discovered_at < job.created_at THEN 'existing_candidate'
-  ELSE candidate.classification
+  ELSE ${effectiveCandidateClassificationSql}
 END`;
 
 const jobSelect = `SELECT job.*,
@@ -421,7 +447,7 @@ export class D1IngestionRepository implements IngestionRepository {
         candidate.version AS candidate_version, origin.playlist_position,
         origin.playlist_item_id, candidate.external_video_id,
         candidate.status, ${itemClassificationSql} AS item_classification,
-        candidate.classification AS candidate_classification,
+        ${effectiveCandidateClassificationSql} AS candidate_classification,
         candidate.exclusion_reason, candidate.title, candidate.channel_id,
         candidate.channel_title,
         (SELECT channel.id FROM music_channels AS channel
@@ -1106,7 +1132,8 @@ export class D1IngestionRepository implements IngestionRepository {
     const row = await this.database.prepare(
       `SELECT candidate.id, candidate.version, candidate.external_video_id,
         candidate.candidate_kind,
-        candidate.status, candidate.classification,
+        candidate.status,
+        ${effectiveCandidateClassificationSql} AS classification,
         (SELECT channel.id FROM music_channels AS channel
           WHERE channel.provider = 'youtube'
             AND channel.external_channel_id = candidate.channel_id
@@ -1212,6 +1239,16 @@ export class D1IngestionRepository implements IngestionRepository {
         "Candidate kind does not match the reviewed release type",
       );
     }
+    const reviewInputJson = JSON.stringify(command.input);
+    const missingEntityReference = await this.database.prepare(
+      `SELECT ${missingReviewInputEntityReferenceSql} AS missing`,
+    ).bind(reviewInputJson).first<{ missing: number }>();
+    if (Number(missingEntityReference?.missing ?? 0) !== 0) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "Candidate review references a missing or archived identity",
+      );
+    }
     await this.database.batch([
       this.database.prepare(
         `UPDATE music_ingestion_candidates
@@ -1220,7 +1257,7 @@ export class D1IngestionRepository implements IngestionRepository {
            last_conversion_outcome = NULL, last_conversion_error_code = NULL,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ?
-           AND classification IN ('eligible', 'scope_review')
+           AND classification IN ('eligible', 'scope_review', 'channel_review')
            AND status <> 'converted'
            AND ((candidate_kind = 'official_video'
                AND ? IN ('official_mv', 'official_video'))
@@ -1228,18 +1265,20 @@ export class D1IngestionRepository implements IngestionRepository {
            AND EXISTS (
              SELECT 1 FROM music_channels AS channel
              WHERE channel.provider = 'youtube'
-               AND channel.external_channel_id = music_ingestion_candidates.channel_id
-               AND channel.verification_status = 'approved' AND channel.active = 1
-                AND ${reviewChannelRoleForUpdateSql}
-           )`,
+                AND channel.external_channel_id = music_ingestion_candidates.channel_id
+                AND channel.verification_status = 'approved' AND channel.active = 1
+                 AND ${reviewChannelRoleForUpdateSql}
+            )
+            AND NOT (${missingReviewInputEntityReferenceSql})`,
       ).bind(
-        JSON.stringify(command.input),
+        reviewInputJson,
         command.actorUserId,
         command.now,
         command.candidateId,
         expectedVersion,
         command.input.releaseType,
         command.input.releaseType,
+        reviewInputJson,
       ),
       this.database.prepare(
         `INSERT INTO music_ingestion_events (

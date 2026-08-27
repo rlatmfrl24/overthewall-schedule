@@ -26,7 +26,7 @@ const id = (prefix: string) => `${prefix}-${++idSequence}`;
 const createEntity = async (
   repository: D1AdminCatalogRepository,
   name: string,
-  kind: "person" | "organization" = "person",
+  kind: "person" | "group" | "organization" = "person",
 ) =>
   repository.createEntity(
     {
@@ -1299,6 +1299,185 @@ describe("D1AdminCatalogRepository", () => {
       performances: 0,
       sources: 0,
     });
+  });
+
+  it("deletes only unreferenced external identities and preserves protected identities", async () => {
+    const repository = new D1AdminCatalogRepository(db);
+    const external = await createEntity(repository, "Disposable Group", "group");
+    await db
+      .prepare(
+        `INSERT INTO music_entity_aliases
+         (entity_id, alias, normalized_alias, locale, alias_kind)
+         VALUES (?, 'Disposable Alias', 'disposable alias', 'en', 'alternate')`,
+      )
+      .bind(external.data.id)
+      .run();
+
+    const deleted = await repository.deleteEntity(
+      external.data.id,
+      external.data.version,
+      actor,
+      id("event"),
+      NOW + 1,
+    );
+    const [deletedRows, deleteEvent, meta, foreignKeys] = await Promise.all([
+      db
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM music_entities WHERE id = ?) AS entities,
+             (SELECT COUNT(*) FROM music_entity_aliases WHERE entity_id = ?) AS aliases`,
+        )
+        .bind(external.data.id, external.data.id)
+        .first<Record<string, number>>(),
+      db
+        .prepare(
+          `SELECT before_json FROM music_catalog_events
+           WHERE aggregate_id = ? AND event_type = 'entity.deleted'`,
+        )
+        .bind(external.data.id)
+        .first<{ before_json: string }>(),
+      db
+        .prepare(
+          `SELECT catalog.revision, read_model.revision AS read_model_revision
+           FROM music_catalog_meta AS catalog
+           JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+           WHERE catalog.id = 1`,
+        )
+        .first<{ revision: number; read_model_revision: number }>(),
+      db.prepare("PRAGMA foreign_key_check").all(),
+    ]);
+    expect(deletedRows).toEqual({ entities: 0, aliases: 0 });
+    expect(JSON.parse(deleteEvent!.before_json)).toMatchObject({
+      displayName: "Disposable Group",
+      entityKind: "group",
+      version: external.data.version,
+    });
+    expect(meta?.revision).toBe(deleted.catalogRevision);
+    expect(meta?.read_model_revision).toBe(deleted.catalogRevision);
+    expect(foreignKeys.results).toEqual([]);
+
+    const staleExternal = await createEntity(repository, "Stale External");
+    await expect(
+      repository.deleteEntity(
+        staleExternal.data.id,
+        staleExternal.data.version + 1,
+        actor,
+        id("event"),
+        NOW + 2,
+      ),
+    ).rejects.toMatchObject({ code: "stale_write" });
+
+    const candidateReferenced = await createEntity(
+      repository,
+      "Candidate Review Singer",
+    );
+    await db.prepare(
+      `INSERT INTO music_ingestion_candidates (
+        id, provider, external_video_id, candidate_kind, status,
+        classification, title, availability_status, review_input_json,
+        first_discovered_at, last_discovered_at, retention_expires_at,
+        version, created_at, updated_at
+      ) VALUES ('youtube:EnTiTyReF01', 'youtube', 'EnTiTyReF01',
+        'official_video', 'ready', 'eligible', 'Entity Reference Candidate',
+        'playable', ?, ?, ?, ?, 0, ?, ?)`,
+    ).bind(
+      JSON.stringify({
+        participants: [{
+          subject: {
+            kind: "entity",
+            entityId: candidateReferenced.data.id,
+          },
+        }],
+      }),
+      NOW,
+      NOW,
+      NOW + 90 * 86_400_000,
+      NOW,
+      NOW,
+    ).run();
+    await expect(
+      repository.deleteEntity(
+        candidateReferenced.data.id,
+        candidateReferenced.data.version,
+        actor,
+        id("event"),
+        NOW + 3,
+      ),
+    ).rejects.toMatchObject({
+      code: "validation_failed",
+      fields: {
+        entity: "referenced",
+        references: expect.stringContaining("ingestionCandidates:1"),
+      },
+    });
+    await db.prepare(
+      `UPDATE music_ingestion_candidates
+       SET status = 'converted', classification = 'existing_catalog'
+       WHERE id = 'youtube:EnTiTyReF01'`,
+    ).run();
+    await expect(
+      repository.deleteEntity(
+        candidateReferenced.data.id,
+        candidateReferenced.data.version,
+        actor,
+        id("event"),
+        NOW + 4,
+      ),
+    ).resolves.toMatchObject({ data: { id: candidateReferenced.data.id } });
+
+    await db.batch([
+      db.prepare(
+        `INSERT INTO members
+         (uid, code, name, youtube_channel_id, is_deprecated)
+         VALUES (901, 'protected-member', 'Protected Member', NULL, 0)`,
+      ),
+      db
+        .prepare(
+          `INSERT INTO music_entities (
+             id, member_uid, entity_kind, display_name, normalized_name, slug,
+             version, created_at, updated_at
+           ) VALUES ('protected-member', 901, 'person', 'Protected Member',
+                     'protected member', 'protected-member', 0, ?, ?)`,
+        )
+        .bind(NOW, NOW),
+    ]);
+    await expect(
+      repository.deleteEntity(
+        "protected-member",
+        0,
+        actor,
+        id("event"),
+        NOW + 3,
+      ),
+    ).rejects.toMatchObject({
+      code: "validation_failed",
+      fields: { entity: "member_identity" },
+    });
+
+    const referenced = await createDraftFixture(
+      repository,
+      "referenced",
+      "rEfErEnCe_1",
+    );
+    const revisionBeforeRejectedDelete = (await repository.readCatalog()).revision;
+    await expect(
+      repository.deleteEntity(
+        referenced.singer.data.id,
+        referenced.singer.data.version,
+        actor,
+        id("event"),
+        NOW + 4,
+      ),
+    ).rejects.toMatchObject({
+      code: "validation_failed",
+      fields: {
+        entity: "referenced",
+        references: expect.stringContaining("songs:1"),
+      },
+    });
+    expect((await repository.readCatalog()).revision).toBe(
+      revisionBeforeRejectedDelete,
+    );
   });
 
   it("rolls back the integrated entry when its event fails and rejects a stale preflight revision", async () => {

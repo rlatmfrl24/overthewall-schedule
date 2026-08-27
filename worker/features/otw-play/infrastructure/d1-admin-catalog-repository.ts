@@ -325,6 +325,20 @@ const versionGuard = (database: D1Database) =>
     WHERE id = 1
   `);
 
+const activeIngestionCandidateEntityReferenceSql = `EXISTS (
+  SELECT 1
+  FROM json_tree(
+    CASE
+      WHEN json_valid(candidate.review_input_json)
+        THEN candidate.review_input_json
+      ELSE 'null'
+    END
+  ) AS entity_reference
+  WHERE entity_reference.key = 'entityId'
+    AND entity_reference.type = 'text'
+    AND entity_reference.atom = ?
+)`;
+
 export class D1AdminCatalogRepository implements AdminCatalogRepository {
   private readonly database: D1Database;
 
@@ -926,6 +940,129 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     ];
     await this.executeCatalogBatch(statements, Number(meta.revision), now);
     return this.readEntity(input.id);
+  }
+
+  async deleteEntity(
+    id: string,
+    expectedVersion: number,
+    actor: AdminCatalogActor,
+    eventId: string,
+    now: number,
+  ) {
+    const meta = await this.readRevision();
+    const current = await this.database
+      .prepare(
+        `SELECT member_uid, entity_kind, display_name, version
+         FROM music_entities WHERE id = ?`,
+      )
+      .bind(id)
+      .first<{
+        member_uid: number | null;
+        entity_kind: string;
+        display_name: string;
+        version: number;
+      }>();
+    if (!current) {
+      throw new AdminCatalogRepositoryError("not_found", "Entity not found");
+    }
+    if (Number(current.version) !== expectedVersion) {
+      throw new AdminCatalogRepositoryError(
+        "stale_write",
+        "Entity changed since it was loaded",
+      );
+    }
+    if (current.member_uid !== null) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Member identities cannot be deleted from the catalog",
+        { entity: "member_identity" },
+      );
+    }
+
+    const references = await this.database
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM music_song_original_artists WHERE entity_id = ?) AS songs,
+           (SELECT COUNT(*) FROM music_performance_participants WHERE entity_id = ?) AS performances,
+           (SELECT COUNT(*) FROM music_channel_entities WHERE entity_id = ?) AS channels,
+           (SELECT COUNT(*) FROM music_public_performance_sort_keys
+             WHERE representative_participant_entity_id = ?) AS sort_keys,
+           ((SELECT COUNT(*) FROM music_cover_proposal_participants
+              WHERE resolved_entity_id = ?) +
+            (SELECT COUNT(*) FROM music_cover_proposal_original_artists
+              WHERE resolved_entity_id = ?)) AS proposals,
+           (SELECT COUNT(*) FROM music_ingestion_candidates AS candidate
+             WHERE candidate.status NOT IN ('converted', 'ignored')
+               AND candidate.review_input_json IS NOT NULL
+               AND ${activeIngestionCandidateEntityReferenceSql}
+           ) AS ingestion_candidates`,
+      )
+      .bind(id, id, id, id, id, id, id)
+      .first<{
+        songs: number;
+        performances: number;
+        channels: number;
+        sort_keys: number;
+        proposals: number;
+        ingestion_candidates: number;
+      }>();
+    const referenceCounts = {
+      songs: Number(references?.songs ?? 0),
+      performances: Number(references?.performances ?? 0),
+      channels: Number(references?.channels ?? 0),
+      sortKeys: Number(references?.sort_keys ?? 0),
+      proposals: Number(references?.proposals ?? 0),
+      ingestionCandidates: Number(references?.ingestion_candidates ?? 0),
+    };
+    if (Object.values(referenceCounts).some((count) => count > 0)) {
+      throw new AdminCatalogRepositoryError(
+        "validation_failed",
+        "Referenced entities cannot be deleted",
+        {
+          entity: "referenced",
+          references: Object.entries(referenceCounts)
+            .filter(([, count]) => count > 0)
+            .map(([kind, count]) => `${kind}:${count}`)
+            .join(","),
+        },
+      );
+    }
+
+    const statements: D1PreparedStatement[] = [
+      this.database
+        .prepare(
+          `DELETE FROM music_entities
+           WHERE id = ? AND version = ? AND member_uid IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM music_ingestion_candidates AS candidate
+               WHERE candidate.status NOT IN ('converted', 'ignored')
+                 AND candidate.review_input_json IS NOT NULL
+                 AND ${activeIngestionCandidateEntityReferenceSql}
+             )`,
+        )
+        .bind(id, expectedVersion, id),
+      versionGuard(this.database),
+      this.database
+        .prepare(
+          `INSERT INTO music_catalog_events
+          (id, aggregate_type, aggregate_id, event_type, actor_kind, actor_user_id,
+           before_json, created_at)
+          VALUES (?, 'entity', ?, 'entity.deleted', 'admin', ?, ?, ?)`,
+        )
+        .bind(
+          eventId,
+          id,
+          actor.userId,
+          eventJson({
+            displayName: current.display_name,
+            entityKind: current.entity_kind,
+            version: expectedVersion,
+          }),
+          now,
+        ),
+    ];
+    await this.executeCatalogBatch(statements, Number(meta.revision), now);
+    return { data: { id }, catalogRevision: Number(meta.revision) + 1 };
   }
 
   async createSong(
