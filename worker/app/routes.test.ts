@@ -16,6 +16,12 @@ const ADMIN_POST = {
   cache: "no-store",
   successStatus: 200,
 } as const;
+const ADMIN_POST_ACCEPTED = {
+  method: "POST",
+  auth: "admin",
+  cache: "no-store",
+  successStatus: 202,
+} as const;
 const ADMIN_PUT = {
   method: "PUT",
   auth: "admin",
@@ -38,6 +44,12 @@ const PUBLIC_GET = {
   method: "GET",
   auth: "public",
   cache: "no-store",
+  successStatus: 200,
+} as const;
+const LIVE_STATUS_GET = {
+  method: "GET",
+  auth: "public",
+  cache: "public, max-age=0, s-maxage=45, must-revalidate",
   successStatus: 200,
 } as const;
 const PUBLIC_MEDIA_GET = {
@@ -153,7 +165,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "chzzk.live-status",
     owner: "chzzk",
     path: "/api/live-status",
-    methods: [PUBLIC_GET],
+    methods: [LIVE_STATUS_GET],
   },
   {
     id: "chzzk.vods",
@@ -178,6 +190,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     owner: "youtube",
     path: "/api/youtube/cache/status",
     methods: [ADMIN_GET],
+  },
+  {
+    id: "youtube.cache-refresh",
+    owner: "youtube",
+    path: "/api/youtube/cache/refresh",
+    methods: [ADMIN_POST],
   },
   {
     id: "youtube.cache-warmup",
@@ -643,10 +661,28 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
+    id: "operations.runs",
+    owner: "operations",
+    path: "/api/operations/runs",
+    methods: [ADMIN_GET, ADMIN_POST_ACCEPTED],
+  },
+  {
+    id: "operations.run",
+    owner: "operations",
+    path: "/api/operations/runs/:runId",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "operations.run-retry",
+    owner: "operations",
+    path: "/api/operations/runs/:runId/retry",
+    methods: [ADMIN_POST_ACCEPTED],
+  },
+  {
     id: "operations.naver-cafe-check",
     owner: "naver-cafe",
     path: "/api/operations/naver-cafe/check-now",
-    methods: [ADMIN_POST],
+    methods: [ADMIN_POST_ACCEPTED],
   },
   {
     id: "operations.retention-status",
@@ -658,7 +694,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "operations.retention-prune",
     owner: "operations",
     path: "/api/operations/data-retention/prune",
-    methods: [ADMIN_POST],
+    methods: [ADMIN_POST_ACCEPTED],
   },
   {
     id: "operations.live-schedule-auto-fill",
@@ -695,13 +731,13 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "settings.run-now",
     owner: "schedules",
     path: "/api/settings/run-now",
-    methods: [ADMIN_POST],
+    methods: [ADMIN_POST_ACCEPTED],
   },
   {
     id: "settings.x-collection-run",
     owner: "x-posts",
     path: "/api/settings/x-collection/run-now",
-    methods: [ADMIN_POST],
+    methods: [ADMIN_POST_ACCEPTED],
   },
   {
     id: "settings.pending-list",

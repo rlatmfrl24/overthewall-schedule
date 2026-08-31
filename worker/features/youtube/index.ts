@@ -2,6 +2,7 @@ export {
   createYouTubeApplication,
   YouTubeAllowlistUnavailableError,
   YouTubeApiKeyUnavailableError,
+  YouTubeCacheRefreshInProgressError,
   YouTubeTargetsNotAllowedError,
   type YouTubeApplication,
   type YouTubeApplicationPorts,
@@ -18,6 +19,13 @@ export { buildYouTubeApplication } from "./infrastructure/youtube-adapters";
 export { createD1KirinukiRepository } from "./infrastructure/d1-kirinuki-repository";
 export {
   getYouTubeWarmupStatus,
-  runScheduledYouTubeWarmup,
-  runYouTubeWarmup,
+  readYouTubeWarmupSettings,
+  readYouTubeWarmupTargets,
+  runManualYouTubeCacheRefresh,
 } from "./infrastructure/youtube-warmup";
+export type { YouTubeWarmupTarget } from "./infrastructure/youtube-warmup";
+export {
+  reserveYouTubeQuota,
+  YouTubeQuotaAdmissionError,
+  type YouTubeQuotaPriority,
+} from "./infrastructure/youtube-quota";

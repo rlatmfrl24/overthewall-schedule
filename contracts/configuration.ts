@@ -49,6 +49,8 @@ export const DEFAULT_YOUTUBE_WARMUP_ENABLED = "true";
 export const DEFAULT_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 1000;
 export const MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 1;
 export const MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 10_000;
+export const YOUTUBE_API_DAILY_QUOTA_SETTING_KEY =
+  "youtube_api_daily_quota_units" as const;
 export const LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY =
   "live_schedule_auto_fill_enabled";
 export const OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY =
@@ -77,6 +79,7 @@ export interface AdminSettingsDto {
   youtube_warmup_official_enabled: BooleanSettingValue;
   youtube_warmup_kirinuki_enabled: BooleanSettingValue;
   youtube_warmup_last_run: string | null;
+  youtube_api_daily_quota_units: string;
   otw_play_submission_daily_limit: string;
 }
 
@@ -99,6 +102,7 @@ export const SETTINGS_KEYS = [
   "youtube_warmup_official_enabled",
   "youtube_warmup_kirinuki_enabled",
   "youtube_warmup_last_run",
+  YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
   OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
   LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
 ] as const satisfies readonly (keyof AdminSettingsDto)[];
@@ -432,6 +436,12 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     key: "youtube_warmup_last_run",
     writable: false,
     normalize: passthroughNullable,
+  },
+  {
+    key: YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
+    writable: true,
+    normalize: normalizeYouTubeWarmupDailyQuotaUnits,
+    validate: isYouTubeWarmupDailyQuotaUnitsValue,
   },
   {
     key: OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,

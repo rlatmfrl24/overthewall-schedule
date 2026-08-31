@@ -22,6 +22,9 @@ export {
   type XPostFeedServiceOptions,
 } from "./infrastructure/x-posts-adapters";
 export {
+  getScheduledXCollectionDecision,
+  readActiveXHandles,
   runScheduledXCollection,
   runXCollection,
+  runXCollectionForHandles,
 } from "./infrastructure/x-collection";

@@ -25,6 +25,7 @@ const requireAdminUserMock = vi.hoisted(() =>
 const getDbMock = vi.hoisted(() => vi.fn(() => ({ id: "db" })));
 const runXCollectionMock = vi.hoisted(() => vi.fn());
 const insertAdminAuditLogMock = vi.hoisted(() => vi.fn());
+const enqueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../platform/auth", () => ({
   requireAdminUser: requireAdminUserMock,
@@ -47,6 +48,7 @@ vi.mock("../../../platform/http-helpers", () => ({
 const env = { otw_db: {} as D1Database } as Env;
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
+  enqueueMock,
 );
 const makeRequest = () =>
   new Request("https://example.com/api/settings/x-collection/run-now", {
@@ -62,65 +64,46 @@ describe("manual X collection handler", () => {
     });
     runXCollectionMock.mockReset();
     insertAdminAuditLogMock.mockReset();
+    enqueueMock.mockReset();
+    enqueueMock.mockResolvedValue({
+      runId: "run-x",
+      jobType: "x_collection",
+      status: "queued",
+      acceptedAt: 1,
+      idempotencyKey: "manual:x:test",
+      statusUrl: "/api/operations/runs/run-x",
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("수동 수집 결과와 성공 감사 로그 계약을 보존한다", async () => {
-    const result = {
-      status: "success",
-      checkedHandles: 4,
-      refreshedHandles: 3,
-      postsReturned: 9,
-      postsStored: 8,
-      apiCalls: 3,
-      estimatedCostMicros: 1200,
-      error: null,
-      updatedAt: "2026-07-28T00:00:00.000Z",
-    };
-    runXCollectionMock.mockResolvedValue(result);
-
+  it("수동 수집을 비동기 operation으로 접수한다", async () => {
     const response = await handleManualXCollection(makeRequest(), env);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual(result);
-    expect(runXCollectionMock).toHaveBeenCalledWith(env, "manual");
-    expect(insertAdminAuditLogMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        eventType: "manual_collection.x",
-        status: "success",
-        targetCount: 4,
-        successCount: 3,
-      }),
+    expect(response.headers.get("Location")).toBe(
+      "/api/operations/runs/run-x",
     );
+    expect(await response.json()).toMatchObject({ runId: "run-x" });
+    expect(enqueueMock).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ actorId: "admin" }),
+      null,
+    );
+    expect(runXCollectionMock).not.toHaveBeenCalled();
   });
 
-  it("예외를 실패 payload와 감사 로그로 변환한다", async () => {
+  it("대기열 접수 실패를 503으로 변환한다", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    runXCollectionMock.mockRejectedValue(new Error("rate limited"));
+    enqueueMock.mockRejectedValue(new Error("queue unavailable"));
 
     const response = await handleManualXCollection(makeRequest(), env);
-    const body = (await response.json()) as Record<string, unknown>;
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(body).toMatchObject({
-      success: false,
-      status: "failed",
-      error: "rate limited",
-      apiCalls: 0,
-    });
-    expect(insertAdminAuditLogMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        status: "failed",
-        failureCount: 1,
-        error: "rate limited",
-      }),
-    );
+    expect(response.headers.get("Retry-After")).toBe("60");
   });
 });

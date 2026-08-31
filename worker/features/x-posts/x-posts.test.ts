@@ -118,12 +118,48 @@ const makeCacheDb = (
   const sources = new Map<string, FakePostSourceRecord>();
   const usageEvents: FakeUsageEventRecord[] = [];
   const collectionRuns: FakeCollectionRunRecord[] = [];
+  let xBudgetLedger: {
+    day: string;
+    reserved: number;
+    used: number;
+    limit: number;
+  } | null = null;
   const db = {
     prepare(sql: string) {
       return {
         bind(...args: unknown[]) {
           return {
             async first<T>() {
+              if (sql.includes("INSERT INTO scheduled_usage_daily")) {
+                const [day, requested, observedUsed, limit] = args;
+                const current = xBudgetLedger?.day === String(day)
+                  ? xBudgetLedger
+                  : {
+                      day: String(day),
+                      reserved: 0,
+                      used: 0,
+                      limit: Number(limit),
+                    };
+                const used = Math.max(current.used, Number(observedUsed));
+                if (used + current.reserved + Number(requested) > Number(limit)) {
+                  return null as T | null;
+                }
+                xBudgetLedger = {
+                  day: String(day),
+                  reserved: current.reserved + Number(requested),
+                  used,
+                  limit: Number(limit),
+                };
+                return { reserved: xBudgetLedger.reserved } as T;
+              }
+              if (
+                sql.includes("SELECT limit_value AS limitValue") &&
+                sql.includes("x_api_cost_micros")
+              ) {
+                return (xBudgetLedger
+                  ? { limitValue: xBudgetLedger.limit }
+                  : null) as T | null;
+              }
               if (sql.includes("FROM x_post_sources")) {
                 return (sources.get(String(args[0])) ?? null) as T | null;
               }
@@ -177,6 +213,18 @@ const makeCacheDb = (
               return { results: [] as T[] };
             },
             async run() {
+              if (
+                sql.includes("UPDATE scheduled_usage_daily") &&
+                sql.includes("x_api_cost_micros") &&
+                xBudgetLedger
+              ) {
+                const [released, used] = args;
+                xBudgetLedger.reserved = Math.max(
+                  0,
+                  xBudgetLedger.reserved - Number(released),
+                );
+                xBudgetLedger.used += Number(used);
+              }
               if (sql.includes("INSERT INTO settings")) {
                 const [key, value] = args;
                 store.set(String(key), { value: String(value) });
@@ -194,25 +242,27 @@ const makeCacheDb = (
                 if (options.failStoredPostWrites) {
                   throw new Error("stored post write failed");
                 }
-                const [
-                  id,
-                  handle,
-                  userId,
-                  username,
-                  value,
-                  createdAt,
-                  fetchedAt,
-                ] = args;
-                posts.set(String(id), {
-                  id: String(id),
-                  handle: String(handle),
-                  user_id: userId === null ? null : String(userId),
-                  username: String(username),
-                  value: String(value),
-                  created_at: String(createdAt),
-                  fetched_at: Number(fetchedAt),
-                  hidden_at: null,
-                });
+                for (let index = 0; index < args.length; index += 7) {
+                  const [
+                    id,
+                    handle,
+                    userId,
+                    username,
+                    value,
+                    createdAt,
+                    fetchedAt,
+                  ] = args.slice(index, index + 7);
+                  posts.set(String(id), {
+                    id: String(id),
+                    handle: String(handle),
+                    user_id: userId === null ? null : String(userId),
+                    username: String(username),
+                    value: String(value),
+                    created_at: String(createdAt),
+                    fetched_at: Number(fetchedAt),
+                    hidden_at: null,
+                  });
+                }
               }
               if (sql.includes("INSERT INTO x_post_sources")) {
                 const [

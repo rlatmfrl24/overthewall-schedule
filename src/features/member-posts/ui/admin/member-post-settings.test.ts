@@ -14,6 +14,8 @@ import { MemberPostSettingsManager } from "./member-post-settings";
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
 const updateSettingsMock = vi.hoisted(() => vi.fn());
 const runXCollectionNowMock = vi.hoisted(() => vi.fn());
+const runNaverCafeCheckNowMock = vi.hoisted(() => vi.fn());
+const fetchOperationsStatusMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const useScheduleDataMock = vi.hoisted(() => vi.fn());
 const useXPostsMock = vi.hoisted(() => vi.fn());
@@ -30,7 +32,10 @@ vi.mock("@/features/configuration", async (importOriginal) => {
 });
 
 vi.mock("@/features/operations", () => ({
+  fetchOperationsStatus: fetchOperationsStatusMock,
+  runNaverCafeCheckNow: runNaverCafeCheckNowMock,
   runXCollectionNow: runXCollectionNowMock,
+  useOperationRun: () => ({ data: null, isLoading: false }),
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -162,17 +167,125 @@ describe("MemberPostSettingsManager", () => {
     });
     fetchSettingsMock.mockResolvedValue(makeSettings());
     updateSettingsMock.mockResolvedValue(undefined);
+    fetchOperationsStatusMock.mockResolvedValue({
+      updatedAt: "2026-05-28T08:05:00.000Z",
+      window: {
+        hours: 24,
+        since: Date.parse("2026-05-27T08:05:00.000Z"),
+      },
+      summary: { status: "ok", issues: [] },
+      autoUpdate: {
+        enabled: true,
+        intervalHours: 6,
+        rangeDays: 3,
+        lastRun: null,
+        nextEligibleAt: null,
+        pending: { total: 0, createCount: 0, updateCount: 0 },
+        rejectionCount: 0,
+        latestRun: null,
+        recentRuns: [],
+      },
+      xCollection: {
+        enabled: true,
+        intervalHours: 2,
+        dailyBudgetCents: 100,
+        lastRun: Date.parse("2026-05-28T08:00:00.000Z"),
+        nextEligibleAt: Date.parse("2026-05-28T10:00:00.000Z"),
+        latestRun: {
+          id: 1,
+          source: "manual",
+          status: "success",
+          startedAt: Date.parse("2026-05-28T07:59:00.000Z"),
+          finishedAt: Date.parse("2026-05-28T08:00:00.000Z"),
+          checkedHandles: 2,
+          refreshedHandles: 2,
+          postsReturned: 4,
+          postsStored: 4,
+          apiCalls: 4,
+          estimatedCostMicros: 40_000,
+          error: null,
+        },
+        recentRuns: [],
+        feed: {
+          visibility: "members",
+          publicPath: "/feed",
+          monitorPath: "/admin/member-posts",
+          apiPath: "/api/member-posts?sources=x&admin=1",
+        },
+        usage: {
+          apiCalls: 4,
+          estimatedCostMicros: 40_000,
+          resourceCount: 4,
+          successCount: 4,
+          failureCount: 0,
+          rateLimitCount: 0,
+          quota: {
+            dailyBudgetMicros: 1_000_000,
+            todayUsedMicros: 40_000,
+            todayRemainingMicros: 960_000,
+            todayBudgetUsedPercent: 4,
+          },
+          daily: [],
+          byOperation: [],
+          forceRefreshPaths: [],
+        },
+      },
+      naverCafe: {
+        enabled: true,
+        visibility: "members",
+        collection: {
+          intervalHours: 1,
+          lastRun: Date.parse("2026-05-28T07:55:00.000Z"),
+          nextEligibleAt: Date.parse("2026-05-28T09:00:00.000Z"),
+        },
+        publicPath: "/feed",
+        monitorPath: "/admin/member-posts",
+        apiPath: "/api/member-posts?sources=naver-cafe&admin=1",
+        sourceCount: 1,
+        enabledSourceCount: 1,
+        staleSourceCount: 0,
+        failingSourceCount: 0,
+        disabledSourceCount: 0,
+        sources: [
+          {
+            sourceId: 1,
+            sourceName: "테스트 게시판",
+            cafeId: "31352147",
+            menuId: "9",
+            enabled: true,
+            latestCheck: {
+              id: 1,
+              trigger: "scheduled",
+              status: "ok",
+              checkedAt: Date.parse("2026-05-28T07:55:00.000Z"),
+              durationMs: 120,
+              postCount: 2,
+              error: null,
+            },
+            lastSuccessAt: Date.parse("2026-05-28T07:55:00.000Z"),
+            latestError: null,
+            disabledReason: null,
+            stale: false,
+            failing: false,
+          },
+        ],
+      },
+    });
     runXCollectionNowMock.mockResolvedValue({
-      success: true,
-      status: "success",
-      checkedHandles: 2,
-      refreshedHandles: 2,
-      postsReturned: 4,
-      postsStored: 4,
-      apiCalls: 4,
-      estimatedCostMicros: 40_000,
-      error: null,
-      updatedAt: "2026-05-28T08:00:00.000Z",
+      runId: "run-x",
+      jobType: "x_collection",
+      status: "queued",
+      acceptedAt: 1,
+      idempotencyKey: "manual:x:test",
+      statusUrl: "/api/operations/runs/run-x",
+    });
+    runNaverCafeCheckNowMock.mockResolvedValue({
+      runId: "run-naver",
+      jobType: "naver_cafe_collection",
+      status: "queued",
+      acceptedAt: 1,
+      idempotencyKey: "manual:naver:test",
+      statusUrl: "/api/operations/runs/run-naver",
     });
   });
 
@@ -181,39 +294,84 @@ describe("MemberPostSettingsManager", () => {
     vi.clearAllMocks();
   });
 
-  it("X 수집 주기와 수동 실행 결과를 표시한다", async () => {
+  it("X 탭에서 설정, 비용과 계정 모니터링을 분리해 표시한다", async () => {
     render(createElement(MemberPostSettingsManager), {
       wrapper: createQueryWrapper(),
     });
 
     await waitFor(() => expect(screen.getByText("수집 주기")).toBeTruthy());
+    expect(
+      screen.getByRole("tab", { name: /X 수집/ }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByText("2시간마다")).toBeTruthy();
     expect(screen.getByText(/마지막 실행:/)).toBeTruthy();
-    expect(screen.getByText("피드 모니터링")).toBeTruthy();
-    expect(screen.getByText("조회 응답 게시글")).toBeTruthy();
-    expect(screen.getByText("X 계정별 응답")).toBeTruthy();
+    expect(screen.getByText("X 현재 운영 상태")).toBeTruthy();
+    expect(screen.getByText("X 수집 정책")).toBeTruthy();
+    expect(screen.getByText("X 수집 상태와 비용")).toBeTruthy();
+    expect(screen.getByText("X 수집 모니터링")).toBeTruthy();
+    expect(screen.getAllByText("오늘 예산").length).toBeGreaterThan(0);
+    expect(screen.getByRole("progressbar", { name: "X API 일일 예산 사용률" })).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText(/수동 · 성공 · 저장 4건/)).toBeTruthy(),
+    );
+    expect(screen.getByText("X 계정별 관리자 피드 응답")).toBeTruthy();
     expect(screen.getByText("테스트 멤버 · @otw_member")).toBeTruthy();
-    expect(screen.getByText("카페 게시판별 응답")).toBeTruthy();
-    expect(screen.getByText("테스트 게시판")).toBeTruthy();
+    expect(screen.queryByText("카페 소스 관리")).toBeNull();
     expect(useXPostsMock).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({ admin: true, maxResults: 10 }),
+      expect.objectContaining({ admin: true, enabled: true, maxResults: 10 }),
     );
     expect(useNaverCafePostsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ admin: true, enabled: true, size: 10 }),
+      expect.objectContaining({ admin: true, enabled: false, size: 10 }),
     );
+    expect(fetchOperationsStatusMock).toHaveBeenCalledWith(24);
 
     const runButton = screen.getByRole("button", { name: /지금 수집/ });
     fireEvent.click(runButton);
 
     await waitFor(() => expect(runXCollectionNowMock).toHaveBeenCalled());
-    expect(screen.getByText("완료")).toBeTruthy();
-    expect(screen.getByText("확인 2개")).toBeTruthy();
-    expect(screen.getByText("저장 4개")).toBeTruthy();
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({
         variant: "success",
-        description: "X 게시글 4개를 저장했습니다.",
+        description: "X 게시글 수집이 대기열에 등록되었습니다.",
+      }),
+    );
+  });
+
+  it("네이버 카페 탭은 소스 설정과 게시판별 모니터링만 표시한다", async () => {
+    render(createElement(MemberPostSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const cafeTab = await screen.findByRole("tab", {
+      name: /네이버 카페 수집/,
+    });
+    fireEvent.click(cafeTab);
+
+    expect(cafeTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("네이버 카페 현재 운영 상태")).toBeTruthy();
+    expect(screen.getByText("네이버 카페 수집 정책")).toBeTruthy();
+    expect(screen.getByText("카페 소스 관리")).toBeTruthy();
+    expect(screen.getByText("네이버 카페 소스 상태")).toBeTruthy();
+    expect(screen.getByText("네이버 카페 수집 모니터링")).toBeTruthy();
+    expect(screen.getByText("게시판별 소스 점검 상태")).toBeTruthy();
+    expect(screen.getByText("테스트 게시판")).toBeTruthy();
+    expect(
+      screen.getByRole("progressbar", {
+        name: "활성 네이버 카페 게시판 정상 비율",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText("X 백그라운드 수집")).toBeNull();
+    expect(useNaverCafePostsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ admin: true, enabled: true, size: 10 }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "지금 점검" }));
+    await waitFor(() => expect(runNaverCafeCheckNowMock).toHaveBeenCalled());
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variant: "success",
+        description: "네이버 카페 점검이 대기열에 등록되었습니다.",
       }),
     );
   });

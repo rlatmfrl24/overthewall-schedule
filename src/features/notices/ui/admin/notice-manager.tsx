@@ -55,6 +55,10 @@ import {
   getNoticeLinks,
   getNoticeRelatedMemberUids,
 } from "../../model/notice-content";
+import {
+  getNoticePublicationStatus,
+  type NoticePublicationStatus,
+} from "../../model/notice-visibility";
 
 const noticeTypeConfigs = {
   notice: {
@@ -92,6 +96,27 @@ const formatBytes = (value: number) => {
   if (value < 1024) return `${value}B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)}KB`;
   return `${(value / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const noticePublicationStatusOrder: Record<NoticePublicationStatus, number> = {
+  published: 3,
+  scheduled: 2,
+  expired: 1,
+  inactive: 0,
+};
+
+const renderNoticePublicationStatus = (notice: Notice) => {
+  const status = getNoticePublicationStatus(notice);
+  if (status === "published") {
+    return <Badge className="bg-emerald-600 text-white">게시중</Badge>;
+  }
+  if (status === "scheduled") {
+    return <Badge variant="outline">게시 예정</Badge>;
+  }
+  if (status === "expired") {
+    return <Badge variant="secondary">게시 종료</Badge>;
+  }
+  return <Badge variant="secondary">비활성</Badge>;
 };
 
 const getRelatedMemberLabel = (
@@ -181,9 +206,13 @@ export function NoticeManager() {
     const list = [...notices];
     if (noticeSort === "active_first") {
       return list.sort((a, b) => {
-        const aActive = a.is_active !== false ? 1 : 0;
-        const bActive = b.is_active !== false ? 1 : 0;
-        if (aActive !== bActive) return bActive - aActive;
+        const aStatus = noticePublicationStatusOrder[
+          getNoticePublicationStatus(a)
+        ];
+        const bStatus = noticePublicationStatusOrder[
+          getNoticePublicationStatus(b)
+        ];
+        if (aStatus !== bStatus) return bStatus - aStatus;
         const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
         return bTime - aTime;
@@ -210,7 +239,13 @@ export function NoticeManager() {
   const featuredNoticeId = useMemo(
     () =>
       notices.reduce<number | null>((selectedId, notice) => {
-        if (notice.is_featured === false || !notice.id) return selectedId;
+        if (
+          notice.is_featured === false ||
+          !notice.id ||
+          getNoticePublicationStatus(notice) !== "published"
+        ) {
+          return selectedId;
+        }
         return selectedId === null || notice.id > selectedId
           ? notice.id
           : selectedId;
@@ -614,11 +649,7 @@ export function NoticeManager() {
               {sortedNotices.map((notice) => (
                 <TableRow key={notice.id}>
                   <TableCell>
-                    {notice.is_active !== false ? (
-                      <Badge className="bg-emerald-600 text-white">게시중</Badge>
-                    ) : (
-                      <Badge variant="secondary">비활성</Badge>
-                    )}
+                    {renderNoticePublicationStatus(notice)}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -627,7 +658,8 @@ export function NoticeManager() {
                       size="sm"
                       className="w-[104px]"
                       disabled={
-                        featuringNoticeId !== null || notice.is_active === false
+                        featuringNoticeId !== null ||
+                        getNoticePublicationStatus(notice) !== "published"
                       }
                       onClick={() => void handleSetFeaturedNotice(notice)}
                       aria-pressed={notice.id === featuredNoticeId}

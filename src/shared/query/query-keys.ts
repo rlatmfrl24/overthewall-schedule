@@ -174,5 +174,8 @@ export const queryKeys = {
       [...queryKeys.operations.all, "status", windowHours] as const,
     dataRetention: () =>
       [...queryKeys.operations.all, "data-retention"] as const,
+    run: (runId: string) =>
+      [...queryKeys.operations.all, "run", runId] as const,
+    runs: () => [...queryKeys.operations.all, "runs"] as const,
   },
 };

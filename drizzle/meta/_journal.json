@@ -470,6 +470,20 @@
       "when": 1787873118787,
       "tag": "0067_otw-play-external-identity-consolidation",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1788130795580,
+      "tag": "0068_fixed_amazoness",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1788137873264,
+      "tag": "0069_cold_infant_terrible",
+      "breakpoints": true
     }
   ]
 }

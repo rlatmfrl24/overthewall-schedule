@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb } from "../../../platform/db";
 import type { CachedChzzkVideos } from "../../../platform/types";
 import type { ChzzkVideoCatalog } from "../../chzzk";
-import { autoUpdateSchedules } from "./auto-update";
+import {
+  autoUpdateSchedules,
+  readAutoUpdateMatchTargets,
+  scanAndPersistRecentChzzkObservations,
+} from "./auto-update";
 import { D1PendingScheduleRepository } from "./d1-pending-schedule-repository";
 
 const CHANNEL_ID = "a".repeat(32);
@@ -351,6 +355,46 @@ describe("auto update rejection workflow", () => {
 
     expect(result.checked).toBe(14);
     expect(await countRows("schedule_broadcast_observations")).toBe(14);
+  });
+
+  it("scan 이후 member/date match item은 자신의 날짜 후보만 반영한다", async () => {
+    const videos = [
+      makeVideo(
+        "vod-day-1",
+        "첫째 날",
+        Date.parse("2026-07-28T12:00:00.000Z"),
+      ),
+      makeVideo(
+        "vod-day-2",
+        "둘째 날",
+        Date.parse("2026-07-29T12:00:00.000Z"),
+      ),
+    ];
+    const videoCatalog = makeVideoCatalog(() => videos);
+    const db = getDb({ YOUTUBE_API_KEY: "", otw_db: env.otw_db });
+
+    await scanAndPersistRecentChzzkObservations(
+      db,
+      2,
+      [CHANNEL_ID],
+      undefined,
+      videoCatalog,
+    );
+    await expect(readAutoUpdateMatchTargets(db, 2)).resolves.toEqual([
+      { memberUid: 1, date: "2026-07-28" },
+      { memberUid: 1, date: "2026-07-29" },
+    ]);
+
+    const result = await autoUpdateSchedules(db, 2, {
+      skipScan: true,
+      matchTarget: { memberUid: 1, date: "2026-07-29" },
+    });
+    const pending = await env.otw_db.prepare(
+      "SELECT date FROM pending_schedules ORDER BY date",
+    ).all<{ date: string }>();
+
+    expect(result.checked).toBe(1);
+    expect(pending.results).toEqual([{ date: "2026-07-29" }]);
   });
 
   it("후보 감사 로그 저장이 실패하면 pending 삽입을 함께 rollback한다", async () => {

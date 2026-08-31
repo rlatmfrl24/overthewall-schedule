@@ -1,6 +1,9 @@
 import type {
   CreateKirinukiChannelDto,
   KirinukiChannelDto,
+  YouTubeCacheRefreshRunSummaryDto,
+  YouTubeCacheAnalyticsDto,
+  YouTubePublicCacheMetadataDto,
   UpdateKirinukiChannelDto,
   YouTubeCacheStatusResponseDto,
   YouTubeVideoDto,
@@ -10,13 +13,24 @@ import type {
 import { authorizeYouTubeChannelTargets } from "./authorize-channel-targets";
 import { YOUTUBE_CHANNEL_ID_PATTERN } from "../domain/channel-targets";
 
-const YOUTUBE_BATCH_CONCURRENCY = 4;
-const KIRINUKI_BATCH_CONCURRENCY = 4;
-
 export type YouTubeChannelContent = {
   videos: YouTubeVideoDto[];
   shorts: YouTubeVideoDto[];
 } | null;
+
+export type YouTubeCacheReadTarget = {
+  channelId: string;
+  source: "official" | "kirinuki";
+};
+
+export type YouTubeCacheBatchReadResult = {
+  byChannel: Array<YouTubeCacheReadTarget & { content: YouTubeChannelContent }>;
+  cache: YouTubePublicCacheMetadataDto;
+};
+
+export type YouTubeCacheTargetDescriptor = YouTubeCacheReadTarget & {
+  cacheKey: string;
+};
 
 export type YouTubeActor = {
   actorId?: string | null;
@@ -31,15 +45,20 @@ export type YouTubeWarmupAuditInput = YouTubeActor & {
 export interface YouTubeApplicationPorts {
   isApiConfigured(): boolean;
   readAllowedChannelIds(): Promise<ReadonlySet<string>>;
-  fetchChannelVideos(
-    channelId: string,
-    maxResults: number,
-  ): Promise<YouTubeChannelContent>;
-  readCacheStatus(windowHours: number): Promise<YouTubeCacheStatusResponseDto>;
+  readChannelsWithSWR(
+    targets: readonly YouTubeCacheReadTarget[],
+    ctx?: ExecutionContext,
+  ): Promise<YouTubeCacheBatchReadResult>;
+  readCacheTargets(): Promise<YouTubeCacheTargetDescriptor[]>;
+  readCacheStatus(
+    windowHours: number,
+    usageEndAt?: number,
+  ): Promise<YouTubeCacheStatusResponseDto>;
+  readCacheAnalytics(windowHours: number): Promise<YouTubeCacheAnalyticsDto>;
   readWarmupStatus(
     windowHours: number,
   ): Promise<YouTubeWarmupStatusSummaryDto>;
-  runWarmup(): Promise<YouTubeWarmupRunSummaryDto>;
+  runCacheRefresh(): Promise<YouTubeCacheRefreshRunSummaryDto>;
   writeWarmupAudit(input: YouTubeWarmupAuditInput): Promise<void>;
   listKirinukiChannels(): Promise<KirinukiChannelDto[]>;
   createKirinukiChannel(input: CreateKirinukiChannelDto): Promise<boolean>;
@@ -71,28 +90,12 @@ export class YouTubeApiKeyUnavailableError extends Error {
   }
 }
 
-const mapWithConcurrency = async <T, R>(
-  items: readonly T[],
-  mapper: (item: T) => Promise<R>,
-  concurrency: number,
-): Promise<R[]> => {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await mapper(items[index]!);
-    }
-  };
-  await Promise.all(
-    Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    ),
-  );
-  return results;
-};
+export class YouTubeCacheRefreshInProgressError extends Error {
+  constructor() {
+    super("youtube_cache_refresh_in_progress");
+    this.name = "YouTubeCacheRefreshInProgressError";
+  }
+}
 
 const sortNewestFirst = (items: YouTubeVideoDto[]) =>
   items.sort(
@@ -104,20 +107,101 @@ export const createYouTubeApplication = (
   ports: YouTubeApplicationPorts,
 ) => ({
   async readCacheOverview(windowHours: number) {
-    const [cacheStatus, warmupStatus] = await Promise.all([
-      ports.readCacheStatus(windowHours),
+    const [analytics, warmupStatus, targets] = await Promise.all([
+      ports.readCacheAnalytics(windowHours),
       ports.readWarmupStatus(windowHours),
+      ports.readCacheTargets(),
     ]);
-    return { ...cacheStatus, warmup: warmupStatus };
+    const analyticsGeneratedAt = Date.parse(analytics.generatedAt);
+    const cacheStatus = await ports.readCacheStatus(
+      windowHours,
+      Number.isFinite(analyticsGeneratedAt) ? analyticsGeneratedAt : undefined,
+    );
+    const channelsByKey = new Map(
+      cacheStatus.channels.map((channel) => [channel.cacheKey, channel]),
+    );
+    const targetStates = {
+      official: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
+      kirinuki: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
+    };
+    for (const target of targets) {
+      const counts = targetStates[target.source];
+      counts.total += 1;
+      const channel = channelsByKey.get(target.cacheKey);
+      if (!channel || channel.fetchedAt <= 0) counts.missing += 1;
+      else counts[channel.status] += 1;
+    }
+    const activeUsage = cacheStatus.usage.byOrigin.filter(
+      (item) => item.origin === "demand" || item.origin === "manual",
+    );
+    const externalApiCalls = activeUsage.reduce(
+      (sum, item) => sum + item.apiCalls,
+      0,
+    );
+    const activeQuotaUnits = activeUsage.reduce(
+      (sum, item) => sum + item.quotaUnits,
+      0,
+    );
+    const analyticsAvailable = analytics.status === "available";
+    const analyticsSummary = analytics.summary;
+    const requestCount = analyticsAvailable
+      ? analyticsSummary.requestCount
+      : null;
+    const nonBlockingServeCount = analyticsAvailable
+      ? analyticsSummary.nonBlockingServeCount
+      : null;
+    const changedCount = analyticsAvailable
+      ? analyticsSummary.changedCount
+      : null;
+    const unchangedCount = analyticsAvailable
+      ? analyticsSummary.unchangedCount
+      : null;
+    const evaluatedCount = (changedCount ?? 0) + (unchangedCount ?? 0);
+    return {
+      ...cacheStatus,
+      analytics,
+      warmup: warmupStatus,
+      targetStates,
+      legacyScheduledRuns: warmupStatus.recentRuns.filter(
+        (run) => run.source === "scheduled",
+      ),
+      effectiveness: {
+        requestCount,
+        nonBlockingServeCount,
+        nonBlockingServeRate:
+          requestCount && nonBlockingServeCount !== null
+            ? nonBlockingServeCount / requestCount
+            : null,
+        externalApiCalls,
+        activeQuotaUnits,
+        baselineCount: analyticsAvailable
+          ? analyticsSummary.baselineCount
+          : null,
+        changedCount,
+        unchangedCount,
+        changeRate:
+          changedCount !== null && evaluatedCount > 0
+            ? changedCount / evaluatedCount
+            : null,
+        quotaPerChange:
+          changedCount === null || changedCount === 0
+            ? null
+            : activeQuotaUnits / changedCount,
+      },
+    };
   },
 
-  async runManualWarmup(actor: YouTubeActor) {
-    const result = await ports.runWarmup();
+  async runManualCacheRefresh(actor: YouTubeActor) {
+    const result = await ports.runCacheRefresh();
     await ports.writeWarmupAudit({ ...actor, result });
     return result;
   },
 
-  async readVideos(channelIds: string[], maxResults: number) {
+  async readVideos(
+    channelIds: string[],
+    maxResults: number,
+    ctx?: ExecutionContext,
+  ) {
     let allowedChannelIds: ReadonlySet<string>;
     try {
       allowedChannelIds = await ports.readAllowedChannelIds();
@@ -132,21 +216,23 @@ export const createYouTubeApplication = (
       throw new YouTubeTargetsNotAllowedError(authorized.unauthorized);
     }
 
-    const byChannel = await mapWithConcurrency(
-      channelIds,
-      async (channelId) => ({
-        channelId,
-        content: await ports.fetchChannelVideos(channelId, maxResults),
-      }),
-      YOUTUBE_BATCH_CONCURRENCY,
+    const result = await ports.readChannelsWithSWR(
+      channelIds.map((channelId) => ({ channelId, source: "official" })),
+      ctx,
     );
     const videos = sortNewestFirst(
-      byChannel.flatMap((item) => item.content?.videos ?? []),
-    );
+      result.byChannel.flatMap((item) => item.content?.videos ?? []),
+    ).slice(0, maxResults);
     const shorts = sortNewestFirst(
-      byChannel.flatMap((item) => item.content?.shorts ?? []),
-    );
-    return { videos, shorts, byChannel };
+      result.byChannel.flatMap((item) => item.content?.shorts ?? []),
+    ).slice(0, maxResults);
+    return {
+      videos,
+      shorts,
+      cache: result.cache,
+      targetCount: result.byChannel.length,
+      availableTargetCount: result.byChannel.filter((item) => item.content).length,
+    };
   },
 
   listKirinukiChannels: () => ports.listKirinukiChannels(),
@@ -157,36 +243,51 @@ export const createYouTubeApplication = (
   deleteKirinukiChannel: (id: number) =>
     ports.deleteKirinukiChannel(id),
 
-  async readKirinukiVideos(maxResults: number) {
+  async readKirinukiVideos(maxResults: number, ctx?: ExecutionContext) {
     const channels = (await ports.listKirinukiChannels()).filter((channel) =>
       YOUTUBE_CHANNEL_ID_PATTERN.test(channel.youtube_channel_id.trim()),
     );
     if (channels.length === 0) {
-      return { videos: [], shorts: [], byChannel: [] };
+      return {
+        videos: [],
+        shorts: [],
+        byChannel: [],
+        cache: {
+          state: "empty" as const,
+          oldestFetchedAt: null,
+          refreshScheduledCount: 0,
+          pendingCount: 0,
+          revalidateAfterMs: null,
+        },
+      };
     }
-    if (!ports.isApiConfigured()) {
-      throw new YouTubeApiKeyUnavailableError();
-    }
-
-    const byChannel = await mapWithConcurrency(
-      channels,
-      async (channel) => ({
+    const result = await ports.readChannelsWithSWR(
+      channels.map((channel) => ({
         channelId: channel.youtube_channel_id,
-        channelName: channel.channel_name,
-        content: await ports.fetchChannelVideos(
-          channel.youtube_channel_id,
-          maxResults,
-        ),
-      }),
-      KIRINUKI_BATCH_CONCURRENCY,
+        source: "kirinuki",
+      })),
+      ctx,
     );
+    const channelNames = new Map(
+      channels.map((channel) => [channel.youtube_channel_id, channel.channel_name]),
+    );
+    const byChannel = result.byChannel.map((item) => ({
+      channelId: item.channelId,
+      channelName: channelNames.get(item.channelId) ?? item.channelId,
+      content: item.content
+        ? {
+            videos: sortNewestFirst([...item.content.videos]).slice(0, maxResults),
+            shorts: sortNewestFirst([...item.content.shorts]).slice(0, maxResults),
+          }
+        : null,
+    }));
     const videos = sortNewestFirst(
       byChannel.flatMap((item) => item.content?.videos ?? []),
     ).slice(0, maxResults);
     const shorts = sortNewestFirst(
       byChannel.flatMap((item) => item.content?.shorts ?? []),
     ).slice(0, maxResults);
-    return { videos, shorts, byChannel };
+    return { videos, shorts, byChannel, cache: result.cache };
   },
 });
 

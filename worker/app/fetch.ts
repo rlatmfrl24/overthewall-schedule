@@ -116,13 +116,14 @@ const handleApiRouteError = (request: Request, error: unknown) => {
 export const handleWorkerFetch = async (
   request: Request,
   env: Env,
+  ctx?: ExecutionContext,
 ): Promise<Response> => {
   const url = new URL(request.url);
 
   try {
     const seoResponse = await handleSiteSeo(request, env);
     if (seoResponse) return seoResponse;
-    const routedResponse = await workerRouteRegistry.dispatch(request, env);
+    const routedResponse = await workerRouteRegistry.dispatch(request, env, ctx);
     if (routedResponse) return routedResponse;
   } catch (error) {
     if (url.pathname.startsWith("/api/")) {

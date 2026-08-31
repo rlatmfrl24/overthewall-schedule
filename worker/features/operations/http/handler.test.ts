@@ -48,7 +48,7 @@ const makeStatement = <T,>(rows: T[]) => {
   return statement;
 };
 
-const makeStatusD1 = () => {
+const makeStatusD1 = (settingOverrides: Record<string, string> = {}) => {
   const now = Date.now();
   const prepare = vi.fn((sql: string) => {
     if (sql.includes("FROM settings")) {
@@ -65,7 +65,10 @@ const makeStatusD1 = () => {
         { key: "naver_cafe_posts_enabled", value: "true" },
         { key: "naver_cafe_posts_visibility", value: "members" },
         { key: "naver_cafe_collection_last_run", value: String(now - 45 * 60_000) },
-      ]);
+      ].map((setting) => ({
+        ...setting,
+        value: settingOverrides[setting.key] ?? setting.value,
+      })));
     }
     if (sql.includes("FROM schedule_candidate_rejections")) {
       return makeStatement([{ total: 3 }]);
@@ -252,6 +255,7 @@ describe("operations worker route", () => {
       summary: { status: string };
       autoUpdate: { pending: { total: number } };
       xCollection: {
+        lastRun: number | null;
         feed: {
           visibility: string;
           monitorPath: string;
@@ -290,6 +294,7 @@ describe("operations worker route", () => {
     expect(body.summary.status).toBe("warning");
     expect(body.autoUpdate.pending.total).toBe(2);
     expect(body.xCollection.usage.apiCalls).toBe(2);
+    expect(body.xCollection.lastRun).toBe(Date.now() - 29 * 60_000);
     expect(body.xCollection.feed).toMatchObject({
       visibility: "members",
       monitorPath: "/admin/member-posts",
@@ -316,7 +321,7 @@ describe("operations worker route", () => {
     });
     expect(body.naverCafe.collection).toMatchObject({
       intervalHours: 1,
-      lastRun: Date.now() - 45 * 60_000,
+      lastRun: Date.now() - 10 * 60_000,
       nextEligibleAt: Date.now() + 15 * 60_000,
     });
     expect(body.naverCafe.disabledSourceCount).toBe(0);
@@ -465,7 +470,7 @@ describe("operations worker route", () => {
   });
 
   it("제목만 같은 과거 처리 로그는 새 pending을 경고 대상에서 제외하지 않는다", async () => {
-    const baseDb = makeStatusD1() as D1Database & {
+    const baseDb = makeStatusD1({ naver_cafe_posts_enabled: "false" }) as D1Database & {
       prepare: (sql: string) => ReturnType<typeof makeStatement>;
     };
     const updateLogsStatement = makeStatement([
@@ -512,7 +517,7 @@ describe("operations worker route", () => {
     );
   });
 
-  it("네이버 카페 소스별 오류, stale, 비활성 사유, 마지막 성공 시각을 반환한다", async () => {
+  it("네이버 표시가 꺼져도 소스별 오류와 stale 상태를 반환한다", async () => {
     const now = Date.now();
     const baseDb = makeStatusD1() as D1Database & {
       prepare: (sql: string) => ReturnType<typeof makeStatement>;
@@ -549,6 +554,16 @@ describe("operations worker route", () => {
             member_uid: null,
             enabled: 1,
             sort_order: 2,
+          },
+          {
+            id: 13,
+            name: "미수집 게시판",
+            cafe_id: "cafe",
+            menu_id: "never-collected",
+            cafe_url: "https://cafe.example.com/never-collected",
+            member_uid: null,
+            enabled: 1,
+            sort_order: 3,
           },
         ]);
       }
@@ -619,7 +634,7 @@ describe("operations worker route", () => {
 
     expect(response.status).toBe(200);
     expect(body.naverCafe.disabledSourceCount).toBe(1);
-    expect(body.naverCafe.staleSourceCount).toBe(1);
+    expect(body.naverCafe.staleSourceCount).toBe(2);
     expect(body.naverCafe.failingSourceCount).toBe(1);
     expect(body.naverCafe.sources).toEqual(
       expect.arrayContaining([
@@ -637,90 +652,69 @@ describe("operations worker route", () => {
           stale: true,
           lastSuccessAt: now - 25 * 60 * 60_000,
         }),
+        expect.objectContaining({
+          sourceName: "미수집 게시판",
+          latestError: "수집 실행 이력이 없습니다.",
+          stale: true,
+          lastSuccessAt: null,
+        }),
       ]),
     );
   });
 
-  it("네이버 카페 수동 점검은 source별 결과를 기록한다", async () => {
-    const sources = [
-      {
-        id: 10,
-        name: "팬카페",
-        cafe_id: "cafe",
-        menu_id: "menu",
-        cafe_url: "https://cafe.example.com",
-        member_uid: null,
-        enabled: true,
-        sort_order: 0,
-      },
-    ];
-    const valuesMock = vi.fn(async () => undefined);
-    getDbMock.mockReturnValue({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            orderBy: async () => sources,
-          }),
-        }),
-      }),
-      insert: () => ({
-        values: valuesMock,
-      }),
+  it("네이버 카페 수동 점검을 비동기 operation으로 접수한다", async () => {
+    const createRun = vi.fn(async () => ({
+      runId: "run-naver",
+      jobType: "naver_cafe_collection",
+      status: "queued" as const,
+      acceptedAt: 1,
+      idempotencyKey: "manual:naver:test",
+      statusUrl: "/api/operations/runs/run-naver",
+    }));
+    const asyncHandler = createOperationsHandler({
+      getApplication: () => ({ createRun }) as never,
     });
-    const checkedAt = Date.now();
-    collectNaverCafePostsForSourcesMock.mockResolvedValueOnce({
-      success: true,
-      updatedAt: new Date(checkedAt).toISOString(),
-      checkedAt,
-      durationMs: 123,
-      posts: [],
-      sources: [
-        {
-          id: 10,
-          name: "팬카페",
-          cafeId: "cafe",
-          menuId: "menu",
-          cafeUrl: "https://cafe.example.com",
-          memberUid: null,
-          enabled: true,
-          sortOrder: 0,
-          status: "ok",
-          error: null,
-          postCount: 5,
-          stale: false,
-        },
-      ],
-    });
-
-    const env = makeEnv();
-    const response = await handleOperations(
+    const response = await asyncHandler(
       new Request("https://example.com/api/operations/naver-cafe/check-now", {
         method: "POST",
       }),
-      env,
+      makeEnv(),
     );
-    const body = (await response.json()) as { success: boolean };
+    expect(response.status).toBe(202);
+    expect(response.headers.get("Location")).toBe(
+      "/api/operations/runs/run-naver",
+    );
+    expect(await response.json()).toMatchObject({ runId: "run-naver" });
+    expect(createRun).toHaveBeenCalledWith(
+      "naver_cafe_collection",
+      expect.objectContaining({ actorId: "admin" }),
+      null,
+    );
+  });
 
-    expect(response.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(collectNaverCafePostsForSourcesMock).toHaveBeenCalledWith(sources, {
-      cacheDb: env.otw_db,
-      size: 5,
-      trigger: "manual",
+  it("terminal operation retry는 현재 상태와 함께 409를 반환한다", async () => {
+    const retryRun = vi.fn(async () => ({
+      kind: "not_retryable" as const,
+      status: "succeeded" as const,
+    }));
+    const retryHandler = createOperationsHandler({
+      getApplication: () => ({ retryRun }) as never,
     });
-    expect(valuesMock).toHaveBeenCalledTimes(1);
-    expect(valuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event_type: "manual_collection.naver_cafe_check",
-        resource_type: "naver_cafe",
-        action: "check_now",
-        status: "success",
-        actor_id: "admin",
-        target_count: 1,
-        success_count: 1,
-        failure_count: 0,
+
+    const response = await retryHandler(
+      new Request("https://example.com/api/operations/runs/run-1/retry", {
+        method: "POST",
       }),
+      makeEnv(),
     );
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({
+      error: "operation_run_not_retryable",
+      status: "succeeded",
+    });
+    expect(retryRun).toHaveBeenCalledWith("run-1");
   });
 
   it("D1 데이터 보존 상태를 no-store로 반환한다", async () => {
@@ -772,62 +766,31 @@ describe("operations worker route", () => {
     expect(runDataRetentionPruneMock).not.toHaveBeenCalled();
   });
 
-  it("D1 데이터 prune은 삭제 결과를 감사 로그에 남긴다", async () => {
-    const env = makeEnv();
-    const valuesMock = vi.fn(async () => undefined);
-    getDbMock.mockReturnValue({
-      insert: () => ({
-        values: valuesMock,
-      }),
+  it("D1 데이터 prune 실행을 비동기 operation으로 접수한다", async () => {
+    const createRun = vi.fn(async () => ({
+      runId: "run-retention",
+      jobType: "retention_prune",
+      status: "queued" as const,
+      acceptedAt: 1,
+      idempotencyKey: "manual:retention:test",
+      statusUrl: "/api/operations/runs/run-retention",
+    }));
+    const asyncHandler = createOperationsHandler({
+      getApplication: () => ({ createRun }) as never,
     });
-    runDataRetentionPruneMock.mockResolvedValueOnce({
-      source: "manual",
-      dryRun: false,
-      startedAt: 1,
-      finishedAt: 2,
-      totalPrunableRows: 3,
-      totalDeletedRows: 3,
-      policies: [
-        {
-          id: "x-api-usage-events",
-          category: "usage_events",
-          table: "x_api_usage_events",
-          label: "X API usage events",
-          timestampColumn: "created_at",
-          retentionDays: 90,
-          cutoff: 1,
-          prunableRows: 3,
-          deletedRows: 3,
-        },
-      ],
-    });
-
-    const response = await handleOperations(
+    const response = await asyncHandler(
       new Request(
         "https://example.com/api/operations/data-retention/prune?dryRun=false",
         { method: "POST" },
       ),
-      env,
+      makeEnv(),
     );
-    const body = (await response.json()) as { totalDeletedRows: number };
-
-    expect(response.status).toBe(200);
-    expect(body.totalDeletedRows).toBe(3);
-    expect(runDataRetentionPruneMock).toHaveBeenCalledWith(env, {
-      source: "manual",
-      dryRun: false,
-    });
-    expect(valuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event_type: "data_retention.prune",
-        resource_type: "data_retention",
-        action: "prune",
-        status: "success",
-        actor_id: "admin",
-        target_count: 3,
-        success_count: 3,
-        failure_count: 0,
-      }),
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ runId: "run-retention" });
+    expect(createRun).toHaveBeenCalledWith(
+      "retention_prune",
+      expect.objectContaining({ actorId: "admin" }),
+      null,
     );
   });
 });

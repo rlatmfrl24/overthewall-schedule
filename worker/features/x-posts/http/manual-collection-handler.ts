@@ -2,15 +2,24 @@ import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { getActorInfo } from "../../../platform/http-helpers";
 import type { XPostsApplication } from "../application/x-posts-service";
+import type { OperationRunAcceptedDto } from "@contracts/scheduled-operations";
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 export type BuildManualXCollectionApplication = (
   env: Env,
 ) => XPostsApplication;
+export type EnqueueManualXCollection = (
+  env: Env,
+  actor: ReturnType<typeof getActorInfo>,
+  idempotencyKey: string | null,
+) => Promise<OperationRunAcceptedDto>;
 
 export const createManualXCollectionHandler =
-  (buildApplication: BuildManualXCollectionApplication) =>
+  (
+    buildApplication: BuildManualXCollectionApplication,
+    enqueue: EnqueueManualXCollection,
+  ) =>
   async (
     request: Request,
     env: Env,
@@ -29,25 +38,26 @@ export const createManualXCollectionHandler =
   const admin = await requireAdminUser(request, env);
   if (!admin.ok) return admin.response;
   const actor = getActorInfo(request, admin.user);
-  const outcome = await buildApplication(env).runManualCollection(actor);
-  if (outcome.ok) {
-    return Response.json(outcome.result, { headers: NO_STORE_HEADERS });
-  }
-
-    console.error("Manual X collection failed:", outcome.error);
-    return Response.json(
-      {
-        success: false,
-        status: "failed",
-        checkedHandles: 0,
-        refreshedHandles: 0,
-        postsReturned: 0,
-        postsStored: 0,
-        apiCalls: 0,
-        estimatedCostMicros: 0,
-        error: outcome.error,
-        updatedAt: new Date().toISOString(),
-      },
-      { status: 500, headers: NO_STORE_HEADERS },
+  void buildApplication;
+  try {
+    const accepted = await enqueue(
+      env,
+      actor,
+      request.headers.get("Idempotency-Key"),
     );
+    return Response.json(accepted, {
+      status: 202,
+      headers: {
+        ...NO_STORE_HEADERS,
+        Location: accepted.statusUrl,
+        "Retry-After": "2",
+      },
+    });
+  } catch (error) {
+    console.error("Manual X collection enqueue failed:", error);
+    return new Response("Scheduled operations queue unavailable", {
+      status: 503,
+      headers: { ...NO_STORE_HEADERS, "Retry-After": "60" },
+    });
+  }
   };

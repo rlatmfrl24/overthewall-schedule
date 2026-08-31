@@ -13,6 +13,7 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `../AGENTS.md` | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy. |
 | `architecture.md` | Current system diagrams, capability flows, dependency direction, and architecture gates. |
 | `architecture-refactoring-verification.md` | Completion evidence and original-purpose audit for the architecture refactor. |
+| `cloudflare-production-account-migration.md` | Production-account isolation, runtime consolidation, cutover, verification, and rollback baseline. |
 | `auto-update.md` | Admin-approved CHZZK VOD based schedule auto-update flow. |
 | `cache-policy.md` | Frontend, Worker memory, D1, and HTTP cache TTL roles. |
 | `otw-play-product-requirements.md` | Living product requirements and decision baseline for OTW Play. |

@@ -10,7 +10,10 @@ import type { Env } from "../platform/types";
 export const createOtwPlayAdminCatalogService = (env: Env) =>
   new AdminCatalogService(
     new D1AdminCatalogRepository(env.otw_db),
-    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+      db: env.otw_db,
+      priority: "core",
+    }),
     new DrizzleAdminCatalogAudit(getDb(env)),
     () => crypto.randomUUID(),
     true,

@@ -8,6 +8,11 @@ import {
   type OtwPlayYouTubeVideoObservation,
 } from "../application/ports/youtube-metadata";
 import { OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS } from "../domain/source-health-policy";
+import {
+  reserveYouTubeQuota,
+  YouTubeQuotaAdmissionError,
+  type YouTubeQuotaPriority,
+} from "../../youtube";
 
 type ChannelResponse = {
   items?: Array<{
@@ -153,10 +158,21 @@ export class YouTubeOtwPlayMetadataReader
 {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
+  private readonly quotaDb: Pick<D1Database, "prepare"> | undefined;
+  private readonly quotaPriority: YouTubeQuotaPriority;
 
-  constructor(apiKey: string, fetcher: typeof fetch = fetch) {
+  constructor(
+    apiKey: string,
+    fetcher: typeof fetch = fetch,
+    quota?: {
+      db?: Pick<D1Database, "prepare">;
+      priority?: YouTubeQuotaPriority;
+    },
+  ) {
     this.apiKey = apiKey.trim();
     this.fetcher = fetcher;
+    this.quotaDb = quota?.db;
+    this.quotaPriority = quota?.priority ?? "core";
   }
 
   private async read<T>(path: string, parameters: Record<string, string>) {
@@ -175,12 +191,23 @@ export class YouTubeOtwPlayMetadataReader
     );
     let response: Response;
     try {
+      await reserveYouTubeQuota(
+        this.quotaDb,
+        this.quotaPriority,
+      );
       const fetcher = this.fetcher;
       response = await fetcher(
         `https://www.googleapis.com/youtube/v3/${path}?${search.toString()}`,
         { signal: controller.signal },
       );
     } catch (error) {
+      if (error instanceof YouTubeQuotaAdmissionError) {
+        throw new OtwPlayYouTubeMetadataError(
+          "YouTube metadata quota admission was denied",
+          "quota_exceeded",
+          true,
+        );
+      }
       const timedOut =
         controller.signal.aborted ||
         (error instanceof Error && error.name === "AbortError");

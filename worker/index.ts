@@ -1,10 +1,14 @@
 import { handleWorkerFetch } from "./app/fetch";
-import { handleScheduled } from "./app/scheduled";
-import { handleQueue } from "./app/queue";
+import { handleWorkerQueue } from "./app/worker-queue";
+import { handleScheduledWorkflowCron } from "./app/scheduled-workflow-cron";
 import type { Env } from "./platform/types";
 
+export { ScheduledOperationsWorkflow } from "./workflows/scheduled-workflows";
+
 export default {
-  fetch: handleWorkerFetch,
-  scheduled: handleScheduled,
-  queue: handleQueue,
+  fetch(request, env, ctx) {
+    return handleWorkerFetch(request, env, ctx);
+  },
+  queue: handleWorkerQueue,
+  scheduled: handleScheduledWorkflowCron,
 } satisfies ExportedHandler<Env>;

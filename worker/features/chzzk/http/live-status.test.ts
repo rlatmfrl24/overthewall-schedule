@@ -47,6 +47,7 @@ vi.mock("../../../platform/db", () => ({
 
 const channelId = "a".repeat(32);
 const unapprovedChannelId = "b".repeat(32);
+const cacheStore = new Map<string, Response>();
 
 const makeEnv = (): Env =>
   ({
@@ -95,6 +96,16 @@ const liveContent = {
 
 describe("live status route", () => {
   beforeEach(() => {
+    cacheStore.clear();
+    vi.stubGlobal("caches", {
+      default: {
+        match: async (request: Request) =>
+          cacheStore.get(request.url)?.clone(),
+        put: async (request: Request, response: Response) => {
+          cacheStore.set(request.url, response.clone());
+        },
+      },
+    });
     clearActiveChzzkChannelsCacheForTests();
     fetchChzzkLiveStatusMock.mockReset();
     fetchChzzkLiveStatusWithDebugMock.mockReset();
@@ -134,6 +145,38 @@ describe("live status route", () => {
     expect(autoFillUndecidedLiveSchedulesMock).not.toHaveBeenCalled();
   });
 
+  it("조건부 재검증 요청에도 캐시된 JSON 본문을 200으로 반환한다", async () => {
+    const url =
+      `https://example.com/api/live-status?channelIds=${channelId}`;
+    const firstResponse = await handleLiveStatus(
+      new Request(url),
+      makeEnv(),
+    );
+    const etag = firstResponse.headers.get("ETag");
+
+    expect(firstResponse.status).toBe(200);
+    expect(etag).toBeTruthy();
+    expect([...cacheStore.keys()]).toHaveLength(1);
+    expect([...cacheStore.keys()][0]).toContain("responseVersion=2");
+
+    const revalidatedResponse = await handleLiveStatus(
+      new Request(url, {
+        headers: { "If-None-Match": etag ?? "" },
+      }),
+      makeEnv(),
+    );
+    const body = (await revalidatedResponse.json()) as {
+      items: unknown[];
+    };
+
+    expect(revalidatedResponse.status).toBe(200);
+    expect(revalidatedResponse.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=45, must-revalidate",
+    );
+    expect(body.items).toEqual([{ channelId, content: liveContent }]);
+    expect(fetchChzzkLiveStatusMock).toHaveBeenCalledOnce();
+  });
+
   it("debug 조회는 관리자 인증을 요구한다", async () => {
     requireAdminUserMock.mockResolvedValueOnce({
       ok: false,
@@ -164,13 +207,25 @@ describe("live status route", () => {
   });
 
   it("관리자 POST command만 스케줄 자동 입력을 수행한다", async () => {
+    const snapshotResponse = await handleLiveStatus(
+      new Request(
+        `https://example.com/api/live-status?channelIds=${channelId}`,
+      ),
+      makeEnv(),
+    );
+    const snapshot = await snapshotResponse.json() as {
+      snapshotVersion: string;
+    };
     const response = await handleLiveScheduleAutoFill(
       new Request(
         "https://example.com/api/operations/live-schedule/auto-fill",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelIds: [channelId] }),
+          body: JSON.stringify({
+            channelIds: [channelId],
+            snapshotVersion: snapshot.snapshotVersion,
+          }),
         },
       ),
       makeEnv(),
@@ -198,6 +253,15 @@ describe("live status route", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     auditValuesMock.mockRejectedValueOnce(auditError);
+    const snapshotResponse = await handleLiveStatus(
+      new Request(
+        `https://example.com/api/live-status?channelIds=${channelId}`,
+      ),
+      makeEnv(),
+    );
+    const snapshot = await snapshotResponse.json() as {
+      snapshotVersion: string;
+    };
 
     const response = await handleLiveScheduleAutoFill(
       new Request(
@@ -205,7 +269,10 @@ describe("live status route", () => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelIds: [channelId] }),
+          body: JSON.stringify({
+            channelIds: [channelId],
+            snapshotVersion: snapshot.snapshotVersion,
+          }),
         },
       ),
       makeEnv(),

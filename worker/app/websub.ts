@@ -10,14 +10,18 @@ import type { Env } from "../platform/types";
 export const createOtwPlayWebsubService = (env: Env) =>
   new WebsubService(
     new D1WebsubRepository(env.otw_db),
-    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+      db: env.otw_db,
+      priority: "critical",
+    }),
     new GoogleWebsubHubClient(),
     {
       send: async (message: OtwPlayWebsubQueueMessage) => {
-        if (!env.OTW_PLAY_INGESTION_QUEUE) {
-          throw new Error("OTW Play ingestion queue is not configured");
+        const queue = env.OTW_WEBSUB_QUEUE ?? env.OTW_PLAY_INGESTION_QUEUE;
+        if (!queue) {
+          throw new Error("OTW Play WebSub queue is not configured");
         }
-        await env.OTW_PLAY_INGESTION_QUEUE.send(message);
+        await queue.send(message);
       },
     },
     { 1: env.OTW_PLAY_WEBSUB_SECRET_V1 },

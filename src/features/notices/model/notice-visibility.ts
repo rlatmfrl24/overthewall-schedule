@@ -9,12 +9,18 @@ type NoticeVisibilityInput = Pick<Notice, "started_at" | "ended_at"> & {
   is_active?: Notice["is_active"] | number | string | null;
 };
 
+export type NoticePublicationStatus =
+  | "published"
+  | "scheduled"
+  | "expired"
+  | "inactive";
+
 const normalizePeriodDate = (value?: string | null) => value?.trim() || null;
 
-export const isNoticeVisibleOnDate = (
+export const getNoticePublicationStatus = (
   notice: NoticeVisibilityInput,
   today = getTodayKstDateString(),
-) => {
+): NoticePublicationStatus => {
   const startedAt = normalizePeriodDate(notice.started_at);
   const endedAt = normalizePeriodDate(notice.ended_at);
 
@@ -23,12 +29,17 @@ export const isNoticeVisibleOnDate = (
     notice.is_active === 0 ||
     notice.is_active === "0"
   ) {
-    return false;
+    return "inactive";
   }
-  if (startedAt && startedAt > today) return false;
-  if (endedAt && endedAt < today) return false;
-  return true;
+  if (startedAt && startedAt > today) return "scheduled";
+  if (endedAt && endedAt < today) return "expired";
+  return "published";
 };
+
+export const isNoticeVisibleOnDate = (
+  notice: NoticeVisibilityInput,
+  today = getTodayKstDateString(),
+) => getNoticePublicationStatus(notice, today) === "published";
 
 export const selectFeaturedNotice = (visibleNotices: Notice[]) =>
   visibleNotices.find((notice) => notice.is_featured !== false) ??

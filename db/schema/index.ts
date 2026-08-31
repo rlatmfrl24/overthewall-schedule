@@ -328,6 +328,7 @@ export const youtubeApiCache = sqliteTable(
     fetched_at: integer("fetched_at").notNull(),
     expires_at: integer("expires_at").notNull(),
     stale_until: integer("stale_until").notNull(),
+    refresh_after: integer("refresh_after").notNull().default(0),
     last_status: integer("last_status"),
     last_error: text("last_error"),
   },
@@ -421,15 +422,25 @@ export const youtubeApiUsageEvents = sqliteTable(
     duration_ms: integer("duration_ms").notNull(),
     created_at: integer("created_at").notNull(),
     error: text(),
+    request_origin: text("request_origin")
+      .notNull()
+      .default("legacy_unknown"),
   },
   (table) => [
     index("idx_youtube_api_usage_events_created_at").on(table.created_at),
     index("idx_youtube_api_usage_events_operation").on(table.operation),
     index("idx_youtube_api_usage_events_status").on(table.status),
     index("idx_youtube_api_usage_events_cache_key").on(table.cache_key),
+    index("idx_youtube_api_usage_events_request_origin").on(
+      table.request_origin,
+    ),
     check(
       "youtube_api_usage_events_operation_check",
       sql`operation IN ('channels.list', 'playlistItems.list', 'videos.list')`,
+    ),
+    check(
+      "youtube_api_usage_events_request_origin_check",
+      sql`request_origin IN ('demand', 'manual', 'scheduled', 'legacy_unknown')`,
     ),
   ],
 );
@@ -450,6 +461,9 @@ export const youtubeWarmupRuns = sqliteTable(
     refreshed_count: integer("refreshed_count").notNull(),
     failed_count: integer("failed_count").notNull(),
     stale_fallback_count: integer("stale_fallback_count").notNull(),
+    baseline_count: integer("baseline_count").notNull().default(0),
+    changed_count: integer("changed_count").notNull().default(0),
+    unchanged_count: integer("unchanged_count").notNull().default(0),
     api_calls: integer("api_calls").notNull(),
     quota_units: integer("quota_units").notNull(),
     duration_ms: integer("duration_ms").notNull(),
@@ -2856,3 +2870,204 @@ export type MusicPublicReadModelMeta =
   typeof musicPublicReadModelMeta.$inferSelect;
 export type NewMusicPublicReadModelMeta =
   typeof musicPublicReadModelMeta.$inferInsert;
+
+export const scheduledJobRuns = sqliteTable(
+  "scheduled_job_runs",
+  {
+    id: text().primaryKey(),
+    job_type: text("job_type").notNull(),
+    source: text().notNull(),
+    idempotency_key: text("idempotency_key").notNull(),
+    scheduled_bucket: text("scheduled_bucket"),
+    status: text().notNull().default("queued"),
+    actor_id: text("actor_id"),
+    actor_name: text("actor_name"),
+    actor_ip: text("actor_ip"),
+    scheduled_for: integer("scheduled_for"),
+    accepted_at: integer("accepted_at").notNull(),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    total_items: integer("total_items").notNull().default(0),
+    completed_items: integer("completed_items").notNull().default(0),
+    failed_items: integer("failed_items").notNull().default(0),
+    skipped_items: integer("skipped_items").notNull().default(0),
+    last_error: text("last_error"),
+    summary_json: text("summary_json"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_scheduled_job_runs_idempotency").on(
+      table.idempotency_key,
+    ),
+    index("idx_scheduled_job_runs_job_status_accepted").on(
+      table.job_type,
+      table.status,
+      table.accepted_at,
+    ),
+    index("idx_scheduled_job_runs_status_updated").on(
+      table.status,
+      table.updated_at,
+    ),
+    check(
+      "scheduled_job_runs_source_check",
+      sql`${table.source} IN ('scheduled', 'manual')`,
+    ),
+    check(
+      "scheduled_job_runs_status_check",
+      sql`${table.status} IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'skipped', 'throttled')`,
+    ),
+    check(
+      "scheduled_job_runs_counts_check",
+      sql`typeof(${table.total_items}) = 'integer' AND ${table.total_items} >= 0
+        AND typeof(${table.completed_items}) = 'integer' AND ${table.completed_items} >= 0
+        AND typeof(${table.failed_items}) = 'integer' AND ${table.failed_items} >= 0
+        AND typeof(${table.skipped_items}) = 'integer' AND ${table.skipped_items} >= 0`,
+    ),
+    check(
+      "scheduled_job_runs_time_check",
+      sql`typeof(${table.accepted_at}) = 'integer' AND ${table.accepted_at} >= 0
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type ScheduledJobRun = typeof scheduledJobRuns.$inferSelect;
+export type NewScheduledJobRun = typeof scheduledJobRuns.$inferInsert;
+
+export const scheduledJobItems = sqliteTable(
+  "scheduled_job_items",
+  {
+    id: text().primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => scheduledJobRuns.id, { onDelete: "cascade" }),
+    target_key: text("target_key").notNull(),
+    phase: text().notNull(),
+    lane: text().notNull(),
+    status: text().notNull().default("queued"),
+    attempts: integer().notNull().default(0),
+    lease_token: text("lease_token"),
+    lease_until: integer("lease_until"),
+    continuation_json: text("continuation_json"),
+    result_json: text("result_json"),
+    last_error_code: text("last_error_code"),
+    last_error: text("last_error"),
+    available_at: integer("available_at").notNull(),
+    started_at: integer("started_at"),
+    finished_at: integer("finished_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_scheduled_job_items_run_target_phase").on(
+      table.run_id,
+      table.target_key,
+      table.phase,
+    ),
+    index("idx_scheduled_job_items_lane_status_available").on(
+      table.lane,
+      table.status,
+      table.available_at,
+    ),
+    index("idx_scheduled_job_items_lease").on(
+      table.status,
+      table.lease_until,
+    ),
+    check(
+      "scheduled_job_items_status_check",
+      sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'skipped', 'throttled')`,
+    ),
+    check(
+      "scheduled_job_items_attempts_check",
+      sql`typeof(${table.attempts}) = 'integer' AND ${table.attempts} >= 0`,
+    ),
+    check(
+      "scheduled_job_items_time_check",
+      sql`typeof(${table.available_at}) = 'integer' AND ${table.available_at} >= 0
+        AND typeof(${table.created_at}) = 'integer' AND ${table.created_at} >= 0
+        AND typeof(${table.updated_at}) = 'integer' AND ${table.updated_at} >= ${table.created_at}`,
+    ),
+  ],
+);
+
+export type ScheduledJobItem = typeof scheduledJobItems.$inferSelect;
+export type NewScheduledJobItem = typeof scheduledJobItems.$inferInsert;
+
+export const scheduledOutbox = sqliteTable(
+  "scheduled_outbox",
+  {
+    id: text().primaryKey(),
+    run_id: text("run_id")
+      .notNull()
+      .references(() => scheduledJobRuns.id, { onDelete: "cascade" }),
+    item_id: text("item_id")
+      .notNull()
+      .references(() => scheduledJobItems.id, { onDelete: "cascade" }),
+    lane: text().notNull(),
+    event_type: text("event_type").notNull(),
+    status: text().notNull().default("pending"),
+    attempts: integer().notNull().default(0),
+    available_at: integer("available_at").notNull(),
+    lease_token: text("lease_token"),
+    lease_until: integer("lease_until"),
+    dispatched_at: integer("dispatched_at"),
+    last_error: text("last_error"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_scheduled_outbox_item_event").on(
+      table.item_id,
+      table.event_type,
+    ),
+    index("idx_scheduled_outbox_status_available").on(
+      table.status,
+      table.available_at,
+    ),
+    check(
+      "scheduled_outbox_status_check",
+      sql`${table.status} IN ('pending', 'dispatching', 'dispatched', 'failed')`,
+    ),
+    check(
+      "scheduled_outbox_attempts_check",
+      sql`typeof(${table.attempts}) = 'integer' AND ${table.attempts} >= 0`,
+    ),
+  ],
+);
+
+export type ScheduledOutboxRecord = typeof scheduledOutbox.$inferSelect;
+export type NewScheduledOutboxRecord = typeof scheduledOutbox.$inferInsert;
+
+export const scheduledUsageDaily = sqliteTable(
+  "scheduled_usage_daily",
+  {
+    day: text().notNull(),
+    lane: text().notNull(),
+    resource: text().notNull(),
+    reserved: integer().notNull().default(0),
+    used: integer().notNull().default(0),
+    limit_value: integer("limit_value").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.day, table.lane, table.resource],
+      name: "pk_scheduled_usage_daily",
+    }),
+    index("idx_scheduled_usage_daily_day_resource").on(
+      table.day,
+      table.resource,
+    ),
+    check(
+      "scheduled_usage_daily_counts_check",
+      sql`typeof(${table.reserved}) = 'integer' AND ${table.reserved} >= 0
+        AND typeof(${table.used}) = 'integer' AND ${table.used} >= 0
+        AND typeof(${table.limit_value}) = 'integer' AND ${table.limit_value} > 0`,
+    ),
+  ],
+);
+
+export type ScheduledUsageDaily = typeof scheduledUsageDaily.$inferSelect;
+export type NewScheduledUsageDaily = typeof scheduledUsageDaily.$inferInsert;

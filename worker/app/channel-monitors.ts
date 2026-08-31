@@ -9,7 +9,10 @@ import { createOtwPlayWebsubService } from "./websub";
 export const createOtwPlayChannelMonitorService = (env: Env) =>
   new ChannelMonitorService(
     new D1ChannelMonitorRepository(env.otw_db),
-    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+      db: env.otw_db,
+      priority: "core",
+    }),
     undefined,
     undefined,
     (monitorId, actorUserId) =>

@@ -113,6 +113,7 @@ import {
 } from "../features/configuration";
 import { getDb } from "../platform/db";
 import { insertAdminAuditLog } from "../platform/http-helpers";
+import { ScheduledRunClient } from "../platform/scheduled-jobs";
 import {
   createRouteRegistry,
   type WorkerRouteDefinition,
@@ -157,6 +158,12 @@ const handleManualAutoUpdate = createManualAutoUpdateHandler(
   (env) =>
     new ManualAutoUpdateService(
       new D1ManualAutoUpdateAdapter(getDb(env), env.otw_db),
+    ),
+  (env, actor, idempotencyKey) =>
+    new ScheduledRunClient(env).createManualRun(
+      "schedule_auto_update",
+      actor,
+      idempotencyKey,
     ),
 );
 const handleUpdateLogs = createUpdateLogHandler(
@@ -216,7 +223,10 @@ const handleOtwPlayAdminCatalogCore = createAdminCatalogHandler(
   (env) =>
     new SourceHealthService(
       new D1SourceHealthRepository(env.otw_db),
-      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+      new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+        db: env.otw_db,
+        priority: "core",
+      }),
     ),
 );
 const handleOtwPlayAdminCatalog = withPlayOperationsTelemetry(
@@ -272,6 +282,12 @@ const handleOperations = createOperationsHandler({
 const handleXPosts = createXPostsHandler(buildXPostsApplication);
 const handleManualXCollection = createManualXCollectionHandler(
   buildXPostsApplication,
+  (env, actor, idempotencyKey) =>
+    new ScheduledRunClient(env).createManualRun(
+      "x_collection",
+      actor,
+      idempotencyKey,
+    ),
 );
 const handleMemberPosts = createMemberPostsHandler({
   getMemberPosts: (env) =>
@@ -361,7 +377,11 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "chzzk.live-status",
     owner: "chzzk",
     path: apiRoutes.chzzk.liveStatus.pattern,
-    methods: methods(get(PUBLIC_NO_STORE)),
+    methods: methods(get({
+      auth: "public",
+      cache: "public, max-age=0, s-maxage=45, must-revalidate",
+      successStatus: 200,
+    })),
     handler: handleLiveStatus,
   },
   {
@@ -399,10 +419,17 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleYouTube,
   },
   {
+    id: "youtube.cache-refresh",
+    owner: "youtube",
+    path: apiRoutes.youtube.cacheRefresh.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 200 })),
+    handler: handleYouTube,
+  },
+  {
     id: "youtube.cache-warmup",
     owner: "youtube",
     path: apiRoutes.youtube.cacheWarmup.pattern,
-    methods: methods(post(ADMIN_NO_STORE)),
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 200 })),
     handler: handleYouTube,
   },
   {
@@ -1065,10 +1092,34 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOperations,
   },
   {
+    id: "operations.runs",
+    owner: "operations",
+    path: apiRoutes.operations.runs.pattern,
+    methods: methods(
+      get(ADMIN_NO_STORE),
+      post({ ...ADMIN_NO_STORE, successStatus: 202 }),
+    ),
+    handler: handleOperations,
+  },
+  {
+    id: "operations.run",
+    owner: "operations",
+    path: apiRoutes.operations.run.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOperations,
+  },
+  {
+    id: "operations.run-retry",
+    owner: "operations",
+    path: apiRoutes.operations.retryRun.pattern,
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
+    handler: handleOperations,
+  },
+  {
     id: "operations.naver-cafe-check",
     owner: "naver-cafe",
     path: apiRoutes.naverCafe.checkNow.pattern,
-    methods: methods(post(ADMIN_NO_STORE)),
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
     handler: handleOperations,
   },
   {
@@ -1082,7 +1133,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "operations.retention-prune",
     owner: "operations",
     path: apiRoutes.operations.retentionPrune.pattern,
-    methods: methods(post(ADMIN_NO_STORE)),
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
     handler: handleOperations,
   },
   {
@@ -1125,14 +1176,14 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     id: "settings.run-now",
     owner: "schedules",
     path: apiRoutes.schedules.runNow.pattern,
-    methods: methods(post(ADMIN_NO_STORE)),
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
     handler: handleManualAutoUpdate,
   },
   {
     id: "settings.x-collection-run",
     owner: "x-posts",
     path: apiRoutes.xPosts.runCollectionNow.pattern,
-    methods: methods(post(ADMIN_NO_STORE)),
+    methods: methods(post({ ...ADMIN_NO_STORE, successStatus: 202 })),
     handler: handleManualXCollection,
   },
   {

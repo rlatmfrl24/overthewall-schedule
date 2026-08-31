@@ -55,7 +55,8 @@ import {
 import {
   fetchOperationsStatus,
   runAutoUpdateNow,
-  type AutoUpdateRunResult,
+  useOperationRun,
+  type OperationRunAccepted,
 } from "@/features/operations";
 import { useToast } from "@/shared/ui/toast";
 import {
@@ -88,16 +89,6 @@ const RANGE_OPTIONS = [
   { value: "5", label: "5일" },
   { value: "7", label: "7일" },
 ] as const;
-
-const RUN_DETAIL_LABELS: Record<string, string> = {
-  auto_collected: "자동 수집",
-  auto_updated: "자동 업데이트",
-  existing: "기존 스케줄 있음",
-  fill_missing_fields: "빈 필드 보완",
-  ambiguous: "매칭 불확실",
-  short_suppressed: "단기 방송 억제",
-  holiday_suppressed: "휴방일 억제",
-};
 
 const MATCH_REASON_LABELS: Record<string, string> = {
   time_window: "예정 시각 근접",
@@ -511,7 +502,8 @@ export function AutoUpdateSettingsManager() {
   const [rejectionReasonNote, setRejectionReasonNote] = useState("");
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [lastRunResult, setLastRunResult] =
-    useState<AutoUpdateRunResult | null>(null);
+    useState<OperationRunAccepted | null>(null);
+  const lastRunQuery = useOperationRun(lastRunResult);
   const [submissionDailyLimitDraft, setSubmissionDailyLimitDraft] =
     useState("5");
 
@@ -549,6 +541,18 @@ export function AutoUpdateSettingsManager() {
   const loadPending = useCallback(async () => {
     await pendingQuery.refetch();
   }, [pendingQuery]);
+
+  useEffect(() => {
+    const run = lastRunQuery.data;
+    if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
+      return;
+    }
+    void Promise.all([
+      loadSettings(),
+      loadPending(),
+      queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
+    ]);
+  }, [lastRunQuery.data, loadPending, loadSettings, queryClient]);
 
   const activePendingCount = pendingList.length;
 
@@ -757,38 +761,15 @@ export function AutoUpdateSettingsManager() {
     setIsRunning(true);
     setLastRunResult(null);
     try {
-      const result = await runAutoUpdateNow();
-      setLastRunResult(result);
-      await Promise.all([
-        loadSettings(),
-        loadPending(),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.operations.all,
-        }),
-      ]);
+      const accepted = await runAutoUpdateNow();
+      setLastRunResult(accepted);
       toast({
-        variant: result.success ? "success" : "error",
-        description: result.success
-          ? `자동 업데이트 실행 완료 (${result.updated}건 수집)`
-          : "자동 업데이트 실행에 실패했습니다.",
+        variant: "success",
+        description: "자동 업데이트가 대기열에 등록되었습니다.",
       });
     } catch (error) {
       console.error("Failed to run auto update:", error);
-      setLastRunResult({
-        success: false,
-        updated: 0,
-        checked: 0,
-        segmentCount: 0,
-        sessionCount: 0,
-        resumeMergedCount: 0,
-        rejectedSuppressed: 0,
-        duplicatePending: 0,
-        shortSuppressed: 0,
-        holidaySuppressed: 0,
-        ambiguous: 0,
-        obsoletePending: 0,
-        details: [],
-      });
+      setLastRunResult(null);
       toast({
         variant: "error",
         description: "자동 업데이트 실행에 실패했습니다.",
@@ -1988,93 +1969,38 @@ export function AutoUpdateSettingsManager() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  {lastRunResult.success ? (
+                  {lastRunQuery.data?.status === "succeeded" ? (
                     <CheckCircle className="w-4 h-4 text-green-500" />
-                  ) : (
+                  ) : lastRunQuery.data && ["partial", "failed", "throttled"].includes(lastRunQuery.data.status) ? (
                     <XCircle className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   )}
-                  최근 수집 결과
+                  최근 비동기 수집
                 </CardTitle>
                 <CardDescription>
-                  상단 수집 버튼으로 실행한 최근 VOD 수집 로그입니다.
+                  실행 ID {lastRunResult.runId}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <Badge
-                    variant={lastRunResult.success ? "default" : "destructive"}
-                  >
-                    {lastRunResult.success ? "수집 완료" : "수집 실패"}
-                  </Badge>
-                  <span className="text-muted-foreground">
-                    확인한 VOD {lastRunResult.segmentCount}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    방송 세션 {lastRunResult.sessionCount}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    재개 병합 {lastRunResult.resumeMergedCount}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    후보 생성 {lastRunResult.updated}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    거부 억제 {lastRunResult.rejectedSuppressed}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    pending 중복 {lastRunResult.duplicatePending}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    단기 억제 {lastRunResult.shortSuppressed}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    휴방 억제 {lastRunResult.holidaySuppressed}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    매칭 불확실 {lastRunResult.ambiguous}개
-                  </span>
-                  <span className="text-muted-foreground">
-                    만료 후보 정리 {lastRunResult.obsoletePending}개
-                  </span>
-                </div>
-
-                {lastRunResult.success && lastRunResult.details.length > 0 && (
-                  <div className="space-y-1 text-xs">
-                    {lastRunResult.details.map((detail, idx) => (
-                      <div
-                        key={`${detail.memberUid}-${detail.scheduleDate}-${idx}`}
-                        className="flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground"
-                      >
-                        <span className="font-medium text-foreground">
-                          {detail.memberName}
-                        </span>
-                        <span>{detail.scheduleDate}</span>
-                        <Badge
-                          variant={
-                            detail.action === "auto_updated"
-                              ? "secondary"
-                              : detail.action === "existing"
-                                ? "secondary"
-                                : "outline"
-                          }
-                          className={
-                            detail.action === "existing"
-                              ? "text-xs bg-muted text-muted-foreground hover:bg-muted"
-                              : "text-xs"
-                          }
-                        >
-                          {RUN_DETAIL_LABELS[detail.action] || detail.action}
-                        </Badge>
-                        {detail.title && (
-                          <span
-                            className="min-w-0 max-w-[360px] truncate"
-                            title={detail.title}
-                          >
-                            {detail.title}
-                          </span>
-                        )}
-                      </div>
-                    ))}
+                {lastRunQuery.data ? (
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge>{lastRunQuery.data.status}</Badge>
+                    <span className="text-muted-foreground">
+                      완료 {lastRunQuery.data.progress.succeeded}/
+                      {lastRunQuery.data.progress.total}
+                    </span>
+                    <span className="text-muted-foreground">
+                      실패 {lastRunQuery.data.progress.failed}
+                    </span>
+                    <span className="text-muted-foreground">
+                      대기 {lastRunQuery.data.progress.queued}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    작업 상태를 확인하고 있습니다.
                   </div>
                 )}
               </CardContent>

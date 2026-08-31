@@ -193,7 +193,7 @@ const NAVER_CAFE_FETCH_TIMEOUT_MS = 5_000;
 const NAVER_CAFE_SCHEDULED_INTERVAL_MS = 60 * 60_000;
 const NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY =
   "naver_cafe_collection_last_run";
-const NAVER_CAFE_COLLECTION_SIZE = 15;
+export const NAVER_CAFE_COLLECTION_SIZE = 15;
 
 const SOURCE_POSTS_CACHE = new Map<string, CachedSourcePosts>();
 
@@ -672,10 +672,37 @@ const writeStoredNaverCafeSourcePosts = async (
   const sourceKeyToId = new Map(
     sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
   );
-
-  for (const post of posts) {
+  const records = posts.flatMap((post) => {
     const sourceId = sourceKeyToId.get(`${post.cafeId}:${post.menuId}`);
-    if (!sourceId) continue;
+    return sourceId ? [{ post, sourceId }] : [];
+  });
+
+  // A post uses 17 bindings. Five rows keep each D1 statement below the
+  // 100-bind ceiling while collapsing the former per-post write loop.
+  for (let index = 0; index < records.length; index += 5) {
+    const chunk = records.slice(index, index + 5);
+    const placeholders = chunk.map(() =>
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)"
+    ).join(", ");
+    const bindings = chunk.flatMap(({ post, sourceId }) => [
+      post.id,
+      post.articleId,
+      sourceId,
+      post.sourceName,
+      post.cafeId,
+      post.menuId,
+      post.memberUid,
+      post.title,
+      post.summary,
+      post.createdAt,
+      post.url,
+      post.thumbnailUrl,
+      post.metrics.commentCount,
+      post.metrics.readCount,
+      post.metrics.likeCount,
+      post.isNew ? 1 : 0,
+      fetchedAt,
+    ]);
     await cacheDb
       .prepare(
         `INSERT INTO naver_cafe_posts (
@@ -683,7 +710,7 @@ const writeStoredNaverCafeSourcePosts = async (
            member_uid, title, summary, created_at, url, thumbnail_url,
            comment_count, read_count, like_count, is_new, fetched_at, hidden_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+         VALUES ${placeholders}
          ON CONFLICT(id) DO UPDATE SET
            source_id = excluded.source_id,
            source_name = excluded.source_name,
@@ -700,27 +727,24 @@ const writeStoredNaverCafeSourcePosts = async (
            like_count = excluded.like_count,
            is_new = excluded.is_new,
            fetched_at = excluded.fetched_at,
-           hidden_at = NULL`,
+           hidden_at = NULL
+         WHERE naver_cafe_posts.source_id IS NOT excluded.source_id
+            OR naver_cafe_posts.source_name IS NOT excluded.source_name
+            OR naver_cafe_posts.cafe_id IS NOT excluded.cafe_id
+            OR naver_cafe_posts.menu_id IS NOT excluded.menu_id
+            OR naver_cafe_posts.member_uid IS NOT excluded.member_uid
+            OR naver_cafe_posts.title IS NOT excluded.title
+            OR naver_cafe_posts.summary IS NOT excluded.summary
+            OR naver_cafe_posts.created_at IS NOT excluded.created_at
+            OR naver_cafe_posts.url IS NOT excluded.url
+            OR naver_cafe_posts.thumbnail_url IS NOT excluded.thumbnail_url
+            OR naver_cafe_posts.comment_count IS NOT excluded.comment_count
+            OR naver_cafe_posts.read_count IS NOT excluded.read_count
+            OR naver_cafe_posts.like_count IS NOT excluded.like_count
+            OR naver_cafe_posts.is_new IS NOT excluded.is_new
+            OR naver_cafe_posts.hidden_at IS NOT NULL`,
       )
-      .bind(
-        post.id,
-        post.articleId,
-        sourceId,
-        post.sourceName,
-        post.cafeId,
-        post.menuId,
-        post.memberUid,
-        post.title,
-        post.summary,
-        post.createdAt,
-        post.url,
-        post.thumbnailUrl,
-        post.metrics.commentCount,
-        post.metrics.readCount,
-        post.metrics.likeCount,
-        post.isNew ? 1 : 0,
-        fetchedAt,
-      )
+      .bind(...bindings)
       .run();
   }
 };
@@ -734,27 +758,31 @@ const writeNaverCafeSourceChecks = async (
 ) => {
   if (!cacheDb || sources.length === 0) return;
 
-  for (const source of sources) {
+  for (let index = 0; index < sources.length; index += 10) {
+    const chunk = sources.slice(index, index + 10);
+    const placeholders = chunk.map(() =>
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).join(", ");
+    const bindings = chunk.flatMap((source) => [
+      source.id,
+      source.name,
+      source.cafeId,
+      source.menuId,
+      trigger,
+      source.status,
+      checkedAt,
+      durationMs,
+      source.postCount,
+      source.error,
+    ]);
     await cacheDb
       .prepare(
         `INSERT INTO naver_cafe_source_checks (
            source_id, source_name, cafe_id, menu_id, trigger, status,
            checked_at, duration_ms, post_count, error
-         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES ${placeholders}`,
       )
-      .bind(
-        source.id,
-        source.name,
-        source.cafeId,
-        source.menuId,
-        trigger,
-        source.status,
-        checkedAt,
-        durationMs,
-        source.postCount,
-        source.error,
-      )
+      .bind(...bindings)
       .run();
   }
 };
@@ -835,6 +863,15 @@ export const collectNaverCafePostsForSources = async (
   };
 };
 
+export const readEnabledNaverCafeSources = async (env: Env) =>
+  getDb(env)
+    .select()
+    .from(naverCafeSources)
+    .where(
+      sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`,
+    )
+    .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
+
 export const runScheduledNaverCafeCollection = async (env: Env) => {
   const db = getDb(env);
   const lastRun = Number.parseInt(
@@ -855,11 +892,7 @@ export const runScheduledNaverCafeCollection = async (env: Env) => {
     };
   }
 
-  const sources = await db
-    .select()
-    .from(naverCafeSources)
-    .where(sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`)
-    .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
+  const sources = await readEnabledNaverCafeSources(env);
   const result =
     sources.length === 0
       ? {

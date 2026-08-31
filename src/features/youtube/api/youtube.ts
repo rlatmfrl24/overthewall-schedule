@@ -1,17 +1,8 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { apiFetch } from "@/shared/api/client";
 import type { MemberDto } from "@contracts/members";
-import type { YouTubeVideo, YouTubeVideosResponse } from "../model/types";
-
-interface YouTubeVideosApiResponse {
-  updatedAt: string;
-  videos: YouTubeVideo[];
-  shorts: YouTubeVideo[];
-  byChannel: {
-    channelId: string;
-    content: { videos: YouTubeVideo[]; shorts: YouTubeVideo[] } | null;
-  }[];
-}
+import type { YouTubeVideosResponseDto } from "@contracts/youtube";
+import type { YouTubeVideosResponse } from "../model/types";
 
 interface FetchYouTubeVideosOptions {
   maxResults?: number;
@@ -33,7 +24,7 @@ async function fetchYouTubeVideos(
     maxResults: String(maxResults),
   });
 
-  const response = await apiFetch<YouTubeVideosApiResponse>(
+  const response = await apiFetch<YouTubeVideosResponseDto>(
     withRouteSearch(apiRoutes.youtube.videos.build(), params),
   );
 
@@ -41,6 +32,7 @@ async function fetchYouTubeVideos(
     videos: response.videos,
     shorts: response.shorts,
     updatedAt: response.updatedAt,
+    cache: response.cache,
   };
 }
 
@@ -81,4 +73,3 @@ export async function fetchMembersYouTubeVideos(
     shorts: shortsWithMember,
   };
 }
-

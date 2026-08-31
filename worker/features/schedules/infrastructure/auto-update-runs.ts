@@ -17,9 +17,15 @@ type AutoUpdateRunOptions = {
   rangeDays: number;
   actor?: AutoUpdateRunActor;
   cacheDb?: Pick<D1Database, "prepare">;
+  skipScan?: boolean;
 };
 
-type AutoUpdateResult = Awaited<ReturnType<typeof autoUpdateSchedules>>;
+export type AutoUpdateResult = Awaited<ReturnType<typeof autoUpdateSchedules>>;
+
+type AutoUpdateHistoryOptions = Pick<
+  AutoUpdateRunOptions,
+  "source" | "rangeDays" | "actor"
+>;
 
 const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -37,6 +43,46 @@ const serializeDetail = (result: AutoUpdateResult) =>
     details: result.details,
   });
 
+export const recordAutoUpdateResultWithHistory = async (
+  db: DbInstance,
+  options: AutoUpdateHistoryOptions,
+  result: AutoUpdateResult,
+  startedAt: number,
+) => {
+  const finishedAt = Date.now();
+  const summary = summarizeDetails(result.details);
+
+  await db.insert(autoUpdateRuns).values({
+    source: options.source,
+    status: "success",
+    started_at: startedAt,
+    finished_at: finishedAt,
+    range_days: options.rangeDays,
+    checked_count: result.checked,
+    segment_count: result.segmentCount,
+    session_count: result.sessionCount,
+    resume_merged_count: result.resumeMergedCount,
+    updated_count: summary.updatedCount,
+    created_count: summary.createdCount,
+    existing_count: summary.existingCount,
+    pending_created_count: result.updated,
+    rejected_suppressed_count: result.rejectedSuppressed,
+    duplicate_pending_count: result.duplicatePending,
+    short_suppressed_count: result.shortSuppressed,
+    holiday_suppressed_count: result.holidaySuppressed,
+    ambiguous_count: result.ambiguous,
+    obsolete_pending_count: result.obsoletePending,
+    actor_id: options.actor?.actorId ?? null,
+    actor_name: options.actor?.actorName ?? null,
+    actor_ip: options.actor?.actorIp ?? null,
+    error: null,
+    detail: serializeDetail(result),
+  });
+
+  await updateSetting(db, "auto_update_last_run", String(finishedAt));
+  return result;
+};
+
 export const runAutoUpdateWithHistory = async (
   db: DbInstance,
   options: AutoUpdateRunOptions,
@@ -46,39 +92,9 @@ export const runAutoUpdateWithHistory = async (
   try {
     const result = await autoUpdateSchedules(db, options.rangeDays, {
       cacheDb: options.cacheDb,
+      ...(options.skipScan ? { skipScan: true } : {}),
     });
-    const finishedAt = Date.now();
-    const summary = summarizeDetails(result.details);
-
-    await db.insert(autoUpdateRuns).values({
-      source: options.source,
-      status: "success",
-      started_at: startedAt,
-      finished_at: finishedAt,
-      range_days: options.rangeDays,
-      checked_count: result.checked,
-      segment_count: result.segmentCount,
-      session_count: result.sessionCount,
-      resume_merged_count: result.resumeMergedCount,
-      updated_count: summary.updatedCount,
-      created_count: summary.createdCount,
-      existing_count: summary.existingCount,
-      pending_created_count: result.updated,
-      rejected_suppressed_count: result.rejectedSuppressed,
-      duplicate_pending_count: result.duplicatePending,
-      short_suppressed_count: result.shortSuppressed,
-      holiday_suppressed_count: result.holidaySuppressed,
-      ambiguous_count: result.ambiguous,
-      obsolete_pending_count: result.obsoletePending,
-      actor_id: options.actor?.actorId ?? null,
-      actor_name: options.actor?.actorName ?? null,
-      actor_ip: options.actor?.actorIp ?? null,
-      error: null,
-      detail: serializeDetail(result),
-    });
-
-    await updateSetting(db, "auto_update_last_run", String(finishedAt));
-    return result;
+    return recordAutoUpdateResultWithHistory(db, options, result, startedAt);
   } catch (error) {
     const finishedAt = Date.now();
 

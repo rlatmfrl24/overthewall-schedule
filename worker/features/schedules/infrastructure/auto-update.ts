@@ -1,4 +1,4 @@
-import { and, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { type DbInstance } from "../../../platform/db";
 import {
   members,
@@ -33,6 +33,11 @@ const CHZZK_SCAN_PAGE_SIZE = 5;
 const CHZZK_SCAN_MAX_PAGES = 3;
 
 type ChzzkVideo = NonNullable<NonNullable<CachedChzzkVideos["content"]>["data"]>[number];
+
+export type AutoUpdateMatchTarget = {
+  memberUid: number;
+  date: string;
+};
 
 type PendingCandidate = {
   pendingItem: NewPendingSchedule;
@@ -475,6 +480,99 @@ export const scanRecentChzzkVideosForChannels = async (
   return collectedByChannel;
 };
 
+export const scanAndPersistRecentChzzkObservations = async (
+  db: DbInstance,
+  rangeDays: number,
+  requestedChannelIds: string[],
+  cacheDb?: Pick<D1Database, "prepare">,
+  videoCatalog: ChzzkVideoCatalog = chzzkVideoCatalog,
+) => {
+  const today = getKSTDateString();
+  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
+  const startDate = getKSTDateString(
+    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
+  );
+  const requested = new Set(requestedChannelIds.map((id) => id.toLowerCase()));
+  const activeMembers = await db
+    .select({
+      uid: members.uid,
+      name: members.name,
+      url_chzzk: members.url_chzzk,
+    })
+    .from(members)
+    .where(
+      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
+    );
+  const targets = activeMembers.flatMap((member) => {
+    const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
+    return channelId && requested.has(channelId)
+      ? [{ member, channelId }]
+      : [];
+  });
+  const channelIds = Array.from(new Set(targets.map((target) => target.channelId)));
+  if (channelIds.length === 0) return { channels: 0, observations: 0 };
+  const videosByChannel = await scanRecentChzzkVideosForChannels(
+    channelIds,
+    startDate,
+    today,
+    cacheDb,
+    videoCatalog.fetchVideosBatch,
+  );
+  const observations = targets.flatMap(({ member, channelId }) =>
+    (videosByChannel.get(channelId) ?? []).map((video) =>
+      toObservation(member, channelId, video)
+    )
+  );
+  await persistObservations(db, observations);
+  return { channels: channelIds.length, observations: observations.length };
+};
+
+export const readAutoUpdateMatchTargets = async (
+  db: DbInstance,
+  rangeDays: number,
+): Promise<AutoUpdateMatchTarget[]> => {
+  const today = getKSTDateString();
+  const daysBack = Math.max(0, Math.floor(rangeDays) - 1);
+  const startDate = getKSTDateString(
+    new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000),
+  );
+  const rangeStartMs =
+    Date.parse(`${startDate}T00:00:00+09:00`) - SESSION_RESUME_MARGIN_MS;
+  const rangeEndMs = Date.parse(`${today}T23:59:59.999+09:00`);
+  const [activeMembers, rows] = await Promise.all([
+    db
+      .select({ uid: members.uid })
+      .from(members)
+      .where(
+        sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
+      ),
+    db
+      .select({
+        memberUid: scheduleBroadcastObservations.member_uid,
+        startedAt: scheduleBroadcastObservations.started_at,
+      })
+      .from(scheduleBroadcastObservations)
+      .where(
+        and(
+          gte(scheduleBroadcastObservations.ended_at, rangeStartMs),
+          lte(scheduleBroadcastObservations.started_at, rangeEndMs),
+        ),
+      ),
+  ]);
+  const activeMemberUids = new Set(activeMembers.map((member) => member.uid));
+  const targets = new Map<string, AutoUpdateMatchTarget>();
+  for (const row of rows) {
+    if (!activeMemberUids.has(row.memberUid)) continue;
+    const date = getKSTDateString(new Date(row.startedAt));
+    if (date < startDate || date > today) continue;
+    const target = { memberUid: row.memberUid, date };
+    targets.set(`${target.memberUid}:${target.date}`, target);
+  }
+  return Array.from(targets.values()).sort((left, right) =>
+    left.date.localeCompare(right.date) || left.memberUid - right.memberUid
+  );
+};
+
 // VOD 관측을 세션으로 합친 뒤 일정의 빈 필드만 승인 후보로 제안한다.
 export const autoUpdateSchedules = async (
   db: DbInstance,
@@ -482,6 +580,8 @@ export const autoUpdateSchedules = async (
   options: {
     cacheDb?: Pick<D1Database, "prepare">;
     videoCatalog?: ChzzkVideoCatalog;
+    skipScan?: boolean;
+    matchTarget?: AutoUpdateMatchTarget;
   } = {},
 ): Promise<{
   updated: number;
@@ -504,6 +604,8 @@ export const autoUpdateSchedules = async (
   );
 
   // 1. 모든 활성 멤버 조회 (is_deprecated가 아닌 것)
+  const activeMemberCondition =
+    sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`;
   const allMembers = await db
     .select({
       uid: members.uid,
@@ -512,7 +614,12 @@ export const autoUpdateSchedules = async (
     })
     .from(members)
     .where(
-      sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} != 1`,
+      options.matchTarget
+        ? and(
+            activeMemberCondition,
+            eq(members.uid, options.matchTarget.memberUid),
+          )
+        : activeMemberCondition,
     );
 
   if (allMembers.length === 0) {
@@ -533,10 +640,22 @@ export const autoUpdateSchedules = async (
   }
 
   // 2. 날짜 범위 내의 기존 일정 조회
+  const scheduleRangeCondition = and(
+    gte(schedules.date, startDate),
+    lte(schedules.date, today),
+  );
   const existingSchedules = await db
     .select()
     .from(schedules)
-    .where(and(gte(schedules.date, startDate), lte(schedules.date, today)));
+    .where(
+      options.matchTarget
+        ? and(
+            scheduleRangeCondition,
+            eq(schedules.member_uid, options.matchTarget.memberUid),
+            eq(schedules.date, options.matchTarget.date),
+          )
+        : scheduleRangeCondition,
+    );
 
   // 3. 채널별 최신 VOD를 가져와 영구 관측 기록을 갱신한다.
   const channelIds = Array.from(
@@ -548,34 +667,56 @@ export const autoUpdateSchedules = async (
         .filter((channelId): channelId is string => Boolean(channelId)),
     ),
   );
-  const videosByChannel = await scanRecentChzzkVideosForChannels(
-    channelIds,
-    startDate,
-    today,
-    options.cacheDb,
-    options.videoCatalog?.fetchVideosBatch,
-  );
-  const fetchedObservations = allMembers.flatMap((member) => {
-    const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
-    if (!channelId) return [];
-    return (videosByChannel.get(channelId) ?? []).map((video) =>
-      toObservation(member, channelId, video),
+  let checkedObservationCount = 0;
+  if (!options.skipScan) {
+    const videosByChannel = await scanRecentChzzkVideosForChannels(
+      channelIds,
+      startDate,
+      today,
+      options.cacheDb,
+      options.videoCatalog?.fetchVideosBatch,
     );
-  });
-  await persistObservations(db, fetchedObservations);
+    const fetchedObservations = allMembers.flatMap((member) => {
+      const channelId = extractChzzkChannelId(member.url_chzzk)?.toLowerCase();
+      if (!channelId) return [];
+      return (videosByChannel.get(channelId) ?? []).map((video) =>
+        toObservation(member, channelId, video),
+      );
+    });
+    checkedObservationCount = fetchedObservations.length;
+    await persistObservations(db, fetchedObservations);
+  }
 
   const rangeStartMs =
     Date.parse(`${startDate}T00:00:00+09:00`) - SESSION_RESUME_MARGIN_MS;
   const rangeEndMs = Date.parse(`${today}T23:59:59.999+09:00`);
+  const observationRangeCondition = and(
+    gte(scheduleBroadcastObservations.ended_at, rangeStartMs),
+    lte(scheduleBroadcastObservations.started_at, rangeEndMs),
+  );
   const persistedRows = await db
     .select()
     .from(scheduleBroadcastObservations)
     .where(
-      and(
-        gte(scheduleBroadcastObservations.ended_at, rangeStartMs),
-        lte(scheduleBroadcastObservations.started_at, rangeEndMs),
-      ),
+      options.matchTarget
+        ? and(
+            observationRangeCondition,
+            eq(
+              scheduleBroadcastObservations.member_uid,
+              options.matchTarget.memberUid,
+            ),
+          )
+        : observationRangeCondition,
     );
+  if (options.skipScan) {
+    checkedObservationCount = options.matchTarget
+      ? persistedRows.filter(
+          (row) =>
+            getKSTDateString(new Date(row.started_at)) ===
+              options.matchTarget?.date,
+        ).length
+      : persistedRows.length;
+  }
   const memberNameMap = new Map(
     allMembers.map((member) => [member.uid, member.name]),
   );
@@ -593,7 +734,12 @@ export const autoUpdateSchedules = async (
       thumbnailUrl: row.thumbnail_url,
     }));
   const sessionsInRange = buildBroadcastSessions(observations).filter(
-    (session) => session.date >= startDate && session.date <= today,
+    (session) =>
+      session.date >= startDate &&
+      session.date <= today &&
+      (!options.matchTarget ||
+        (session.memberUid === options.matchTarget.memberUid &&
+          session.date === options.matchTarget.date)),
   );
   const matcherSchedules: AutoUpdateSchedule[] = existingSchedules.map(
     (schedule) => ({
@@ -623,7 +769,7 @@ export const autoUpdateSchedules = async (
       ...parseJsonArray(row.source_vod_ids),
     ]),
   );
-  const pendingRows = await db
+  const pendingQuery = db
     .select({
       id: pendingSchedules.id,
       member_uid: pendingSchedules.member_uid,
@@ -635,6 +781,14 @@ export const autoUpdateSchedules = async (
       vod_id: pendingSchedules.vod_id,
     })
     .from(pendingSchedules);
+  const pendingRows = options.matchTarget
+    ? await pendingQuery.where(
+        and(
+          eq(pendingSchedules.member_uid, options.matchTarget.memberUid),
+          eq(pendingSchedules.date, options.matchTarget.date),
+        ),
+      )
+    : await pendingQuery;
   const candidateDecisions = decisions.filter(
     (
       decision,
@@ -787,7 +941,7 @@ export const autoUpdateSchedules = async (
 
   return {
     updated: insertedPendingCount,
-    checked: fetchedObservations.length,
+    checked: checkedObservationCount,
     segmentCount: sessionsInRange.reduce(
       (total, session) => total + session.segmentCount,
       0,

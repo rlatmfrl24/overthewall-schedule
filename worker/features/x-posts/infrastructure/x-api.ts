@@ -530,10 +530,10 @@ const reserveXApiBudget = async (
   estimatedCostMicros: number,
   usageTracker?: XApiUsageTracker,
 ) => {
-  if (!cacheDb) return () => {};
+  if (!cacheDb) return async () => {};
 
   const usedMicros = await readDailyUsageMicros(cacheDb);
-  if (usedMicros === null) return () => {};
+  if (usedMicros === null) return async () => {};
 
   const budgetMicros = await readDailyBudgetMicros(cacheDb);
   const reservedMicros = usageTracker?.reservedCostMicros ?? 0;
@@ -544,14 +544,77 @@ const reserveXApiBudget = async (
     });
   }
 
-  if (!usageTracker || estimatedCostMicros <= 0) return () => {};
+  if (estimatedCostMicros <= 0) return async () => {};
 
-  usageTracker.reservedCostMicros += estimatedCostMicros;
-  return () => {
-    usageTracker.reservedCostMicros = Math.max(
-      0,
-      usageTracker.reservedCostMicros - estimatedCostMicros,
-    );
+  const timestamp = now();
+  const day = new Date(timestamp).toISOString().slice(0, 10);
+  let ledgerReserved = false;
+  try {
+    const reservation = await cacheDb.prepare(
+      `INSERT INTO scheduled_usage_daily (
+         day, lane, resource, reserved, used, limit_value, updated_at
+       ) VALUES (?, 'all', 'x_api_cost_micros', ?, ?, ?, ?)
+       ON CONFLICT(day, lane, resource) DO UPDATE SET
+         reserved = scheduled_usage_daily.reserved + excluded.reserved,
+         used = MAX(scheduled_usage_daily.used, excluded.used),
+         limit_value = excluded.limit_value,
+         updated_at = excluded.updated_at
+       WHERE MAX(scheduled_usage_daily.used, excluded.used) +
+               scheduled_usage_daily.reserved + excluded.reserved
+             <= excluded.limit_value
+       RETURNING reserved`,
+    ).bind(
+      day,
+      estimatedCostMicros,
+      usedMicros,
+      budgetMicros,
+      timestamp,
+    ).first<{ reserved: number | string }>();
+    if (!reservation) {
+      const existing = await cacheDb.prepare(
+        `SELECT limit_value AS limitValue FROM scheduled_usage_daily
+         WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
+      ).bind(day).first<{ limitValue: number | string }>();
+      if (existing) {
+        throw new XApiError("X API daily budget exhausted", 429, {
+          code: "budget_exceeded",
+          detail: "X API daily budget has been exhausted for this UTC day.",
+        });
+      }
+    } else {
+      ledgerReserved = true;
+    }
+  } catch (error) {
+    if (error instanceof XApiError) throw error;
+    console.warn("Failed to atomically reserve X API budget", error);
+    // Older local fixtures can omit the scheduler ledger. The usage-event
+    // check above remains a conservative fallback until migration 0068 is
+    // present; production deploy is gated on that migration.
+  }
+
+  if (usageTracker) usageTracker.reservedCostMicros += estimatedCostMicros;
+  return async () => {
+    if (usageTracker) {
+      usageTracker.reservedCostMicros = Math.max(
+        0,
+        usageTracker.reservedCostMicros - estimatedCostMicros,
+      );
+    }
+    if (!ledgerReserved) return;
+    try {
+      await cacheDb.prepare(
+        `UPDATE scheduled_usage_daily
+         SET reserved = MAX(0, reserved - ?), used = used + ?, updated_at = ?
+         WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
+      ).bind(
+        estimatedCostMicros,
+        estimatedCostMicros,
+        now(),
+        day,
+      ).run();
+    } catch (error) {
+      console.warn("Failed to settle X API budget reservation", error);
+    }
   };
 };
 
@@ -704,7 +767,7 @@ const requestXApi = async <T>(
     usageTracker?: XApiUsageTracker;
   } = {},
 ): Promise<T> => {
-  let releaseBudgetReservation = () => {};
+  let releaseBudgetReservation = async () => {};
   if (options.operation) {
     await assertXApiNotBackedOff(options.cacheDb);
     releaseBudgetReservation = await reserveXApiBudget(
@@ -767,7 +830,7 @@ const requestXApi = async <T>(
 
     return data;
   } finally {
-    releaseBudgetReservation();
+    await releaseBudgetReservation();
   }
 };
 
@@ -1053,41 +1116,42 @@ const writeStoredPosts = async (
   }
 
   const normalizedHandle = normalizeHandle(handle);
-  let count = 0;
   try {
-    for (const post of posts) {
-      await cacheDb
-        .prepare(
-          `INSERT INTO x_posts (id, handle, user_id, username, value, created_at, fetched_at, hidden_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-           ON CONFLICT(id) DO UPDATE SET
-             handle = excluded.handle,
-             user_id = excluded.user_id,
-             username = excluded.username,
-             value = excluded.value,
-             created_at = excluded.created_at,
-             fetched_at = excluded.fetched_at,
-             hidden_at = NULL`,
-        )
-        .bind(
-          post.id,
-          normalizedHandle,
-          user.id,
-          post.username,
-          JSON.stringify(post),
-          post.createdAt,
-          fetchedAt,
-        )
-        .run();
-      count += 1;
-    }
+    const placeholders = posts.map(() =>
+      "(?, ?, ?, ?, ?, ?, ?, NULL)"
+    ).join(", ");
+    const bindings = posts.flatMap((post) => [
+      post.id,
+      normalizedHandle,
+      user.id,
+      post.username,
+      JSON.stringify(post),
+      post.createdAt,
+      fetchedAt,
+    ]);
+    await cacheDb
+      .prepare(
+        `INSERT INTO x_posts (
+           id, handle, user_id, username, value, created_at, fetched_at, hidden_at
+         ) VALUES ${placeholders}
+         ON CONFLICT(id) DO UPDATE SET
+           handle = excluded.handle,
+           user_id = excluded.user_id,
+           username = excluded.username,
+           value = excluded.value,
+           created_at = excluded.created_at,
+           fetched_at = excluded.fetched_at,
+           hidden_at = NULL`,
+      )
+      .bind(...bindings)
+      .run();
     await trimStoredPosts(cacheDb, normalizedHandle, X_STORED_POSTS_RETAIN_LIMIT);
-    return { ok: true, count, error: null };
+    return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
     return {
       ok: false,
-      count,
+      count: 0,
       error: error instanceof Error ? error.message : "stored_post_write_failed",
     };
   }

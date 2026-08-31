@@ -15,6 +15,9 @@ export {
 } from "./infrastructure/d1-naver-cafe-application";
 export {
   collectNaverCafePostsForSources,
+  NAVER_CAFE_COLLECTION_SIZE,
+  readEnabledNaverCafeSources,
   readStoredNaverCafePostsForSources,
   runScheduledNaverCafeCollection,
 } from "./infrastructure/naver-cafe-collector";
+export type { NaverCafeSourceInput } from "./infrastructure/naver-cafe-collector";

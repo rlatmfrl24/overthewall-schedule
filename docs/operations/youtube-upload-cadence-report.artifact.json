@@ -1,0 +1,132 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "title": "YouTube 업로드 주기와 예약 작업 간격 분석",
+    "surface": "report",
+    "description": "운영 공개 API의 최근 채널별 업로드 밀도와 예약 작업 축소 효과를 검토한 보고서",
+    "generatedAt": "2026-08-31T05:14:43Z",
+    "sources": [
+      {
+        "id": "production-public-api",
+        "label": "OTW Schedule production public API",
+        "href": "https://otw-schedule.info"
+      },
+      {
+        "id": "analysis-notebook",
+        "label": "Reproducible analysis notebook",
+        "path": "C:\\Develop\\overthewall-schedule\\docs\\operations\\youtube-upload-cadence-analysis.ipynb"
+      }
+    ],
+    "charts": [
+      {
+        "id": "upload-rate",
+        "title": "채널별 주간 업로드 빈도",
+        "dataset": "channel_cadence",
+        "type": "bar",
+        "source": {
+          "label": "Notebook-derived channel cadence snapshot",
+          "query": {
+            "id": "youtube-channel-cadence-2026-08-31",
+            "language": "sql",
+            "sql": "SELECT source, channel, observedUploads, windowDays, uploadsPerWeek, p10GapHours, medianGapHours, maxUploads4h, maxUploads24h FROM channel_cadence ORDER BY uploadsPerWeek DESC",
+            "description": "공개 API 응답을 노트북에서 채널별 cadence 행으로 변환한 뒤 주간 업로드 빈도순으로 조회",
+            "tables_used": ["channel_cadence"],
+            "executed_at": "2026-08-31T05:14:43Z",
+            "metric_definitions": [
+              "uploadsPerWeek = (관측 건수 - 1) / 관측 구간 일수 * 7",
+              "medianGapHours = 같은 채널 내 연속 업로드 시각 차이의 중앙값",
+              "maxUploads4h = 임의의 연속 4시간 창에서 관측된 최대 업로드 수"
+            ]
+          }
+        },
+        "encodings": {
+          "x": { "field": "channel", "type": "nominal", "title": "채널" },
+          "y": { "field": "uploadsPerWeek", "type": "quantitative", "title": "주간 업로드 수" },
+          "color": { "field": "source", "type": "nominal", "title": "구분" }
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "cadence-table",
+        "title": "채널별 업로드 간격",
+        "dataset": "channel_cadence",
+        "source": {
+          "label": "Notebook-derived channel cadence snapshot",
+          "query": {
+            "id": "youtube-channel-cadence-2026-08-31",
+            "language": "sql",
+            "sql": "SELECT source, channel, observedUploads, windowDays, uploadsPerWeek, p10GapHours, medianGapHours, maxUploads4h, maxUploads24h FROM channel_cadence ORDER BY uploadsPerWeek DESC",
+            "description": "공개 API 응답을 노트북에서 채널별 cadence 행으로 변환한 뒤 주간 업로드 빈도순으로 조회",
+            "tables_used": ["channel_cadence"],
+            "executed_at": "2026-08-31T05:14:43Z",
+            "metric_definitions": [
+              "uploadsPerWeek = (관측 건수 - 1) / 관측 구간 일수 * 7",
+              "medianGapHours = 같은 채널 내 연속 업로드 시각 차이의 중앙값",
+              "maxUploads4h = 임의의 연속 4시간 창에서 관측된 최대 업로드 수"
+            ]
+          }
+        },
+        "columns": [
+          { "field": "source", "label": "구분" },
+          { "field": "channel", "label": "채널" },
+          { "field": "observedUploads", "label": "관측 건수" },
+          { "field": "uploadsPerWeek", "label": "주간 업로드" },
+          { "field": "medianGapHours", "label": "중앙 간격(시간)" },
+          { "field": "maxUploads4h", "label": "4시간 최대" }
+        ],
+        "defaultSort": { "field": "uploadsPerWeek", "direction": "desc" }
+      }
+    ],
+    "blocks": [
+      {
+        "id": "summary",
+        "type": "markdown",
+        "body": "# YouTube 업로드 주기와 예약 작업 간격 분석\n\n최근 14개 채널의 373건을 관측했습니다. 가장 바쁜 채널도 주 9.11건, 4시간 내 최대 3건이었습니다. WebSub 즉시 알림을 1차 경로로 유지하고 채널별 6시간 reconcile을 유지하면서, 빈 due 확인과 복구 작업을 15분에서 1시간으로 완화하는 것이 적절합니다."
+      },
+      { "id": "chart-block", "type": "chart", "chartId": "upload-rate" },
+      {
+        "id": "decision",
+        "type": "markdown",
+        "body": "## 결정\n\n채널별 실제 reconcile은 기존 6시간을 유지합니다. ingestion recovery, WebSub maintenance, channel reconcile due probe, source health due probe는 서로 다른 분에 시간당 1회 실행합니다. 고정 recovery Queue 메시지는 하루 672개에서 168개로 줄어듭니다.\n\n### 한계\n운영 D1 직접 조회는 Cloudflare API 7403 권한 오류로 불가능해 공개 API의 canonical 최근 구간을 사용했습니다."
+      },
+      { "id": "table-block", "type": "table", "tableId": "cadence-table" }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-08-31T05:14:43Z",
+    "datasets": {
+      "channel_cadence": [
+        { "source": "kirinuki", "channel": "온하루 노래 클립", "observedUploads": 40, "windowDays": 30.0, "uploadsPerWeek": 9.11, "p10GapHours": 0.0, "medianGapHours": 19.49, "maxUploads4h": 3, "maxUploads24h": 4 },
+        { "source": "kirinuki", "channel": "묘애찡", "observedUploads": 40, "windowDays": 39.0, "uploadsPerWeek": 7.0, "p10GapHours": 23.99, "medianGapHours": 24.0, "maxUploads4h": 1, "maxUploads24h": 2 },
+        { "source": "kirinuki", "channel": "엄마나는커서테리가될래요", "observedUploads": 40, "windowDays": 50.4, "uploadsPerWeek": 5.41, "p10GapHours": 13.91, "medianGapHours": 24.0, "maxUploads4h": 2, "maxUploads24h": 2 },
+        { "source": "kirinuki", "channel": "Over & Down", "observedUploads": 40, "windowDays": 64.3, "uploadsPerWeek": 4.25, "p10GapHours": 3.0, "medianGapHours": 21.96, "maxUploads4h": 2, "maxUploads24h": 5 },
+        { "source": "kirinuki", "channel": "김라떼의 인중생활", "observedUploads": 40, "windowDays": 226.3, "uploadsPerWeek": 1.21, "p10GapHours": 2.93, "medianGapHours": 41.82, "maxUploads4h": 2, "maxUploads24h": 4 },
+        { "source": "kirinuki", "channel": "텔옹이 공방", "observedUploads": 16, "windowDays": 89.0, "uploadsPerWeek": 1.18, "p10GapHours": 71.34, "medianGapHours": 125.87, "maxUploads4h": 1, "maxUploads24h": 1 },
+        { "source": "official", "channel": "테리 눈나", "observedUploads": 20, "windowDays": 64.0, "uploadsPerWeek": 2.08, "p10GapHours": 58.43, "medianGapHours": 76.35, "maxUploads4h": 1, "maxUploads24h": 2 },
+        { "source": "official", "channel": "하네", "observedUploads": 20, "windowDays": 113.8, "uploadsPerWeek": 1.17, "p10GapHours": 23.2, "medianGapHours": 48.0, "maxUploads4h": 2, "maxUploads24h": 3 },
+        { "source": "official", "channel": "쿠레나이 나츠키", "observedUploads": 20, "windowDays": 139.2, "uploadsPerWeek": 0.96, "p10GapHours": 65.2, "medianGapHours": 168.01, "maxUploads4h": 1, "maxUploads24h": 1 },
+        { "source": "official", "channel": "빙하유", "observedUploads": 20, "windowDays": 191.1, "uploadsPerWeek": 0.7, "p10GapHours": 63.3, "medianGapHours": 144.0, "maxUploads4h": 1, "maxUploads24h": 2 },
+        { "source": "official", "channel": "김아테", "observedUploads": 20, "windowDays": 438.0, "uploadsPerWeek": 0.3, "p10GapHours": 124.13, "medianGapHours": 336.24, "maxUploads4h": 2, "maxUploads24h": 2 },
+        { "source": "official", "channel": "온하루", "observedUploads": 17, "windowDays": 433.7, "uploadsPerWeek": 0.26, "p10GapHours": 156.51, "medianGapHours": 315.25, "maxUploads4h": 1, "maxUploads24h": 1 },
+        { "source": "official", "channel": "양메이", "observedUploads": 20, "windowDays": 599.0, "uploadsPerWeek": 0.22, "p10GapHours": 24.01, "medianGapHours": 302.33, "maxUploads4h": 1, "maxUploads24h": 2 },
+        { "source": "official", "channel": "유리리", "observedUploads": 20, "windowDays": 774.2, "uploadsPerWeek": 0.17, "p10GapHours": 167.97, "medianGapHours": 335.63, "maxUploads4h": 1, "maxUploads24h": 1 }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "production-public-api",
+      "label": "OTW Schedule production public API",
+      "href": "https://otw-schedule.info"
+    },
+    {
+      "id": "analysis-notebook",
+      "label": "Reproducible analysis notebook",
+      "path": "C:\\Develop\\overthewall-schedule\\docs\\operations\\youtube-upload-cadence-analysis.ipynb"
+    }
+  ]
+}

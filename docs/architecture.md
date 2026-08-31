@@ -262,7 +262,7 @@ import/export뿐 아니라 문자열 또는 값 치환이 없는 템플릿 리�
 | `ddays` | D-Day 조회와 관리 |
 | `notices` | 공지, banner, 노출, thumbnail |
 | `chzzk` | live status, VOD, clip, CHZZK cache |
-| `youtube` | 멤버 영상, kirinuki, cache, warmup |
+| `youtube` | 멤버 영상, kirinuki, demand-SWR cache, 수동 전체 새로고침 |
 | `media-library` | CHZZK·YouTube를 조합한 프런트 표시 |
 | `x-posts` | X gateway, cache, collection, link preview |
 | `naver-cafe` | source 설정, post 수집과 표시 |
@@ -452,32 +452,48 @@ flowchart LR
   query["TanStack Query<br/>선택한 탭만 요청"]
   chzzkRoute["/api/vods/chzzk<br/>/api/clips/chzzk"]
   youtubeRoute["/api/youtube/videos<br/>/api/kirinuki/videos"]
-  allowlist["D1 허용 대상<br/>활성 member · kirinuki channel"]
-  cache[("Worker memory + D1 cache")]
+  chzzkAllowlist["D1 활성 member"]
+  youtubeAllowlist["D1 허용 대상<br/>활성 member · kirinuki channel"]
+  chzzkCache[("CHZZK Worker memory + D1 cache")]
+  youtubeCache[("YouTube D1 canonical cache<br/>official 20 · kirinuki 40")]
+  swr["Demand-SWR<br/>요청당 최대 2채널"]
+  waitUntil["stale/expired<br/>waitUntil refresh"]
+  manual["관리자 동기 전체 새로고침<br/>POST /api/youtube/cache/refresh"]
+  analytics[("Analytics Engine<br/>비식별 v2 운영 지표")]
   chzzkApi["CHZZK API"]
   youtubeApi["YouTube API"]
-  warmup["Cron / 관리자<br/>YouTube warmup"]
 
   page --> mediaUi
   members --> mediaUi
   mediaUi --> query
   query --> chzzkRoute
   query --> youtubeRoute
-  chzzkRoute --> allowlist
-  youtubeRoute --> allowlist
-  allowlist --> cache
-  cache -->|"cache miss"| chzzkApi
-  cache -->|"cache miss"| youtubeApi
-  warmup --> cache
-  chzzkApi --> cache
-  youtubeApi --> cache
-  cache --> query
+  chzzkRoute --> chzzkAllowlist
+  youtubeRoute --> youtubeAllowlist
+  chzzkAllowlist --> chzzkCache
+  youtubeAllowlist --> swr
+  swr <--> youtubeCache
+  chzzkCache -->|"cache miss"| chzzkApi
+  swr -->|"missing · 동기"| youtubeApi
+  swr -. "저장값 즉시 제공" .-> waitUntil
+  waitUntil --> youtubeApi
+  manual --> youtubeApi
+  youtubeApi --> analytics
+  swr --> analytics
+  chzzkApi --> chzzkCache
+  youtubeApi --> youtubeCache
+  chzzkCache --> query
+  youtubeCache --> query
 ```
 
 `media-library`는 화면을 조합하지만 외부 API 자체를 소유하지 않는다.
 CHZZK와 YouTube capability가 허용된 채널인지 먼저 확인하고, 정해진 cache
-profile을 사용할 수 있는 요청만 cache한다. YouTube warmup은 자주 보는
-결과를 미리 채워 사용자 요청에서 외부 API 호출과 quota 사용을 줄인다.
+profile을 사용할 수 있는 요청만 cache한다. YouTube는 정기 예열 없이
+주 HTTP Worker의 D1 Demand-SWR을 사용한다. Fresh는 외부 호출 없이 반환하고,
+저장된 stale/expired는 즉시 제공한 뒤 `waitUntil()`에서 최대 2개만 갱신한다.
+Missing만 요청당 최대 2개를 동기 갱신하며, official과 kirinuki의 canonical
+수집량은 각각 20개와 40개다. 관리자 전체 새로고침은 동기 `200` command이고,
+일반 Operations의 비동기 run pipeline에는 포함되지 않는다.
 
 ### 6.3 X·Naver Cafe 통합 게시물
 
@@ -581,52 +597,42 @@ local `urlState`에 둔다. 이 상태를 반복 `c=` parameter와 양방향
 ### 6.5 운영 자동화
 
 ```mermaid
-flowchart LR
-  cron["Cloudflare Cron<br/>15분 trigger"]
-  scheduled["worker/app/scheduled.ts<br/>순차 실행·작업별 실패 격리"]
-  x["X collection"]
-  youtube["YouTube warmup"]
-  cafe["Naver Cafe collection"]
-  retention["D1 retention prune"]
-  autoSetting["auto-update 설정·주기 확인"]
-  vod["CHZZK VOD scan"]
-  pending["pending_schedules"]
-  d1[("D1")]
-  external["외부 API"]
-  admin["관리자 설정·운영 화면"]
-  command["보호된 POST command"]
+flowchart TB
+  runtime["overthewall-schedule Worker<br/>fetch · scheduled · queue"]
+  workflows["ScheduledOperationsWorkflow<br/>job type payload"]
+  state[("D1 scheduled_job_runs<br/>items · outbox · usage")]
+  queues["6 physical Queues<br/>control · critical · background<br/>ingestion · websub · dead-letter"]
+  executor["protocol-aware queue router<br/>scheduled · ingestion · WebSub"]
+  admin["관리자 Operations UI"]
+  command["POST /api/operations/runs<br/>202 + run polling"]
+  youtube["YouTube Demand-SWR<br/>정기 schedule 0건"]
+  youtubeManual["POST /api/youtube/cache/refresh<br/>동기 200"]
 
-  cron --> scheduled
-  scheduled --> x
-  x -. "완료·실패 후" .-> youtube
-  youtube -. "완료·실패 후" .-> cafe
-  cafe -. "완료·실패 후" .-> retention
-  retention -. "완료·실패 후" .-> autoSetting
-  autoSetting --> vod
-  vod --> external
-  external --> vod
-  vod --> pending
-  x --> external
-  youtube --> external
-  cafe --> external
-  x --> d1
-  youtube --> d1
-  cafe --> d1
-  retention --> d1
-  pending --> d1
+  runtime --> workflows
+  workflows --> state
+  state --> queues
+  queues --> executor
+  executor --> state
   admin --> command
-  command --> x
-  command --> youtube
-  command --> cafe
-  command --> retention
-  command --> vod
+  command --> state
+  admin --> youtubeManual
+  youtubeManual --> youtube
 ```
 
-정기 작업은 X 수집 → YouTube warmup → Naver Cafe 수집 → D1 retention
-순서로 실행하고, 각 작업의 실패를 격리해 다음 작업을 계속한다. 그 뒤
-auto-update 설정과 실행 주기를 확인해 필요할 때 CHZZK VOD 수집을 수행한다.
-관리자 화면의 수동 실행도 같은 capability service를 사용하므로 정기
-실행과 다른 업무 규칙이 생기지 않는다.
+범용 운영 작업은 통합 Worker의 Free-plan Cron Trigger 하나가 job type을 담은 범용
+Workflow instance를 시작하고, Workflow가 D1 run/item/outbox를 계획한다. 논리 lane은
+D1 admission·lease·관측 기준으로 유지하지만 물리 Queue는 control, critical,
+background로 통합한다. ingestion과 WebSub delivery는 서로 다른 concurrency와 지연
+요구를 가지므로 독립 Queue를 유지하고, dead-letter만 protocol-aware router로 합친다.
+모든 Queue invocation은 같은 Worker의 queue entry point를 사용한다.
+X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
+조회 계약을 공유한다. `youtube-critical` lane은 OTW Play WebSub·ingestion·
+source-health·reconcile을 위해 유지한다.
+
+공개 YouTube 캐시는 이 범용 scheduler의 작업 타입이 아니다. YouTube 정기
+Workflow와 warmup Queue는 없으며, 수요 기반 D1 SWR과 동기 수동 새로고침만
+권위 실행 경로다. 따라서 scheduler를 배포해도 2시간 YouTube 예열이 다시
+활성화되지 않는다.
 
 ## 7. API 경계
 

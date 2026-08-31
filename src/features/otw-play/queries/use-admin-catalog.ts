@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { OtwPlayIngestionClassification } from "@contracts/otw-play";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
@@ -47,22 +52,44 @@ export const useOtwPlayAdminRelease = (enabled: boolean) => useQuery({
   staleTime: 15_000,
 });
 
-export const useOtwPlayImportJob = (jobId: string | null) => useQuery({
-  queryKey: queryKeys.otwPlay.importJob(jobId ?? "none"),
-  queryFn: () => fetchOtwPlayImportJob(jobId!),
-  enabled: Boolean(jobId),
-  refetchInterval: (query) => {
-    const status = query.state.data?.status;
-    return status === "queued" || status === "collecting" ? 2_000 : false;
-  },
-});
+export const useOtwPlayImportJob = (jobId: string | null) => {
+  const queryClient = useQueryClient();
+  const previousStatus = useRef<string | null>(null);
+  const query = useQuery({
+    queryKey: queryKeys.otwPlay.importJob(jobId ?? "none"),
+    queryFn: () => fetchOtwPlayImportJob(jobId!),
+    enabled: Boolean(jobId),
+    refetchInterval: (currentQuery) => {
+      const job = currentQuery.state.data;
+      if (job?.status !== "queued" && job?.status !== "collecting") {
+        return false;
+      }
+      const age = Date.now() - job.createdAt;
+      if (age < 10_000) return 2_000;
+      if (age < 60_000) return 5_000;
+      return 15_000;
+    },
+    refetchIntervalInBackground: false,
+    networkMode: "online",
+  });
+
+  useEffect(() => {
+    const status = query.data?.status ?? null;
+    if (previousStatus.current && status && previousStatus.current !== status) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.otwPlay.importJobs(),
+      });
+    }
+    previousStatus.current = status;
+  }, [query.data?.status, queryClient]);
+
+  return query;
+};
 
 export const useOtwPlayImportJobs = () => useQuery({
   queryKey: queryKeys.otwPlay.importJobs(),
   queryFn: fetchOtwPlayImportJobs,
-  refetchInterval: (query) => query.state.data?.some(
-    (job) => job.status === "queued" || job.status === "collecting",
-  ) ? 2_000 : false,
+  staleTime: 5_000,
 });
 
 export const useOtwPlayChannelMonitors = () => useQuery({

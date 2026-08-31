@@ -43,7 +43,7 @@ const writeWebsubQueueTelemetry = (
 
 export const handleQueue = async (batch: MessageBatch<unknown>, env: Env) => {
   const service = createOtwPlayIngestionService(env);
-  const isDeadLetter = batch.queue === "otw-play-ingestion-dlq";
+  const isDeadLetter = batch.queue === "otw-dead-letter";
   for (const message of batch.messages) {
     const body = message.body;
     const isWebsubMessage = typeof body === "object" && body !== null &&

@@ -160,6 +160,49 @@ describe("NoticeManager", () => {
     await waitFor(() => expect(fetchNoticesMock).toHaveBeenCalledTimes(2));
   });
 
+  it("게시 기간이 지난 활성 공지는 게시 종료로 표시하고 대표 공지에서 제외한다", async () => {
+    fetchNoticesMock.mockResolvedValue([
+      {
+        id: 2,
+        content: "현재 공지",
+        url: null,
+        thumbnail_url: null,
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: false,
+        started_at: null,
+        ended_at: null,
+        created_at: "2026-08-31T00:00:00.000Z",
+      },
+      {
+        id: 1,
+        content: "기간 종료 공지",
+        url: null,
+        thumbnail_url: null,
+        type: "notice",
+        publisher_type: "otw",
+        publisher_member_uid: null,
+        is_active: true,
+        is_featured: true,
+        started_at: "2020-08-01",
+        ended_at: "2020-08-30",
+        created_at: "2026-08-01T00:00:00.000Z",
+      },
+    ]);
+
+    render(createElement(NoticeManager), { wrapper: createQueryWrapper() });
+
+    expect(await screen.findByText("게시 종료")).toBeTruthy();
+    expect(screen.getAllByText("게시중")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "선택됨" })).toBeNull();
+
+    const expiredRow = screen.getByText("기간 종료 공지").closest("tr");
+    const featuredButton = expiredRow?.querySelector("button");
+    expect(featuredButton?.disabled).toBe(true);
+  });
+
   it("관리자 목록에 관련 멤버와 이미지·링크 개수를 요약한다", async () => {
     fetchActiveMembersMock.mockResolvedValue([
       { uid: 1, name: "하나", code: "one", oshi_mark: "🌙" },

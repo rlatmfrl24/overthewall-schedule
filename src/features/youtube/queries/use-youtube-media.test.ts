@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
 import { createQueryWrapper } from "@/test/query-client";
 import { useKirinukiVideos } from "./use-kirinuki-videos";
@@ -39,13 +39,25 @@ const makeMember = (
   is_deprecated: 0,
 });
 
+const refreshingCache = (oldestFetchedAt: string) => ({
+  state: "refreshing" as const,
+  oldestFetchedAt,
+  refreshScheduledCount: 1,
+  pendingCount: 1,
+  revalidateAfterMs: 15000 as const,
+});
+
 describe("YouTube media queries", () => {
   beforeEach(() => {
     fetchKirinukiVideosMock.mockReset();
     fetchMembersYouTubeVideosMock.mockReset();
   });
 
-  it("키리누키 조회의 성공과 실패 상태를 처리한다", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("키리누키 재조회 실패 시 기존 콘텐츠를 유지한다", async () => {
     fetchKirinukiVideosMock.mockResolvedValueOnce({
       videos: [{ videoId: "v1" }],
       shorts: [{ videoId: "s1" }],
@@ -67,10 +79,10 @@ describe("YouTube media queries", () => {
     });
     rerender();
     await waitFor(() =>
-      expect(result.current.error).toBe(
-        "키리누키 영상을 불러오는데 실패했습니다.",
-      ),
+      expect(fetchKirinukiVideosMock).toHaveBeenCalledTimes(2),
     );
+    expect(result.current.error).toBeNull();
+    expect(result.current.videos).toEqual([{ videoId: "v1" }]);
     errorSpy.mockRestore();
   });
 
@@ -106,5 +118,87 @@ describe("YouTube media queries", () => {
       await result.current.reload();
     });
     expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("공식 영상은 SWR 결과를 유지하며 15초 뒤 한 번만 자동 재조회한다", async () => {
+    vi.useFakeTimers();
+    let resolveRefresh: ((value: unknown) => void) | undefined;
+    fetchMembersYouTubeVideosMock
+      .mockResolvedValueOnce({
+        videos: [{ videoId: "old", channelId: "UC1" }],
+        shorts: [],
+        updatedAt: "2026-08-31T00:00:00Z",
+        cache: refreshingCache("2026-08-30T00:00:00Z"),
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+      );
+
+    const members = [makeMember(2, "UC1")];
+    const { result } = renderHook(() => useYouTubeVideos(members), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await vi.waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    expect(result.current.videos[0]?.videoId).toBe("old");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
+    expect(result.current.videos[0]?.videoId).toBe("old");
+
+    resolveRefresh?.({
+      videos: [{ videoId: "new", channelId: "UC1" }],
+      shorts: [],
+      updatedAt: "2026-08-31T00:00:15Z",
+      cache: refreshingCache("2026-08-31T00:00:15Z"),
+    });
+    await vi.waitFor(() =>
+      expect(result.current.videos[0]?.videoId).toBe("new"),
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(fetchMembersYouTubeVideosMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("키리누키 영상도 pending이 남아도 자동 재조회를 한 번만 수행한다", async () => {
+    vi.useFakeTimers();
+    fetchKirinukiVideosMock
+      .mockResolvedValueOnce({
+        videos: [{ videoId: "old" }],
+        shorts: [],
+        byChannel: [],
+        updatedAt: "2026-08-31T00:00:00Z",
+        cache: refreshingCache("2026-08-30T00:00:00Z"),
+      })
+      .mockResolvedValueOnce({
+        videos: [{ videoId: "new" }],
+        shorts: [],
+        byChannel: [],
+        updatedAt: "2026-08-31T00:00:15Z",
+        cache: refreshingCache("2026-08-31T00:00:15Z"),
+      });
+
+    const { result } = renderHook(() => useKirinukiVideos(), {
+      wrapper: createQueryWrapper(),
+    });
+    await vi.waitFor(() => expect(result.current.hasLoaded).toBe(true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    await vi.waitFor(() =>
+      expect(result.current.videos[0]?.videoId).toBe("new"),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+
+    expect(fetchKirinukiVideosMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -147,6 +147,8 @@ export const DailySchedule = ({
     queryFn: () => fetchLiveStatusesForMembersWithMeta(members, { schedules }),
     enabled: liveStatusEnabled,
     refetchInterval: liveStatusEnabled ? 60_000 : false,
+    refetchIntervalInBackground: false,
+    networkMode: "online",
   });
   const liveDiagnosticsQuery = useQuery({
     queryKey: queryKeys.liveStatus.diagnostics(
@@ -160,7 +162,7 @@ export const DailySchedule = ({
   useAdminLiveScheduleAutoFill({
     enabled: enableAdminLiveScheduleAutoFill,
     sourceReady: Boolean(liveStatusQuery.data),
-    sourceUpdatedAt: liveStatusQuery.dataUpdatedAt,
+    snapshotVersion: liveStatusQuery.data?.snapshotVersion ?? null,
     members,
     schedules,
   });

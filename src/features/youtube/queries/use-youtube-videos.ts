@@ -5,6 +5,7 @@ import { fetchMembersYouTubeVideos } from "../api/youtube";
 import type { YouTubeVideo, YouTubeVideosResponse } from "../model/types";
 import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
+import { useOneShotCacheRevalidation } from "./use-one-shot-cache-revalidation";
 
 interface UseYouTubeVideosReturn {
   videos: YouTubeVideo[];
@@ -19,6 +20,13 @@ const EMPTY_YOUTUBE_RESPONSE: YouTubeVideosResponse = {
   videos: [],
   shorts: [],
   updatedAt: "",
+  cache: {
+    state: "empty",
+    oldestFetchedAt: null,
+    refreshScheduledCount: 0,
+    pendingCount: 0,
+    revalidateAfterMs: null,
+  },
 };
 
 export function useYouTubeVideos(
@@ -48,6 +56,12 @@ export function useYouTubeVideos(
       })) ?? EMPTY_YOUTUBE_RESPONSE,
     enabled,
     staleTime: MEDIA_QUERY_STALE_TIME_MS,
+  });
+
+  useOneShotCacheRevalidation({
+    identity: `${channelIdsKey}:${maxResults}`,
+    cache: query.data?.cache,
+    refetch: query.refetch,
   });
 
   const reload = useCallback(async () => {

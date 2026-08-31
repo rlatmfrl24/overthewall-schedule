@@ -34,6 +34,7 @@ vi.mock("../../api/settings", () => ({
 vi.mock("@/features/operations", () => ({
   fetchOperationsStatus: fetchOperationsStatusMock,
   runAutoUpdateNow: runAutoUpdateNowMock,
+  useOperationRun: () => ({ data: null, isLoading: false }),
 }));
 
 vi.mock("@/features/schedules", async (importOriginal) => {

@@ -1,4 +1,5 @@
 import type {
+  ChzzkLiveStatusResponseDto,
   LiveScheduleAutoFillRequestDto,
   LiveScheduleAutoFillResponseDto,
 } from "@contracts/chzzk";
@@ -39,6 +40,32 @@ const targetErrorResponse = (error: unknown) => {
   throw error;
 };
 
+const LIVE_STATUS_CACHE_CONTROL =
+  "public, max-age=0, s-maxage=45, must-revalidate";
+const LIVE_STATUS_SERVER_CACHE_VERSION = "2";
+
+const getLiveStatusCache = () =>
+  typeof caches === "undefined" ? null : caches.default;
+
+const makeLiveStatusCacheKey = (request: Request, channelIds: string[]) => {
+  const url = new URL(request.url);
+  url.pathname = "/api/live-status";
+  url.search = "";
+  url.searchParams.set("channelIds", [...channelIds].sort().join(","));
+  url.searchParams.set("responseVersion", LIVE_STATUS_SERVER_CACHE_VERSION);
+  return new Request(url.toString(), { method: "GET" });
+};
+
+const hashSnapshot = (items: ChzzkLiveStatusResponseDto["items"]) => {
+  const input = JSON.stringify(items ?? []);
+  let hash = 2_166_136_261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `v1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+};
+
 export const createLiveStatusHandler =
   (buildApplication: BuildChzzkApplication) =>
   async (request: Request, env: Env) => {
@@ -56,6 +83,19 @@ export const createLiveStatusHandler =
 
   const parsed = parseChzzkChannelTargets(url.searchParams.get("channelIds"));
   if (!parsed.ok) return badRequest(parsed.message);
+  const cache = debug ? null : getLiveStatusCache();
+  const cacheKey = makeLiveStatusCacheKey(request, parsed.channelIds);
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const headers = new Headers(cached.headers);
+      headers.set("Cache-Control", LIVE_STATUS_CACHE_CONTROL);
+      return new Response(cached.body, {
+        status: 200,
+        headers,
+      });
+    }
+  }
   let items;
   try {
     items = await buildApplication(env).fetchLiveStatuses(
@@ -66,20 +106,25 @@ export const createLiveStatusHandler =
     return targetErrorResponse(error);
   }
 
-  return Response.json(
+  const snapshotVersion = hashSnapshot(items);
+  const etag = `"${snapshotVersion}"`;
+  const response = Response.json(
     {
       updatedAt: new Date().toISOString(),
+      snapshotVersion,
       items,
       scheduleAutoFill: { updated: 0 },
     },
     {
       status: 200,
       headers: {
-        "Cache-Control": "no-store",
-        Vary: "Authorization",
+        "Cache-Control": debug ? "no-store" : LIVE_STATUS_CACHE_CONTROL,
+        ETag: etag,
       },
     },
   );
+  if (cache) await cache.put(cacheKey, response.clone());
+  return response;
   };
 
 export const createLiveScheduleAutoFillHandler =
@@ -103,12 +148,36 @@ export const createLiveScheduleAutoFillHandler =
       : undefined,
   );
   if (!parsed.ok) return badRequest(parsed.message);
+  const snapshotVersion = body && typeof body === "object" &&
+      typeof (body as { snapshotVersion?: unknown }).snapshotVersion === "string"
+    ? (body as { snapshotVersion: string }).snapshotVersion.trim()
+    : "";
+  if (!snapshotVersion) return badRequest("snapshotVersion required");
+
+  const cache = getLiveStatusCache();
+  if (!cache) return unavailable("Live status snapshot cache unavailable");
+  const cacheKey = makeLiveStatusCacheKey(request, parsed.channelIds);
+  const snapshotResponse = await cache.match(cacheKey);
+  if (!snapshotResponse) {
+    return new Response("Live status snapshot expired", {
+      status: 409,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  const snapshot = await snapshotResponse.json<ChzzkLiveStatusResponseDto>();
+  if (snapshot.snapshotVersion !== snapshotVersion || !snapshot.items) {
+    return new Response("Live status snapshot changed", {
+      status: 409,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
 
   const actor = getActorInfo(request, admin.user);
   let result;
   try {
-    result = await buildApplication(env).autoFillLiveSchedules(
+    result = await buildApplication(env).autoFillLiveSchedulesFromSnapshot(
       parsed.channelIds,
+      snapshot.items,
       actor,
     );
   } catch (error) {

@@ -44,7 +44,7 @@ import { fetchMemberPostsAggregate } from "@/features/member-posts";
 import {
   fetchKirinukiVideos,
   fetchYouTubeCacheStatus,
-  runYouTubeWarmupNow,
+  refreshYouTubeCache,
 } from "@/features/youtube";
 import {
   fetchSettings,
@@ -329,11 +329,11 @@ describe("api wrapper modules", () => {
     );
   });
 
-  it("YouTube 캐시 관리 API는 모니터링과 수동 예열 endpoint를 호출한다", async () => {
+  it("YouTube 캐시 관리 API는 모니터링과 동기 수동 새로고침 endpoint를 호출한다", async () => {
     apiFetchMock
       .mockResolvedValueOnce({
         updatedAt: "2026-07-09T00:00:00.000Z",
-        window: { hours: 72, since: 1 },
+        window: { hours: 72, since: 1, until: 2 },
         cache: { total: 0, fresh: 0, stale: 0, expired: 0, byType: [] },
         usage: {
           apiCalls: 0,
@@ -343,8 +343,48 @@ describe("api wrapper modules", () => {
           rateLimitCount: 0,
           quotaErrorCount: 0,
           byOperation: [],
+          byOrigin: [],
         },
         channels: [],
+        analytics: {
+          status: "available",
+          generatedAt: "2026-07-09T00:00:00.000Z",
+          windowHours: 72,
+          observedSince: "2026-07-08T00:00:00.000Z",
+          coverageHours: 24,
+          schemaVersion: "v2",
+          sampled: true,
+          summary: {
+            requestCount: 0,
+            nonBlockingServeCount: 0,
+            requestedTargetCount: 0,
+            immediateAvailableCount: 0,
+            refreshCount: 0,
+            baselineCount: 0,
+            changedCount: 0,
+            unchangedCount: 0,
+          },
+          bySource: [],
+          byOrigin: [],
+          reasonCode: null,
+        },
+        effectiveness: {
+          requestCount: 0,
+          nonBlockingServeCount: 0,
+          nonBlockingServeRate: null,
+          externalApiCalls: 0,
+          activeQuotaUnits: 0,
+          baselineCount: 0,
+          changedCount: 0,
+          unchangedCount: 0,
+          changeRate: null,
+          quotaPerChange: null,
+        },
+        targetStates: {
+          official: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
+          kirinuki: { total: 0, fresh: 0, stale: 0, expired: 0, missing: 0 },
+        },
+        legacyScheduledRuns: [],
       })
       .mockResolvedValueOnce({
         id: 1,
@@ -355,6 +395,9 @@ describe("api wrapper modules", () => {
         refreshedCount: 0,
         failedCount: 0,
         staleFallbackCount: 0,
+        baselineCount: 0,
+        changedCount: 0,
+        unchangedCount: 0,
         apiCalls: 0,
         quotaUnits: 0,
         durationMs: 1,
@@ -364,14 +407,14 @@ describe("api wrapper modules", () => {
       });
 
     await fetchYouTubeCacheStatus(72);
-    await runYouTubeWarmupNow();
+    await refreshYouTubeCache();
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/youtube/cache/status?windowHours=72",
       { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/youtube/cache/warmup/run",
+      "/api/youtube/cache/refresh",
       { method: "POST" },
     );
   });
@@ -406,7 +449,7 @@ describe("api wrapper modules", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/operations/data-retention/prune?dryRun=true",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
   });
 
@@ -600,14 +643,13 @@ describe("api wrapper modules", () => {
         x_collection_interval_hours: "6",
       },
     });
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/settings/run-now", {
-      method: "POST",
-    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/settings/run-now",
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
+    );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/x-collection/run-now",
-      {
-        method: "POST",
-      },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/settings/audit-logs?page=1&pageSize=50",
@@ -735,11 +777,11 @@ describe("api wrapper modules", () => {
     expect(diagnostics.items).toHaveLength(1);
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
-      `/api/live-status?channelIds=${channelA},${channelB}`,
+      `/api/live-status?channelIds=${channelA},${channelB}&cacheVersion=2`,
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
-      `/api/live-status?channelIds=${channelA},${channelB}&debug=1`,
+      `/api/live-status?channelIds=${channelA},${channelB}&cacheVersion=2&debug=1`,
     );
   });
 });

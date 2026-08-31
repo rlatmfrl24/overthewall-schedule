@@ -16,7 +16,6 @@ import {
 import { runScheduledDataRetentionPrune } from "../features/operations";
 import { runAutoUpdateWithHistory } from "../features/schedules";
 import { runScheduledXCollection } from "../features/x-posts";
-import { runScheduledYouTubeWarmup } from "../features/youtube";
 import { getDb } from "../platform/db";
 import { updateSetting } from "../platform/http-helpers";
 import type { Env } from "../platform/types";
@@ -37,19 +36,13 @@ const collectScheduledXPosts = async (env: Env) => {
   console.log("[scheduled] X collection completed", outcome.result);
 };
 
-const warmScheduledYouTubeCache = async (env: Env) => {
-  const result = await runScheduledYouTubeWarmup(env);
-  if (result.status === "skipped") {
-    console.log("[scheduled] YouTube warmup skipped", result.error);
-    return;
-  }
-  console.log("[scheduled] YouTube warmup completed", result);
-};
-
 export const checkScheduledOtwPlaySources = async (env: Env) => {
   const result = await new SourceHealthService(
     new D1SourceHealthRepository(env.otw_db),
-    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+      db: env.otw_db,
+      priority: "core",
+    }),
     () => crypto.randomUUID(),
     Date.now,
     new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS),
@@ -140,14 +133,14 @@ export const maintainScheduledOtwPlayWebsub = async (env: Env) => {
 };
 
 export const runIndependentScheduledTasks = async (env: Env) => {
-  const tasks = [
+  const independentTasks = [
     {
       label: "X collection",
       run: () => collectScheduledXPosts(env),
     },
     {
-      label: "OTW Play source health",
-      run: () => checkScheduledOtwPlaySources(env),
+      label: "Naver Cafe collection",
+      run: () => collectScheduledNaverCafePosts(env),
     },
     {
       label: "OTW Play ingestion recovery",
@@ -166,35 +159,40 @@ export const runIndependentScheduledTasks = async (env: Env) => {
       run: () => maintainScheduledOtwPlayWebsub(env),
     },
     {
-      label: "YouTube warmup",
-      run: () => warmScheduledYouTubeCache(env),
-    },
-    {
-      label: "Naver Cafe collection",
-      run: () => collectScheduledNaverCafePosts(env),
-    },
-    {
       label: "D1 data retention prune",
       run: () => pruneScheduledD1Data(env),
     },
   ];
 
-  for (const task of tasks) {
+  const runTask = async (task: {
+    label: string;
+    run: () => Promise<unknown>;
+  }) => {
     try {
       await task.run();
     } catch (error) {
       console.error(`[scheduled] ${task.label} failed`, error);
     }
-  }
+  };
+
+  const runYouTubePriorityTasks = () =>
+    runTask({
+      label: "OTW Play source health",
+      run: () => checkScheduledOtwPlaySources(env),
+    });
+
+  // These flows do not depend on one another. Start them together so a slow
+  // external source or maintenance path cannot starve collection. YouTube
+  // source health remains an OTW Play critical operation; public media cache
+  // refresh is demand-driven and intentionally absent from this scheduler.
+  await Promise.all([
+    ...independentTasks.map(runTask),
+    runYouTubePriorityTasks(),
+  ]);
 };
 
-export const handleScheduled = async (
-  _controller: ScheduledController,
-  env: Env,
-) => {
+export const runScheduledAutoUpdate = async (env: Env) => {
   const db = getDb(env);
-  await runIndependentScheduledTasks(env);
-
   const allSettings = await db
     .select()
     .from(settings)
@@ -255,4 +253,23 @@ export const handleScheduled = async (
     cacheDb: env.otw_db,
   });
   console.log("[scheduled] Auto update completed", result);
+};
+
+export const handleScheduled = async (
+  _controller: ScheduledController,
+  env: Env,
+) => {
+  const [autoUpdateOutcome, independentOutcome] = await Promise.allSettled([
+    runScheduledAutoUpdate(env),
+    runIndependentScheduledTasks(env),
+  ]);
+
+  // Independent jobs record their own failures and continue. Preserve the
+  // auto-update rejection so Cloudflare still marks a failed cron invocation.
+  if (autoUpdateOutcome.status === "rejected") {
+    throw autoUpdateOutcome.reason;
+  }
+  if (independentOutcome.status === "rejected") {
+    throw independentOutcome.reason;
+  }
 };
