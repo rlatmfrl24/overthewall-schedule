@@ -662,6 +662,7 @@ const writeXApiUsageEvent = async (
   status: number,
   response: XApiResponseWithResources | null,
   usageTracker?: XApiUsageTracker,
+  unmeasuredCostMicros = 0,
 ) => {
   const estimate = response
     ? estimateXApiUsage(operation, response)
@@ -670,7 +671,7 @@ const writeXApiUsageEvent = async (
         userCount: 0,
         mediaCount: 0,
         resourceCount: 0,
-        estimatedCostMicros: 0,
+        estimatedCostMicros: Math.max(0, Math.trunc(unmeasuredCostMicros)),
       };
   if (usageTracker) {
     usageTracker.apiCalls += 1;
@@ -702,6 +703,11 @@ const writeXApiUsageEvent = async (
           media: estimate.mediaCount,
           source: usageTracker?.source ?? null,
           forceRefreshPath: usageTracker?.forceRefreshPath ?? null,
+          costBasis: response
+            ? "measured_resources"
+            : estimate.estimatedCostMicros > 0
+              ? "conservative_request_estimate"
+              : "no_measurable_resources",
         }),
       )
       .run();
@@ -776,22 +782,32 @@ const requestXApi = async <T>(
 ): Promise<T> => {
   let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
   let actualUsedMicros = 0;
+  let reservedCostMicros = 0;
+  let requestDispatched = false;
+  let responseStatus = 0;
+  let usageRecorded = false;
   if (options.operation) {
     await assertXApiNotBackedOff(options.cacheDb);
+    reservedCostMicros = estimateXApiRequestCostMicros(
+      options.operation,
+      path,
+    );
     settleBudgetReservation = await reserveXApiBudget(
       options.cacheDb,
-      estimateXApiRequestCostMicros(options.operation, path),
+      reservedCostMicros,
       options.usageTracker,
     );
   }
 
   try {
+    requestDispatched = true;
     const response = await fetch(`${X_API_BASE_URL}${path}`, {
       headers: {
         Authorization: `Bearer ${bearerToken}`,
         Accept: "application/json",
       },
     });
+    responseStatus = response.status;
 
     if (!response.ok) {
       if (response.status === 429) {
@@ -805,7 +821,9 @@ const requestXApi = async <T>(
           response.status,
           null,
           options.usageTracker,
+          reservedCostMicros,
         );
+        usageRecorded = true;
       }
       const body = await response.text().catch(() => "");
       const fallback = `X API request failed with status ${response.status}`;
@@ -834,9 +852,23 @@ const requestXApi = async <T>(
         data as XApiResponseWithResources,
         options.usageTracker,
       );
+      usageRecorded = true;
     }
 
     return data;
+  } catch (error) {
+    if (options.operation && requestDispatched && !usageRecorded) {
+      actualUsedMicros = await writeXApiUsageEvent(
+        options.cacheDb,
+        options.operation,
+        path,
+        responseStatus,
+        null,
+        options.usageTracker,
+        reservedCostMicros,
+      );
+    }
+    throw error;
   } finally {
     await settleBudgetReservation(actualUsedMicros);
   }

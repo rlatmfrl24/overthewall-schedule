@@ -1535,6 +1535,105 @@ describe("x worker service", () => {
     });
   });
 
+  it("전송 후 네트워크 오류로 사용량을 알 수 없으면 예약 비용을 보수적으로 확정한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network interrupted"));
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    await expect(
+      fetchXPostsForHandles(["otw_member"], {
+        bearerToken: "token",
+        cacheDb: db,
+        maxResults: 5,
+      }),
+    ).rejects.toMatchObject({ code: "x_api_error" });
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 0,
+      resource_count: 0,
+      estimated_cost_micros: 10_000,
+    });
+    expect(JSON.parse(usageEvents[0]?.detail ?? "{}")).toMatchObject({
+      costBasis: "conservative_request_estimate",
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 10_000,
+      limit: 100_000,
+    });
+  });
+
+  it("성공 응답의 JSON 파싱이 실패하면 예약 비용을 보수적으로 확정한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response("{", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    await expect(
+      fetchXPostsForHandles(["otw_member"], {
+        bearerToken: "token",
+        cacheDb: db,
+        maxResults: 5,
+      }),
+    ).rejects.toMatchObject({ code: "x_api_error" });
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 200,
+      resource_count: 0,
+      estimated_cost_micros: 10_000,
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 10_000,
+      limit: 100_000,
+    });
+  });
+
+  it("측정 가능한 정상 0건 응답은 예약 비용을 사용량으로 확정하지 않는다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ data: [] }));
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(result.byHandle[0]).toMatchObject({
+      handle: "otw_member",
+      error: "user_not_found",
+    });
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 200,
+      resource_count: 0,
+      estimated_cost_micros: 0,
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 0,
+      limit: 100_000,
+    });
+  });
+
   it("예상 요청 비용이 일일 예산을 넘으면 첫 X API 호출도 차단한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
