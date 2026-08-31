@@ -3,6 +3,7 @@ import {
   updateLogs,
   pendingSchedules,
 } from "@db/schema";
+import type { ScheduledOperationsWorkflowParams } from "@contracts/scheduled-operations";
 
 export interface Env {
   YOUTUBE_API_KEY: string;
@@ -22,21 +23,10 @@ export interface Env {
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   OTW_PLAY_INGESTION_QUEUE?: Queue<unknown>;
   OTW_OPS_CONTROL_QUEUE?: Queue<unknown>;
-  OTW_X_COLLECTION_QUEUE?: Queue<unknown>;
-  OTW_NAVER_CAFE_QUEUE?: Queue<unknown>;
+  OTW_OPS_CRITICAL_QUEUE?: Queue<unknown>;
+  OTW_OPS_BACKGROUND_QUEUE?: Queue<unknown>;
   OTW_WEBSUB_QUEUE?: Queue<unknown>;
-  OTW_YOUTUBE_CRITICAL_QUEUE?: Queue<unknown>;
-  OTW_SCHEDULE_AUTO_UPDATE_QUEUE?: Queue<unknown>;
-  OTW_MAINTENANCE_QUEUE?: Queue<unknown>;
-  INGESTION_RECOVERY_WORKFLOW?: Workflow;
-  WEBSUB_MAINTENANCE_WORKFLOW?: Workflow;
-  CHANNEL_RECONCILE_WORKFLOW?: Workflow;
-  SOURCE_HEALTH_WORKFLOW?: Workflow;
-  NAVER_CAFE_COLLECTION_WORKFLOW?: Workflow;
-  X_COLLECTION_WORKFLOW?: Workflow;
-  SCHEDULE_AUTO_UPDATE_WORKFLOW?: Workflow;
-  RECENT_RECONCILE_WORKFLOW?: Workflow;
-  RETENTION_PRUNE_WORKFLOW?: Workflow;
+  SCHEDULED_OPERATIONS_WORKFLOW?: Workflow<ScheduledOperationsWorkflowParams>;
   OTW_PLAY_WEBSUB_SECRET_V1?: string;
   OTW_PLAY_PUBLIC_ORIGIN?: string;
   otw_db: D1Database;

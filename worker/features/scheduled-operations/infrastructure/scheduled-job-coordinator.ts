@@ -20,24 +20,22 @@ import { ScheduledJobPlanner } from "./scheduled-job-planner";
 
 const SCHEDULED_DISPATCH_BATCH_SIZE = 8;
 
-const getLaneQueue = (env: Env, lane: ScheduledLane): Queue<unknown> | null => {
+export const getScheduledLaneQueue = (
+  env: Env,
+  lane: ScheduledLane,
+): Queue<unknown> | null => {
   switch (lane) {
     case "control":
       return env.OTW_OPS_CONTROL_QUEUE ?? null;
     case "x":
-      return env.OTW_X_COLLECTION_QUEUE ?? null;
     case "naver":
-      return env.OTW_NAVER_CAFE_QUEUE ?? null;
-    case "websub":
-      return env.OTW_WEBSUB_QUEUE ?? null;
-    case "ingestion":
-      return env.OTW_PLAY_INGESTION_QUEUE ?? null;
-    case "youtube-critical":
-      return env.OTW_YOUTUBE_CRITICAL_QUEUE ?? null;
     case "auto-update":
-      return env.OTW_SCHEDULE_AUTO_UPDATE_QUEUE ?? null;
     case "maintenance":
-      return env.OTW_MAINTENANCE_QUEUE ?? null;
+      return env.OTW_OPS_BACKGROUND_QUEUE ?? null;
+    case "websub":
+    case "ingestion":
+    case "youtube-critical":
+      return env.OTW_OPS_CRITICAL_QUEUE ?? null;
   }
 };
 
@@ -118,7 +116,7 @@ export class ScheduledJobCoordinator {
     let dispatched = 0;
     let failed = 0;
     for (const record of outbox) {
-      const queue = getLaneQueue(this.env, record.lane);
+      const queue = getScheduledLaneQueue(this.env, record.lane);
       if (!queue) {
         await this.repository.markOutboxFailed(
           record.id,

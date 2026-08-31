@@ -1,67 +1,57 @@
+import type { ScheduledJobType } from "@contracts/scheduled-operations";
 import type { Env } from "../platform/types";
-
-type ScheduledWorkflowBinding =
-  | "INGESTION_RECOVERY_WORKFLOW"
-  | "WEBSUB_MAINTENANCE_WORKFLOW"
-  | "CHANNEL_RECONCILE_WORKFLOW"
-  | "SOURCE_HEALTH_WORKFLOW"
-  | "NAVER_CAFE_COLLECTION_WORKFLOW"
-  | "X_COLLECTION_WORKFLOW"
-  | "SCHEDULE_AUTO_UPDATE_WORKFLOW"
-  | "RECENT_RECONCILE_WORKFLOW"
-  | "RETENTION_PRUNE_WORKFLOW";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33 * * * *";
 
-const MINUTE_WORKFLOWS: Readonly<Record<number, readonly ScheduledWorkflowBinding[]>> = {
+const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>> = {
   3: [
-    "INGESTION_RECOVERY_WORKFLOW",
-    "SCHEDULE_AUTO_UPDATE_WORKFLOW",
+    "ingestion_recovery",
+    "schedule_auto_update",
   ],
   13: [
-    "WEBSUB_MAINTENANCE_WORKFLOW",
-    "NAVER_CAFE_COLLECTION_WORKFLOW",
+    "websub_maintenance",
+    "naver_cafe_collection",
   ],
-  23: ["CHANNEL_RECONCILE_WORKFLOW"],
-  33: ["SOURCE_HEALTH_WORKFLOW"],
+  23: ["channel_reconcile"],
+  33: ["source_health"],
 };
 
-export function selectScheduledWorkflowBindings(
+export function selectScheduledWorkflowJobs(
   cron: string,
   scheduledTime: number,
-): readonly ScheduledWorkflowBinding[] {
+): readonly ScheduledJobType[] {
   if (cron !== SCHEDULED_WORKFLOW_CRON) return [];
 
   const scheduledAt = new Date(scheduledTime);
   const scheduledHour = scheduledAt.getUTCHours();
   const scheduledMinute = scheduledAt.getUTCMinutes();
-  const bindings = [...(MINUTE_WORKFLOWS[scheduledMinute] ?? [])];
+  const jobs = [...(MINUTE_JOBS[scheduledMinute] ?? [])];
 
   if (scheduledMinute === 23 && scheduledHour % 2 === 0) {
-    bindings.push("X_COLLECTION_WORKFLOW");
+    jobs.push("x_collection");
   }
 
   if (scheduledMinute === 3 && scheduledHour === 18) {
-    bindings.push("RECENT_RECONCILE_WORKFLOW", "RETENTION_PRUNE_WORKFLOW");
+    jobs.push("recent_reconcile", "retention_prune");
   }
 
-  return bindings;
+  return jobs;
 }
 
 export async function handleScheduledWorkflowCron(
   event: ScheduledController,
   env: Env,
 ): Promise<void> {
-  const bindings = selectScheduledWorkflowBindings(
+  const jobs = selectScheduledWorkflowJobs(
     event.cron,
     event.scheduledTime,
   );
-
-  await Promise.all(bindings.map(async (binding) => {
-    const workflow = env[binding];
-    if (!workflow) {
-      throw new Error(`Missing scheduled Workflow binding: ${binding}`);
-    }
-    await workflow.create();
-  }));
+  if (jobs.length === 0) return;
+  const workflow = env.SCHEDULED_OPERATIONS_WORKFLOW;
+  if (!workflow) {
+    throw new Error("Missing scheduled Workflow binding: SCHEDULED_OPERATIONS_WORKFLOW");
+  }
+  await Promise.all(jobs.map((jobType) => workflow.create({
+    params: { jobType, scheduledFor: event.scheduledTime },
+  })));
 }

@@ -92,6 +92,11 @@ export type ScheduledControlQueueMessage = {
   runId: string;
 };
 
+export type ScheduledOperationsWorkflowParams = {
+  jobType: ScheduledJobType;
+  scheduledFor: number;
+};
+
 export const isScheduledJobType = (
   value: unknown,
 ): value is ScheduledJobType =>

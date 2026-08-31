@@ -84,7 +84,7 @@ describe("OTW Play ingestion queue handler", () => {
 
   it("turns DLQ delivery into authoritative D1 partial state before ack", async () => {
     const ack = vi.fn();
-    await handleQueue(batch("otw-play-ingestion-dlq", message, ack), {} as Env);
+    await handleQueue(batch("otw-dead-letter", message, ack), {} as Env);
     expect(service.markDeadLetter).toHaveBeenCalledWith(
       message,
       "queue_retries_exhausted",
@@ -121,7 +121,7 @@ describe("OTW Play ingestion queue handler", () => {
     }));
 
     const deadAck = vi.fn();
-    await handleQueue(batch("otw-play-ingestion-dlq", websubMessage, deadAck), {} as Env);
+    await handleQueue(batch("otw-dead-letter", websubMessage, deadAck), {} as Env);
     expect(websubService.markDeadLetter).toHaveBeenCalledWith(websubMessage);
     expect(deadAck).toHaveBeenCalledOnce();
     expect(telemetryWrite).toHaveBeenLastCalledWith(expect.objectContaining({

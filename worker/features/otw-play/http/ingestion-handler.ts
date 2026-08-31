@@ -421,7 +421,7 @@ export const createIngestionQueueHandler = (
   resolveService: ResolveIngestionService,
 ) => async (batch: MessageBatch<OtwPlayIngestionQueueMessage>, env: Env) => {
   const service = resolveService(env);
-  const isDeadLetter = batch.queue === "otw-play-ingestion-dlq";
+  const isDeadLetter = batch.queue === "otw-dead-letter";
   for (const message of batch.messages) {
     if (isDeadLetter) {
       await service.markDeadLetter(message.body, "queue_retries_exhausted");

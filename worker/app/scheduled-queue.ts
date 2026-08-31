@@ -55,8 +55,7 @@ export const handleScheduledJobQueue = async (
   const repository = new D1ScheduledJobRepository(env.otw_db);
   const executor = new ScheduledJobExecutor(env, repository);
   const coordinator = new ScheduledJobCoordinator(env);
-  const isDeadLetter =
-    batch.queue === "otw-ops-dlq" || batch.queue === "otw-play-ingestion-dlq";
+  const isDeadLetter = batch.queue === "otw-dead-letter";
   const reconcileTerminalItem = async (
     item: NonNullable<Awaited<ReturnType<typeof repository.readItem>>>,
   ) => {

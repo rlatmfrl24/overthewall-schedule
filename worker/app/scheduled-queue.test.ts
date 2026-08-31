@@ -69,7 +69,7 @@ describe("scheduled job queue", () => {
   it("성공한 item마다 다음 pending outbox를 dispatch한다", async () => {
     const ack = vi.fn();
     await handleScheduledJobQueue({
-      queue: "otw-x-collection",
+      queue: "otw-ops-background",
       messages: [{
         body: {
           schemaVersion: 1,
@@ -91,7 +91,7 @@ describe("scheduled job queue", () => {
     mocks.claimItem.mockResolvedValue(null);
 
     await handleScheduledJobQueue({
-      queue: "otw-schedule-auto-update",
+      queue: "otw-ops-background",
       messages: [{
         body: {
           schemaVersion: 1,
@@ -119,7 +119,7 @@ describe("scheduled job queue", () => {
     mocks.advanceRun.mockRejectedValueOnce(new Error("temporary d1 failure"));
 
     await handleScheduledJobQueue({
-      queue: "otw-schedule-auto-update",
+      queue: "otw-ops-background",
       messages: [{
         body: {
           schemaVersion: 1,
@@ -146,7 +146,7 @@ describe("scheduled job queue", () => {
     mocks.reserveQueueOperations.mockResolvedValue(false);
 
     await handleScheduledJobQueue({
-      queue: "otw-schedule-auto-update",
+      queue: "otw-ops-background",
       messages: [{
         body: {
           schemaVersion: 1,
@@ -182,7 +182,7 @@ describe("scheduled job queue", () => {
     });
 
     await handleScheduledJobQueue({
-      queue: "otw-ops-dlq",
+      queue: "otw-dead-letter",
       messages: [{
         body: {
           schemaVersion: 1,

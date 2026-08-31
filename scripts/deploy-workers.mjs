@@ -2,14 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const isWindows = process.platform === "win32";
 const dryRun = process.argv.includes("--dry-run");
-const configs = [
-  "wrangler.collectors.jsonc",
-  "wrangler.media.jsonc",
-  "wrangler.auto-update.jsonc",
-  "wrangler.maintenance.jsonc",
-  "wrangler.scheduler.jsonc",
-  "wrangler.jsonc",
-];
+const configs = ["wrangler.jsonc"];
 
 const run = (args, options = {}) => {
   const displayCommand = `pnpm exec wrangler ${args.join(" ")}`;
@@ -50,6 +43,6 @@ for (const config of configs) {
 
 if (!dryRun) {
   process.stdout.write(
-    "Workers deployed in consumer -> scheduler -> web order. Scheduled v2 lanes remain governed by scheduled_v2_<jobType>_enabled D1 flags.\n",
+    "Consolidated Worker deployed. Scheduled v2 lanes remain governed by scheduled_v2_<jobType>_enabled D1 flags.\n",
   );
 }

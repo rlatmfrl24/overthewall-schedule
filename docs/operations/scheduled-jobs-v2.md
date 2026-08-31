@@ -1,6 +1,6 @@
 # Scheduled jobs v2 운영 전환
 
-정기 작업 v2는 D1 run/item/outbox를 권위 상태로 사용하고, Workflow는 조정만 하며 Queue item 하나가 실제 Worker invocation 하나를 소유한다. Workers Free에서는 scheduled Workflow가 지원되지 않으므로 분 목록을 가진 Cron Trigger 하나가 해당 Workflow를 시작한다.
+정기 작업 v2는 D1 run/item/outbox를 권위 상태로 사용하고, 하나의 범용 Workflow는 전달받은 job type의 조정만 수행하며 Queue item 하나가 실제 Worker invocation 하나를 소유한다. Workers Free에서는 scheduled Workflow가 지원되지 않으므로 분 목록을 가진 Cron Trigger 하나가 범용 Workflow instance를 시작한다.
 
 ## 배포 전 확인
 
@@ -8,8 +8,8 @@
 2. `pnpm drizzle:migrate:local`과 `PRAGMA foreign_key_check`
 3. 운영 D1에 generated migration을 적용하고 `scheduled_job_runs`, `scheduled_job_items`, `scheduled_outbox`, `scheduled_usage_daily`를 readback한다.
 4. `pnpm queues:provision`으로 Queue가 존재하는지 확인한다. 이 명령은 Cloudflare 리소스를 생성하므로 운영자가 명시적으로 실행한다.
-5. Worker별 secret을 설정한다. `otw-ops-collectors`에는 `X_BEARER_TOKEN`, `otw-ops-media`에는 `YOUTUBE_API_KEY`와 WebSub secret, `otw-ops-auto-update`에는 필요한 CHZZK 관련 secret을 각각 설정한다.
-6. `pnpm deploy:dry-run`으로 여섯 config를 모두 검증한다.
+5. 통합 `overthewall-schedule` Worker에 `X_BEARER_TOKEN`, `YOUTUBE_API_KEY`, Clerk, Analytics read token, WebSub secret을 설정한다.
+6. `pnpm deploy:dry-run`으로 단일 config의 fetch, scheduled, queue, Workflow binding을 함께 검증한다.
 
 ## lane 전환
 
@@ -33,7 +33,8 @@ Naver → X → WebSub/ingestion → health/reconcile → auto-update → retent
 - X는 4 handle, Naver Cafe는 4 source 단위이며 post/source-check를 bulk SQL로 기록한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 WebSub 즉시 알림을 1차 경로로 사용하고 channel reconcile은 누락 복구용이다. scheduler는 매시 23분에 due 여부만 확인하며, 채널별 실제 reconcile 간격은 6시간이다.
-- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 Workflow를 시작한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile과 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile과 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·WebSub maintenance·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. 실시간 ingestion과 WebSub delivery Queue는 기존 concurrency 1/2를 유지한다.
 - X Workflow는 2시간, auto-update Workflow는 1시간마다 eligibility를 점검한다. 실제 실행 여부는 각각 `x_collection_interval_hours`와 `auto_update_interval_hours` 및 마지막 실행 시각으로 판정하므로 더 긴 관리 설정을 덮어쓰지 않는다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
 - X API 비용과 모든 YouTube quota는 외부 호출 전에 `scheduled_usage_daily`에서 원자 예약한다. YouTube 일일 quota day는 공급자 기준인 `America/Los_Angeles` 자정에 전환하고 상태 화면도 같은 원장을 읽는다. 각 item dispatch도 Queue operations·예상 D1 rows read·rows written을 한 문장에서 함께 예약해 하나라도 일일 목표를 넘으면 전체 예약을 거부한다. Queue retry도 추가 operations 예산을 예약하지 못하면 재시도하지 않고 throttled로 종료한다.
@@ -52,7 +53,7 @@ Naver → X → WebSub/ingestion → health/reconcile → auto-update → retent
 
 ## 배포 순서
 
-`pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고, collectors → media → auto-update → maintenance → scheduler → web 순서로 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경은 자동으로 수행하지 않는다. 스케줄러 config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.
+`pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고 통합 Worker 한 개를 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경, 기존 Worker/Queue 삭제는 자동으로 수행하지 않는다. 최초 통합 전환은 `cloudflare-production-account-migration.md`의 drain·consumer handoff gate를 따라야 한다. Wrangler config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.
 
 ## 관찰 기준
 

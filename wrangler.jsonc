@@ -80,6 +80,14 @@
         "queue": "otw-ops-control",
       },
       {
+        "binding": "OTW_OPS_CRITICAL_QUEUE",
+        "queue": "otw-ops-critical",
+      },
+      {
+        "binding": "OTW_OPS_BACKGROUND_QUEUE",
+        "queue": "otw-ops-background",
+      },
+      {
         "binding": "OTW_PLAY_INGESTION_QUEUE",
         "queue": "otw-play-ingestion",
       },
@@ -88,6 +96,66 @@
         "queue": "otw-websub",
       },
     ],
+    "consumers": [
+      {
+        "queue": "otw-ops-control",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-dead-letter",
+        "max_concurrency": 1,
+      },
+      {
+        "queue": "otw-ops-critical",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-dead-letter",
+        "max_concurrency": 1,
+      },
+      {
+        "queue": "otw-ops-background",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-dead-letter",
+        "max_concurrency": 1,
+      },
+      {
+        "queue": "otw-play-ingestion",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-dead-letter",
+        "max_concurrency": 1,
+      },
+      {
+        "queue": "otw-websub",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-dead-letter",
+        "max_concurrency": 2,
+      },
+      {
+        "queue": "otw-dead-letter",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 0,
+        "max_concurrency": 1,
+      },
+    ],
+  },
+  "workflows": [
+    {
+      "binding": "SCHEDULED_OPERATIONS_WORKFLOW",
+      "name": "otw-scheduled-operations",
+      "class_name": "ScheduledOperationsWorkflow",
+      "limits": { "steps": 3 },
+    },
+  ],
+  "triggers": {
+    "crons": ["3,13,23,33 * * * *"],
   },
   // 외부 API 키는 wrangler secret으로만 관리 (레포에 값 저장 금지)
   // 실제 배포 시:

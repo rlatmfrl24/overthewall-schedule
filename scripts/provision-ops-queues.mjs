@@ -13,15 +13,11 @@ const runWrangler = (args, stdio = "pipe") => {
 };
 const queues = [
   "otw-ops-control",
-  "otw-x-collection",
-  "otw-naver-cafe",
-  "otw-websub",
+  "otw-ops-critical",
+  "otw-ops-background",
   "otw-play-ingestion",
-  "otw-youtube-critical",
-  "otw-schedule-auto-update",
-  "otw-maintenance",
-  "otw-ops-dlq",
-  "otw-play-ingestion-dlq",
+  "otw-websub",
+  "otw-dead-letter",
 ];
 
 const list = runWrangler(["queues", "list"]);

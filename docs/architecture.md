@@ -598,37 +598,33 @@ local `urlState`에 둔다. 이 상태를 반복 `c=` parameter와 양방향
 
 ```mermaid
 flowchart TB
-  workflows["otw-ops-scheduler<br/>Free Cron bridge → 작업별 Workflow"]
+  runtime["overthewall-schedule Worker<br/>fetch · scheduled · queue"]
+  workflows["ScheduledOperationsWorkflow<br/>job type payload"]
   state[("D1 scheduled_job_runs<br/>items · outbox · usage")]
-  queues["독립 Queue lanes<br/>control · collectors · critical · maintenance"]
-  collectors["otw-ops-collectors<br/>X · Naver Cafe"]
-  media["otw-ops-media<br/>WebSub · ingestion · source health · reconcile"]
-  auto["otw-ops-auto-update<br/>CHZZK scan · match · apply"]
-  maintenance["otw-ops-maintenance<br/>retention · lease/outbox recovery"]
+  queues["6 physical Queues<br/>control · critical · background<br/>ingestion · websub · dead-letter"]
+  executor["protocol-aware queue router<br/>scheduled · ingestion · WebSub"]
   admin["관리자 Operations UI"]
   command["POST /api/operations/runs<br/>202 + run polling"]
   youtube["YouTube Demand-SWR<br/>정기 schedule 0건"]
   youtubeManual["POST /api/youtube/cache/refresh<br/>동기 200"]
 
+  runtime --> workflows
   workflows --> state
   state --> queues
-  queues --> collectors
-  queues --> media
-  queues --> auto
-  queues --> maintenance
-  collectors --> state
-  media --> state
-  auto --> state
-  maintenance --> state
+  queues --> executor
+  executor --> state
   admin --> command
   command --> state
   admin --> youtubeManual
   youtubeManual --> youtube
 ```
 
-범용 운영 작업은 분 목록을 가진 Free-plan Cron Trigger 하나가 작업별 Workflow를 시작하고,
-Workflow가 D1 run/item/outbox를 계획한다. 독립 Queue lane이
-실제 invocation을 collector, media, auto-update, maintenance Worker로 분리한다.
+범용 운영 작업은 통합 Worker의 Free-plan Cron Trigger 하나가 job type을 담은 범용
+Workflow instance를 시작하고, Workflow가 D1 run/item/outbox를 계획한다. 논리 lane은
+D1 admission·lease·관측 기준으로 유지하지만 물리 Queue는 control, critical,
+background로 통합한다. ingestion과 WebSub delivery는 서로 다른 concurrency와 지연
+요구를 가지므로 독립 Queue를 유지하고, dead-letter만 protocol-aware router로 합친다.
+모든 Queue invocation은 같은 Worker의 queue entry point를 사용한다.
 X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
 조회 계약을 공유한다. `youtube-critical` lane은 OTW Play WebSub·ingestion·
 source-health·reconcile을 위해 유지한다.
