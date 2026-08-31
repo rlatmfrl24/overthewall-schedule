@@ -777,11 +777,11 @@ describe("api wrapper modules", () => {
     expect(diagnostics.items).toHaveLength(1);
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
-      `/api/live-status?channelIds=${channelA},${channelB}`,
+      `/api/live-status?channelIds=${channelA},${channelB}&cacheVersion=2`,
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
-      `/api/live-status?channelIds=${channelA},${channelB}&debug=1`,
+      `/api/live-status?channelIds=${channelA},${channelB}&cacheVersion=2&debug=1`,
     );
   });
 });
