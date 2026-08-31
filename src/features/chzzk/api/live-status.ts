@@ -28,6 +28,8 @@ type LiveStatusDiagnostics = {
   channelToMembers: Record<string, number[]>;
 };
 
+const LIVE_STATUS_HTTP_CACHE_VERSION = "2";
+
 export type LiveStatusesForMembersResult = {
   statuses: ChzzkLiveStatusMap;
   snapshotVersion: string | null;
@@ -103,7 +105,7 @@ export async function fetchLiveStatusesForMembersWithMeta(
   const data = await apiFetch<ChzzkLiveStatusResponseDto>(
     withRouteSearch(
       apiRoutes.chzzk.liveStatus.build(),
-      `channelIds=${uniqueChannelIds.join(",")}`,
+      `channelIds=${uniqueChannelIds.join(",")}&cacheVersion=${LIVE_STATUS_HTTP_CACHE_VERSION}`,
     ),
   );
 
@@ -142,7 +144,7 @@ export async function fetchLiveStatusDiagnostics(
   }>(
     withRouteSearch(
       apiRoutes.chzzk.liveStatus.build(),
-      `channelIds=${uniqueChannelIds.join(",")}&debug=1`,
+      `channelIds=${uniqueChannelIds.join(",")}&cacheVersion=${LIVE_STATUS_HTTP_CACHE_VERSION}&debug=1`,
     ),
   );
 

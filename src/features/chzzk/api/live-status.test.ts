@@ -44,6 +44,31 @@ describe("live status api", () => {
     apiFetchMock.mockReset();
   });
 
+  it("공개 조회는 이전 브라우저 캐시와 분리된 버전 URL을 사용한다", async () => {
+    apiFetchMock.mockResolvedValue({
+      snapshotVersion: "v1-test",
+      items: [
+        {
+          channelId,
+          content: { status: "OPEN" },
+        },
+      ],
+      scheduleAutoFill: { updated: 0 },
+    });
+    const { fetchLiveStatusesForMembersWithMeta } = await import(
+      "./live-status"
+    );
+
+    const result = await fetchLiveStatusesForMembersWithMeta([
+      makeMember(1, `https://chzzk.naver.com/${channelId}`),
+    ]);
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `/api/live-status?channelIds=${channelId}&cacheVersion=2`,
+    );
+    expect(result.statuses[1]?.status).toBe("OPEN");
+  });
+
   it("관리자 자동 입력 command에 정규화된 채널 목록을 전달한다", async () => {
     apiFetchMock.mockResolvedValue({
       updatedAt: "2026-07-28T00:00:00.000Z",

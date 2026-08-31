@@ -379,7 +379,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     path: apiRoutes.chzzk.liveStatus.pattern,
     methods: methods(get({
       auth: "public",
-      cache: "public, max-age=0, s-maxage=45, stale-while-revalidate=120",
+      cache: "public, max-age=0, s-maxage=45, must-revalidate",
       successStatus: 200,
     })),
     handler: handleLiveStatus,

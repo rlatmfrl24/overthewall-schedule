@@ -41,7 +41,7 @@ const targetErrorResponse = (error: unknown) => {
 };
 
 const LIVE_STATUS_CACHE_CONTROL =
-  "public, max-age=0, s-maxage=45, stale-while-revalidate=120";
+  "public, max-age=0, s-maxage=45, must-revalidate";
 
 const getLiveStatusCache = () =>
   typeof caches === "undefined" ? null : caches.default;

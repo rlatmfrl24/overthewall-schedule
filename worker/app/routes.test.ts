@@ -49,7 +49,7 @@ const PUBLIC_GET = {
 const LIVE_STATUS_GET = {
   method: "GET",
   auth: "public",
-  cache: "public, max-age=0, s-maxage=45, stale-while-revalidate=120",
+  cache: "public, max-age=0, s-maxage=45, must-revalidate",
   successStatus: 200,
 } as const;
 const PUBLIC_MEDIA_GET = {
