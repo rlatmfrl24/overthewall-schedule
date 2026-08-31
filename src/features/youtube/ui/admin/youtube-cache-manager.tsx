@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  ChevronDown,
+  CircleAlert,
   DatabaseZap,
-  Gauge,
   Loader2,
   Play,
   RefreshCw,
-  ShieldCheck,
   Youtube,
 } from "lucide-react";
 import { AdminSectionHeader } from "@/app/admin";
@@ -19,6 +19,16 @@ import {
 } from "@/features/configuration";
 import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
@@ -244,6 +254,7 @@ export function YouTubeCacheManager() {
   const [windowHours, setWindowHours] =
     useState<(typeof WINDOW_OPTIONS)[number]>(168);
   const [quotaDraft, setQuotaDraft] = useState("1000");
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: queryKeys.settings.detail(),
@@ -376,7 +387,6 @@ export function YouTubeCacheManager() {
     await Promise.all([settingsQuery.refetch(), statusQuery.refetch()]);
   };
 
-  const effectiveness = status?.effectiveness;
   const demandUsage = status?.usage.byOrigin.find(
     (item) => item.origin === "demand",
   );
@@ -384,85 +394,58 @@ export function YouTubeCacheManager() {
     (item) => item.origin === "manual",
   );
   const analytics = status?.analytics;
+  const effectiveness = status?.effectiveness;
+  const targetStates = status?.targetStates;
+  const totalTargets =
+    (targetStates?.official.total ?? 0) +
+    (targetStates?.kirinuki.total ?? 0);
+  const availableTargets =
+    (targetStates?.official.fresh ?? 0) +
+    (targetStates?.official.stale ?? 0) +
+    (targetStates?.kirinuki.fresh ?? 0) +
+    (targetStates?.kirinuki.stale ?? 0);
+  const attentionCount =
+    (targetStates?.official.expired ?? 0) +
+    (targetStates?.official.missing ?? 0) +
+    (targetStates?.kirinuki.expired ?? 0) +
+    (targetStates?.kirinuki.missing ?? 0);
+  const activeApiCalls =
+    (demandUsage?.apiCalls ?? 0) + (manualUsage?.apiCalls ?? 0);
+  const activeQuotaUnits =
+    (demandUsage?.quotaUnits ?? 0) + (manualUsage?.quotaUnits ?? 0);
+  const activeFailures =
+    (demandUsage?.failureCount ?? 0) +
+    (manualUsage?.failureCount ?? 0);
+  const refreshResult = refreshMutation.data;
+  const latestError =
+    channelRows.find((row) => row.lastError)?.lastError ??
+    refreshResult?.error ??
+    null;
   const coverageHours = analytics?.coverageHours;
-  const coverageRatio =
-    analytics?.status === "available" &&
-    coverageHours !== null &&
-    coverageHours !== undefined
-      ? Math.min(1, Math.max(0, coverageHours / analytics.windowHours))
-      : null;
-  const hasFullCoverage =
-    analytics?.status === "available" &&
-    coverageRatio !== null &&
-    coverageRatio >= 0.99;
-  const isPartialCoverage =
-    analytics?.status === "available" && !hasFullCoverage;
-  const analyticsAvailabilityDetail =
+  const coverageDetail =
     analytics?.status === "unconfigured"
       ? "Analytics 읽기 설정이 필요합니다."
-      : "Analytics 지표를 일시적으로 조회할 수 없습니다.";
-  const coverageDetail =
-    analytics?.status !== "available"
-      ? analyticsAvailabilityDetail
-      : analytics.observedSince === null
-        ? "선택 기간 내 v2 관측 이벤트 없음"
-        : coverageHours === null || coverageHours === undefined
-          ? "관측 범위 확인 불가"
-          : coverageHours === 0
-            ? `이벤트 기반 최소 관측 · ${formatTimestamp(
-                analytics.observedSince,
-              )} 시작 · 1시간 미만`
-            : `${hasFullCoverage ? "선택 기간 관측" : "이벤트 기반 최소 관측"} · ${formatTimestamp(
-                analytics.observedSince,
-              )} 이후 · ${coverageHours.toFixed(1)}/${analytics.windowHours}시간 (${formatRate(
-                coverageRatio,
-              )})`;
-  const analyticsDetail =
-    analytics?.status === "available"
-      ? `즉시 제공 ${effectiveness?.nonBlockingServeCount ?? 0} / 요청 ${effectiveness?.requestCount ?? 0} · 표본 보정`
-      : analyticsAvailabilityDetail;
-  const changeDetail =
-    analytics?.status === "available"
-      ? `변경 ${effectiveness?.changedCount ?? "-"} / 동일 ${effectiveness?.unchangedCount ?? "-"} · 영상 ID 기준 · 표본 보정`
-      : analyticsAvailabilityDetail;
-  const quotaPerChangeDetail =
-    analytics?.status === "available"
-      ? `Demand + Manual ${effectiveness?.activeQuotaUnits ?? 0} units · 변경 건수 표본 보정${
-          isPartialCoverage
-            ? " · 선택 기간 D1 / 이벤트 기반 부분 관측"
-            : ""
-        }`
-      : analyticsAvailabilityDetail;
-  const refreshResult = refreshMutation.data;
+      : !analytics || analytics.status === "unavailable"
+        ? "Analytics 지표를 일시적으로 조회할 수 없습니다."
+        : analytics.observedSince === null
+          ? "선택 기간 내 관측 이벤트 없음"
+          : coverageHours === null || coverageHours === undefined
+            ? "관측 범위 확인 불가"
+            : `${formatTimestamp(analytics.observedSince)} 이후 최소 ${coverageHours.toFixed(1)}시간 관측`;
   const isSaving = settingsMutation.isPending;
   const isRunning = refreshMutation.isPending;
+  const windowLabel = windowHours === 168 ? "최근 7일" : `최근 ${windowHours}시간`;
 
   return (
     <div className="space-y-5">
       <AdminSectionHeader
         title="YouTube 캐시 관리"
-        description="수요 기반 갱신 · 정기 예열 없음"
+        description="저장된 콘텐츠를 우선 제공하고 필요한 채널만 요청 시 갱신합니다."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={String(windowHours)}
-              onValueChange={(value) =>
-                setWindowHours(
-                  Number.parseInt(value, 10) as (typeof WINDOW_OPTIONS)[number],
-                )
-              }
-            >
-              <SelectTrigger className="h-9 w-[116px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {WINDOW_OPTIONS.map((value) => (
-                  <SelectItem key={value} value={String(value)}>
-                    {value === 168 ? "최근 7일" : `${value}시간`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Badge variant="outline" className="h-9 px-3">
+              수요 기반 SWR · 예약 예열 없음
+            </Badge>
             <Button
               variant="outline"
               size="sm"
@@ -478,10 +461,8 @@ export function YouTubeCacheManager() {
             </Button>
             <Button
               size="sm"
-              onClick={() =>
-                void refreshMutation.mutateAsync().catch(() => undefined)
-              }
-              disabled={isRunning}
+              onClick={() => setRefreshConfirmOpen(true)}
+              disabled={isRunning || !status || totalTargets === 0}
             >
               {isRunning ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -494,50 +475,36 @@ export function YouTubeCacheManager() {
         }
       />
 
-      {analytics?.status === "available" ? (
-        <div
-          className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-          role="status"
-        >
-          <span className="font-medium text-foreground">
-            Analytics v2 · 표본 보정 추정치 · 이벤트 기반 관측 하한
-          </span>{" "}
-          · {coverageDetail} · Analytics/D1 집계 기준 {formatTimestamp(
-            status?.window.until ?? analytics.generatedAt,
-          )}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard
-          icon={ShieldCheck}
-          label={
-            hasFullCoverage
-              ? windowHours === 168
-                ? "최근 7일 비차단 제공률 (추정)"
-                : `${windowHours}시간 비차단 제공률 (추정)`
-              : "관측 범위 비차단 제공률 (추정)"
-          }
-          value={formatRate(effectiveness?.nonBlockingServeRate)}
-          detail={analyticsDetail}
+          icon={DatabaseZap}
+          label="캐시 가용성"
+          value={`${availableTargets}/${totalTargets}`}
+          detail={`Fresh + 즉시 제공 가능한 Stale · 공식 ${
+            (targetStates?.official.fresh ?? 0) +
+            (targetStates?.official.stale ?? 0)
+          } / 키리누키 ${
+            (targetStates?.kirinuki.fresh ?? 0) +
+            (targetStates?.kirinuki.stale ?? 0)
+          }`}
         />
         <MetricCard
           icon={Activity}
-          label="외부 API 호출"
-          value={effectiveness?.externalApiCalls ?? 0}
-          detail={`Demand ${demandUsage?.apiCalls ?? 0} / Manual ${manualUsage?.apiCalls ?? 0}`}
+          label={`${windowLabel} 활성 API 사용량`}
+          value={`${activeApiCalls} calls`}
+          detail={`${activeQuotaUnits} quota · 실패 ${activeFailures} · Demand/Manual만 집계`}
         />
         <MetricCard
-          icon={Gauge}
-          label="콘텐츠 변경률 (추정)"
-          value={formatRate(effectiveness?.changeRate)}
-          detail={changeDetail}
-        />
-        <MetricCard
-          icon={DatabaseZap}
-          label="변경 1건당 quota (추정)"
-          value={effectiveness?.quotaPerChange?.toFixed(1) ?? "-"}
-          detail={quotaPerChangeDetail}
+          icon={CircleAlert}
+          label="확인 필요"
+          value={attentionCount === 0 ? "정상" : `${attentionCount}건`}
+          detail={
+            latestError
+              ? `최근 오류: ${latestError}`
+              : `Expired + Missing · 수동 실행 ${
+                  refreshResult ? getRunStatusLabel(refreshResult.status) : "기록 없음"
+                }`
+          }
         />
       </div>
 
@@ -565,28 +532,15 @@ export function YouTubeCacheManager() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>관리 설정</CardTitle>
-            <CardDescription>
-              예약 실행 대신 요청 시 갱신하며, 관리자는 전체 캐시를 동기
-              명령으로 새로고침할 수 있습니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="rounded-md border bg-muted/30 p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <ShieldCheck className="size-4" />
-                수요 기반 갱신 · 정기 예열 없음
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Fresh 캐시는 외부 호출 없이 제공하고, 저장된 Stale 콘텐츠는 즉시
-                제공한 뒤 제한적으로 갱신합니다.
-              </p>
-            </div>
-
-            <div className="space-y-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>운영 제어</CardTitle>
+          <CardDescription>
+            일일 사용 상한과 최근 수동 전체 새로고침 결과를 관리합니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,420px)_1fr]">
+          <div className="space-y-2">
               <Label htmlFor="youtube-api-quota">
                 YouTube API 일일 쿼터 상한
               </Label>
@@ -613,154 +567,10 @@ export function YouTubeCacheManager() {
                 {status?.warmup?.quota.used ?? status?.usage.quotaUnits ?? 0} /{" "}
                 {status?.warmup?.quota.limit ?? quotaDraft} units
               </div>
-            </div>
-
-            <div className="rounded-md border p-3 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Demand 호출</span>
-                <span className="font-medium">
-                  {demandUsage?.apiCalls ?? 0} calls ·{" "}
-                  {demandUsage?.quotaUnits ?? 0}u
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Manual 호출</span>
-                <span className="font-medium">
-                  {manualUsage?.apiCalls ?? 0} calls ·{" "}
-                  {manualUsage?.quotaUnits ?? 0}u
-                </span>
-              </div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">남은 쿼터</span>
-                <span className="font-medium">
-                  {status?.warmup?.quota.remaining ?? "-"} units
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>캐시 상세</CardTitle>
-            <CardDescription>
-              canonical `channel_videos` 캐시를 만료 우선순으로 표시합니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>상태</TableHead>
-                  <TableHead>채널</TableHead>
-                  <TableHead>maxResults</TableHead>
-                  <TableHead>갱신</TableHead>
-                  <TableHead>Fresh 만료</TableHead>
-                  <TableHead>최근 오류</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {channelRows.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      캐시 항목이 없습니다.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  channelRows.map((row) => (
-                    <TableRow key={row.cacheKey}>
-                      <TableCell>
-                        <Badge variant={getCacheStatusVariant(row.status)}>
-                          {getCacheStatusLabel(row.status)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                        {row.channelId}
-                      </TableCell>
-                      <TableCell>{row.maxResults ?? "-"}</TableCell>
-                      <TableCell>{formatTimestamp(row.fetchedAt)}</TableCell>
-                      <TableCell>{formatTimestamp(row.expiresAt)}</TableCell>
-                      <TableCell className="max-w-[240px] truncate">
-                        {row.lastError ?? "-"}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>API 사용량</CardTitle>
-            <CardDescription>
-              Demand와 Manual 호출을 분리하고 실제 YouTube API 이벤트만
-              집계합니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>호출 구분</TableHead>
-                  <TableHead>calls</TableHead>
-                  <TableHead>quota</TableHead>
-                  <TableHead>failures</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell>Demand</TableCell>
-                  <TableCell>{demandUsage?.apiCalls ?? 0}</TableCell>
-                  <TableCell>{demandUsage?.quotaUnits ?? 0}</TableCell>
-                  <TableCell>{demandUsage?.failureCount ?? 0}</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>Manual</TableCell>
-                  <TableCell>{manualUsage?.apiCalls ?? 0}</TableCell>
-                  <TableCell>{manualUsage?.quotaUnits ?? 0}</TableCell>
-                  <TableCell>{manualUsage?.failureCount ?? 0}</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">성공 / 실패</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {status?.usage.successCount ?? 0} /{" "}
-                  {status?.usage.failureCount ?? 0}
-                </div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-xs text-muted-foreground">
-                  rate limit / quota
-                </div>
-                <div className="mt-1 text-lg font-semibold">
-                  {status?.usage.rateLimitCount ?? 0} /{" "}
-                  {status?.usage.quotaErrorCount ?? 0}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>수동 전체 새로고침</CardTitle>
-            <CardDescription>
-              요청 완료 시 결과가 즉시 반환되며 별도 작업 폴링을 사용하지
-              않습니다.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          </div>
+          <div className="rounded-md border bg-muted/30 p-4 text-sm">
             {refreshResult ? (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              <div>
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">이번 실행 결과</span>
                   <Badge variant={getRunStatusVariant(refreshResult.status)}>
@@ -777,30 +587,238 @@ export function YouTubeCacheManager() {
                   <div>실패 {refreshResult.failedCount}</div>
                 </div>
               </div>
-            ) : null}
-            <RunTable
-              runs={manualRuns}
-              emptyMessage="수동 새로고침 이력이 없습니다."
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>이전 자동 예열 기록</CardTitle>
-          <CardDescription>
-            과거 scheduled warmup 기록은 참고용으로만 보존되며 현재 실행
-            정책에는 영향을 주지 않습니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RunTable
-            runs={status?.legacyScheduledRuns ?? []}
-            emptyMessage="이전 자동 예열 기록이 없습니다."
-          />
+            ) : (
+              <div className="flex h-full min-h-20 items-center text-muted-foreground">
+                이 화면에서 실행한 수동 전체 새로고침 결과가 없습니다.
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
+
+      <details className="group overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 font-medium [&::-webkit-details-marker]:hidden">
+          <span>
+            운영 상세 보기
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              채널 캐시 · API · Analytics · 실행 이력
+            </span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="space-y-7 border-t p-5">
+          <section className="space-y-3" aria-labelledby="youtube-window-title">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 id="youtube-window-title" className="font-medium">
+                  조회 기간
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  활성 Demand/Manual 사용량과 보조 진단 기간을 선택합니다.
+                </p>
+              </div>
+              <Select
+                value={String(windowHours)}
+                onValueChange={(value) =>
+                  setWindowHours(
+                    Number.parseInt(value, 10) as (typeof WINDOW_OPTIONS)[number],
+                  )
+                }
+              >
+                <SelectTrigger className="h-9 w-[116px]" aria-label="조회 기간">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WINDOW_OPTIONS.map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      {value === 168 ? "최근 7일" : `${value}시간`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </section>
+
+          <section className="space-y-3" aria-labelledby="youtube-cache-detail-title">
+            <div>
+              <h3 id="youtube-cache-detail-title" className="font-medium">
+                채널 캐시 상세
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                canonical channel_videos 캐시를 만료 우선순으로 표시합니다.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>상태</TableHead>
+                    <TableHead>채널</TableHead>
+                    <TableHead>maxResults</TableHead>
+                    <TableHead>갱신</TableHead>
+                    <TableHead>Fresh 만료</TableHead>
+                    <TableHead>최근 오류</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {channelRows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                        캐시 항목이 없습니다.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    channelRows.map((row) => (
+                      <TableRow key={row.cacheKey}>
+                        <TableCell>
+                          <Badge variant={getCacheStatusVariant(row.status)}>
+                            {getCacheStatusLabel(row.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate font-mono text-xs">
+                          {row.channelId}
+                        </TableCell>
+                        <TableCell>{row.maxResults ?? "-"}</TableCell>
+                        <TableCell>{formatTimestamp(row.fetchedAt)}</TableCell>
+                        <TableCell>{formatTimestamp(row.expiresAt)}</TableCell>
+                        <TableCell className="max-w-[240px] truncate">
+                          {row.lastError ?? "-"}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+
+          <section className="space-y-3" aria-labelledby="youtube-usage-title">
+            <div>
+              <h3 id="youtube-usage-title" className="font-medium">API 사용량</h3>
+              <p className="text-xs text-muted-foreground">
+                운영 중인 Demand와 Manual 호출만 구분해 표시합니다.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>호출 구분</TableHead>
+                    <TableHead>calls</TableHead>
+                    <TableHead>quota</TableHead>
+                    <TableHead>failures</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell>Demand</TableCell>
+                    <TableCell>{demandUsage?.apiCalls ?? 0}</TableCell>
+                    <TableCell>{demandUsage?.quotaUnits ?? 0}</TableCell>
+                    <TableCell>{demandUsage?.failureCount ?? 0}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell>Manual</TableCell>
+                    <TableCell>{manualUsage?.apiCalls ?? 0}</TableCell>
+                    <TableCell>{manualUsage?.quotaUnits ?? 0}</TableCell>
+                    <TableCell>{manualUsage?.failureCount ?? 0}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+
+          <section className="space-y-3" aria-labelledby="youtube-analytics-title">
+            <div>
+              <h3 id="youtube-analytics-title" className="font-medium">
+                Analytics 보조 진단
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                표본 기반 참고 지표이며 운영 상태 판정의 주 지표로 사용하지 않습니다.
+              </p>
+            </div>
+            <div className="rounded-md border bg-muted/30 p-4">
+              <p className="text-xs text-muted-foreground">{coverageDetail}</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">비차단 제공률</div>
+                  <div className="mt-1 font-semibold">
+                    {analytics?.status === "available"
+                      ? formatRate(effectiveness?.nonBlockingServeRate)
+                      : "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">콘텐츠 변경률</div>
+                  <div className="mt-1 font-semibold">
+                    {analytics?.status === "available"
+                      ? formatRate(effectiveness?.changeRate)
+                      : "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">변경당 quota</div>
+                  <div className="mt-1 font-semibold">
+                    {analytics?.status === "available"
+                      ? effectiveness?.quotaPerChange?.toFixed(1) ?? "-"
+                      : "-"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3" aria-labelledby="youtube-manual-runs-title">
+            <div>
+              <h3 id="youtube-manual-runs-title" className="font-medium">
+                수동 전체 새로고침 이력
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              <RunTable runs={manualRuns} emptyMessage="수동 새로고침 이력이 없습니다." />
+            </div>
+          </section>
+
+          <section className="space-y-3" aria-labelledby="youtube-legacy-runs-title">
+            <div>
+              <h3 id="youtube-legacy-runs-title" className="font-medium">
+                이전 자동 예열 기록 · 읽기 전용
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                과거 scheduled warmup 기록이며 현재 실행 정책에는 영향을 주지 않습니다.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <RunTable
+                runs={status?.legacyScheduledRuns ?? []}
+                emptyMessage="이전 자동 예열 기록이 없습니다."
+              />
+            </div>
+          </section>
+        </div>
+      </details>
+
+      <AlertDialog open={refreshConfirmOpen} onOpenChange={setRefreshConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>전체 YouTube 캐시를 새로고침할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              활성 공식·키리누키 채널 {totalTargets}개를 대상으로 외부 API를 호출합니다.
+              현재 남은 일일 쿼터는 {status?.warmup?.quota.remaining ?? "확인 불가"} units이며,
+              실행은 최대 30초 동안 동기 처리됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRunning}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRunning}
+              onClick={() => void refreshMutation.mutateAsync().catch(() => undefined)}
+            >
+              {isRunning ? <Loader2 className="size-4 animate-spin" /> : null}
+              전체 갱신 실행
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
