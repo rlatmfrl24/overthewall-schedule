@@ -362,7 +362,15 @@ const makeCacheDb = (
     },
   } as unknown as Pick<D1Database, "prepare">;
 
-  return { db, store, posts, sources, usageEvents, collectionRuns };
+  return {
+    db,
+    store,
+    posts,
+    sources,
+    usageEvents,
+    collectionRuns,
+    getBudgetLedger: () => xBudgetLedger,
+  };
 };
 
 describe("x worker service", () => {
@@ -1371,11 +1379,68 @@ describe("x worker service", () => {
     });
   });
 
-  it("백그라운드 수집은 예산 초과를 성공으로 기록하지 않는다", async () => {
+  it("stale 게시글을 제공해도 원래 rate-limit 원인과 source cooldown을 보존한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
 
-    const { db, usageEvents, collectionRuns } = makeCacheDb({
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{
+            id: "p1",
+            text: "cached",
+            created_at: "2026-02-13T00:00:00Z",
+            public_metrics: {},
+          }],
+        }),
+      );
+    const { db, sources, collectionRuns } = makeCacheDb();
+    await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    clearXServiceCachesForTests();
+    vi.setSystemTime(new Date("2026-02-13T02:01:00Z"));
+    fetchMock.mockResolvedValueOnce(
+      new Response("rate limited", {
+        status: 429,
+        headers: {
+          "x-rate-limit-reset": String(
+            Math.floor(Date.parse("2026-02-13T02:15:00Z") / 1000),
+          ),
+        },
+      }),
+    );
+
+    const result = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: "rate_limited",
+      postsReturned: 1,
+    });
+    expect(sources.get("otw_member")?.last_error).toBe("rate_limited");
+    expect(collectionRuns.at(-1)).toMatchObject({
+      status: "failed",
+      error: "rate_limited",
+    });
+  });
+
+  it("백그라운드 수집은 예산 초과를 보호 정책 skip으로 기록한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const { db, usageEvents, collectionRuns, sources } = makeCacheDb({
       x_collection_daily_budget_cents: { value: "1" },
     });
     usageEvents.push({
@@ -1396,14 +1461,176 @@ describe("x worker service", () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      status: "failed",
+      status: "skipped",
       error: "budget_exceeded",
       postsStored: 0,
       apiCalls: 0,
     });
     expect(collectionRuns[0]).toMatchObject({
-      status: "failed",
+      status: "skipped",
       error: "budget_exceeded",
+    });
+    expect(sources.get("otw_member")?.last_error).toBe("budget_exceeded");
+  });
+
+  it("예약한 최대 비용 대신 실제 반환 리소스 비용만 예산 ledger에 확정한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_one", name: "OTW One" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{
+            id: "p1",
+            text: "first",
+            created_at: "2026-02-13T00:00:00Z",
+            public_metrics: {},
+          }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u2", username: "otw_two", name: "OTW Two" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{
+            id: "p2",
+            text: "second",
+            created_at: "2026-02-13T00:00:00Z",
+            public_metrics: {},
+          }],
+        }),
+      );
+
+    const { db, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    const first = await fetchXPostsForHandles(["otw_one"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+    const second = await fetchXPostsForHandles(["otw_two"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(first.byHandle[0]?.error).toBeNull();
+    expect(second.byHandle[0]?.error).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 30_000,
+      limit: 100_000,
+    });
+  });
+
+  it("전송 후 네트워크 오류로 사용량을 알 수 없으면 예약 비용을 보수적으로 확정한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network interrupted"));
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    await expect(
+      fetchXPostsForHandles(["otw_member"], {
+        bearerToken: "token",
+        cacheDb: db,
+        maxResults: 5,
+      }),
+    ).rejects.toMatchObject({ code: "x_api_error" });
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 0,
+      resource_count: 0,
+      estimated_cost_micros: 10_000,
+    });
+    expect(JSON.parse(usageEvents[0]?.detail ?? "{}")).toMatchObject({
+      costBasis: "conservative_request_estimate",
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 10_000,
+      limit: 100_000,
+    });
+  });
+
+  it("성공 응답의 JSON 파싱이 실패하면 예약 비용을 보수적으로 확정한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response("{", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    await expect(
+      fetchXPostsForHandles(["otw_member"], {
+        bearerToken: "token",
+        cacheDb: db,
+        maxResults: 5,
+      }),
+    ).rejects.toMatchObject({ code: "x_api_error" });
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 200,
+      resource_count: 0,
+      estimated_cost_micros: 10_000,
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 10_000,
+      limit: 100_000,
+    });
+  });
+
+  it("측정 가능한 정상 0건 응답은 예약 비용을 사용량으로 확정하지 않는다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ data: [] }));
+    const { db, usageEvents, getBudgetLedger } = makeCacheDb({
+      x_collection_daily_budget_cents: { value: "10" },
+    });
+
+    const result = await fetchXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      maxResults: 5,
+    });
+
+    expect(result.byHandle[0]).toMatchObject({
+      handle: "otw_member",
+      error: "user_not_found",
+    });
+    expect(usageEvents[0]).toMatchObject({
+      operation: "user_lookup",
+      status: 200,
+      resource_count: 0,
+      estimated_cost_micros: 0,
+    });
+    expect(getBudgetLedger()).toMatchObject({
+      reserved: 0,
+      used: 0,
+      limit: 100_000,
     });
   });
 

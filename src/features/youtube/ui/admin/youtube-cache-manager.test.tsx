@@ -64,8 +64,8 @@ const status = {
     byType: [],
   },
   usage: {
-    apiCalls: 7,
-    quotaUnits: 7,
+    apiCalls: 1722,
+    quotaUnits: 1722,
     successCount: 6,
     failureCount: 1,
     rateLimitCount: 0,
@@ -82,6 +82,12 @@ const status = {
         origin: "manual" as const,
         apiCalls: 2,
         quotaUnits: 2,
+        failureCount: 0,
+      },
+      {
+        origin: "legacy_unknown" as const,
+        apiCalls: 1715,
+        quotaUnits: 1715,
         failureCount: 0,
       },
     ],
@@ -150,8 +156,18 @@ const status = {
   legacyScheduledRuns: [makeRun("scheduled", 500)],
 };
 
+const openOperationalDetails = async () => {
+  const summary = await screen.findByText("운영 상세 보기");
+  const details = summary.closest("details");
+  if (!details) throw new Error("YouTube operational details were not found");
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  return details;
+};
+
 describe("YouTubeCacheManager", () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
     fetchSettingsMock.mockReset();
     updateSettingsMock.mockReset();
     fetchStatusMock.mockReset();
@@ -167,32 +183,29 @@ describe("YouTubeCacheManager", () => {
 
   afterEach(() => cleanup());
 
-  it("수요 기반 운영 상태와 이전 자동 예열 기록을 분리해 표시한다", async () => {
+  it("수요 기반 운영 요약에서 현재 캐시와 활성 호출만 우선 표시한다", async () => {
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
 
     await waitFor(() => expect(fetchStatusMock).toHaveBeenCalledWith(168));
-    expect(screen.getAllByText("수요 기반 갱신 · 정기 예열 없음")).toHaveLength(
-      2,
-    );
-    expect(
-      await screen.findByText("최근 7일 비차단 제공률 (추정)"),
-    ).toBeTruthy();
-    expect(await screen.findByText("80.0%")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Analytics v2 · 표본 보정 추정치 · 이벤트 기반 관측 하한",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByText("콘텐츠 변경률 (추정)")).toBeTruthy();
-    expect(screen.getByText("변경 1건당 quota (추정)")).toBeTruthy();
+    expect(screen.getByText("수요 기반 SWR · 예약 예열 없음")).toBeTruthy();
+    expect(await screen.findByText("캐시 가용성")).toBeTruthy();
+    expect(screen.getByText("2/3")).toBeTruthy();
+    expect(screen.getByText("최근 7일 활성 API 사용량")).toBeTruthy();
+    expect(screen.getByText("7 calls")).toBeTruthy();
+    expect(screen.getByText(/7 quota · 실패 1 · Demand\/Manual만 집계/)).toBeTruthy();
+    expect(screen.getByText("확인 필요")).toBeTruthy();
+    expect(screen.getByText("1건")).toBeTruthy();
     expect(screen.getByText("공식 채널")).toBeTruthy();
     expect(screen.getByText("키리누키 채널")).toBeTruthy();
-    expect(screen.getByText("이전 자동 예열 기록")).toBeTruthy();
+    expect(screen.getByText("운영 상세 보기")).toBeTruthy();
+    expect(
+      screen.getByText("이전 자동 예열 기록 · 읽기 전용"),
+    ).toBeTruthy();
     expect(screen.queryByText("백그라운드 예열")).toBeNull();
     expect(screen.queryByText("실행 간격")).toBeNull();
   });
 
-  it("Analytics 조회 불가를 0%로 오인하지 않고 별도 상태로 표시한다", async () => {
+  it("Analytics 조회 불가를 상세 보조 진단에서 0%로 오인하지 않는다", async () => {
     fetchStatusMock.mockResolvedValueOnce({
       ...status,
       analytics: {
@@ -217,13 +230,14 @@ describe("YouTubeCacheManager", () => {
 
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
 
+    await openOperationalDetails();
     expect(
-      await screen.findAllByText("Analytics 읽기 설정이 필요합니다."),
-    ).toHaveLength(3);
+      await screen.findByText("Analytics 읽기 설정이 필요합니다."),
+    ).toBeTruthy();
     expect(screen.queryByText("0.0%")).toBeNull();
   });
 
-  it("부분 관측 coverage를 최근 7일 전체 지표로 표시하지 않는다", async () => {
+  it("부분 관측 Analytics를 전체 기간 지표가 아닌 관측 하한으로 표시한다", async () => {
     fetchStatusMock.mockResolvedValueOnce({
       ...status,
       analytics: {
@@ -235,70 +249,25 @@ describe("YouTubeCacheManager", () => {
 
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
 
+    await openOperationalDetails();
     expect(
-      await screen.findByText("관측 범위 비차단 제공률 (추정)"),
+      await screen.findByText(/8월 30일.*최소 24.0시간 관측/),
     ).toBeTruthy();
-    expect(screen.queryByText("최근 7일 비차단 제공률 (추정)")).toBeNull();
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "이벤트 기반 최소 관측 · 8월 30일",
-    );
-    expect(screen.getByRole("status").textContent).toContain("24.0/168시간");
-    expect(
-      screen.getByText(/선택 기간 D1 \/ 이벤트 기반 부분 관측/),
-    ).toBeTruthy();
+    expect(screen.getByText("비차단 제공률")).toBeTruthy();
+    expect(screen.getByText("80.0%")).toBeTruthy();
   });
 
-  it("available 응답의 coverage가 불명확하면 최근 7일 전체로 표시하지 않는다", async () => {
-    fetchStatusMock.mockResolvedValueOnce({
-      ...status,
-      analytics: {
-        ...status.analytics,
-        observedSince: "2026-08-30T00:00:00.000Z",
-        coverageHours: null,
-      },
-    });
-
+  it("상세 조회 기간을 바꾸면 같은 상태 API를 새 기간으로 조회한다", async () => {
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
 
-    expect(
-      await screen.findByText("관측 범위 비차단 제공률 (추정)"),
-    ).toBeTruthy();
-    expect(screen.queryByText("최근 7일 비차단 제공률 (추정)")).toBeNull();
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "관측 범위 확인 불가",
-    );
+    await openOperationalDetails();
+    fireEvent.click(screen.getByRole("combobox", { name: "조회 기간" }));
+    fireEvent.click(await screen.findByRole("option", { name: "24시간" }));
+
+    await waitFor(() => expect(fetchStatusMock).toHaveBeenCalledWith(24));
   });
 
-  it("관측 이벤트가 없는 available 응답을 0%로 표시하지 않는다", async () => {
-    fetchStatusMock.mockResolvedValueOnce({
-      ...status,
-      analytics: {
-        ...status.analytics,
-        observedSince: null,
-        coverageHours: 0,
-        summary: {
-          ...status.analytics.summary,
-          requestCount: 0,
-          nonBlockingServeCount: 0,
-        },
-      },
-      effectiveness: {
-        ...status.effectiveness,
-        requestCount: 0,
-        nonBlockingServeCount: 0,
-        nonBlockingServeRate: null,
-      },
-    });
-
-    render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
-
-    expect((await screen.findByRole("status")).textContent).toContain(
-      "선택 기간 내 v2 관측 이벤트 없음",
-    );
-    expect(screen.queryByText("0.0%")).toBeNull();
-  });
-
-  it("canonical quota 키를 저장하고 동기 새로고침 결과를 직접 표시한다", async () => {
+  it("canonical quota를 저장하고 확인 후 동기 새로고침 결과를 표시한다", async () => {
     render(<YouTubeCacheManager />, { wrapper: createQueryWrapper() });
     const quota = await screen.findByLabelText("YouTube API 일일 쿼터 상한");
 
@@ -313,6 +282,12 @@ describe("YouTubeCacheManager", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "전체 새로고침" }));
+    expect(refreshCacheMock).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("전체 YouTube 캐시를 새로고침할까요?"),
+    ).toBeTruthy();
+    expect(screen.getByText(/활성 공식·키리누키 채널 3개/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "전체 갱신 실행" }));
     await waitFor(() => expect(refreshCacheMock).toHaveBeenCalledOnce());
     expect(await screen.findByText("이번 실행 결과")).toBeTruthy();
     expect(screen.getByText("갱신 3/3")).toBeTruthy();

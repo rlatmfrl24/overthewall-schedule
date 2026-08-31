@@ -525,15 +525,18 @@ const estimateXApiRequestCostMicros = (
   return maxResults * (X_POST_READ_COST_MICROS + X_MEDIA_READ_COST_MICROS);
 };
 
+type XApiBudgetSettlement = (actualUsedMicros?: number) => Promise<void>;
+const noopXApiBudgetSettlement: XApiBudgetSettlement = async () => {};
+
 const reserveXApiBudget = async (
   cacheDb: XCacheDb | undefined,
   estimatedCostMicros: number,
   usageTracker?: XApiUsageTracker,
 ) => {
-  if (!cacheDb) return async () => {};
+  if (!cacheDb) return noopXApiBudgetSettlement;
 
   const usedMicros = await readDailyUsageMicros(cacheDb);
-  if (usedMicros === null) return async () => {};
+  if (usedMicros === null) return noopXApiBudgetSettlement;
 
   const budgetMicros = await readDailyBudgetMicros(cacheDb);
   const reservedMicros = usageTracker?.reservedCostMicros ?? 0;
@@ -544,7 +547,7 @@ const reserveXApiBudget = async (
     });
   }
 
-  if (estimatedCostMicros <= 0) return async () => {};
+  if (estimatedCostMicros <= 0) return noopXApiBudgetSettlement;
 
   const timestamp = now();
   const day = new Date(timestamp).toISOString().slice(0, 10);
@@ -593,7 +596,10 @@ const reserveXApiBudget = async (
   }
 
   if (usageTracker) usageTracker.reservedCostMicros += estimatedCostMicros;
-  return async () => {
+  return async (actualUsedMicros = 0) => {
+    const settledMicros = Number.isFinite(actualUsedMicros)
+      ? Math.max(0, Math.trunc(actualUsedMicros))
+      : 0;
     if (usageTracker) {
       usageTracker.reservedCostMicros = Math.max(
         0,
@@ -608,7 +614,7 @@ const reserveXApiBudget = async (
          WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
       ).bind(
         estimatedCostMicros,
-        estimatedCostMicros,
+        settledMicros,
         now(),
         day,
       ).run();
@@ -656,9 +662,8 @@ const writeXApiUsageEvent = async (
   status: number,
   response: XApiResponseWithResources | null,
   usageTracker?: XApiUsageTracker,
+  unmeasuredCostMicros = 0,
 ) => {
-  if (!cacheDb) return;
-
   const estimate = response
     ? estimateXApiUsage(operation, response)
     : {
@@ -666,12 +671,14 @@ const writeXApiUsageEvent = async (
         userCount: 0,
         mediaCount: 0,
         resourceCount: 0,
-        estimatedCostMicros: 0,
+        estimatedCostMicros: Math.max(0, Math.trunc(unmeasuredCostMicros)),
       };
   if (usageTracker) {
     usageTracker.apiCalls += 1;
     usageTracker.estimatedCostMicros += estimate.estimatedCostMicros;
   }
+
+  if (!cacheDb) return estimate.estimatedCostMicros;
 
   try {
     await cacheDb
@@ -696,12 +703,18 @@ const writeXApiUsageEvent = async (
           media: estimate.mediaCount,
           source: usageTracker?.source ?? null,
           forceRefreshPath: usageTracker?.forceRefreshPath ?? null,
+          costBasis: response
+            ? "measured_resources"
+            : estimate.estimatedCostMicros > 0
+              ? "conservative_request_estimate"
+              : "no_measurable_resources",
         }),
       )
       .run();
   } catch (error) {
     console.warn("Failed to write X API usage event", error);
   }
+  return estimate.estimatedCostMicros;
 };
 
 const redactXErrorDetail = (value: string) =>
@@ -767,37 +780,50 @@ const requestXApi = async <T>(
     usageTracker?: XApiUsageTracker;
   } = {},
 ): Promise<T> => {
-  let releaseBudgetReservation = async () => {};
+  let settleBudgetReservation: XApiBudgetSettlement = noopXApiBudgetSettlement;
+  let actualUsedMicros = 0;
+  let reservedCostMicros = 0;
+  let requestDispatched = false;
+  let responseStatus = 0;
+  let usageRecorded = false;
   if (options.operation) {
     await assertXApiNotBackedOff(options.cacheDb);
-    releaseBudgetReservation = await reserveXApiBudget(
+    reservedCostMicros = estimateXApiRequestCostMicros(
+      options.operation,
+      path,
+    );
+    settleBudgetReservation = await reserveXApiBudget(
       options.cacheDb,
-      estimateXApiRequestCostMicros(options.operation, path),
+      reservedCostMicros,
       options.usageTracker,
     );
   }
 
   try {
+    requestDispatched = true;
     const response = await fetch(`${X_API_BASE_URL}${path}`, {
       headers: {
         Authorization: `Bearer ${bearerToken}`,
         Accept: "application/json",
       },
     });
+    responseStatus = response.status;
 
     if (!response.ok) {
       if (response.status === 429) {
         await writeXApiBackoff(options.cacheDb, response);
       }
       if (options.operation) {
-        await writeXApiUsageEvent(
+        actualUsedMicros = await writeXApiUsageEvent(
           options.cacheDb,
           options.operation,
           path,
           response.status,
           null,
           options.usageTracker,
+          reservedCostMicros,
         );
+        usageRecorded = true;
       }
       const body = await response.text().catch(() => "");
       const fallback = `X API request failed with status ${response.status}`;
@@ -818,7 +844,7 @@ const requestXApi = async <T>(
 
     const data = (await response.json()) as T;
     if (options.operation) {
-      await writeXApiUsageEvent(
+      actualUsedMicros = await writeXApiUsageEvent(
         options.cacheDb,
         options.operation,
         path,
@@ -826,11 +852,25 @@ const requestXApi = async <T>(
         data as XApiResponseWithResources,
         options.usageTracker,
       );
+      usageRecorded = true;
     }
 
     return data;
+  } catch (error) {
+    if (options.operation && requestDispatched && !usageRecorded) {
+      actualUsedMicros = await writeXApiUsageEvent(
+        options.cacheDb,
+        options.operation,
+        path,
+        responseStatus,
+        null,
+        options.usageTracker,
+        reservedCostMicros,
+      );
+    }
+    throw error;
   } finally {
-    await releaseBudgetReservation();
+    await settleBudgetReservation(actualUsedMicros);
   }
 };
 
@@ -1394,11 +1434,15 @@ const makeCachedPostsResult = (
   handle: string,
   cached: CachedXPostsEntry,
   stale: boolean,
+  errorInfo: Pick<
+    XHandlePostsResult,
+    "error" | "errorStatus" | "errorDetail"
+  > = { error: null },
 ): XHandlePostsResult => ({
   handle,
   userId: cached.userId,
   posts: cached.posts,
-  error: null,
+  ...errorInfo,
   stale,
   postsStored: 0,
   storageError: null,
@@ -1972,6 +2016,9 @@ const fetchXPostsForUser = async (
   forceRefresh = false,
 ): Promise<{
   posts: XPostItem[];
+  error: string | null;
+  errorStatus?: number | null;
+  errorDetail?: string | null;
   stale: boolean;
   postsStored: number;
   storageError: string | null;
@@ -1997,6 +2044,7 @@ const fetchXPostsForUser = async (
   ) {
     return {
       posts: stored.posts,
+      error: null,
       stale: false,
       postsStored: 0,
       storageError: null,
@@ -2023,6 +2071,7 @@ const fetchXPostsForUser = async (
   if (hasRelationMarker && !forceRefresh && cached && isCacheFresh(cached)) {
     return {
       posts: cached.posts,
+      error: null,
       stale: false,
       postsStored: 0,
       storageError: null,
@@ -2036,6 +2085,7 @@ const fetchXPostsForUser = async (
       const entry = await inFlight;
       return {
         posts: entry.posts,
+        error: null,
         stale: false,
         postsStored: entry.postsStored,
         storageError: entry.storageError,
@@ -2044,6 +2094,7 @@ const fetchXPostsForUser = async (
       if (activeFallback) {
         return {
           posts: activeFallback.posts,
+          ...describeXError(error),
           stale: true,
           postsStored: 0,
           storageError: null,
@@ -2125,6 +2176,7 @@ const fetchXPostsForUser = async (
     const entry = await request;
     return {
       posts: entry.posts,
+      error: null,
       stale: false,
       postsStored: entry.postsStored,
       storageError: entry.storageError,
@@ -2133,6 +2185,7 @@ const fetchXPostsForUser = async (
     if (activeFallback) {
       return {
         posts: activeFallback.posts,
+        ...describeXError(error),
         stale: true,
         postsStored: 0,
         storageError: null,
@@ -2352,7 +2405,11 @@ export const fetchXPostsForHandles = async (
       resultByHandle.set(
         handle,
         cached
-          ? makeCachedPostsResult(handle, cached, true)
+          ? makeCachedPostsResult(handle, cached, true, {
+              error: "missing_bearer_token",
+              errorStatus: null,
+              errorDetail: "X_BEARER_TOKEN is not configured for this worker.",
+            })
           : {
               handle,
               userId: null,
@@ -2386,7 +2443,7 @@ export const fetchXPostsForHandles = async (
       resultByHandle.set(
         handle,
         cached
-          ? makeCachedPostsResult(handle, cached, true)
+          ? makeCachedPostsResult(handle, cached, true, errorInfo)
           : {
               handle,
               userId: null,
@@ -2424,7 +2481,15 @@ export const fetchXPostsForHandles = async (
         }
 
         try {
-          const { posts, stale, postsStored, storageError } =
+          const {
+            posts,
+            error,
+            errorStatus,
+            errorDetail,
+            stale,
+            postsStored,
+            storageError,
+          } =
             await fetchXPostsForUser(
               handle,
               user,
@@ -2440,7 +2505,9 @@ export const fetchXPostsForHandles = async (
             handle,
             userId: user.id,
             posts,
-            error: null,
+            error,
+            errorStatus,
+            errorDetail,
             stale,
             postsStored,
             storageError,
@@ -2521,6 +2588,10 @@ const getCollectionFailureError = (byHandle: XHandlePostsResult[]) => {
   if (byHandle.some((item) => item.error === "budget_exceeded")) {
     return "budget_exceeded";
   }
+  const refreshError = byHandle.find(
+    (item) => item.error && !["user_not_found", "protected_user"].includes(item.error),
+  )?.error;
+  if (refreshError) return refreshError;
   if (byHandle.some((item) => item.stale)) {
     return "stale_fallback_used";
   }
@@ -2707,6 +2778,11 @@ export const collectXPostsForHandles = async (
       0,
     );
     const failureError = getCollectionFailureError(content.byHandle);
+    const status = failureError === "budget_exceeded"
+      ? ("skipped" as const)
+      : failureError
+        ? ("failed" as const)
+        : ("success" as const);
     const result = {
       checkedHandles: normalizedHandles.length,
       refreshedHandles,
@@ -2714,7 +2790,7 @@ export const collectXPostsForHandles = async (
       postsStored,
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
-      status: failureError ? ("failed" as const) : ("success" as const),
+      status,
       ...(failureError ? { error: failureError } : {}),
     };
     await writeXCollectionRun(cacheDb, {
@@ -2734,6 +2810,7 @@ export const collectXPostsForHandles = async (
         ),
       );
     }
+    const failureError = formatXError(error);
     const result = {
       checkedHandles: normalizedHandles.length,
       refreshedHandles: 0,
@@ -2741,8 +2818,10 @@ export const collectXPostsForHandles = async (
       postsStored: 0,
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
-      status: "failed" as const,
-      error: error instanceof Error ? error.message : "unknown_error",
+      status: failureError === "budget_exceeded"
+        ? ("skipped" as const)
+        : ("failed" as const),
+      error: failureError,
     };
     await writeXCollectionRun(cacheDb, {
       source,
