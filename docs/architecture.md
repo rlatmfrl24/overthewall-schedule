@@ -626,7 +626,7 @@ flowchart TB
   youtubeManual --> youtube
 ```
 
-범용 운영 작업은 네 개의 Free-plan Cron Trigger가 작업별 Workflow를 시작하고,
+범용 운영 작업은 분 목록을 가진 Free-plan Cron Trigger 하나가 작업별 Workflow를 시작하고,
 Workflow가 D1 run/item/outbox를 계획한다. 독립 Queue lane이
 실제 invocation을 collector, media, auto-update, maintenance Worker로 분리한다.
 X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
