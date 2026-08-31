@@ -145,6 +145,33 @@ describe("live status route", () => {
     expect(autoFillUndecidedLiveSchedulesMock).not.toHaveBeenCalled();
   });
 
+  it("조건부 재검증 요청에도 캐시된 JSON 본문을 200으로 반환한다", async () => {
+    const url =
+      `https://example.com/api/live-status?channelIds=${channelId}`;
+    const firstResponse = await handleLiveStatus(
+      new Request(url),
+      makeEnv(),
+    );
+    const etag = firstResponse.headers.get("ETag");
+
+    expect(firstResponse.status).toBe(200);
+    expect(etag).toBeTruthy();
+
+    const revalidatedResponse = await handleLiveStatus(
+      new Request(url, {
+        headers: { "If-None-Match": etag ?? "" },
+      }),
+      makeEnv(),
+    );
+    const body = (await revalidatedResponse.json()) as {
+      items: unknown[];
+    };
+
+    expect(revalidatedResponse.status).toBe(200);
+    expect(body.items).toEqual([{ channelId, content: liveContent }]);
+    expect(fetchChzzkLiveStatusMock).toHaveBeenCalledOnce();
+  });
+
   it("debug 조회는 관리자 인증을 요구한다", async () => {
     requireAdminUserMock.mockResolvedValueOnce({
       ok: false,

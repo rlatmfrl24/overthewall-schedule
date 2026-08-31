@@ -64,15 +64,6 @@ const hashSnapshot = (items: ChzzkLiveStatusResponseDto["items"]) => {
   return `v1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 };
 
-const notModified = (etag: string) =>
-  new Response(null, {
-    status: 304,
-    headers: {
-      ETag: etag,
-      "Cache-Control": LIVE_STATUS_CACHE_CONTROL,
-    },
-  });
-
 export const createLiveStatusHandler =
   (buildApplication: BuildChzzkApplication) =>
   async (request: Request, env: Env) => {
@@ -95,10 +86,6 @@ export const createLiveStatusHandler =
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const etag = cached.headers.get("ETag");
-      if (etag && request.headers.get("If-None-Match") === etag) {
-        return notModified(etag);
-      }
       return cached;
     }
   }
@@ -130,9 +117,6 @@ export const createLiveStatusHandler =
     },
   );
   if (cache) await cache.put(cacheKey, response.clone());
-  if (request.headers.get("If-None-Match") === etag) {
-    return notModified(etag);
-  }
   return response;
   };
 
