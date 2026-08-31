@@ -2553,6 +2553,9 @@ const writeXCollectionRun = async (
 const getCollectionFailureError = (byHandle: XHandlePostsResult[]) => {
   const storageError = byHandle.find((item) => item.storageError)?.storageError;
   if (storageError) return storageError;
+  if (byHandle.some((item) => item.error === "budget_exceeded")) {
+    return "budget_exceeded";
+  }
   const refreshError = byHandle.find(
     (item) => item.error && !["user_not_found", "protected_user"].includes(item.error),
   )?.error;
