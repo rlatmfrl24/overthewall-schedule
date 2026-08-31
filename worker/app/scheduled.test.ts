@@ -4,7 +4,9 @@ import type { Env } from "../platform/types";
 const mocks = vi.hoisted(() => ({
   order: [] as string[],
   runSourceHealth: vi.fn(),
-  runWarmup: vi.fn(),
+  runXCollection: vi.fn(),
+  runNaverCafeCollection: vi.fn(),
+  runAutoUpdate: vi.fn(),
   clearExpiredApiData: vi.fn(),
   requeuePending: vi.fn(),
   runDue: vi.fn(),
@@ -26,25 +28,11 @@ vi.mock("../features/otw-play", () => ({
     }
   },
 }));
-vi.mock("../features/youtube", () => ({
-  runScheduledYouTubeWarmup: () => {
-    mocks.order.push("youtube-warmup");
-    return mocks.runWarmup();
-  },
-}));
 vi.mock("../features/x-posts", () => ({
-  runScheduledXCollection: vi.fn(async () => ({
-    skipped: true,
-    elapsedMs: 0,
-    intervalHours: 1,
-  })),
+  runScheduledXCollection: () => mocks.runXCollection(),
 }));
 vi.mock("../features/naver-cafe", () => ({
-  runScheduledNaverCafeCollection: vi.fn(async () => ({
-    skipped: true,
-    elapsedMs: 0,
-    intervalHours: 1,
-  })),
+  runScheduledNaverCafeCollection: () => mocks.runNaverCafeCollection(),
 }));
 vi.mock("../features/operations", () => ({
   runScheduledDataRetentionPrune: vi.fn(async () => ({
@@ -91,16 +79,45 @@ vi.mock("./websub", () => ({
     },
   }),
 }));
+vi.mock("../features/schedules", () => ({
+  runAutoUpdateWithHistory: (...args: unknown[]) => mocks.runAutoUpdate(...args),
+}));
+vi.mock("../platform/db", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: async () => [
+          { key: "auto_update_enabled", value: "true" },
+          { key: "auto_update_interval_hours", value: "6" },
+          { key: "auto_update_last_run", value: "0" },
+          { key: "auto_update_range_days", value: "3" },
+        ],
+      }),
+    }),
+  }),
+}));
+vi.mock("../platform/http-helpers", () => ({
+  updateSetting: vi.fn(async () => undefined),
+}));
 
-import { runIndependentScheduledTasks } from "./scheduled";
+import { handleScheduled, runIndependentScheduledTasks } from "./scheduled";
 
 describe("scheduled OTW Play source health", () => {
   beforeEach(() => {
     mocks.order.length = 0;
     mocks.runSourceHealth.mockReset();
-    mocks.runWarmup.mockReset();
     mocks.runSourceHealth.mockResolvedValue({ claimed: 0 });
-    mocks.runWarmup.mockResolvedValue({ status: "skipped", error: "empty" });
+    mocks.runXCollection.mockReset().mockResolvedValue({
+      skipped: true,
+      elapsedMs: 0,
+      intervalHours: 1,
+    });
+    mocks.runNaverCafeCollection.mockReset().mockResolvedValue({
+      skipped: true,
+      elapsedMs: 0,
+      intervalHours: 1,
+    });
+    mocks.runAutoUpdate.mockReset().mockResolvedValue({ success: true });
     mocks.clearExpiredApiData.mockReset().mockResolvedValue(0);
     mocks.requeuePending.mockReset().mockResolvedValue(0);
     mocks.runDue.mockReset().mockResolvedValue([]);
@@ -113,18 +130,71 @@ describe("scheduled OTW Play source health", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
 
-  it("runs source health before the general YouTube warmup", async () => {
+  it("keeps OTW Play source health without scheduling public cache warmup", async () => {
     await runIndependentScheduledTasks({} as Env);
-    expect(mocks.order.indexOf("source-health"))
-      .toBeLessThan(mocks.order.indexOf("youtube-warmup"));
     expect(mocks.runSourceHealth).toHaveBeenCalledOnce();
-    expect(mocks.runWarmup).toHaveBeenCalledOnce();
+    expect(mocks.order).toContain("source-health");
+    expect(mocks.order).not.toContain("youtube-warmup");
+  });
+
+  it("starts X and Naver Cafe collection without either source starving the other", async () => {
+    let releaseXCollection: (() => void) | undefined;
+    mocks.runXCollection.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        releaseXCollection = resolve;
+      }),
+    );
+
+    const scheduledTasks = runIndependentScheduledTasks({} as Env);
+
+    await vi.waitFor(() => {
+      expect(mocks.runXCollection).toHaveBeenCalledOnce();
+      expect(mocks.runNaverCafeCollection).toHaveBeenCalledOnce();
+      expect(mocks.runSourceHealth).toHaveBeenCalledOnce();
+    });
+
+    releaseXCollection?.();
+    await scheduledTasks;
+  });
+
+  it("does not let unrelated maintenance starve OTW Play source health", async () => {
+    let releasePolling: (() => void) | undefined;
+    mocks.runDue.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        releasePolling = resolve;
+      }),
+    );
+
+    const scheduledTasks = runIndependentScheduledTasks({} as Env);
+
+    await vi.waitFor(() => expect(mocks.runSourceHealth).toHaveBeenCalledOnce());
+    releasePolling?.();
+    await scheduledTasks;
+  });
+
+  it("starts auto update independently from slower external maintenance", async () => {
+    let releaseSourceHealth: (() => void) | undefined;
+    mocks.runSourceHealth.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        releaseSourceHealth = resolve;
+      }),
+    );
+
+    const scheduled = handleScheduled(
+      {} as ScheduledController,
+      {} as Env,
+    );
+
+    await vi.waitFor(() => expect(mocks.runAutoUpdate).toHaveBeenCalledOnce());
+    releaseSourceHealth?.();
+    await scheduled;
   });
 
   it("isolates a shared source-health failure from later scheduled tasks", async () => {
     mocks.runSourceHealth.mockRejectedValueOnce(new Error("credential failure"));
     await runIndependentScheduledTasks({} as Env);
-    expect(mocks.runWarmup).toHaveBeenCalledOnce();
+    expect(mocks.runXCollection).toHaveBeenCalledOnce();
+    expect(mocks.runNaverCafeCollection).toHaveBeenCalledOnce();
     expect(console.error).toHaveBeenCalledWith(
       "[scheduled] OTW Play source health failed",
       expect.any(Error),

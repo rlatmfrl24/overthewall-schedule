@@ -57,14 +57,17 @@ describe("live status api", () => {
         makeMember(1, `https://chzzk.naver.com/${channelId}`),
         makeMember(2, `https://chzzk.naver.com/${channelId}`),
       ],
-      { schedules: [makeSchedule(`https://chzzk.naver.com/${channelId}`)] },
+      {
+        schedules: [makeSchedule(`https://chzzk.naver.com/${channelId}`)],
+        snapshotVersion: "v1-test",
+      },
     );
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/operations/live-schedule/auto-fill",
       {
         method: "POST",
-        json: { channelIds: [channelId] },
+        json: { channelIds: [channelId], snapshotVersion: "v1-test" },
       },
     );
     expect(result.scheduleAutoFill.updated).toBe(1);
@@ -73,9 +76,10 @@ describe("live status api", () => {
   it("대상 채널이 없으면 command를 호출하지 않는다", async () => {
     const { autoFillLiveSchedulesForMembers } = await import("./live-status");
 
-    const result = await autoFillLiveSchedulesForMembers([
-      makeMember(1, null),
-    ]);
+    const result = await autoFillLiveSchedulesForMembers(
+      [makeMember(1, null)],
+      { snapshotVersion: "v1-empty" },
+    );
 
     expect(apiFetchMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({

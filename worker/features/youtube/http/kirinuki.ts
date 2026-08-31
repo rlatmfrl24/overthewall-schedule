@@ -10,10 +10,7 @@ import {
   isJsonObject,
   parseJsonRequest,
 } from "../../../platform/http/json";
-import {
-  YouTubeApiKeyUnavailableError,
-  type YouTubeApplication,
-} from "../application/youtube-service";
+import type { YouTubeApplication } from "../application/youtube-service";
 
 const KIRINUKI_VIDEOS_CACHE_CONTROL =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
@@ -22,7 +19,7 @@ export type BuildKirinukiApplication = (env: Env) => YouTubeApplication;
 
 export const createKirinukiHandler =
   (buildApplication: BuildKirinukiApplication) =>
-  async (request: Request, env: Env) => {
+  async (request: Request, env: Env, ctx?: ExecutionContext) => {
   const url = new URL(request.url);
   if (url.pathname === "/api/kirinuki/channels") {
     const admin = await requireAdminUser(request, env);
@@ -147,15 +144,7 @@ export const createKirinukiHandler =
       );
     }
 
-    let content;
-    try {
-      content = await application.readKirinukiVideos(maxResults);
-    } catch (error) {
-      if (error instanceof YouTubeApiKeyUnavailableError) {
-        return new Response(error.message, { status: 500 });
-      }
-      throw error;
-    }
+    const content = await application.readKirinukiVideos(maxResults, ctx);
     if (content.byChannel.length === 0) {
       return Response.json(
         {
@@ -163,17 +152,30 @@ export const createKirinukiHandler =
           videos: [],
           shorts: [],
           byChannel: [],
+          cache: content.cache,
         },
         { headers: { "Cache-Control": KIRINUKI_VIDEOS_CACHE_CONTROL } },
       );
     }
 
+    const status = content.byChannel.some((channel) => channel.content)
+      ? 200
+      : 503;
     return Response.json(
       {
         updatedAt: new Date().toISOString(),
         ...content,
       },
-      { headers: { "Cache-Control": KIRINUKI_VIDEOS_CACHE_CONTROL } },
+      {
+        status,
+        headers: {
+          "Cache-Control":
+            content.cache.state === "fresh"
+              ? KIRINUKI_VIDEOS_CACHE_CONTROL
+              : "no-store",
+          ...(status === 503 ? { "Retry-After": "15" } : {}),
+        },
+      },
     );
   }
 

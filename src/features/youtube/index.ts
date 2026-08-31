@@ -11,9 +11,10 @@ export type {
 } from "./api/kirinuki";
 export {
   fetchYouTubeCacheStatus,
-  runYouTubeWarmupNow,
+  refreshYouTubeCache,
 } from "./api/youtube-cache";
 export type {
+  YouTubeCacheRefreshRunSummary,
   YouTubeCacheStatus,
   YouTubeCacheStatusResponse,
   YouTubeCacheType,

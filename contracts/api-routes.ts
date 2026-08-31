@@ -75,6 +75,17 @@ export const apiRoutes = {
   },
   operations: {
     status: staticRoute("/api/operations/status"),
+    runs: staticRoute("/api/operations/runs"),
+    run: dynamicRoute(
+      "/api/operations/runs/:runId",
+      (runId: string) =>
+        `/api/operations/runs/${encodeURIComponent(runId)}` as const,
+    ),
+    retryRun: dynamicRoute(
+      "/api/operations/runs/:runId/retry",
+      (runId: string) =>
+        `/api/operations/runs/${encodeURIComponent(runId)}/retry` as const,
+    ),
     retentionStatus: staticRoute("/api/operations/data-retention/status"),
     retentionPrune: staticRoute("/api/operations/data-retention/prune"),
     liveScheduleAutoFill: staticRoute(
@@ -313,6 +324,7 @@ export const apiRoutes = {
   youtube: {
     videos: staticRoute("/api/youtube/videos"),
     cacheStatus: staticRoute("/api/youtube/cache/status"),
+    cacheRefresh: staticRoute("/api/youtube/cache/refresh"),
     cacheWarmup: staticRoute("/api/youtube/cache/warmup/run"),
     kirinukiChannels: staticRoute("/api/kirinuki/channels"),
     kirinukiVideos: staticRoute("/api/kirinuki/videos"),

@@ -8,7 +8,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 type AdminLiveScheduleAutoFillOptions = {
   enabled: boolean;
   sourceReady: boolean;
-  sourceUpdatedAt: number;
+  snapshotVersion: string | null;
   members: MemberDto[];
   schedules: ScheduleDto[];
 };
@@ -16,26 +16,34 @@ type AdminLiveScheduleAutoFillOptions = {
 export function useAdminLiveScheduleAutoFill({
   enabled,
   sourceReady,
-  sourceUpdatedAt,
+  snapshotVersion,
   members,
   schedules,
 }: AdminLiveScheduleAutoFillOptions) {
   const queryClient = useQueryClient();
-  const lastSourceUpdatedAtRef = useRef(0);
+  const lastSnapshotVersionRef = useRef<string | null>(null);
+  const inFlightSnapshotVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (
       !enabled ||
       !sourceReady ||
-      sourceUpdatedAt === 0 ||
-      lastSourceUpdatedAtRef.current === sourceUpdatedAt
+      !snapshotVersion ||
+      lastSnapshotVersionRef.current === snapshotVersion ||
+      inFlightSnapshotVersionRef.current === snapshotVersion
     ) {
       return;
     }
-    lastSourceUpdatedAtRef.current = sourceUpdatedAt;
+    inFlightSnapshotVersionRef.current = snapshotVersion;
 
-    void autoFillLiveSchedulesForMembers(members, { schedules })
+    void autoFillLiveSchedulesForMembers(members, {
+      schedules,
+      snapshotVersion,
+    })
       .then(async (result) => {
+        if (inFlightSnapshotVersionRef.current === snapshotVersion) {
+          lastSnapshotVersionRef.current = snapshotVersion;
+        }
         if (result.scheduleAutoFill.updated === 0) return;
         await queryClient.invalidateQueries({
           queryKey: queryKeys.schedules.all,
@@ -43,6 +51,11 @@ export function useAdminLiveScheduleAutoFill({
       })
       .catch((error) => {
         console.error("Failed to auto-fill live schedules:", error);
+      })
+      .finally(() => {
+        if (inFlightSnapshotVersionRef.current === snapshotVersion) {
+          inFlightSnapshotVersionRef.current = null;
+        }
       });
   }, [
     enabled,
@@ -50,6 +63,6 @@ export function useAdminLiveScheduleAutoFill({
     queryClient,
     schedules,
     sourceReady,
-    sourceUpdatedAt,
+    snapshotVersion,
   ]);
 }

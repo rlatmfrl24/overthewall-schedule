@@ -1,4 +1,7 @@
 export {
+  createOperationRun,
+  fetchOperationRun,
+  fetchOperationRuns,
   fetchDataRetentionStatus,
   fetchOperationsStatus,
   runAutoUpdateNow,
@@ -6,6 +9,7 @@ export {
   runNaverCafeCheckNow,
   runXCollectionNow,
 } from "./api/operations";
+export { useOperationRun } from "./queries/use-operation-run";
 export type {
   AutoUpdateOperationRun,
   AutoUpdateRunDetail,
@@ -16,9 +20,15 @@ export type {
   NaverCafeCheckNowResponse,
   NaverCafeOperationSource,
   NaverCafeSourceCheckStatus,
+  OperationRun,
+  OperationRunAccepted,
+  OperationRunList,
+  OperationRunProgress,
   OperationsIssue,
   OperationsStatusLevel,
   OperationsStatusResponse,
+  ScheduledJobStatus,
+  ScheduledJobType,
   XCollectionOperationRun,
   XCollectionRunResult,
   XDailyUsageSummary,

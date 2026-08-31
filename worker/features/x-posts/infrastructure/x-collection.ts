@@ -56,7 +56,7 @@ export const getXCollectionScheduleDecision = (
   };
 };
 
-const readActiveXHandles = async (db: DbInstance) => {
+export const readActiveXHandles = async (db: DbInstance) => {
   const activeCondition = sql`${members.is_deprecated} IS NULL OR ${members.is_deprecated} = 0`;
   const rows = await db
     .select({ urlTwitter: members.url_twitter })
@@ -82,12 +82,11 @@ const normalizeCollectionResult = (
   updatedAt: new Date(updatedAtMs).toISOString(),
 });
 
-export const runXCollection = async (
+export const runXCollectionForHandles = async (
   env: Env,
+  handles: string[],
   source: XCollectionSource,
 ): Promise<XCollectionRunResult> => {
-  const db = getDb(env);
-  const handles = await readActiveXHandles(db);
   const result = await collectXPostsForHandles(handles, {
     bearerToken: env.X_BEARER_TOKEN,
     cacheDb: env.otw_db,
@@ -95,6 +94,16 @@ export const runXCollection = async (
     richXLinkPreviewEnabled: false,
     source,
   });
+  return normalizeCollectionResult(result, Date.now());
+};
+
+export const runXCollection = async (
+  env: Env,
+  source: XCollectionSource,
+): Promise<XCollectionRunResult> => {
+  const db = getDb(env);
+  const handles = await readActiveXHandles(db);
+  const result = await runXCollectionForHandles(env, handles, source);
   const updatedAtMs = Date.now();
 
   if (
@@ -109,7 +118,7 @@ export const runXCollection = async (
     );
   }
 
-  return normalizeCollectionResult(result, updatedAtMs);
+  return { ...result, updatedAt: new Date(updatedAtMs).toISOString() };
 };
 
 export const getScheduledXCollectionDecision = async (

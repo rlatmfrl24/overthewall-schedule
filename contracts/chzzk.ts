@@ -31,6 +31,7 @@ export interface ChzzkLiveStatusDebugItemDto extends ChzzkLiveStatusItemDto {
 
 export interface ChzzkLiveStatusResponseDto {
   updatedAt?: string;
+  snapshotVersion?: string;
   items?: ChzzkLiveStatusItemDto[];
   scheduleAutoFill?: {
     updated: number;
@@ -39,6 +40,7 @@ export interface ChzzkLiveStatusResponseDto {
 
 export interface LiveScheduleAutoFillRequestDto {
   channelIds: string[];
+  snapshotVersion: string;
 }
 
 export interface LiveScheduleAutoFillResponseDto {

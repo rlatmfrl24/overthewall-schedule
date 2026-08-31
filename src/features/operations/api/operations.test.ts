@@ -43,17 +43,17 @@ describe("operations api", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/operations/naver-cafe/check-now",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/settings/run-now",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       3,
       "/api/settings/x-collection/run-now",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
   });
 
@@ -70,12 +70,12 @@ describe("operations api", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/operations/data-retention/prune?dryRun=true",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       3,
       "/api/operations/data-retention/prune?dryRun=false",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST", headers: expect.any(Object) }),
     );
   });
 });

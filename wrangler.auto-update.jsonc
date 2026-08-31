@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "otw-ops-auto-update",
+  "main": "worker/entrypoints/auto-update.ts",
+  "compatibility_date": "2025-11-25",
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "otw_db",
+      "database_name": "otw-db",
+      "database_id": "133b980d-1701-427e-93fd-8c9dcca1132e",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "otw-schedule-auto-update",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-ops-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "placement": { "mode": "smart" }
+}

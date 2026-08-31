@@ -1,0 +1,291 @@
+import {
+  collectNaverCafePostsForSources,
+  NAVER_CAFE_COLLECTION_SIZE,
+  readEnabledNaverCafeSources,
+} from "../../naver-cafe";
+import {
+  CloudflarePlayTelemetryWriter,
+  D1SourceHealthRepository,
+  SourceHealthService,
+  YouTubeOtwPlayMetadataReader,
+} from "../../otw-play";
+import { runDataRetentionPolicyPrune } from "../../operations";
+import {
+  autoUpdateSchedules,
+  recordAutoUpdateResultWithHistory,
+  scanAndPersistRecentChzzkObservations,
+  type AutoUpdateResult,
+} from "../../schedules";
+import { runXCollectionForHandles } from "../../x-posts";
+import { getDb } from "../../../platform/db";
+import type { Env } from "../../../platform/types";
+import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
+import { createOtwPlayIngestionService } from "../../../app/ingestion";
+import { createOtwPlayWebsubService } from "../../../app/websub";
+import type {
+  D1ScheduledJobRepository,
+  ScheduledJobItemRecord,
+} from "../../../platform/scheduled-jobs";
+import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
+
+const parseContinuation = (item: ScheduledJobItemRecord) => {
+  if (!item.continuation_json) return {} as Record<string, unknown>;
+  try {
+    const value: unknown = JSON.parse(item.continuation_json);
+    return typeof value === "object" && value !== null
+      ? value as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const getStringArray = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+
+const getNumberArray = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((item): item is number => Number.isSafeInteger(item))
+    : [];
+
+const readAutoUpdateRangeDays = async (env: Env) => {
+  const row = await env.otw_db.prepare(
+    `SELECT value FROM settings WHERE key = 'auto_update_range_days'`,
+  ).first<{ value: string | null }>();
+  const parsed = Number.parseInt(row?.value ?? "", 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 7 ? parsed : 3;
+};
+
+const writeSetting = (env: Env, key: string, value: string) =>
+  env.otw_db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+       updated_at = excluded.updated_at`,
+  ).bind(key, value, String(Date.now())).run();
+
+const isAutoUpdateResult = (value: unknown): value is AutoUpdateResult => {
+  if (typeof value !== "object" || value === null) return false;
+  const result = value as Record<string, unknown>;
+  return [
+    "updated",
+    "checked",
+    "segmentCount",
+    "sessionCount",
+    "resumeMergedCount",
+    "rejectedSuppressed",
+    "duplicatePending",
+    "shortSuppressed",
+    "holidaySuppressed",
+    "ambiguous",
+    "obsoletePending",
+  ].every((key) => typeof result[key] === "number") &&
+    Array.isArray(result.details);
+};
+
+const aggregateAutoUpdateResults = (results: unknown[]): AutoUpdateResult => {
+  const aggregate: AutoUpdateResult = {
+    updated: 0,
+    checked: 0,
+    segmentCount: 0,
+    sessionCount: 0,
+    resumeMergedCount: 0,
+    rejectedSuppressed: 0,
+    duplicatePending: 0,
+    shortSuppressed: 0,
+    holidaySuppressed: 0,
+    ambiguous: 0,
+    obsoletePending: 0,
+    details: [],
+  };
+  for (const result of results.filter(isAutoUpdateResult)) {
+    aggregate.updated += result.updated;
+    aggregate.checked += result.checked;
+    aggregate.segmentCount += result.segmentCount;
+    aggregate.sessionCount += result.sessionCount;
+    aggregate.resumeMergedCount += result.resumeMergedCount;
+    aggregate.rejectedSuppressed += result.rejectedSuppressed;
+    aggregate.duplicatePending += result.duplicatePending;
+    aggregate.shortSuppressed += result.shortSuppressed;
+    aggregate.holidaySuppressed += result.holidaySuppressed;
+    aggregate.ambiguous += result.ambiguous;
+    aggregate.obsoletePending += result.obsoletePending;
+    aggregate.details.push(...result.details);
+  }
+  return aggregate;
+};
+
+export class ScheduledJobExecutor {
+  private readonly env: Env;
+  private readonly repository: D1ScheduledJobRepository;
+
+  constructor(
+    env: Env,
+    repository: D1ScheduledJobRepository,
+  ) {
+    this.env = env;
+    this.repository = repository;
+  }
+
+  async execute(item: ScheduledJobItemRecord) {
+    const run = await this.repository.readRun(item.run_id);
+    if (!run) throw new Error("scheduled_run_not_found");
+    const continuation = parseContinuation(item);
+    switch (run.job_type) {
+      case "x_collection": {
+        const handles = getStringArray(continuation.handles);
+        if (handles.length === 0 || handles.length > 4) {
+          throw new Error("invalid_x_collection_shard");
+        }
+        return runXCollectionForHandles(this.env, handles, run.source);
+      }
+      case "naver_cafe_collection": {
+        const sourceIds = new Set(getNumberArray(continuation.sourceIds));
+        if (sourceIds.size === 0 || sourceIds.size > 4) {
+          throw new Error("invalid_naver_collection_shard");
+        }
+        const sources = (await readEnabledNaverCafeSources(this.env)).filter(
+          (source) => sourceIds.has(source.id),
+        );
+        return collectNaverCafePostsForSources(sources, {
+          cacheDb: this.env.otw_db,
+          size: Number(continuation.size) || NAVER_CAFE_COLLECTION_SIZE,
+          trigger: run.source,
+        });
+      }
+      case "schedule_auto_update": {
+        const rangeDays = await readAutoUpdateRangeDays(this.env);
+        if (item.phase === "scan") {
+          const channelIds = getStringArray(continuation.channelIds);
+          if (channelIds.length === 0 || channelIds.length > 2) {
+            throw new Error("invalid_auto_update_scan_shard");
+          }
+          return scanAndPersistRecentChzzkObservations(
+            getDb(this.env),
+            rangeDays,
+            channelIds,
+            this.env.otw_db,
+          );
+        }
+        if (item.phase === "match") {
+          const memberUid = Number(continuation.memberUid);
+          const date = typeof continuation.date === "string"
+            ? continuation.date
+            : "";
+          if (!Number.isSafeInteger(memberUid) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            throw new Error("invalid_auto_update_match_target");
+          }
+          return autoUpdateSchedules(getDb(this.env), rangeDays, {
+            skipScan: true,
+            matchTarget: { memberUid, date },
+          });
+        }
+        if (item.phase === "finalize") {
+          const results = await this.repository.readSuccessfulPhaseResults(
+            item.run_id,
+            "match",
+          );
+          return recordAutoUpdateResultWithHistory(
+            getDb(this.env),
+            { source: run.source, rangeDays },
+            aggregateAutoUpdateResults(results),
+            run.started_at ?? run.accepted_at,
+          );
+        }
+        throw new Error("invalid_auto_update_phase");
+      }
+      case "source_health":
+        return new SourceHealthService(
+          new D1SourceHealthRepository(this.env.otw_db),
+          new YouTubeOtwPlayMetadataReader(this.env.YOUTUBE_API_KEY, fetch, {
+            db: this.env.otw_db,
+            priority: "core",
+          }),
+          () => crypto.randomUUID(),
+          Date.now,
+          new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS),
+        ).runScheduled(2);
+      case "channel_reconcile":
+        return createOtwPlayChannelMonitorService(this.env).runDue(1);
+      case "recent_reconcile":
+        return createOtwPlayChannelMonitorService(this.env).runRecentDue(1);
+      case "websub_maintenance": {
+        const service = createOtwPlayWebsubService(this.env);
+        switch (item.phase) {
+          case "recover-delivery":
+            return { recovered: await service.recoverPending(1) };
+          case "cleanup":
+            return service.cleanupInvalidSubscriptions(
+              "system:websub-cleanup",
+              1,
+            );
+          case "recover-intent":
+            return service.recoverStaleIntents(
+              "system:websub-intent-recovery",
+              1,
+            );
+          case "renew":
+            return service.renewDue("system:websub-renewal", 1);
+          default:
+            throw new Error("invalid_websub_phase");
+        }
+      }
+      case "ingestion_recovery": {
+        if (item.phase === "recover-scheduled") {
+          const recovered = await this.repository.recoverStaleItems(10);
+          const dispatched = await new ScheduledJobCoordinator(this.env)
+            .dispatchPending();
+          return { recovered, ...dispatched };
+        }
+        const service = createOtwPlayIngestionService(this.env);
+        if (item.phase === "cleanup") {
+          return { cleared: await service.clearExpiredApiData(20) };
+        }
+        if (item.phase === "requeue") {
+          return { enqueued: await service.requeuePending(20) };
+        }
+        throw new Error("invalid_ingestion_recovery_phase");
+      }
+      case "retention_prune": {
+        const policyId = typeof continuation.policyId === "string"
+          ? continuation.policyId
+          : item.target_key;
+        const result = await runDataRetentionPolicyPrune(
+          this.env,
+          policyId,
+          250,
+        );
+        if (result.hasMore) {
+          await this.repository.addItems(item.run_id, [{
+            targetKey: `${policyId}:after:${item.id}`,
+            phase: "prune",
+            lane: "maintenance",
+            continuation: { policyId },
+          }]);
+          await new ScheduledJobCoordinator(this.env).dispatchRun(item.run_id);
+        }
+        return result;
+      }
+    }
+  }
+
+  async finalizeLegacyState(runId: string) {
+    const run = await this.repository.readRunDto(runId);
+    if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
+      return;
+    }
+    const completedAt = String(run.finishedAt ?? Date.now());
+    if (run.jobType === "x_collection") {
+      await writeSetting(this.env, "x_collection_last_run", completedAt);
+    } else if (run.jobType === "naver_cafe_collection") {
+      await writeSetting(
+        this.env,
+        "naver_cafe_collection_last_run",
+        completedAt,
+      );
+    } else if (run.jobType === "retention_prune") {
+      await writeSetting(this.env, "data_retention_last_prune", completedAt);
+    }
+  }
+}

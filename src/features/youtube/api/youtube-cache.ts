@@ -3,6 +3,7 @@ import { apiFetch } from "@/shared/api/client";
 import type {
   YouTubeCacheStatus as YouTubeCacheStatusContract,
   YouTubeCacheStatusResponseDto,
+  YouTubeCacheRefreshRunSummaryDto,
   YouTubeCacheType as YouTubeCacheTypeContract,
   YouTubeUsageOperation as YouTubeUsageOperationContract,
   YouTubeWarmupRunStatus as YouTubeWarmupRunStatusContract,
@@ -21,6 +22,7 @@ export type YouTubeWarmupSettingsSummary = YouTubeWarmupSettingsSummaryDto;
 export type YouTubeWarmupRunSummary = YouTubeWarmupRunSummaryDto;
 export type YouTubeWarmupStatusSummary = YouTubeWarmupStatusSummaryDto;
 export type YouTubeCacheStatusResponse = YouTubeCacheStatusResponseDto;
+export type YouTubeCacheRefreshRunSummary = YouTubeCacheRefreshRunSummaryDto;
 
 export async function fetchYouTubeCacheStatus(
   windowHours = 24,
@@ -34,9 +36,9 @@ export async function fetchYouTubeCacheStatus(
   );
 }
 
-export async function runYouTubeWarmupNow(): Promise<YouTubeWarmupRunSummary> {
-  return apiFetch<YouTubeWarmupRunSummary>(
-    apiRoutes.youtube.cacheWarmup.build(),
+export async function refreshYouTubeCache(): Promise<YouTubeCacheRefreshRunSummary> {
+  return apiFetch<YouTubeCacheRefreshRunSummary>(
+    apiRoutes.youtube.cacheRefresh.build(),
     { method: "POST" },
   );
 }

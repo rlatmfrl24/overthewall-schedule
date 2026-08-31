@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -30,16 +31,19 @@ import {
 import { useToast } from "@/shared/ui/toast";
 import {
   fetchDataRetentionStatus,
+  fetchOperationRuns,
   fetchOperationsStatus,
   runDataRetentionPrune,
   runNaverCafeCheckNow,
   runAutoUpdateNow,
   runXCollectionNow,
 } from "../../api/operations";
+import { useOperationRun } from "../../queries/use-operation-run";
 import type {
   AutoUpdateOperationRun,
   DataRetentionPolicyStatus,
   NaverCafeOperationSource,
+  OperationRunAccepted,
   OperationsIssue,
   OperationsStatusLevel,
   XCollectionOperationRun,
@@ -567,6 +571,9 @@ function DataRetentionPolicyTable({
 export function OperationsDashboard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [activeRun, setActiveRun] = useState<OperationRunAccepted | null>(null);
+  const [notifiedRunId, setNotifiedRunId] = useState<string | null>(null);
+  const activeRunQuery = useOperationRun(activeRun);
   const statusQuery = useQuery({
     queryKey: queryKeys.operations.status(WINDOW_HOURS),
     queryFn: () => fetchOperationsStatus(WINDOW_HOURS),
@@ -578,20 +585,20 @@ export function OperationsDashboard() {
     staleTime: 60_000,
   });
 
-  const invalidateOperations = async () => {
+  const invalidateOperations = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
     ]);
-  };
+  }, [queryClient]);
 
   const autoUpdateMutation = useMutation({
     mutationFn: runAutoUpdateNow,
-    onSuccess: async () => {
-      await invalidateOperations();
+    onSuccess: (accepted) => {
+      setActiveRun(accepted);
       toast({
         variant: "success",
-        description: "자동 업데이트를 실행했습니다.",
+        description: "자동 업데이트가 대기열에 등록되었습니다.",
       });
     },
     onError: () => {
@@ -604,11 +611,11 @@ export function OperationsDashboard() {
 
   const xCollectionMutation = useMutation({
     mutationFn: runXCollectionNow,
-    onSuccess: async () => {
-      await invalidateOperations();
+    onSuccess: (accepted) => {
+      setActiveRun(accepted);
       toast({
         variant: "success",
-        description: "X 게시글 수집을 실행했습니다.",
+        description: "X 게시글 수집이 대기열에 등록되었습니다.",
       });
     },
     onError: () => {
@@ -621,13 +628,11 @@ export function OperationsDashboard() {
 
   const naverCafeCheckMutation = useMutation({
     mutationFn: runNaverCafeCheckNow,
-    onSuccess: async (result) => {
-      await invalidateOperations();
+    onSuccess: (accepted) => {
+      setActiveRun(accepted);
       toast({
-        variant: result.success ? "success" : "error",
-        description: result.success
-          ? "네이버 카페 상태 점검을 완료했습니다."
-          : "네이버 카페 상태 점검에서 실패한 소스가 있습니다.",
+        variant: "success",
+        description: "네이버 카페 점검이 대기열에 등록되었습니다.",
       });
     },
     onError: () => {
@@ -640,13 +645,12 @@ export function OperationsDashboard() {
 
   const dataRetentionMutation = useMutation({
     mutationFn: () => runDataRetentionPrune({ dryRun: false }),
-    onSuccess: async (result) => {
-      await invalidateOperations();
+    onSuccess: (result) => {
+      if (!("runId" in result)) return;
+      setActiveRun(result);
       toast({
         variant: "success",
-        description: `D1 데이터 정리를 완료했습니다. ${result.totalDeletedRows.toLocaleString(
-          "ko-KR",
-        )}건을 삭제했습니다.`,
+        description: "D1 데이터 정리가 대기열에 등록되었습니다.",
       });
     },
     onError: () => {
@@ -656,6 +660,39 @@ export function OperationsDashboard() {
       });
     },
   });
+  const operationRunsQuery = useQuery({
+    queryKey: queryKeys.operations.runs(),
+    queryFn: () => fetchOperationRuns({ limit: 10 }),
+    staleTime: 10_000,
+    refetchInterval: (query) => query.state.data?.runs.some((run) =>
+        run.status === "queued" || run.status === "running"
+      )
+      ? 5_000
+      : 30_000,
+    refetchIntervalInBackground: false,
+    networkMode: "online",
+  });
+
+  useEffect(() => {
+    const run = activeRunQuery.data;
+    if (!run || run.runId === notifiedRunId) return;
+    if (!["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
+      return;
+    }
+    setNotifiedRunId(run.runId);
+    void invalidateOperations();
+    toast({
+      variant: run.status === "succeeded" ? "success" : "error",
+      description: run.status === "succeeded"
+        ? `${run.jobType} 작업이 완료되었습니다.`
+        : `${run.jobType} 작업이 ${run.status} 상태로 종료되었습니다.`,
+    });
+  }, [
+    activeRunQuery.data,
+    invalidateOperations,
+    notifiedRunId,
+    toast,
+  ]);
 
   const handleDataRetentionPrune = () => {
     const prunableRows = dataRetentionQuery.data?.totalPrunableRows ?? 0;
@@ -673,7 +710,11 @@ export function OperationsDashboard() {
     autoUpdateMutation.isPending ||
     xCollectionMutation.isPending ||
     naverCafeCheckMutation.isPending ||
-    dataRetentionMutation.isPending;
+    dataRetentionMutation.isPending ||
+    Boolean(
+      activeRunQuery.data &&
+      ["queued", "running"].includes(activeRunQuery.data.status),
+    );
 
   if (statusQuery.isLoading) {
     return (
@@ -704,6 +745,10 @@ export function OperationsDashboard() {
   }
 
   const data = statusQuery.data;
+  const nonQueueBudgetSummary = data.scheduledOperations.dailyUsage
+    .filter((usage) => usage.resource !== "queue_operations")
+    .map((usage) => `${usage.resource} ${usage.usedPercent}%`)
+    .join(" · ");
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4">
@@ -752,7 +797,101 @@ export function OperationsDashboard() {
         }
       />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {activeRun ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">비동기 작업 진행 상태</CardTitle>
+            <CardDescription>
+              {activeRun.jobType} · {activeRun.runId}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3 text-sm">
+            {activeRunQuery.isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : activeRunQuery.data ? (
+              <>
+                <Badge>{activeRunQuery.data.status}</Badge>
+                <span>
+                  완료 {activeRunQuery.data.progress.succeeded}/
+                  {activeRunQuery.data.progress.total}
+                </span>
+                <span>실패 {activeRunQuery.data.progress.failed}</span>
+                <span>대기 {activeRunQuery.data.progress.queued}</span>
+                <span>
+                  완료 시각 {formatDateTime(activeRunQuery.data.finishedAt)}
+                </span>
+                {activeRunQuery.data.failures.slice(0, 3).map((failure) => (
+                  <span
+                    key={failure.itemId}
+                    className="w-full text-destructive"
+                  >
+                    {failure.targetKey} · {failure.phase}: {failure.message}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <span>작업 상태를 불러오는 중입니다.</span>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">최근 정기·수동 작업</CardTitle>
+          <CardDescription>
+            조회 시각이 아닌 canonical run의 실제 완료 시각과 item 결과입니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>작업</TableHead>
+                <TableHead>출처</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>진행률</TableHead>
+                <TableHead>실제 완료</TableHead>
+                <TableHead>오류</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(operationRunsQuery.data?.runs ?? []).map((run) => (
+                <TableRow key={run.runId}>
+                  <TableCell className="font-medium">{run.jobType}</TableCell>
+                  <TableCell>{run.source}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={getStatusBadgeClass(run.status)}
+                    >
+                      {run.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {run.progress.succeeded + run.progress.skipped}/
+                    {run.progress.total}
+                  </TableCell>
+                  <TableCell>{formatDateTime(run.finishedAt)}</TableCell>
+                  <TableCell className="max-w-[320px] truncate">
+                    {run.failures[0]?.message ?? run.lastError ?? "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!operationRunsQuery.isLoading &&
+                  (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    아직 기록된 v2 작업이 없습니다.
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           title="전체 상태"
           value={getSummaryLabel(data.summary.status)}
@@ -783,6 +922,15 @@ export function OperationsDashboard() {
           } · 공개 ${formatVisibilityLabel(data.naverCafe.visibility)} · 실패 ${
             data.naverCafe.failingSourceCount
           }개, stale ${data.naverCafe.staleSourceCount}개`}
+        />
+        <MetricCard
+          title="정기 작업 예산"
+          value={`${data.scheduledOperations.queueOperations.usedPercent}%`}
+          description={`Queue ${data.scheduledOperations.queueOperations.used.toLocaleString("ko-KR")}/${data.scheduledOperations.queueOperations.limit.toLocaleString("ko-KR")} · outbox ${data.scheduledOperations.outboxBacklog} · stale lease ${data.scheduledOperations.staleLeaseCount}${nonQueueBudgetSummary ? ` · ${nonQueueBudgetSummary}` : ""}`}
+          status={data.scheduledOperations.staleLeaseCount > 0 ||
+              data.scheduledOperations.outboxBacklog > 25
+            ? "warning"
+            : "ok"}
         />
       </div>
 

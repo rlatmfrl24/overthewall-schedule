@@ -18,6 +18,14 @@ import type {
   XOperationUsageSummaryDto,
   XUsageAggregateDto,
 } from "@contracts/operations";
+import type {
+  OperationRunAcceptedDto,
+  OperationRunDto,
+  OperationRunListDto,
+  OperationRunProgressDto,
+  ScheduledJobStatus,
+  ScheduledJobType,
+} from "@contracts/scheduled-operations";
 
 export type AutoUpdateOperationRun = AutoUpdateOperationRunDto;
 export type AutoUpdateRunDetail = AutoUpdateRunDetailDto;
@@ -38,4 +46,10 @@ export type {
   DataRetentionCategory,
   NaverCafeSourceCheckStatus,
   OperationsStatusLevel,
+  OperationRunAcceptedDto as OperationRunAccepted,
+  OperationRunDto as OperationRun,
+  OperationRunListDto as OperationRunList,
+  OperationRunProgressDto as OperationRunProgress,
+  ScheduledJobStatus,
+  ScheduledJobType,
 };

@@ -7,6 +7,7 @@ import {
 } from "../api/kirinuki";
 import { MEDIA_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
+import { useOneShotCacheRevalidation } from "./use-one-shot-cache-revalidation";
 
 interface UseKirinukiVideosResult {
   videos: KirinukiVideosResponse["videos"];
@@ -28,6 +29,12 @@ export function useKirinukiVideos(
     staleTime: MEDIA_QUERY_STALE_TIME_MS,
   });
 
+  useOneShotCacheRevalidation({
+    identity: String(maxResults),
+    cache: query.data?.cache,
+    refetch: query.refetch,
+  });
+
   const refetch = useCallback(async () => {
     await query.refetch();
   }, [query]);
@@ -37,7 +44,10 @@ export function useKirinukiVideos(
     shorts: query.data?.shorts ?? [],
     byChannel: query.data?.byChannel ?? [],
     loading: query.isFetching,
-    error: query.error ? "키리누키 영상을 불러오는데 실패했습니다." : null,
+    error:
+      query.error && !query.data
+        ? "키리누키 영상을 불러오는데 실패했습니다."
+        : null,
     hasLoaded: query.isFetched,
     refetch,
   };

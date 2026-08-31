@@ -118,6 +118,24 @@ export interface OperationsStatusResponseDto {
     status: OperationsStatusLevel;
     issues: OperationsIssueDto[];
   };
+  scheduledOperations: {
+    activeRunCount: number;
+    staleLeaseCount: number;
+    outboxBacklog: number;
+    oldestOutboxAvailableAt: number | null;
+    queueOperations: {
+      used: number;
+      limit: number;
+      usedPercent: number;
+    };
+    dailyUsage: Array<{
+      resource: string;
+      reserved: number;
+      used: number;
+      limit: number;
+      usedPercent: number;
+    }>;
+  };
   autoUpdate: {
     enabled: boolean;
     intervalHours: number;

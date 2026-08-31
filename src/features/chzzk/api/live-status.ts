@@ -30,6 +30,7 @@ type LiveStatusDiagnostics = {
 
 export type LiveStatusesForMembersResult = {
   statuses: ChzzkLiveStatusMap;
+  snapshotVersion: string | null;
   scheduleAutoFill: {
     updated: number;
   };
@@ -92,7 +93,11 @@ export async function fetchLiveStatusesForMembersWithMeta(
     options?.schedules
   );
   if (uniqueChannelIds.length === 0) {
-    return { statuses: {}, scheduleAutoFill: { updated: 0 } };
+    return {
+      statuses: {},
+      snapshotVersion: null,
+      scheduleAutoFill: { updated: 0 },
+    };
   }
 
   const data = await apiFetch<ChzzkLiveStatusResponseDto>(
@@ -112,6 +117,7 @@ export async function fetchLiveStatusesForMembersWithMeta(
 
   return {
     statuses: nextMap,
+    snapshotVersion: data.snapshotVersion ?? null,
     scheduleAutoFill: {
       updated: data.scheduleAutoFill?.updated ?? 0,
     },
@@ -149,7 +155,7 @@ export async function fetchLiveStatusDiagnostics(
 
 export async function autoFillLiveSchedulesForMembers(
   members: MemberDto[],
-  options?: { schedules?: ScheduleDto[] },
+  options: { schedules?: ScheduleDto[]; snapshotVersion: string },
 ): Promise<LiveScheduleAutoFillResponseDto> {
   const { uniqueChannelIds } = buildChannelToMembers(
     members,
@@ -165,6 +171,7 @@ export async function autoFillLiveSchedulesForMembers(
 
   const payload: LiveScheduleAutoFillRequestDto = {
     channelIds: uniqueChannelIds,
+    snapshotVersion: options.snapshotVersion,
   };
   return apiFetch<LiveScheduleAutoFillResponseDto>(
     apiRoutes.operations.liveScheduleAutoFill.build(),

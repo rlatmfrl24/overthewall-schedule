@@ -21,7 +21,7 @@ const CHZZK_CLIPS_IN_FLIGHT = new Map<
   Promise<OriginResult<ChzzkClipsContent>>
 >();
 
-const CHZZK_BATCH_CONCURRENCY = 6;
+const CHZZK_BATCH_CONCURRENCY = 4;
 const CHZZK_CACHE_READ_CHUNK_SIZE = 50;
 const CHZZK_CACHE_WRITE_CHUNK_SIZE = 10;
 const CHZZK_CACHE_VALUE_MAX_BYTES = 512_000;

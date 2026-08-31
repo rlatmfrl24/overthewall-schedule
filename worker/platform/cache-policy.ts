@@ -17,12 +17,18 @@ export const WORKER_CACHE_POLICY = {
   },
   youtube: {
     uploadsPlaylist: {
-      freshTtlMs: 24 * HOUR_MS,
-      staleTtlMs: 7 * DAY_MS,
+      freshTtlMs: 30 * DAY_MS,
+      staleTtlMs: 180 * DAY_MS,
     },
-    channelVideos: {
-      freshTtlMs: 5 * MINUTE_MS,
-      staleTtlMs: 6 * HOUR_MS,
+    officialChannelVideos: {
+      freshTtlMs: 12 * HOUR_MS,
+      staleTtlMs: 7 * DAY_MS,
+      canonicalMaxResults: 20,
+    },
+    kirinukiChannelVideos: {
+      freshTtlMs: 6 * HOUR_MS,
+      staleTtlMs: 7 * DAY_MS,
+      canonicalMaxResults: 40,
     },
   },
   x: {

@@ -8,7 +8,7 @@ import type {
 } from "@contracts/chzzk";
 import { authorizeChzzkChannelTargets } from "./authorize-channel-targets";
 
-const LIVE_STATUS_CONCURRENCY = 6;
+const LIVE_STATUS_CONCURRENCY = 4;
 
 export type ChzzkLiveStatusItem = {
   channelId: string;
@@ -193,6 +193,22 @@ export const createChzzkApplication = (ports: ChzzkApplicationPorts) => {
 
     async autoFillLiveSchedules(channelIds: string[], actor: ChzzkActor) {
       const items = await fetchLiveStatuses(channelIds, false);
+      return this.autoFillLiveSchedulesFromSnapshot(channelIds, items, actor);
+    },
+
+    async autoFillLiveSchedulesFromSnapshot(
+      channelIds: string[],
+      items: ChzzkLiveStatusItem[],
+      actor: ChzzkActor,
+    ) {
+      await assertAuthorized(channelIds);
+      const allowedTargets = new Set(channelIds);
+      if (
+        items.length !== channelIds.length ||
+        items.some((item) => !allowedTargets.has(item.channelId))
+      ) {
+        throw new Error("live_status_snapshot_target_mismatch");
+      }
       const result = await ports.autoFillLiveSchedules(items);
       try {
         await ports.writeAutoFillAudit({

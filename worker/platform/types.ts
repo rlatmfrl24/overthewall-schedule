@@ -16,9 +16,18 @@ export interface Env {
   CLERK_ADMIN_IDS?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   OTW_PLAY_ANALYTICS_READ_TOKEN?: string;
+  YOUTUBE_CACHE_ANALYTICS_READ_TOKEN?: string;
   OTW_PLAY_ANALYTICS?: AnalyticsEngineDataset;
+  YOUTUBE_CACHE_ANALYTICS?: AnalyticsEngineDataset;
   OTW_PLAY_SUBMISSION_RATE_LIMITER?: RateLimit;
   OTW_PLAY_INGESTION_QUEUE?: Queue<unknown>;
+  OTW_OPS_CONTROL_QUEUE?: Queue<unknown>;
+  OTW_X_COLLECTION_QUEUE?: Queue<unknown>;
+  OTW_NAVER_CAFE_QUEUE?: Queue<unknown>;
+  OTW_WEBSUB_QUEUE?: Queue<unknown>;
+  OTW_YOUTUBE_CRITICAL_QUEUE?: Queue<unknown>;
+  OTW_SCHEDULE_AUTO_UPDATE_QUEUE?: Queue<unknown>;
+  OTW_MAINTENANCE_QUEUE?: Queue<unknown>;
   OTW_PLAY_WEBSUB_SECRET_V1?: string;
   OTW_PLAY_PUBLIC_ORIGIN?: string;
   otw_db: D1Database;
@@ -135,6 +144,11 @@ export type YouTubeApiOperation =
   | "channels.list"
   | "playlistItems.list"
   | "videos.list";
+export type YouTubeUsageRequestOrigin =
+  | "demand"
+  | "manual"
+  | "scheduled"
+  | "legacy_unknown";
 export type YouTubeWarmupSource = "scheduled" | "manual";
 export type YouTubeWarmupStatus = "success" | "skipped" | "partial" | "failed";
 export type YouTubeWarmupTargetSource = "official" | "kirinuki";
@@ -148,6 +162,9 @@ export type YouTubeWarmupRunSummary = {
   refreshedCount: number;
   failedCount: number;
   staleFallbackCount: number;
+  baselineCount: number;
+  changedCount: number;
+  unchangedCount: number;
   apiCalls: number;
   quotaUnits: number;
   durationMs: number;
@@ -176,14 +193,53 @@ export type YouTubeWarmupStatusSummary = {
     total: number;
     official: number;
     kirinuki: number;
+    fresh: number;
+    stale: number;
+    expired: number;
+    missing: number;
   };
   latestRun: YouTubeWarmupRunSummary | null;
   recentRuns: YouTubeWarmupRunSummary[];
 };
 
+export type YouTubeCacheAnalyticsStatus =
+  | "available"
+  | "unconfigured"
+  | "unavailable";
+export type YouTubeCacheActiveOrigin = "demand" | "manual";
+export type YouTubeCacheAnalyticsSlice = {
+  requestCount: number;
+  nonBlockingServeCount: number;
+  requestedTargetCount: number;
+  immediateAvailableCount: number;
+  refreshCount: number;
+  baselineCount: number;
+  changedCount: number;
+  unchangedCount: number;
+};
+export type YouTubeCacheAnalytics = {
+  status: YouTubeCacheAnalyticsStatus;
+  generatedAt: string;
+  windowHours: number;
+  /** Earliest sampled v2 event returned for the selected window. */
+  observedSince: string | null;
+  /** Conservative event-backed lower bound, not Analytics Engine uptime. */
+  coverageHours: number | null;
+  schemaVersion: "v2";
+  sampled: true;
+  summary: YouTubeCacheAnalyticsSlice;
+  bySource: Array<
+    YouTubeCacheAnalyticsSlice & { source: YouTubeWarmupTargetSource }
+  >;
+  byOrigin: Array<
+    YouTubeCacheAnalyticsSlice & { origin: YouTubeCacheActiveOrigin }
+  >;
+  reasonCode: "analytics_unconfigured" | "analytics_unavailable" | null;
+};
+
 export type YouTubeCacheStatusResponse = {
   updatedAt: string;
-  window: { hours: number; since: number };
+  window: { hours: number; since: number; until: number };
   cache: {
     total: number;
     fresh: number;
@@ -210,6 +266,12 @@ export type YouTubeCacheStatusResponse = {
       quotaUnits: number;
       failureCount: number;
     }>;
+    byOrigin: Array<{
+      origin: YouTubeUsageRequestOrigin;
+      apiCalls: number;
+      quotaUnits: number;
+      failureCount: number;
+    }>;
   };
   warmup?: YouTubeWarmupStatusSummary;
   channels: Array<{
@@ -224,6 +286,36 @@ export type YouTubeCacheStatusResponse = {
     lastStatus: number | null;
     lastError: string | null;
   }>;
+  analytics: YouTubeCacheAnalytics;
+  effectiveness: {
+    requestCount: number | null;
+    nonBlockingServeCount: number | null;
+    nonBlockingServeRate: number | null;
+    externalApiCalls: number;
+    activeQuotaUnits: number;
+    baselineCount: number | null;
+    changedCount: number | null;
+    unchangedCount: number | null;
+    changeRate: number | null;
+    quotaPerChange: number | null;
+  };
+  targetStates: {
+    official: {
+      total: number;
+      fresh: number;
+      stale: number;
+      expired: number;
+      missing: number;
+    };
+    kirinuki: {
+      total: number;
+      fresh: number;
+      stale: number;
+      expired: number;
+      missing: number;
+    };
+  };
+  legacyScheduledRuns: YouTubeWarmupRunSummary[];
 };
 
 export type XPostMediaItem = {

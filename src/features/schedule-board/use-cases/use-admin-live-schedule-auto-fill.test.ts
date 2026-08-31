@@ -37,7 +37,7 @@ describe("useAdminLiveScheduleAutoFill", () => {
         initialProps: {
           enabled: false,
           sourceReady: true,
-          sourceUpdatedAt: 100,
+          snapshotVersion: "v1-100",
           members,
           schedules,
         },
@@ -48,7 +48,7 @@ describe("useAdminLiveScheduleAutoFill", () => {
     rerender({
       enabled: true,
       sourceReady: true,
-      sourceUpdatedAt: 100,
+      snapshotVersion: "v1-100",
       members,
       schedules,
     });
@@ -59,7 +59,7 @@ describe("useAdminLiveScheduleAutoFill", () => {
     rerender({
       enabled: true,
       sourceReady: true,
-      sourceUpdatedAt: 100,
+      snapshotVersion: "v1-100",
       members: [...members],
       schedules: [...schedules],
     });
@@ -71,7 +71,7 @@ describe("useAdminLiveScheduleAutoFill", () => {
     rerender({
       enabled: true,
       sourceReady: true,
-      sourceUpdatedAt: 200,
+      snapshotVersion: "v1-200",
       members,
       schedules,
     });
@@ -99,7 +99,7 @@ describe("useAdminLiveScheduleAutoFill", () => {
         useAdminLiveScheduleAutoFill({
           enabled: true,
           sourceReady: true,
-          sourceUpdatedAt: 100,
+          snapshotVersion: "v1-100",
           members,
           schedules,
         }),
@@ -111,5 +111,49 @@ describe("useAdminLiveScheduleAutoFill", () => {
         queryKey: queryKeys.schedules.all,
       }),
     );
+  });
+
+  it("같은 snapshot의 일시 실패는 다음 렌더에서 다시 시도한다", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    autoFillLiveSchedulesForMembersMock
+      .mockRejectedValueOnce(new Error("snapshot expired"))
+      .mockResolvedValueOnce({
+        updatedAt: "2026-07-28T00:00:00.000Z",
+        checkedChannelCount: 1,
+        scheduleAutoFill: { updated: 0 },
+      });
+    const { useAdminLiveScheduleAutoFill } = await import(
+      "./use-admin-live-schedule-auto-fill"
+    );
+    const { rerender } = renderHook(
+      (props) => useAdminLiveScheduleAutoFill(props),
+      {
+        initialProps: {
+          enabled: true,
+          sourceReady: true,
+          snapshotVersion: "v1-retry",
+          members,
+          schedules,
+        },
+        wrapper: createQueryWrapper(),
+      },
+    );
+
+    await waitFor(() =>
+      expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() => expect(consoleError).toHaveBeenCalledOnce());
+
+    rerender({
+      enabled: true,
+      sourceReady: true,
+      snapshotVersion: "v1-retry",
+      members: [...members],
+      schedules: [...schedules],
+    });
+    await waitFor(() =>
+      expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledTimes(2),
+    );
+    consoleError.mockRestore();
   });
 });

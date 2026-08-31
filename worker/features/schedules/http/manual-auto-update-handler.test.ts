@@ -26,6 +26,7 @@ const readAutoUpdateRangeDaysMock = vi.hoisted(() => vi.fn());
 const runAutoUpdateWithHistoryMock = vi.hoisted(() => vi.fn());
 const insertAdminAuditLogMock = vi.hoisted(() => vi.fn());
 const insertUpdateLogMock = vi.hoisted(() => vi.fn());
+const enqueueMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../platform/auth", () => ({
   requireAdminUser: requireAdminUserMock,
@@ -58,6 +59,7 @@ const handleManualAutoUpdate = createManualAutoUpdateHandler(
         currentEnv.otw_db,
       ),
     ),
+  enqueueMock,
 );
 const makeRequest = () =>
   new Request("https://example.com/api/settings/run-now", {
@@ -76,75 +78,39 @@ describe("manual auto-update handler", () => {
     runAutoUpdateWithHistoryMock.mockReset();
     insertAdminAuditLogMock.mockReset();
     insertUpdateLogMock.mockReset();
+    enqueueMock.mockReset();
+    enqueueMock.mockResolvedValue({
+      runId: "run-auto",
+      jobType: "schedule_auto_update",
+      status: "queued",
+      acceptedAt: 1,
+      idempotencyKey: "manual:auto:test",
+      statusUrl: "/api/operations/runs/run-auto",
+    });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("수동 실행 결과와 성공 감사 로그 계약을 보존한다", async () => {
-    runAutoUpdateWithHistoryMock.mockResolvedValue({
-      checked: 4,
-      updated: 2,
-      rejectedSuppressed: 3,
-      duplicatePending: 1,
-      details: [{ id: 1 }],
-    });
-
+  it("수동 실행을 비동기 operation으로 접수한다", async () => {
     const response = await handleManualAutoUpdate(makeRequest(), env);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.json()).toEqual({
-      success: true,
-      updated: 2,
-      checked: 4,
-      rejectedSuppressed: 3,
-      duplicatePending: 1,
-      details: [{ id: 1 }],
-    });
-    expect(runAutoUpdateWithHistoryMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        source: "manual",
-        rangeDays: 5,
-        cacheDb: env.otw_db,
-      }),
-    );
-    expect(insertAdminAuditLogMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        eventType: "manual_collection.auto_update",
-        status: "success",
-        targetCount: 4,
-        successCount: 2,
-        detail: expect.objectContaining({
-          rejectedSuppressed: 3,
-          duplicatePending: 1,
-        }),
-      }),
-    );
+    expect(await response.json()).toMatchObject({ runId: "run-auto" });
+    expect(enqueueMock).toHaveBeenCalledOnce();
+    expect(runAutoUpdateWithHistoryMock).not.toHaveBeenCalled();
   });
 
-  it("실패 시 update log와 실패 감사 로그를 남기고 500을 반환한다", async () => {
+  it("대기열 접수 실패 시 503을 반환한다", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    runAutoUpdateWithHistoryMock.mockRejectedValue(new Error("origin failed"));
+    enqueueMock.mockRejectedValue(new Error("queue unavailable"));
 
     const response = await handleManualAutoUpdate(makeRequest(), env);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(503);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(await response.text()).toBe("Auto update failed");
-    expect(insertUpdateLogMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ action: "auto_failed", actorId: "admin" }),
-    );
-    expect(insertAdminAuditLogMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        status: "failed",
-        error: "origin failed",
-      }),
-    );
+    expect(await response.text()).toBe("Scheduled operations queue unavailable");
   });
 });

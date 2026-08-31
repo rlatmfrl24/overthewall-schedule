@@ -10,7 +10,10 @@ import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 export const createOtwPlayIngestionService = (env: Env) =>
   new IngestionService(
     new D1IngestionRepository(env.otw_db),
-    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY),
+    new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
+      db: env.otw_db,
+      priority: "critical",
+    }),
     {
       send: async (message: OtwPlayIngestionQueueMessage) => {
         if (!env.OTW_PLAY_INGESTION_QUEUE) {

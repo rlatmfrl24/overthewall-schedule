@@ -13,7 +13,9 @@ export {
   D1OperationsApplication,
 } from "./infrastructure/operations-application";
 export {
+  DATA_RETENTION_POLICIES,
   getDataRetentionStatus,
+  runDataRetentionPolicyPrune,
   runDataRetentionPrune,
   runScheduledDataRetentionPrune,
 } from "./infrastructure/data-retention";

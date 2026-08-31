@@ -3,6 +3,7 @@ import type { Env } from "../platform/types";
 import {
   createRouteRegistry,
   type WorkerRouteDefinition,
+  type WorkerRouteHandler,
 } from "./route-registry";
 
 const env = {} as Env;
@@ -51,6 +52,35 @@ describe("Worker route registry", () => {
         env,
       ),
     ).resolves.toBeNull();
+  });
+
+  it("forwards the same execution context to the matched handler", async () => {
+    const request = new Request("https://example.com/api/youtube/videos");
+    const ctx = {} as ExecutionContext;
+    const handler = vi.fn<WorkerRouteHandler>(
+      async () => new Response("ok"),
+    );
+    const registry = createRouteRegistry([
+      {
+        id: "youtube.videos",
+        owner: "youtube",
+        path: "/api/youtube/videos",
+        methods: [
+          {
+            method: "GET",
+            auth: "public",
+            cache: "no-store",
+            successStatus: 200,
+          },
+        ],
+        handler,
+      },
+    ]);
+
+    await expect(registry.dispatch(request, env, ctx)).resolves.toMatchObject({
+      status: 200,
+    });
+    expect(handler).toHaveBeenCalledWith(request, env, ctx);
   });
 
   it("returns 405 with every allowed method for a registered path", async () => {

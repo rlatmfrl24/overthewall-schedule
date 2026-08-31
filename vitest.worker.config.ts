@@ -60,6 +60,7 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
 ] as const;
 const OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME =
   "0067_otw-play-external-identity-consolidation.sql";
+const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 
 export default defineConfig({
   resolve: {
@@ -121,6 +122,9 @@ export default defineConfig({
       const otwPlayExternalIdentityConsolidationMigration = migrationsByName.get(
         OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME,
       );
+      const scheduledOperationsMigration = migrationsByName.get(
+        SCHEDULED_OPERATIONS_MIGRATION_NAME,
+      );
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
@@ -168,6 +172,11 @@ export default defineConfig({
           `Expected OTW Play external identity consolidation migration: ${OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME}`,
         );
       }
+      if (!scheduledOperationsMigration) {
+        throw new Error(
+          `Expected scheduled operations migration: ${SCHEDULED_OPERATIONS_MIGRATION_NAME}`,
+        );
+      }
 
       return {
         miniflare: {
@@ -191,6 +200,7 @@ export default defineConfig({
             OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: [
               otwPlayExternalIdentityConsolidationMigration,
             ],
+            SCHEDULED_OPERATIONS_MIGRATIONS: [scheduledOperationsMigration],
           },
         },
       };

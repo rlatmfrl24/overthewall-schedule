@@ -23,6 +23,11 @@ import {
 } from "./operations-read-model";
 import type { Env } from "../../../platform/types";
 import type {
+  ScheduledJobStatus,
+  ScheduledJobType,
+} from "@contracts/scheduled-operations";
+import { ScheduledRunClient } from "../../../platform/scheduled-jobs";
+import type {
   OperationsActor,
   OperationsApplication,
 } from "../application/operations-application";
@@ -385,7 +390,6 @@ const buildNaverCafeStatus = (
   sources: NaverCafeSourceRow[],
   checks: NaverCafeSourceCheckRow[],
   now: number,
-  postsEnabled: boolean,
 ) => {
   const latestCheckBySource = new Map<number, NaverCafeSourceCheckRow>();
   const latestSuccessBySource = new Map<number, NaverCafeSourceCheckRow>();
@@ -395,7 +399,7 @@ const buildNaverCafeStatus = (
     }
     if (
       !latestSuccessBySource.has(check.source_id) &&
-      (check.status === "ok" || check.status === "stale")
+      check.status === "ok"
     ) {
       latestSuccessBySource.set(check.source_id, check);
     }
@@ -405,22 +409,22 @@ const buildNaverCafeStatus = (
     const latestCheck = latestCheckBySource.get(source.id) ?? null;
     const latestSuccess = latestSuccessBySource.get(source.id) ?? null;
     const enabled = isEnabledSource(source);
-    const disabledReason = !postsEnabled
-      ? "네이버 카페 게시글 기능이 비활성화되어 있습니다."
-      : !enabled
-        ? "소스가 비활성화되어 점검 대상에서 제외됩니다."
-        : latestCheck?.status === "disabled"
-          ? latestCheck.error ?? "최근 점검에서 비활성 상태로 기록되었습니다."
-          : null;
+    const disabledReason = !enabled
+      ? "소스가 비활성화되어 점검 대상에서 제외됩니다."
+      : latestCheck?.status === "disabled"
+        ? latestCheck.error ?? "최근 점검에서 비활성 상태로 기록되었습니다."
+        : null;
     const stale =
-      postsEnabled &&
       enabled &&
       (!latestCheck || now - latestCheck.checked_at > NaverCafeStaleThresholdMs);
     const failing =
-      postsEnabled &&
       enabled &&
       latestCheck !== null &&
       !["ok", "stale", "disabled"].includes(latestCheck.status);
+    const latestError = latestCheck?.error ??
+      (enabled && !latestCheck
+        ? "수집 실행 이력이 없습니다."
+        : null);
 
     return {
       sourceId: source.id,
@@ -440,7 +444,7 @@ const buildNaverCafeStatus = (
           }
         : null,
       lastSuccessAt: latestSuccess?.checked_at ?? null,
-      latestError: latestCheck?.error ?? null,
+      latestError,
       disabledReason,
       stale,
       failing,
@@ -454,6 +458,105 @@ const buildNaverCafeStatus = (
     disabledCount: items.filter((item) => !item.enabled || item.disabledReason)
       .length,
   };
+};
+
+const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
+  const fallback = {
+    activeRunCount: 0,
+    staleLeaseCount: 0,
+    outboxBacklog: 0,
+    oldestOutboxAvailableAt: null as number | null,
+    queueOperations: { used: 0, limit: 5_000, usedPercent: 0 },
+    dailyUsage: [] as Array<{
+      resource: string;
+      reserved: number;
+      used: number;
+      limit: number;
+      usedPercent: number;
+    }>,
+  };
+  try {
+    const day = new Date(now).toISOString().slice(0, 10);
+    const [stateResult, usageResult] = await db.batch([
+      db.prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM scheduled_job_runs
+             WHERE status IN ('queued', 'running')) AS activeRunCount,
+           (SELECT COUNT(*) FROM scheduled_job_items
+             WHERE status = 'running' AND lease_until < ?) AS staleLeaseCount,
+           (SELECT COUNT(*) FROM scheduled_outbox
+             WHERE status IN ('pending', 'failed')
+                OR (status = 'dispatching' AND lease_until < ?)) AS outboxBacklog,
+           (SELECT MIN(available_at) FROM scheduled_outbox
+             WHERE status IN ('pending', 'failed')
+                OR (status = 'dispatching' AND lease_until < ?))
+             AS oldestOutboxAvailableAt`,
+      ).bind(now, now, now),
+      db.prepare(
+        `SELECT resource, COALESCE(SUM(used), 0) AS used,
+                COALESCE(SUM(reserved), 0) AS reserved,
+                MAX(limit_value) AS limitValue
+         FROM scheduled_usage_daily
+         WHERE day = ? GROUP BY resource ORDER BY resource`,
+      ).bind(day),
+    ]);
+    const state = stateResult.results[0] as {
+      activeRunCount?: number | string;
+      staleLeaseCount?: number | string;
+      outboxBacklog?: number | string;
+      oldestOutboxAvailableAt?: number | string | null;
+    } | undefined;
+    const dailyUsage = usageResult.results.map((row) => {
+      const usage = row as {
+        resource?: string;
+        used?: number | string;
+        reserved?: number | string;
+        limitValue?: number | string | null;
+      };
+      const used = Number(usage.used ?? 0);
+      const reserved = Number(usage.reserved ?? 0);
+      const limit = Number(usage.limitValue ?? 0);
+      return {
+        resource: usage.resource ?? "unknown",
+        used,
+        reserved,
+        limit,
+        usedPercent: limit > 0
+          ? Math.min(
+              100,
+              Math.round(((used + reserved) / limit) * 1_000) / 10,
+            )
+          : 0,
+      };
+    });
+    const queueUsage = dailyUsage.find(
+      (usage) => usage.resource === "queue_operations",
+    );
+    const usage = queueUsage ?? {
+      used: 0,
+      reserved: 0,
+      limit: 5_000,
+      usedPercent: 0,
+    };
+    const queueTotal = usage.used + usage.reserved;
+    return {
+      activeRunCount: Number(state?.activeRunCount ?? 0),
+      staleLeaseCount: Number(state?.staleLeaseCount ?? 0),
+      outboxBacklog: Number(state?.outboxBacklog ?? 0),
+      oldestOutboxAvailableAt: state?.oldestOutboxAvailableAt == null
+        ? null
+        : Number(state.oldestOutboxAvailableAt),
+      queueOperations: {
+        used: queueTotal,
+        limit: usage.limit || 5_000,
+        usedPercent: usage.usedPercent,
+      },
+      dailyUsage,
+    };
+  } catch (error) {
+    console.warn("Scheduled operations status unavailable", error);
+    return fallback;
+  }
 };
 
 const getOperationsStatus = async (env: Env, windowHours: number) => {
@@ -484,13 +587,13 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   const xInterval = parseXCollectionIntervalHours(
     normalizeXCollectionIntervalHours(settings.get("x_collection_interval_hours")),
   );
-  const xLastRun = Number.parseInt(
+  const xScheduleLastRun = Number.parseInt(
     settings.get("x_collection_last_run") ?? "",
     10,
   );
 
   const naverEnabled = settings.get("naver_cafe_posts_enabled") !== "false";
-  const naverCafeLastRun = Number.parseInt(
+  const naverCafeScheduleLastRun = Number.parseInt(
     settings.get("naver_cafe_collection_last_run") ?? "",
     10,
   );
@@ -504,7 +607,6 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     naverSources,
     naverChecks,
     now,
-    naverEnabled,
   );
   const [pending, rejectionCount] = await Promise.all([
     getVisiblePendingSummary(env.otw_db),
@@ -527,7 +629,26 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     now,
     xDailyBudgetCents,
   );
+  const scheduledOperations = await readScheduledOperationsStatus(
+    env.otw_db,
+    now,
+  );
   const issues: Issue[] = [];
+
+  if (scheduledOperations.staleLeaseCount > 0) {
+    issues.push({
+      severity: "warning",
+      code: "scheduled_job_stale_lease",
+      message: `복구 대기 중인 정기 작업 lease가 ${scheduledOperations.staleLeaseCount}개 있습니다.`,
+    });
+  }
+  if (scheduledOperations.outboxBacklog > 25) {
+    issues.push({
+      severity: "warning",
+      code: "scheduled_outbox_backlog",
+      message: `정기 작업 outbox 대기가 ${scheduledOperations.outboxBacklog}개 누적되었습니다.`,
+    });
+  }
 
   const latestAutoRun = autoRuns[0] ?? null;
   if (autoEnabled && latestAutoRun?.status === "failed") {
@@ -556,6 +677,16 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   }
 
   const latestXRun = xRuns[0] ?? null;
+  const latestXCollectionAt = getLatestSuccessAt(xRuns);
+  const latestNaverCafeCollectionAt = naverStatus.items.reduce<number | null>(
+    (latest, source) => {
+      if (source.lastSuccessAt === null) return latest;
+      return latest === null
+        ? source.lastSuccessAt
+        : Math.max(latest, source.lastSuccessAt);
+    },
+    null,
+  );
   if (xEnabled && latestXRun?.status === "failed") {
     issues.push({
       severity: "critical",
@@ -601,13 +732,17 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
         issues.push({
           severity: "critical",
           code: "naver_cafe_source_failed",
-          message: `${source.sourceName} 네이버 카페 점검이 실패했습니다.`,
+          message: `${source.sourceName} 네이버 카페 점검이 실패했습니다.${
+            source.latestError ? ` ${source.latestError}` : ""
+          }`,
         });
       } else if (source.stale) {
         issues.push({
           severity: "warning",
           code: "naver_cafe_source_stale",
-          message: `${source.sourceName} 네이버 카페 점검 이력이 오래되었습니다.`,
+          message: source.latestCheck
+            ? `${source.sourceName} 네이버 카페 점검 이력이 오래되었습니다.`
+            : `${source.sourceName} 네이버 카페 수집 실행 이력이 없습니다.`,
         });
       }
     }
@@ -628,6 +763,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
       status: summaryStatus,
       issues,
     },
+    scheduledOperations,
     autoUpdate: {
       enabled: autoEnabled,
       intervalHours: autoInterval,
@@ -652,10 +788,12 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
       enabled: xEnabled,
       intervalHours: xInterval,
       dailyBudgetCents: xDailyBudgetCents,
-      lastRun: Number.isFinite(xLastRun) ? xLastRun : null,
+      // UI freshness follows persisted collection history. The setting remains
+      // the scheduling cooldown authority and must not masquerade as a run.
+      lastRun: latestXCollectionAt,
       nextEligibleAt: getNextEligibleAt(
         xEnabled,
-        Number.isFinite(xLastRun) ? xLastRun : null,
+        Number.isFinite(xScheduleLastRun) ? xScheduleLastRun : null,
         xInterval,
         now,
       ),
@@ -685,10 +823,14 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
       visibility: naverCafeVisibility,
       collection: {
         intervalHours: NaverCafeCollectionIntervalHours,
-        lastRun: Number.isFinite(naverCafeLastRun) ? naverCafeLastRun : null,
+        // Source checks are written only by manual/scheduled collection, unlike
+        // response timestamps which advance whenever the feed is viewed.
+        lastRun: latestNaverCafeCollectionAt,
         nextEligibleAt: getNextEligibleAt(
-          naverEnabled,
-          Number.isFinite(naverCafeLastRun) ? naverCafeLastRun : null,
+          naverSources.some(isEnabledSource),
+          Number.isFinite(naverCafeScheduleLastRun)
+            ? naverCafeScheduleLastRun
+            : null,
           NaverCafeCollectionIntervalHours,
           now,
         ),
@@ -832,6 +974,34 @@ export class D1OperationsApplication implements OperationsApplication {
 
   getDataRetentionStatus() {
     return getDataRetentionStatus(this.env);
+  }
+
+  createRun(
+    jobType: ScheduledJobType,
+    actor: OperationsActor,
+    idempotencyKey?: string | null,
+  ) {
+    return new ScheduledRunClient(this.env).createManualRun(
+      jobType,
+      actor,
+      idempotencyKey,
+    );
+  }
+
+  getRun(runId: string) {
+    return new ScheduledRunClient(this.env).getRun(runId);
+  }
+
+  listRuns(input: {
+    jobType?: ScheduledJobType;
+    status?: ScheduledJobStatus;
+    limit: number;
+  }) {
+    return new ScheduledRunClient(this.env).listRuns(input);
+  }
+
+  retryRun(runId: string) {
+    return new ScheduledRunClient(this.env).retryRun(runId);
   }
 
   async pruneDataRetention(dryRun: boolean, actor: OperationsActor) {

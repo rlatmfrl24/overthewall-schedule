@@ -5,7 +5,11 @@ const DAY_SECONDS = 24 * 60 * 60;
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
 const SCHEDULED_PRUNE_INTERVAL_MS = DAY_MS;
 
-type RetentionCategory = "usage_events" | "collection_runs" | "logs";
+type RetentionCategory =
+  | "usage_events"
+  | "collection_runs"
+  | "logs"
+  | "scheduled_operations";
 type TimestampKind = "epoch_ms" | "sqlite_datetime";
 
 type RetentionPolicy = {
@@ -16,6 +20,7 @@ type RetentionPolicy = {
   timestampColumn: string;
   timestampKind: TimestampKind;
   retentionDays: number;
+  extraWhere?: string;
 };
 
 export type DataRetentionPolicyStatus = {
@@ -51,6 +56,47 @@ export type ScheduledDataRetentionPruneResult =
     } & DataRetentionPruneResult);
 
 export const DATA_RETENTION_POLICIES = [
+  {
+    id: "scheduled-outbox",
+    category: "scheduled_operations",
+    table: "scheduled_outbox",
+    label: "Completed scheduled outbox",
+    timestampColumn: "dispatched_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 7,
+    extraWhere: "status = 'dispatched' AND dispatched_at IS NOT NULL",
+  },
+  {
+    id: "scheduled-job-items",
+    category: "scheduled_operations",
+    table: "scheduled_job_items",
+    label: "Completed scheduled job items",
+    timestampColumn: "finished_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 30,
+    extraWhere:
+      "status IN ('succeeded', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
+  },
+  {
+    id: "scheduled-job-runs",
+    category: "scheduled_operations",
+    table: "scheduled_job_runs",
+    label: "Scheduled job run summaries",
+    timestampColumn: "finished_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 180,
+    extraWhere:
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
+  },
+  {
+    id: "scheduled-usage-daily",
+    category: "scheduled_operations",
+    table: "scheduled_usage_daily",
+    label: "Scheduled resource usage ledger",
+    timestampColumn: "day",
+    timestampKind: "sqlite_datetime",
+    retentionDays: 180,
+  },
   {
     id: "x-api-usage-events",
     category: "usage_events",
@@ -152,10 +198,12 @@ const getPolicyCutoff = (policy: RetentionPolicy, now: number) =>
   now - policy.retentionDays * DAY_MS;
 
 const getPolicyWhereClause = (policy: RetentionPolicy) => {
-  if (policy.timestampKind === "sqlite_datetime") {
-    return `${policy.timestampColumn} IS NOT NULL AND unixepoch(${policy.timestampColumn}) < ?`;
-  }
-  return `${policy.timestampColumn} < ?`;
+  const timestampClause = policy.timestampKind === "sqlite_datetime"
+    ? `${policy.timestampColumn} IS NOT NULL AND unixepoch(${policy.timestampColumn}) < ?`
+    : `${policy.timestampColumn} < ?`;
+  return policy.extraWhere
+    ? `(${policy.extraWhere}) AND (${timestampClause})`
+    : timestampClause;
 };
 
 const getPolicyBindValue = (policy: RetentionPolicy, cutoff: number) => {
@@ -191,6 +239,33 @@ const deletePrunableRows = async (
     .bind(getPolicyBindValue(policy, cutoff))
     .run();
   return Number(result.meta?.changes ?? 0) || 0;
+};
+
+export const runDataRetentionPolicyPrune = async (
+  env: Env,
+  policyId: string,
+  limit = 250,
+) => {
+  const policy = DATA_RETENTION_POLICIES.find((item) => item.id === policyId);
+  if (!policy) throw new Error(`Unknown retention policy: ${policyId}`);
+  const now = Date.now();
+  const cutoff = getPolicyCutoff(policy, now);
+  const result = await env.otw_db.prepare(
+    `DELETE FROM ${policy.table}
+     WHERE rowid IN (
+       SELECT rowid FROM ${policy.table}
+       WHERE ${getPolicyWhereClause(policy)}
+       ORDER BY ${policy.timestampColumn}
+       LIMIT ?
+     )`,
+  ).bind(getPolicyBindValue(policy, cutoff), limit).run();
+  const deletedRows = Number(result.meta?.changes ?? 0) || 0;
+  return {
+    policyId,
+    cutoff,
+    deletedRows,
+    hasMore: deletedRows >= limit,
+  };
 };
 
 export const getDataRetentionStatus = async (

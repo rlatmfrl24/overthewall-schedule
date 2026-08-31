@@ -12,6 +12,7 @@ import {
 } from "../domain/channel-targets";
 import {
   YouTubeAllowlistUnavailableError,
+  YouTubeCacheRefreshInProgressError,
   YouTubeTargetsNotAllowedError,
   type YouTubeApplication,
 } from "../application/youtube-service";
@@ -34,7 +35,7 @@ const parseWindowHours = (value: string | null) => {
 
 export const createYouTubeHandler =
   (buildApplication: BuildYouTubeApplication) =>
-  async (request: Request, env: Env) => {
+  async (request: Request, env: Env, ctx?: ExecutionContext) => {
   const url = new URL(request.url);
   const application = buildApplication(env);
 
@@ -65,7 +66,10 @@ export const createYouTubeHandler =
     );
   }
 
-  if (url.pathname === "/api/youtube/cache/warmup/run") {
+  if (
+    url.pathname === "/api/youtube/cache/refresh" ||
+    url.pathname === "/api/youtube/cache/warmup/run"
+  ) {
     if (request.method !== "POST") {
       return methodNotAllowed();
     }
@@ -74,25 +78,34 @@ export const createYouTubeHandler =
     if (!admin.ok) return admin.response;
 
     const actor = getActorInfo(request, admin.user);
-    const result = await application.runManualWarmup(actor);
-
-    return json(result, 200, {
-      headers: {
-        "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
-        Vary: "Authorization",
-      },
-    });
+    try {
+      const result = await application.runManualCacheRefresh(actor);
+      return json(result, 200, {
+        headers: {
+          "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+          Vary: "Authorization",
+        },
+      });
+    } catch (error) {
+      if (error instanceof YouTubeCacheRefreshInProgressError) {
+        return json(
+          { error: "youtube_cache_refresh_in_progress" },
+          409,
+          {
+            headers: {
+              "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+              Vary: "Authorization",
+            },
+          },
+        );
+      }
+      throw error;
+    }
   }
 
   if (url.pathname === "/api/youtube/videos") {
     if (request.method !== "GET") {
       return methodNotAllowed();
-    }
-
-    const apiKey = env.YOUTUBE_API_KEY?.trim();
-    if (!apiKey) {
-      console.error("YouTube API key not configured for this worker");
-      return new Response("YouTube API key not configured", { status: 500 });
     }
 
     const parsedTargets = parseYouTubeChannelTargets(
@@ -111,14 +124,25 @@ export const createYouTubeHandler =
       const content = await application.readVideos(
         parsedTargets.channelIds,
         maxResults,
+        ctx,
       );
+      const { targetCount, availableTargetCount, ...responseContent } = content;
+      const status = targetCount > 0 && availableTargetCount === 0 ? 503 : 200;
       return json(
         {
           updatedAt: new Date().toISOString(),
-          ...content,
+          ...responseContent,
         },
-        200,
-        { headers: { "Cache-Control": YOUTUBE_CACHE_CONTROL } },
+        status,
+        {
+          headers: {
+            "Cache-Control":
+              content.cache.state === "fresh"
+                ? YOUTUBE_CACHE_CONTROL
+                : PRIVATE_YOUTUBE_CACHE_CONTROL,
+            ...(status === 503 ? { "Retry-After": "15" } : {}),
+          },
+        },
       );
     } catch (error) {
       if (error instanceof YouTubeAllowlistUnavailableError) {

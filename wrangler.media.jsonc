@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "otw-ops-media",
+  "main": "worker/entrypoints/media.ts",
+  "compatibility_date": "2025-11-25",
+  "observability": { "enabled": true },
+  "vars": { "OTW_PLAY_PUBLIC_ORIGIN": "https://otw-schedule.info" },
+  "analytics_engine_datasets": [
+    { "binding": "OTW_PLAY_ANALYTICS", "dataset": "otw_play_events" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "otw_db",
+      "database_name": "otw-db",
+      "database_id": "133b980d-1701-427e-93fd-8c9dcca1132e",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "OTW_PLAY_INGESTION_QUEUE", "queue": "otw-play-ingestion" },
+      { "binding": "OTW_WEBSUB_QUEUE", "queue": "otw-websub" }
+    ],
+    "consumers": [
+      {
+        "queue": "otw-play-ingestion",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-play-ingestion-dlq",
+        "max_concurrency": 1
+      },
+      {
+        "queue": "otw-play-ingestion-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 0,
+        "max_concurrency": 1
+      },
+      {
+        "queue": "otw-websub",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-play-ingestion-dlq",
+        "max_concurrency": 2
+      },
+      {
+        "queue": "otw-youtube-critical",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "otw-ops-dlq",
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "placement": { "mode": "smart" }
+}

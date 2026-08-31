@@ -25,6 +25,7 @@ export interface WorkerRouteMethodContract {
 export type WorkerRouteHandler = (
   request: Request,
   env: Env,
+  ctx?: ExecutionContext,
 ) => Response | Promise<Response>;
 
 export interface WorkerRouteDefinition {
@@ -125,7 +126,11 @@ export const createRouteRegistry = (
 
   return {
     manifest,
-    async dispatch(request: Request, env: Env): Promise<Response | null> {
+    async dispatch(
+      request: Request,
+      env: Env,
+      ctx?: ExecutionContext,
+    ): Promise<Response | null> {
       const { pathname } = new URL(request.url);
       const pathMatches = compiled.flatMap((route) => {
         const match = pathname.match(route.matcher);
@@ -169,7 +174,11 @@ export const createRouteRegistry = (
         }
       }
 
-      const response = await methodMatch.route.definition.handler(request, env);
+      const response = await methodMatch.route.definition.handler(
+        request,
+        env,
+        ctx,
+      );
       if (
         methodContract.cache === "no-store" &&
         !response.headers.has("Cache-Control")

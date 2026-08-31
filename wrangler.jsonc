@@ -8,6 +8,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2025-11-25",
   "assets": {
+    "directory": "./dist",
     "binding": "ASSETS",
     "html_handling": "drop-trailing-slash",
     "not_found_handling": "404-page",
@@ -42,6 +43,10 @@
       "binding": "OTW_PLAY_ANALYTICS",
       "dataset": "otw_play_events",
     },
+    {
+      "binding": "YOUTUBE_CACHE_ANALYTICS",
+      "dataset": "otw_youtube_cache_events",
+    },
   ],
   "d1_databases": [
     {
@@ -71,30 +76,18 @@
   "queues": {
     "producers": [
       {
+        "binding": "OTW_OPS_CONTROL_QUEUE",
+        "queue": "otw-ops-control",
+      },
+      {
         "binding": "OTW_PLAY_INGESTION_QUEUE",
         "queue": "otw-play-ingestion",
       },
-    ],
-    "consumers": [
       {
-        "queue": "otw-play-ingestion",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_retries": 3,
-        "dead_letter_queue": "otw-play-ingestion-dlq",
-      },
-      {
-        "queue": "otw-play-ingestion-dlq",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_retries": 0,
+        "binding": "OTW_WEBSUB_QUEUE",
+        "queue": "otw-websub",
       },
     ],
-  },
-  // 스케줄 자동 업데이트, X 수집, YouTube 캐시 예열을 위한 Cron Trigger
-  // 실제 실행 주기는 DB settings 테이블에서 제어
-  "triggers": {
-    "crons": ["*/15 * * * *"],
   },
   // 외부 API 키는 wrangler secret으로만 관리 (레포에 값 저장 금지)
   // 실제 배포 시:

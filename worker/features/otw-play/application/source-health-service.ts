@@ -246,13 +246,15 @@ export class SourceHealthService {
     return result.response;
   }
 
-  async runScheduled(): Promise<ScheduledSourceHealthResult> {
+  async runScheduled(
+    limit = OTW_PLAY_SOURCE_HEALTH_LIMIT,
+  ): Promise<ScheduledSourceHealthResult> {
     const now = this.clock();
     const startedAt = now;
     const targets = await this.repository.claimDueSources(
       now,
       now + OTW_PLAY_SOURCE_HEALTH_LEASE_MS,
-      OTW_PLAY_SOURCE_HEALTH_LIMIT,
+      Math.max(1, Math.min(limit, OTW_PLAY_SOURCE_HEALTH_LIMIT)),
     );
     const result: ScheduledSourceHealthResult = {
       claimed: targets.length,

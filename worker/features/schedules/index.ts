@@ -9,7 +9,17 @@ export { createPendingScheduleQueryHandler } from "./http/pending-query-handler"
 export { createScheduleRequestHandler } from "./http/schedule-handler";
 export { createUpdateLogHandler } from "./http/update-log-handler";
 export { D1ManualAutoUpdateAdapter } from "./infrastructure/manual-auto-update-adapter";
-export { runAutoUpdateWithHistory } from "./infrastructure/auto-update-runs";
+export {
+  recordAutoUpdateResultWithHistory,
+  runAutoUpdateWithHistory,
+  type AutoUpdateResult,
+} from "./infrastructure/auto-update-runs";
+export {
+  autoUpdateSchedules,
+  readAutoUpdateMatchTargets,
+  scanAndPersistRecentChzzkObservations,
+  type AutoUpdateMatchTarget,
+} from "./infrastructure/auto-update";
 export { createLiveScheduleAutoFillService } from "./infrastructure/live-schedule-auto-fill-service";
 export { D1PendingBulkAudit } from "./infrastructure/d1-pending-audit";
 export { D1PendingScheduleQuery } from "./infrastructure/d1-pending-schedule-query-adapter";

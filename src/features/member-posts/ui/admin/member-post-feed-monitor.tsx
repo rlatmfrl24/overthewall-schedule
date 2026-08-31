@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
   Clock3,
   Coffee,
+  Gauge,
   Loader2,
   RefreshCw,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { useNaverCafePosts } from "@/features/naver-cafe";
+import type { OperationsStatusResponse } from "@/features/operations";
 import { useScheduleData } from "@/features/schedule-board";
 import { getMembersWithXHandles, useXPosts } from "@/features/x-posts";
 import type {
@@ -27,7 +29,11 @@ import type {
 } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
 
-const formatMonitorUpdatedAt = (value: string | null) => {
+export type MemberPostSource = "x" | "naver-cafe";
+
+const formatMonitorUpdatedAt = (
+  value: string | number | null | undefined,
+) => {
   if (!value) return "아직 없음";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "확인 불가";
@@ -44,20 +50,14 @@ const formatMonitorUpdatedAt = (value: string | null) => {
   });
 };
 
-const getLatestUpdatedAt = (...values: Array<string | null>) => {
-  const timestamps = values
-    .map((value) => (value ? new Date(value).getTime() : Number.NaN))
-    .filter(Number.isFinite);
-
-  if (timestamps.length === 0) return null;
-  return new Date(Math.max(...timestamps)).toISOString();
-};
+const formatCost = (micros: number) =>
+  `$${(Math.max(0, micros) / 1_000_000).toFixed(4)}`;
 
 const getNaverCafeSourceStatusLabel = (
   status: NaverCafeSourceStatusDto["status"],
 ) => {
   if (status === "ok") return "정상";
-  if (status === "stale") return "캐시";
+  if (status === "stale") return "확인 지연";
   if (status === "private") return "비공개";
   if (status === "invalid_response") return "응답 오류";
   if (status === "disabled") return "비활성";
@@ -80,33 +80,62 @@ const getVisibilityLabel = (
   return "회원 전용";
 };
 
+const getRunStatusLabel = (status: string) => {
+  if (status === "success") return "성공";
+  if (status === "skipped") return "건너뜀";
+  if (status === "failed") return "실패";
+  return status;
+};
+
 const MetricTile = ({
   label,
   value,
   detail,
+  children,
 }: {
   label: string;
   value: string;
   detail?: string;
+  children?: ReactNode;
 }) => (
-  <div className="rounded-md border bg-muted/20 p-3">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
-    {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
+  <div className="rounded-lg border bg-muted/20 p-4">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
+      {value}
+    </p>
+    {detail ? (
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+    ) : null}
+    {children}
   </div>
 );
 
 export function MemberPostFeedMonitor({
+  source,
   xCollectionEnabled,
   xPostsVisibility,
   naverCafeEnabled,
   naverCafeVisibility,
+  operationsStatus,
+  operationsLoading,
+  operationsError,
+  onReloadOperations,
+  onRunNaverCafeCheck,
+  isRunningNaverCafeCheck = false,
 }: {
+  source: MemberPostSource;
   xCollectionEnabled: boolean;
   xPostsVisibility: XPostsVisibility;
   naverCafeEnabled: boolean;
   naverCafeVisibility: NaverCafePostsVisibility;
+  operationsStatus: OperationsStatusResponse | null;
+  operationsLoading: boolean;
+  operationsError: boolean;
+  onReloadOperations: () => Promise<unknown>;
+  onRunNaverCafeCheck?: () => void;
+  isRunningNaverCafeCheck?: boolean;
 }) {
+  const isX = source === "x";
   const {
     members,
     loading: membersLoading,
@@ -122,12 +151,12 @@ export function MemberPostFeedMonitor({
     [membersWithXHandles],
   );
   const xState = useXPosts(membersWithX, {
-    enabled: membersWithX.length > 0,
+    enabled: isX && membersWithX.length > 0,
     maxResults: 10,
     admin: true,
   });
   const cafeState = useNaverCafePosts({
-    enabled: true,
+    enabled: !isX,
     size: 10,
     admin: true,
   });
@@ -162,30 +191,58 @@ export function MemberPostFeedMonitor({
   );
   const xErrorCount = xHandleRows.filter((row) => row.status === "오류").length;
   const xStaleCount = xHandleRows.filter((row) => row.status === "캐시").length;
-  const cafeEnabledSources = cafeState.sources.filter(
-    (source) => source.enabled,
-  );
-  const cafeStatusCounts = cafeState.sources.reduce(
-    (counts, source) => {
-      counts[source.status] = (counts[source.status] ?? 0) + 1;
-      return counts;
-    },
-    {} as Record<NaverCafeSourceStatusDto["status"], number>,
-  );
-  const hasError = Boolean(xState.error || cafeState.error);
-  const hasStaleData = xState.stale || cafeState.stale;
-  const loading = membersLoading || xState.loading || cafeState.loading;
-  const latestUpdatedAt = getLatestUpdatedAt(
-    xState.updatedAt,
-    cafeState.updatedAt,
+  const xLatestRun = operationsStatus?.xCollection.latestRun ?? null;
+  const xUsage = operationsStatus?.xCollection.usage;
+  const budgetPercent = Math.max(
+    0,
+    Math.min(100, xUsage?.quota.todayBudgetUsedPercent ?? 0),
   );
 
+  const naverCafeStatus = operationsStatus?.naverCafe;
+  const operationalCafeSources = naverCafeStatus?.sources ?? [];
+  const cafeRows = operationalCafeSources.length
+    ? operationalCafeSources.map((item) => ({
+        id: item.sourceId,
+        name: item.sourceName,
+        cafeId: item.cafeId,
+        menuId: item.menuId,
+        enabled: item.enabled,
+        status: (item.enabled
+          ? item.latestCheck?.status ?? "stale"
+          : "disabled") as NaverCafeSourceStatusDto["status"],
+        postCount: item.latestCheck?.postCount ?? 0,
+        error: item.disabledReason ?? item.latestError,
+        lastSuccessAt: item.lastSuccessAt,
+      }))
+    : cafeState.sources.map((item) => ({
+        ...item,
+        lastSuccessAt: null,
+      }));
+
+  const sourceError = isX ? xState.error : cafeState.error;
+  const sourceStale = isX ? xState.stale : cafeState.stale;
+  const sourceLoading = isX
+    ? membersLoading || xState.loading
+    : cafeState.loading;
+  const loading = sourceLoading || operationsLoading;
+  const hasError = Boolean(sourceError || operationsError);
+  const sourceEnabled = isX
+    ? xCollectionEnabled
+    : naverCafeStatus
+      ? naverCafeStatus.enabledSourceCount > 0
+      : cafeRows.some((item) => item.enabled);
+  const sourceVisibility = isX ? xPostsVisibility : naverCafeVisibility;
+
   const reloadMonitor = async () => {
-    await Promise.all([
-      reloadMembers(),
-      membersWithX.length > 0 ? xState.reload() : Promise.resolve(),
-      cafeState.reload(),
-    ]);
+    if (isX) {
+      await Promise.all([
+        reloadMembers(),
+        membersWithX.length > 0 ? xState.reload() : Promise.resolve(),
+        onReloadOperations(),
+      ]);
+      return;
+    }
+    await Promise.all([cafeState.reload(), onReloadOperations()]);
   };
 
   const statusBadge = loading ? (
@@ -193,109 +250,191 @@ export function MemberPostFeedMonitor({
       <Loader2 className="h-3 w-3 animate-spin" />
       확인 중
     </Badge>
+  ) : !sourceEnabled ? (
+    <Badge variant="secondary" className="gap-1">
+      <Clock3 className="h-3 w-3" />
+      운영 중지
+    </Badge>
   ) : hasError ? (
     <Badge variant="destructive" className="gap-1">
       <AlertTriangle className="h-3 w-3" />
-      오류
+      확인 필요
     </Badge>
-  ) : hasStaleData ? (
+  ) : sourceStale ? (
     <Badge variant="secondary" className="gap-1">
       <Clock3 className="h-3 w-3" />
       캐시 포함
     </Badge>
   ) : (
-    <Badge variant="default" className="gap-1 bg-green-600">
+    <Badge variant="default" className="gap-1 bg-emerald-600">
       <CheckCircle2 className="h-3 w-3" />
       정상
     </Badge>
   );
 
+  const reloadDisabled = isX
+    ? loading || !membersLoaded
+    : loading || isRunningNaverCafeCheck;
+
   return (
-    <Card>
+    <Card id={`${source}-monitoring`}>
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-base">
               <Activity className="h-4 w-4 text-muted-foreground" />
-              피드 모니터링
+              {isX ? "X 수집 모니터링" : "네이버 카페 수집 모니터링"}
             </CardTitle>
             <CardDescription>
-              사용자 공개 정책과 별도로 admin=1 경로의 응답 상태를 확인합니다.
+              {isX
+                ? "저장된 실행 이력, 비용과 관리자 피드의 계정별 응답을 함께 확인합니다."
+                : "실제 소스 점검 이력과 관리자 피드의 게시판별 응답을 함께 확인합니다."}
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {statusBadge}
+            {!isX && onRunNaverCafeCheck ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={onRunNaverCafeCheck}
+                disabled={loading || isRunningNaverCafeCheck}
+              >
+                {isRunningNaverCafeCheck ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Coffee className="h-4 w-4" />
+                )}
+                지금 점검
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="gap-2"
               onClick={() => void reloadMonitor()}
-              disabled={loading || !membersLoaded}
+              disabled={reloadDisabled}
             >
               <RefreshCw className="h-4 w-4" />
-              모니터링 새로고침
+              상태 새로고침
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricTile
-            label="마지막 응답"
-            value={formatMonitorUpdatedAt(latestUpdatedAt)}
-            detail="X와 카페 응답 중 최신 시각"
-          />
-          <MetricTile
-            label="조회 응답 게시글"
-            value={`${xState.posts.length + cafeState.posts.length}건`}
-            detail={`X ${xState.posts.length}건 · 카페 ${cafeState.posts.length}건`}
-          />
-          <MetricTile
-            label="X 계정 상태"
-            value={`${membersWithXHandles.length}개`}
-            detail={`오류 ${xErrorCount}개 · 캐시 ${xStaleCount}개 · 수집 ${
-              xCollectionEnabled ? "활성" : "비활성"
-            } · 공개 ${getVisibilityLabel(xPostsVisibility)}`}
-          />
-          <MetricTile
-            label="카페 게시판 상태"
-            value={`${cafeEnabledSources.length}개`}
-            detail={`정상 ${cafeStatusCounts.ok ?? 0}개 · 오류 ${
-              (cafeStatusCounts.error ?? 0) +
-              (cafeStatusCounts.private ?? 0) +
-              (cafeStatusCounts.invalid_response ?? 0)
-            }개 · 표시 ${naverCafeEnabled ? "활성" : "비활성"} · 공개 ${getVisibilityLabel(
-              naverCafeVisibility,
-            )}`}
-          />
-        </div>
-
-        {(xState.error || cafeState.error) && (
-          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
-            {xState.error ? <p>X: {xState.error}</p> : null}
-            {cafeState.error ? <p>카페: {cafeState.error}</p> : null}
+        {isX ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricTile
+              label="최근 실제 수집"
+              value={formatMonitorUpdatedAt(
+                operationsStatus?.xCollection.lastRun,
+              )}
+              detail={
+                xLatestRun
+                  ? `${xLatestRun.source === "manual" ? "수동" : "예약"} · ${getRunStatusLabel(xLatestRun.status)} · 저장 ${xLatestRun.postsStored}건`
+                  : "저장된 수집 실행 이력이 없습니다."
+              }
+            />
+            <MetricTile
+              label="다음 수집 가능"
+              value={formatMonitorUpdatedAt(
+                operationsStatus?.xCollection.nextEligibleAt,
+              )}
+              detail={`${operationsStatus?.xCollection.intervalHours ?? "-"}시간 주기 · ${sourceEnabled ? "자동 수집 활성" : "자동 수집 중지"}`}
+            />
+            <MetricTile
+              label="최근 24시간 API"
+              value={`${xUsage?.apiCalls ?? 0}회`}
+              detail={`실패 ${xUsage?.failureCount ?? 0}회 · rate-limit ${xUsage?.rateLimitCount ?? 0}회 · 응답 ${xState.posts.length}건`}
+            />
+            <MetricTile
+              label="오늘 예산 사용"
+              value={`${budgetPercent}%`}
+              detail={`${formatCost(xUsage?.quota.todayUsedMicros ?? 0)} 사용 · ${formatCost(xUsage?.quota.todayRemainingMicros ?? 0)} 남음`}
+            >
+              <div
+                className="mt-3 h-2 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-label="오늘 X API 예산 사용률"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={budgetPercent}
+              >
+                <div
+                  className={`h-full rounded-full ${
+                    budgetPercent >= 100
+                      ? "bg-destructive"
+                      : budgetPercent >= 80
+                        ? "bg-amber-500"
+                        : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${budgetPercent}%` }}
+                />
+              </div>
+            </MetricTile>
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricTile
+              label="최근 실제 수집"
+              value={formatMonitorUpdatedAt(
+                naverCafeStatus?.collection.lastRun,
+              )}
+              detail="피드 조회 시각이 아닌 소스 점검 저장 이력 기준"
+            />
+            <MetricTile
+              label="다음 수집 가능"
+              value={formatMonitorUpdatedAt(
+                naverCafeStatus?.collection.nextEligibleAt,
+              )}
+              detail={`${naverCafeStatus?.collection.intervalHours ?? "-"}시간 고정 주기 · ${sourceEnabled ? "수집 활성" : "수집 중지"}`}
+            />
+            <MetricTile
+              label="활성 게시판"
+              value={`${naverCafeStatus?.enabledSourceCount ?? cafeRows.filter((item) => item.enabled).length}/${naverCafeStatus?.sourceCount ?? cafeRows.length}개`}
+              detail={`비활성 ${naverCafeStatus?.disabledSourceCount ?? cafeRows.filter((item) => !item.enabled).length}개 · 공개 ${getVisibilityLabel(sourceVisibility)}`}
+            />
+            <MetricTile
+              label="주의 게시판"
+              value={`${(naverCafeStatus?.failingSourceCount ?? 0) + (naverCafeStatus?.staleSourceCount ?? 0)}개`}
+              detail={`오류 ${naverCafeStatus?.failingSourceCount ?? 0}개 · 확인 지연 ${naverCafeStatus?.staleSourceCount ?? 0}개 · 응답 ${cafeState.posts.length}건`}
+            />
           </div>
         )}
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <section className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-4">
+        {hasError ? (
+          <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+            {sourceError ? <p>{sourceError}</p> : null}
+            {operationsError ? (
+              <p>실제 수집 이력과 운영 지표를 불러오지 못했습니다.</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {isX ? (
+          <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <img src={IconX} alt="" className="h-3.5 w-3.5" />
-                X 계정별 응답
+                X 계정별 관리자 피드 응답
               </h3>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={xCollectionEnabled ? "default" : "secondary"}>
-                  {xCollectionEnabled ? "수집 활성" : "수집 비활성"}
+                <Badge variant={sourceEnabled ? "default" : "secondary"}>
+                  {sourceEnabled ? "수집 활성" : "수집 비활성"}
                 </Badge>
                 <Badge variant="outline">
-                  공개 {getVisibilityLabel(xPostsVisibility)}
+                  공개 {getVisibilityLabel(sourceVisibility)}
                 </Badge>
-                <Badge variant="outline">/api/x/posts?admin=1</Badge>
+                <Badge variant="outline">
+                  {operationsStatus?.xCollection.feed.apiPath ??
+                    "/api/member-posts?sources=x&admin=1"}
+                </Badge>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="grid gap-2 lg:grid-cols-2">
               {xHandleRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   등록된 X 계정이 없습니다.
@@ -336,54 +475,69 @@ export function MemberPostFeedMonitor({
                 ))
               )}
             </div>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>계정 {membersWithXHandles.length}개</span>
+              <span>·</span>
+              <span>오류 {xErrorCount}개</span>
+              <span>·</span>
+              <span>캐시 {xStaleCount}개</span>
+            </div>
           </section>
-
-          <section className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-4">
+        ) : (
+          <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Coffee className="h-3.5 w-3.5 text-emerald-600" />
-                카페 게시판별 응답
+                게시판별 소스 점검 상태
               </h3>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={naverCafeEnabled ? "default" : "secondary"}>
                   {naverCafeEnabled ? "표시 활성" : "표시 비활성"}
                 </Badge>
                 <Badge variant="outline">
-                  공개 {getVisibilityLabel(naverCafeVisibility)}
+                  공개 {getVisibilityLabel(sourceVisibility)}
                 </Badge>
-                <Badge variant="outline">/api/naver-cafe/posts?admin=1</Badge>
+                <Badge variant="outline">
+                  {naverCafeStatus?.apiPath ??
+                    "/api/member-posts?sources=naver-cafe&admin=1"}
+                </Badge>
               </div>
             </div>
-            <div className="space-y-2">
-              {cafeState.sources.length === 0 ? (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {cafeRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   등록된 카페 게시판이 없습니다.
                 </p>
               ) : (
-                cafeState.sources.map((source) => (
+                cafeRows.map((item) => (
                   <div
-                    key={source.id}
+                    key={item.id}
                     className="grid gap-2 rounded-md border bg-background p-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto]"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium text-foreground">
-                        {source.name}
+                        {item.name}
                       </p>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
-                        cafe {source.cafeId} · menu {source.menuId}
+                        cafe {item.cafeId} · menu {item.menuId}
+                        {item.lastSuccessAt
+                          ? ` · 마지막 성공 ${formatMonitorUpdatedAt(item.lastSuccessAt)}`
+                          : ""}
                       </p>
-                      {source.error ? (
+                      {item.error ? (
                         <p className="mt-1 truncate text-xs text-destructive">
-                          {source.error}
+                          {item.error}
                         </p>
                       ) : null}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={getNaverCafeSourceStatusVariant(source.status)}>
-                        {getNaverCafeSourceStatusLabel(source.status)}
+                      <Badge
+                        variant={getNaverCafeSourceStatusVariant(item.status)}
+                      >
+                        {getNaverCafeSourceStatusLabel(item.status)}
                       </Badge>
                       <span className="text-xs text-muted-foreground">
-                        {source.postCount}건
+                        {item.postCount}건
                       </span>
                     </div>
                   </div>
@@ -391,6 +545,12 @@ export function MemberPostFeedMonitor({
               )}
             </div>
           </section>
+        )}
+
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Gauge className="h-3.5 w-3.5" />
+          운영 지표는 최근 {operationsStatus?.window.hours ?? 24}시간 기준이며,
+          관리자 피드 응답과 실제 예약 수집 이력을 구분해 표시합니다.
         </div>
       </CardContent>
     </Card>

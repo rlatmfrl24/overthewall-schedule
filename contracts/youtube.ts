@@ -14,6 +14,7 @@ export interface YouTubeVideosResponseDto {
   videos: YouTubeVideoDto[];
   shorts: YouTubeVideoDto[];
   updatedAt: string;
+  cache: YouTubePublicCacheMetadataDto;
 }
 
 export interface KirinukiChannelDto {
@@ -46,6 +47,22 @@ export interface KirinukiVideosResponseDto {
       shorts: YouTubeVideoDto[];
     } | null;
   }>;
+  cache: YouTubePublicCacheMetadataDto;
+}
+
+export type YouTubePublicCacheState =
+  | "fresh"
+  | "refreshing"
+  | "stale"
+  | "partial"
+  | "empty";
+
+export interface YouTubePublicCacheMetadataDto {
+  state: YouTubePublicCacheState;
+  oldestFetchedAt: string | null;
+  refreshScheduledCount: number;
+  pendingCount: number;
+  revalidateAfterMs: 15000 | null;
 }
 
 export type YouTubeCacheType = "uploads_playlist" | "channel_videos";
@@ -54,6 +71,11 @@ export type YouTubeUsageOperation =
   | "channels.list"
   | "playlistItems.list"
   | "videos.list";
+export type YouTubeUsageRequestOrigin =
+  | "demand"
+  | "manual"
+  | "scheduled"
+  | "legacy_unknown";
 export type YouTubeWarmupSource = "scheduled" | "manual";
 export type YouTubeWarmupRunStatus =
   | "success"
@@ -79,12 +101,20 @@ export interface YouTubeWarmupRunSummaryDto {
   refreshedCount: number;
   failedCount: number;
   staleFallbackCount: number;
+  baselineCount: number;
+  changedCount: number;
+  unchangedCount: number;
   apiCalls: number;
   quotaUnits: number;
   durationMs: number;
   startedAt: number;
   finishedAt: number;
   error: string | null;
+}
+
+export interface YouTubeCacheRefreshRunSummaryDto
+  extends YouTubeWarmupRunSummaryDto {
+  source: "manual";
 }
 
 export interface YouTubeWarmupStatusSummaryDto {
@@ -100,14 +130,55 @@ export interface YouTubeWarmupStatusSummaryDto {
     total: number;
     official: number;
     kirinuki: number;
+    fresh: number;
+    stale: number;
+    expired: number;
+    missing: number;
   };
   latestRun: YouTubeWarmupRunSummaryDto | null;
   recentRuns: YouTubeWarmupRunSummaryDto[];
 }
 
+export type YouTubeCacheAnalyticsStatus =
+  | "available"
+  | "unconfigured"
+  | "unavailable";
+export type YouTubeCacheActiveOrigin = "demand" | "manual";
+
+export interface YouTubeCacheAnalyticsSliceDto {
+  requestCount: number;
+  nonBlockingServeCount: number;
+  requestedTargetCount: number;
+  immediateAvailableCount: number;
+  refreshCount: number;
+  baselineCount: number;
+  changedCount: number;
+  unchangedCount: number;
+}
+
+export interface YouTubeCacheAnalyticsDto {
+  status: YouTubeCacheAnalyticsStatus;
+  generatedAt: string;
+  windowHours: number;
+  /** Earliest sampled v2 event returned for the selected window. */
+  observedSince: string | null;
+  /** Conservative event-backed lower bound, not Analytics Engine uptime. */
+  coverageHours: number | null;
+  schemaVersion: "v2";
+  sampled: true;
+  summary: YouTubeCacheAnalyticsSliceDto;
+  bySource: Array<
+    YouTubeCacheAnalyticsSliceDto & { source: "official" | "kirinuki" }
+  >;
+  byOrigin: Array<
+    YouTubeCacheAnalyticsSliceDto & { origin: YouTubeCacheActiveOrigin }
+  >;
+  reasonCode: "analytics_unconfigured" | "analytics_unavailable" | null;
+}
+
 export interface YouTubeCacheStatusResponseDto {
   updatedAt: string;
-  window: { hours: number; since: number };
+  window: { hours: number; since: number; until: number };
   cache: {
     total: number;
     fresh: number;
@@ -134,6 +205,12 @@ export interface YouTubeCacheStatusResponseDto {
       quotaUnits: number;
       failureCount: number;
     }>;
+    byOrigin: Array<{
+      origin: YouTubeUsageRequestOrigin;
+      apiCalls: number;
+      quotaUnits: number;
+      failureCount: number;
+    }>;
   };
   channels: Array<{
     channelId: string;
@@ -148,4 +225,22 @@ export interface YouTubeCacheStatusResponseDto {
     lastError: string | null;
   }>;
   warmup?: YouTubeWarmupStatusSummaryDto;
+  analytics: YouTubeCacheAnalyticsDto;
+  effectiveness: {
+    requestCount: number | null;
+    nonBlockingServeCount: number | null;
+    nonBlockingServeRate: number | null;
+    externalApiCalls: number;
+    activeQuotaUnits: number;
+    baselineCount: number | null;
+    changedCount: number | null;
+    unchangedCount: number | null;
+    changeRate: number | null;
+    quotaPerChange: number | null;
+  };
+  targetStates: {
+    official: { total: number; fresh: number; stale: number; expired: number; missing: number };
+    kirinuki: { total: number; fresh: number; stale: number; expired: number; missing: number };
+  };
+  legacyScheduledRuns: YouTubeWarmupRunSummaryDto[];
 }

@@ -6,6 +6,7 @@ import { checkScheduledOtwPlaySources } from "./scheduled";
 
 type ScheduledTestEnv = Env & {
   OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
+  SCHEDULED_OPERATIONS_MIGRATIONS: D1Migration[];
 };
 
 const testEnv = env as unknown as ScheduledTestEnv;
@@ -14,6 +15,7 @@ const CHANNEL_ID = `UC${"A".repeat(22)}`;
 
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS);
+  await applyD1Migrations(db, testEnv.SCHEDULED_OPERATIONS_MIGRATIONS);
   await db.batch([
     db.prepare("DELETE FROM music_catalog_events"),
     db.prepare("DELETE FROM music_media_sources"),

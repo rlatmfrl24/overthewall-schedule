@@ -47,6 +47,7 @@ vi.mock("../../../platform/db", () => ({
 
 const channelId = "a".repeat(32);
 const unapprovedChannelId = "b".repeat(32);
+const cacheStore = new Map<string, Response>();
 
 const makeEnv = (): Env =>
   ({
@@ -95,6 +96,16 @@ const liveContent = {
 
 describe("live status route", () => {
   beforeEach(() => {
+    cacheStore.clear();
+    vi.stubGlobal("caches", {
+      default: {
+        match: async (request: Request) =>
+          cacheStore.get(request.url)?.clone(),
+        put: async (request: Request, response: Response) => {
+          cacheStore.set(request.url, response.clone());
+        },
+      },
+    });
     clearActiveChzzkChannelsCacheForTests();
     fetchChzzkLiveStatusMock.mockReset();
     fetchChzzkLiveStatusWithDebugMock.mockReset();
@@ -164,13 +175,25 @@ describe("live status route", () => {
   });
 
   it("관리자 POST command만 스케줄 자동 입력을 수행한다", async () => {
+    const snapshotResponse = await handleLiveStatus(
+      new Request(
+        `https://example.com/api/live-status?channelIds=${channelId}`,
+      ),
+      makeEnv(),
+    );
+    const snapshot = await snapshotResponse.json() as {
+      snapshotVersion: string;
+    };
     const response = await handleLiveScheduleAutoFill(
       new Request(
         "https://example.com/api/operations/live-schedule/auto-fill",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelIds: [channelId] }),
+          body: JSON.stringify({
+            channelIds: [channelId],
+            snapshotVersion: snapshot.snapshotVersion,
+          }),
         },
       ),
       makeEnv(),
@@ -198,6 +221,15 @@ describe("live status route", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     auditValuesMock.mockRejectedValueOnce(auditError);
+    const snapshotResponse = await handleLiveStatus(
+      new Request(
+        `https://example.com/api/live-status?channelIds=${channelId}`,
+      ),
+      makeEnv(),
+    );
+    const snapshot = await snapshotResponse.json() as {
+      snapshotVersion: string;
+    };
 
     const response = await handleLiveScheduleAutoFill(
       new Request(
@@ -205,7 +237,10 @@ describe("live status route", () => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ channelIds: [channelId] }),
+          body: JSON.stringify({
+            channelIds: [channelId],
+            snapshotVersion: snapshot.snapshotVersion,
+          }),
         },
       ),
       makeEnv(),
