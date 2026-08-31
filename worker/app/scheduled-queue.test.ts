@@ -56,7 +56,10 @@ describe("scheduled job queue", () => {
     };
     mocks.claimItem.mockResolvedValue(item);
     mocks.readItem.mockResolvedValue({ ...item, status: "succeeded" });
-    mocks.execute.mockResolvedValue({ ok: true });
+    mocks.execute.mockResolvedValue({
+      status: "succeeded",
+      result: { ok: true },
+    });
     mocks.completeItem.mockResolvedValue(true);
     mocks.releaseItemForRetry.mockResolvedValue(true);
     mocks.reserveQueueOperations.mockResolvedValue(true);
@@ -83,6 +86,85 @@ describe("scheduled job queue", () => {
     } as unknown as MessageBatch<unknown>, {} as Env);
 
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it("보호 정책으로 건너뛴 X 수집은 skipped로 완료하고 재시도하지 않는다", async () => {
+    const ack = vi.fn();
+    const retry = vi.fn();
+    mocks.execute.mockResolvedValueOnce({
+      status: "skipped",
+      result: {
+        status: "skipped",
+        error: "budget_exceeded",
+      },
+      errorCode: "budget_exceeded",
+      error: "budget_exceeded",
+    });
+
+    await handleScheduledJobQueue({
+      queue: "otw-ops-background",
+      messages: [{
+        body: {
+          schemaVersion: 1,
+          messageType: "scheduled_job_item",
+          runId: "run-1",
+          itemId: "item-1",
+          phase: "collect",
+        },
+        ack,
+        retry,
+      }],
+    } as unknown as MessageBatch<unknown>, {} as Env);
+
+    expect(mocks.completeItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        status: "skipped",
+        errorCode: "budget_exceeded",
+      }),
+    );
+    expect(mocks.advanceRun).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it("도메인 실패 결과는 failed로 완료하고 외부 작업을 재실행하지 않는다", async () => {
+    const ack = vi.fn();
+    const retry = vi.fn();
+    mocks.execute.mockResolvedValueOnce({
+      status: "failed",
+      result: {
+        status: "failed",
+        error: "rate_limited",
+      },
+      errorCode: "rate_limited",
+      error: "rate_limited",
+    });
+
+    await handleScheduledJobQueue({
+      queue: "otw-ops-background",
+      messages: [{
+        body: {
+          schemaVersion: 1,
+          messageType: "scheduled_job_item",
+          runId: "run-1",
+          itemId: "item-1",
+          phase: "collect",
+        },
+        ack,
+        retry,
+      }],
+    } as unknown as MessageBatch<unknown>, {} as Env);
+
+    expect(mocks.completeItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        status: "failed",
+        errorCode: "rate_limited",
+      }),
+    );
+    expect(retry).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledOnce();
   });
 

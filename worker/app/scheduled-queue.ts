@@ -128,16 +128,18 @@ export const handleScheduledJobQueue = async (
       continue;
     }
     try {
-      const result = await executor.execute(item);
+      const outcome = await executor.execute(item);
       const completed = await repository.completeItem(item, {
-        status: "succeeded",
-        result,
+        status: outcome.status,
+        result: outcome.result,
+        errorCode: outcome.errorCode,
+        error: outcome.error,
       });
       if (!completed) {
         message.ack();
         continue;
       }
-      await reconcileTerminalItem({ ...item, status: "succeeded" });
+      await reconcileTerminalItem({ ...item, status: outcome.status });
       message.ack();
     } catch (error) {
       const errorText = getErrorText(error);

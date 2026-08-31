@@ -28,6 +28,31 @@ import type {
 } from "../../../platform/scheduled-jobs";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 
+export type ScheduledJobExecutionOutcome = {
+  status: "succeeded" | "failed" | "skipped" | "throttled";
+  result: unknown;
+  errorCode?: string | null;
+  error?: string | null;
+};
+
+const succeeded = (result: unknown): ScheduledJobExecutionOutcome => ({
+  status: "succeeded",
+  result,
+});
+
+export const toXCollectionOutcome = (
+  result: Awaited<ReturnType<typeof runXCollectionForHandles>>,
+): ScheduledJobExecutionOutcome => {
+  if (result.status === "success") return succeeded(result);
+  const error = result.error ?? `x_collection_${result.status}`;
+  return {
+    status: result.status === "skipped" ? "skipped" : "failed",
+    result,
+    errorCode: error,
+    error,
+  };
+};
+
 const parseContinuation = (item: ScheduledJobItemRecord) => {
   if (!item.continuation_json) return {} as Record<string, unknown>;
   try {
@@ -128,7 +153,9 @@ export class ScheduledJobExecutor {
     this.repository = repository;
   }
 
-  async execute(item: ScheduledJobItemRecord) {
+  async execute(
+    item: ScheduledJobItemRecord,
+  ): Promise<ScheduledJobExecutionOutcome> {
     const run = await this.repository.readRun(item.run_id);
     if (!run) throw new Error("scheduled_run_not_found");
     const continuation = parseContinuation(item);
@@ -138,7 +165,9 @@ export class ScheduledJobExecutor {
         if (handles.length === 0 || handles.length > 4) {
           throw new Error("invalid_x_collection_shard");
         }
-        return runXCollectionForHandles(this.env, handles, run.source);
+        return toXCollectionOutcome(
+          await runXCollectionForHandles(this.env, handles, run.source),
+        );
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));
@@ -148,11 +177,11 @@ export class ScheduledJobExecutor {
         const sources = (await readEnabledNaverCafeSources(this.env)).filter(
           (source) => sourceIds.has(source.id),
         );
-        return collectNaverCafePostsForSources(sources, {
+        return succeeded(await collectNaverCafePostsForSources(sources, {
           cacheDb: this.env.otw_db,
           size: Number(continuation.size) || NAVER_CAFE_COLLECTION_SIZE,
           trigger: run.source,
-        });
+        }));
       }
       case "schedule_auto_update": {
         const rangeDays = await readAutoUpdateRangeDays(this.env);
@@ -161,12 +190,12 @@ export class ScheduledJobExecutor {
           if (channelIds.length === 0 || channelIds.length > 2) {
             throw new Error("invalid_auto_update_scan_shard");
           }
-          return scanAndPersistRecentChzzkObservations(
+          return succeeded(await scanAndPersistRecentChzzkObservations(
             getDb(this.env),
             rangeDays,
             channelIds,
             this.env.otw_db,
-          );
+          ));
         }
         if (item.phase === "match") {
           const memberUid = Number(continuation.memberUid);
@@ -176,27 +205,27 @@ export class ScheduledJobExecutor {
           if (!Number.isSafeInteger(memberUid) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
             throw new Error("invalid_auto_update_match_target");
           }
-          return autoUpdateSchedules(getDb(this.env), rangeDays, {
+          return succeeded(await autoUpdateSchedules(getDb(this.env), rangeDays, {
             skipScan: true,
             matchTarget: { memberUid, date },
-          });
+          }));
         }
         if (item.phase === "finalize") {
           const results = await this.repository.readSuccessfulPhaseResults(
             item.run_id,
             "match",
           );
-          return recordAutoUpdateResultWithHistory(
+          return succeeded(await recordAutoUpdateResultWithHistory(
             getDb(this.env),
             { source: run.source, rangeDays },
             aggregateAutoUpdateResults(results),
             run.started_at ?? run.accepted_at,
-          );
+          ));
         }
         throw new Error("invalid_auto_update_phase");
       }
       case "source_health":
-        return new SourceHealthService(
+        return succeeded(await new SourceHealthService(
           new D1SourceHealthRepository(this.env.otw_db),
           new YouTubeOtwPlayMetadataReader(this.env.YOUTUBE_API_KEY, fetch, {
             db: this.env.otw_db,
@@ -205,28 +234,34 @@ export class ScheduledJobExecutor {
           () => crypto.randomUUID(),
           Date.now,
           new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS),
-        ).runScheduled(2);
+        ).runScheduled(2));
       case "channel_reconcile":
-        return createOtwPlayChannelMonitorService(this.env).runDue(1);
+        return succeeded(
+          await createOtwPlayChannelMonitorService(this.env).runDue(1),
+        );
       case "recent_reconcile":
-        return createOtwPlayChannelMonitorService(this.env).runRecentDue(1);
+        return succeeded(
+          await createOtwPlayChannelMonitorService(this.env).runRecentDue(1),
+        );
       case "websub_maintenance": {
         const service = createOtwPlayWebsubService(this.env);
         switch (item.phase) {
           case "recover-delivery":
-            return { recovered: await service.recoverPending(1) };
+            return succeeded({ recovered: await service.recoverPending(1) });
           case "cleanup":
-            return service.cleanupInvalidSubscriptions(
+            return succeeded(await service.cleanupInvalidSubscriptions(
               "system:websub-cleanup",
               1,
-            );
+            ));
           case "recover-intent":
-            return service.recoverStaleIntents(
+            return succeeded(await service.recoverStaleIntents(
               "system:websub-intent-recovery",
               1,
-            );
+            ));
           case "renew":
-            return service.renewDue("system:websub-renewal", 1);
+            return succeeded(
+              await service.renewDue("system:websub-renewal", 1),
+            );
           default:
             throw new Error("invalid_websub_phase");
         }
@@ -236,14 +271,14 @@ export class ScheduledJobExecutor {
           const recovered = await this.repository.recoverStaleItems(10);
           const dispatched = await new ScheduledJobCoordinator(this.env)
             .dispatchPending();
-          return { recovered, ...dispatched };
+          return succeeded({ recovered, ...dispatched });
         }
         const service = createOtwPlayIngestionService(this.env);
         if (item.phase === "cleanup") {
-          return { cleared: await service.clearExpiredApiData(20) };
+          return succeeded({ cleared: await service.clearExpiredApiData(20) });
         }
         if (item.phase === "requeue") {
-          return { enqueued: await service.requeuePending(20) };
+          return succeeded({ enqueued: await service.requeuePending(20) });
         }
         throw new Error("invalid_ingestion_recovery_phase");
       }
@@ -265,9 +300,10 @@ export class ScheduledJobExecutor {
           }]);
           await new ScheduledJobCoordinator(this.env).dispatchRun(item.run_id);
         }
-        return result;
+        return succeeded(result);
       }
     }
+    throw new Error("unsupported_scheduled_job_type");
   }
 
   async finalizeLegacyState(runId: string) {
