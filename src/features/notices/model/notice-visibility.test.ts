@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getNoticePublicationStatus,
   isNoticeVisibleOnDate,
   selectFeaturedNotice,
 } from "./notice-visibility";
@@ -32,6 +33,30 @@ describe("notice visibility", () => {
         "2026-05-27",
       ),
     ).toBe(true);
+  });
+
+  it("관리자 화면용 게시 상태를 KST 기준 기간까지 반영한다", () => {
+    expect(getNoticePublicationStatus(makeNotice(), "2026-05-27")).toBe(
+      "published",
+    );
+    expect(
+      getNoticePublicationStatus(
+        makeNotice({ started_at: "2026-05-28" }),
+        "2026-05-27",
+      ),
+    ).toBe("scheduled");
+    expect(
+      getNoticePublicationStatus(
+        makeNotice({ ended_at: "2026-05-26" }),
+        "2026-05-27",
+      ),
+    ).toBe("expired");
+    expect(
+      getNoticePublicationStatus(
+        makeNotice({ is_active: false, ended_at: "2026-05-26" }),
+        "2026-05-27",
+      ),
+    ).toBe("inactive");
   });
 
   it("기간이 설정되지 않은 공지와 이벤트는 기준 날짜와 무관하게 표시한다", () => {
