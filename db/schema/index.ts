@@ -1462,6 +1462,34 @@ export const musicPerformances = sqliteTable(
 export type MusicPerformance = typeof musicPerformances.$inferSelect;
 export type NewMusicPerformance = typeof musicPerformances.$inferInsert;
 
+export const musicPerformanceTags = sqliteTable(
+  "music_performance_tags",
+  {
+    performance_id: text("performance_id")
+      .notNull()
+      .references(() => musicPerformances.id, { onDelete: "cascade" }),
+    tag_key: text("tag_key").notNull(),
+    display_name: text("display_name").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.performance_id, table.tag_key],
+      name: "pk_music_performance_tags",
+    }),
+    index("idx_music_performance_tags_key_performance").on(
+      table.tag_key,
+      table.performance_id,
+    ),
+    check(
+      "music_performance_tags_required_text_check",
+      sql`length(trim(${table.tag_key})) BETWEEN 1 AND 80 AND length(trim(${table.display_name})) BETWEEN 1 AND 40`,
+    ),
+  ],
+);
+
+export type MusicPerformanceTag = typeof musicPerformanceTags.$inferSelect;
+export type NewMusicPerformanceTag = typeof musicPerformanceTags.$inferInsert;
+
 export const musicPerformanceParticipants = sqliteTable(
   "music_performance_participants",
   {

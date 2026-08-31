@@ -27,6 +27,7 @@ export function SongTagPicker({
   placeholder = "장르 또는 분류 입력",
   selectedLabel = "선택한 장르(분류)",
   description = "곡 자체의 장르·씬 분류입니다. 가창 형태와 별도로 최대 10개까지 입력할 수 있습니다.",
+  recommendedTags = RECOMMENDED_SONG_TAGS,
 }: {
   tags: string[];
   onChange: (tags: string[]) => void;
@@ -35,6 +36,7 @@ export function SongTagPicker({
   placeholder?: string;
   selectedLabel?: string;
   description?: string;
+  recommendedTags?: readonly string[];
 }) {
   const [value, setValue] = useState("");
   const generatedInputId = useId();
@@ -56,7 +58,7 @@ export function SongTagPicker({
     <div className="space-y-2">
       <Label htmlFor={resolvedInputId}>{label}</Label>
       <div className="flex flex-wrap gap-1.5">
-        {RECOMMENDED_SONG_TAGS.map((tag) => (
+        {recommendedTags.map((tag) => (
           <Button
             key={tag}
             type="button"

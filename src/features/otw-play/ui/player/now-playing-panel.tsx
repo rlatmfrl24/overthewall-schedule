@@ -30,6 +30,7 @@ import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
 import {
   OtwPlayPerformanceMetadata,
+  OtwPlayPerformanceTags,
   OtwPlaySongTags,
 } from "../public/catalog-components";
 
@@ -381,6 +382,10 @@ export function OtwPlayPlayerQueuePanel() {
                 aria-label="곡 및 가창 분류"
               >
                 <OtwPlaySongTags tags={current.song.tags} singleLine />
+                <OtwPlayPerformanceTags
+                  tags={current.performance.tags}
+                  singleLine
+                />
                 <OtwPlayPerformanceMetadata
                   performance={current.performance}
                   singleLine

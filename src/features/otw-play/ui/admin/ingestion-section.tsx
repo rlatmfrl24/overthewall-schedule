@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminCatalogSubjectInput,
@@ -31,6 +31,13 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Checkbox } from "@/shared/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import {
@@ -93,6 +100,7 @@ type RowDraft = {
   songId: string;
   songTitle: string;
   songTags: string[];
+  performanceTags: string[];
   isOtwOriginal: boolean;
   originalArtists: SelectedSubject[];
   participants: Record<string, OtwPlayParticipantRole>;
@@ -158,6 +166,7 @@ const emptyDraft = (item: OtwPlayIngestionCandidateItemDto): RowDraft => ({
   songId: "__new",
   songTitle: item.title ?? "",
   songTags: [],
+  performanceTags: [],
   isOtwOriginal: false,
   originalArtists: [],
   participants: {},
@@ -235,6 +244,7 @@ const draftFromItem = (
   if (!input) return draft;
   draft.songId = input.song.kind === "existing" ? input.song.songId : "__new";
   draft.songTags = input.song.kind === "existing" ? [] : [...(input.song.tags ?? [])];
+  draft.performanceTags = [...(input.performanceTags ?? [])];
   if (input.song.kind === "create") {
     draft.songTitle = input.song.title;
     draft.isOtwOriginal = input.song.isOtwOriginal;
@@ -330,6 +340,9 @@ const buildReviewInput = (
     relationType: draft.relationType,
     releaseType: draft.releaseType,
     participationType: draft.participationType,
+    ...(draft.performanceTags.length > 0
+      ? { performanceTags: draft.performanceTags }
+      : {}),
     internalNote: draft.internalNote.trim() || null,
   };
 };
@@ -567,7 +580,7 @@ function ReviewApplicationPreview({
         </Badge>
       </div>
 
-      <dl className="grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-6">
+      <dl className="grid gap-2 text-xs sm:grid-cols-2 2xl:grid-cols-7">
         <div className="min-w-0 rounded-md border bg-background p-2.5">
           <dt className="mb-1 text-muted-foreground">곡</dt>
           <dd className="line-clamp-2 font-medium">
@@ -605,6 +618,12 @@ function ReviewApplicationPreview({
             {releaseOptions.find((option) => option.value === draft.releaseType)?.label}
             {" · "}
             {participationOptions.find((option) => option.value === draft.participationType)?.label}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-md border bg-background p-2.5">
+          <dt className="mb-1 text-muted-foreground">커버 영상 라벨</dt>
+          <dd className="line-clamp-2 font-medium">
+            {draft.performanceTags.join(", ") || "없음"}
           </dd>
         </div>
         <div className="min-w-0 rounded-md border bg-background p-2.5 sm:col-span-2 2xl:col-span-1">
@@ -692,6 +711,7 @@ export function IngestionSection({
     OtwPlayIngestionClassification | "all"
   >("all");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editorReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [bulkIgnoreConfirmOpen, setBulkIgnoreConfirmOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
@@ -718,8 +738,11 @@ export function IngestionSection({
       return true;
     });
   }, [baseItems, extraItems]);
-  const filtered = items.filter(
-    (item) => item.status !== "converted" && item.status !== "ignored",
+  const filtered = useMemo(
+    () => items.filter(
+      (item) => item.status !== "converted" && item.status !== "ignored",
+    ),
+    [items],
   );
 
   useEffect(() => {
@@ -727,12 +750,14 @@ export function IngestionSection({
   }, [activeJobId, jobsQuery.data]);
 
   useEffect(() => {
+    setEditingId(null);
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
   }, [activeJobId]);
 
   useEffect(() => {
+    setEditingId(null);
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
@@ -763,6 +788,23 @@ export function IngestionSection({
       return { ...current, [editingId]: draftFromItem(item, catalog) };
     });
   }, [catalog, editingId, items]);
+
+  useEffect(() => {
+    if (editingId && !filtered.some((item) => item.candidateId === editingId)) {
+      setEditingId(null);
+    }
+  }, [editingId, filtered]);
+
+  const openCandidateEditor = (
+    item: OtwPlayIngestionCandidateItemDto,
+    returnFocusTarget?: HTMLButtonElement,
+  ) => {
+    if (returnFocusTarget) editorReturnFocusRef.current = returnFocusTarget;
+    setDrafts((current) => current[item.candidateId]
+      ? current
+      : { ...current, [item.candidateId]: draftFromItem(item, catalog) });
+    setEditingId(item.candidateId);
+  };
 
   const refresh = async () => {
     if (!activeJobId) return;
@@ -868,6 +910,7 @@ export function IngestionSection({
         return;
       }
       toast({ variant: "success", description: "검수 입력을 ready 상태로 저장했습니다." });
+      setEditingId((current) => current === item.candidateId ? null : current);
     } catch (error) {
       if (error instanceof ApiError && error.code === "PLAY_ADMIN_STALE_WRITE") {
         try {
@@ -1457,7 +1500,7 @@ export function IngestionSection({
               </AlertDialogContent>
             </AlertDialog>
 
-            <div className={`grid items-start gap-4 ${editingId ? "xl:grid-cols-[minmax(0,1fr)_minmax(28rem,32rem)] 2xl:grid-cols-[minmax(0,1fr)_36rem]" : ""}`}>
+            <div className="grid items-start gap-4">
               <div className="min-w-0 space-y-3">
                 {itemsQuery.isError ? (
                   <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
@@ -1517,7 +1560,7 @@ export function IngestionSection({
                                 size="sm"
                                 variant={editingId === item.candidateId ? "secondary" : "outline"}
                                 aria-pressed={editingId === item.candidateId}
-                                onClick={() => setEditingId(item.candidateId)}
+                                onClick={(event) => openCandidateEditor(item, event.currentTarget)}
                               >
                                 {editingId === item.candidateId ? "편집 중" : "행별 보완"}
                               </Button>
@@ -1562,7 +1605,7 @@ export function IngestionSection({
                             size="sm"
                             variant={editingId === item.candidateId ? "secondary" : "outline"}
                             aria-pressed={editingId === item.candidateId}
-                            onClick={() => setEditingId(item.candidateId)}
+                            onClick={(event) => openCandidateEditor(item, event.currentTarget)}
                           >
                             {editingId === item.candidateId ? "편집 중" : "행별 보완"}
                           </Button>
@@ -1603,17 +1646,37 @@ export function IngestionSection({
                 ...current,
                 [item.candidateId]: { ...draft, ...change, isDirty: true },
               }));
+              const candidateIndex = filtered.findIndex(
+                (candidate) => candidate.candidateId === item.candidateId,
+              );
+              const previousCandidate = candidateIndex > 0
+                ? filtered[candidateIndex - 1]
+                : null;
+              const nextCandidate = candidateIndex >= 0 && candidateIndex < filtered.length - 1
+                ? filtered[candidateIndex + 1]
+                : null;
               return (
-                <aside className="min-w-0 xl:sticky xl:top-4" aria-label="후보 행별 보완">
-                <section className="overflow-hidden rounded-xl border bg-background shadow-sm xl:flex xl:max-h-[calc(100dvh-2rem)] xl:flex-col" aria-labelledby={`candidate-editor-${item.candidateId}`}>
-                  <div className="flex items-start justify-between gap-3 border-b bg-muted/20 p-4 xl:shrink-0">
-                    <div className="space-y-1">
-                      <h3 id={`candidate-editor-${item.candidateId}`} className="font-semibold">
-                        {item.title ?? item.videoId}
-                      </h3>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
+                <Dialog open onOpenChange={(open) => { if (!open && busy === null) setEditingId(null); }}>
+                <DialogContent
+                  showCloseButton={false}
+                  className="flex max-h-[92dvh] max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl lg:max-w-6xl"
+                  onCloseAutoFocus={(event) => {
+                    event.preventDefault();
+                    const returnFocusTarget = editorReturnFocusRef.current;
+                    editorReturnFocusRef.current = null;
+                    if (returnFocusTarget?.isConnected) returnFocusTarget.focus();
+                  }}
+                >
+                  <DialogHeader className="gap-3 border-b bg-muted/20 p-4 text-left sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 space-y-1.5">
+                        <DialogTitle>후보 행별 보완</DialogTitle>
+                        <p className="line-clamp-2 font-medium" title={item.title ?? item.videoId}>
+                          {item.title ?? item.videoId}
+                        </p>
+                        <DialogDescription className="leading-relaxed">
                         YouTube 제목은 참고값입니다. 카탈로그에 저장할 곡과 참여 정보를 직접 확인해 주세요.
-                      </p>
+                        </DialogDescription>
                       {item.classification === "scope_review" ? (
                         <p role="alert" className="text-xs leading-relaxed text-destructive">
                           현재 공개 범위 밖 형식입니다. 영상 유형과 사용 범위를 확인한 뒤 저장하면 공식 영상 후보로 분류합니다.
@@ -1624,11 +1687,45 @@ export function IngestionSection({
                           {reviewBlockedReason}
                         </p>
                       ) : null}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy !== null}
+                        onClick={() => setEditingId(null)}
+                      >
+                        닫기
+                      </Button>
                     </div>
-                    <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>닫기</Button>
-                  </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                      <span className="text-xs text-muted-foreground">
+                        검수 대상 {candidateIndex + 1} / {filtered.length}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null || previousCandidate === null}
+                          onClick={() => { if (previousCandidate) openCandidateEditor(previousCandidate); }}
+                        >
+                          이전 후보
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null || nextCandidate === null}
+                          onClick={() => { if (nextCandidate) openCandidateEditor(nextCandidate); }}
+                        >
+                          다음 후보
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogHeader>
 
-                  <div className="space-y-5 p-4 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
+                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 sm:p-6">
                     {!item.catalogChannelId ? (
                       <fieldset className="space-y-4 rounded-lg border border-amber-300/70 bg-amber-50/40 p-4 dark:border-amber-800 dark:bg-amber-950/10">
                         <legend className="px-1 text-sm font-semibold">공식 채널 승인</legend>
@@ -2061,6 +2158,18 @@ export function IngestionSection({
                           onValueChange={(participationType) => updateDraft({ participationType })}
                           options={participationOptions}
                         />
+                        <div className="rounded-lg border bg-background p-3">
+                          <SongTagPicker
+                            tags={draft.performanceTags}
+                            onChange={(performanceTags) => updateDraft({ performanceTags })}
+                            label="커버 영상 라벨"
+                            inputId={`performance-tags-${item.candidateId}`}
+                            placeholder="이 영상만의 라벨 입력"
+                            selectedLabel="선택한 커버 영상 라벨"
+                            description="이 후보 영상에만 적용되며 곡 장르·분류와 별도로 저장됩니다."
+                            recommendedTags={[]}
+                          />
+                        </div>
                       </div>
                       <Field>
                         <FieldLabel htmlFor={`internal-note-${item.candidateId}`}>내부 메모</FieldLabel>
@@ -2074,7 +2183,7 @@ export function IngestionSection({
                     </section>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 border-t bg-muted/20 p-4 xl:shrink-0">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/20 p-4 sm:px-6">
                     <Button
                       disabled={busy !== null || reviewBlockedReason !== null}
                       onClick={() => void saveCandidate(item)}
@@ -2097,8 +2206,8 @@ export function IngestionSection({
                       </div>
                     ) : null}
                   </div>
-                </section>
-                </aside>
+                </DialogContent>
+                </Dialog>
               );
             })()}
             </div>

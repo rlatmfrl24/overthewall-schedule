@@ -72,6 +72,7 @@ type ArtistRow = {
   credit_order: number;
 };
 type TagRow = { song_id: string; display_name: string };
+type PerformanceTagRow = { performance_id: string; display_name: string };
 
 type ParticipantRow = {
   performance_id: string;
@@ -115,6 +116,7 @@ type CatalogHydrationRow = {
   performance_id: string;
   artists_json: string;
   tags_json: string;
+  performance_tags_json: string;
   participants_json: string;
   sources_json: string;
 };
@@ -1261,6 +1263,15 @@ const tagQueryForSongIds = (songIds: readonly string[]): BatchQuery => ({
   binds: [...songIds],
 });
 
+const performanceTagQueryForPerformanceIds = (
+  performanceIds: readonly string[],
+): BatchQuery => ({
+  sql: `SELECT performance_id, display_name FROM music_performance_tags
+    WHERE performance_id IN (${placeholders(performanceIds.length)})
+    ORDER BY performance_id, tag_key`,
+  binds: [...performanceIds],
+});
+
 const participantQueryForPerformanceIds = (
   performanceIds: readonly string[],
 ): BatchQuery => ({
@@ -1370,6 +1381,18 @@ const catalogHydrationQuery = (
           ORDER BY tag_key
         ) AS tag_row
       ), '[]') AS tags_json,
+      COALESCE((
+        SELECT json_group_array(json_object(
+          'performance_id', requested.performance_id,
+          'display_name', tag_row.display_name
+        ))
+        FROM (
+          SELECT display_name
+          FROM music_performance_tags
+          WHERE performance_id = requested.performance_id
+          ORDER BY tag_key
+        ) AS tag_row
+      ), '[]') AS performance_tags_json,
       COALESCE((
         SELECT json_group_array(json_object(
           'performance_id', participant_row.performance_id,
@@ -1568,6 +1591,7 @@ const stripSourcePolicy = (source: HydratedSource): PublicCatalogSource => {
 
 const mapPerformance = (
   row: PerformanceRow,
+  tagRows: readonly PerformanceTagRow[],
   participantRows: readonly ParticipantRow[],
   sourceRows: readonly SourceRow[],
 ): PublicCatalogPerformance => {
@@ -1578,6 +1602,7 @@ const mapPerformance = (
     releaseType: row.release_type,
     participation: row.participation_type,
     releasedAt: row.released_at === null ? null : Number(row.released_at),
+    tags: tagRows.map((tag) => tag.display_name),
     participants: participantRows.map(mapParticipant),
     sources: selection.sources.map(stripSourcePolicy),
     primarySourceId: selection.primarySource?.id ?? null,
@@ -1978,7 +2003,14 @@ export class D1PublicCatalogReader
     const song = songRows[0];
     if (!song) return null;
 
-    const [artistRows, tagRows, performanceRows, participantRows, sourceRows] =
+    const [
+      artistRows,
+      tagRows,
+      performanceRows,
+      performanceTagRows,
+      participantRows,
+      sourceRows,
+    ] =
       await this.batchAll([
         artistQueryForSongIds([song.song_id]),
         tagQueryForSongIds([song.song_id]),
@@ -1994,6 +2026,19 @@ export class D1PublicCatalogReader
             WHERE performance.song_id = ?
               AND ${PUBLIC_PERFORMANCE_PREDICATE}
             ORDER BY ${PUBLIC_PERFORMANCE_ORDER}`,
+          binds: [song.song_id],
+        },
+        {
+          sql: `
+            ${performanceTagQueryForPerformanceIds([song.song_id]).sql.replace(
+              /WHERE performance_id IN \(\?\)/,
+              `WHERE performance_id IN (
+                 SELECT id FROM music_performances
+                 WHERE song_id = ?
+                   AND publication_status = 'published'
+                   AND release_type IN ('official_mv', 'official_video')
+               )`,
+            )}`,
           binds: [song.song_id],
         },
         {
@@ -2025,6 +2070,10 @@ export class D1PublicCatalogReader
       participantRows as ParticipantRow[],
       (row) => row.performance_id,
     );
+    const tagsByPerformance = groupBy(
+      performanceTagRows as PerformanceTagRow[],
+      (row) => row.performance_id,
+    );
     const sourcesByPerformance = groupBy(
       sourceRows as SourceRow[],
       (row) => row.performance_id,
@@ -2034,6 +2083,7 @@ export class D1PublicCatalogReader
       performances: (performanceRows as PerformanceRow[]).map((performance) =>
         mapPerformance(
           performance,
+          tagsByPerformance.get(performance.performance_id) ?? [],
           participantsByPerformance.get(performance.performance_id) ?? [],
           sourcesByPerformance.get(performance.performance_id) ?? [],
         ),
@@ -2070,9 +2120,10 @@ export class D1PublicCatalogReader
     const row = rows[0];
     if (!row) return null;
 
-    const [artistRows, tagRows, participantRows, sourceRows] = await this.batchAll([
+    const [artistRows, tagRows, performanceTagRows, participantRows, sourceRows] = await this.batchAll([
       artistQueryForSongIds([row.song_id]),
       tagQueryForSongIds([row.song_id]),
+      performanceTagQueryForPerformanceIds([performanceId]),
       participantQueryForPerformanceIds([performanceId]),
       sourceQueryForPerformanceIds([performanceId]),
     ]);
@@ -2080,6 +2131,7 @@ export class D1PublicCatalogReader
       song: mapSongCore(row, artistRows as ArtistRow[], tagRows as TagRow[]),
       performance: mapPerformance(
         row,
+        performanceTagRows as PerformanceTagRow[],
         participantRows as ParticipantRow[],
         sourceRows as SourceRow[],
       ),
@@ -2266,6 +2318,11 @@ export class D1PublicCatalogReader
       publishedPerformanceCount: Number(row.published_performance_count),
       representativePerformance: mapPerformance(
         row,
+        parseHydrationRows<PerformanceTagRow>(
+          hydrationByPerformance.get(row.performance_id)
+            ?.performance_tags_json ?? "[]",
+          "performance tag",
+        ),
         parseHydrationRows<ParticipantRow>(
           hydrationByPerformance.get(row.performance_id)?.participants_json ??
             "[]",

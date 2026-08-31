@@ -60,6 +60,7 @@ describe("OTW Play admin input", () => {
       relationType: "cover",
       releaseType: "official_video",
       participationType: "solo",
+      performanceTags: ["어쿠스틱", "2026 버전"],
       publicationTarget: "published",
     };
     expect(parseCreateCatalogEntry(command)).toMatchObject({
@@ -67,6 +68,7 @@ describe("OTW Play admin input", () => {
       value: {
         song: { kind: "create", tags: ["K-POP", "보컬로이드"] },
         participants: [{ subject: { kind: "member", memberUid: 1 } }],
+        performanceTags: ["어쿠스틱", "2026 버전"],
       },
     });
     const fromVideo = parseCreateCatalogEntry({
@@ -272,6 +274,7 @@ describe("OTW Play admin input", () => {
       qualityStatus: "needs_update",
       releasedAt: 1_786_500_000_000,
       internalNote: "corrected",
+      tags: ["라이브", "듀엣 버전"],
       participants: [
         {
           subject: { kind: "member", memberUid: 1 },
@@ -303,6 +306,7 @@ describe("OTW Play admin input", () => {
       ok: true,
       value: {
         songId: "song-2",
+        tags: ["라이브", "듀엣 버전"],
         participants: [
           { subject: { kind: "member", memberUid: 1 } },
           {
@@ -370,6 +374,7 @@ describe("OTW Play admin input", () => {
       channel: { kind: "existing", channelId: "channel-1" },
       releaseType: "official_video",
       participationType: "solo",
+      performanceTags: ["피아노 편곡"],
       singingCreditConfirmed: true,
       publish: true,
     });
@@ -379,6 +384,7 @@ describe("OTW Play admin input", () => {
         expectedCatalogRevision: 1,
         song: { kind: "existing", songId: "song-1" },
         channel: { kind: "existing", channelId: "channel-1" },
+        performanceTags: ["피아노 편곡"],
       },
     });
     if (parsed.ok) expect(parsed.value).not.toHaveProperty("youtubeUrl");

@@ -67,6 +67,7 @@ const PERFORMANCE_DETAIL: PublicCatalogPerformanceDetail = {
     releaseType: "official_video",
     participation: "solo",
     releasedAt: null,
+    tags: [],
     participants: [],
     sources: [],
     primarySourceId: null,

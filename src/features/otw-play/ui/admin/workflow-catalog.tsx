@@ -315,7 +315,7 @@ export function WorkflowCatalog({
                       </TableCell>
                       <TableCell>{orderedPerformanceSources(performance).map((relation) => catalog.channels.find((item) => item.id === relation.source.channelId)?.displayName ?? "채널 없음").join(", ") || "채널 없음"}</TableCell>
                       <TableCell><Badge variant={performance.publicationStatus === "published" ? "secondary" : performance.publicationStatus === "withdrawn" ? "destructive" : "outline"}>{publicationLabel(performance.publicationStatus)}</Badge></TableCell>
-                      <TableCell>{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</TableCell>
+                      <TableCell><div>{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-1 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}</TableCell>
                       <TableCell>{performanceActions(performance)}</TableCell>
                     </TableRow>
                   )));
@@ -328,7 +328,7 @@ export function WorkflowCatalog({
           <div className="space-y-3 md:hidden">
             {activeSongs.map((song) => {
               const performances = catalog.performances.filter((item) => item.songId === song.id);
-              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div><PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
+              return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-2 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}<PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
             })}
           </div>
         </>
@@ -440,6 +440,7 @@ function PerformanceEditDialog({
     useState<OtwPlayParticipationType>("solo");
   const [quality, setQuality] = useState<OtwPlayQualityStatus>("ok");
   const [releasedAt, setReleasedAt] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [participants, setParticipants] = useState<EditableParticipant[]>([]);
   const [sources, setSources] = useState<EditablePerformanceSource[]>([]);
   const [note, setNote] = useState("");
@@ -459,6 +460,7 @@ function PerformanceEditDialog({
     setParticipation(performance.participationType);
     setQuality(performance.qualityStatus);
     setReleasedAt(toDateTimeLocal(performance.releasedAt));
+    setTags([...(performance.tags ?? [])]);
     setParticipants(
       performance.participants.map((participant) => {
         const entity = catalog.entities.find(
@@ -703,6 +705,17 @@ function PerformanceEditDialog({
                   onChange={(event) => setReleasedAt(event.target.value)}
                 />
               </div>
+              <div className="sm:col-span-2">
+                <SongTagPicker
+                  tags={tags}
+                  onChange={setTags}
+                  label="커버 영상 라벨"
+                  placeholder="이 영상만의 라벨 입력"
+                  selectedLabel="선택한 커버 영상 라벨"
+                  description="이 가창 영상에만 적용되는 라벨입니다. 곡 분류와 독립적으로 저장됩니다."
+                  recommendedTags={[]}
+                />
+              </div>
             </section>
 
             <section className="space-y-3">
@@ -919,6 +932,7 @@ function PerformanceEditDialog({
                       ? releasedTimestamp
                       : null,
                   internalNote: note.trim() || null,
+                  tags,
                   participants: participants.map((participant, index) => ({
                     subject: participant.subject,
                     participantRole: participant.participantRole,

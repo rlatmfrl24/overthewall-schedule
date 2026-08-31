@@ -79,6 +79,11 @@ type AliasRow = {
   alias_kind: string | null;
 };
 type TagRow = { song_id: string; tag_key: string; display_name: string };
+type PerformanceTagRow = {
+  performance_id: string;
+  tag_key: string;
+  display_name: string;
+};
 type ArtistRow = {
   song_id: string;
   entity_id: string;
@@ -179,7 +184,7 @@ const generatedSlug = (displayName: string, id: string) => {
   return `${base || "identity"}-${id.replace(/[^A-Za-z0-9]/gu, "").slice(0, 8).toLowerCase()}`;
 };
 
-const normalizedSongTags = (tags: readonly string[] | undefined) =>
+const normalizedTags = (tags: readonly string[] | undefined) =>
   (tags ?? []).map((displayName) => ({
     displayName: displayName.trim(),
     tagKey: normalizeOtwPlaySearchText(displayName),
@@ -190,12 +195,25 @@ const songTagStatements = (
   songId: string,
   tags: readonly string[] | undefined,
 ) =>
-  normalizedSongTags(tags).map(({ displayName, tagKey }) =>
+  normalizedTags(tags).map(({ displayName, tagKey }) =>
     database
       .prepare(
         "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES (?, ?, ?)",
       )
       .bind(songId, tagKey, displayName),
+  );
+
+const performanceTagStatements = (
+  database: D1Database,
+  performanceId: string,
+  tags: readonly string[] | undefined,
+) =>
+  normalizedTags(tags).map(({ displayName, tagKey }) =>
+    database
+      .prepare(
+        "INSERT INTO music_performance_tags (performance_id, tag_key, display_name) VALUES (?, ?, ?)",
+      )
+      .bind(performanceId, tagKey, displayName),
   );
 
 const projectionStatements = (
@@ -396,6 +414,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       channelsResult,
       channelEntitiesResult,
       performancesResult,
+      performanceTagsResult,
       participantsResult,
       sourcesResult,
     ] = await this.database.batch([
@@ -431,6 +450,8 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       this.database.prepare(`SELECT id, song_id, relation_type, release_type,
         participation_type, publication_status, quality_status, released_at,
         internal_note, version FROM music_performances ORDER BY created_at DESC, id`),
+      this.database.prepare(`SELECT performance_id, tag_key, display_name
+        FROM music_performance_tags ORDER BY performance_id, tag_key`),
       this.database
         .prepare(`SELECT participant.performance_id, participant.entity_id,
         entity.display_name, participant.participant_role, participant.credit_order,
@@ -474,6 +495,10 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
     );
     const participants = group(
       resultsOf(participantsResult as D1Result<ParticipantRow>),
+      (row) => row.performance_id,
+    );
+    const performanceTags = group(
+      resultsOf(performanceTagsResult as D1Result<PerformanceTagRow>),
       (row) => row.performance_id,
     );
     const sources = group(
@@ -545,6 +570,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         qualityStatus: row.quality_status,
         releasedAt: row.released_at,
         internalNote: row.internal_note,
+        tags: (performanceTags.get(row.id) ?? []).map(
+          (tag) => tag.display_name,
+        ),
         version: Number(row.version),
         participants: (participants.get(row.id) ?? []).map((participant) => ({
           entityId: participant.entity_id,
@@ -1677,6 +1705,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
           now,
         ),
+      ...performanceTagStatements(this.database, ids.performanceId, input.tags),
       ...input.participants.map((participant) =>
         this.database
           .prepare(
@@ -1724,6 +1753,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             songId: input.songId,
             publicationStatus: "draft",
             sourceCount: resolvedSources.length,
+            tags: input.tags ?? [],
           }),
           now,
         ),
@@ -2361,6 +2391,11 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           now,
           now,
         ),
+      ...performanceTagStatements(
+        this.database,
+        ids.performanceId,
+        input.performanceTags,
+      ),
       ...participantEntities.map((participant) =>
         this.database
           .prepare(
@@ -2404,6 +2439,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
             songId,
             publicationStatus: input.publicationTarget,
             videoId: video.videoId,
+            tags: input.performanceTags ?? [],
           }),
           now,
         ),
@@ -2887,6 +2923,16 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           input.expectedVersion,
         ),
       versionGuard(this.database),
+      ...(input.tags === undefined
+        ? []
+        : [
+            this.database
+              .prepare(
+                "DELETE FROM music_performance_tags WHERE performance_id = ?",
+              )
+              .bind(input.id),
+            ...performanceTagStatements(this.database, input.id, input.tags),
+          ]),
       ...resolvedSources
         .filter(
           (source, index, all) =>
@@ -3480,6 +3526,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
         relationType: "cover",
         releaseType: input.releaseType,
         participationType: input.participationType,
+        performanceTags: input.performanceTags,
         publicationTarget: "published",
         internalNote: null,
       },

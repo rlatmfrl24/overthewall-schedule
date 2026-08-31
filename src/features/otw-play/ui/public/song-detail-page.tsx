@@ -10,6 +10,7 @@ import {
   OtwPlayParticipantCreditGroups,
   OtwPlayPerformanceActions,
   OtwPlayPerformanceMetadata,
+  OtwPlayPerformanceTags,
   OtwPlaySongTags,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
@@ -109,6 +110,9 @@ export function OtwPlaySongDetailPage({
                   </div>
                   <div className="mt-3">
                     <OtwPlayParticipantCreditGroups participants={performance.participants} />
+                  </div>
+                  <div className="mt-3">
+                    <OtwPlayPerformanceTags tags={performance.tags} />
                   </div>
                   <p className="mt-3 text-xs text-muted-foreground">
                     {performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}

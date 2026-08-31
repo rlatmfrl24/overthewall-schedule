@@ -34,6 +34,7 @@ const OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES = [
   "0027_heavy_cassandra_nova.sql",
   ...OTW_PLAY_PUBLIC_CATALOG_MIGRATION_NAMES,
   "0064_loud_black_tom.sql",
+  "0070_otw-play-performance-tags.sql",
 ] as const;
 const OTW_PLAY_RELEASE_TEST_MIGRATION_NAMES = [
   ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, 4),
@@ -48,7 +49,11 @@ const OTW_PLAY_INGESTION_MIGRATION_NAMES = [
   "0060_ancient_cardiac.sql",
 ] as const;
 const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
-  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.slice(0, -1),
+  ...OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES.filter(
+    (name) =>
+      name !== "0064_loud_black_tom.sql" &&
+      name !== "0070_otw-play-performance-tags.sql",
+  ),
   "0059_demonic_luke_cage.sql",
   "0060_ancient_cardiac.sql",
   "0061_otw-play-member-entity-backfill.sql",
@@ -57,9 +62,16 @@ const OTW_PLAY_INGESTION_TEST_MIGRATION_NAMES = [
   "0064_loud_black_tom.sql",
   "0065_otw_play_authority_retention.sql",
   "0066_otw_play_integrity_drift.sql",
+  "0070_otw-play-performance-tags.sql",
 ] as const;
 const OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATION_NAME =
   "0067_otw-play-external-identity-consolidation.sql";
+const OTW_PLAY_HARDENING_MIGRATION_NAMES = [
+  "0065_otw_play_authority_retention.sql",
+  "0066_otw_play_integrity_drift.sql",
+] as const;
+const OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME =
+  "0070_otw-play-performance-tags.sql";
 const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 
 export default defineConfig({
@@ -95,8 +107,17 @@ export default defineConfig({
           const migration = migrationsByName.get(name);
           return migration ? [migration] : [];
         });
-      const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.slice(0, -2);
-      const otwPlayHardeningMigrations = otwPlayIngestionMigrations.slice(-2);
+      const otwPlayPreHardeningMigrations = otwPlayIngestionMigrations.filter(
+        ({ name }) =>
+          !OTW_PLAY_HARDENING_MIGRATION_NAMES.includes(
+            name as (typeof OTW_PLAY_HARDENING_MIGRATION_NAMES)[number],
+          ) && name !== OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME,
+      );
+      const otwPlayHardeningMigrations =
+        OTW_PLAY_HARDENING_MIGRATION_NAMES.flatMap((name) => {
+          const migration = migrationsByName.get(name);
+          return migration ? [migration] : [];
+        });
       const otwPlayPreSourceHealthMigrations =
         OTW_PLAY_PUBLIC_CATALOG_TEST_MIGRATION_NAMES
           .filter(

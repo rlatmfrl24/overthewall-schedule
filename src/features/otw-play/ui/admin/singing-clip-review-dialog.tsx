@@ -99,6 +99,7 @@ export function SingingClipReviewDialog({
   const [songId, setSongId] = useState("__new");
   const [songTitle, setSongTitle] = useState("");
   const [songTags, setSongTags] = useState<string[]>([]);
+  const [performanceTags, setPerformanceTags] = useState<string[]>([]);
   const [originalArtists, setOriginalArtists] = useState<SelectedSubject[]>([]);
   const [participants, setParticipants] = useState<SelectedParticipant[]>([]);
   const [relationType, setRelationType] = useState<OtwPlayRelationType>("cover");
@@ -135,6 +136,7 @@ export function SingingClipReviewDialog({
       input?.song.kind === "create" ? input.song.title : candidate.title ?? "",
     );
     setSongTags(input?.song.kind === "existing" ? [] : [...(input?.song.tags ?? [])]);
+    setPerformanceTags([...(input?.performanceTags ?? [])]);
     setOriginalArtists(
       input?.song.kind === "create"
         ? input.song.originalArtists.map((artist) =>
@@ -222,6 +224,7 @@ export function SingingClipReviewDialog({
         relationType,
         releaseType: "broadcast" as const,
         participationType,
+        ...(performanceTags.length > 0 ? { performanceTags } : {}),
         startSeconds: parsedStart,
         endSeconds: parsedEnd,
         internalNote: internalNote.trim() || null,
@@ -389,6 +392,18 @@ export function SingingClipReviewDialog({
                     <SelectItem value="external_collab">외부 협업</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="rounded-lg border p-3 sm:col-span-2">
+                <SongTagPicker
+                  tags={performanceTags}
+                  onChange={setPerformanceTags}
+                  label="커버 영상 라벨"
+                  inputId="clip-performance-tags"
+                  placeholder="이 영상만의 라벨 입력"
+                  selectedLabel="선택한 커버 영상 라벨"
+                  description="이 방송 가창 구간에만 적용되며 곡 장르·분류와 별도로 저장됩니다."
+                  recommendedTags={[]}
+                />
               </div>
             </section>
 

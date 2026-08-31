@@ -190,6 +190,7 @@ const toPerformanceBase = (
     releaseType: performance.releaseType,
     participation: performance.participation,
     releasedAt: toIso(performance.releasedAt),
+    tags: performance.tags,
     participants: performance.participants.map(toParticipant),
     selectedSource,
     sourceCount: sources.length,

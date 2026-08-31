@@ -63,6 +63,35 @@ export function OtwPlaySongTags({
   );
 }
 
+export function OtwPlayPerformanceTags({
+  tags = [],
+  singleLine = false,
+}: {
+  tags?: readonly string[];
+  singleLine?: boolean;
+}) {
+  if (tags.length === 0) return null;
+  return (
+    <div
+      className={cn(
+        "flex gap-1.5",
+        singleLine ? "shrink-0 flex-nowrap whitespace-nowrap" : "flex-wrap",
+      )}
+      aria-label="커버 영상 라벨"
+    >
+      {tags.map((tag) => (
+        <Badge
+          key={tag}
+          variant="secondary"
+          className={cn(singleLine && "shrink-0 whitespace-nowrap")}
+        >
+          {tag}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 export function OtwPlayPerformanceMetadata({
   performance,
   inverse = false,
@@ -321,6 +350,7 @@ export function OtwPlaySongRow({
           </p>
         </div>
         <OtwPlayParticipantSummary participants={performance.participants} />
+        <OtwPlayPerformanceTags tags={performance.tags} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <OtwPlayPerformanceMetadata performance={performance} />
           <span>{performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}</span>

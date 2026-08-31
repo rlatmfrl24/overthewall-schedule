@@ -25,6 +25,7 @@ const PUBLIC_MIGRATION_NAMES = [
   "0057_numerous_luminals.sql",
   "0058_awesome_lorna_dane.sql",
   "0064_loud_black_tom.sql",
+  "0070_otw-play-performance-tags.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -69,6 +70,7 @@ const cleanup = async () => {
     db.prepare("DELETE FROM music_search_terms"),
     db.prepare("DELETE FROM music_performance_sources"),
     db.prepare("DELETE FROM music_performance_participants"),
+    db.prepare("DELETE FROM music_performance_tags"),
     db.prepare("DELETE FROM music_media_source_relations"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_song_original_artists"),
@@ -548,6 +550,9 @@ describe("D1PublicCatalogReader", () => {
     await db.prepare(
       "INSERT INTO music_song_tags (song_id, tag_key, display_name) VALUES ('song-visible', 'j pop', 'J-POP')",
     ).run();
+    await db.prepare(
+      "INSERT INTO music_performance_tags (performance_id, tag_key, display_name) VALUES ('performance-visible', 'acoustic', '어쿠스틱')",
+    ).run();
     const reader = new D1PublicCatalogReader(db);
     const page = await reader.readCatalog(toReaderQuery("limit=24"));
 
@@ -556,6 +561,7 @@ describe("D1PublicCatalogReader", () => {
       "song-no-source",
     ]);
     expect(page.items[0]?.tags).toEqual(["J-POP"]);
+    expect(page.items[0]?.representativePerformance.tags).toEqual(["어쿠스틱"]);
     await expect(
       reader.readCatalog(toReaderQuery("q=rejected%20proposal%20secret")),
     ).resolves.toMatchObject({ items: [] });
@@ -1007,6 +1013,9 @@ describe("D1PublicCatalogReader", () => {
 
   it("reads public song and performance details without exposing hidden rows", async () => {
     await seedVisibilityFixture();
+    await db.prepare(
+      "INSERT INTO music_performance_tags (performance_id, tag_key, display_name) VALUES ('performance-visible', 'live', '라이브')",
+    ).run();
     const reader = new D1PublicCatalogReader(db);
 
     const song = await reader.readSongBySlug("song-visible-slug");
@@ -1015,6 +1024,7 @@ describe("D1PublicCatalogReader", () => {
       performances: [
         {
           id: "performance-visible",
+          tags: ["라이브"],
           playbackSourceId: "source-fallback",
         },
       ],
@@ -1023,7 +1033,7 @@ describe("D1PublicCatalogReader", () => {
       reader.readPerformanceById("performance-visible"),
     ).resolves.toMatchObject({
       song: { id: "song-visible" },
-      performance: { id: "performance-visible" },
+      performance: { id: "performance-visible", tags: ["라이브"] },
     });
     await expect(reader.readSongBySlug("song-draft-slug")).resolves.toBeNull();
     await expect(
