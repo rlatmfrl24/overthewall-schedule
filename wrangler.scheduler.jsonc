@@ -41,65 +41,59 @@
       "binding": "INGESTION_RECOVERY_WORKFLOW",
       "name": "otw-ingestion-recovery",
       "class_name": "IngestionRecoveryWorkflow",
-      "schedules": "3 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "WEBSUB_MAINTENANCE_WORKFLOW",
       "name": "otw-websub-maintenance",
       "class_name": "WebsubMaintenanceWorkflow",
-      "schedules": "13 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "CHANNEL_RECONCILE_WORKFLOW",
       "name": "otw-channel-reconcile",
       "class_name": "ChannelReconcileWorkflow",
-      "schedules": "23 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "SOURCE_HEALTH_WORKFLOW",
       "name": "otw-source-health",
       "class_name": "SourceHealthWorkflow",
-      "schedules": "33 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "NAVER_CAFE_COLLECTION_WORKFLOW",
       "name": "otw-naver-cafe-collection",
       "class_name": "NaverCafeCollectionWorkflow",
-      "schedules": "15 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "X_COLLECTION_WORKFLOW",
       "name": "otw-x-collection",
       "class_name": "XCollectionWorkflow",
-      "schedules": "25 */2 * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "SCHEDULE_AUTO_UPDATE_WORKFLOW",
       "name": "otw-schedule-auto-update",
       "class_name": "ScheduleAutoUpdateWorkflow",
-      "schedules": "5 * * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "RECENT_RECONCILE_WORKFLOW",
       "name": "otw-recent-reconcile",
       "class_name": "RecentReconcileWorkflow",
-      "schedules": "20 18 * * *",
       "limits": { "steps": 3 }
     },
     {
       "binding": "RETENTION_PRUNE_WORKFLOW",
       "name": "otw-retention-prune",
       "class_name": "RetentionPruneWorkflow",
-      "schedules": "40 18 * * *",
       "limits": { "steps": 3 }
     }
   ],
+  "triggers": {
+    "crons": ["3 * * * *", "13 * * * *", "23 * * * *", "33 * * * *"]
+  },
   "placement": { "mode": "smart" }
 }

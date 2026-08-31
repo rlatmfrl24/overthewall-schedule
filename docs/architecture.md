@@ -598,7 +598,7 @@ local `urlState`에 둔다. 이 상태를 반복 `c=` parameter와 양방향
 
 ```mermaid
 flowchart TB
-  workflows["otw-ops-scheduler<br/>작업별 scheduled Workflow"]
+  workflows["otw-ops-scheduler<br/>Free Cron bridge → 작업별 Workflow"]
   state[("D1 scheduled_job_runs<br/>items · outbox · usage")]
   queues["독립 Queue lanes<br/>control · collectors · critical · maintenance"]
   collectors["otw-ops-collectors<br/>X · Naver Cafe"]
@@ -626,7 +626,8 @@ flowchart TB
   youtubeManual --> youtube
 ```
 
-범용 운영 작업은 Workflow가 D1 run/item/outbox를 계획하고, 독립 Queue lane이
+범용 운영 작업은 네 개의 Free-plan Cron Trigger가 작업별 Workflow를 시작하고,
+Workflow가 D1 run/item/outbox를 계획한다. 독립 Queue lane이
 실제 invocation을 collector, media, auto-update, maintenance Worker로 분리한다.
 X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
 조회 계약을 공유한다. `youtube-critical` lane은 OTW Play WebSub·ingestion·

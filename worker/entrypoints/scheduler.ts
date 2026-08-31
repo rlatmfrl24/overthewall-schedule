@@ -1,4 +1,5 @@
 import { handleScheduledControlQueue } from "../app/scheduled-queue";
+import { handleScheduledWorkflowCron } from "../app/scheduled-workflow-cron";
 import type { Env } from "../platform/types";
 
 export {
@@ -15,4 +16,5 @@ export {
 
 export default {
   queue: handleScheduledControlQueue,
+  scheduled: handleScheduledWorkflowCron,
 } satisfies ExportedHandler<Env>;
