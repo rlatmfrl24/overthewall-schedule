@@ -56,6 +56,37 @@ describe("ScheduledRunClient", () => {
     );
   });
 
+  it.each(["failed", "throttled"] as const)(
+    "동일 idempotency key의 %s run은 retry 전이 후 다시 enqueue한다",
+    async (status) => {
+      const send = vi.fn().mockResolvedValue(undefined);
+      mocks.createRun.mockResolvedValueOnce({ ...run, status });
+      const client = new ScheduledRunClient({
+        otw_db: {} as D1Database,
+        OTW_OPS_CONTROL_QUEUE: { send },
+      } as unknown as Env);
+
+      await expect(
+        client.createManualRun(
+          "naver_cafe_collection",
+          { actorId: "admin" },
+          run.idempotency_key,
+        ),
+      ).resolves.toMatchObject({
+        runId: run.id,
+        status: "queued",
+        idempotencyKey: run.idempotency_key,
+      });
+
+      expect(mocks.retryRun).toHaveBeenCalledWith(run.id);
+      expect(send).toHaveBeenCalledWith({
+        schemaVersion: 1,
+        messageType: "scheduled_job_control",
+        runId: run.id,
+      }, { contentType: "json" });
+    },
+  );
+
   it("retry는 queued outbox를 drain할 control message를 다시 보낸다", async () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const client = new ScheduledRunClient({

@@ -66,16 +66,30 @@ export class ScheduledRunClient {
       idempotencyKey,
       actor,
     });
-    if (run.status === "queued") {
+    let acceptedRun = run;
+    if (["failed", "partial", "throttled"].includes(run.status)) {
+      const retry = await this.repository.retryRun(run.id);
+      if (retry.kind === "not_found") {
+        throw new Error("scheduled_run_missing_after_idempotent_replay");
+      }
+      if (retry.kind === "accepted") {
+        acceptedRun = retry.run;
+      } else if (
+        !["queued", "running", "succeeded", "skipped"].includes(retry.status)
+      ) {
+        throw new Error(`scheduled_run_replay_not_retryable:${retry.status}`);
+      }
+    }
+    if (acceptedRun.status === "queued") {
       await this.enqueueControl(run.id);
     }
     return {
-      runId: run.id,
-      jobType: run.job_type,
+      runId: acceptedRun.id,
+      jobType: acceptedRun.job_type,
       status: "queued",
-      acceptedAt: run.accepted_at,
-      idempotencyKey: run.idempotency_key,
-      statusUrl: makeStatusUrl(run.id),
+      acceptedAt: acceptedRun.accepted_at,
+      idempotencyKey: acceptedRun.idempotency_key,
+      statusUrl: makeStatusUrl(acceptedRun.id),
     };
   }
 
