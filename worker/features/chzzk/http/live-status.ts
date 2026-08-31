@@ -42,6 +42,7 @@ const targetErrorResponse = (error: unknown) => {
 
 const LIVE_STATUS_CACHE_CONTROL =
   "public, max-age=0, s-maxage=45, must-revalidate";
+const LIVE_STATUS_SERVER_CACHE_VERSION = "2";
 
 const getLiveStatusCache = () =>
   typeof caches === "undefined" ? null : caches.default;
@@ -51,6 +52,7 @@ const makeLiveStatusCacheKey = (request: Request, channelIds: string[]) => {
   url.pathname = "/api/live-status";
   url.search = "";
   url.searchParams.set("channelIds", [...channelIds].sort().join(","));
+  url.searchParams.set("responseVersion", LIVE_STATUS_SERVER_CACHE_VERSION);
   return new Request(url.toString(), { method: "GET" });
 };
 
@@ -86,7 +88,12 @@ export const createLiveStatusHandler =
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      return cached;
+      const headers = new Headers(cached.headers);
+      headers.set("Cache-Control", LIVE_STATUS_CACHE_CONTROL);
+      return new Response(cached.body, {
+        status: 200,
+        headers,
+      });
     }
   }
   let items;

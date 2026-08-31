@@ -156,6 +156,8 @@ describe("live status route", () => {
 
     expect(firstResponse.status).toBe(200);
     expect(etag).toBeTruthy();
+    expect([...cacheStore.keys()]).toHaveLength(1);
+    expect([...cacheStore.keys()][0]).toContain("responseVersion=2");
 
     const revalidatedResponse = await handleLiveStatus(
       new Request(url, {
@@ -168,6 +170,9 @@ describe("live status route", () => {
     };
 
     expect(revalidatedResponse.status).toBe(200);
+    expect(revalidatedResponse.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=45, must-revalidate",
+    );
     expect(body.items).toEqual([{ channelId, content: liveContent }]);
     expect(fetchChzzkLiveStatusMock).toHaveBeenCalledOnce();
   });
