@@ -1,8 +1,14 @@
 import { spawnSync } from "node:child_process";
+import { verifyClientBuildForDeploy } from "./client-build-deploy-guard.mjs";
 
 const isWindows = process.platform === "win32";
 const dryRun = process.argv.includes("--dry-run");
 const configs = ["wrangler.jsonc"];
+
+const verifiedClientBuild = verifyClientBuildForDeploy();
+process.stdout.write(
+  `[deploy] Verified Clerk configuration in ${verifiedClientBuild.entryScriptCount} client entry script(s).\n`,
+);
 
 const run = (args, options = {}) => {
   const displayCommand = `pnpm exec wrangler ${args.join(" ")}`;
