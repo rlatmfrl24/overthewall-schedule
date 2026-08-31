@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-const CLERK_PUBLISHABLE_KEY_PATTERN = /pk_(?:test|live)_[A-Za-z0-9_-]{10,}/;
+const CLERK_PRODUCTION_PUBLISHABLE_KEY_PATTERN =
+  /pk_live_[A-Za-z0-9_-]{10,}/;
+const CLERK_DEVELOPMENT_PUBLISHABLE_KEY_PATTERN =
+  /pk_test_[A-Za-z0-9_-]{10,}/;
 const ENTRY_SCRIPT_PATTERN = /<script\b[^>]*\bsrc=["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>/g;
 
 export const verifyClientBuildForDeploy = (
@@ -39,9 +42,23 @@ export const verifyClientBuildForDeploy = (
     return readFileSync(scriptPath, "utf8");
   });
 
-  if (!entryScripts.some((source) => CLERK_PUBLISHABLE_KEY_PATTERN.test(source))) {
+  if (
+    entryScripts.some((source) =>
+      CLERK_DEVELOPMENT_PUBLISHABLE_KEY_PATTERN.test(source),
+    )
+  ) {
     throw new Error(
-      "Client build does not contain a Clerk publishable key. Rebuild with VITE_CLERK_PUBLISHABLE_KEY before deploying.",
+      "Client build contains a Clerk development key. Production deploys require VITE_CLERK_PUBLISHABLE_KEY with a pk_live value.",
+    );
+  }
+
+  if (
+    !entryScripts.some((source) =>
+      CLERK_PRODUCTION_PUBLISHABLE_KEY_PATTERN.test(source),
+    )
+  ) {
+    throw new Error(
+      "Client build does not contain a Clerk production publishable key. Rebuild with VITE_CLERK_PUBLISHABLE_KEY before deploying.",
     );
   }
 

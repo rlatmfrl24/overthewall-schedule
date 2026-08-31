@@ -30,9 +30,9 @@ afterEach(() => {
 });
 
 describe("verifyClientBuildForDeploy", () => {
-  it("accepts an entry bundle containing a Clerk publishable key", () => {
+  it("accepts an entry bundle containing a Clerk production key", () => {
     const directory = createClientBuild(
-      'const publishableKey = "pk_test_example_publishable_key_123";',
+      'const publishableKey = "pk_live_example_publishable_key_123";',
     );
 
     expect(verifyClientBuildForDeploy(directory)).toEqual({ entryScriptCount: 1 });
@@ -42,7 +42,17 @@ describe("verifyClientBuildForDeploy", () => {
     const directory = createClientBuild("const publishableKey = undefined;");
 
     expect(() => verifyClientBuildForDeploy(directory)).toThrow(
-      /does not contain a Clerk publishable key/,
+      /does not contain a Clerk production publishable key/,
+    );
+  });
+
+  it("blocks an entry bundle containing a Clerk development key", () => {
+    const directory = createClientBuild(
+      'const publishableKey = "pk_test_example_publishable_key_123";',
+    );
+
+    expect(() => verifyClientBuildForDeploy(directory)).toThrow(
+      /contains a Clerk development key/,
     );
   });
 
