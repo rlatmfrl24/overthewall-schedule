@@ -751,12 +751,16 @@ const readLatestSourceChecks = async (
   return bySource;
 };
 
-const readStoredPostsForSource = async (
+const readStoredPostsForSources = async (
   cacheDb: D1Database | undefined,
-  source: NaverCafeSourceInput,
+  sources: NaverCafeSourceInput[],
   size: number,
 ) => {
   if (!cacheDb) return [];
+  const sourceIds = sources
+    .filter((source) => normalizeBoolean(source.enabled))
+    .map((source) => source.id);
+  if (sourceIds.length === 0) return [];
 
   const rows = getD1Results<NaverCafePostRow>(
     await cacheDb
@@ -766,11 +770,12 @@ const readStoredPostsForSource = async (
                 comment_count, read_count, like_count, is_new, fetched_at,
                 hidden_at
          FROM naver_cafe_posts
-         WHERE source_id = ? AND hidden_at IS NULL
+         WHERE source_id IN (${sourceIds.map(() => "?").join(", ")})
+           AND hidden_at IS NULL
          ORDER BY created_at DESC, id DESC
          LIMIT ?`,
       )
-      .bind(source.id, size)
+      .bind(...sourceIds, size)
       .all<NaverCafePostRow>(),
   );
 
@@ -817,23 +822,26 @@ export const readStoredNaverCafePostsForSources = async (
   const size = clampMaxResults(options.size);
   const sourceIds = sources.map((source) => source.id);
   const latestChecks = await readLatestSourceChecks(options.cacheDb, sourceIds);
-  const sourcePosts = await Promise.all(
-    sources.map(async (source) => ({
-      source,
-      posts: normalizeBoolean(source.enabled)
-        ? await readStoredPostsForSource(options.cacheDb, source, size)
-        : [],
-    })),
+  const posts = await readStoredPostsForSources(options.cacheDb, sources, size);
+  const sourceIdByBoard = new Map(
+    sources.map((source) => [`${source.cafe_id}:${source.menu_id}`, source.id]),
   );
-  const posts = sourcePosts
-    .flatMap((item) => item.posts)
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  const visiblePostCountBySource = new Map<number, number>();
+  for (const post of posts) {
+    const sourceId = sourceIdByBoard.get(`${post.cafeId}:${post.menuId}`);
+    if (sourceId === undefined) continue;
+    visiblePostCountBySource.set(
+      sourceId,
+      (visiblePostCountBySource.get(sourceId) ?? 0) + 1,
     );
-  const sourceResults = sourcePosts
-    .map(({ source, posts }) =>
-      storedSourceStatus(source, latestChecks.get(source.id) ?? null, posts.length),
+  }
+  const sourceResults = sources
+    .map((source) =>
+      storedSourceStatus(
+        source,
+        latestChecks.get(source.id) ?? null,
+        visiblePostCountBySource.get(source.id) ?? 0,
+      ),
     )
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 

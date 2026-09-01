@@ -112,10 +112,12 @@ const makeD1Store = (
           };
         }
         if (sql.includes("FROM naver_cafe_posts")) {
-          const [sourceId, limit] = bound.map(Number);
+          const numericBindings = bound.map(Number);
+          const limit = numericBindings.at(-1) ?? 0;
+          const sourceIds = new Set(numericBindings.slice(0, -1));
           return {
             results: [...posts.values()]
-              .filter((row) => row.source_id === sourceId && row.hidden_at === null)
+              .filter((row) => sourceIds.has(row.source_id) && row.hidden_at === null)
               .sort(
                 (a, b) =>
                   new Date(b.created_at).getTime() -
@@ -461,5 +463,53 @@ describe("naver cafe worker service", () => {
       postCount: 1,
       stale: false,
     });
+  });
+
+  it("저장 게시글 size는 소스별이 아니라 전체 응답 상한으로 적용한다", async () => {
+    const secondSource = {
+      ...source,
+      id: 2,
+      name: "두 번째 게시판",
+      menu_id: "10",
+      sort_order: 1,
+    };
+    const storedPosts = Array.from({ length: 6 }, (_, index) => {
+      const targetSource = index % 2 === 0 ? source : secondSource;
+      return {
+        id: `post-${index}`,
+        article_id: 50_000 + index,
+        source_id: targetSource.id,
+        source_name: targetSource.name,
+        cafe_id: targetSource.cafe_id,
+        menu_id: targetSource.menu_id,
+        member_uid: targetSource.member_uid,
+        title: `저장 글 ${index}`,
+        summary: "요약",
+        created_at: new Date(Date.parse("2026-05-28T00:00:00Z") - index * 1_000).toISOString(),
+        url: `https://example.com/posts/${index}`,
+        thumbnail_url: null,
+        comment_count: 0,
+        read_count: 0,
+        like_count: 0,
+        is_new: 0,
+        fetched_at: Date.now(),
+        hidden_at: null,
+      } satisfies StoredPostRow;
+    });
+    const store = makeD1Store(storedPosts);
+
+    const result = await readStoredNaverCafePostsForSources(
+      [source, secondSource],
+      { cacheDb: store.db, size: 5 },
+    );
+
+    expect(result.posts).toHaveLength(5);
+    expect(result.posts.map((post) => post.id)).toEqual([
+      "post-0",
+      "post-1",
+      "post-2",
+      "post-3",
+      "post-4",
+    ]);
   });
 });
