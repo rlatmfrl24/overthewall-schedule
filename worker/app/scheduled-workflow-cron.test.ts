@@ -17,6 +17,10 @@ const makeDb = (
     hasPosts: 1,
     lastCycleAt: 0,
   },
+  d1WriteGate = {
+    consumed: 0,
+    limitValue: 40_000,
+  },
 ) => ({
   prepare: vi.fn((sql: string) => ({
     bind: (...values: unknown[]) => ({
@@ -28,7 +32,9 @@ const makeDb = (
             .map((key) => ({ key, value: "true" }))
           : [],
       }),
-      first: async () => complianceGate,
+      first: async () => sql.includes("FROM scheduled_usage_daily")
+        ? d1WriteGate
+        : complianceGate,
     }),
   })),
 });
@@ -106,6 +112,24 @@ describe("scheduled Workflow cron bridge", () => {
     expect(create).not.toHaveBeenCalledWith({
       params: { jobType: "x_compliance", scheduledFor: scheduledTime },
     });
+  });
+
+  it("does not create Workflows after the internal D1 write guard is exhausted", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      otw_db: makeDb([], undefined, {
+        consumed: 40_000,
+        limitValue: 40_000,
+      }),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime: utc(5, 13),
+    } as ScheduledController, env);
+
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("requires the provider feature switch as well as the scheduled switch", async () => {
