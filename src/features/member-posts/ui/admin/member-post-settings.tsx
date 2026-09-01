@@ -11,8 +11,6 @@ import {
   Gauge,
   Loader2,
   LockKeyhole,
-  MessageSquareText,
-  Play,
   RefreshCw,
   Settings2,
 } from "lucide-react";
@@ -98,19 +96,6 @@ const X_COLLECTION_INTERVAL_OPTIONS = X_COLLECTION_INTERVAL_HOURS.map(
     label: `${value}시간마다`,
   }),
 );
-
-const formatCollectionLastRun = (value: string | null | undefined) => {
-  if (!value) return "아직 없음";
-  const parsed = Number.parseInt(value, 10);
-  const date = Number.isFinite(parsed) ? new Date(parsed) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "확인 불가";
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
 
 const getCollectionStatusLabel = (status: XCollectionRunResult["status"]) => {
   if (status === "success") return "완료";
@@ -273,7 +258,7 @@ function SummaryValue({
   );
 }
 
-function SourceOperationalSummary({
+export function SourceOperationalSummary({
   source,
   xCollectionEnabled,
   xPostsVisibility,
@@ -464,7 +449,7 @@ function SourceOperationalSummary({
   );
 }
 
-function SectionIntro({
+export function SectionIntro({
   kind,
   title,
   description,
@@ -493,10 +478,21 @@ function SectionIntro({
   );
 }
 
-export function MemberPostSettingsManager() {
+export function MemberPostSettingsManager({
+  activeSource: controlledActiveSource,
+  onActiveSourceChange,
+}: {
+  activeSource?: MemberPostSource;
+  onActiveSourceChange?: (source: MemberPostSource) => void;
+} = {}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [activeSource, setActiveSource] = useState<MemberPostSource>("x");
+  const [uncontrolledActiveSource, setUncontrolledActiveSource] = useState<MemberPostSource>("x");
+  const activeSource = controlledActiveSource ?? uncontrolledActiveSource;
+  const setActiveSource = (source: MemberPostSource) => {
+    setUncontrolledActiveSource(source);
+    onActiveSourceChange?.(source);
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningCollection, setIsRunningCollection] = useState(false);
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
@@ -563,6 +559,8 @@ export function MemberPostSettingsManager() {
   const xPostsVisibility = settings?.x_posts_visibility ?? "members";
   const isNaverCafePostsEnabled =
     settings?.naver_cafe_posts_enabled !== "false";
+  const isNaverCafeCollectionEnabled =
+    settings?.naver_cafe_collection_enabled !== "false";
   const naverCafePostsVisibility =
     settings?.naver_cafe_posts_visibility ?? "members";
   const isXCollectionEnabled = settings?.x_collection_enabled !== "false";
@@ -803,6 +801,31 @@ export function MemberPostSettingsManager() {
     }
   };
 
+  const handleToggleNaverCafeCollection = async (enabled: boolean) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        naver_cafe_collection_enabled: enabled ? "true" : "false",
+      });
+      patchSettings({
+        naver_cafe_collection_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() });
+      toast({
+        variant: "success",
+        description: enabled
+          ? "네이버 카페 외부 수집을 활성화했습니다."
+          : "네이버 카페 외부 수집을 즉시 중지했습니다.",
+      });
+    } catch (error) {
+      console.error("Failed to update Naver collection kill switch:", error);
+      toast({ variant: "error", description: "네이버 수집 킬스위치 변경에 실패했습니다." });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleNaverCafeVisibilityChange = async (
     visibility: NaverCafePostsVisibility,
   ) => {
@@ -863,7 +886,7 @@ export function MemberPostSettingsManager() {
       <div
         role="tablist"
         aria-label="멤버 게시글 수집 소스"
-        className="grid gap-1 rounded-xl border bg-muted/25 p-1 sm:grid-cols-2"
+        className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/25 p-1"
       >
         {SOURCE_TABS.map((tab) => {
           const active = activeSource === tab.value;
@@ -876,32 +899,17 @@ export function MemberPostSettingsManager() {
               aria-selected={active}
               aria-controls={`member-post-panel-${tab.value}`}
               variant={active ? "default" : "ghost"}
-              className="h-auto justify-start gap-3 px-4 py-3 text-left"
+              className="h-9 justify-center gap-2 px-3 text-center"
               onClick={() => setActiveSource(tab.value)}
             >
-              <span
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
-                  active ? "border-primary-foreground/20 bg-background/15" : "bg-background",
-                )}
-              >
+              <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", active ? "bg-background/15" : "bg-background")}>
                 {tab.value === "x" ? (
                   <img src={IconX} alt="" className="h-4 w-4" />
                 ) : (
                   <Coffee className="h-4 w-4 text-emerald-600" />
                 )}
               </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">{tab.label}</span>
-                <span
-                  className={cn(
-                    "block text-xs font-normal",
-                    active ? "text-primary-foreground/75" : "text-muted-foreground",
-                  )}
-                >
-                  {tab.description}
-                </span>
-              </span>
+              <span className="truncate text-sm font-semibold">{tab.label}</span>
             </Button>
           );
         })}
@@ -919,22 +927,25 @@ export function MemberPostSettingsManager() {
           aria-labelledby={`member-post-tab-${activeSource}`}
           className="space-y-5"
         >
-          <SourceOperationalSummary
-            source={activeSource}
-            xCollectionEnabled={isXCollectionEnabled}
-            xPostsVisibility={xPostsVisibility}
-            naverCafeVisibility={naverCafePostsVisibility}
-            data={operationsQuery.data ?? null}
-            loading={operationsQuery.isLoading}
-            error={operationsQuery.isError}
-          />
           {activeSource === "x" ? (
-            <>
-              <SectionIntro
-                kind="관리·설정"
-                title="X 수집 정책"
-                description="공개 범위, 자동 수집 주기와 비용이 발생하는 옵션을 관리합니다."
-              />
+            <MemberPostFeedMonitor
+              source="x"
+              xCollectionEnabled={isXCollectionEnabled}
+              xPostsVisibility={xPostsVisibility}
+              naverCafeEnabled={isNaverCafePostsEnabled}
+              naverCafeVisibility={naverCafePostsVisibility}
+              operationsStatus={operationsQuery.data ?? null}
+              operationsLoading={operationsQuery.isLoading}
+              operationsError={operationsQuery.isError}
+              onReloadOperations={() => operationsQuery.refetch()}
+              onRunXCollection={() => void handleRunXCollectionNow()}
+              isRunningXCollection={isRunningCollection}
+            >
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold">수집 설정</h3>
+                <p className="text-xs text-muted-foreground">공개 범위, 자동 수집과 비용 영향 옵션을 관리합니다.</p>
+              </div>
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">X 게시글 공개 범위</CardTitle>
@@ -978,10 +989,10 @@ export function MemberPostSettingsManager() {
                 <div className="space-y-1">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <DatabaseZap className="h-4 w-4 text-muted-foreground" />
-                    X 백그라운드 수집
+                    X 수집 및 링크 설정
                   </CardTitle>
                   <CardDescription>
-                    방문자 요청과 X API 호출을 분리하고 D1 저장 데이터만 표시합니다.
+                    자동 수집과 링크 미리보기의 X API 비용 영향 옵션을 함께 관리합니다.
                   </CardDescription>
                 </div>
                 <Badge variant="outline" className="w-fit">
@@ -990,7 +1001,7 @@ export function MemberPostSettingsManager() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="x-collection-enabled"
@@ -1018,7 +1029,7 @@ export function MemberPostSettingsManager() {
                   />
                 </div>
               </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-4 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="x-daily-budget"
@@ -1048,7 +1059,7 @@ export function MemberPostSettingsManager() {
                   </Button>
                 </div>
               </div>
-              <div className="grid gap-3 rounded-md border bg-muted/20 p-4 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="x-collection-interval"
@@ -1084,68 +1095,8 @@ export function MemberPostSettingsManager() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label className="text-sm font-semibold">수집 실행</Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    마지막 실행:{" "}
-                    <span className="font-medium text-foreground">
-                      {formatCollectionLastRun(settings?.x_collection_last_run)}
-                    </span>
-                  </p>
-                  {collectionRunQuery.data?.jobType === "x_collection" ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <Badge>{collectionRunQuery.data.status}</Badge>
-                      <span>
-                        완료 {collectionRunQuery.data.progress.succeeded}/
-                        {collectionRunQuery.data.progress.total}
-                      </span>
-                      <span>실패 {collectionRunQuery.data.progress.failed}</span>
-                      <span>대기 {collectionRunQuery.data.progress.queued}</span>
-                    </div>
-                  ) : collectionRun?.jobType === "x_collection" ? (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      실행 상태를 확인하고 있습니다.
-                    </div>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  className="w-full shrink-0 gap-2 rounded-full xl:w-fit"
-                  onClick={() => void handleRunXCollectionNow()}
-                  disabled={!settings || isSaving || isRunningCollection}
-                >
-                  {isRunningCollection ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                  지금 수집
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <MessageSquareText className="h-4 w-4 text-muted-foreground" />
-                    X 게시글 링크 프리뷰
-                  </CardTitle>
-                  <CardDescription>
-                    링크된 X 게시글의 작성자, 본문과 미디어를 추가 API 호출로 가져옵니다.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="w-fit">
-                  비용 영향 옵션
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="border-t pt-3">
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="x-rich-link-preview-enabled"
@@ -1173,33 +1124,31 @@ export function MemberPostSettingsManager() {
                   />
                 </div>
               </div>
+              </div>
             </CardContent>
           </Card>
 
-          <SectionIntro
-            kind="모니터링"
-            title="X 수집 상태와 비용"
-            description="실제 수집 실행, API 예산과 계정별 관리자 피드 응답을 확인합니다."
-          />
-          <MemberPostFeedMonitor
-            source="x"
-            xCollectionEnabled={isXCollectionEnabled}
-            xPostsVisibility={xPostsVisibility}
-            naverCafeEnabled={isNaverCafePostsEnabled}
-            naverCafeVisibility={naverCafePostsVisibility}
-            operationsStatus={operationsQuery.data ?? null}
-            operationsLoading={operationsQuery.isLoading}
-            operationsError={operationsQuery.isError}
-            onReloadOperations={() => operationsQuery.refetch()}
-          />
-            </>
+            </div>
+            </MemberPostFeedMonitor>
           ) : (
-            <>
-              <SectionIntro
-                kind="관리·설정"
-                title="네이버 카페 수집 정책"
-                description="피드 공개 범위와 수집할 게시판 소스를 관리합니다. 수집 주기는 운영 정책에 따라 고정됩니다."
-              />
+            <MemberPostFeedMonitor
+              source="naver-cafe"
+              xCollectionEnabled={isXCollectionEnabled}
+              xPostsVisibility={xPostsVisibility}
+              naverCafeEnabled={isNaverCafePostsEnabled}
+              naverCafeVisibility={naverCafePostsVisibility}
+              operationsStatus={operationsQuery.data ?? null}
+              operationsLoading={operationsQuery.isLoading}
+              operationsError={operationsQuery.isError}
+              onReloadOperations={() => operationsQuery.refetch()}
+              onRunNaverCafeCheck={() => void handleRunNaverCafeCheck()}
+              isRunningNaverCafeCheck={isRunningNaverCafeCheck}
+            >
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-sm font-semibold">수집 설정과 게시판 소스</h3>
+                <p className="text-xs text-muted-foreground">피드 공개 범위와 수집할 게시판을 관리합니다.</p>
+              </div>
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1218,7 +1167,28 @@ export function MemberPostSettingsManager() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="naver-cafe-collection-enabled" className="text-sm font-semibold">
+                    관리자 수집 킬스위치
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    scheduled·manual·queue의 네이버 외부 요청만 중지합니다. 저장된 피드는 계속 제공됩니다.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge variant={isNaverCafeCollectionEnabled ? "default" : "destructive"}>
+                    {isNaverCafeCollectionEnabled ? "수집 중" : "수집 중지"}
+                  </Badge>
+                  <Switch
+                    id="naver-cafe-collection-enabled"
+                    checked={isNaverCafeCollectionEnabled}
+                    onCheckedChange={handleToggleNaverCafeCollection}
+                    disabled={!settings || isSaving}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
                     htmlFor="naver-cafe-posts-enabled"
@@ -1282,25 +1252,8 @@ export function MemberPostSettingsManager() {
           </Card>
 
           <NaverCafeSourceManager />
-          <SectionIntro
-            kind="모니터링"
-            title="네이버 카페 소스 상태"
-            description="실제 수집 시각, 게시판별 성공 여부와 관리자 피드 응답을 확인합니다."
-          />
-          <MemberPostFeedMonitor
-            source="naver-cafe"
-            xCollectionEnabled={isXCollectionEnabled}
-            xPostsVisibility={xPostsVisibility}
-            naverCafeEnabled={isNaverCafePostsEnabled}
-            naverCafeVisibility={naverCafePostsVisibility}
-            operationsStatus={operationsQuery.data ?? null}
-            operationsLoading={operationsQuery.isLoading}
-            operationsError={operationsQuery.isError}
-            onReloadOperations={() => operationsQuery.refetch()}
-            onRunNaverCafeCheck={() => void handleRunNaverCafeCheck()}
-            isRunningNaverCafeCheck={isRunningNaverCafeCheck}
-          />
-            </>
+            </div>
+            </MemberPostFeedMonitor>
           )}
         </div>
       )}

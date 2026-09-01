@@ -13,6 +13,11 @@ import type { XLinkedPostPreviewDto } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
 import { XPostCard } from "./x-post-card";
 
+const useXPostContextMock = vi.hoisted(() => vi.fn());
+vi.mock("../queries/use-x-post-context", () => ({
+  useXPostContext: useXPostContextMock,
+}));
+
 const makePost = (overrides: Partial<XPostViewModel> = {}): XPostViewModel => ({
   id: "p1",
   text: "링크 확인 https://t.co/link",
@@ -72,6 +77,13 @@ const renderCard = (post: XPostViewModel, props = {}) =>
 
 describe("XPostCard", () => {
   beforeEach(() => {
+    useXPostContextMock.mockReset();
+    useXPostContextMock.mockReturnValue({
+      context: null,
+      loading: false,
+      error: null,
+      load: vi.fn(),
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: undefined,
@@ -302,8 +314,15 @@ describe("XPostCard", () => {
     expect(screen.queryByRole("button", { name: /관련 트윗/ })).toBeNull();
   });
 
-  it("답글 프리뷰가 없으면 원문 링크 fallback을 표시한다", () => {
+  it("답글 프리뷰가 없으면 관련 트윗 재조회와 원문 링크를 제공한다", () => {
     const replyToPostId = "2059529979700846500";
+    const load = vi.fn();
+    useXPostContextMock.mockReturnValue({
+      context: null,
+      loading: false,
+      error: null,
+      load,
+    });
     renderCard(
       makePost({
         reply: {
@@ -314,10 +333,38 @@ describe("XPostCard", () => {
       }),
     );
 
-    expect(screen.getByText("원문을 볼 수 없습니다.")).toBeTruthy();
+    expect(
+      screen.getByText("관련 트윗 원문이 아직 저장되지 않았습니다."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "관련 트윗 불러오기" }));
+    expect(load).toHaveBeenCalledTimes(1);
     expect(
       screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"),
     ).toBe(`https://x.com/i/web/status/${replyToPostId}`);
+  });
+
+  it("관련 트윗 재조회가 성공하면 답글 원문 프리뷰를 표시한다", () => {
+    const replyTo = makeLinkedPost({ text: "recovered reply context" });
+    useXPostContextMock.mockReturnValue({
+      context: { sourcePostId: "p1", replyTo },
+      loading: false,
+      error: null,
+      load: vi.fn(),
+    });
+    renderCard(
+      makePost({
+        reply: {
+          postId: replyTo.id,
+          conversationId: null,
+          post: null,
+        },
+      }),
+    );
+
+    expect(screen.getByText("recovered reply context")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Linked Member 답글 원문 열기" }),
+    ).toBeTruthy();
   });
 
   it("멘션과 해시태그를 X 링크로 만들고 헤더에 정확한 작성 시각을 노출한다", () => {

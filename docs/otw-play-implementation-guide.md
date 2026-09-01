@@ -1443,8 +1443,12 @@ playlist candidate는 관리자 검수 뒤 공식 영상 draft로 변환한다. 
 `approved_kirinuki` 채널과 곡·가창자·segment 검수를 다시 확인한 뒤 `broadcast` +
 `kirinuki` 비공개 draft로만 변환한다. 어떤 자동 수집 결과도 자동 publish하지 않는다.
 두 검수 경로에서 신규 곡을 만들 때 `SongTagPicker`로 음악 라벨을 입력·추가·삭제하고,
-candidate `review_input_json.song.tags`에 저장해 재진입과 최종 D1 변환까지 보존한다. 기존 곡
-연결은 song 권위의 `tags`를 읽기 전용으로 표시하며 검수 저장에서 기존 곡을 암묵적으로 수정하지 않는다.
+playlist candidate는 기존 곡 검색 결과가 없을 때만 새 곡 입력으로 전환한다. `ready` 저장은
+candidate CAS와 새 원곡 가수·외부 가창자 entity, 새 song·original artist·tag row, catalog
+revision을 하나의 D1 batch에 반영하고 `review_input_json`을 실제 entity·song ID 참조로
+치환한다. 다음 행은 갱신된 admin catalog에서 이를 즉시 검색·재사용한다. 최종 D1 변환은
+기존 song을 사용해 performance draft와 source를 생성한다. 기존 곡 연결은 song 권위의
+`tags`를 읽기 전용으로 표시하며 검수 저장에서 기존 곡을 암묵적으로 수정하지 않는다.
 외부 음악 관계자 상세 credit, contributor page와 release/source credit은 현재 전달
 계획에서 제외한다.
 

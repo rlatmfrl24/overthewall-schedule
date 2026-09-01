@@ -9,7 +9,10 @@ import {
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
 } from "../../otw-play";
-import { runDataRetentionPolicyPrune } from "../../operations";
+import {
+  runDataRetentionPolicyPrune,
+  summarizeDataRetentionRun,
+} from "../../operations";
 import {
   autoUpdateSchedules,
   recordAutoUpdateResultWithHistory,
@@ -17,6 +20,7 @@ import {
   type AutoUpdateResult,
 } from "../../schedules";
 import { runXCollectionForHandles } from "../../x-posts";
+import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
@@ -29,8 +33,13 @@ import type {
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 
 export type ScheduledJobExecutionOutcome = {
-  status: "succeeded" | "failed" | "skipped" | "throttled";
+  status: "succeeded" | "partial" | "failed" | "skipped" | "throttled";
   result: unknown;
+  attempted?: number;
+  succeeded?: number;
+  failed?: number;
+  retryScheduled?: number;
+  retryAt?: number | null;
   errorCode?: string | null;
   error?: string | null;
 };
@@ -39,6 +48,45 @@ const succeeded = (result: unknown): ScheduledJobExecutionOutcome => ({
   status: "succeeded",
   result,
 });
+
+const batchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
+  const items = Array.isArray(result)
+    ? result
+    : result && typeof result === "object" && Array.isArray((result as { results?: unknown }).results)
+      ? (result as { results: unknown[] }).results
+      : [];
+  if (items.length === 0) return { ...succeeded(result), attempted: 0, succeeded: 0, failed: 0 };
+  const failures = items.filter((item) =>
+    item && typeof item === "object" && (item as { ok?: boolean }).ok === false
+  );
+  const partials = items.filter((item) =>
+    item && typeof item === "object" && (item as { partial?: boolean }).partial === true
+  );
+  const throttled = failures.every((item) => {
+    const code = String((item as { errorCode?: unknown; error?: unknown }).errorCode ??
+      (item as { error?: unknown }).error ?? "");
+    return code.includes("quota") || code.includes("budget");
+  });
+  const status = failures.length === 0
+    ? partials.length > 0 ? "partial" : "succeeded"
+    : throttled
+      ? "throttled"
+      : failures.length === items.length ? "failed" : "partial";
+  const firstFailure = failures[0] as { errorCode?: string; error?: string; retryAt?: number } | undefined;
+  return {
+    status,
+    result,
+    attempted: items.length,
+    succeeded: items.length - failures.length,
+    failed: failures.length,
+    retryScheduled: failures.filter((item) =>
+      Boolean((item as { retryAt?: unknown }).retryAt)
+    ).length,
+    retryAt: firstFailure?.retryAt ?? null,
+    errorCode: firstFailure?.errorCode ?? firstFailure?.error ?? null,
+    error: firstFailure?.error ?? firstFailure?.errorCode ?? null,
+  };
+};
 
 export const toXCollectionOutcome = (
   result: Awaited<ReturnType<typeof runXCollectionForHandles>>,
@@ -177,11 +225,35 @@ export class ScheduledJobExecutor {
         const sources = (await readEnabledNaverCafeSources(this.env)).filter(
           (source) => sourceIds.has(source.id),
         );
-        return succeeded(await collectNaverCafePostsForSources(sources, {
+        const result = await collectNaverCafePostsForSources(sources, {
           cacheDb: this.env.otw_db,
           size: Number(continuation.size) || NAVER_CAFE_COLLECTION_SIZE,
           trigger: run.source,
-        }));
+        });
+        const failed = result.sources.filter((source) =>
+          !["ok", "stale", "disabled"].includes(source.status)
+        ).length;
+        return {
+          status: failed === 0 ? "succeeded" : failed === result.sources.length ? "failed" : "partial",
+          result,
+          attempted: result.sources.length,
+          succeeded: result.sources.length - failed,
+          failed,
+          errorCode: failed > 0 ? result.sources.find((source) => source.error)?.error ?? "naver_collection_failed" : null,
+        };
+      }
+      case "youtube_feed_collection": {
+        const result = await runScheduledYouTubeFeedCollection(this.env);
+        return {
+          status: result.status,
+          result,
+          attempted: result.attempted,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          errorCode: result.status === "failed"
+            ? "youtube_feed_collection_failed"
+            : null,
+        };
       }
       case "schedule_auto_update": {
         const rangeDays = await readAutoUpdateRangeDays(this.env);
@@ -225,22 +297,23 @@ export class ScheduledJobExecutor {
         throw new Error("invalid_auto_update_phase");
       }
       case "source_health":
-        return succeeded(await new SourceHealthService(
+        return batchOutcome(await new SourceHealthService(
           new D1SourceHealthRepository(this.env.otw_db),
           new YouTubeOtwPlayMetadataReader(this.env.YOUTUBE_API_KEY, fetch, {
             db: this.env.otw_db,
-            priority: "core",
+            priority: "low",
+            origin: "otw_play_source_health",
           }),
           () => crypto.randomUUID(),
           Date.now,
           new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS),
         ).runScheduled(2));
       case "channel_reconcile":
-        return succeeded(
+        return batchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runDue(1),
         );
       case "recent_reconcile":
-        return succeeded(
+        return batchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runRecentDue(1),
         );
       case "websub_maintenance": {
@@ -314,13 +387,26 @@ export class ScheduledJobExecutor {
     const completedAt = String(run.finishedAt ?? Date.now());
     if (run.jobType === "x_collection") {
       await writeSetting(this.env, "x_collection_last_run", completedAt);
+      if (run.status === "succeeded") {
+        await writeSetting(this.env, "x_collection_last_success", completedAt);
+      }
     } else if (run.jobType === "naver_cafe_collection") {
       await writeSetting(
         this.env,
         "naver_cafe_collection_last_run",
         completedAt,
       );
-    } else if (run.jobType === "retention_prune") {
+      if (run.status === "succeeded") {
+        await writeSetting(
+          this.env,
+          "naver_cafe_collection_last_success",
+          completedAt,
+        );
+      }
+    } else if (run.jobType === "retention_prune" && run.status === "succeeded") {
+      await this.repository.updateRunSummary(runId, {
+        retentionPrune: await summarizeDataRetentionRun(this.env, runId),
+      });
       await writeSetting(this.env, "data_retention_last_prune", completedAt);
     }
   }

@@ -89,6 +89,38 @@ describe("scheduled job queue", () => {
     expect(ack).toHaveBeenCalledOnce();
   });
 
+  it("부분 성공한 item도 다음 단계와 outbox를 조정한다", async () => {
+    const ack = vi.fn();
+    mocks.execute.mockResolvedValueOnce({
+      status: "partial",
+      result: { attempted: 2, succeeded: 1, failed: 1 },
+    });
+
+    await handleScheduledJobQueue({
+      queue: "otw-ops-background",
+      messages: [{
+        body: {
+          schemaVersion: 1,
+          messageType: "scheduled_job_item",
+          runId: "run-1",
+          itemId: "item-1",
+          phase: "collect",
+        },
+        ack,
+      }],
+    } as unknown as MessageBatch<unknown>, {} as Env);
+
+    expect(mocks.completeItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: "partial" }),
+    );
+    expect(mocks.advanceRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "partial" }),
+    );
+    expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
   it("보호 정책으로 건너뛴 X 수집은 skipped로 완료하고 재시도하지 않는다", async () => {
     const ack = vi.fn();
     const retry = vi.fn();
@@ -192,6 +224,9 @@ describe("scheduled job queue", () => {
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
     expect(mocks.finalizeLegacyState).toHaveBeenCalledWith("run-1");
     expect(mocks.refreshRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.finalizeLegacyState.mock.invocationCallOrder[0],
+    );
     expect(ack).toHaveBeenCalledOnce();
   });
 

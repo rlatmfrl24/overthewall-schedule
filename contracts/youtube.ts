@@ -125,6 +125,7 @@ export interface YouTubeWarmupStatusSummaryDto {
     remaining: number;
     windowHours: number;
     since: number;
+    nextResetAt: number;
   };
   targets: {
     total: number;

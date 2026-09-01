@@ -13,6 +13,7 @@ export const createOtwPlayWebsubService = (env: Env) =>
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
       db: env.otw_db,
       priority: "critical",
+      origin: "otw_play_websub",
     }),
     new GoogleWebsubHubClient(),
     {

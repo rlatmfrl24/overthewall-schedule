@@ -25,6 +25,7 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
   > = {
     x_collection: { rowsRead: 500, rowsWritten: 50 },
     naver_cafe_collection: { rowsRead: 500, rowsWritten: 70 },
+    youtube_feed_collection: { rowsRead: 500, rowsWritten: 150 },
     schedule_auto_update: { rowsRead: 1_000, rowsWritten: 100 },
     ingestion_recovery: { rowsRead: 1_000, rowsWritten: 100 },
     websub_maintenance: { rowsRead: 300, rowsWritten: 25 },
@@ -42,6 +43,8 @@ export const getLaneForJob = (jobType: ScheduledJobType): ScheduledLane => {
       return "x";
     case "naver_cafe_collection":
       return "naver";
+    case "youtube_feed_collection":
+      return "maintenance";
     case "schedule_auto_update":
       return "auto-update";
     case "ingestion_recovery":
@@ -71,6 +74,7 @@ export const getAdmissionPriority = (
       return "core";
     case "source_health":
     case "recent_reconcile":
+    case "youtube_feed_collection":
     case "retention_prune":
       return "low";
   }
@@ -99,6 +103,7 @@ export const getScheduledBucket = (
     channel_reconcile: 60 * 60_000,
     source_health: 60 * 60_000,
     naver_cafe_collection: 60 * 60_000,
+    youtube_feed_collection: 60 * 60_000,
     x_collection: 2 * 60 * 60_000,
     // The scheduler probes hourly so the configured 1/6/12/24-hour interval
     // can be enforced by the planner without collapsing every probe in a day.

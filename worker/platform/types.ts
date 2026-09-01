@@ -187,6 +187,7 @@ export type YouTubeWarmupStatusSummary = {
     remaining: number;
     windowHours: number;
     since: number;
+    nextResetAt: number;
   };
   targets: {
     total: number;

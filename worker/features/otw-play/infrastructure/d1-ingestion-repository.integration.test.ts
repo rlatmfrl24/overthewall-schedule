@@ -7,6 +7,7 @@ import type {
   OtwPlayPlaylistPreflightDto,
 } from "@contracts/otw-play";
 import type { OtwPlayYouTubeVideoObservation } from "../application/ports/youtube-metadata";
+import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 import { D1IngestionRepository } from "./d1-ingestion-repository";
 
 type TestEnv = Env & {
@@ -63,6 +64,9 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_ingestion_messages"),
     db.prepare("DELETE FROM music_ingestion_candidates"),
     db.prepare("DELETE FROM music_ingestion_jobs"),
+    db.prepare("DELETE FROM music_songs WHERE id LIKE 'ingestion-ready-%'"),
+    db.prepare("DELETE FROM music_entities WHERE id LIKE 'ingestion-ready-%'"),
+    db.prepare("DELETE FROM music_catalog_events WHERE id LIKE 'ingestion-ready-%'"),
     db.prepare("DELETE FROM music_media_sources WHERE id LIKE 'ingestion-%'"),
     db.prepare("DELETE FROM music_channels WHERE id LIKE 'ingestion-%'"),
     db.prepare("DELETE FROM music_entities WHERE id = 'entity-1'"),
@@ -89,6 +93,149 @@ beforeEach(async () => {
 });
 
 describe("D1IngestionRepository", () => {
+  it("materializes a ready song and external identities for reuse by the next row", async () => {
+    const repository = new D1IngestionRepository(db);
+    const created = await repository.createJob({
+      jobId: "job-ready-materialization",
+      actorUserId: "admin-1",
+      input: { ...input, idempotencyKey: "request-ready-materialization" },
+      preflight: { ...preflight, requestedItemCount: 2 },
+      now: NOW,
+    });
+    const children = await repository.recordPlaylistPage(
+      await repository.readMessage(created.message.idempotencyKey),
+      {
+        items: [
+          { playlistItemId: "ready-item-a", videoId: "AAAAAAAAAAA", position: 0 },
+          { playlistItemId: "ready-item-b", videoId: "BBBBBBBBBBB", position: 1 },
+        ],
+        nextPageToken: null,
+      },
+      NOW,
+    );
+    await repository.recordVideoBatch(
+      await repository.readMessage(children[0]!.idempotencyKey),
+      ["AAAAAAAAAAA", "BBBBBBBBBBB"].map((videoId) => ({
+        videoId,
+        availabilityStatus: "playable" as const,
+        video: {
+          videoId,
+          channelId: "UCaaaaaaaaaaaaaaaaaaaaaa",
+          channelTitle: "Approved",
+          title: `Ready ${videoId}`,
+          thumbnailUrl: null,
+          durationSeconds: 180,
+          publishedAt: NOW,
+          availabilityStatus: "playable" as const,
+          madeForKids: false,
+        },
+      })),
+      NOW + 1,
+    );
+    const artist = {
+      kind: "new_external" as const,
+      clientKey: "ready-artist-key",
+      displayName: "Ready Original Artist",
+      entityKind: "person" as const,
+    };
+    const singer = {
+      kind: "new_external" as const,
+      clientKey: "ready-singer-key",
+      displayName: "Ready Guest Singer",
+      entityKind: "person" as const,
+    };
+    const saved = await repository.saveCandidateReview({
+      candidateId: "youtube:AAAAAAAAAAA",
+      expectedVersion: 1,
+      input: {
+        song: {
+          kind: "create",
+          title: "Ready Song",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [],
+          originalArtists: [{ subject: artist, creditOrder: 0, isPrimary: true }],
+          tags: ["Pop"],
+        },
+        participants: [{
+          subject: singer,
+          participantRole: "vocal",
+          creditOrder: 0,
+          creditNameSnapshot: "Ready Guest Singer",
+        }],
+        relationType: "cover",
+        releaseType: "official_video",
+        participationType: "external_collab",
+      },
+      actorUserId: "admin-reviewer",
+      eventId: "ingestion-ready-review-event",
+      now: NOW + 2,
+      catalogMaterialization: {
+        entityIds: {
+          "external:ready-artist-key": "ingestion-ready-artist",
+          "external:ready-singer-key": "ingestion-ready-singer",
+        },
+        entityEventIds: {
+          "external:ready-artist-key": "ingestion-ready-artist-event",
+          "external:ready-singer-key": "ingestion-ready-singer-event",
+        },
+        songId: "ingestion-ready-song",
+        songEventId: "ingestion-ready-song-event",
+      },
+    });
+
+    expect(saved).toMatchObject({
+      status: "ready",
+      reviewInput: {
+        song: { kind: "existing", songId: "ingestion-ready-song" },
+        participants: [{
+          subject: { kind: "entity", entityId: "ingestion-ready-singer" },
+        }],
+      },
+    });
+    const catalogRows = await db.prepare(
+      `SELECT
+        (SELECT COUNT(*) FROM music_songs WHERE id = 'ingestion-ready-song') AS songs,
+        (SELECT COUNT(*) FROM music_entities WHERE id IN (
+          'ingestion-ready-artist', 'ingestion-ready-singer'
+        )) AS entities,
+        (SELECT COUNT(*) FROM music_song_original_artists
+          WHERE song_id = 'ingestion-ready-song'
+            AND entity_id = 'ingestion-ready-artist') AS artist_links`,
+    ).first<{ songs: number; entities: number; artist_links: number }>();
+    expect(catalogRows).toEqual({ songs: 1, entities: 2, artist_links: 1 });
+    const catalog = await new D1AdminCatalogRepository(db).readCatalog();
+    expect(catalog.songs).toContainEqual(expect.objectContaining({
+      id: "ingestion-ready-song",
+      title: "Ready Song",
+      originalArtists: [expect.objectContaining({
+        entityId: "ingestion-ready-artist",
+      })],
+    }));
+    expect(catalog.entities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "ingestion-ready-artist" }),
+      expect.objectContaining({ id: "ingestion-ready-singer" }),
+    ]));
+
+    await expect(repository.saveCandidateReview({
+      candidateId: "youtube:BBBBBBBBBBB",
+      expectedVersion: 1,
+      input: saved.reviewInput!,
+      actorUserId: "admin-reviewer",
+      eventId: "ingestion-ready-review-event-next",
+      now: NOW + 3,
+    })).resolves.toMatchObject({
+      status: "ready",
+      reviewInput: {
+        song: { kind: "existing", songId: "ingestion-ready-song" },
+        participants: [{
+          subject: { kind: "entity", entityId: "ingestion-ready-singer" },
+        }],
+      },
+    });
+  });
+
   it("stores an idempotent job and authoritative first outbox message", async () => {
     const repository = new D1IngestionRepository(db);
     const created = await repository.createJob({

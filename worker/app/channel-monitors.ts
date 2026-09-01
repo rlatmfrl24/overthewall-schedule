@@ -12,6 +12,7 @@ export const createOtwPlayChannelMonitorService = (env: Env) =>
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
       db: env.otw_db,
       priority: "core",
+      origin: "otw_play_reconcile",
     }),
     undefined,
     undefined,

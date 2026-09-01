@@ -13,7 +13,7 @@ import {
   getYouTubeVideosCacheKey,
   type YouTubeRefreshFailure,
 } from "./youtube-api";
-import { readYouTubeQuotaLedgerUsage } from "./youtube-quota";
+import { getYouTubeQuotaWindow, readYouTubeQuotaLedgerUsage } from "./youtube-quota";
 import { createYouTubeCacheTelemetryWriter } from "./youtube-cache-telemetry";
 import { YouTubeCacheRefreshInProgressError } from "../application/youtube-service";
 
@@ -670,6 +670,7 @@ export const getYouTubeWarmupStatus = async (
       remaining: Math.max(0, settings.dailyQuotaUnits - quotaLedger.used),
       windowHours: WARMUP_QUOTA_WINDOW_HOURS,
       since: quotaLedger.since,
+      nextResetAt: getYouTubeQuotaWindow(timestamp + 36 * 60 * 60_000).since,
     },
     targets: {
       total: targets.length,

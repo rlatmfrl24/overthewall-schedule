@@ -66,6 +66,25 @@ export interface CreateIngestionJobCommand {
 
 export type IngestionReviewCandidate = OtwPlayIngestionReviewCandidateDto;
 
+export interface IngestionReviewCatalogMaterializationIds {
+  entityIds: Record<string, string>;
+  entityEventIds: Record<string, string>;
+  songId: string | null;
+  songEventId: string | null;
+}
+
+export interface SaveCandidateReviewCommand {
+  candidateId: string;
+  expectedVersion: number;
+  expectedReviewInput?: OtwPlayIngestionReviewInput | null;
+  expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
+  input: OtwPlayIngestionReviewInput;
+  actorUserId: string;
+  eventId: string;
+  now: number;
+  catalogMaterialization?: IngestionReviewCatalogMaterializationIds | null;
+}
+
 export interface IngestionRepository {
   findPreviousImport(
     playlistId: string,
@@ -106,16 +125,9 @@ export interface IngestionRepository {
   listPendingMessages(now: number, limit: number): Promise<OtwPlayIngestionQueueMessage[]>;
   clearExpiredApiData(now: number, limit: number): Promise<number>;
   readReviewCandidate(jobId: string | null, candidateId: string): Promise<IngestionReviewCandidate>;
-  saveCandidateReview(command: {
-    candidateId: string;
-    expectedVersion: number;
-    expectedReviewInput?: OtwPlayIngestionReviewInput | null;
-    expectedReviewStatus?: OtwPlayIngestionCandidateStatus;
-    input: OtwPlayIngestionReviewInput;
-    actorUserId: string;
-    eventId: string;
-    now: number;
-  }): Promise<IngestionReviewCandidate>;
+  saveCandidateReview(
+    command: SaveCandidateReviewCommand,
+  ): Promise<IngestionReviewCandidate>;
   ignoreCandidate(command: {
     candidateId: string;
     expectedVersion: number;

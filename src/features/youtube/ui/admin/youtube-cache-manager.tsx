@@ -567,6 +567,17 @@ export function YouTubeCacheManager() {
                 {status?.warmup?.quota.used ?? status?.usage.quotaUnits ?? 0} /{" "}
                 {status?.warmup?.quota.limit ?? quotaDraft} units
               </div>
+              {status?.warmup?.quota ? (() => {
+                const quota = status.warmup.quota;
+                const ratio = quota.limit > 0 ? quota.used / quota.limit : 0;
+                const level = ratio >= 1 ? "100% 차단" : ratio >= 0.95 ? "95% 릴리스 차단"
+                  : ratio >= 0.85 ? "85% core 제한" : ratio >= 0.7 ? "70% low 제한" : "정상";
+                return (
+                  <div className="text-xs text-muted-foreground">
+                    Pacific 일자 상태: {level} · 다음 초기화 {new Date(quota.nextResetAt).toLocaleString("ko-KR")}
+                  </div>
+                );
+              })() : null}
           </div>
           <div className="rounded-md border bg-muted/30 p-4 text-sm">
             {refreshResult ? (

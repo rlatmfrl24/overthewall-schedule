@@ -21,6 +21,7 @@ describe("scheduled background admission policy", () => {
     for (const jobType of [
       "x_collection",
       "naver_cafe_collection",
+      "youtube_feed_collection",
       "schedule_auto_update",
       "ingestion_recovery",
       "websub_maintenance",

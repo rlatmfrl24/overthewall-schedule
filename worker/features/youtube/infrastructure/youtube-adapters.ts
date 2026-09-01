@@ -15,6 +15,7 @@ import {
   readYouTubeWarmupTargets,
   runManualYouTubeCacheRefresh,
 } from "./youtube-warmup";
+import { readStoredYouTubeFeed } from "./youtube-feed";
 
 export const buildYouTubeApplication = (env: Env) => {
   const db = getDb(env);
@@ -38,6 +39,8 @@ export const buildYouTubeApplication = (env: Env) => {
           env.YOUTUBE_CACHE_ANALYTICS,
         ),
       }),
+    readStoredFeed: (channelIds, maxResults, source) =>
+      readStoredYouTubeFeed(env, channelIds, maxResults, source),
     readCacheTargets: () => readYouTubeWarmupTargets(env.otw_db),
     readCacheStatus: (windowHours, usageEndAt) =>
       getYouTubeCacheStatus(env.otw_db, windowHours, usageEndAt),

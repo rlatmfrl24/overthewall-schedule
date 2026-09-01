@@ -347,6 +347,123 @@ const buildReviewInput = (
   };
 };
 
+const normalizeSongSearch = (value: string) =>
+  value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/gu, " ")
+    .toLocaleLowerCase();
+
+function SongConnectionPicker({
+  candidateId,
+  catalog,
+  selectedSongId,
+  query,
+  onQueryChange,
+  onSelectExisting,
+  onSelectNew,
+}: {
+  candidateId: string;
+  catalog: OtwPlayAdminCatalogDto;
+  selectedSongId: string;
+  query: string;
+  onQueryChange: (query: string) => void;
+  onSelectExisting: (songId: string, title: string) => void;
+  onSelectNew: (title: string) => void;
+}) {
+  const normalizedQuery = normalizeSongSearch(query);
+  const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const matches = normalizedQuery
+    ? activeSongs
+        .filter((song) => [
+          song.title,
+          ...(song.aliases ?? []).map((alias) => alias.alias),
+          ...(song.originalArtists ?? []).map((artist) => artist.displayName),
+        ].some((value) => normalizeSongSearch(value).includes(normalizedQuery)))
+        .sort((left, right) => left.title.localeCompare(right.title, "ko"))
+        .slice(0, 12)
+    : [];
+  const exactSongExists = normalizedQuery !== "" && activeSongs.some((song) =>
+    [song.title, ...(song.aliases ?? []).map((alias) => alias.alias)]
+      .some((value) => normalizeSongSearch(value) === normalizedQuery)
+  );
+  const selectedSong = selectedSongId === "__new"
+    ? null
+    : activeSongs.find((song) => song.id === selectedSongId) ?? null;
+  const inputId = `song-search-${candidateId}`;
+  const resultListId = `song-search-results-${candidateId}`;
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={inputId}>기존 곡 검색</FieldLabel>
+      <FieldDescription>
+        곡명·별칭·원곡 가수로 검색해 연결하고, 정확히 일치하는 곡이 없으면 새 곡으로 입력합니다.
+      </FieldDescription>
+      <Input
+        id={inputId}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={normalizedQuery !== ""}
+        aria-controls={resultListId}
+        value={query}
+        placeholder="연결할 곡 검색"
+        autoComplete="off"
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+      {selectedSong ? (
+        <div className="rounded-md border bg-muted/20 p-3 text-sm" aria-label="현재 연결한 곡">
+          <span className="font-medium">{selectedSong.title}</span>
+          <span className="text-muted-foreground">
+            {(selectedSong.originalArtists ?? []).length > 0
+              ? ` · ${(selectedSong.originalArtists ?? []).map((artist) => artist.displayName).join(", ")}`
+              : " · 원곡 가수 미등록"}
+          </span>
+        </div>
+      ) : null}
+      {normalizedQuery ? (
+        <div
+          id={resultListId}
+          role="listbox"
+          aria-label="기존 곡 검색 결과"
+          className="max-h-64 space-y-1 overflow-y-auto rounded-md border bg-background p-1"
+        >
+          {matches.map((song) => (
+            <button
+              key={song.id}
+              type="button"
+              role="option"
+              aria-selected={selectedSongId === song.id}
+              className="flex w-full items-start justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+              onClick={() => onSelectExisting(song.id, song.title)}
+            >
+              <span className="font-medium">{song.title}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {(song.originalArtists ?? []).map((artist) => artist.displayName).join(", ") || "원곡 가수 미등록"}
+              </span>
+            </button>
+          ))}
+          {!exactSongExists ? (
+            <button
+              type="button"
+              role="option"
+              aria-selected={selectedSongId === "__new"}
+              className="flex w-full items-center justify-between gap-3 rounded-sm border-t px-3 py-2 text-left text-sm font-medium hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+              onClick={() => onSelectNew(query.trim())}
+            >
+              <span>새 곡 입력 · {query.trim()}</span>
+              <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                검색 결과에 없는 곡
+              </span>
+            </button>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">검색어를 입력하면 연결 가능한 기존 곡을 표시합니다.</p>
+      )}
+    </Field>
+  );
+}
+
 const formatDuration = (seconds: number | null) => {
   if (seconds === null) return "-";
   const minutes = Math.floor(seconds / 60);
@@ -714,6 +831,7 @@ export function IngestionSection({
   const editorReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [bulkIgnoreConfirmOpen, setBulkIgnoreConfirmOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
+  const [songSearchQueries, setSongSearchQueries] = useState<Record<string, string>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const jobsQuery = useOtwPlayImportJobs();
@@ -754,6 +872,7 @@ export function IngestionSection({
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
+    setSongSearchQueries({});
   }, [activeJobId]);
 
   useEffect(() => {
@@ -761,6 +880,7 @@ export function IngestionSection({
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
+    setSongSearchQueries({});
   }, [classification]);
 
   useEffect(() => {
@@ -800,9 +920,18 @@ export function IngestionSection({
     returnFocusTarget?: HTMLButtonElement,
   ) => {
     if (returnFocusTarget) editorReturnFocusRef.current = returnFocusTarget;
+    const initialDraft = drafts[item.candidateId] ?? draftFromItem(item, catalog);
     setDrafts((current) => current[item.candidateId]
       ? current
-      : { ...current, [item.candidateId]: draftFromItem(item, catalog) });
+      : { ...current, [item.candidateId]: initialDraft });
+    setSongSearchQueries((current) => current[item.candidateId] !== undefined
+      ? current
+      : {
+          ...current,
+          [item.candidateId]: initialDraft.songId === "__new"
+            ? initialDraft.songTitle
+            : catalog.songs.find((song) => song.id === initialDraft.songId)?.title ?? "",
+        });
     setEditingId(item.candidateId);
   };
 
@@ -909,6 +1038,16 @@ export function IngestionSection({
         });
         return;
       }
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[item.candidateId];
+        return next;
+      });
+      setSongSearchQueries((current) => {
+        const next = { ...current };
+        delete next[item.candidateId];
+        return next;
+      });
       toast({ variant: "success", description: "검수 입력을 ready 상태로 저장했습니다." });
       setEditingId((current) => current === item.candidateId ? null : current);
     } catch (error) {
@@ -1655,6 +1794,11 @@ export function IngestionSection({
               const nextCandidate = candidateIndex >= 0 && candidateIndex < filtered.length - 1
                 ? filtered[candidateIndex + 1]
                 : null;
+              const songSearchQuery = songSearchQueries[item.candidateId] ?? (
+                draft.songId === "__new"
+                  ? draft.songTitle
+                  : catalog.songs.find((song) => song.id === draft.songId)?.title ?? ""
+              );
               return (
                 <Dialog open onOpenChange={(open) => { if (!open && busy === null) setEditingId(null); }}>
                 <DialogContent
@@ -1902,23 +2046,30 @@ export function IngestionSection({
                     <fieldset className="space-y-4 rounded-lg border bg-muted/10 p-4">
                       <legend className="px-1 text-sm font-semibold">곡 정보</legend>
                       <div className="grid gap-4">
-                        <Field>
-                          <FieldLabel id={`song-source-${item.candidateId}`}>연결할 곡</FieldLabel>
-                          <FieldDescription>기존 곡을 연결하거나 새 곡 정보를 입력합니다.</FieldDescription>
-                          <Select value={draft.songId} onValueChange={(songId) => updateDraft({ songId })}>
-                            <SelectTrigger className="w-full" aria-labelledby={`song-source-${item.candidateId}`}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__new">새 곡 입력</SelectItem>
-                              {catalog.songs
-                                .filter((song) => song.archivedAt === null)
-                                .map((song) => (
-                                  <SelectItem key={song.id} value={song.id}>{song.title}</SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
-                        </Field>
+                        <SongConnectionPicker
+                          candidateId={item.candidateId}
+                          catalog={catalog}
+                          selectedSongId={draft.songId}
+                          query={songSearchQuery}
+                          onQueryChange={(query) => setSongSearchQueries((current) => ({
+                            ...current,
+                            [item.candidateId]: query,
+                          }))}
+                          onSelectExisting={(songId, title) => {
+                            updateDraft({ songId });
+                            setSongSearchQueries((current) => ({
+                              ...current,
+                              [item.candidateId]: title,
+                            }));
+                          }}
+                          onSelectNew={(title) => {
+                            updateDraft({ songId: "__new", songTitle: title });
+                            setSongSearchQueries((current) => ({
+                              ...current,
+                              [item.candidateId]: title,
+                            }));
+                          }}
+                        />
                         {draft.songId === "__new" ? (
                           <Field>
                             <FieldLabel htmlFor={`song-title-${item.candidateId}`}>원곡 제목</FieldLabel>

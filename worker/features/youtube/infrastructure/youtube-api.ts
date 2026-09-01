@@ -733,7 +733,10 @@ export const fetchYouTubeVideosForChannel = async (
     });
     return content;
   }
-  const storedContent = d1Cached?.value ?? null;
+  // YouTube API-derived channel video metadata must never be served after the
+  // 30-day policy window. Expired rows are retained only until maintenance
+  // removes them and are not a public fallback.
+  const storedContent = d1Cached?.status === "expired" ? null : d1Cached?.value ?? null;
   const quotaPriority = options.quotaPriority ?? "core";
   let hadRequestFailure = false;
   const context: YouTubeRequestContext = {

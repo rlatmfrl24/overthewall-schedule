@@ -190,6 +190,37 @@ describe("AutoUpdateSettingsManager", () => {
     vi.clearAllMocks();
   });
 
+  it("압축된 자동 업데이트 KPI 바에 후보와 실행 정보를 표시한다", async () => {
+    fetchPendingSchedulesMock.mockResolvedValue([
+      makePendingSchedule({ id: 101, action_type: "create" }),
+      makePendingSchedule({ id: 102, action_type: "update" }),
+    ]);
+    fetchOperationsStatusMock.mockResolvedValue({
+      autoUpdate: {
+        lastRun: 1_756_684_800_000,
+        nextEligibleAt: 1_756_706_400_000,
+        rejectionCount: 4,
+        latestRun: { rejectedSuppressedCount: 6 },
+        recentRuns: [],
+      },
+    });
+
+    render(createElement(AutoUpdateSettingsManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    const pendingLabel = await screen.findByText("처리 전 후보");
+    expect(pendingLabel.parentElement?.parentElement?.parentElement?.className).toContain(
+      "divide-y",
+    );
+    await waitFor(() =>
+      expect(screen.getByText("신규 1 · 수정 1")).toBeTruthy(),
+    );
+    expect(screen.getByText("다시 수집하지 않는 후보")).toBeTruthy();
+    expect(screen.getByText("최근 실행에서 제외된 후보")).toBeTruthy();
+    expect(screen.getByText(/^다음 /)).toBeTruthy();
+  });
+
   it("라이브 자동 입력 토글을 저장한다", async () => {
     render(createElement(AutoUpdateSettingsManager), {
       wrapper: createQueryWrapper(),

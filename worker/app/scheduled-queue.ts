@@ -13,7 +13,7 @@ const getErrorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 const isTerminalItemStatus = (status: string) =>
-  ["succeeded", "failed", "skipped", "throttled"].includes(status);
+  ["succeeded", "partial", "failed", "skipped", "throttled"].includes(status);
 
 export const handleScheduledControlQueue = async (
   batch: MessageBatch<unknown>,
@@ -59,12 +59,12 @@ export const handleScheduledJobQueue = async (
   const reconcileTerminalItem = async (
     item: NonNullable<Awaited<ReturnType<typeof repository.readItem>>>,
   ) => {
-    if (item.status === "succeeded") {
+    if (item.status === "succeeded" || item.status === "partial") {
       await coordinator.advanceRun(item);
     }
     await coordinator.dispatchRun(item.run_id);
-    await executor.finalizeLegacyState(item.run_id);
     await repository.refreshRun(item.run_id);
+    await executor.finalizeLegacyState(item.run_id);
   };
   const retryReconciliation = async (
     message: Message<unknown>,

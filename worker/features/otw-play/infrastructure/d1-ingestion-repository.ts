@@ -1,4 +1,5 @@
 import type {
+  OtwPlayAdminCatalogSubjectInput,
   OtwPlayIngestionCandidateItemDto,
   OtwPlayIngestionClassification,
   OtwPlayIngestionJobDto,
@@ -14,12 +15,15 @@ import {
   type IngestionRepository,
   type IngestionReviewCandidate,
   type OtwPlayIngestionQueueMessage,
+  type SaveCandidateReviewCommand,
 } from "../application/ports/ingestion-repository";
 import type {
   OtwPlayYouTubePlaylistPage,
   OtwPlayYouTubeVideoObservation,
 } from "../application/ports/youtube-metadata";
 import { OTW_PLAY_INGESTION_OFFICIAL_CHANNEL_ROLES } from "../domain/ingestion-channel-policy";
+import { createSongDedupeKeyMaterial } from "../domain/duplicate-policy";
+import { normalizeOtwPlaySearchText } from "../domain/search-normalization";
 
 const DAY_MS = 86_400_000;
 const API_DATA_RETENTION_MS = 30 * DAY_MS;
@@ -273,6 +277,24 @@ const sameReviewInput = (
   right: OtwPlayIngestionReviewInput | null,
 ) => JSON.stringify(comparableReviewInput(left)) ===
   JSON.stringify(comparableReviewInput(right));
+
+const catalogSubjectKey = (subject: OtwPlayAdminCatalogSubjectInput) =>
+  subject.kind === "new_external" ? `external:${subject.clientKey}` : null;
+
+const generatedCatalogSlug = (displayName: string, id: string) => {
+  const base = normalizeOtwPlaySearchText(displayName)
+    .replace(/\s+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 80);
+  return `${base || "identity"}-${id.replace(/[^A-Za-z0-9]/gu, "").slice(0, 8).toLowerCase()}`;
+};
+
+const catalogVersionGuard = (database: D1Database) =>
+  database.prepare(`
+    UPDATE music_catalog_meta
+    SET id = CASE WHEN changes() = 1 THEN 1 ELSE 2 END
+    WHERE id = 1
+  `);
 
 export class D1IngestionRepository implements IngestionRepository {
   private readonly database: D1Database;
@@ -1226,16 +1248,325 @@ export class D1IngestionRepository implements IngestionRepository {
     }
   }
 
-  async saveCandidateReview(command: {
-    candidateId: string;
-    expectedVersion: number;
-    expectedReviewInput?: OtwPlayIngestionReviewInput | null;
-    expectedReviewStatus?: OtwPlayIngestionCandidateItemDto["status"];
+  private async materializeReviewCatalog(
+    command: SaveCandidateReviewCommand,
+  ): Promise<{
     input: OtwPlayIngestionReviewInput;
-    actorUserId: string;
-    eventId: string;
-    now: number;
-  }) {
+    statements: D1PreparedStatement[];
+    expectedCatalogRevision: number | null;
+    createdEntityCount: number;
+    createdEntityIds: string[];
+    createdSong: boolean;
+  }> {
+    const ids = command.catalogMaterialization;
+    if (!ids) {
+      const hasUnmaterializedExternal = [
+        ...command.input.participants.map((participant) => participant.subject),
+        ...(command.input.song.kind === "create"
+          ? command.input.song.originalArtists.map((artist) => artist.subject)
+          : []),
+      ].some((subject) => subject.kind === "new_external");
+      if (command.input.song.kind === "create" || hasUnmaterializedExternal) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Ready review catalog materialization ids are required",
+        );
+      }
+      return {
+        input: command.input,
+        statements: [],
+        expectedCatalogRevision: null,
+        createdEntityCount: 0,
+        createdEntityIds: [],
+        createdSong: false,
+      };
+    }
+
+    const subjects = [
+      ...command.input.participants.map((participant) => participant.subject),
+      ...(command.input.song.kind === "create"
+        ? command.input.song.originalArtists.map((artist) => artist.subject)
+        : []),
+    ];
+    const definitions = new Map<
+      string,
+      Extract<OtwPlayAdminCatalogSubjectInput, { kind: "new_external" }>
+    >();
+    for (const subject of subjects) {
+      const key = catalogSubjectKey(subject);
+      if (!key || subject.kind !== "new_external") continue;
+      const previous = definitions.get(key);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(subject)) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "A subject key cannot describe multiple identities",
+        );
+      }
+      definitions.set(key, subject);
+    }
+
+    const resolved = new Map<string, string>();
+    const statements: D1PreparedStatement[] = [];
+    let createdEntityCount = 0;
+    const createdEntityIds: string[] = [];
+    for (const [key, subject] of definitions) {
+      const normalizedName = normalizeOtwPlaySearchText(subject.displayName);
+      const existing = await this.database.prepare(
+        `SELECT id, archived_at FROM music_entities
+         WHERE member_uid IS NULL AND entity_kind = ? AND normalized_name = ?
+         LIMIT 1`,
+      ).bind(subject.entityKind, normalizedName).first<{
+        id: string;
+        archived_at: number | null;
+      }>();
+      if (existing) {
+        if (existing.archived_at !== null) {
+          throw new IngestionRepositoryError(
+            "validation_failed",
+            "The matching external identity is archived",
+          );
+        }
+        resolved.set(key, existing.id);
+        continue;
+      }
+      const entityId = ids.entityIds[key];
+      const entityEventId = ids.entityEventIds[key];
+      if (!entityId || !entityEventId) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Generated external identity ids are missing",
+        );
+      }
+      statements.push(
+        this.database.prepare(
+          `INSERT INTO music_entities (
+            id, member_uid, entity_kind, display_name, normalized_name, slug,
+            version, created_at, updated_at
+          ) VALUES (?, NULL, ?, ?, ?, ?, 0, ?, ?)`,
+        ).bind(
+          entityId,
+          subject.entityKind,
+          subject.displayName.trim(),
+          normalizedName,
+          generatedCatalogSlug(subject.displayName, entityId),
+          command.now,
+          command.now,
+        ),
+        this.database.prepare(
+          `INSERT INTO music_catalog_events (
+            id, aggregate_type, aggregate_id, event_type, actor_kind,
+            actor_user_id, after_json, created_at
+          ) VALUES (?, 'entity', ?, 'entity.created_from_ingestion_review',
+            'admin', ?, ?, ?)`,
+        ).bind(
+          entityEventId,
+          entityId,
+          command.actorUserId,
+          JSON.stringify({
+            displayName: subject.displayName.trim(),
+            entityKind: subject.entityKind,
+            candidateId: command.candidateId,
+          }),
+          command.now,
+        ),
+      );
+      resolved.set(key, entityId);
+      createdEntityCount += 1;
+      createdEntityIds.push(entityId);
+    }
+
+    const materializeSubject = (
+      subject: OtwPlayAdminCatalogSubjectInput,
+    ): OtwPlayAdminCatalogSubjectInput => {
+      if (subject.kind !== "new_external") return subject;
+      const entityId = resolved.get(`external:${subject.clientKey}`);
+      if (!entityId) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "External identity could not be materialized",
+        );
+      }
+      return { kind: "entity", entityId };
+    };
+
+    const participants = command.input.participants.map((participant) => ({
+      ...participant,
+      subject: materializeSubject(participant.subject),
+    }));
+    const participantEntityIds = participants.flatMap((participant) =>
+      participant.subject.kind === "entity"
+        ? [participant.subject.entityId]
+        : []
+    );
+    if (new Set(participantEntityIds).size !== participantEntityIds.length) {
+      throw new IngestionRepositoryError(
+        "validation_failed",
+        "A participant can only be credited once",
+      );
+    }
+
+    let song = command.input.song;
+    let createdSong = false;
+    if (song.kind === "existing") {
+      const existingSong = await this.database.prepare(
+        "SELECT 1 AS matched FROM music_songs WHERE id = ? AND archived_at IS NULL",
+      ).bind(song.songId).first<{ matched: number }>();
+      if (!existingSong) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Selected song was not found",
+        );
+      }
+    } else if (song.kind === "create") {
+      if (!ids.songId || !ids.songEventId) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Generated song ids are missing",
+        );
+      }
+      const artists = song.originalArtists.map((artist) => ({
+        ...artist,
+        subject: materializeSubject(artist.subject),
+      }));
+      if (artists.some((artist) => artist.subject.kind !== "entity")) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "Original artists must resolve to catalog identities",
+        );
+      }
+      const artistEntityIds = artists.map((artist) =>
+        (artist.subject as Extract<
+          OtwPlayAdminCatalogSubjectInput,
+          { kind: "entity" }
+        >).entityId
+      );
+      if (new Set(artistEntityIds).size !== artistEntityIds.length) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "An original artist can only be credited once",
+        );
+      }
+      const songId = ids.songId;
+      statements.push(
+        this.database.prepare(
+          `INSERT INTO music_songs (
+            id, slug, title, normalized_title, dedupe_key, is_otw_original,
+            original_release_date, original_release_precision, version,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        ).bind(
+          songId,
+          generatedCatalogSlug(song.title, songId),
+          song.title.trim(),
+          normalizeOtwPlaySearchText(song.title),
+          createSongDedupeKeyMaterial({
+            title: song.title,
+            originalArtistIds: artistEntityIds,
+          }),
+          song.isOtwOriginal ? 1 : 0,
+          song.originalReleaseDate,
+          song.originalReleasePrecision,
+          command.now,
+          command.now,
+        ),
+        ...song.aliases.map((alias) =>
+          this.database.prepare(
+            `INSERT INTO music_song_aliases (
+              song_id, alias, normalized_alias, locale, alias_kind
+            ) VALUES (?, ?, ?, ?, ?)`,
+          ).bind(
+            songId,
+            alias.alias.trim(),
+            normalizeOtwPlaySearchText(alias.alias),
+            alias.locale?.trim() || null,
+            alias.aliasKind?.trim() || null,
+          )
+        ),
+        ...artists.map((artist) =>
+          this.database.prepare(
+            `INSERT INTO music_song_original_artists (
+              song_id, entity_id, credit_order, is_primary
+            ) VALUES (?, ?, ?, ?)`,
+          ).bind(
+            songId,
+            (artist.subject as Extract<
+              OtwPlayAdminCatalogSubjectInput,
+              { kind: "entity" }
+            >).entityId,
+            artist.creditOrder,
+            artist.isPrimary ? 1 : 0,
+          )
+        ),
+        ...(song.tags ?? []).map((tag) =>
+          this.database.prepare(
+            `INSERT INTO music_song_tags (song_id, tag_key, display_name)
+             VALUES (?, ?, ?)`,
+          ).bind(
+            songId,
+            normalizeOtwPlaySearchText(tag),
+            tag.trim(),
+          )
+        ),
+        this.database.prepare(
+          `INSERT INTO music_catalog_events (
+            id, aggregate_type, aggregate_id, event_type, actor_kind,
+            actor_user_id, after_json, created_at
+          ) VALUES (?, 'song', ?, 'song.created_from_ingestion_review',
+            'admin', ?, ?, ?)`,
+        ).bind(
+          ids.songEventId,
+          songId,
+          command.actorUserId,
+          JSON.stringify({
+            title: song.title.trim(),
+            candidateId: command.candidateId,
+          }),
+          command.now,
+        ),
+      );
+      song = { kind: "existing", songId };
+      createdSong = true;
+    }
+
+    const input: OtwPlayIngestionReviewInput = {
+      ...command.input,
+      song,
+      participants,
+    };
+    const changesCatalog = createdEntityCount > 0 || createdSong;
+    if (!changesCatalog) {
+      return {
+        input,
+        statements: [],
+        expectedCatalogRevision: null,
+        createdEntityCount: 0,
+        createdEntityIds: [],
+        createdSong: false,
+      };
+    }
+    const meta = await this.database.prepare(
+      `SELECT catalog.revision, read_model.revision AS read_model_revision
+       FROM music_catalog_meta AS catalog
+       JOIN music_public_read_model_meta AS read_model ON read_model.id = catalog.id
+       WHERE catalog.id = 1`,
+    ).first<{ revision: number; read_model_revision: number }>();
+    if (!meta || Number(meta.revision) !== Number(meta.read_model_revision)) {
+      throw new IngestionRepositoryError(
+        "unavailable",
+        "Catalog read model is not ready for review materialization",
+      );
+    }
+    return {
+      input,
+      statements,
+      expectedCatalogRevision: Number(meta.revision),
+      createdEntityCount,
+      createdEntityIds,
+      createdSong,
+    };
+  }
+
+  async saveCandidateReview(command: SaveCandidateReviewCommand) {
     const hasExpectedReviewState = command.expectedReviewInput !== undefined &&
       command.expectedReviewStatus !== undefined;
     const current = await this.readReviewCandidateById(command.candidateId);
@@ -1272,17 +1603,32 @@ export class D1IngestionRepository implements IngestionRepository {
         "Candidate kind does not match the reviewed release type",
       );
     }
-    const reviewInputJson = JSON.stringify(command.input);
+    const materialized = await this.materializeReviewCatalog(command);
+    const reviewInputJson = JSON.stringify(materialized.input);
     const missingEntityReference = await this.database.prepare(
-      `SELECT ${missingReviewInputEntityReferenceSql} AS missing`,
-    ).bind(reviewInputJson).first<{ missing: number }>();
+      `SELECT EXISTS (
+        SELECT 1 FROM json_tree(?) AS entity_reference
+        WHERE entity_reference.key = 'entityId'
+          AND entity_reference.type = 'text'
+          AND entity_reference.atom NOT IN (SELECT value FROM json_each(?))
+          AND NOT EXISTS (
+            SELECT 1 FROM music_entities AS entity
+            WHERE entity.id = entity_reference.atom
+              AND entity.archived_at IS NULL
+          )
+      ) AS missing`,
+    ).bind(
+      reviewInputJson,
+      JSON.stringify(materialized.createdEntityIds),
+    ).first<{ missing: number }>();
     if (Number(missingEntityReference?.missing ?? 0) !== 0) {
       throw new IngestionRepositoryError(
         "validation_failed",
         "Candidate review references a missing or archived identity",
       );
     }
-    await this.database.batch([
+    const statements: D1PreparedStatement[] = [
+      ...materialized.statements,
       this.database.prepare(
         `UPDATE music_ingestion_candidates
          SET review_input_json = ?, reviewed_by_user_id = ?, status = 'ready',
@@ -1310,8 +1656,8 @@ export class D1IngestionRepository implements IngestionRepository {
         command.now,
         command.candidateId,
         expectedVersion,
-        command.input.releaseType,
-        command.input.releaseType,
+        materialized.input.releaseType,
+        materialized.input.releaseType,
         reviewInputJson,
       ),
       this.database.prepare(
@@ -1322,19 +1668,76 @@ export class D1IngestionRepository implements IngestionRepository {
         command.eventId,
         command.candidateId,
         command.actorUserId,
-        JSON.stringify({ changedFields: [
-          "song",
-          "participants",
-          "relationType",
-          "releaseType",
-          "participationType",
-          "startSeconds",
-          "endSeconds",
-          "internalNote",
-        ] }),
+        JSON.stringify({
+          changedFields: [
+            "song",
+            "participants",
+            "relationType",
+            "releaseType",
+            "participationType",
+            "startSeconds",
+            "endSeconds",
+            "internalNote",
+          ],
+          ...(materialized.createdEntityCount > 0 || materialized.createdSong
+            ? {
+                catalogMaterialized: {
+                  entityCount: materialized.createdEntityCount,
+                  songCreated: materialized.createdSong,
+                },
+              }
+            : {}),
+        }),
         command.now,
       ),
-    ]);
+    ];
+    if (materialized.expectedCatalogRevision !== null) {
+      const expectedRevision = materialized.expectedCatalogRevision;
+      statements.push(
+        catalogVersionGuard(this.database),
+        this.database.prepare(
+          `UPDATE music_catalog_meta
+           SET revision = revision + 1, updated_at = ?
+           WHERE id = 1 AND revision = ?`,
+        ).bind(command.now, expectedRevision),
+        catalogVersionGuard(this.database),
+        this.database.prepare(
+          `UPDATE music_public_read_model_meta
+           SET revision = ?, updated_at = ?
+           WHERE id = 1 AND revision = ?`,
+        ).bind(expectedRevision + 1, command.now, expectedRevision),
+        catalogVersionGuard(this.database),
+      );
+    }
+    try {
+      await this.database.batch(statements);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/music_catalog_meta_singleton_check/iu.test(message)) {
+        throw new IngestionRepositoryError(
+          "stale_message",
+          "Catalog or ingestion state changed during review saving",
+        );
+      }
+      if (
+        /music_entities.*(?:entity_kind|normalized_name)|uidx_music_entities_external_kind_normalized_name/iu
+          .test(message)
+      ) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "The external identity already exists; refresh the catalog and select it",
+        );
+      }
+      if (
+        /music_songs.*dedupe_key|uidx_music_songs_dedupe_key/iu.test(message)
+      ) {
+        throw new IngestionRepositoryError(
+          "validation_failed",
+          "The song already exists; refresh the catalog and select it",
+        );
+      }
+      throw error;
+    }
     await this.requireCandidateEvent(command.eventId);
     return this.readReviewCandidateById(command.candidateId);
   }

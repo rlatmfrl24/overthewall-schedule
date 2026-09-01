@@ -1,12 +1,13 @@
 import { useMemo, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  Activity,
   AlertTriangle,
   CheckCircle2,
   Clock3,
   Coffee,
   Gauge,
   Loader2,
+  Play,
   RefreshCw,
 } from "lucide-react";
 import IconX from "@/assets/icon_x.svg";
@@ -15,12 +16,16 @@ import { Button } from "@/shared/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
 import { useNaverCafePosts } from "@/features/naver-cafe";
-import type { OperationsStatusResponse } from "@/features/operations";
+import {
+  fetchOperationRuns,
+  type OperationsStatusResponse,
+} from "@/features/operations";
+import { queryKeys } from "@/shared/query/query-keys";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { useScheduleData } from "@/features/schedule-board";
 import { getMembersWithXHandles, useXPosts } from "@/features/x-posts";
 import type {
@@ -81,11 +86,23 @@ const getVisibilityLabel = (
 };
 
 const getRunStatusLabel = (status: string) => {
+  if (status === "succeeded") return "성공";
+  if (status === "running") return "실행 중";
+  if (status === "queued") return "대기";
+  if (status === "partial") return "일부 실패";
+  if (status === "throttled") return "제한됨";
   if (status === "success") return "성공";
   if (status === "skipped") return "건너뜀";
   if (status === "failed") return "실패";
   return status;
 };
+
+const getRunStatusVariant = (status: string) =>
+  status === "succeeded" || status === "success"
+    ? "default" as const
+    : status === "queued" || status === "running" || status === "skipped"
+      ? "secondary" as const
+      : "destructive" as const;
 
 const MetricTile = ({
   label,
@@ -98,9 +115,9 @@ const MetricTile = ({
   detail?: string;
   children?: ReactNode;
 }) => (
-  <div className="rounded-lg border bg-muted/20 p-4">
+  <div className="min-w-0 p-3">
     <p className="text-xs font-medium text-muted-foreground">{label}</p>
-    <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">
+    <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
       {value}
     </p>
     {detail ? (
@@ -120,6 +137,9 @@ export function MemberPostFeedMonitor({
   operationsLoading,
   operationsError,
   onReloadOperations,
+  children,
+  onRunXCollection,
+  isRunningXCollection = false,
   onRunNaverCafeCheck,
   isRunningNaverCafeCheck = false,
 }: {
@@ -132,10 +152,24 @@ export function MemberPostFeedMonitor({
   operationsLoading: boolean;
   operationsError: boolean;
   onReloadOperations: () => Promise<unknown>;
+  children?: ReactNode;
+  onRunXCollection?: () => void;
+  isRunningXCollection?: boolean;
   onRunNaverCafeCheck?: () => void;
   isRunningNaverCafeCheck?: boolean;
 }) {
   const isX = source === "x";
+  const operationRunsQuery = useQuery({
+    queryKey: [...queryKeys.operations.runs(), source, "monitoring"],
+    queryFn: () => fetchOperationRuns({
+      jobType: isX ? "x_collection" : "naver_cafe_collection",
+      limit: 10,
+    }),
+    staleTime: 10_000,
+    refetchInterval: (query) => query.state.data?.runs.some((run) =>
+      run.status === "queued" || run.status === "running"
+    ) ? 5_000 : 30_000,
+  });
   const {
     members,
     loading: membersLoading,
@@ -277,22 +311,39 @@ export function MemberPostFeedMonitor({
     : loading || isRunningNaverCafeCheck;
 
   return (
-    <Card id={`${source}-monitoring`}>
-      <CardHeader className="pb-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
+    <Card id={`${source}-monitoring`} className="gap-0 overflow-hidden py-0">
+      <CardHeader className="border-b px-4 py-2.5 [.border-b]:pb-2.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4 text-muted-foreground" />
-              {isX ? "X 수집 모니터링" : "네이버 카페 수집 모니터링"}
+              <span className="flex size-7 items-center justify-center rounded-md border bg-muted/30">
+                {isX ? (
+                  <img src={IconX} alt="" className="h-3.5 w-3.5" />
+                ) : (
+                  <Coffee className="h-3.5 w-3.5 text-emerald-600" />
+                )}
+              </span>
+              {isX ? "X 게시글 운영" : "네이버 카페 운영"}
             </CardTitle>
-            <CardDescription>
-              {isX
-                ? "저장된 실행 이력, 비용과 관리자 피드의 계정별 응답을 함께 확인합니다."
-                : "실제 소스 점검 이력과 관리자 피드의 게시판별 응답을 함께 확인합니다."}
-            </CardDescription>
+            {statusBadge}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {statusBadge}
+            {isX && onRunXCollection ? (
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={onRunXCollection}
+                disabled={loading || isRunningXCollection}
+              >
+                {isRunningXCollection ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )}
+                지금 수집
+              </Button>
+            ) : null}
             {!isX && onRunNaverCafeCheck ? (
               <Button
                 type="button"
@@ -324,9 +375,9 @@ export function MemberPostFeedMonitor({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 p-4">
         {isX ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid divide-y overflow-hidden rounded-lg border bg-muted/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
             <MetricTile
               label="최근 실제 수집"
               value={formatMonitorUpdatedAt(
@@ -377,7 +428,7 @@ export function MemberPostFeedMonitor({
             </MetricTile>
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid divide-y overflow-hidden rounded-lg border bg-muted/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
             <MetricTile
               label="최근 실제 수집"
               value={formatMonitorUpdatedAt(
@@ -414,26 +465,64 @@ export function MemberPostFeedMonitor({
           </div>
         ) : null}
 
+        {children ? <section className="border-t pt-4">{children}</section> : null}
+
+        <section className="space-y-2 border-t pt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
+            <p className="text-xs text-muted-foreground">
+              실제 작업 진행률과 오류를 기준으로 표시합니다.
+            </p>
+          </div>
+          <div className="max-h-72 overflow-auto rounded-md border">
+          <Table className="min-w-[680px]">
+            <TableHeader><TableRow><TableHead>시작</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>진행</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {(operationRunsQuery.data?.runs ?? []).map((run) => (
+                <TableRow key={run.runId}>
+                  <TableCell>{formatMonitorUpdatedAt(run.startedAt ?? run.acceptedAt)}</TableCell>
+                  <TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell>
+                  <TableCell><Badge variant={getRunStatusVariant(run.status)}>{getRunStatusLabel(run.status)}</Badge></TableCell>
+                  <TableCell>{run.progress.succeeded + run.progress.skipped}/{run.progress.total}</TableCell>
+                  <TableCell className="max-w-56 truncate">{run.failures[0]?.message ?? run.lastError ?? "-"}</TableCell>
+                </TableRow>
+              ))}
+              {!operationRunsQuery.isLoading && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+          </div>
+        </section>
+
         {isX ? (
-          <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <details className="rounded-lg border bg-muted/10">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 text-sm font-medium marker:hidden">
+              <span>X API 사용량</span>
+              <Badge variant="outline">최근 24시간 {xUsage?.apiCalls ?? 0}회</Badge>
+            </summary>
+            <div className="grid border-t lg:grid-cols-3">
+              <MetricTile label="일별 API 사용" value={`${xUsage?.daily.reduce((total, day) => total + day.apiCalls, 0) ?? 0}회`} detail={(xUsage?.daily ?? []).slice(0, 3).map((day) => `${day.day} ${day.apiCalls}회`).join(" · ") || "기록 없음"} />
+              <MetricTile label="작업별 API 사용" value={`${xUsage?.byOperation.length ?? 0}개 작업`} detail={(xUsage?.byOperation ?? []).slice(0, 3).map((item) => `${item.operation} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
+              <MetricTile label="강제 새로고침 경로" value={`${xUsage?.forceRefreshPaths.length ?? 0}개`} detail={(xUsage?.forceRefreshPaths ?? []).slice(0, 2).map((item) => `${item.label} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
+            </div>
+          </details>
+        ) : null}
+
+        {isX ? (
+          <details className="min-w-0 rounded-lg border bg-muted/10">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <img src={IconX} alt="" className="h-3.5 w-3.5" />
                 X 계정별 관리자 피드 응답
               </h3>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={sourceEnabled ? "default" : "secondary"}>
-                  {sourceEnabled ? "수집 활성" : "수집 비활성"}
-                </Badge>
-                <Badge variant="outline">
-                  공개 {getVisibilityLabel(sourceVisibility)}
-                </Badge>
-                <Badge variant="outline">
-                  {operationsStatus?.xCollection.feed.apiPath ??
-                    "/api/member-posts?sources=x&admin=1"}
-                </Badge>
+                <Badge variant="outline">계정 {membersWithXHandles.length}개</Badge>
+                <Badge variant={xErrorCount > 0 ? "destructive" : "secondary"}>오류 {xErrorCount}개</Badge>
+                <Badge variant="outline">캐시 {xStaleCount}개</Badge>
               </div>
-            </div>
+            </summary>
+            <div className="space-y-3 border-t p-3">
             <div className="grid gap-2 lg:grid-cols-2">
               {xHandleRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -476,33 +565,28 @@ export function MemberPostFeedMonitor({
               )}
             </div>
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>계정 {membersWithXHandles.length}개</span>
+              <span>{sourceEnabled ? "수집 활성" : "수집 비활성"}</span>
               <span>·</span>
-              <span>오류 {xErrorCount}개</span>
+              <span>공개 {getVisibilityLabel(sourceVisibility)}</span>
               <span>·</span>
-              <span>캐시 {xStaleCount}개</span>
+              <span>{operationsStatus?.xCollection.feed.apiPath ?? "/api/member-posts?sources=x&admin=1"}</span>
             </div>
-          </section>
+            </div>
+          </details>
         ) : (
-          <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <details className="min-w-0 rounded-lg border bg-muted/10">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 marker:hidden">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Coffee className="h-3.5 w-3.5 text-emerald-600" />
                 게시판별 소스 점검 상태
               </h3>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={naverCafeEnabled ? "default" : "secondary"}>
-                  {naverCafeEnabled ? "표시 활성" : "표시 비활성"}
-                </Badge>
-                <Badge variant="outline">
-                  공개 {getVisibilityLabel(sourceVisibility)}
-                </Badge>
-                <Badge variant="outline">
-                  {naverCafeStatus?.apiPath ??
-                    "/api/member-posts?sources=naver-cafe&admin=1"}
-                </Badge>
+                <Badge variant="outline">전체 {cafeRows.length}개</Badge>
+                <Badge variant={(naverCafeStatus?.failingSourceCount ?? 0) > 0 ? "destructive" : "secondary"}>오류 {naverCafeStatus?.failingSourceCount ?? 0}개</Badge>
+                <Badge variant="outline">지연 {naverCafeStatus?.staleSourceCount ?? 0}개</Badge>
               </div>
-            </div>
+            </summary>
+            <div className="space-y-3 border-t p-3">
             <div className="grid gap-2 lg:grid-cols-2">
               {cafeRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -544,7 +628,15 @@ export function MemberPostFeedMonitor({
                 ))
               )}
             </div>
-          </section>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>{naverCafeEnabled ? "표시 활성" : "표시 비활성"}</span>
+              <span>·</span>
+              <span>공개 {getVisibilityLabel(sourceVisibility)}</span>
+              <span>·</span>
+              <span>{naverCafeStatus?.apiPath ?? "/api/member-posts?sources=naver-cafe&admin=1"}</span>
+            </div>
+            </div>
+          </details>
         )}
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

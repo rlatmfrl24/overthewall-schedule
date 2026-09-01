@@ -13,6 +13,7 @@ export const createOtwPlayAdminCatalogService = (env: Env) =>
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
       db: env.otw_db,
       priority: "core",
+      origin: "otw_play_admin_preflight",
     }),
     new DrizzleAdminCatalogAudit(getDb(env)),
     () => crypto.randomUUID(),

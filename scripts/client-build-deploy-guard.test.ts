@@ -56,6 +56,16 @@ describe("verifyClientBuildForDeploy", () => {
     );
   });
 
+  it("blocks a bundle containing both Clerk environments", () => {
+    const directory = createClientBuild(
+      'const local = "pk_test_example_publishable_key_123"; const production = "pk_live_example_publishable_key_123";',
+    );
+
+    expect(() => verifyClientBuildForDeploy(directory)).toThrow(
+      /contains a Clerk development key/,
+    );
+  });
+
   it("blocks an index that references a missing entry bundle", () => {
     const directory = createClientBuild(null);
 

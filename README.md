@@ -50,7 +50,7 @@ pnpm build
 pnpm preflight
 ```
 
-The local development server listens on `http://127.0.0.1:5173` by default.
+The local development server listens on `http://localhost:5173` by default.
 Vite, `pnpm dev:restart`, and `pnpm d1:doctor -- --api` share this default.
 If the port is unavailable, set `OTW_DEV_PORT` before running those commands so
 every local tool uses the same explicit override. For example, in PowerShell:
@@ -59,6 +59,25 @@ every local tool uses the same explicit override. For example, in PowerShell:
 $env:OTW_DEV_PORT = "5174"
 pnpm dev
 ```
+
+### Clerk environment separation
+
+Clerk client configuration is mode-specific and fail-closed:
+
+- `.env.development.local` contains the existing development `pk_test` key and
+  development-instance admin IDs. `pnpm dev` accepts only this key type.
+- `.env.production.local` is used only for a manual production build and
+  contains the `pk_live` key plus production-instance admin IDs.
+- Cloudflare Builds defines the same production values in its build environment;
+  no Clerk publishable key is committed to the repository.
+- `.env.local` may contain shared local Worker credentials and the server-side
+  development Clerk issuer/admin configuration, but it must not contain
+  `VITE_CLERK_*` client variables.
+
+Vite rejects a local server started with `pk_live` and rejects a production
+build made with `pk_test`. The deploy guard scans the emitted client entry bundle
+again and blocks any build containing a development key. Start from
+`.env.example` when recreating the local files.
 
 Local development defaults to local D1. Remote D1 is used only by explicit
 release or deploy commands.

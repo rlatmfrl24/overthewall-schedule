@@ -23,6 +23,10 @@ export {
   readYouTubeWarmupTargets,
   runManualYouTubeCacheRefresh,
 } from "./infrastructure/youtube-warmup";
+export {
+  readStoredYouTubeFeed,
+  runScheduledYouTubeFeedCollection,
+} from "./infrastructure/youtube-feed";
 export type { YouTubeWarmupTarget } from "./infrastructure/youtube-warmup";
 export {
   reserveYouTubeQuota,

@@ -2,6 +2,7 @@ import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { apiFetch } from "@/shared/api/client";
 import type {
   DataRetentionPruneResponse,
+  DataRetentionStatusResponse,
   OperationsStatusResponse,
   OperationRun,
   OperationRunAccepted,
@@ -70,8 +71,8 @@ export async function runNaverCafeCheckNow(): Promise<OperationRunAccepted> {
   );
 }
 
-export async function fetchDataRetentionStatus(): Promise<DataRetentionPruneResponse> {
-  return apiFetch<DataRetentionPruneResponse>(
+export async function fetchDataRetentionStatus(): Promise<DataRetentionStatusResponse> {
+  return apiFetch<DataRetentionStatusResponse>(
     apiRoutes.operations.retentionStatus.build(),
     { cache: "no-store" },
   );

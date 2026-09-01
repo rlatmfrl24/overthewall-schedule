@@ -19,7 +19,15 @@ export type NaverCafeSourceInput = Pick<
   | "member_uid"
   | "enabled"
   | "sort_order"
->;
+> & Partial<Pick<
+  NaverCafeSource,
+  | "collection_started_at"
+  | "initialization_completed_at"
+  | "last_seen_article_id"
+  | "sync_page"
+  | "sync_base_article_id"
+  | "sync_newest_article_id"
+>>;
 
 export type NaverCafePostItem = {
   id: string;
@@ -193,6 +201,11 @@ const NAVER_CAFE_FETCH_TIMEOUT_MS = 5_000;
 const NAVER_CAFE_SCHEDULED_INTERVAL_MS = 60 * 60_000;
 const NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY =
   "naver_cafe_collection_last_run";
+const NAVER_CAFE_COLLECTION_ENABLED_SETTING_KEY =
+  "naver_cafe_collection_enabled";
+const NAVER_CAFE_DAILY_REQUEST_LIMIT = 240;
+const NAVER_CAFE_MAX_PAGES_PER_RUN = 3;
+const NAVER_CAFE_RETENTION_MS = 21 * 24 * 60 * 60_000;
 export const NAVER_CAFE_COLLECTION_SIZE = 15;
 
 const SOURCE_POSTS_CACHE = new Map<string, CachedSourcePosts>();
@@ -370,10 +383,11 @@ const getSourceErrorStatus = (
 const requestNaverCafeBoardList = async (
   source: NaverCafeSourceInput,
   size: number,
+  page = 1,
 ) => {
   const endpoint = `${NAVER_CAFE_BOARD_API_BASE}/v1/cafes/${source.cafe_id}/menus/${source.menu_id}/articles`;
   const url = new URL(endpoint);
-  url.searchParams.set("page", "1");
+  url.searchParams.set("page", String(page));
   url.searchParams.set("size", String(size));
 
   const controller = new AbortController();
@@ -415,6 +429,163 @@ const requestNaverCafeBoardList = async (
     );
   } finally {
     clearTimeout(timeout);
+  }
+};
+
+const kstDate = (timestamp: number) =>
+  new Date(timestamp + 9 * 60 * 60_000).toISOString().slice(0, 10);
+
+const reserveNaverCafeRequest = async (cacheDb: D1Database | undefined) => {
+  if (!cacheDb) {
+    throw new NaverCafeSourceError("Naver Cafe usage ledger unavailable", "error");
+  }
+  const timestamp = now();
+  try {
+    await cacheDb.prepare(
+      `INSERT INTO naver_cafe_usage_daily (kst_date, requests_used, updated_at)
+       VALUES (?, 0, ?) ON CONFLICT(kst_date) DO NOTHING`,
+    ).bind(kstDate(timestamp), timestamp).run();
+    const row = await cacheDb.prepare(
+      `UPDATE naver_cafe_usage_daily
+       SET requests_used = requests_used + 1, updated_at = ?
+       WHERE kst_date = ? AND requests_used < ?
+       RETURNING requests_used`,
+    ).bind(timestamp, kstDate(timestamp), NAVER_CAFE_DAILY_REQUEST_LIMIT)
+      .first<{ requests_used: number }>();
+    if (!row) {
+      throw new NaverCafeSourceError("Naver Cafe daily request budget exhausted", "error");
+    }
+    return row.requests_used;
+  } catch (error) {
+    if (error instanceof NaverCafeSourceError) throw error;
+    throw new NaverCafeSourceError("Naver Cafe usage ledger unavailable", "error");
+  }
+};
+
+const writeNaverSourceState = async (
+  cacheDb: D1Database | undefined,
+  sourceId: number,
+  values: {
+    initializedAt?: number | null;
+    collectionStartedAt?: number;
+    lastSeen?: number | null;
+    syncPage?: number | null;
+    syncBase?: number | null;
+    syncNewest?: number | null;
+    attemptedAt: number;
+    succeededAt?: number | null;
+    nextCheckAt: number;
+    errorCode?: string | null;
+  },
+) => {
+  if (!cacheDb) return;
+  await cacheDb.prepare(
+    `UPDATE naver_cafe_sources SET
+       collection_started_at = COALESCE(collection_started_at, ?),
+       initialization_completed_at = COALESCE(?, initialization_completed_at),
+       last_seen_article_id = ?, sync_page = ?, sync_base_article_id = ?,
+       sync_newest_article_id = ?, last_attempt_at = ?,
+       last_success_at = COALESCE(?, last_success_at), next_check_at = ?,
+       consecutive_failures = CASE WHEN ? IS NULL THEN 0 ELSE consecutive_failures + 1 END,
+       last_error_code = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+  ).bind(
+    values.collectionStartedAt ?? values.attemptedAt,
+    values.initializedAt ?? null,
+    values.lastSeen ?? null,
+    values.syncPage ?? null,
+    values.syncBase ?? null,
+    values.syncNewest ?? null,
+    values.attemptedAt,
+    values.succeededAt ?? null,
+    values.nextCheckAt,
+    values.errorCode ?? null,
+    values.errorCode ?? null,
+    sourceId,
+  ).run();
+};
+
+const collectNaverSourceNewFeed = async (
+  source: NaverCafeSourceInput,
+  cacheDb: D1Database | undefined,
+) => {
+  const attemptedAt = now();
+  const initialized = source.initialization_completed_at != null;
+  const startPage = initialized ? Math.max(1, source.sync_page ?? 1) : 1;
+  const baseId = source.sync_base_article_id ?? source.last_seen_article_id ?? null;
+  const startedAt = source.collection_started_at ?? attemptedAt;
+  const retentionFloor = attemptedAt - NAVER_CAFE_RETENTION_MS;
+  const collected: NaverCafePostItem[] = [];
+  let newestId = source.sync_newest_article_id ?? null;
+  let watermarkFound = false;
+  let pagesRead = 0;
+
+  try {
+    for (let page = startPage; page < startPage + NAVER_CAFE_MAX_PAGES_PER_RUN; page += 1) {
+      await reserveNaverCafeRequest(cacheDb);
+      const response = await requestNaverCafeBoardList(
+        source,
+        NAVER_CAFE_COLLECTION_SIZE,
+        page,
+      );
+      const posts = normalizeNaverCafeBoardListResponse(response, source);
+      pagesRead += 1;
+      newestId ??= posts[0]?.articleId ?? null;
+
+      if (!initialized) {
+        await writeNaverSourceState(cacheDb, source.id, {
+          initializedAt: attemptedAt,
+          collectionStartedAt: startedAt,
+          lastSeen: newestId,
+          attemptedAt,
+          succeededAt: now(),
+          nextCheckAt: now() + 60 * 60_000,
+        });
+        return { posts: [], pagesRead, initialized: true };
+      }
+
+      for (const post of posts) {
+        if (baseId !== null && post.articleId === baseId) {
+          watermarkFound = true;
+          break;
+        }
+        const publishedAt = new Date(post.createdAt).getTime();
+        if (publishedAt < startedAt || publishedAt < retentionFloor) {
+          watermarkFound = true;
+          break;
+        }
+        collected.push(post);
+      }
+      if (watermarkFound || posts.length < NAVER_CAFE_COLLECTION_SIZE) break;
+    }
+
+    const complete = watermarkFound || pagesRead < NAVER_CAFE_MAX_PAGES_PER_RUN;
+    await writeNaverSourceState(cacheDb, source.id, {
+      collectionStartedAt: startedAt,
+      lastSeen: complete ? newestId : source.last_seen_article_id ?? null,
+      syncPage: complete ? null : startPage + pagesRead,
+      syncBase: complete ? null : baseId,
+      syncNewest: complete ? null : newestId,
+      attemptedAt,
+      succeededAt: now(),
+      nextCheckAt: now() + (collected.length > 0 ? 60 : 180) * 60_000,
+    });
+    return { posts: collected, pagesRead, initialized: false };
+  } catch (error) {
+    const errorCode = error instanceof NaverCafeSourceError
+      ? error.message.includes("budget") ? "daily_budget_exhausted" : "provider_error"
+      : "provider_error";
+    await writeNaverSourceState(cacheDb, source.id, {
+      collectionStartedAt: startedAt,
+      lastSeen: source.last_seen_article_id ?? null,
+      syncPage: source.sync_page ?? null,
+      syncBase: source.sync_base_article_id ?? null,
+      syncNewest: source.sync_newest_article_id ?? null,
+      attemptedAt,
+      nextCheckAt: now() + 60 * 60_000,
+      errorCode,
+    });
+    throw error;
   }
 };
 
@@ -814,13 +985,56 @@ export const collectNaverCafePostsForSources = async (
   let posts: NaverCafePostItem[] = [];
   let sourceResults: NaverCafeSourceResult[] = [];
 
+  const collectionEnabled = options.cacheDb
+    ? await options.cacheDb.prepare(
+        `SELECT value FROM settings WHERE key = ?`,
+      ).bind(NAVER_CAFE_COLLECTION_ENABLED_SETTING_KEY)
+        .first<{ value: string | null }>()
+    : null;
+  if (collectionEnabled?.value === "false") {
+    const checkedAt = now();
+    return {
+      success: true,
+      updatedAt: new Date(checkedAt).toISOString(),
+      checkedAt,
+      durationMs: checkedAt - startedAt,
+      posts: [],
+      sources: sources.map((source) => sourceToStatus(source, "disabled", {
+        error: "collection_kill_switch",
+      })),
+    };
+  }
+
   try {
-    const content = await fetchNaverCafePostsForSources(sources, {
-      size: options.size,
-      forceRefresh: true,
-    });
-    posts = content.posts;
-    sourceResults = content.sources;
+    const collected = await pMap(
+      sources,
+      async (source) => {
+        if (!normalizeBoolean(source.enabled)) {
+          return { posts: [], source: sourceToStatus(source, "disabled") };
+        }
+        try {
+          const result = await collectNaverSourceNewFeed(source, options.cacheDb);
+          return {
+            posts: result.posts,
+            source: sourceToStatus(source, "ok", {
+              postCount: result.posts.length,
+            }),
+          };
+        } catch (error) {
+          return {
+            posts: [],
+            source: sourceToStatus(
+              source,
+              error instanceof NaverCafeSourceError ? error.status : "error",
+              { error: error instanceof Error ? error.message : "collection_failed" },
+            ),
+          };
+        }
+      },
+      NAVER_CAFE_FETCH_CONCURRENCY,
+    );
+    posts = collected.flatMap((item) => item.posts);
+    sourceResults = collected.map((item) => item.source);
   } catch (error) {
     sourceResults =
       error instanceof NaverCafeApiError

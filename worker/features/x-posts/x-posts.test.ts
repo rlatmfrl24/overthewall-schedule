@@ -65,6 +65,11 @@ type FakePostSourceRecord = {
   last_checked_at: number;
   updated_at: number;
   last_error: string | null;
+  collection_started_at?: number | null;
+  initialization_completed_at?: number | null;
+  sync_pagination_token?: string | null;
+  sync_base_post_id?: string | null;
+  sync_newest_post_id?: string | null;
 };
 
 type FakeUsageEventRecord = {
@@ -294,6 +299,22 @@ const makeCacheDb = (
                 });
               }
               if (sql.includes("UPDATE x_post_sources")) {
+                if (sql.includes("x_sync_continuation")) {
+                  const [lastSeen, nextToken, basePostId, newestPostId, , , , updatedAt, handle] = args;
+                  const key = String(handle);
+                  const current = sources.get(key);
+                  if (current) {
+                    sources.set(key, {
+                      ...current,
+                      last_seen_post_id: lastSeen === null ? null : String(lastSeen),
+                      sync_pagination_token: nextToken === null ? null : String(nextToken),
+                      sync_base_post_id: basePostId === null ? null : String(basePostId),
+                      sync_newest_post_id: newestPostId === null ? null : String(newestPostId),
+                      updated_at: Number(updatedAt),
+                    });
+                  }
+                  return { success: true };
+                }
                 const [lastCheckedAt, updatedAt, lastError, handle] = args;
                 const key = String(handle);
                 const current = sources.get(key);
@@ -872,7 +893,7 @@ describe("x worker service", () => {
 
     expect(result.posts).toHaveLength(5);
     const timelineUrl = String(fetchMock.mock.calls[1]?.[0]);
-    expect(timelineUrl).toContain("max_results=20");
+    expect(timelineUrl).toContain("max_results=25");
     expect(timelineUrl).not.toContain("since_id=");
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tweets?ids=");
     expect(target.store.has("x:relations:v2:otw_member")).toBe(true);
@@ -1073,7 +1094,7 @@ describe("x worker service", () => {
     });
   });
 
-  it("백그라운드 수집은 fresh 캐시가 있어도 X API를 새로 호출해 영구 저장한다", async () => {
+  it("백그라운드 신규 소스는 과거 캐시를 가져오지 않고 활성화 이후 글만 저장한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
 
@@ -1116,14 +1137,14 @@ describe("x worker service", () => {
 
     expect(result).toMatchObject({
       status: "success",
-      postsStored: 2,
+      postsStored: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
       "/users/u1/tweets?",
     );
     expect(posts.has("fresh")).toBe(true);
-    expect(posts.has("cached")).toBe(true);
+    expect(posts.has("cached")).toBe(false);
   });
 
   it("백그라운드 수집은 최근 확인한 저장 게시글이 있으면 X API 호출을 건너뛴다", async () => {
@@ -1170,6 +1191,111 @@ describe("x worker service", () => {
       status: "skipped",
       error: "all_handles_cooldown",
       api_calls: 0,
+    });
+  });
+
+  it("25개 초과 페이지는 continuation을 저장하고 완료 뒤에만 커서를 전진한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T04:00:00Z"));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "p2", text: "newest", created_at: "2026-09-01T04:00:00Z", public_metrics: {} }],
+        meta: { next_token: "page-2" },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "p1", text: "older", created_at: "2026-09-01T03:59:00Z", public_metrics: {} }],
+      }));
+    const target = makeCacheDb();
+
+    await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      source: "manual",
+    });
+    expect(target.sources.get("otw_member")).toMatchObject({
+      last_seen_post_id: null,
+      sync_pagination_token: "page-2",
+      sync_newest_post_id: "p2",
+    });
+
+    await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      source: "manual",
+    });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("pagination_token=page-2");
+    expect(target.sources.get("otw_member")).toMatchObject({
+      last_seen_post_id: "p2",
+      sync_pagination_token: null,
+      sync_newest_post_id: null,
+    });
+  });
+
+  it("수동 수집은 최근 확인 또는 오류 쿨다운 중인 핸들도 다시 조회한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const currentTime = Date.now();
+    const cachedPost = makePost("p1", "otw_member");
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p2",
+              text: "manual recovery post",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+    const { db, posts, sources, collectionRuns } = makeCacheDb();
+    posts.set("p1", {
+      id: "p1",
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(cachedPost),
+      created_at: cachedPost.createdAt,
+      fetched_at: currentTime,
+      hidden_at: null,
+    });
+    sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: "p1",
+      last_checked_at: currentTime,
+      updated_at: currentTime,
+      last_error: "x_api_unavailable",
+    });
+
+    const result = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      source: "manual",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      checkedHandles: 1,
+      refreshedHandles: 1,
+      status: "success",
+    });
+    expect(collectionRuns[0]).toMatchObject({
+      source: "manual",
+      status: "success",
     });
   });
 
@@ -2346,7 +2472,7 @@ describe("x worker service", () => {
     for (const parentId of parentIds) {
       const cache = store.get(`x:linked-post:v1:${parentId}`);
       expect(JSON.parse(cache?.value ?? "null")).toEqual({ post: null });
-      expect(cache?.expires_at).toBe(Date.now() + 7 * 24 * 60 * 60_000);
+      expect(cache?.expires_at).toBe(Date.now() + 15 * 60_000);
     }
   });
 
@@ -2768,6 +2894,50 @@ describe("x worker service", () => {
       replyTo: { id: replyToPostId, text: "cached parent" },
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("15분이 지난 답글 문맥 미발견 캐시는 외부 조회를 다시 시도한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:30:00Z"));
+    const replyToPostId = "2059529979700846500";
+    const target = makeCacheDb({
+      ...publicXSettings,
+      [`x:linked-post:v1:${replyToPostId}`]: {
+        type: "linked_post",
+        value: JSON.stringify({ post: null }),
+        fetched_at: Date.now() - 16 * 60_000,
+        expires_at: Date.now() - 60_000,
+      },
+    });
+    const { sourcePostId } = seedReplyPost(target, { replyToPostId });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: replyToPostId,
+            author_id: "u0",
+            text: "recovered parent post",
+            created_at: "2026-02-12T23:00:00Z",
+            public_metrics: {},
+          },
+        ],
+        includes: {
+          users: [{ id: "u0", username: "parent_user", name: "Parent User" }],
+        },
+      }),
+    );
+
+    const response = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(target.db),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sourcePostId,
+      replyTo: { id: replyToPostId, text: "recovered parent post" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("답글 문맥 API는 잘못된 ID와 임의 또는 숨김 게시글 ID를 차단한다", async () => {

@@ -255,6 +255,12 @@ export interface OtwPlayChannelMonitorDto {
   lastSeenPublishedAt: number | null;
   lastRecentReconciledAt: number | null;
   lastErrorCode: string | null;
+  syncPageToken?: string | null;
+  syncBaseVideoId?: string | null;
+  syncNewestVideoId?: string | null;
+  syncStartedAt?: number | null;
+  lastSuccessAt?: number | null;
+  consecutiveFailures?: number;
   automationApproval: OtwPlayChannelAutomationApprovalDto | null;
   subscription: OtwPlayWebsubSubscriptionDto | null;
   candidateCount: number;
@@ -341,6 +347,7 @@ export interface OtwPlayChannelMonitorReconcileDto {
   checkedVideoCount: number;
   capped: boolean;
   gapSuspected: boolean;
+  continuationSaved?: boolean;
 }
 
 export interface OtwPlayIngestionCandidateItemDto {

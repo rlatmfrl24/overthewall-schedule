@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -9,6 +9,10 @@ import {
   resolveLocalD1PersistState,
   rewriteLocalSpaRequest,
 } from "./scripts/local-dev-config.mjs";
+import {
+  assertClerkPublishableKeyForTarget,
+  resolveClerkEnvironmentTarget,
+} from "./scripts/clerk-environment.mjs";
 
 const spaDevRewrite = () => ({
   name: "otw-spa-dev-rewrite",
@@ -23,47 +27,65 @@ const spaDevRewrite = () => ({
 });
 
 // https://vite.dev/config/
-export default defineConfig({
-  server: getLocalDevServerConfig(),
-  plugins: [
-    spaDevRewrite(),
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-    }),
-    react(),
-    cloudflare({
-      configPath: "./wrangler.jsonc",
-      persistState: resolveLocalD1PersistState(),
-    }),
-    tailwindcss(),
-  ],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@contracts": path.resolve(__dirname, "./contracts"),
-      "@db": path.resolve(__dirname, "./db"),
+export default defineConfig(({ command, mode, isPreview }) => {
+  const clerkTarget = resolveClerkEnvironmentTarget({
+    command,
+    mode,
+    isPreview,
+  });
+  if (clerkTarget) {
+    const environment = {
+      ...loadEnv(mode, process.cwd(), ""),
+      ...process.env,
+    };
+    assertClerkPublishableKeyForTarget({
+      publishableKey: environment.VITE_CLERK_PUBLISHABLE_KEY,
+      target: clerkTarget,
+    });
+  }
+
+  return {
+    server: getLocalDevServerConfig(),
+    plugins: [
+      spaDevRewrite(),
+      tanstackRouter({
+        target: "react",
+        autoCodeSplitting: true,
+      }),
+      react(),
+      cloudflare({
+        configPath: "./wrangler.jsonc",
+        persistState: resolveLocalD1PersistState(),
+      }),
+      tailwindcss(),
+    ],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+        "@contracts": path.resolve(__dirname, "./contracts"),
+        "@db": path.resolve(__dirname, "./db"),
+      },
     },
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          const normalizedId = id.replace(/\\/g, "/");
-          if (!normalizedId.includes("/node_modules/")) return;
-          if (normalizedId.includes("/node_modules/@clerk/")) return "clerk";
-          if (normalizedId.includes("/node_modules/@tanstack/")) return "tanstack";
-          if (normalizedId.includes("/node_modules/@radix-ui/")) return "radix";
-          if (normalizedId.includes("/node_modules/motion/")) return "motion";
-          if (
-            normalizedId.includes("/node_modules/react/") ||
-            normalizedId.includes("/node_modules/react-dom/") ||
-            normalizedId.includes("/node_modules/scheduler/")
-          ) {
-            return "react";
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replace(/\\/g, "/");
+            if (!normalizedId.includes("/node_modules/")) return;
+            if (normalizedId.includes("/node_modules/@clerk/")) return "clerk";
+            if (normalizedId.includes("/node_modules/@tanstack/")) return "tanstack";
+            if (normalizedId.includes("/node_modules/@radix-ui/")) return "radix";
+            if (normalizedId.includes("/node_modules/motion/")) return "motion";
+            if (
+              normalizedId.includes("/node_modules/react/") ||
+              normalizedId.includes("/node_modules/react-dom/") ||
+              normalizedId.includes("/node_modules/scheduler/")
+            ) {
+              return "react";
+            }
           }
         },
       },
     },
-  },
+  };
 });

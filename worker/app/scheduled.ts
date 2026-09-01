@@ -16,6 +16,7 @@ import {
 import { runScheduledDataRetentionPrune } from "../features/operations";
 import { runAutoUpdateWithHistory } from "../features/schedules";
 import { runScheduledXCollection } from "../features/x-posts";
+import { runScheduledYouTubeFeedCollection } from "../features/youtube";
 import { getDb } from "../platform/db";
 import { updateSetting } from "../platform/http-helpers";
 import type { Env } from "../platform/types";
@@ -41,7 +42,8 @@ export const checkScheduledOtwPlaySources = async (env: Env) => {
     new D1SourceHealthRepository(env.otw_db),
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
       db: env.otw_db,
-      priority: "core",
+      priority: "low",
+      origin: "otw_play_source_health",
     }),
     () => crypto.randomUUID(),
     Date.now,
@@ -141,6 +143,10 @@ export const runIndependentScheduledTasks = async (env: Env) => {
     {
       label: "Naver Cafe collection",
       run: () => collectScheduledNaverCafePosts(env),
+    },
+    {
+      label: "YouTube feed collection",
+      run: () => runScheduledYouTubeFeedCollection(env),
     },
     {
       label: "OTW Play ingestion recovery",

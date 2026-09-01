@@ -12,6 +12,8 @@ type TableRow = Record<string, number | string | null>;
 type FakeD1State = {
   tables: Record<string, TableRow[]>;
   settings: Map<string, string>;
+  retentionRuns?: Array<Record<string, unknown>>;
+  retentionItems?: Array<Record<string, unknown>>;
 };
 
 const getPolicyForSql = (sql: string) =>
@@ -57,6 +59,19 @@ const makeEnv = (state: FakeD1State): Env =>
               isPrunableRow(row, policy, cutoff),
             ).length;
             return { count } as T;
+          },
+          all: async <T,>() => {
+            if (sql.includes("FROM scheduled_job_runs")) {
+              return { results: (state.retentionRuns ?? []) as T[] };
+            }
+            if (sql.includes("FROM scheduled_job_items")) {
+              return {
+                results: (state.retentionItems ?? []).filter((item) =>
+                  !params[0] || item.run_id === params[0]
+                ) as T[],
+              };
+            }
+            return { results: [] as T[] };
           },
           run: async () => {
             if (sql.includes("INSERT INTO settings")) {
@@ -175,5 +190,38 @@ describe("data retention service", () => {
 
     expect(result.skipped).toBe(true);
     expect(state.tables.x_api_usage_events).toHaveLength(1);
+  });
+
+  it("기존 prune item 결과도 최근 이력의 삭제 합계로 제공한다", async () => {
+    const now = Date.UTC(2026, 6, 9, 0, 0, 0);
+    const state: FakeD1State = {
+      settings: new Map(),
+      tables: {},
+      retentionRuns: [{
+        id: "run-legacy",
+        source: "manual",
+        status: "succeeded",
+        started_at: now - 1_000,
+        finished_at: now,
+        summary_json: null,
+      }],
+      retentionItems: [{
+        run_id: "run-legacy",
+        target_key: "x-api-usage-events",
+        result_json: JSON.stringify({
+          policyId: "x-api-usage-events",
+          deletedRows: 16,
+          hasMore: false,
+        }),
+      }],
+    };
+
+    const result = await getDataRetentionStatus(makeEnv(state), now);
+
+    expect(result.recentRuns[0]).toMatchObject({
+      runId: "run-legacy",
+      totalDeletedRows: 16,
+      verification: "unavailable",
+    });
   });
 });

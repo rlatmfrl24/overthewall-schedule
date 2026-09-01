@@ -180,7 +180,7 @@ export class ChannelMonitorService {
     status: OtwPlayChannelMonitorStatus,
     actorUserId: string,
   ) {
-    await this.requireVersion(id, expectedVersion);
+    const current = await this.requireVersion(id, expectedVersion);
     const monitor = await this.repository.updateStatus({
       id,
       expectedVersion,
@@ -189,9 +189,24 @@ export class ChannelMonitorService {
       eventId: this.createId(),
       now: this.clock(),
     });
-    return status === "paused"
-      ? this.requestTransportStop(monitor.id, actorUserId)
-      : monitor;
+    if (status === "paused") {
+      return this.requestTransportStop(monitor.id, actorUserId);
+    }
+    if (current.status === "paused") {
+      const page = await this.youtube.readPlaylistPage(
+        current.uploadsPlaylistId,
+        null,
+      );
+      return this.repository.resetWatermark({
+        id: monitor.id,
+        expectedVersion: monitor.version,
+        lastSeenVideoId: page.items[0]?.videoId ?? null,
+        actorUserId,
+        eventId: this.createId(),
+        now: this.clock(),
+      });
+    }
+    return monitor;
   }
 
   async updateTarget(
@@ -310,11 +325,12 @@ export class ChannelMonitorService {
     }
     try {
       const videoIds: string[] = [];
-      let pageToken: string | null = null;
+      let pageToken: string | null = monitor.syncPageToken ?? null;
       let foundWatermark = false;
       let hasMore = false;
-      let newestVideoId: string | null = monitor.lastSeenVideoId;
-      let firstPage = true;
+      const baseVideoId = monitor.syncBaseVideoId ?? monitor.lastSeenVideoId;
+      let newestVideoId: string | null = monitor.syncNewestVideoId ?? monitor.lastSeenVideoId;
+      let firstPage = monitor.syncPageToken == null;
 
       do {
         const page = await this.youtube.readPlaylistPage(
@@ -326,7 +342,7 @@ export class ChannelMonitorService {
           firstPage = false;
         }
         for (const item of page.items) {
-          if (monitor.lastSeenVideoId && item.videoId === monitor.lastSeenVideoId) {
+          if (baseVideoId && item.videoId === baseVideoId) {
             foundWatermark = true;
             break;
           }
@@ -343,7 +359,7 @@ export class ChannelMonitorService {
 
       const capped = !foundWatermark &&
         videoIds.length >= MAX_RECONCILIATION_VIDEOS && hasMore;
-      if (monitor.lastSeenVideoId && !foundWatermark) {
+      if (baseVideoId && !foundWatermark && !capped) {
         const gapMonitor = await this.repository.markGapSuspected({
           id: monitor.id,
           expectedVersion: monitor.version,
@@ -358,7 +374,6 @@ export class ChannelMonitorService {
           gapSuspected: true,
         };
       }
-
       const observations: OtwPlayYouTubeVideoObservation[] = [];
       for (let index = 0; index < videoIds.length; index += 50) {
         const batch = await this.youtube.readVideos(videoIds.slice(index, index + 50));
@@ -375,6 +390,27 @@ export class ChannelMonitorService {
         observations,
         now: this.clock(),
       });
+
+      if (capped && pageToken) {
+        const continued = await this.repository.saveContinuation({
+          id: monitor.id,
+          expectedVersion: monitor.version,
+          monitorGeneration: monitor.generation,
+          pageToken,
+          baseVideoId,
+          newestVideoId,
+          now: this.clock(),
+        });
+        return {
+          monitor: continued,
+          discoveredCount,
+          checkedVideoCount: observations.length,
+          capped: true,
+          gapSuspected: false,
+          continuationSaved: true,
+        };
+      }
+
       const newestPublishedAt = observations.find(
         (item) => item.videoId === newestVideoId,
       )?.video?.publishedAt ?? monitor.lastSeenPublishedAt;
@@ -409,13 +445,32 @@ export class ChannelMonitorService {
 
   async runDue(limit = 10) {
     const ids = await this.repository.listDueIds(this.clock(), limit);
-    const results: Array<{ id: string; ok: boolean; discoveredCount: number }> = [];
+    const results: Array<{
+      id: string;
+      ok: boolean;
+      partial?: boolean;
+      discoveredCount: number;
+      errorCode?: string;
+      retryAt?: number;
+    }> = [];
     for (const id of ids) {
       try {
         const result = await this.reconcile(id);
-        results.push({ id, ok: true, discoveredCount: result.discoveredCount });
-      } catch {
-        results.push({ id, ok: false, discoveredCount: 0 });
+        results.push({
+          id,
+          ok: true,
+          partial: result.continuationSaved === true,
+          discoveredCount: result.discoveredCount,
+        });
+      } catch (error) {
+        const metadataError = error instanceof OtwPlayYouTubeMetadataError ? error : null;
+        results.push({
+          id,
+          ok: false,
+          discoveredCount: 0,
+          errorCode: metadataError ? `youtube_${metadataError.code}` : "reconciliation_failed",
+          retryAt: this.clock() + (metadataError?.retryAfterMs ?? 15 * 60_000),
+        });
       }
     }
     return results;

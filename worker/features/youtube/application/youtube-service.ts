@@ -49,6 +49,15 @@ export interface YouTubeApplicationPorts {
     targets: readonly YouTubeCacheReadTarget[],
     ctx?: ExecutionContext,
   ): Promise<YouTubeCacheBatchReadResult>;
+  readStoredFeed?(
+    channelIds: readonly string[],
+    maxResults: number,
+    source: "official" | "kirinuki",
+  ): Promise<{
+    videos: YouTubeVideoDto[];
+    shorts: YouTubeVideoDto[];
+    oldestRetainedAt: string | null;
+  } | null>;
   readCacheTargets(): Promise<YouTubeCacheTargetDescriptor[]>;
   readCacheStatus(
     windowHours: number,
@@ -216,6 +225,27 @@ export const createYouTubeApplication = (
       throw new YouTubeTargetsNotAllowedError(authorized.unauthorized);
     }
 
+    const storedFeed = await ports.readStoredFeed?.(
+      channelIds,
+      maxResults,
+      "official",
+    );
+    if (storedFeed) {
+      return {
+        ...storedFeed,
+        collectionState: "storage_only" as const,
+        cache: {
+          state: storedFeed.videos.length + storedFeed.shorts.length > 0 ? "fresh" as const : "empty" as const,
+          oldestFetchedAt: storedFeed.oldestRetainedAt,
+          refreshScheduledCount: 0,
+          pendingCount: 0,
+          revalidateAfterMs: null,
+        },
+        targetCount: channelIds.length,
+        availableTargetCount: channelIds.length,
+      };
+    }
+
     const result = await ports.readChannelsWithSWR(
       channelIds.map((channelId) => ({ channelId, source: "official" })),
       ctx,
@@ -255,6 +285,33 @@ export const createYouTubeApplication = (
         cache: {
           state: "empty" as const,
           oldestFetchedAt: null,
+          refreshScheduledCount: 0,
+          pendingCount: 0,
+          revalidateAfterMs: null,
+        },
+      };
+    }
+    const storedFeed = await ports.readStoredFeed?.(
+      channels.map((channel) => channel.youtube_channel_id),
+      maxResults,
+      "kirinuki",
+    );
+    if (storedFeed) {
+      const channelNames = new Map(channels.map((channel) => [channel.youtube_channel_id, channel.channel_name]));
+      return {
+        ...storedFeed,
+        collectionState: "storage_only" as const,
+        byChannel: channels.map((channel) => ({
+          channelId: channel.youtube_channel_id,
+          channelName: channelNames.get(channel.youtube_channel_id) ?? channel.youtube_channel_id,
+          content: {
+            videos: storedFeed.videos.filter((video) => video.channelId === channel.youtube_channel_id),
+            shorts: storedFeed.shorts.filter((video) => video.channelId === channel.youtube_channel_id),
+          },
+        })),
+        cache: {
+          state: storedFeed.videos.length + storedFeed.shorts.length > 0 ? "fresh" as const : "empty" as const,
+          oldestFetchedAt: storedFeed.oldestRetainedAt,
           refreshScheduledCount: 0,
           pendingCount: 0,
           revalidateAfterMs: null,

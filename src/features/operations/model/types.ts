@@ -5,6 +5,8 @@ import type {
   DataRetentionCategory,
   DataRetentionPolicyStatusDto,
   DataRetentionPruneResponseDto,
+  DataRetentionRunSummaryDto,
+  DataRetentionStatusResponseDto,
   NaverCafeCheckNowResponseDto,
   NaverCafeOperationSourceDto,
   NaverCafeSourceCheckStatus,
@@ -32,6 +34,8 @@ export type AutoUpdateRunDetail = AutoUpdateRunDetailDto;
 export type AutoUpdateRunResult = AutoUpdateRunResultDto;
 export type DataRetentionPolicyStatus = DataRetentionPolicyStatusDto;
 export type DataRetentionPruneResponse = DataRetentionPruneResponseDto;
+export type DataRetentionRunSummary = DataRetentionRunSummaryDto;
+export type DataRetentionStatusResponse = DataRetentionStatusResponseDto;
 export type NaverCafeCheckNowResponse = NaverCafeCheckNowResponseDto;
 export type NaverCafeOperationSource = NaverCafeOperationSourceDto;
 export type OperationsIssue = OperationsIssueDto;
