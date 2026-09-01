@@ -83,6 +83,7 @@ export interface PublicCatalogPerformance {
     | "official_video";
   participation: PublicCatalogParticipationType;
   releasedAt: number | null;
+  tags: string[];
   participants: PublicCatalogParticipant[];
   sources: PublicCatalogSource[];
   primarySourceId: string | null;

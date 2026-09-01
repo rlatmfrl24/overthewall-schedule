@@ -53,6 +53,7 @@ const track = {
     releaseType: "official_video",
     participation: "solo",
     releasedAt: "2026-08-18T00:00:00.000Z",
+    tags: ["어쿠스틱"],
     participants: [],
     selectedSource: null,
     sourceCount: 1,

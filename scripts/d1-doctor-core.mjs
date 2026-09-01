@@ -86,6 +86,7 @@ export const REQUIRED_D1_COLUMNS = {
     "credit_order",
     "credit_name_snapshot",
   ],
+  music_performance_tags: ["performance_id", "tag_key", "display_name"],
   music_public_performance_sort_keys: [
     "performance_id",
     "song_id",

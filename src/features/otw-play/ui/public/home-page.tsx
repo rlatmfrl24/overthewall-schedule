@@ -16,6 +16,7 @@ import {
 import {
   OtwPlayPerformanceActions,
   OtwPlayPerformanceMetadata,
+  OtwPlayPerformanceTags,
   OtwPlaySongTags,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
@@ -136,6 +137,11 @@ export function OtwPlayHomePage() {
                       {featuredParticipants?.primaryNames || "참여자 정보 없음"}
                     </span>
                     <OtwPlayPerformanceMetadata performance={featured.representativePerformance} inverse />
+                  </div>
+                  <div className="mt-2">
+                    <OtwPlayPerformanceTags
+                      tags={featured.representativePerformance.tags}
+                    />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -333,14 +339,17 @@ function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
                     <div className="size-8 shrink-0 overflow-hidden bg-muted">
                       <SongImage song={song} />
                     </div>
-                    <Link
-                      to="/play/songs/$songSlug"
-                      params={{ songSlug: song.slug }}
-                      search={{ performance: undefined }}
-                      className="truncate font-semibold hover:underline"
-                    >
-                      {song.title}
-                    </Link>
+                    <div className="min-w-0">
+                      <Link
+                        to="/play/songs/$songSlug"
+                        params={{ songSlug: song.slug }}
+                        search={{ performance: undefined }}
+                        className="block truncate font-semibold hover:underline"
+                      >
+                        {song.title}
+                      </Link>
+                      <OtwPlayPerformanceTags tags={performance.tags} singleLine />
+                    </div>
                   </div>
                 </td>
                 <td className="hidden px-2 text-muted-foreground sm:table-cell">

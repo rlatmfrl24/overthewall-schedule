@@ -1523,3 +1523,19 @@ draft 변환은 선택 checkbox를 사용하지 않고 `status=ready` job 전체
 production 작업은 자동으로 수행하지 않는다. 명시적 승인 뒤 remote migration → 코드 배포 →
 관리자/member read-only smoke → 실제 신규 upload canary → `1/0` → 24시간 관측·rollback
 readback → `1/1` 순으로 진행한다.
+
+## 27. performance 태그 전달
+
+- additive migration `0070_otw-play-performance-tags.sql`은
+  `music_performance_tags`와 tag/performance lookup index를 추가한다.
+- shared admin/public DTO는 performance `tags`와 통합 등록·제안 승인·ingestion의
+  `performanceTags`를 전달한다. HTTP 입력은 최대 10개, 표시명 40자와 정규화 중복 금지를
+  곡 태그와 동일하게 검증한다.
+- D1 writer는 performance 생성·수정과 태그 교체를 event·catalog/read-model revision과
+  같은 batch에서 수행한다. public reader는 대표 목록 hydration, song detail,
+  performance detail에서 해당 performance 태그만 읽는다.
+- 관리자 UI는 통합 등록·가창 수정·제안 승인·playlist·`singing_clip` 검수에 독립 picker를
+  제공한다. 공개 UI는 곡 태그와 커버 영상 라벨을 별도 배지 계층으로 렌더링한다.
+- 검증은 parser unit, admin D1 create/update round-trip, public list/detail round-trip,
+  전체 migration validate/apply/FK doctor를 포함한다. remote migration과 배포는 별도
+  release 승인 전에는 수행하지 않는다.

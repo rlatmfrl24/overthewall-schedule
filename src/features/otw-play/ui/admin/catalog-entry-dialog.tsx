@@ -420,6 +420,7 @@ export function CatalogEntryDialog({
   const [coverOriginalTitle, setCoverOriginalTitle] = useState("");
   const [coverOriginalArtists, setCoverOriginalArtists] = useState<SelectedSubject[]>([]);
   const [songTags, setSongTags] = useState<string[]>([]);
+  const [performanceTags, setPerformanceTags] = useState<string[]>([]);
   const [participants, setParticipants] = useState<SelectedSubject[]>([]);
   const [channelOwners, setChannelOwners] = useState<SelectedSubject[]>([]);
   const [releaseType, setReleaseType] = useState<"official_mv" | "official_video">("official_video");
@@ -447,6 +448,7 @@ export function CatalogEntryDialog({
     setCoverOriginalTitle("");
     setCoverOriginalArtists([]);
     setSongTags([]);
+    setPerformanceTags([]);
     setParticipants([]);
     setChannelOwners([]);
     setReleaseType("official_video");
@@ -549,6 +551,7 @@ export function CatalogEntryDialog({
       relationType: videoKind,
       releaseType,
       participationType,
+      ...(performanceTags.length > 0 ? { performanceTags } : {}),
       publicationTarget,
       internalNote: internalNote.trim() || null,
     };
@@ -723,6 +726,17 @@ export function CatalogEntryDialog({
                   <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => setReleaseType(value as typeof releaseType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>
                   <div className="space-y-1.5"><Label>참여 형태</Label><Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
                 </div>
+                <div className="rounded-xl border bg-card p-4">
+                  <SongTagPicker
+                    tags={performanceTags}
+                    onChange={setPerformanceTags}
+                    label="커버 영상 라벨"
+                    placeholder="이 영상만의 라벨 입력"
+                    selectedLabel="선택한 커버 영상 라벨"
+                    description="이 커버 영상·가창 버전에만 적용됩니다. 곡의 장르·분류와 별도로 최대 10개까지 입력할 수 있습니다."
+                    recommendedTags={[]}
+                  />
+                </div>
                 <div className="space-y-1.5"><Label>내부 메모 (선택)</Label><Textarea value={internalNote} onChange={(event) => setInternalNote(event.target.value)} /></div>
               </>
             )}
@@ -757,7 +771,8 @@ export function CatalogEntryDialog({
                   </div>
                   <div><div className="text-sm font-semibold">참여자</div><div className="flex flex-wrap gap-1">{participants.map((participant) => <Badge key={participant.key} variant="secondary">{participant.label}</Badge>)}</div></div>
                   <div><div className="text-sm font-semibold">분류</div><div className="text-sm text-muted-foreground">{videoKind === "original" ? "오리지널곡" : "공식 커버곡"} · {releaseType === "official_mv" ? "공식 MV" : "공식 영상"} · {participationLabels[participationType]}</div></div>
-                  {songTags.length > 0 ? <div className="flex flex-wrap gap-1">{songTags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div> : null}
+                  {songTags.length > 0 ? <div><div className="text-sm font-semibold">곡 분류</div><div className="mt-1 flex flex-wrap gap-1">{songTags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div></div> : null}
+                  {performanceTags.length > 0 ? <div><div className="text-sm font-semibold">커버 영상 라벨</div><div className="mt-1 flex flex-wrap gap-1">{performanceTags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div> : null}
                   <div className="rounded-md bg-muted p-3 text-sm">임시 저장은 공개되지 않습니다. 게시는 승인·활성 채널에서만 가능하며 확인 후 즉시 공개 상태가 됩니다.</div>
                 </div>
               </div>

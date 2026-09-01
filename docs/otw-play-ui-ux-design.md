@@ -774,9 +774,12 @@ UI 아이디어 변경 시 다음 순서로 반영한다.
   입력 단계에서 명확히 안내한다. 5,000개 상한, 50개 batch 진행률과 candidate
   retention을 운영자가 이해할 수 있어야 한다.
 - candidate 선택은 ready 항목의 catalog draft 변환 범위에만 사용한다. 공통값 일괄
-  설정 form은 두지 않고, 행별 sticky 검수 form은 곡 연결·신규 생성, 원곡 가수,
-  신규 곡 라벨 추가·삭제, 가창자·역할과 공개 분류 편집에 집중한다. 실제 저장값과 필수 누락 미리보기는 desktop
-  table과 mobile card의 각 영상 행에 두고 form을 편집하는 동안 즉시 갱신한다.
+  설정 form은 두지 않고, 행별 보완은 목록 우측 panel이 아닌 독립 popup으로 연다.
+  popup은 제목·현재 순번·이전/다음 후보 이동이 있는 header, 독립 scroll body, 고정
+  저장·metadata·제외 action 영역으로 구성한다. 곡 연결·신규 생성, 원곡 가수, 신규 곡
+  라벨 추가·삭제, 가창자·역할과 공개 분류 편집에 집중하며 후보를 이동하거나 popup을
+  닫아도 작성 중 draft를 보존한다. 실제 저장값과 필수 누락 미리보기는 desktop table과
+  mobile card의 각 영상 행에 두고 form을 편집하는 동안 즉시 갱신한다.
 - 숨김·삭제 영상 일괄 제외는 현재 filter가 아니라 job 전체의 확인된 재생 불가 후보만
   처리한다고 confirm dialog에 명시한다. `unknown`과 정책 검토 후보는 유지하고, 처리 뒤
   성공·별도 확인 건수를 toast로 분리해 보여 준다.
@@ -873,3 +876,14 @@ iframe을 생성하지 않는다. 전체 화면에는 `role=dialog`, modal seman
 - 이전 generation 미처리 후보는 현재 inbox와 섞지 않고 별도 경고 목록으로 표시한다.
 - ingestion candidate/job은 metadata `retentionExpiresAt`과 남은 기간을 표시해 API-derived
   제목이 언제 refresh 또는 clear되는지 운영자가 판단할 수 있게 한다.
+
+### 20.4 곡 태그와 커버 영상 라벨
+
+- 곡 태그는 곡 제목 가까이에 1차 분류 배지로 표시하며 해당 곡의 모든 가창에 공통이다.
+- 커버 영상 라벨은 참여자와 performance metadata 가까이에 보조 배지로 표시하며 다른
+  커버·가창 버전으로 전파하지 않는다.
+- 관리자 통합 등록, 가창 편집, 제안 승인, playlist 후보와 `singing_clip` 검수는
+  `커버 영상 라벨` 입력을 제공한다. 곡 태그 입력과 설명·선택 영역을 분리하고 최종
+  미리보기에서도 `곡 분류`와 `커버 영상 라벨`을 별도 제목으로 보여 준다.
+- 공개 목록 대표 performance, 곡 상세의 각 performance, 현재 재생 metadata에서 같은
+  라벨을 표시한다. 라벨이 없으면 빈 배지나 대체 문구를 추가하지 않는다.

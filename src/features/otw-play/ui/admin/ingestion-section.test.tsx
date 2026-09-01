@@ -135,7 +135,10 @@ const startImportAndOpenEditor = async () => {
   await screen.findByText("Official Covers");
   fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
   await screen.findAllByText("Candidate Video");
-  fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
+  const editorTrigger = screen.getAllByRole("button", { name: "행별 보완" })[0]!;
+  editorTrigger.focus();
+  fireEvent.click(editorTrigger);
+  return editorTrigger;
 };
 
 describe("IngestionSection", () => {
@@ -307,7 +310,7 @@ describe("IngestionSection", () => {
     const preview = screen.getAllByRole("region", {
       name: "Candidate Video 변경 예정 항목",
     })[0]!;
-    expect(preview.querySelector("dl")?.className).toContain("2xl:grid-cols-6");
+    expect(preview.querySelector("dl")?.className).toContain("2xl:grid-cols-7");
     expect(within(preview).getByText("기존 곡 연결 · Existing Song")).toBeTruthy();
     expect(within(preview).getByText("기존 곡 정보 유지")).toBeTruthy();
     expect(within(preview).getByText("Singer · 메인 보컬")).toBeTruthy();
@@ -315,15 +318,13 @@ describe("IngestionSection", () => {
     expect(within(preview).getByText("저장 준비됨")).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
-    const reviewPanel = screen.getByRole("complementary", { name: "후보 행별 보완" });
-    expect(reviewPanel.className).toContain("xl:sticky");
-    expect(reviewPanel.firstElementChild?.className).toContain("xl:max-h-[calc(100dvh-2rem)]");
-    expect(screen.getAllByRole("button", { name: "편집 중" }).every(
-      (button) => button.getAttribute("aria-pressed") === "true",
-    )).toBe(true);
+    const reviewDialog = screen.getByRole("dialog", { name: "후보 행별 보완" });
+    expect(reviewDialog.className).toContain("max-h-[92dvh]");
+    expect(reviewDialog.className).toContain("lg:max-w-6xl");
+    expect(within(reviewDialog).getByText("검수 대상 1 / 1")).toBeTruthy();
     expect(screen.queryByLabelText("원곡 제목")).toBeNull();
     expect(screen.queryByText("OTW 오리지널곡")).toBeNull();
-    expect(within(reviewPanel).queryByRole("region", {
+    expect(within(reviewDialog).queryByRole("region", {
       name: "Candidate Video 변경 예정 항목",
     })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
@@ -352,6 +353,42 @@ describe("IngestionSection", () => {
     expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
       description: expect.stringContaining("공개 게시로 전환되지는 않았습니다"),
     }));
+  });
+
+  it("opens row completion in a modal, preserves drafts, and restores trigger focus", async () => {
+    itemsHookMock.mockImplementation((jobId: string | null) => ({
+      data: jobId ? { items: [candidate(), candidate(1)], nextCursor: null } : undefined,
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(async () => undefined),
+    }));
+
+    render(
+      createElement(IngestionSection, { catalog, onOpenCatalog: vi.fn() }),
+      { wrapper: createQueryWrapper() },
+    );
+    const editorTrigger = await startImportAndOpenEditor();
+
+    let reviewDialog = screen.getByRole("dialog", { name: "후보 행별 보완" });
+    expect(within(reviewDialog).getByText("Candidate Video")).toBeTruthy();
+    fireEvent.change(within(reviewDialog).getByLabelText("내부 메모"), {
+      target: { value: "첫 후보 확인 중" },
+    });
+
+    fireEvent.click(within(reviewDialog).getByRole("button", { name: "다음 후보" }));
+    reviewDialog = screen.getByRole("dialog", { name: "후보 행별 보완" });
+    expect(within(reviewDialog).getByText("Candidate 1")).toBeTruthy();
+    expect(within(reviewDialog).getByText("검수 대상 2 / 2")).toBeTruthy();
+
+    fireEvent.click(within(reviewDialog).getByRole("button", { name: "이전 후보" }));
+    reviewDialog = screen.getByRole("dialog", { name: "후보 행별 보완" });
+    expect((within(reviewDialog).getByLabelText("내부 메모") as HTMLInputElement).value)
+      .toBe("첫 후보 확인 중");
+
+    fireEvent.click(within(reviewDialog).getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog", { name: "후보 행별 보완" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(editorTrigger));
   });
 
   it("keeps previously imported playlists visible and reopens their review job", async () => {
@@ -503,6 +540,7 @@ describe("IngestionSection", () => {
     fireEvent.click(screen.getByRole("button", { name: /외부 인물로 추가/ }));
     expect(screen.getByLabelText("Guest Vocal 참여 역할")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
     const preview = screen.getAllByRole("region", {
       name: "Candidate Video 변경 예정 항목",
     })[0]!;
@@ -513,6 +551,7 @@ describe("IngestionSection", () => {
       "Singer · 메인 보컬, Guest Vocal · 메인 보컬",
     )).toBeTruthy();
 
+    fireEvent.click(screen.getAllByRole("button", { name: "행별 보완" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
       "youtube:AAAAAAAAAAA",
@@ -650,7 +689,12 @@ describe("IngestionSection", () => {
     }));
     const labelInput = screen.getByLabelText("장르(분류)");
     fireEvent.change(labelInput, { target: { value: "라이브" } });
-    fireEvent.click(screen.getByRole("button", { name: /^추가$/ }));
+    fireEvent.click(
+      within(labelInput.parentElement?.parentElement as HTMLElement).getByRole(
+        "button",
+        { name: /^추가$/ },
+      ),
+    );
     fireEvent.click(screen.getByRole("button", { name: "ready로 저장" }));
 
     await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledWith(
@@ -969,6 +1013,9 @@ describe("IngestionSection", () => {
       variant: "info",
       description: "다른 검수 변경이 먼저 저장되었습니다. 입력값은 유지한 채 최신 상태를 불러왔습니다.",
     }));
+    const closeButton = screen.getByRole("button", { name: "닫기" });
+    await waitFor(() => expect(closeButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(closeButton);
     const preview = screen.getAllByRole("region", {
       name: "Candidate Video 변경 예정 항목",
     })[0]!;

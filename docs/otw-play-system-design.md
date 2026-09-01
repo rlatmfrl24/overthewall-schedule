@@ -632,6 +632,7 @@ UUID를 미리 만들면 parent/child ID를 승인 batch 전에 확정할 수 �
 | `music_media_sources`            | provider 영상 ID, channel, metadata, 가용성, `last_checked_at`, `next_check_at`                                               | YouTube 영상 자체                             |
 | `music_media_source_relations`   | `source_id`, `related_source_id`, `relation_type`                                                                             | 방향이 있는 후속 원본·키리누키·대체 영상 연결 |
 | `music_performances`             | song, 분류 3축, 공개·품질 상태, 공개일, version                                                                               | 특정 곡의 한 공식 가창 버전                   |
+| `music_performance_tags`         | `performance_id`, 정규화 `tag_key`, `display_name`                                                                            | 특정 커버·가창 버전에만 적용되는 라벨         |
 | `music_performance_participants` | performance, entity, 역할, 순서, credit snapshot                                                                              | 실제 가창 참여자                              |
 | `music_performance_sources`      | performance, source, 구간, 역할, 우선순위, primary                                                                            | 가창과 재생 소스 연결                         |
 
@@ -1816,3 +1817,15 @@ request/delivery ID와 결과 code만 남기며 feed 원문, 서명, URL query�
 두 migration은 기존 파일을 수정하지 않는 순차 rebuild다. 복사 전에 invalid row를 scan하고,
 inbound child backup → parent/child rebuild → data copy → index/FK 재생성 →
 `PRAGMA foreign_key_check` 순서로 검증한다. production 적용은 코드 배포와 flag 변경과 별도다.
+
+### 21.5 performance 태그 권위
+
+DEC-074에 따라 `music_performance_tags(performance_id, tag_key, display_name)`를
+performance 소유 child로 둔다. `(performance_id, tag_key)`가 한 영상 안의 정규화 중복을
+막고 performance 삭제 시 cascade한다. 표시명은 40자, 한 performance는 최대 10개이며
+vocabulary는 enum으로 고정하지 않는다. 통합 등록·가창 생성/수정·제안 승인·ingestion
+변환은 performance 본문과 태그를 같은 D1 batch에 저장한다.
+
+곡의 `music_song_tags`와 performance 태그 사이에는 복사·상속 규칙이 없다. admin/public
+read model은 song `tags`와 performance `tags`를 각각 반환하며, 공개 목록 hydration과
+song/performance detail 조회도 published performance의 태그만 해당 performance에 결합한다.

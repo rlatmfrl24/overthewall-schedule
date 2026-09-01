@@ -165,6 +165,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM music_search_terms"),
     db.prepare("DELETE FROM music_performance_sources"),
     db.prepare("DELETE FROM music_performance_participants"),
+    db.prepare("DELETE FROM music_performance_tags"),
     db.prepare("DELETE FROM music_media_source_relations"),
     db.prepare("DELETE FROM music_channel_entities"),
     db.prepare("DELETE FROM music_song_original_artists"),
@@ -303,6 +304,7 @@ describe("D1AdminCatalogRepository", () => {
         relationType: "cover",
         releaseType: "official_video",
         participationType: "solo",
+        performanceTags: ["어쿠스틱", "2026 버전"],
         publicationTarget: "draft",
       },
       video,
@@ -715,6 +717,7 @@ describe("D1AdminCatalogRepository", () => {
         relationType: "cover",
         releaseType: "official_video",
         participationType: "solo",
+        performanceTags: ["어쿠스틱", "2026 버전"],
         publicationTarget: "draft",
       },
       video,
@@ -763,6 +766,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(result.data.performance).toMatchObject({
       relationType: "cover",
       publicationStatus: "draft",
+      tags: ["2026 버전", "어쿠스틱"],
     });
 
     const originalVideo = {
@@ -2426,6 +2430,7 @@ describe("D1AdminCatalogRepository", () => {
         qualityStatus: "needs_update",
         releasedAt: NOW + 60_000,
         internalNote: "all fields corrected",
+        tags: ["라이브", "듀엣 버전"],
         participants: [
           {
             subject: { kind: "member", memberUid: 901 },
@@ -2491,6 +2496,7 @@ describe("D1AdminCatalogRepository", () => {
     expect(updated.data.qualityStatus).toBe("needs_update");
     expect(updated.data.releasedAt).toBe(NOW + 60_000);
     expect(updated.data.internalNote).toBe("all fields corrected");
+    expect(updated.data.tags).toEqual(["듀엣 버전", "라이브"]);
     expect(updated.data.participants).toEqual([
       expect.objectContaining({
         entityId: memberEntityId,

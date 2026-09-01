@@ -123,7 +123,7 @@ const parseSongCore = (value: JsonObject) => {
   );
   const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
   const artists = parseEntityReferences(value.originalArtists, "artist");
-  const tags = parseSongTags(value.tags);
+  const tags = parseCatalogTags(value.tags);
   const aliases =
     Array.isArray(value.aliases) && value.aliases.length <= 50
       ? value.aliases.map((raw) => {
@@ -168,7 +168,7 @@ const parseSongCore = (value: JsonObject) => {
   } satisfies OtwPlayAdminCreateSongRequest;
 };
 
-const parseSongTags = (value: unknown): string[] | null => {
+const parseCatalogTags = (value: unknown): string[] | null => {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 10) return null;
   const tags = value.map((item) => nonEmptyString(item, 40));
@@ -206,6 +206,8 @@ const parsePerformanceCore = (value: JsonObject) => {
   const releasedAt =
     value.releasedAt === null ? null : integer(value.releasedAt);
   const participants = parseEntityReferences(value.participants, "participant");
+  const tags =
+    value.tags === undefined ? undefined : parseCatalogTags(value.tags);
   const rawSources = Array.isArray(value.sources)
     ? value.sources
     : isObject(value.source)
@@ -273,6 +275,7 @@ const parsePerformanceCore = (value: JsonObject) => {
     !qualityStatus ||
     (value.releasedAt !== null && releasedAt === null) ||
     !participants ||
+    tags === null ||
     !validSources ||
     !parsedSources ||
     (releaseType === "broadcast" &&
@@ -289,6 +292,7 @@ const parsePerformanceCore = (value: JsonObject) => {
     qualityStatus,
     releasedAt,
     internalNote: nullableString(value.internalNote, 2_000),
+    tags,
     participants,
     sources: parsedSources.sort((left, right) => left.priority - right.priority),
   } satisfies OtwPlayAdminCreatePerformanceRequest;
@@ -459,6 +463,7 @@ export const parseApproveProposal = (
     relationType: "cover",
     releaseType: value.releaseType,
     participationType: value.participationType,
+    performanceTags: value.performanceTags,
     publicationTarget: "published",
   });
   if (!parsed.ok) return fail(parsed.fields);
@@ -475,6 +480,7 @@ export const parseApproveProposal = (
       channel: parsed.value.channel,
       releaseType: parsed.value.releaseType,
       participationType: parsed.value.participationType,
+      performanceTags: parsed.value.performanceTags,
       singingCreditConfirmed: true,
       publish: true,
     },
@@ -539,7 +545,7 @@ export const parseUpdateSong = (
   );
   const originalReleaseDate = nullableString(value.originalReleaseDate, 10);
   const tags =
-    value.tags === undefined ? undefined : parseSongTags(value.tags);
+    value.tags === undefined ? undefined : parseCatalogTags(value.tags);
   const aliases =
     Array.isArray(value.aliases) && value.aliases.length <= 50
       ? value.aliases.map((raw) => {
@@ -641,6 +647,8 @@ export const parseUpdatePerformance = (
   );
   const releasedAt =
     value.releasedAt === null ? null : integer(value.releasedAt);
+  const tags =
+    value.tags === undefined ? undefined : parseCatalogTags(value.tags);
   const participants = Array.isArray(value.participants)
     ? value.participants.map((raw) => {
         if (!isObject(raw)) return null;
@@ -709,6 +717,7 @@ export const parseUpdatePerformance = (
     !releaseType ||
     !participationType ||
     !qualityStatus ||
+    tags === null ||
     (value.releasedAt !== null && releasedAt === null) ||
     !parsedParticipants ||
     parsedParticipants.length === 0 ||
@@ -735,6 +744,7 @@ export const parseUpdatePerformance = (
       qualityStatus,
       releasedAt,
       internalNote: nullableString(value.internalNote, 2_000),
+      ...(tags === undefined ? {} : { tags }),
       participants: parsedParticipants.sort(
         (left, right) => left.creditOrder - right.creditOrder,
       ),
@@ -800,13 +810,17 @@ export const parseCreateCatalogEntry = (
     "published",
   ] as const);
   const internalNote = nullableString(value.internalNote, 2_000);
+  const performanceTags =
+    value.performanceTags === undefined
+      ? undefined
+      : parseCatalogTags(value.performanceTags);
 
   let song: OtwPlayAdminCreateCatalogEntryRequest["song"] | null = null;
   if (value.song.kind === "existing") {
     const songId = nonEmptyString(value.song.songId, 128);
     if (songId) song = { kind: "existing", songId };
   } else if (value.song.kind === "from_video") {
-    const tags = parseSongTags(value.song.tags);
+    const tags = parseCatalogTags(value.song.tags);
     if (tags) song = tags.length > 0 ? { kind: "from_video", tags } : { kind: "from_video" };
   } else if (value.song.kind === "create") {
     const title = nonEmptyString(value.song.title, 300);
@@ -815,7 +829,7 @@ export const parseCreateCatalogEntry = (
       OTW_PLAY_DATE_PRECISIONS,
     );
     const releaseDate = nullableString(value.song.originalReleaseDate, 10);
-    const tags = parseSongTags(value.song.tags);
+    const tags = parseCatalogTags(value.song.tags);
     const aliases = Array.isArray(value.song.aliases) && value.song.aliases.length <= 50
       ? value.song.aliases.map((raw) => {
           if (!isObject(raw)) return null;
@@ -950,6 +964,7 @@ export const parseCreateCatalogEntry = (
     !releaseType ||
     (releaseType === "broadcast" && publicationTarget !== "draft") ||
     !participationType ||
+    performanceTags === null ||
     !publicationTarget ||
     (value.internalNote !== undefined && value.internalNote !== null && internalNote === null) ||
     (publicationTarget === "published" && !hasSingingCredit)
@@ -972,6 +987,7 @@ export const parseCreateCatalogEntry = (
       relationType,
       releaseType,
       participationType,
+      ...(performanceTags === undefined ? {} : { performanceTags }),
       publicationTarget,
       internalNote,
     },

@@ -396,6 +396,7 @@ export interface OtwPlayIngestionItemFilters {
 
 export interface OtwPlayIngestionReviewInput {
   song: OtwPlayAdminCatalogSongDecision;
+  performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];
   relationType: OtwPlayRelationType;
   releaseType: Extract<
@@ -735,6 +736,7 @@ export interface OtwPlayPublicSourceDto {
 
 export interface OtwPlayPublicPerformanceSummaryDto {
   id: string;
+  tags: string[];
   relation: OtwPlayRelationType;
   releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
   participation: OtwPlayParticipationType;
@@ -1195,6 +1197,7 @@ export type OtwPlayAdminSourceRecheckResponse =
 export interface OtwPlayAdminPerformanceDto {
   id: string;
   songId: string;
+  tags: string[];
   relationType: OtwPlayRelationType;
   releaseType: OtwPlayReleaseType;
   participationType: OtwPlayParticipationType;
@@ -1362,6 +1365,7 @@ export interface OtwPlayAdminCreateCatalogEntryRequest {
   startSeconds: number;
   endSeconds?: number | null;
   song: OtwPlayAdminCatalogSongDecision;
+  performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];
   channel: OtwPlayAdminCatalogChannelDecision;
   relationType: OtwPlayRelationType;
@@ -1425,6 +1429,7 @@ export interface OtwPlayAdminPerformanceSourceInput {
 
 export interface OtwPlayAdminPerformanceWriteInput {
   songId: string;
+  tags?: string[];
   relationType: OtwPlayRelationType;
   releaseType: OtwPlayReleaseType;
   participationType: OtwPlayParticipationType;
@@ -1465,6 +1470,7 @@ export interface OtwPlayAdminApproveProposalRequest
   extends OtwPlayAdminExpectedVersionRequest {
   expectedCatalogRevision: number;
   song: OtwPlayAdminCatalogSongDecision;
+  performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];
   channel: OtwPlayAdminCatalogChannelDecision;
   releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;

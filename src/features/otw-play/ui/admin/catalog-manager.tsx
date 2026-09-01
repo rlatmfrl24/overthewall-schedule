@@ -529,6 +529,7 @@ function ProposalSection({
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewSongId, setReviewSongId] = useState("__new");
   const [reviewSongTags, setReviewSongTags] = useState<string[]>([]);
+  const [reviewPerformanceTags, setReviewPerformanceTags] = useState<string[]>([]);
   const [reviewParticipants, setReviewParticipants] = useState<ReviewParticipant[]>([]);
   const [reviewArtists, setReviewArtists] = useState<ReviewIdentity[]>([]);
   const [reviewChannelOwners, setReviewChannelOwners] = useState<ReviewChannelOwner[]>([]);
@@ -554,6 +555,7 @@ function ProposalSection({
       setReviewTitle("");
       setReviewSongId("__new");
       setReviewSongTags([]);
+      setReviewPerformanceTags([]);
       setReviewParticipants([]);
       setReviewArtists([]);
       setReviewChannelOwners([]);
@@ -563,6 +565,7 @@ function ProposalSection({
     setReviewTitle(selected.submittedTitle);
     setReviewSongId(selected.suggestedSongId ?? "__new");
     setReviewSongTags(selected.suggestedSongId ? [] : selected.tags);
+    setReviewPerformanceTags([]);
     setReviewParticipants(
       selected.participants.map((participant) => ({
         rowKey: `proposal-participant-${participant.creditOrder}`,
@@ -709,6 +712,9 @@ function ProposalSection({
         channel,
         releaseType: reviewReleaseType,
         participationType: reviewParticipationType,
+        ...(reviewPerformanceTags.length > 0
+          ? { performanceTags: reviewPerformanceTags }
+          : {}),
         singingCreditConfirmed: true,
         publish: true,
       }),
@@ -1208,6 +1214,18 @@ function ProposalSection({
                     </Select>
                   </Field>
                 </div>
+                <SongTagPicker
+                  tags={reviewPerformanceTags}
+                  onChange={(tags) => {
+                    setReviewPerformanceTags(tags);
+                    setSingingCreditConfirmed(false);
+                  }}
+                  label="커버 영상 라벨"
+                  placeholder="이 영상만의 라벨 입력"
+                  selectedLabel="선택한 커버 영상 라벨"
+                  description="승인할 커버 영상에만 적용되며 곡 태그와 별도로 저장됩니다."
+                  recommendedTags={[]}
+                />
               </div>
               <label className="flex items-start gap-2 rounded-lg border bg-background p-3">
                 <Checkbox

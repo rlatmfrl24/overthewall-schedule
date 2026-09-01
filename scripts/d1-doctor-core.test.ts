@@ -19,6 +19,7 @@ const MUSIC_TABLES = [
   "music_media_source_relations",
   "music_performances",
   "music_performance_participants",
+  "music_performance_tags",
   "music_public_performance_sort_keys",
   "music_performance_sources",
   "music_cover_proposals",

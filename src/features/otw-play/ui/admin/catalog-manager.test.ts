@@ -1272,6 +1272,15 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.change(within(dialog).getByLabelText("내부 메모"), {
       target: { value: "전체 정보 수정" },
     });
+    const performanceTagInput = within(dialog).getByLabelText("커버 영상 라벨");
+    fireEvent.change(performanceTagInput, {
+      target: { value: "어쿠스틱" },
+    });
+    fireEvent.click(
+      within(
+        performanceTagInput.parentElement?.parentElement as HTMLElement,
+      ).getByRole("button", { name: "추가" }),
+    );
 
     fireEvent.click(within(dialog).getByLabelText("연결된 곡"));
     fireEvent.click(await screen.findByRole("option", { name: "변경할 연결 곡" }));
@@ -1300,6 +1309,7 @@ describe("OtwPlayCatalogManager", () => {
       qualityStatus: "needs_update",
       releasedAt: new Date("2026-08-12T12:30").getTime(),
       internalNote: "전체 정보 수정",
+      tags: ["어쿠스틱"],
       participants: [
         {
           subject: { kind: "member", memberUid: 1 },

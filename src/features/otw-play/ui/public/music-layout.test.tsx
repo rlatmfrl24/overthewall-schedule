@@ -33,6 +33,9 @@ vi.mock("./catalog-components", () => ({
     <span>{participant.displayName}</span>
   ),
   OtwPlaySongTags: ({ tags }: { tags: string[] }) => <span>{tags.join(", ")}</span>,
+  OtwPlayPerformanceTags: ({ tags }: { tags: string[] }) => (
+    <span aria-label="커버 영상 라벨">{tags.join(", ")}</span>
+  ),
   OtwPlayPerformanceMetadata: () => <span>가창 분류</span>,
   relationLabel: { original: "오리지널", cover: "공식 커버" },
 }));
@@ -56,6 +59,7 @@ const song: OtwPlayPublicSongSummaryDto = {
     releaseType: "official_video",
     participation: "duet",
     releasedAt: "2026-08-18T00:00:00.000Z",
+    tags: ["라이브"],
     participants: [
       {
         entityId: "member-1",
@@ -129,6 +133,8 @@ describe("OTW Play discover layout", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    expect(screen.getAllByLabelText("커버 영상 라벨").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("라이브").length).toBeGreaterThan(0);
     const heroImageFrame = screen
       .getByRole("heading", { name: "첫 번째 노래" })
       .closest("article")

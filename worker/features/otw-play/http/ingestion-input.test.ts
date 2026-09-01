@@ -84,6 +84,7 @@ describe("OTW Play ingestion input", () => {
       relationType: "cover",
       releaseType: "official_video",
       participationType: "solo",
+      performanceTags: ["방송 클립"],
       internalNote: null,
     };
     expect(parseUpdateIngestionCandidate({

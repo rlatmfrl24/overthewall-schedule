@@ -447,6 +447,7 @@ describe("OTW Play public catalog HTTP handler", () => {
             releaseType: "official_video",
             participation: "group",
             releasedAt: null,
+            tags: ["단체 버전"],
             participants: [
               {
                 id: "entity-group",
