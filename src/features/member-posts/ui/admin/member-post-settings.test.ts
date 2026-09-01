@@ -304,7 +304,8 @@ describe("MemberPostSettingsManager", () => {
       screen.getByRole("tab", { name: /X 수집/ }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByText("2시간마다")).toBeTruthy();
-    expect(screen.getByText(/마지막 실행:/)).toBeTruthy();
+    expect(screen.getByText("X 수집 및 링크 설정")).toBeTruthy();
+    expect(screen.queryByText("수집 실행")).toBeNull();
     expect(screen.getByText("X 게시글 운영")).toBeTruthy();
     expect(screen.getByText("수집 설정")).toBeTruthy();
     expect(screen.getByText("오늘 예산 사용")).toBeTruthy();
@@ -364,7 +365,7 @@ describe("MemberPostSettingsManager", () => {
     if (!cafeDiagnosticsSummary) throw new Error("Cafe diagnostics summary is missing");
     fireEvent.click(cafeDiagnosticsSummary);
     expect(cafeDiagnostics?.open).toBe(true);
-    expect(screen.queryByText("X 백그라운드 수집")).toBeNull();
+    expect(screen.queryByText("X 수집 및 링크 설정")).toBeNull();
     expect(useNaverCafePostsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ admin: true, enabled: true, size: 10 }),
     );

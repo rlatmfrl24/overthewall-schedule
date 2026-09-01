@@ -11,7 +11,6 @@ import {
   Gauge,
   Loader2,
   LockKeyhole,
-  MessageSquareText,
   RefreshCw,
   Settings2,
 } from "lucide-react";
@@ -97,19 +96,6 @@ const X_COLLECTION_INTERVAL_OPTIONS = X_COLLECTION_INTERVAL_HOURS.map(
     label: `${value}시간마다`,
   }),
 );
-
-const formatCollectionLastRun = (value: string | null | undefined) => {
-  if (!value) return "아직 없음";
-  const parsed = Number.parseInt(value, 10);
-  const date = Number.isFinite(parsed) ? new Date(parsed) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "확인 불가";
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
 
 const getCollectionStatusLabel = (status: XCollectionRunResult["status"]) => {
   if (status === "success") return "완료";
@@ -976,10 +962,10 @@ export function MemberPostSettingsManager({
                 <div className="space-y-1">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <DatabaseZap className="h-4 w-4 text-muted-foreground" />
-                    X 백그라운드 수집
+                    X 수집 및 링크 설정
                   </CardTitle>
                   <CardDescription>
-                    방문자 요청과 X API 호출을 분리하고 D1 저장 데이터만 표시합니다.
+                    자동 수집과 링크 미리보기의 X API 비용 영향 옵션을 함께 관리합니다.
                   </CardDescription>
                 </div>
                 <Badge variant="outline" className="w-fit">
@@ -1082,55 +1068,7 @@ export function MemberPostSettingsManager({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label className="text-sm font-semibold">수집 실행</Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    마지막 실행:{" "}
-                    <span className="font-medium text-foreground">
-                      {formatCollectionLastRun(settings?.x_collection_last_run)}
-                    </span>
-                  </p>
-                  {collectionRunQuery.data?.jobType === "x_collection" ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <Badge>{collectionRunQuery.data.status}</Badge>
-                      <span>
-                        완료 {collectionRunQuery.data.progress.succeeded}/
-                        {collectionRunQuery.data.progress.total}
-                      </span>
-                      <span>실패 {collectionRunQuery.data.progress.failed}</span>
-                      <span>대기 {collectionRunQuery.data.progress.queued}</span>
-                    </div>
-                  ) : collectionRun?.jobType === "x_collection" ? (
-                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      실행 상태를 확인하고 있습니다.
-                    </div>
-                  ) : null}
-                </div>
-                <Badge variant="outline" className="w-fit">수동 실행은 상단에서 시작합니다.</Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <MessageSquareText className="h-4 w-4 text-muted-foreground" />
-                    X 게시글 링크 프리뷰
-                  </CardTitle>
-                  <CardDescription>
-                    링크된 X 게시글의 작성자, 본문과 미디어를 추가 API 호출로 가져옵니다.
-                  </CardDescription>
-                </div>
-                <Badge variant="outline" className="w-fit">
-                  비용 영향 옵션
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
+              <div className="border-t pt-3">
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
@@ -1158,6 +1096,7 @@ export function MemberPostSettingsManager({
                     disabled={!settings || isSaving}
                   />
                 </div>
+              </div>
               </div>
             </CardContent>
           </Card>
