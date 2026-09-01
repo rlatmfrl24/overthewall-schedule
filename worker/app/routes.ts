@@ -1055,6 +1055,27 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleXPosts,
   },
   {
+    id: "x-posts.history-posts",
+    owner: "x-posts",
+    path: apiRoutes.xPosts.historyPosts.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleXPosts,
+  },
+  {
+    id: "x-posts.history-summary",
+    owner: "x-posts",
+    path: apiRoutes.xPosts.historySummary.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleXPosts,
+  },
+  {
+    id: "x-posts.history-health",
+    owner: "x-posts",
+    path: apiRoutes.xPosts.historyHealth.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleXPosts,
+  },
+  {
     id: "naver-cafe.config",
     owner: "naver-cafe",
     path: apiRoutes.naverCafe.config.pattern,

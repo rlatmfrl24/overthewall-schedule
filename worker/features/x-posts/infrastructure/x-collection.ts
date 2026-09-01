@@ -14,7 +14,9 @@ import type { Env } from "../../../platform/types";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
-const X_COLLECTION_MAX_RESULTS = 5;
+// Background collection uses a bounded 25-post page. Public feed limits stay
+// independent (5..20) and always read stored D1 content.
+const X_COLLECTION_MAX_RESULTS = 25;
 
 type XCollectionSource = "manual" | "scheduled";
 

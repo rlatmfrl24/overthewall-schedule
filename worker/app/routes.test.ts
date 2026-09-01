@@ -638,6 +638,24 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [MEMBER_POLICY_GET],
   },
   {
+    id: "x-posts.history-posts",
+    owner: "x-posts",
+    path: "/api/x/history/posts",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "x-posts.history-summary",
+    owner: "x-posts",
+    path: "/api/x/history/summary",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "x-posts.history-health",
+    owner: "x-posts",
+    path: "/api/x/history/health",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "naver-cafe.config",
     owner: "naver-cafe",
     path: "/api/naver-cafe/config",

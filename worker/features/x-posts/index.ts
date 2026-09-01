@@ -30,5 +30,13 @@ export {
 } from "./infrastructure/x-collection";
 export {
   redactStoredXPosts,
+  fetchXPostMetricsByIds,
   type XPostRedactionReason,
 } from "./infrastructure/x-api";
+export {
+  readXHistoryHealth,
+  readXHistoryPosts,
+  readXHistorySummary,
+  runXCompliance,
+  runXMetricRefresh,
+} from "./infrastructure/x-history";

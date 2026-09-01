@@ -323,6 +323,9 @@ export const apiRoutes = {
       (id: string) =>
         `/api/x/posts/${encodeURIComponent(id)}/context` as const,
     ),
+    historyPosts: staticRoute("/api/x/history/posts"),
+    historySummary: staticRoute("/api/x/history/summary"),
+    historyHealth: staticRoute("/api/x/history/health"),
     runCollectionNow: staticRoute("/api/settings/x-collection/run-now"),
   },
   youtube: {

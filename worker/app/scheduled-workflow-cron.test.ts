@@ -17,6 +17,8 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 33))).toEqual([
       "source_health",
+      "x_metrics_refresh",
+      "x_compliance",
     ]);
   });
 

@@ -17,6 +17,7 @@ Cron bridge는 배포 직후에도 Workflow를 시작하지만 아래 D1 flag가
 
 - `scheduled_v2_naver_cafe_collection_enabled`
 - `scheduled_v2_x_collection_enabled`
+- `scheduled_v2_youtube_feed_collection_enabled`
 - `scheduled_v2_websub_maintenance_enabled`
 - `scheduled_v2_ingestion_recovery_enabled`
 - `scheduled_v2_source_health_enabled`
@@ -25,7 +26,10 @@ Cron bridge는 배포 직후에도 Workflow를 시작하지만 아래 D1 flag가
 - `scheduled_v2_schedule_auto_update_enabled`
 - `scheduled_v2_retention_prune_enabled`
 
-Naver → X → WebSub/ingestion → health/reconcile → auto-update → retention 순서로 활성화한다. 동일 job의 legacy 실행은 해당 flag 활성화 전에 중단해야 한다. 공개 YouTube 캐시는 이 플랫폼에 등록하지 않고 HTTP Worker의 수요 기반 SWR만 사용한다.
+Naver → X → 일반 YouTube feed → WebSub/ingestion → health/reconcile → auto-update →
+retention 순서로 활성화한다. 동일 job의 legacy 실행은 해당 flag 활성화 전에
+중단해야 한다. 일반 YouTube 신규 업로드 feed는 이 플랫폼이 관리하고, 그 밖의
+YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 
 ## 보수적 실행 경계
 
@@ -33,7 +37,7 @@ Naver → X → WebSub/ingestion → health/reconcile → auto-update → retent
 - X는 4 handle, Naver Cafe는 4 source 단위이며 post/source-check를 bulk SQL로 기록한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 WebSub 즉시 알림을 1차 경로로 사용하고 channel reconcile은 누락 복구용이다. scheduler는 매시 23분에 due 여부만 확인하며, 채널별 실제 reconcile 간격은 6시간이다.
-- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile과 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
 - 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·WebSub maintenance·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. 실시간 ingestion과 WebSub delivery Queue는 기존 concurrency 1/2를 유지한다.
 - X Workflow는 2시간, auto-update Workflow는 1시간마다 eligibility를 점검한다. 실제 실행 여부는 각각 `x_collection_interval_hours`와 `auto_update_interval_hours` 및 마지막 실행 시각으로 판정하므로 더 긴 관리 설정을 덮어쓰지 않는다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
@@ -50,6 +54,55 @@ Naver → X → WebSub/ingestion → health/reconcile → auto-update → retent
 - 고정 recovery item의 D1 write 예약 추정: 하루 38,400 rows → 9,600 rows(75% 감소)
 
 위 수치는 실제 due 채널·source와 X/Naver/auto-update 실행량을 제외한 예약 시작 및 고정 recovery item 기준이다.
+
+## 2026-09-01 정규 수집 안정화 Closeout
+
+### 기준선
+
+- 구현 PR: [#96](https://github.com/rlatmfrl24/overthewall-schedule/pull/96)
+  merge `66a62ec91d61226717b6d979f6b6c784b9a370d9`,
+  [#97](https://github.com/rlatmfrl24/overthewall-schedule/pull/97)
+  merge `c6531599f02ff35b34d51ca38a4f39e5d5a28796`
+- production Worker version:
+  `99c91fd7-7a37-4e89-a61e-9dc66383b80e`
+- production D1 readback: `2026-09-01T09:36:46Z`
+- D1 size: 15,331,328 bytes(약 15.33MB)
+- open PR: 0
+
+수치는 위 시점의 운영 snapshot이며 이후 정상 수집으로 변할 수 있다. 다음 표는
+구현 완료와 향후 설계를 섞지 않는다.
+
+| 영역                   | 판정             | production 근거                                                                                                                                    | 남은 확인·후속                                                                                                                 |
+| ---------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 공용 scheduler·rollout | 완료             | X, Naver, 일반 YouTube, WebSub maintenance, ingestion recovery, source health, channel/recent reconcile, auto-update, retention flag가 모두 `true` | X Compliance·snapshot job 코드는 추가됐으나 X use-case 승인과 migration 전 feature flag는 `false`로 유지 |
+| X 신규 피드            | 부분 완료        | 8개 source·160개 post, watermark 8/8, continuation 0, scheduled run 성공 6·skip 9                                                                  | 기존 source의 `last_attempt_at`·`last_success_at` 8/8 NULL. 실제 source refresh 뒤 row-level readback 필요                     |
+| X 공개 read            | 완료             | 공개 member-post GET 전후 `x_api_usage_events` 1,604건·max ID 7,161·추정비용 합계 14,140,000 micros로 동일                                         | 공개 archive는 추가하지 않음                                                                                                   |
+| X 장기 저장·redaction  | 완료             | X post 일반 TTL 제외, tombstone·관리자 redaction·재수집 복구 방지 구현                                                                             | facts·snapshot·Compliance 구현은 추가됐으며 운영 활성화 전 migration·승인 gate가 남음 |
+| 네이버                 | 완료             | 8개 active source 모두 초기화·watermark, continuation 0, post 360건, scheduled run 성공 14·skip 13                                                 | 내부 Endpoint 변경 감시와 관리자 킬스위치 유지                                                                                 |
+| 일반 YouTube           | 부분 완료        | 14개 source(공식 8·키리누키 6) 모두 초기화·watermark, continuation 0, 영상 119건(공식 20·키리누키 99), run 성공 4                                  | `partial` 1건은 total/completed 1/1·failed 0·`last_error=NULL`이므로 결과 정규화 readback gap으로 추적                         |
+| OTW Play WebSub        | 완료             | monitor 1·active 1, subscription active 1, `verified_at=2026-09-01T05:14:09Z`, lease `2026-09-06T05:14:09Z`, 오류 없음                             | pause·승인 철회 시 unsubscribe 계약 유지                                                                                       |
+| OTW Play 후보 흐름     | 부분 완료        | WebSub delivery 1건이 `2026-08-26T07:08:58Z`에 `completed`, `singing_clip` 후보 2건이 `needs_input`                                                | 관리자 검수→비공개 draft 변환 production canary 미완료                                                                         |
+| OTW Play 공개          | 완료된 의도 상태 | catalog revision 177, `public_read_enabled=0`, `navigation_visible=0`                                                                              | 이 Closeout에서 공개 flag를 변경하지 않음                                                                                      |
+| 운영 로그·D1           | 완료             | retention run 성공 3, post는 TTL 제외하고 상세 운영 로그를 우선 정리하는 정책 반영                                                                 | D1 60/75/85% 경고와 로그 증가율 지속 관찰                                                                                      |
+
+### scheduled run snapshot
+
+| Job                       | 결과                     |
+| ------------------------- | ------------------------ |
+| `channel_reconcile`       | succeeded 4, skipped 23  |
+| `ingestion_recovery`      | succeeded 28             |
+| `naver_cafe_collection`   | succeeded 14, skipped 13 |
+| `recent_reconcile`        | skipped 1                |
+| `retention_prune`         | succeeded 3              |
+| `schedule_auto_update`    | succeeded 2, skipped 25  |
+| `source_health`           | succeeded 5, skipped 23  |
+| `websub_maintenance`      | succeeded 6, skipped 21  |
+| `x_collection`            | succeeded 6, skipped 9   |
+| `youtube_feed_collection` | succeeded 4, partial 1   |
+
+X 장기 기록·관리자 통계·Batch Compliance의 코드와 migration은 추가됐다. 다만 X
+Developer Console의 승인 use-case 범위를 사람이 확인하고 migration을 적용하기 전에는
+세 독립 feature flag를 활성화하지 않는다.
 
 ## 배포 순서
 

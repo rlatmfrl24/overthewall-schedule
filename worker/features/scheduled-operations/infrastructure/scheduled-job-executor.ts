@@ -19,7 +19,12 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import { runXCollectionForHandles } from "../../x-posts";
+import {
+  fetchXPostMetricsByIds,
+  runXCollectionForHandles,
+  runXCompliance,
+  runXMetricRefresh,
+} from "../../x-posts";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
@@ -216,6 +221,35 @@ export class ScheduledJobExecutor {
         return toXCollectionOutcome(
           await runXCollectionForHandles(this.env, handles, run.source),
         );
+      }
+      case "x_metrics_refresh": {
+        const result = await runXMetricRefresh(
+          this.env.otw_db,
+          (postIds) => fetchXPostMetricsByIds(postIds, {
+            bearerToken: this.env.X_BEARER_TOKEN,
+            cacheDb: this.env.otw_db,
+            usageSource: `metrics:${run.source}`,
+          }),
+        );
+        return {
+          status: result.status,
+          result,
+          attempted: result.attempted,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          errorCode: "errorCode" in result ? result.errorCode ?? null : null,
+        };
+      }
+      case "x_compliance": {
+        const result = await runXCompliance(this.env.otw_db, this.env.X_BEARER_TOKEN);
+        return {
+          status: result.status === "partial" ? "partial" : result.status,
+          result,
+          attempted: 1,
+          succeeded: result.status === "succeeded" ? 1 : 0,
+          failed: result.status === "failed" ? 1 : 0,
+          errorCode: "errorCode" in result ? result.errorCode ?? null : null,
+        };
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));

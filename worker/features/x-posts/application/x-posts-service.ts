@@ -12,6 +12,14 @@ const X_POSTS_VISIBILITY_SETTING_KEY = "x_posts_visibility";
 
 export type XPostsContent = Pick<XPostsResponseDto, "posts" | "byHandle">;
 
+export type XHistoryReadOptions = {
+  memberUid?: number;
+  from?: number;
+  to?: number;
+  cursor?: { createdAt: number; postId: string };
+  limit: number;
+};
+
 export type XPostsFetchOptions = {
   maxResults: number;
   richXLinkPreviewEnabled: boolean;
@@ -55,6 +63,9 @@ export interface XPostsApplicationPorts {
   writePostRedactionAudit(postId: string, actor: XActor, changed: boolean): Promise<void>;
   runCollection(): Promise<XCollectionRunResultDto>;
   writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
+  readHistoryPosts(options: XHistoryReadOptions): Promise<unknown>;
+  readHistorySummary(from: string, to: string): Promise<unknown>;
+  readHistoryHealth(): Promise<unknown>;
   warn(message: string, error: unknown): void;
 }
 
@@ -236,6 +247,18 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
       });
       return { ok: false as const, error: message };
     }
+  },
+
+  readHistoryPosts(options: XHistoryReadOptions) {
+    return ports.readHistoryPosts(options);
+  },
+
+  readHistorySummary(from: string, to: string) {
+    return ports.readHistorySummary(from, to);
+  },
+
+  readHistoryHealth() {
+    return ports.readHistoryHealth();
   },
 });
 

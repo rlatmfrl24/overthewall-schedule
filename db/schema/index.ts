@@ -281,6 +281,127 @@ export const xPostSources = sqliteTable("x_post_sources", {
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
 
+// X 장기 기록은 원문 x_posts와 분리한다. Compliance redaction 이후에도
+// 최소 식별자와 집계 정합성만 남기기 위한 정규화 레이어다.
+export const xPostFacts = sqliteTable(
+  "x_post_facts",
+  {
+    post_id: text("post_id").primaryKey(),
+    member_uid: integer("member_uid").notNull(),
+    member_name_snapshot: text("member_name_snapshot").notNull(),
+    post_type: text("post_type").notNull(),
+    created_at: integer("created_at").notNull(),
+    first_seen_at: integer("first_seen_at").notNull(),
+    media_count: integer("media_count").notNull().default(0),
+    link_count: integer("link_count").notNull().default(0),
+    edit_root_post_id: text("edit_root_post_id"),
+    superseded_by_post_id: text("superseded_by_post_id"),
+    hidden_at: integer("hidden_at"),
+    hidden_reason: text("hidden_reason"),
+    initial_snapshot_completed_at: integer("initial_snapshot_completed_at"),
+    after_24h_snapshot_completed_at: integer("after_24h_snapshot_completed_at"),
+    next_metrics_at: integer("next_metrics_at"),
+    last_metrics_error: text("last_metrics_error"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_x_post_facts_member_created").on(table.member_uid, table.created_at),
+    index("idx_x_post_facts_metrics_due").on(table.next_metrics_at),
+    index("idx_x_post_facts_visible_created").on(table.hidden_at, table.created_at),
+    check(
+      "x_post_facts_type_check",
+      sql`${table.post_type} IN ('post', 'reply', 'quote')`,
+    ),
+  ],
+);
+
+export const xPostMetricSnapshots = sqliteTable(
+  "x_post_metric_snapshots",
+  {
+    post_id: text("post_id").notNull(),
+    snapshot_kind: text("snapshot_kind").notNull(),
+    captured_at: integer("captured_at").notNull(),
+    like_count: integer("like_count").notNull().default(0),
+    reply_count: integer("reply_count").notNull().default(0),
+    repost_count: integer("repost_count").notNull().default(0),
+    quote_count: integer("quote_count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.post_id, table.snapshot_kind],
+      name: "pk_x_post_metric_snapshots",
+    }),
+    index("idx_x_post_metric_snapshots_captured").on(table.captured_at),
+    check(
+      "x_post_metric_snapshots_kind_check",
+      sql`${table.snapshot_kind} IN ('initial', 'after_24h')`,
+    ),
+  ],
+);
+
+export const xMemberDailyMetrics = sqliteTable(
+  "x_member_daily_metrics",
+  {
+    kst_date: text("kst_date").notNull(),
+    member_uid: integer("member_uid").notNull(),
+    post_count: integer("post_count").notNull().default(0),
+    reply_count: integer("reply_count").notNull().default(0),
+    quote_count: integer("quote_count").notNull().default(0),
+    media_post_count: integer("media_post_count").notNull().default(0),
+    link_post_count: integer("link_post_count").notNull().default(0),
+    initial_like_count: integer("initial_like_count").notNull().default(0),
+    initial_reply_count: integer("initial_reply_count").notNull().default(0),
+    initial_repost_count: integer("initial_repost_count").notNull().default(0),
+    initial_quote_count: integer("initial_quote_count").notNull().default(0),
+    after_24h_like_count: integer("after_24h_like_count").notNull().default(0),
+    after_24h_reply_count: integer("after_24h_reply_count").notNull().default(0),
+    after_24h_repost_count: integer("after_24h_repost_count").notNull().default(0),
+    after_24h_quote_count: integer("after_24h_quote_count").notNull().default(0),
+    snapshot_covered_count: integer("snapshot_covered_count").notNull().default(0),
+    deleted_count: integer("deleted_count").notNull().default(0),
+    recalculated_at: integer("recalculated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.kst_date, table.member_uid],
+      name: "pk_x_member_daily_metrics",
+    }),
+    index("idx_x_member_daily_metrics_member_date").on(table.member_uid, table.kst_date),
+  ],
+);
+
+export const xComplianceJobs = sqliteTable(
+  "x_compliance_jobs",
+  {
+    id: text().primaryKey(),
+    provider_job_id: text("provider_job_id").unique(),
+    status: text().notNull(),
+    input_count: integer("input_count").notNull().default(0),
+    input_json: text("input_json"),
+    upload_url: text("upload_url"),
+    download_url: text("download_url"),
+    created_at: integer("created_at").notNull(),
+    upload_started_at: integer("upload_started_at"),
+    uploaded_at: integer("uploaded_at"),
+    last_polled_at: integer("last_polled_at"),
+    downloaded_at: integer("downloaded_at"),
+    applied_at: integer("applied_at"),
+    next_check_at: integer("next_check_at"),
+    attempts: integer().notNull().default(0),
+    error_code: text("error_code"),
+    error_detail: text("error_detail"),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_x_compliance_jobs_due").on(table.status, table.next_check_at),
+    index("idx_x_compliance_jobs_created").on(table.created_at),
+    check(
+      "x_compliance_jobs_status_check",
+      sql`${table.status} IN ('created', 'uploading', 'uploaded', 'pending', 'complete', 'applied', 'failed')`,
+    ),
+  ],
+);
+
 // X API 과금 추정 이벤트 로그
 export const xApiUsageEvents = sqliteTable(
   "x_api_usage_events",

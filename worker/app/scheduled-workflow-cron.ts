@@ -13,7 +13,7 @@ const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>
     "naver_cafe_collection",
   ],
   23: ["channel_reconcile", "youtube_feed_collection"],
-  33: ["source_health"],
+  33: ["source_health", "x_metrics_refresh", "x_compliance"],
 };
 
 export function selectScheduledWorkflowJobs(

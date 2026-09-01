@@ -74,6 +74,22 @@ const authorizeXRead = async ({
   return null;
 };
 
+const parseBoundedInteger = (value: string | null, fallback: number, minimum: number, maximum: number) => {
+  if (value === null) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+};
+
+const parseHistoryCursor = (value: string | null) => {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,16}):([1-9]\d{4,24})$/);
+  if (!match) return undefined;
+  const createdAt = Number(match[1]);
+  return Number.isSafeInteger(createdAt) && createdAt > 0
+    ? { createdAt, postId: match[2]! }
+    : undefined;
+};
+
 export const createXPostsHandler =
   (buildApplication: BuildXPostsApplication) =>
   async (request: Request, env: Env) => {
@@ -97,6 +113,43 @@ export const createXPostsHandler =
         headers: { "Cache-Control": "public, max-age=60" },
       },
     );
+  }
+
+  if (["/api/x/history/posts", "/api/x/history/summary", "/api/x/history/health"].includes(url.pathname)) {
+    if (request.method !== "GET") return methodNotAllowed();
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+    if (url.pathname === "/api/x/history/posts") {
+      const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 100);
+      const memberUid = parseBoundedInteger(url.searchParams.get("memberUid"), 0, 1, Number.MAX_SAFE_INTEGER);
+      const from = url.searchParams.get("from") ? Date.parse(url.searchParams.get("from")!) : null;
+      const to = url.searchParams.get("to") ? Date.parse(url.searchParams.get("to")!) : null;
+      const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
+      if (limit === null || memberUid === null || (from !== null && !Number.isFinite(from)) ||
+        (to !== null && !Number.isFinite(to)) || cursor === undefined) {
+        return badRequest("Invalid X history query");
+      }
+      return json(await application.readHistoryPosts({
+        memberUid: memberUid || undefined,
+        from: from ?? undefined,
+        to: to ?? undefined,
+        cursor: cursor ?? undefined,
+        limit,
+      }), 200, { headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/api/x/history/summary") {
+      const now = new Date();
+      const defaultTo = now.toISOString().slice(0, 10);
+      const defaultFrom = new Date(now.getTime() - 29 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      const from = url.searchParams.get("from") ?? defaultFrom;
+      const to = url.searchParams.get("to") ?? defaultTo;
+      const maximumFrom = new Date(now.getTime() - 365 * 24 * 60 * 60_000).toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from < maximumFrom || from > to) {
+        return badRequest("Invalid X history date range");
+      }
+      return json(await application.readHistorySummary(from, to), 200, { headers: { "Cache-Control": "no-store" } });
+    }
+    return json(await application.readHistoryHealth(), 200, { headers: { "Cache-Control": "no-store" } });
   }
 
   if (url.pathname !== "/api/x/posts" && !contextMatch && !postMatch) {

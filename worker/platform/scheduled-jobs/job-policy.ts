@@ -24,6 +24,8 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
     { rowsRead: number; rowsWritten: number }
   > = {
     x_collection: { rowsRead: 500, rowsWritten: 50 },
+    x_metrics_refresh: { rowsRead: 400, rowsWritten: 250 },
+    x_compliance: { rowsRead: 5_500, rowsWritten: 5_500 },
     naver_cafe_collection: { rowsRead: 500, rowsWritten: 70 },
     youtube_feed_collection: { rowsRead: 500, rowsWritten: 150 },
     schedule_auto_update: { rowsRead: 1_000, rowsWritten: 100 },
@@ -40,6 +42,8 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
 export const getLaneForJob = (jobType: ScheduledJobType): ScheduledLane => {
   switch (jobType) {
     case "x_collection":
+    case "x_metrics_refresh":
+    case "x_compliance":
       return "x";
     case "naver_cafe_collection":
       return "naver";
@@ -68,11 +72,13 @@ export const getAdmissionPriority = (
     case "ingestion_recovery":
       return "critical";
     case "x_collection":
+    case "x_compliance":
     case "naver_cafe_collection":
     case "schedule_auto_update":
     case "channel_reconcile":
       return "core";
     case "source_health":
+    case "x_metrics_refresh":
     case "recent_reconcile":
     case "youtube_feed_collection":
     case "retention_prune":
@@ -105,6 +111,8 @@ export const getScheduledBucket = (
     naver_cafe_collection: 60 * 60_000,
     youtube_feed_collection: 60 * 60_000,
     x_collection: 2 * 60 * 60_000,
+    x_metrics_refresh: 60 * 60_000,
+    x_compliance: 60 * 60_000,
     // The scheduler probes hourly so the configured 1/6/12/24-hour interval
     // can be enforced by the planner without collapsing every probe in a day.
     schedule_auto_update: 60 * 60_000,
