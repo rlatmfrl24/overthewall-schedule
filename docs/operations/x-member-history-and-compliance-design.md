@@ -2,21 +2,24 @@
 
 ## 문서 상태
 
-- 상태: 코드·additive migration 구현 완료, 운영 활성화 게이트 대기
+- 상태: 코드·additive migration·운영 flag 활성화 완료, Compliance canary 후속 조치 필요
 - 제품 정의: 활성화 이후의 멤버 신규 게시물을 지속적으로 보존하는 피드와
   관리자 전용 기록·기초 통계
 - 공개 범위: 최근 피드만 공개, 누적 기록·통계·운영 상태는 관리자 전용
-- 구현 기준선: PR #96, PR #97 이후 production
-- 운영 활성화 게이트: X Developer Console use-case 승인 범위 확인
+- 구현 기준선: `e652d21` X 자동화 구현, `aad06c8` 로컬 migration 체인 보강
+- 운영 기준선: Worker `07c1de88-f6ba-4bf5-86b5-eebd69857dd4`, D1 migration
+  `0075`·`0076`
+- 정책 게이트: X Developer Console use-case 확인 완료
 
 이 문서는 X의 과거 timeline을 가져오는 archive를 설계하지 않는다. 소스의
 `collection_started_at` 이후 게시물을 누락 없이 따라가면서, 공개 피드와 장기 기록,
 Compliance, 제한된 기초 통계를 한 데이터 수명주기로 관리하는 것이 목적이다.
 
 2026-09-01 구현 변경은 이 설계의 additive schema, 관리자 history API, metrics
-refresh 및 Compliance 상태 머신을 추가했다. 배포 전 migration·X Developer Console
-use-case 확인이 남아 있으므로 세 feature flag의 초기 값은 모두 `false`다. 이 문서의
-production Closeout snapshot은 아래 구현 변경을 아직 반영하지 않은 기준선이다.
+refresh 및 Compliance 상태 머신을 추가했다. 운영 D1에 migration을 적용했고
+X Developer Console use-case 확인 뒤 analytics·snapshot·Compliance와 두 scheduled
+lane flag를 모두 활성화했다. 첫 Compliance create는 fail-closed URL 검증에서
+중단됐으므로 전체 상태 전이 성공은 아직 Closeout하지 않는다.
 
 ## 1. 제품·정책 경계
 
@@ -356,3 +359,23 @@ flag와 무관하게 유지한다.
 - UTC 전역 원장과 세 workload subledger 합계 일치
 - Compliance 3회 연속, snapshot 시간 작업 3회 연속 정상
 - 공개 요청 전후 X API usage event 증가 0
+
+## 8. 2026-09-01 구현·활성화 Closeout
+
+운영 D1과 Worker를 `2026-09-01T11:40:17Z`에 읽기 전용으로 재확인했다. 수치와
+상태는 해당 시점 snapshot이며 이후 실행으로 달라질 수 있다.
+
+| 영역 | 판정 | 권위 readback | 남은 조치 |
+| --- | --- | --- | --- |
+| 코드·schema | 완료 | `e652d21`, additive migration `0075`·`0076` 적용, `PRAGMA foreign_key_check` 0건 | 없음 |
+| 로컬 migration 체인 | 완료 | 전체 chain validate 통과, 로컬 `0075`·`0076` 적용, doctor pending 0건, Windows Wrangler `bad port`만 1회 제한 재시도하도록 `aad06c8` 반영 | SQL·CHECK·FK 오류는 계속 fail-closed |
+| Worker 배포 | 완료 | production version `07c1de88-f6ba-4bf5-86b5-eebd69857dd4` 100% | 없음 |
+| 정책·rollout flag | 완료 | use-case 확인 완료. `x_history_analytics_enabled`, `x_metrics_snapshot_enabled`, `x_compliance_enabled`, `scheduled_v2_x_metrics_refresh_enabled`, `scheduled_v2_x_compliance_enabled` 모두 `true` | 정책 범위 변경 시 재검토 |
+| 기존 기록 보존 | 완료 | `x_posts` 160건·8 handle·숨김 0건 유지 | 과거 X API backfill 없음 |
+| facts·snapshot | 활성화·관찰 중 | `x_post_facts` 0건, snapshot 0건, 일별 집계 0건. 기존 행을 metric snapshot으로 위조하지 않으며 활성화 이후 신규 게시물이 canary를 생성해야 함 | 신규 게시물 initial·24시간 snapshot readback |
+| Batch Compliance | 운영 canary 실패 | 160개 입력 job 1건이 create 단계에서 `compliance_storage_url_invalid`로 실패. provider job ID·redaction 0건이며 저장 콘텐츠 변경 없이 안전 중단 | 공식 signed storage URL host 계약 수정 후 create→upload→poll→download→apply 재실행 |
+| scheduled 결과 | 부분 완료 | `x_metrics_refresh`는 due facts가 없어 `skipped`, `x_compliance`는 위 URL 검증 오류로 `failed` | 정상 실행 3회 연속 전에는 자동화 완료 판정 금지 |
+
+따라서 구현·migration·배포·활성화는 Closeout한다. X 장기 기록 자동화의 최종 운영
+완료는 7.3의 신규 snapshot, 실제 Compliance 전체 상태 전이, 테스트 redaction 및
+3회 연속 정상 실행을 충족한 뒤 별도로 판정한다.

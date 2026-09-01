@@ -57,7 +57,7 @@ X의 장기 기록·Compliance·관리자 통계 후속 설계는
 
 ## 2026-09-01 구현 Closeout
 
-기준은 production D1과 Worker를 `2026-09-01T09:36:46Z`에 읽기 전용으로 확인한
+기준은 production D1과 Worker를 `2026-09-01T11:40:17Z`에 읽기 전용으로 확인한
 snapshot이다. 운영 수치는 이후 수집에 따라 변할 수 있다.
 
 | 영역                   | 판정      | 근거                                                                                                                                                    |
@@ -66,10 +66,12 @@ snapshot이다. 운영 수치는 이후 수집에 따라 변할 수 있다.
 | X 신규 피드 cursor     | 부분 완료 | 8개 source 모두 watermark, continuation 0. 단, 기존 source 8개의 `last_attempt_at`·`last_success_at`이 NULL이라 source별 정상 실행 readback은 남아 있음 |
 | X 공개 read            | 완료      | production `/api/member-posts?sources=x` 호출 전후 `x_api_usage_events`가 1,604건·max ID 7,161로 동일해 공급자 호출 0회를 확인                          |
 | X redaction 저장 계약  | 완료      | `value`, `hidden_at`, `hidden_reason`, `content_removed_at`과 관리자 DELETE 경로 구현. 숨긴 행의 자동 복구 방지 구현                                    |
-| X 자동 Compliance·통계 | 구현 완료·운영 게이트 | additive facts·snapshot·일별 집계·관리자 history API 및 Compliance 상태 머신을 구현했다. migration·X Developer Console use-case 확인 전에는 세 feature flag를 모두 `false`로 유지한다. |
+| X 자동 Compliance·통계 | 부분 완료 | additive schema·관리자 history API·Compliance 상태 머신을 배포하고 관련 flag 5개를 활성화했다. 첫 160개 Compliance job은 `compliance_storage_url_invalid`로 fail-closed됐고 facts·snapshot·일별 집계는 신규 게시물 대기 상태로 0건이다. |
 | 네이버 장기 저장       | 완료      | 360건·숨김 0건, 8개 active source 모두 초기화·watermark 완료, continuation 0                                                                            |
 | 네이버 운영 제어       | 완료      | 수집 킬스위치와 표시 설정 분리, 소스 보관·관리자 redaction·영구 저장 정책 구현                                                                          |
 
-Closeout은 저장·노출·운영 이력 구현의 완료 여부만 판정한다. 향후 X 분석과
-Compliance는 X Developer Console의 승인된 use-case 범위를 확인하기 전까지 운영
-활성화하지 않는다.
+Closeout은 저장·노출·운영 이력 구현의 완료 여부만 판정한다. X Developer Console
+use-case 확인, migration, 배포와 flag 활성화는 완료했다. 다만 실제 Compliance 전체
+상태 전이와 신규 게시물 initial·24시간 snapshot을 권위 readback하기 전에는 X 자동화
+전체를 완료로 판정하지 않는다. 실패한 Compliance job은 provider job ID 없이 안전
+중단됐고 게시물 본문·노출 상태는 변경되지 않았다.

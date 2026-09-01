@@ -63,10 +63,12 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
   merge `66a62ec91d61226717b6d979f6b6c784b9a370d9`,
   [#97](https://github.com/rlatmfrl24/overthewall-schedule/pull/97)
   merge `c6531599f02ff35b34d51ca38a4f39e5d5a28796`
+- X 장기 기록 구현: `e652d21d84fd8078bd816053ee3f84178823cc3c`
+- 로컬 migration 체인 보강: `aad06c8`
 - production Worker version:
-  `99c91fd7-7a37-4e89-a61e-9dc66383b80e`
-- production D1 readback: `2026-09-01T09:36:46Z`
-- D1 size: 15,331,328 bytes(약 15.33MB)
+  `07c1de88-f6ba-4bf5-86b5-eebd69857dd4`
+- production D1 readback: `2026-09-01T11:40:17Z`
+- D1 size: 15,458,304 bytes(약 15.46MB)
 - open PR: 0
 
 수치는 위 시점의 운영 snapshot이며 이후 정상 수집으로 변할 수 있다. 다음 표는
@@ -74,10 +76,12 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 
 | 영역                   | 판정             | production 근거                                                                                                                                    | 남은 확인·후속                                                                                                                 |
 | ---------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 공용 scheduler·rollout | 완료             | X, Naver, 일반 YouTube, WebSub maintenance, ingestion recovery, source health, channel/recent reconcile, auto-update, retention flag가 모두 `true` | X Compliance·snapshot job 코드는 추가됐으나 X use-case 승인과 migration 전 feature flag는 `false`로 유지 |
+| 공용 scheduler·rollout | 완료             | 기존 lane과 X metrics·Compliance scheduled flag를 포함한 대상 flag가 모두 `true`                                                                  | 신규 X lane의 실제 정상 결과는 아래 운영 canary 판정에 따름                                                                    |
 | X 신규 피드            | 부분 완료        | 8개 source·160개 post, watermark 8/8, continuation 0, scheduled run 성공 6·skip 9                                                                  | 기존 source의 `last_attempt_at`·`last_success_at` 8/8 NULL. 실제 source refresh 뒤 row-level readback 필요                     |
 | X 공개 read            | 완료             | 공개 member-post GET 전후 `x_api_usage_events` 1,604건·max ID 7,161·추정비용 합계 14,140,000 micros로 동일                                         | 공개 archive는 추가하지 않음                                                                                                   |
-| X 장기 저장·redaction  | 완료             | X post 일반 TTL 제외, tombstone·관리자 redaction·재수집 복구 방지 구현                                                                             | facts·snapshot·Compliance 구현은 추가됐으며 운영 활성화 전 migration·승인 gate가 남음 |
+| X 장기 저장·redaction  | 완료             | X post 일반 TTL 제외, tombstone·관리자 redaction·재수집 복구 방지 구현                                                                             | 기존 160건·8 handle·숨김 0건 유지                                                                                              |
+| X 장기 통계            | 활성화·관찰 중   | migration `0075`·`0076` 적용, analytics·snapshot flag 활성화. 기존 행을 snapshot으로 위조하지 않아 facts·snapshot·일별 집계는 모두 0건             | 활성화 이후 신규 게시물 initial·약 24시간 snapshot canary 필요                                                                |
+| X Batch Compliance     | 운영 canary 실패 | Compliance·scheduled flag 활성화 뒤 160개 입력 job 생성. `compliance_storage_url_invalid`로 provider create 뒤 upload 전 fail-closed, redaction 0건 | signed storage URL 계약 수정 후 전체 상태 전이와 정상 실행 3회 확인                                                           |
 | 네이버                 | 완료             | 8개 active source 모두 초기화·watermark, continuation 0, post 360건, scheduled run 성공 14·skip 13                                                 | 내부 Endpoint 변경 감시와 관리자 킬스위치 유지                                                                                 |
 | 일반 YouTube           | 부분 완료        | 14개 source(공식 8·키리누키 6) 모두 초기화·watermark, continuation 0, 영상 119건(공식 20·키리누키 99), run 성공 4                                  | `partial` 1건은 total/completed 1/1·failed 0·`last_error=NULL`이므로 결과 정규화 readback gap으로 추적                         |
 | OTW Play WebSub        | 완료             | monitor 1·active 1, subscription active 1, `verified_at=2026-09-01T05:14:09Z`, lease `2026-09-06T05:14:09Z`, 오류 없음                             | pause·승인 철회 시 unsubscribe 계약 유지                                                                                       |
@@ -98,11 +102,15 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 | `source_health`           | succeeded 5, skipped 23  |
 | `websub_maintenance`      | succeeded 6, skipped 21  |
 | `x_collection`            | succeeded 6, skipped 9   |
+| `x_metrics_refresh`       | skipped 1                |
+| `x_compliance`            | failed 1                 |
 | `youtube_feed_collection` | succeeded 4, partial 1   |
 
-X 장기 기록·관리자 통계·Batch Compliance의 코드와 migration은 추가됐다. 다만 X
-Developer Console의 승인 use-case 범위를 사람이 확인하고 migration을 적용하기 전에는
-세 독립 feature flag를 활성화하지 않는다.
+X 장기 기록·관리자 통계·Batch Compliance의 코드, migration, Worker 배포와 rollout
+flag 활성화는 완료했다. 로컬 전체 migration chain도 검증했고 기본 로컬 DB에 `0075`와
+`0076`을 적용했으며, Windows Wrangler의 일시적 `bad port`만 1회 재시도하도록
+보강했다. 실제 Compliance canary와 신규 snapshot 권위 readback은 미완료이므로 X
+자동화 전체를 완료로 표시하지 않는다.
 
 ## 배포 순서
 
