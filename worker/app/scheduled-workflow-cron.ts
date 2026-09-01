@@ -51,6 +51,26 @@ type XComplianceCronGateRow = {
   lastCycleAt: number | string | null;
 };
 
+type ScheduledD1WriteGateRow = {
+  consumed: number | string;
+  limitValue: number | string | null;
+};
+
+const hasScheduledD1WriteCapacity = async (
+  env: Env,
+  scheduledTime: number,
+) => {
+  const day = new Date(scheduledTime).toISOString().slice(0, 10);
+  const row = await env.otw_db.prepare(
+    `SELECT COALESCE(SUM(used + reserved), 0) AS consumed,
+            MAX(limit_value) AS limitValue
+     FROM scheduled_usage_daily
+     WHERE day = ? AND lane = 'all' AND resource = 'd1_rows_written'`,
+  ).bind(day).first<ScheduledD1WriteGateRow>();
+  if (row?.limitValue === null || row?.limitValue === undefined) return true;
+  return Number(row.consumed) < Number(row.limitValue);
+};
+
 const isXComplianceDue = async (env: Env, scheduledTime: number) => {
   const row = await env.otw_db.prepare(
     `SELECT
@@ -82,6 +102,7 @@ export async function filterRunnableScheduledWorkflowJobs(
   env: Env,
 ): Promise<readonly ScheduledJobType[]> {
   if (jobs.length === 0) return [];
+  if (!(await hasScheduledD1WriteCapacity(env, scheduledTime))) return [];
   const keys = jobs.map((jobType) => `scheduled_v2_${jobType}_enabled`);
   if (jobs.includes("x_compliance")) keys.push("x_compliance_enabled");
   const rows = await env.otw_db.prepare(
