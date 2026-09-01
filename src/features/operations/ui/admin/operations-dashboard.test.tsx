@@ -104,6 +104,13 @@ const retentionStatus: DataRetentionStatusResponse = {
   totalDeletedRows: 0,
   policies: [],
   recentRuns: [],
+  capacity: {
+    sizeBytes: 25 * 1024 * 1024,
+    maxBytes: 500 * 1024 * 1024,
+    usedPercent: 5,
+    status: "ok",
+    thresholds: [60, 75, 85],
+  },
 };
 
 const operationRuns: OperationRunList = { runs: [] };

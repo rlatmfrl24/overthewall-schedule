@@ -14,6 +14,7 @@ import {
   fetchXPostPreviewById,
   fetchXPostsForHandles,
   readStoredXReplyReference,
+  redactStoredXPosts,
   XApiError,
 } from "./x-api";
 import { runXCollection } from "./x-collection";
@@ -74,6 +75,24 @@ export const buildXPostsApplication = (env: Env) => {
         }
         throw error;
       }
+    },
+    redactStoredPost: async (postId) =>
+      (await redactStoredXPosts(env.otw_db, [postId], "admin")).redacted > 0,
+    writePostRedactionAudit: async (postId, actor, changed) => {
+      await insertAdminAuditLog(db, {
+        eventType: "x_post.redacted",
+        resourceType: "x_post",
+        resourceId: postId,
+        action: "redact",
+        status: changed ? "success" : "skipped",
+        actorId: actor.actorId,
+        actorName: actor.actorName,
+        actorIp: actor.actorIp,
+        targetCount: 1,
+        successCount: changed ? 1 : 0,
+        failureCount: 0,
+        detail: { reason: "admin" },
+      });
     },
     runCollection: () => runXCollection(env, "manual"),
     writeCollectionAudit: async (input) => {

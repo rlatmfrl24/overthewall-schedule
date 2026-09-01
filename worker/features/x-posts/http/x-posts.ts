@@ -1,5 +1,5 @@
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
-import { badRequest, json, methodNotAllowed } from "../../../platform/http-helpers";
+import { badRequest, getActorInfo, json, methodNotAllowed } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
 import {
   parseXHandleTargets,
@@ -81,6 +81,7 @@ export const createXPostsHandler =
   const debug = url.searchParams.get("debug") === "1";
   const adminView = url.searchParams.get("admin") === "1";
   const contextMatch = url.pathname.match(/^\/api\/x\/posts\/([^/]+)\/context$/);
+  const postMatch = url.pathname.match(/^\/api\/x\/posts\/([^/]+)$/);
   const application = buildApplication(env);
 
   if (url.pathname === "/api/x/config") {
@@ -98,8 +99,24 @@ export const createXPostsHandler =
     );
   }
 
-  if (url.pathname !== "/api/x/posts" && !contextMatch) {
+  if (url.pathname !== "/api/x/posts" && !contextMatch && !postMatch) {
     return new Response(null, { status: 404 });
+  }
+
+  if (postMatch && request.method === "DELETE") {
+    const admin = await requireAdminUser(request, env);
+    if (!admin.ok) return admin.response;
+    const postId = postMatch[1] ?? "";
+    if (!X_POST_ID_PATTERN.test(postId)) {
+      return badRequest("id must be a numeric X post id");
+    }
+    const redacted = await application.redactPost(
+      postId,
+      getActorInfo(request, admin.user),
+    );
+    return redacted
+      ? new Response("Redacted", { status: 200 })
+      : new Response("Post not found", { status: 404 });
   }
 
   if (request.method !== "GET") {

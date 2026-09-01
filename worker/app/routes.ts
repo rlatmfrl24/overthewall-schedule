@@ -1035,6 +1035,13 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleXPosts,
   },
   {
+    id: "x-posts.redact",
+    owner: "x-posts",
+    path: apiRoutes.xPosts.redact.pattern,
+    methods: methods(del(ADMIN_NO_STORE)),
+    handler: handleXPosts,
+  },
+  {
     id: "x-posts.context",
     owner: "x-posts",
     path: apiRoutes.xPosts.context.pattern,
@@ -1082,6 +1089,7 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
         cache: "visibility-dependent",
         successStatus: 200,
       }),
+      del(ADMIN_NO_STORE),
     ),
     handler: handleNaverCafe,
   },

@@ -1131,7 +1131,7 @@ describe("D1AdminCatalogRepository", () => {
       id("event"),
       NOW + 2,
     );
-    const [rows, events, meta, foreignKeys] = await Promise.all([
+    const [rows, events, meta, gramStats, foreignKeys] = await Promise.all([
       db
         .prepare(
           `SELECT
@@ -1162,6 +1162,8 @@ describe("D1AdminCatalogRepository", () => {
            WHERE catalog.id = 1`,
         )
         .first<{ revision: number; read_model_revision: number }>(),
+      db.prepare("SELECT COUNT(*) AS count FROM music_search_gram_stats")
+        .first<{ count: number }>(),
       db.prepare("PRAGMA foreign_key_check").all(),
     ]);
     expect(rows).toEqual({
@@ -1176,6 +1178,7 @@ describe("D1AdminCatalogRepository", () => {
     ]);
     expect(meta?.revision).toBe(deletedSong.catalogRevision);
     expect(meta?.read_model_revision).toBe(deletedSong.catalogRevision);
+    expect(Number(gramStats?.count)).toBe(0);
     expect(foreignKeys.results).toEqual([]);
 
     const draftWithChild = await createDraftFixture(

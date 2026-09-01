@@ -3,6 +3,8 @@ import { type Env } from "../../../platform/types";
 const DAY_MS = 24 * 60 * 60_000;
 const DAY_SECONDS = 24 * 60 * 60;
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
+const D1_DATABASE_MAX_BYTES_SETTING_KEY = "d1_database_max_bytes";
+const DEFAULT_D1_DATABASE_MAX_BYTES = 500 * 1024 * 1024;
 const SCHEDULED_PRUNE_INTERVAL_MS = DAY_MS;
 
 type RetentionCategory =
@@ -66,6 +68,13 @@ export type DataRetentionRunSummary = {
 
 export type DataRetentionStatusResult = DataRetentionPruneResult & {
   recentRuns: DataRetentionRunSummary[];
+  capacity: {
+    sizeBytes: number | null;
+    maxBytes: number;
+    usedPercent: number | null;
+    status: "unavailable" | "ok" | "notice" | "warning" | "critical";
+    thresholds: readonly [60, 75, 85];
+  };
 };
 
 export type ScheduledDataRetentionPruneResult =
@@ -107,36 +116,9 @@ export const DATA_RETENTION_POLICIES = [
     label: "Scheduled job run summaries",
     timestampColumn: "finished_at",
     timestampKind: "epoch_ms",
-    retentionDays: 180,
+    retentionDays: 90,
     extraWhere:
       "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
-  },
-  {
-    id: "scheduled-usage-daily",
-    category: "scheduled_operations",
-    table: "scheduled_usage_daily",
-    label: "Scheduled resource usage ledger",
-    timestampColumn: "day",
-    timestampKind: "sqlite_datetime",
-    retentionDays: 180,
-  },
-  {
-    id: "x-feed-posts",
-    category: "feed",
-    table: "x_posts",
-    label: "X new-post feed",
-    timestampColumn: "created_at",
-    timestampKind: "sqlite_datetime",
-    retentionDays: 30,
-  },
-  {
-    id: "naver-cafe-feed-posts",
-    category: "feed",
-    table: "naver_cafe_posts",
-    label: "Naver Cafe new-post feed",
-    timestampColumn: "created_at",
-    timestampKind: "sqlite_datetime",
-    retentionDays: 21,
   },
   {
     id: "youtube-feed-videos",
@@ -163,7 +145,7 @@ export const DATA_RETENTION_POLICIES = [
     label: "X API usage events",
     timestampColumn: "created_at",
     timestampKind: "epoch_ms",
-    retentionDays: 90,
+    retentionDays: 30,
   },
   {
     id: "youtube-api-usage-events",
@@ -181,7 +163,7 @@ export const DATA_RETENTION_POLICIES = [
     label: "X collection runs",
     timestampColumn: "started_at",
     timestampKind: "epoch_ms",
-    retentionDays: 180,
+    retentionDays: 30,
   },
   {
     id: "youtube-warmup-runs",
@@ -190,7 +172,7 @@ export const DATA_RETENTION_POLICIES = [
     label: "YouTube warmup runs",
     timestampColumn: "started_at",
     timestampKind: "epoch_ms",
-    retentionDays: 180,
+    retentionDays: 90,
   },
   {
     id: "auto-update-runs",
@@ -199,7 +181,7 @@ export const DATA_RETENTION_POLICIES = [
     label: "Auto update runs",
     timestampColumn: "started_at",
     timestampKind: "epoch_ms",
-    retentionDays: 180,
+    retentionDays: 90,
   },
   {
     id: "naver-cafe-source-checks",
@@ -208,7 +190,7 @@ export const DATA_RETENTION_POLICIES = [
     label: "Naver Cafe source checks",
     timestampColumn: "checked_at",
     timestampKind: "epoch_ms",
-    retentionDays: 180,
+    retentionDays: 30,
   },
   {
     id: "update-logs",
@@ -251,6 +233,46 @@ const writeLastScheduledPrune = async (env: Env, value: number) => {
     )
     .bind(RETENTION_LAST_PRUNE_SETTING_KEY, String(value), now)
     .run();
+};
+
+const readD1Capacity = async (
+  env: Env,
+): Promise<DataRetentionStatusResult["capacity"]> => {
+  const [configuredLimit, probe] = await Promise.all([
+    env.otw_db
+      .prepare("SELECT value FROM settings WHERE key = ?")
+      .bind(D1_DATABASE_MAX_BYTES_SETTING_KEY)
+      .first<{ value: string | null }>(),
+    env.otw_db.prepare("SELECT 1 AS capacity_probe").all<{ capacity_probe: number }>(),
+  ]);
+  const parsedLimit = Number(configuredLimit?.value);
+  const maxBytes = Number.isFinite(parsedLimit) && parsedLimit > 0
+    ? parsedLimit
+    : DEFAULT_D1_DATABASE_MAX_BYTES;
+  const sizeBytes = Number(probe.meta?.size_after);
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return {
+      sizeBytes: null,
+      maxBytes,
+      usedPercent: null,
+      status: "unavailable",
+      thresholds: [60, 75, 85],
+    };
+  }
+  const usedPercent = Math.round((sizeBytes / maxBytes) * 10_000) / 100;
+  return {
+    sizeBytes,
+    maxBytes,
+    usedPercent,
+    status: usedPercent >= 85
+      ? "critical"
+      : usedPercent >= 75
+        ? "warning"
+        : usedPercent >= 60
+          ? "notice"
+          : "ok",
+    thresholds: [60, 75, 85],
+  };
 };
 
 const getPolicyCutoff = (policy: RetentionPolicy, now: number) =>
@@ -434,6 +456,7 @@ export const getDataRetentionStatus = async (
     totalDeletedRows: 0,
     policies,
     recentRuns: await readRecentRetentionRuns(env),
+    capacity: await readD1Capacity(env),
   };
 };
 
@@ -532,8 +555,10 @@ export const runScheduledDataRetentionPrune = async (
 };
 
 export const DATA_RETENTION_POLICY_SUMMARY = {
-  usageEventsRetentionDays: 90,
-  collectionRunsRetentionDays: 180,
+  usageEventsRetentionDays: { x: 30, youtube: 90 },
+  collectionRunsRetentionDays: { x: 30, other: 90 },
+  feedPostRetention: { x: "permanent", naverCafe: "permanent" },
+  dailyUsageRetention: "permanent",
   logsRetentionDays: 365,
   scheduledIntervalSeconds: DAY_SECONDS,
 };

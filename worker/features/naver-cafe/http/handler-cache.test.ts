@@ -62,6 +62,7 @@ const source = {
   member_uid: 1,
   enabled: true,
   sort_order: 0,
+  archived_at: null,
   created_at: "2026-05-28T00:00:00Z",
   updated_at: "2026-05-28T00:00:00Z",
 };
@@ -76,7 +77,9 @@ const makeEnv = (): Env =>
 const makeDb = () => ({
   select: vi.fn(() => ({
     from: vi.fn(() => ({
-      orderBy: vi.fn(async () => [source]),
+      where: vi.fn(() => ({
+        orderBy: vi.fn(async () => [source]),
+      })),
     })),
   })),
 });

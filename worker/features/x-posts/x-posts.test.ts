@@ -53,6 +53,7 @@ type FakeStoredPostRecord = {
   username: string;
   value: string;
   created_at: string;
+  first_seen_at?: number;
   fetched_at: number;
   hidden_at: number | null;
 };
@@ -247,7 +248,7 @@ const makeCacheDb = (
                 if (options.failStoredPostWrites) {
                   throw new Error("stored post write failed");
                 }
-                for (let index = 0; index < args.length; index += 7) {
+                for (let index = 0; index < args.length; index += 8) {
                   const [
                     id,
                     handle,
@@ -255,8 +256,9 @@ const makeCacheDb = (
                     username,
                     value,
                     createdAt,
+                    firstSeenAt,
                     fetchedAt,
-                  ] = args.slice(index, index + 7);
+                  ] = args.slice(index, index + 8);
                   posts.set(String(id), {
                     id: String(id),
                     handle: String(handle),
@@ -264,6 +266,7 @@ const makeCacheDb = (
                     username: String(username),
                     value: String(value),
                     created_at: String(createdAt),
+                    first_seen_at: Number(firstSeenAt),
                     fetched_at: Number(fetchedAt),
                     hidden_at: null,
                   });

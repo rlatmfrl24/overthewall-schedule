@@ -28,3 +28,7 @@ export {
   runXCollection,
   runXCollectionForHandles,
 } from "./infrastructure/x-collection";
+export {
+  redactStoredXPosts,
+  type XPostRedactionReason,
+} from "./infrastructure/x-api";

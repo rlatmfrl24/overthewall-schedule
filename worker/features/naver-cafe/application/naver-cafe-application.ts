@@ -24,6 +24,12 @@ export type NaverCafeSourcePayload = {
   updated_at: string;
 };
 
+export type NaverCafeActor = {
+  actorId: string | null;
+  actorName: string | null;
+  actorIp: string | null;
+};
+
 export type NaverCafePostsContent = {
   posts: Array<{
     id: string;
@@ -43,6 +49,7 @@ export interface NaverCafeApplication {
   createSource(payload: NaverCafeSourcePayload): Promise<boolean>;
   updateSource(id: number, payload: NaverCafeSourcePayload): Promise<boolean>;
   deleteSource(id: number): Promise<boolean>;
+  redactPost(id: string, actor: NaverCafeActor): Promise<boolean>;
   readStoredPosts(
     sources: NaverCafeSourceRecord[],
     size: number,
