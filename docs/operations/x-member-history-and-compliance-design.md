@@ -262,9 +262,9 @@ UTC 일일 hard cap은 `$1.00`이다.
 | 원장 resource              |    상한 | 포함 작업                                        |
 | -------------------------- | ------: | ------------------------------------------------ |
 | `x_collection_cost_micros` | `$0.70` | 신규 피드와 약 24시간 snapshot                   |
-| `x_compliance_cost_micros` | `$0.15` | Compliance create·poll·result 처리의 공급자 비용 |
+| `x_compliance_cost_micros` | `$0.05` | Compliance create·poll·result 처리의 공급자 비용 |
 | `x_enrichment_cost_micros` | `$0.05` | 링크·인용 보강                                   |
-| 호출 불가 reserve          | `$0.10` | 가격 변동·정산 오차 여유                         |
+| 호출 불가 reserve          | `$0.20` | 가격 변동·정산 오차와 장애 격리 여유             |
 | `x_api_cost_micros`        | `$1.00` | 모든 workload의 전역 hard cap                    |
 
 workload subledger와 전역 원장을 외부 호출 전에 원자 예약한다. D1·원장 실패는
@@ -379,3 +379,40 @@ flag와 무관하게 유지한다.
 따라서 구현·migration·배포·활성화는 Closeout한다. X 장기 기록 자동화의 최종 운영
 완료는 7.3의 신규 snapshot, 실제 Compliance 전체 상태 전이, 테스트 redaction 및
 3회 연속 정상 실행을 충족한 뒤 별도로 판정한다.
+
+### 8.1 2026-09-02 Compliance 운영 hold와 비용 재검토
+
+`2026-09-01T21:24:17Z`에 `x_compliance_enabled`와
+`scheduled_v2_x_compliance_enabled`를 `false`로 전환했다. Queue에 전달되지 않은
+`queued` run 3건은 `operator_disabled_x_compliance` 사유로 `skipped` 처리했고,
+실행 가능한 Compliance item·outbox는 모두 0건임을 확인했다. background Queue는
+X·네이버·auto-update·retention이 공유하므로 전체 purge하지 않는다.
+
+같은 UTC 일자 원장에서 X API 예상비용은 총 `$0.630`이었고, 이 중 Compliance는
+`POST /2/compliance/jobs` 성공 3회 `$0.015`였다. 나머지 `$0.615`는 수동 신규
+수집·보강 및 reply context 조회였다. 따라서 Compliance가 당일 X 비용의 주원인은
+아니지만, 동일한 `compliance_storage_url_invalid` 실패로 provider job을 세 번
+생성한 것은 불필요한 비용이다.
+
+다음 최적화를 적용하고 실제 전체 상태 전이 canary 전까지 두 flag를 다시 켜지
+않는다.
+
+- Cron bridge가 rollout flag를 먼저 읽어 꺼진 lane의 Workflow instance와 D1 run을
+  만들지 않는다.
+- Compliance는 진행 중 job이 due이거나 마지막 정상 cycle로부터 12시간이 지난
+  경우에만 Workflow를 시작한다.
+- signed storage URL·인증·응답 계약 오류는 terminal로 저장하고 자동 재시도하지
+  않는다. 네트워크·5xx는 15분 지수 backoff, 최대 5회·6시간으로 제한한다.
+- provider job ID와 민감하지 않은 URL protocol·hostname 진단만 보존하고 signed
+  path·query는 오류 로그에 남기지 않는다.
+- 일일 Compliance 상한은 `$0.15`에서 `$0.05`(유료 요청 최대 10회)로 낮춘다. 160개
+  규모에서 12시간 cycle 2회, cycle당 create와 1~2회 poll을 수용하는 값이다.
+- D1 dispatch 쓰기 예약은 입력 ID 5,000개를 쓰기 행으로 계산하던 5,500에서 실제
+  단일 shard·상태·인덱스 갱신 여유 100행으로 낮춘다. 입력 ID 읽기 상한 5,500은
+  유지한다.
+
+장기 본문과 미디어 URL을 D1에서 공개 피드로 제공하는 현재 제품 계약에서는
+Compliance 자체를 제거하지 않는다. X에서 삭제·비공개·정지·수정된 콘텐츠를
+로컬 저장소와 공개 화면에서도 반영해야 하기 때문이다. 대안은 본문을 장기
+저장하지 않고 매 공개 요청마다 재조회하는 방식이지만, 이는 공개 read의 공급자
+호출 0회와 비용 안정성 계약을 깨므로 채택하지 않는다.

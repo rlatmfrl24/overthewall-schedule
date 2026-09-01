@@ -40,3 +40,4 @@ export {
   runXCompliance,
   runXMetricRefresh,
 } from "./infrastructure/x-history";
+export { X_COMPLIANCE_CYCLE_MS } from "./domain/x-compliance-policy";

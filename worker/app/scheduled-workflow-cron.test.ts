@@ -9,6 +9,30 @@ import {
 const utc = (hour: number, minute: number) =>
   Date.UTC(2026, 7, 31, hour, minute);
 
+const makeDb = (
+  disabledKeys: readonly string[] = [],
+  complianceGate = {
+    dueJob: 1,
+    activeJob: 1,
+    hasPosts: 1,
+    lastCycleAt: 0,
+  },
+) => ({
+  prepare: vi.fn((sql: string) => ({
+    bind: (...values: unknown[]) => ({
+      all: async () => ({
+        results: sql.includes("FROM settings WHERE key IN")
+          ? values
+            .map(String)
+            .filter((key) => !disabledKeys.includes(key))
+            .map((key) => ({ key, value: "true" }))
+          : [],
+      }),
+      first: async () => complianceGate,
+    }),
+  })),
+});
+
 describe("scheduled Workflow cron bridge", () => {
   it("hourly lanes remain staggered across one Free-plan cron expression", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 13))).toEqual([
@@ -46,6 +70,7 @@ describe("scheduled Workflow cron bridge", () => {
   it("starts one generic Workflow instance for every selected job", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
+      otw_db: makeDb(),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;
     const scheduledTime = utc(5, 3);
@@ -61,6 +86,68 @@ describe("scheduled Workflow cron bridge", () => {
     });
     expect(create).toHaveBeenNthCalledWith(2, {
       params: { jobType: "schedule_auto_update", scheduledFor: scheduledTime },
+    });
+  });
+
+  it("does not create a Workflow for disabled rollout lanes", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      otw_db: makeDb(["scheduled_v2_x_compliance_enabled"]),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+    const scheduledTime = utc(5, 33);
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).not.toHaveBeenCalledWith({
+      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
+    });
+  });
+
+  it("requires the provider feature switch as well as the scheduled switch", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      otw_db: makeDb(["x_compliance_enabled"]),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+    const scheduledTime = utc(5, 33);
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).not.toHaveBeenCalledWith({
+      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
+    });
+  });
+
+  it("does not probe Compliance while its next cycle is not due", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const scheduledTime = utc(5, 33);
+    const env = {
+      otw_db: makeDb([], {
+        dueJob: 0,
+        activeJob: 0,
+        hasPosts: 1,
+        lastCycleAt: scheduledTime,
+      }),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).not.toHaveBeenCalledWith({
+      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
     });
   });
 

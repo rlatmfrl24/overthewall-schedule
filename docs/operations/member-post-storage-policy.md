@@ -75,3 +75,16 @@ use-case 확인, migration, 배포와 flag 활성화는 완료했다. 다만 실
 상태 전이와 신규 게시물 initial·24시간 snapshot을 권위 readback하기 전에는 X 자동화
 전체를 완료로 판정하지 않는다. 실패한 Compliance job은 provider job ID 없이 안전
 중단됐고 게시물 본문·노출 상태는 변경되지 않았다.
+
+## 2026-09-02 X Compliance 재진단
+
+Compliance 관련 두 운영 flag를 비활성화하고, 아직 Queue에 전달되지 않은 run 3건을
+`skipped` 처리했다. 실행 가능한 Compliance item·outbox는 0건이다. 실패 job과 이미
+완료된 run은 삭제하지 않고 감사 이력으로 유지한다.
+
+당일 X 원장 `$0.630` 중 Compliance는 `$0.015`로 주 비용원은 아니었다. 그러나 같은
+계약 오류로 세 번 create한 재시도는 제거 대상이다. 일일 Compliance 상한을
+`$0.05`로 낮추고 terminal 계약 오류 재시도 금지, due-only Workflow, D1 write 예약
+현실화를 적용한다. 장기 저장 본문을 공개하는 동안 삭제·비공개·정지 상태 반영은
+필수이므로 Compliance 기능 자체는 유지하되 전체 상태 전이 canary 전까지 운영
+활성화하지 않는다.
