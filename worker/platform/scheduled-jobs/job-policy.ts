@@ -25,7 +25,10 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
   > = {
     x_collection: { rowsRead: 500, rowsWritten: 50 },
     x_metrics_refresh: { rowsRead: 400, rowsWritten: 250 },
-    x_compliance: { rowsRead: 5_500, rowsWritten: 5_500 },
+    // The 5,000 IDs are read into one JSON shard row. D1 accounts written
+    // rows, not JSON elements, so reserve for state/index updates instead of
+    // pretending every input ID is a write.
+    x_compliance: { rowsRead: 5_500, rowsWritten: 100 },
     naver_cafe_collection: { rowsRead: 500, rowsWritten: 70 },
     youtube_feed_collection: { rowsRead: 500, rowsWritten: 150 },
     schedule_auto_update: { rowsRead: 1_000, rowsWritten: 100 },

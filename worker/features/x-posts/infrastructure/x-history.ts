@@ -1,4 +1,15 @@
 import type { XPostItem } from "../../../platform/types";
+import {
+  getNextUtcDayStart,
+  getXComplianceRetryAt,
+  isTerminalXComplianceError,
+  validateXComplianceStorageUrl,
+  X_COMPLIANCE_BATCH_SIZE,
+  X_COMPLIANCE_CYCLE_MS,
+  X_COMPLIANCE_DAILY_BUDGET_MICROS,
+  X_COMPLIANCE_POLL_DELAY_MS,
+  X_COMPLIANCE_REQUEST_COST_MICROS,
+} from "../domain/x-compliance-policy";
 
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -341,15 +352,22 @@ type ComplianceJobRow = {
   input_json: string | null;
   upload_url: string | null;
   download_url: string | null;
+  uploaded_at: number | string | null;
   attempts: number | string;
+  error_code: string | null;
 };
 
 const X_API_URL = "https://api.x.com/2";
-const COMPLIANCE_BATCH_SIZE = 5_000;
-const COMPLIANCE_POLL_DELAY_MS = 15 * 60_000;
-const COMPLIANCE_CYCLE_MS = 12 * HOUR_MS;
-const COMPLIANCE_REQUEST_COST_MICROS = 5_000;
-const COMPLIANCE_DAILY_BUDGET_MICROS = 150_000;
+
+class ComplianceStorageUrlError extends Error {
+  readonly detail: string;
+  providerJobId: string | null = null;
+
+  constructor(code: string, detail: string) {
+    super(code);
+    this.detail = detail;
+  }
+}
 
 const safeJson = <T>(value: string | null, fallback: T): T => {
   if (!value) return fallback;
@@ -357,12 +375,14 @@ const safeJson = <T>(value: string | null, fallback: T): T => {
 };
 
 const requireStorageGoogleUrl = (value: string | null) => {
-  if (!value) throw new Error("compliance_storage_url_missing");
-  const url = new URL(value);
-  if (url.protocol !== "https:" || url.hostname !== "storage.googleapis.com") {
-    throw new Error("compliance_storage_url_invalid");
+  const validation = validateXComplianceStorageUrl(value);
+  if (!validation.ok) {
+    throw new ComplianceStorageUrlError(
+      validation.code,
+      validation.detail,
+    );
   }
-  return url.toString();
+  return validation.url;
 };
 
 const updateComplianceJob = async (
@@ -377,21 +397,26 @@ const updateComplianceJob = async (
 };
 
 const readComplianceJob = async (db: D1, timestamp: number) => db.prepare(
-  `SELECT id, provider_job_id, status, input_json, upload_url, download_url, attempts
+  `SELECT id, provider_job_id, status, input_json, upload_url, download_url,
+          uploaded_at, attempts, error_code
    FROM x_compliance_jobs
    WHERE status IN ('created', 'uploading', 'uploaded', 'pending', 'complete', 'failed')
-     AND (next_check_at IS NULL OR next_check_at <= ?)
+     AND next_check_at IS NOT NULL AND next_check_at <= ?
    ORDER BY created_at ASC LIMIT 1`,
 ).bind(timestamp).first<ComplianceJobRow>();
 
 const createComplianceShard = async (db: D1, timestamp: number) => {
+  const unresolved = await db.prepare(
+    "SELECT id FROM x_compliance_jobs WHERE status <> 'applied' LIMIT 1",
+  ).first<{ id: string }>();
+  if (unresolved) return null;
   const lastCycle = await db.prepare("SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at'")
     .first<{ value: string | null }>();
-  if (timestamp - asNumber(lastCycle?.value) < COMPLIANCE_CYCLE_MS) return null;
+  if (timestamp - asNumber(lastCycle?.value) < X_COMPLIANCE_CYCLE_MS) return null;
   const ids = await db.prepare(
     `SELECT id FROM x_posts WHERE hidden_at IS NULL AND content_removed_at IS NULL
      ORDER BY first_seen_at ASC LIMIT ?`,
-  ).bind(COMPLIANCE_BATCH_SIZE).all<{ id: string }>();
+  ).bind(X_COMPLIANCE_BATCH_SIZE).all<{ id: string }>();
   if (ids.results.length === 0) return null;
   const id = crypto.randomUUID();
   const input = ids.results.map((row) => row.id);
@@ -417,27 +442,27 @@ const reserveComplianceRequest = async (db: D1, timestamp: number) => {
        limit_value = excluded.limit_value, updated_at = excluded.updated_at
      WHERE scheduled_usage_daily.used + scheduled_usage_daily.reserved + excluded.reserved <= excluded.limit_value
      RETURNING reserved`,
-  ).bind(day, lane, resource, COMPLIANCE_REQUEST_COST_MICROS, limit, timestamp)
+  ).bind(day, lane, resource, X_COMPLIANCE_REQUEST_COST_MICROS, limit, timestamp)
     .first<{ reserved: number | string }>();
   const global = await reserve("all", "x_api_cost_micros", totalLimit);
   if (!global) throw new Error("x_compliance_total_budget_exhausted");
-  const compliance = await reserve("x", "x_compliance_cost_micros", COMPLIANCE_DAILY_BUDGET_MICROS);
+  const compliance = await reserve("x", "x_compliance_cost_micros", X_COMPLIANCE_DAILY_BUDGET_MICROS);
   if (!compliance) {
     await db.prepare(
       `UPDATE scheduled_usage_daily SET reserved = MAX(0, reserved - ?), updated_at = ?
        WHERE day = ? AND lane = 'all' AND resource = 'x_api_cost_micros'`,
-    ).bind(COMPLIANCE_REQUEST_COST_MICROS, timestamp, day).run();
+    ).bind(X_COMPLIANCE_REQUEST_COST_MICROS, timestamp, day).run();
     throw new Error("x_compliance_budget_exhausted");
   }
   return async (endpoint: string, status: number) => {
     await db.prepare(
       `UPDATE scheduled_usage_daily SET reserved = MAX(0, reserved - ?), used = used + ?, updated_at = ?
        WHERE day = ? AND resource IN ('x_api_cost_micros', 'x_compliance_cost_micros')`,
-    ).bind(COMPLIANCE_REQUEST_COST_MICROS, COMPLIANCE_REQUEST_COST_MICROS, Date.now(), day).run();
+    ).bind(X_COMPLIANCE_REQUEST_COST_MICROS, X_COMPLIANCE_REQUEST_COST_MICROS, Date.now(), day).run();
     await db.prepare(
       `INSERT INTO x_api_usage_events (operation, endpoint, resource_type, resource_count, estimated_cost_micros, status, created_at, detail)
        VALUES ('compliance', ?, 'request', 1, ?, ?, ?, ?)`,
-    ).bind(endpoint, COMPLIANCE_REQUEST_COST_MICROS, status, Date.now(), JSON.stringify({ source: "x_compliance" })).run();
+    ).bind(endpoint, X_COMPLIANCE_REQUEST_COST_MICROS, status, Date.now(), JSON.stringify({ source: "x_compliance" })).run();
   };
 };
 
@@ -464,7 +489,7 @@ const extractProviderJob = (value: unknown) => {
   const record = data as Record<string, unknown>;
   const id = typeof record.id === "string" ? record.id : null;
   const uploadUrl = typeof record.upload_url === "string" ? record.upload_url : null;
-  return id && uploadUrl ? { id, uploadUrl } : null;
+  return id ? { id, uploadUrl } : null;
 };
 
 const extractComplianceStatus = (value: unknown) => {
@@ -495,11 +520,23 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
   if (!bearerToken?.trim()) return { status: "failed" as const, errorCode: "missing_bearer_token" };
   let job = await readComplianceJob(db, timestamp);
   if (!job) job = await createComplianceShard(db, timestamp);
-  if (!job) return { status: "skipped" as const, reason: "no_visible_posts" };
+  if (!job) return { status: "skipped" as const, reason: "not_due_or_blocked" };
   try {
     if (job.status === "failed") {
-      await updateComplianceJob(db, job.id, { status: job.provider_job_id ? "pending" : "created", error_code: null, error_detail: null, next_check_at: timestamp });
-      return { status: "partial" as const, phase: "retry_scheduled" };
+      const resumedStatus = job.download_url
+        ? "complete"
+        : job.provider_job_id && job.uploaded_at
+          ? "pending"
+          : job.provider_job_id && job.upload_url
+            ? "uploading"
+            : "created";
+      await updateComplianceJob(db, job.id, {
+        status: resumedStatus,
+        error_code: null,
+        error_detail: null,
+        next_check_at: timestamp,
+      });
+      job = { ...job, status: resumedStatus, error_code: null };
     }
     if (job.status === "created") {
       const created = extractProviderJob(await (await xFetch(db, "/compliance/jobs", bearerToken, {
@@ -507,7 +544,16 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
         body: JSON.stringify({ type: "tweets", resumable: false }),
       })).json());
       if (!created) throw new Error("compliance_create_contract_invalid");
-      await updateComplianceJob(db, job.id, { provider_job_id: created.id, upload_url: requireStorageGoogleUrl(created.uploadUrl), status: "uploading", upload_started_at: timestamp, attempts: asNumber(job.attempts) + 1, next_check_at: timestamp });
+      let uploadUrl: string;
+      try {
+        uploadUrl = requireStorageGoogleUrl(created.uploadUrl);
+      } catch (error) {
+        if (error instanceof ComplianceStorageUrlError) {
+          error.providerJobId = created.id;
+        }
+        throw error;
+      }
+      await updateComplianceJob(db, job.id, { provider_job_id: created.id, upload_url: uploadUrl, status: "uploading", upload_started_at: timestamp, attempts: asNumber(job.attempts) + 1, next_check_at: timestamp });
       return { status: "partial" as const, phase: "created" };
     }
     if (job.status === "uploading") {
@@ -515,14 +561,14 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
       const ids = safeJson<string[]>(job.input_json, []);
       const response = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "text/plain" }, body: `${ids.join("\n")}\n` });
       if (!response.ok) throw new Error(`compliance_upload_http_${response.status}`);
-      await updateComplianceJob(db, job.id, { status: "uploaded", uploaded_at: timestamp, next_check_at: timestamp + COMPLIANCE_POLL_DELAY_MS });
+      await updateComplianceJob(db, job.id, { status: "uploaded", uploaded_at: timestamp, next_check_at: timestamp + X_COMPLIANCE_POLL_DELAY_MS });
       return { status: "partial" as const, phase: "uploaded" };
     }
     if (job.status === "uploaded" || job.status === "pending") {
       if (!job.provider_job_id) throw new Error("compliance_provider_job_missing");
       const result = extractComplianceStatus(await (await xFetch(db, `/compliance/jobs/${encodeURIComponent(job.provider_job_id)}`, bearerToken)).json());
       if (result.status !== "complete" && result.status !== "completed") {
-        await updateComplianceJob(db, job.id, { status: "pending", last_polled_at: timestamp, next_check_at: timestamp + COMPLIANCE_POLL_DELAY_MS });
+        await updateComplianceJob(db, job.id, { status: "pending", last_polled_at: timestamp, next_check_at: timestamp + X_COMPLIANCE_POLL_DELAY_MS });
         return { status: "partial" as const, phase: "pending" };
       }
       await updateComplianceJob(db, job.id, { status: "complete", download_url: requireStorageGoogleUrl(result.downloadUrl), last_polled_at: timestamp, next_check_at: timestamp });
@@ -549,7 +595,32 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
     return { status: "skipped" as const, reason: "terminal_job" };
   } catch (error) {
     const code = error instanceof Error ? error.message : "x_compliance_failed";
-    await updateComplianceJob(db, job.id, { status: "failed", error_code: code.slice(0, 120), error_detail: code.slice(0, 900), next_check_at: timestamp + COMPLIANCE_POLL_DELAY_MS, attempts: asNumber(job.attempts) + 1 });
+    if (["x_compliance_total_budget_exhausted", "x_compliance_budget_exhausted"].includes(code)) {
+      await updateComplianceJob(db, job.id, {
+        error_code: code,
+        error_detail: code,
+        next_check_at: getNextUtcDayStart(timestamp),
+      });
+      return { status: "throttled" as const, errorCode: code };
+    }
+    const attempts = asNumber(job.attempts) + 1;
+    const nextCheckAt = getXComplianceRetryAt(code, attempts, timestamp);
+    const detail = error instanceof ComplianceStorageUrlError
+      ? error.detail
+      : nextCheckAt === null && !isTerminalXComplianceError(code)
+        ? `retry_limit_reached:${code}`
+        : code;
+    const fields: Record<string, string | number | null> = {
+      status: "failed",
+      error_code: code.slice(0, 120),
+      error_detail: detail.slice(0, 900),
+      next_check_at: nextCheckAt,
+      attempts,
+    };
+    if (error instanceof ComplianceStorageUrlError && error.providerJobId) {
+      fields.provider_job_id = error.providerJobId;
+    }
+    await updateComplianceJob(db, job.id, fields);
     return { status: "failed" as const, errorCode: code };
   }
 };

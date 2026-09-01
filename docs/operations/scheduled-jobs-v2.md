@@ -13,10 +13,14 @@
 
 ## lane 전환
 
-Cron bridge는 배포 직후에도 Workflow를 시작하지만 아래 D1 flag가 정확히 `true`인 lane만 item을 생성한다. 수동 실행은 같은 v2 pipeline을 사용하며 rollout flag와 무관하게 접수된다.
+Cron bridge는 아래 D1 flag를 먼저 읽고 정확히 `true`인 lane만 Workflow를 시작한다.
+coordinator도 같은 flag를 다시 검사한다. 수동 실행은 같은 v2 pipeline을 사용하며
+rollout flag와 무관하게 접수된다.
 
 - `scheduled_v2_naver_cafe_collection_enabled`
 - `scheduled_v2_x_collection_enabled`
+- `scheduled_v2_x_metrics_refresh_enabled`
+- `scheduled_v2_x_compliance_enabled`
 - `scheduled_v2_youtube_feed_collection_enabled`
 - `scheduled_v2_websub_maintenance_enabled`
 - `scheduled_v2_ingestion_recovery_enabled`
@@ -37,7 +41,7 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 - X는 4 handle, Naver Cafe는 4 source 단위이며 post/source-check를 bulk SQL로 기록한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 WebSub 즉시 알림을 1차 경로로 사용하고 channel reconcile은 누락 복구용이다. scheduler는 매시 23분에 due 여부만 확인하며, 채널별 실제 reconcile 간격은 6시간이다.
-- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health·X metrics와 due인 X Compliance는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
 - 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·WebSub maintenance·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. 실시간 ingestion과 WebSub delivery Queue는 기존 concurrency 1/2를 유지한다.
 - X Workflow는 2시간, auto-update Workflow는 1시간마다 eligibility를 점검한다. 실제 실행 여부는 각각 `x_collection_interval_hours`와 `auto_update_interval_hours` 및 마지막 실행 시각으로 판정하므로 더 긴 관리 설정을 덮어쓰지 않는다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
@@ -111,6 +115,34 @@ flag 활성화는 완료했다. 로컬 전체 migration chain도 검증했고 �
 `0076`을 적용했으며, Windows Wrangler의 일시적 `bad port`만 1회 재시도하도록
 보강했다. 실제 Compliance canary와 신규 snapshot 권위 readback은 미완료이므로 X
 자동화 전체를 완료로 표시하지 않는다.
+
+### 2026-09-02 X Compliance 운영 hold
+
+- `x_compliance_enabled=false`, `scheduled_v2_x_compliance_enabled=false`
+- 미전달 `queued` run 3건은 `operator_disabled_x_compliance`로 `skipped`
+- 실행 가능한 Compliance item·outbox 0건, 공유 background Queue 전체 purge 없음
+- 실패 job 1건·입력 160개·시도 3회는 감사 이력으로 유지
+- 관측 비용: Compliance `$0.015` / 당일 X 전체 `$0.630`
+- 원인: create 성공 뒤 signed storage URL 계약 검증 실패, provider ID를 남기지 못해
+  시간별로 새 create가 반복됨
+- 조치: terminal 계약 오류 자동 재시도 금지, provider ID와 안전한 hostname 진단
+  보존, 12시간/due preflight, 일일 상한 `$0.05`, D1 write 예약 5,500→100
+
+`d1_rows_written` 원장은 실제 Cloudflare usage가 아니라 admission 추정치다. 기존
+Compliance 5 item은 27,500을 예약해 내부 40,000 목표의 68.75%를 소진했지만 실제
+D1 write 27,500행을 발생시킨 것은 아니다. 새 100행/item 정책에서는 정상 8단계
+800행/일, API 호출 상한까지 사용한 보수적 최악 14단계 1,400행/일이다. Free
+100,000 writes/day와 별도로 내부 목표 40,000을 유지한다.
+
+운영 D1의 이동 24시간 actual은 408,039 writes로 Free 한도를 넘었지만, query
+insight의 실행당 약 3,870 write는 Compliance가 아니라 이미 증분화한 과거
+`music_search_gram_stats` 전체 재구축이었다. 최근 6시간 top-200 query actual은
+총 835 writes이고 Compliance·gram stats write는 0이다. 다음 UTC reset 이후에도
+이 수준이 유지되는지 별도 readback한다.
+
+Compliance는 장기 저장된 X 본문을 삭제·비공개·정지 상태와 동기화하는 정책상
+필요하므로 폐기하지 않는다. 실제 create→upload→poll→download→apply canary와
+redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유지한다.
 
 ## 배포 순서
 
