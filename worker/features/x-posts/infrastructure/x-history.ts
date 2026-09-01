@@ -374,8 +374,15 @@ const safeJson = <T>(value: string | null, fallback: T): T => {
   try { return JSON.parse(value) as T; } catch { return fallback; }
 };
 
-const requireStorageGoogleUrl = (value: string | null) => {
-  const validation = validateXComplianceStorageUrl(value);
+const requireComplianceTransferUrl = (
+  value: string | null,
+  providerJobId: string,
+  operation: "upload" | "download",
+) => {
+  const validation = validateXComplianceStorageUrl(value, {
+    providerJobId,
+    operation,
+  });
   if (!validation.ok) {
     throw new ComplianceStorageUrlError(
       validation.code,
@@ -407,7 +414,10 @@ const readComplianceJob = async (db: D1, timestamp: number) => db.prepare(
 
 const createComplianceShard = async (db: D1, timestamp: number) => {
   const unresolved = await db.prepare(
-    "SELECT id FROM x_compliance_jobs WHERE status <> 'applied' LIMIT 1",
+    `SELECT id FROM x_compliance_jobs
+     WHERE status IN ('created', 'uploading', 'uploaded', 'pending', 'complete')
+        OR (status = 'failed' AND next_check_at IS NOT NULL)
+     LIMIT 1`,
   ).first<{ id: string }>();
   if (unresolved) return null;
   const lastCycle = await db.prepare("SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at'")
@@ -503,10 +513,15 @@ const extractComplianceStatus = (value: unknown) => {
   };
 };
 
-const parseComplianceResultIds = (value: string) => value.split(/\r?\n/).flatMap((line) => {
+export const parseComplianceResultIds = (value: string) => value.split(/\r?\n/).flatMap((line) => {
   if (!line.trim()) return [];
   try {
     const row = JSON.parse(line) as Record<string, unknown>;
+    if (row.action !== "delete") return [];
+    if (
+      typeof row.reason === "string" &&
+      !["deleted", "bounced", "protected", "suspended"].includes(row.reason)
+    ) return [];
     const id = typeof row.id === "string" ? row.id
       : typeof row.tweet_id === "string" ? row.tweet_id : null;
     return id ? [id] : [];
@@ -546,18 +561,36 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
       if (!created) throw new Error("compliance_create_contract_invalid");
       let uploadUrl: string;
       try {
-        uploadUrl = requireStorageGoogleUrl(created.uploadUrl);
+        uploadUrl = requireComplianceTransferUrl(
+          created.uploadUrl,
+          created.id,
+          "upload",
+        );
       } catch (error) {
         if (error instanceof ComplianceStorageUrlError) {
           error.providerJobId = created.id;
         }
         throw error;
       }
-      await updateComplianceJob(db, job.id, { provider_job_id: created.id, upload_url: uploadUrl, status: "uploading", upload_started_at: timestamp, attempts: asNumber(job.attempts) + 1, next_check_at: timestamp });
-      return { status: "partial" as const, phase: "created" };
+      const attempts = asNumber(job.attempts) + 1;
+      await updateComplianceJob(db, job.id, { provider_job_id: created.id, upload_url: uploadUrl, status: "uploading", upload_started_at: timestamp, attempts, next_check_at: timestamp });
+      // X currently expires the upload URL after 15 minutes. Upload in the
+      // same execution instead of waiting for the next hourly scheduler pass.
+      job = {
+        ...job,
+        provider_job_id: created.id,
+        upload_url: uploadUrl,
+        status: "uploading",
+        attempts,
+      };
     }
     if (job.status === "uploading") {
-      const uploadUrl = requireStorageGoogleUrl(job.upload_url);
+      if (!job.provider_job_id) throw new Error("compliance_provider_job_missing");
+      const uploadUrl = requireComplianceTransferUrl(
+        job.upload_url,
+        job.provider_job_id,
+        "upload",
+      );
       const ids = safeJson<string[]>(job.input_json, []);
       const response = await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": "text/plain" }, body: `${ids.join("\n")}\n` });
       if (!response.ok) throw new Error(`compliance_upload_http_${response.status}`);
@@ -567,15 +600,23 @@ export const runXCompliance = async (db: D1, bearerToken: string | undefined, ti
     if (job.status === "uploaded" || job.status === "pending") {
       if (!job.provider_job_id) throw new Error("compliance_provider_job_missing");
       const result = extractComplianceStatus(await (await xFetch(db, `/compliance/jobs/${encodeURIComponent(job.provider_job_id)}`, bearerToken)).json());
+      if (result.status === "failed") {
+        throw new Error("compliance_provider_job_failed");
+      }
       if (result.status !== "complete" && result.status !== "completed") {
         await updateComplianceJob(db, job.id, { status: "pending", last_polled_at: timestamp, next_check_at: timestamp + X_COMPLIANCE_POLL_DELAY_MS });
         return { status: "partial" as const, phase: "pending" };
       }
-      await updateComplianceJob(db, job.id, { status: "complete", download_url: requireStorageGoogleUrl(result.downloadUrl), last_polled_at: timestamp, next_check_at: timestamp });
+      await updateComplianceJob(db, job.id, { status: "complete", download_url: requireComplianceTransferUrl(result.downloadUrl, job.provider_job_id, "download"), last_polled_at: timestamp, next_check_at: timestamp });
       return { status: "partial" as const, phase: "complete" };
     }
     if (job.status === "complete") {
-      const downloadUrl = requireStorageGoogleUrl(job.download_url);
+      if (!job.provider_job_id) throw new Error("compliance_provider_job_missing");
+      const downloadUrl = requireComplianceTransferUrl(
+        job.download_url,
+        job.provider_job_id,
+        "download",
+      );
       const response = await fetch(downloadUrl, { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`compliance_download_http_${response.status}`);
       const redactedIds = parseComplianceResultIds(await response.text());

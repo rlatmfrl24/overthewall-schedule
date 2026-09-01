@@ -151,6 +151,29 @@ describe("scheduled Workflow cron bridge", () => {
     });
   });
 
+  it("allows a new cycle after a terminal failed job no longer has a retry", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const scheduledTime = utc(5, 33);
+    const env = {
+      otw_db: makeDb([], {
+        dueJob: 0,
+        activeJob: 0,
+        hasPosts: 1,
+        lastCycleAt: 0,
+      }),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledWith({
+      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
+    });
+  });
+
   it("fails loudly when a configured Workflow binding is absent", async () => {
     await expect(handleScheduledWorkflowCron({
       cron: SCHEDULED_WORKFLOW_CRON,

@@ -60,7 +60,9 @@ const isXComplianceDue = async (env: Env, scheduledTime: number) => {
            AND next_check_at IS NOT NULL AND next_check_at <= ?
        ) AS dueJob,
        EXISTS(
-         SELECT 1 FROM x_compliance_jobs WHERE status <> 'applied'
+         SELECT 1 FROM x_compliance_jobs
+         WHERE status IN ('created', 'uploading', 'uploaded', 'pending', 'complete')
+            OR (status = 'failed' AND next_check_at IS NOT NULL)
        ) AS activeJob,
        EXISTS(
          SELECT 1 FROM x_posts
