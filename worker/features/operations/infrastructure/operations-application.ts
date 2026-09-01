@@ -101,6 +101,19 @@ const getLatestSuccessAt = <T extends { status: string; finished_at: number | nu
   rows: T[],
 ) => rows.find((row) => row.status === "success")?.finished_at ?? null;
 
+const getLatestHealthyXCollectionAt = (
+  rows: Array<{
+    status: string;
+    error: string | null;
+    finished_at: number | null;
+  }>,
+) =>
+  rows.find(
+    (row) =>
+      row.status === "success" ||
+      (row.status === "skipped" && row.error === "all_handles_cooldown"),
+  )?.finished_at ?? null;
+
 const getVisiblePendingSummary = async (
   db: D1Database,
 ): Promise<PendingSummaryRow> => {
@@ -677,7 +690,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   }
 
   const latestXRun = xRuns[0] ?? null;
-  const latestXCollectionAt = getLatestSuccessAt(xRuns);
+  const latestXCollectionAt = getLatestHealthyXCollectionAt(xRuns);
   const latestNaverCafeCollectionAt = naverStatus.items.reduce<number | null>(
     (latest, source) => {
       if (source.lastSuccessAt === null) return latest;
@@ -698,8 +711,8 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     addStaleIssue(
       issues,
       "x_collection_stale",
-      "X 게시글 수집 성공 이력이 오래되었습니다.",
-      getLatestSuccessAt(xRuns),
+      "X 게시글 수집 정상 이력이 오래되었습니다.",
+      latestXCollectionAt,
       xInterval * 2 * 60 * 60_000,
       now,
     );
@@ -788,8 +801,8 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
       enabled: xEnabled,
       intervalHours: xInterval,
       dailyBudgetCents: xDailyBudgetCents,
-      // UI freshness follows persisted collection history. The setting remains
-      // the scheduling cooldown authority and must not masquerade as a run.
+      // A successful refresh and an all-handles-cooldown no-op are both healthy
+      // persisted collection outcomes. The setting remains scheduling authority.
       lastRun: latestXCollectionAt,
       nextEligibleAt: getNextEligibleAt(
         xEnabled,

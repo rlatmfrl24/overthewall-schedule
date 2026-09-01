@@ -48,7 +48,10 @@ const makeStatement = <T,>(rows: T[]) => {
   return statement;
 };
 
-const makeStatusD1 = (settingOverrides: Record<string, string> = {}) => {
+const makeStatusD1 = (
+  settingOverrides: Record<string, string> = {},
+  xRunsOverride?: Array<Record<string, unknown>>,
+) => {
   const now = Date.now();
   const prepare = vi.fn((sql: string) => {
     if (sql.includes("FROM settings")) {
@@ -109,7 +112,7 @@ const makeStatusD1 = (settingOverrides: Record<string, string> = {}) => {
       ]);
     }
     if (sql.includes("FROM x_collection_runs")) {
-      return makeStatement([
+      return makeStatement(xRunsOverride ?? [
         {
           id: 2,
           source: "scheduled",
@@ -332,6 +335,55 @@ describe("operations worker route", () => {
       stale: false,
     });
     expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+  });
+
+  it("모든 핸들이 쿨다운 중인 정상 no-op을 최근 X 수집으로 인정한다", async () => {
+    const healthyNoOpAt = Date.now() - 30 * 60_000;
+    const response = await handleOperations(
+      new Request("https://example.com/api/operations/status?windowHours=24"),
+      makeEnv(
+        makeStatusD1({}, [
+          {
+            id: 3,
+            source: "manual",
+            started_at: healthyNoOpAt - 1000,
+            finished_at: healthyNoOpAt,
+            checked_handles: 8,
+            refreshed_handles: 0,
+            posts_returned: 0,
+            posts_stored: 0,
+            api_calls: 0,
+            estimated_cost_micros: 0,
+            status: "skipped",
+            error: "all_handles_cooldown",
+          },
+          {
+            id: 2,
+            source: "scheduled",
+            started_at: Date.now() - 12 * 60 * 60_000,
+            finished_at: Date.now() - 12 * 60 * 60_000 + 1000,
+            checked_handles: 8,
+            refreshed_handles: 8,
+            posts_returned: 20,
+            posts_stored: 20,
+            api_calls: 8,
+            estimated_cost_micros: 40_000,
+            status: "success",
+            error: null,
+          },
+        ]),
+      ),
+    );
+    const body = (await response.json()) as {
+      summary: { issues: Array<{ code: string }> };
+      xCollection: { lastRun: number | null };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.xCollection.lastRun).toBe(healthyNoOpAt);
+    expect(body.summary.issues.map((issue) => issue.code)).not.toContain(
+      "x_collection_stale",
+    );
   });
 
   it("pending은 과거 처리 로그 추정 없이 실제 행을 경고 대상으로 집계한다", async () => {

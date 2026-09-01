@@ -261,6 +261,7 @@ const X_USER_LOOKUP_CACHE_POLICY = WORKER_CACHE_POLICY.x.userLookup;
 const X_POSTS_CACHE_POLICY = WORKER_CACHE_POLICY.x.posts;
 const X_LINKED_POST_LOOKUP_CACHE_POLICY =
   WORKER_CACHE_POLICY.x.linkedPostLookup;
+const X_LINKED_POST_NEGATIVE_CACHE_TTL_MS = 15 * 60_000;
 const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
@@ -1767,8 +1768,11 @@ const fetchLinkedXPostsByIds = async (
     if (cached) {
       if (cached.value.post) {
         result.set(id, cached.value.post);
+        continue;
       }
-      continue;
+      if (now() - cached.fetchedAt < X_LINKED_POST_NEGATIVE_CACHE_TTL_MS) {
+        continue;
+      }
     }
     idsToFetch.push(id);
   }
@@ -1826,7 +1830,7 @@ const fetchLinkedXPostsByIds = async (
         "linked_post",
         { post: null },
         now(),
-        X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
+        X_LINKED_POST_NEGATIVE_CACHE_TTL_MS,
       );
     }
   }
@@ -1839,7 +1843,7 @@ const fetchLinkedXPostsByIds = async (
       "linked_post",
       { post: null },
       now(),
-      X_LINKED_POST_LOOKUP_CACHE_POLICY.freshTtlMs,
+      X_LINKED_POST_NEGATIVE_CACHE_TTL_MS,
     );
   }
 
@@ -2733,12 +2737,17 @@ export const collectXPostsForHandles = async (
   }
 
   try {
-    const handlesToRefresh = await getXCollectionHandlesToRefresh(
-      normalizedHandles,
-      maxResults,
-      richXLinkPreviewEnabled,
-      cacheDb,
-    );
+    // A manual run is an explicit operator recovery action. It must still obey
+    // the global rate-limit backoff and daily budget in requestXApi, but it
+    // must not be turned into a no-op by the adaptive scheduled cooldown.
+    const handlesToRefresh = source === "manual"
+      ? normalizedHandles
+      : await getXCollectionHandlesToRefresh(
+        normalizedHandles,
+        maxResults,
+        richXLinkPreviewEnabled,
+        cacheDb,
+      );
 
     if (handlesToRefresh.length === 0) {
       const result = {

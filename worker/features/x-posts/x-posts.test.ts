@@ -1173,6 +1173,70 @@ describe("x worker service", () => {
     });
   });
 
+  it("수동 수집은 최근 확인 또는 오류 쿨다운 중인 핸들도 다시 조회한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
+
+    const currentTime = Date.now();
+    const cachedPost = makePost("p1", "otw_member");
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [
+            {
+              id: "p2",
+              text: "manual recovery post",
+              created_at: "2026-02-13T00:00:00Z",
+              public_metrics: {},
+            },
+          ],
+        }),
+      );
+    const { db, posts, sources, collectionRuns } = makeCacheDb();
+    posts.set("p1", {
+      id: "p1",
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      value: JSON.stringify(cachedPost),
+      created_at: cachedPost.createdAt,
+      fetched_at: currentTime,
+      hidden_at: null,
+    });
+    sources.set("otw_member", {
+      handle: "otw_member",
+      user_id: "u1",
+      username: "otw_member",
+      last_seen_post_id: "p1",
+      last_checked_at: currentTime,
+      updated_at: currentTime,
+      last_error: "x_api_unavailable",
+    });
+
+    const result = await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: db,
+      source: "manual",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      checkedHandles: 1,
+      refreshedHandles: 1,
+      status: "success",
+    });
+    expect(collectionRuns[0]).toMatchObject({
+      source: "manual",
+      status: "success",
+    });
+  });
+
   it("백그라운드 수집은 활성 계정도 2시간 쿨다운 전에는 재조회하지 않는다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
@@ -2346,7 +2410,7 @@ describe("x worker service", () => {
     for (const parentId of parentIds) {
       const cache = store.get(`x:linked-post:v1:${parentId}`);
       expect(JSON.parse(cache?.value ?? "null")).toEqual({ post: null });
-      expect(cache?.expires_at).toBe(Date.now() + 7 * 24 * 60 * 60_000);
+      expect(cache?.expires_at).toBe(Date.now() + 15 * 60_000);
     }
   });
 
@@ -2768,6 +2832,50 @@ describe("x worker service", () => {
       replyTo: { id: replyToPostId, text: "cached parent" },
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("15분이 지난 답글 문맥 미발견 캐시는 외부 조회를 다시 시도한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-13T00:30:00Z"));
+    const replyToPostId = "2059529979700846500";
+    const target = makeCacheDb({
+      ...publicXSettings,
+      [`x:linked-post:v1:${replyToPostId}`]: {
+        type: "linked_post",
+        value: JSON.stringify({ post: null }),
+        fetched_at: Date.now() - 16 * 60_000,
+        expires_at: Date.now() - 60_000,
+      },
+    });
+    const { sourcePostId } = seedReplyPost(target, { replyToPostId });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        data: [
+          {
+            id: replyToPostId,
+            author_id: "u0",
+            text: "recovered parent post",
+            created_at: "2026-02-12T23:00:00Z",
+            public_metrics: {},
+          },
+        ],
+        includes: {
+          users: [{ id: "u0", username: "parent_user", name: "Parent User" }],
+        },
+      }),
+    );
+
+    const response = await handleXPosts(
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
+      makeRouteEnv(target.db),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      sourcePostId,
+      replyTo: { id: replyToPostId, text: "recovered parent post" },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("답글 문맥 API는 잘못된 ID와 임의 또는 숨김 게시글 ID를 차단한다", async () => {
