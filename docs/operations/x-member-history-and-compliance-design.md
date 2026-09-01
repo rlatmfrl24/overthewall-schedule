@@ -411,6 +411,22 @@ X·네이버·auto-update·retention이 공유하므로 전체 purge하지 않�
   단일 shard·상태·인덱스 갱신 여유 100행으로 낮춘다. 입력 ID 읽기 상한 5,500은
   유지한다.
 
+여기서 `scheduled_usage_daily.d1_rows_written`은 Cloudflare D1의 실제
+`rows_written`가 아니라 dispatch 전에 차감하는 보수적 추정 원장이다. 기존에는
+Compliance item 5건이 `5 × 5,500 = 27,500`을 차감해 내부 일일 목표 40,000의
+68.75%를 점유했지만, D1에 27,500행을 쓴 것은 아니다. 변경 후 정상 12시간 cycle
+2회가 create·upload·poll·download 4단계씩 실행되면 800행을 예약한다. 유료 API
+호출 10회 상한에 upload·download 4단계를 더한 보수적 최악치도 1,400행으로 내부
+목표의 3.5%, Workers Free 실제 100,000 writes/day의 1.4%다.
+
+운영 query insight에서 Compliance 고유 write는 API usage event insert 평균 4행,
+job state update 평균 2행이었다. 최근 6시간 top-200 query의 전체 실제 write 합계는
+835행, Compliance와 `music_search_gram_stats` write는 각각 0행이었다. 반면 이동
+24시간 `rows_written`은 408,039행으로 Free 일일 상한을 넘었으며, 4,000행 전후로
+보인 대량 query는 과거 `music_search_gram_stats` 전체 재구축(실행당 평균 3,870행)과
+migration table copy였다. 전체 재구축은 PR #97에서 증분 갱신으로 교체됐고 최근
+6시간에는 재발하지 않았다.
+
 장기 본문과 미디어 URL을 D1에서 공개 피드로 제공하는 현재 제품 계약에서는
 Compliance 자체를 제거하지 않는다. X에서 삭제·비공개·정지·수정된 콘텐츠를
 로컬 저장소와 공개 화면에서도 반영해야 하기 때문이다. 대안은 본문을 장기

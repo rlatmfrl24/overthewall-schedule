@@ -88,3 +88,10 @@ Compliance 관련 두 운영 flag를 비활성화하고, 아직 Queue에 전달�
 현실화를 적용한다. 장기 저장 본문을 공개하는 동안 삭제·비공개·정지 상태 반영은
 필수이므로 Compliance 기능 자체는 유지하되 전체 상태 전이 canary 전까지 운영
 활성화하지 않는다.
+
+운영 화면의 Compliance D1 5,500은 실제 write가 아니라 item admission 추정치였다.
+5개 item이 내부 40,000 목표 중 27,500을 예약해 다른 job을 조기 throttling한 것은
+확인했지만 Cloudflare D1에 같은 수의 행을 쓴 것은 아니다. 예약치를 100/item으로
+낮춰 정상 2 cycle은 800/일, 보수적 최악은 1,400/일로 제한한다. 이동 24시간 actual
+408,039 writes의 대량 원인은 과거 search gram 전체 재구축과 migration copy였으며,
+최근 6시간 query insight에서는 Compliance·search gram write 모두 0이었다.

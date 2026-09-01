@@ -128,6 +128,18 @@ flag 활성화는 완료했다. 로컬 전체 migration chain도 검증했고 �
 - 조치: terminal 계약 오류 자동 재시도 금지, provider ID와 안전한 hostname 진단
   보존, 12시간/due preflight, 일일 상한 `$0.05`, D1 write 예약 5,500→100
 
+`d1_rows_written` 원장은 실제 Cloudflare usage가 아니라 admission 추정치다. 기존
+Compliance 5 item은 27,500을 예약해 내부 40,000 목표의 68.75%를 소진했지만 실제
+D1 write 27,500행을 발생시킨 것은 아니다. 새 100행/item 정책에서는 정상 8단계
+800행/일, API 호출 상한까지 사용한 보수적 최악 14단계 1,400행/일이다. Free
+100,000 writes/day와 별도로 내부 목표 40,000을 유지한다.
+
+운영 D1의 이동 24시간 actual은 408,039 writes로 Free 한도를 넘었지만, query
+insight의 실행당 약 3,870 write는 Compliance가 아니라 이미 증분화한 과거
+`music_search_gram_stats` 전체 재구축이었다. 최근 6시간 top-200 query actual은
+총 835 writes이고 Compliance·gram stats write는 0이다. 다음 UTC reset 이후에도
+이 수준이 유지되는지 별도 readback한다.
+
 Compliance는 장기 저장된 X 본문을 삭제·비공개·정지 상태와 동기화하는 정책상
 필요하므로 폐기하지 않는다. 실제 create→upload→poll→download→apply canary와
 redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유지한다.
