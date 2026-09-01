@@ -147,6 +147,19 @@ const runWrangler = (args, options = {}) =>
     });
   });
 
+// Wrangler's local D1 runtime can intermittently terminate a migration apply
+// with `bad port` on Windows/Node 25, even when the same SQL succeeds on the
+// next invocation. Retry only that known transport failure once; SQL errors
+// remain fail-closed and are never retried as though they were transient.
+const runWranglerWithLocalD1Retry = async (args, options = {}) => {
+  const first = await runWrangler(args, options);
+  if (first.exitCode === 0) return first;
+  const output = `${first.stdout}\n${first.stderr}`;
+  if (!/\bbad port\b/i.test(output)) return first;
+  console.warn("[d1:reset:local] Wrangler local D1 bad port; retrying once.");
+  return runWrangler(args, options);
+};
+
 const assertSuccess = (result, label) => {
   if (result.exitCode === 0) return;
   if (result.stderr || result.stdout) {
@@ -206,7 +219,7 @@ const getJsonRows = (stdout) => {
 };
 
 const applyMigrations = async (configPath, persistDir) => {
-  const result = await runWrangler(
+  const result = await runWranglerWithLocalD1Retry(
     [
       "d1",
       "migrations",
