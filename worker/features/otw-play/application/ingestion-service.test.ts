@@ -164,6 +164,72 @@ const adminActor = {
 };
 
 describe("IngestionService", () => {
+  it("allocates catalog identities and a song for atomic ready materialization", async () => {
+    const repo = repository();
+    const generatedIds = [
+      "candidate-event",
+      "entity-new",
+      "entity-event-new",
+      "song-new",
+      "song-event-new",
+    ];
+    const service = new IngestionService(
+      repo,
+      youtube(),
+      { send: vi.fn(async () => undefined) },
+      () => generatedIds.shift()!,
+      () => 100,
+    );
+    const externalSubject = {
+      kind: "new_external" as const,
+      clientKey: "shared-external",
+      displayName: "New Artist",
+      entityKind: "person" as const,
+    };
+
+    await service.updateCandidate(
+      "youtube:AAAAAAAAAAA",
+      {
+        expectedVersion: 1,
+        action: "save",
+        input: {
+          song: {
+            kind: "create",
+            title: "New Song",
+            isOtwOriginal: false,
+            originalReleaseDate: null,
+            originalReleasePrecision: "unknown",
+            aliases: [],
+            originalArtists: [{
+              subject: externalSubject,
+              creditOrder: 0,
+              isPrimary: true,
+            }],
+          },
+          participants: [{
+            subject: externalSubject,
+            participantRole: "vocal",
+            creditOrder: 0,
+          }],
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+        },
+      },
+      adminActor,
+    );
+
+    expect(repo.saveCandidateReview).toHaveBeenCalledWith(expect.objectContaining({
+      eventId: "candidate-event",
+      catalogMaterialization: {
+        entityIds: { "external:shared-external": "entity-new" },
+        entityEventIds: { "external:shared-external": "entity-event-new" },
+        songId: "song-new",
+        songEventId: "song-event-new",
+      },
+    }));
+  });
+
   it("preflights bounded 50-item pages and rejects an implicit 5,001-item truncation", async () => {
     const repo = repository();
     const service = new IngestionService(

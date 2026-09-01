@@ -160,6 +160,7 @@ export class YouTubeOtwPlayMetadataReader
   private readonly fetcher: typeof fetch;
   private readonly quotaDb: Pick<D1Database, "prepare"> | undefined;
   private readonly quotaPriority: YouTubeQuotaPriority;
+  private readonly usageOrigin: string;
 
   constructor(
     apiKey: string,
@@ -167,12 +168,38 @@ export class YouTubeOtwPlayMetadataReader
     quota?: {
       db?: Pick<D1Database, "prepare">;
       priority?: YouTubeQuotaPriority;
+      origin?: string;
     },
   ) {
     this.apiKey = apiKey.trim();
     this.fetcher = fetcher;
     this.quotaDb = quota?.db;
     this.quotaPriority = quota?.priority ?? "core";
+    this.usageOrigin = quota?.origin ?? "otw_play";
+  }
+
+  private async recordUsage(path: string, status: number, startedAt: number, quotaUnits: number, error: string | null) {
+    if (!this.quotaDb) return;
+    const operation = path === "videos" ? "videos.list"
+      : path === "channels" ? "channels.list" : "playlistItems.list";
+    try {
+      const event = await this.quotaDb.prepare(
+        `INSERT INTO youtube_api_usage_events
+         (operation, channel_id, cache_key, quota_units, status, duration_ms,
+          created_at, error, request_origin)
+         VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, 'scheduled') RETURNING id`,
+      ).bind(operation, quotaUnits, status, Date.now() - startedAt, Date.now(), error)
+        .first<{ id: number }>();
+      if (event?.id) {
+        await this.quotaDb.prepare(
+          `INSERT INTO youtube_api_usage_contexts
+           (usage_event_id, operation, origin, workload)
+           VALUES (?, ?, ?, ?)`,
+        ).bind(event.id, `${path}.list`, this.usageOrigin, this.quotaPriority).run();
+      }
+    } catch (recordError) {
+      console.warn("Failed to record OTW Play YouTube usage", recordError);
+    }
   }
 
   private async read<T>(path: string, parameters: Record<string, string>) {
@@ -190,6 +217,7 @@ export class YouTubeOtwPlayMetadataReader
       OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS,
     );
     let response: Response;
+    const startedAt = Date.now();
     try {
       await reserveYouTubeQuota(
         this.quotaDb,
@@ -202,6 +230,7 @@ export class YouTubeOtwPlayMetadataReader
       );
     } catch (error) {
       if (error instanceof YouTubeQuotaAdmissionError) {
+        await this.recordUsage(path, 0, startedAt, 0, "quota_admission_denied");
         throw new OtwPlayYouTubeMetadataError(
           "YouTube metadata quota admission was denied",
           "quota_exceeded",
@@ -211,6 +240,7 @@ export class YouTubeOtwPlayMetadataReader
       const timedOut =
         controller.signal.aborted ||
         (error instanceof Error && error.name === "AbortError");
+      await this.recordUsage(path, 0, startedAt, 1, timedOut ? "timeout" : "network");
       throw new OtwPlayYouTubeMetadataError(
         timedOut
           ? "YouTube metadata request timed out"
@@ -221,6 +251,13 @@ export class YouTubeOtwPlayMetadataReader
     } finally {
       clearTimeout(timeout);
     }
+    await this.recordUsage(
+      path,
+      response.status,
+      startedAt,
+      1,
+      response.ok ? null : `youtube_${response.status}`,
+    );
     if (!response.ok) {
       let reason = "";
       try {
@@ -324,7 +361,6 @@ export class YouTubeOtwPlayMetadataReader
     const data = await this.read<VideoResponse>("videos", {
       part: "snippet,contentDetails,status,player,liveStreamingDetails",
       id: ids.join(","),
-      maxResults: String(ids.length),
       maxWidth: "480",
     });
     if (!Array.isArray(data.items)) {

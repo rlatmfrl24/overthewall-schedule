@@ -46,6 +46,12 @@ type MonitorRow = {
   last_seen_published_at: number | null;
   last_recent_reconciled_at: number | null;
   last_error_code: string | null;
+  sync_page_token: string | null;
+  sync_base_video_id: string | null;
+  sync_newest_video_id: string | null;
+  sync_started_at: number | null;
+  last_success_at: number | null;
+  consecutive_failures: number;
   candidate_count: number;
   pending_candidate_count: number;
   previous_generation_pending_count: number;
@@ -166,6 +172,12 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
     ? null
     : Number(row.last_recent_reconciled_at),
   lastErrorCode: row.last_error_code,
+  syncPageToken: row.sync_page_token,
+  syncBaseVideoId: row.sync_base_video_id,
+  syncNewestVideoId: row.sync_newest_video_id,
+  syncStartedAt: row.sync_started_at === null ? null : Number(row.sync_started_at),
+  lastSuccessAt: row.last_success_at === null ? null : Number(row.last_success_at),
+  consecutiveFailures: Number(row.consecutive_failures),
   automationApproval: row.approval_scope && row.approval_status &&
       row.operator_reference && row.approval_reference &&
       row.revocation_procedure && row.approved_by_user_id &&
@@ -1001,6 +1013,9 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       `UPDATE music_channel_upload_monitors
        SET last_checked_at = ?, next_check_at = ?, last_seen_video_id = ?,
          last_seen_published_at = ?, last_error_code = NULL, lease_until = NULL,
+         sync_page_token = NULL, sync_base_video_id = NULL,
+         sync_newest_video_id = NULL, sync_started_at = NULL,
+         last_success_at = ?, consecutive_failures = 0,
          version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
           AND status = 'active' AND deleted_at IS NULL
@@ -1016,6 +1031,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       input.lastSeenVideoId,
       input.lastSeenPublishedAt,
       input.now,
+      input.now,
       input.id,
       input.expectedVersion,
       input.monitorGeneration,
@@ -1025,6 +1041,35 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         "stale_message",
         "Channel monitor changed during reconciliation",
       );
+    }
+    return this.get(input.id);
+  }
+
+  async saveContinuation(
+    input: Parameters<ChannelMonitorRepository["saveContinuation"]>[0],
+  ) {
+    const result = await this.database.prepare(
+      `UPDATE music_channel_upload_monitors SET
+         sync_page_token = ?, sync_base_video_id = ?, sync_newest_video_id = ?,
+         sync_started_at = COALESCE(sync_started_at, ?), last_checked_at = ?,
+         next_check_at = ?, last_error_code = NULL, lease_until = NULL,
+         version = version + 1, updated_at = ?
+       WHERE id = ? AND version = ? AND generation = ?
+         AND status = 'active' AND deleted_at IS NULL`,
+    ).bind(
+      input.pageToken,
+      input.baseVideoId,
+      input.newestVideoId,
+      input.now,
+      input.now,
+      input.now + 15 * 60_000,
+      input.now,
+      input.id,
+      input.expectedVersion,
+      input.monitorGeneration,
+    ).run();
+    if (Number(result.meta.changes ?? 0) !== 1) {
+      throw new IngestionRepositoryError("stale_message", "Channel monitor continuation changed");
     }
     return this.get(input.id);
   }
@@ -1091,6 +1136,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     await this.database.prepare(
       `UPDATE music_channel_upload_monitors
        SET last_error_code = ?, next_check_at = ?, lease_until = NULL,
+          consecutive_failures = consecutive_failures + 1,
           version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
           AND status = 'active' AND deleted_at IS NULL`,

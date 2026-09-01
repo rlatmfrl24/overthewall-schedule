@@ -95,6 +95,15 @@ export interface ChannelMonitorRepository {
     observations: OtwPlayYouTubeVideoObservation[];
     now: number;
   }): Promise<number>;
+  saveContinuation(input: {
+    id: string;
+    expectedVersion: number;
+    monitorGeneration: number;
+    pageToken: string;
+    baseVideoId: string | null;
+    newestVideoId: string | null;
+    now: number;
+  }): Promise<OtwPlayChannelMonitorDto>;
   complete(input: {
     id: string;
     expectedVersion: number;

@@ -559,6 +559,8 @@ export function MemberPostSettingsManager({
   const xPostsVisibility = settings?.x_posts_visibility ?? "members";
   const isNaverCafePostsEnabled =
     settings?.naver_cafe_posts_enabled !== "false";
+  const isNaverCafeCollectionEnabled =
+    settings?.naver_cafe_collection_enabled !== "false";
   const naverCafePostsVisibility =
     settings?.naver_cafe_posts_visibility ?? "members";
   const isXCollectionEnabled = settings?.x_collection_enabled !== "false";
@@ -794,6 +796,31 @@ export function MemberPostSettingsManager({
         variant: "error",
         description: "카페 최신글 설정 변경에 실패했습니다.",
       });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleToggleNaverCafeCollection = async (enabled: boolean) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        naver_cafe_collection_enabled: enabled ? "true" : "false",
+      });
+      patchSettings({
+        naver_cafe_collection_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() });
+      toast({
+        variant: "success",
+        description: enabled
+          ? "네이버 카페 외부 수집을 활성화했습니다."
+          : "네이버 카페 외부 수집을 즉시 중지했습니다.",
+      });
+    } catch (error) {
+      console.error("Failed to update Naver collection kill switch:", error);
+      toast({ variant: "error", description: "네이버 수집 킬스위치 변경에 실패했습니다." });
     } finally {
       setIsSaving(false);
     }
@@ -1140,6 +1167,27 @@ export function MemberPostSettingsManager({
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="naver-cafe-collection-enabled" className="text-sm font-semibold">
+                    관리자 수집 킬스위치
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    scheduled·manual·queue의 네이버 외부 요청만 중지합니다. 저장된 피드는 계속 제공됩니다.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge variant={isNaverCafeCollectionEnabled ? "default" : "destructive"}>
+                    {isNaverCafeCollectionEnabled ? "수집 중" : "수집 중지"}
+                  </Badge>
+                  <Switch
+                    id="naver-cafe-collection-enabled"
+                    checked={isNaverCafeCollectionEnabled}
+                    onCheckedChange={handleToggleNaverCafeCollection}
+                    disabled={!settings || isSaving}
+                  />
+                </div>
+              </div>
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label

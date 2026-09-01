@@ -258,7 +258,18 @@ export const xPostSources = sqliteTable("x_post_sources", {
   handle: text().primaryKey(),
   user_id: text("user_id"),
   username: text(),
+  collection_started_at: integer("collection_started_at"),
+  initialization_completed_at: integer("initialization_completed_at"),
+  deactivated_at: integer("deactivated_at"),
   last_seen_post_id: text("last_seen_post_id"),
+  sync_pagination_token: text("sync_pagination_token"),
+  sync_base_post_id: text("sync_base_post_id"),
+  sync_newest_post_id: text("sync_newest_post_id"),
+  last_attempt_at: integer("last_attempt_at"),
+  last_success_at: integer("last_success_at"),
+  next_check_at: integer("next_check_at"),
+  consecutive_failures: integer("consecutive_failures").notNull().default(0),
+  last_error_code: text("last_error_code"),
   last_checked_at: integer("last_checked_at").notNull(),
   updated_at: integer("updated_at").notNull(),
   last_error: text("last_error"),
@@ -449,6 +460,112 @@ export type YouTubeApiUsageEvent = typeof youtubeApiUsageEvents.$inferSelect;
 export type NewYouTubeApiUsageEvent =
   typeof youtubeApiUsageEvents.$inferInsert;
 
+// 공급자별 세부 origin/correlation은 기존 usage event 계약을 깨지 않도록
+// 1:1 보조 테이블에 additive하게 기록한다.
+export const youtubeApiUsageContexts = sqliteTable(
+  "youtube_api_usage_contexts",
+  {
+    usage_event_id: integer("usage_event_id")
+      .primaryKey()
+      .references(() => youtubeApiUsageEvents.id, { onDelete: "cascade" }),
+    operation: text().notNull(),
+    origin: text().notNull(),
+    workload: text().notNull(),
+    scheduled_run_id: text("scheduled_run_id"),
+    scheduled_item_id: text("scheduled_item_id"),
+    ingestion_job_id: text("ingestion_job_id"),
+    monitor_id: text("monitor_id"),
+  },
+  (table) => [
+    index("idx_youtube_api_usage_contexts_origin").on(table.origin),
+    index("idx_youtube_api_usage_contexts_workload").on(table.workload),
+  ],
+);
+
+// 일반 YouTube 신규 업로드 피드 수집 상태. OTW Play 카탈로그와 분리한다.
+export const youtubeFeedSources = sqliteTable(
+  "youtube_feed_sources",
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    source_kind: text("source_kind").$type<"official" | "kirinuki">().notNull(),
+    member_uid: integer("member_uid").references(() => members.uid, {
+      onDelete: "cascade",
+    }),
+    kirinuki_channel_id: integer("kirinuki_channel_id"),
+    youtube_channel_id: text("youtube_channel_id").notNull(),
+    uploads_playlist_id: text("uploads_playlist_id"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    collection_started_at: integer("collection_started_at").notNull(),
+    initialization_completed_at: integer("initialization_completed_at"),
+    deactivated_at: integer("deactivated_at"),
+    last_seen_video_id: text("last_seen_video_id"),
+    sync_page_token: text("sync_page_token"),
+    sync_base_video_id: text("sync_base_video_id"),
+    sync_newest_video_id: text("sync_newest_video_id"),
+    last_attempt_at: integer("last_attempt_at"),
+    last_success_at: integer("last_success_at"),
+    next_check_at: integer("next_check_at"),
+    consecutive_failures: integer("consecutive_failures").notNull().default(0),
+    last_error_code: text("last_error_code"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("uidx_youtube_feed_sources_channel_kind").on(
+      table.youtube_channel_id,
+      table.source_kind,
+    ),
+    index("idx_youtube_feed_sources_due").on(
+      table.enabled,
+      table.next_check_at,
+      table.id,
+    ),
+    check(
+      "youtube_feed_sources_owner_check",
+      sql`(${table.source_kind} = 'official' AND ${table.member_uid} IS NOT NULL
+          AND ${table.kirinuki_channel_id} IS NULL)
+        OR (${table.source_kind} = 'kirinuki' AND ${table.member_uid} IS NULL
+          AND ${table.kirinuki_channel_id} IS NOT NULL)`,
+    ),
+    check(
+      "youtube_feed_sources_failure_check",
+      sql`${table.consecutive_failures} >= 0`,
+    ),
+  ],
+);
+
+export const youtubeFeedVideos = sqliteTable(
+  "youtube_feed_videos",
+  {
+    video_id: text("video_id").primaryKey(),
+    source_id: integer("source_id")
+      .notNull()
+      .references(() => youtubeFeedSources.id, { onDelete: "cascade" }),
+    title: text().notNull(),
+    description: text().notNull().default(""),
+    thumbnail_url: text("thumbnail_url"),
+    channel_title: text("channel_title").notNull().default(""),
+    duration_seconds: integer("duration_seconds").notNull().default(0),
+    view_count: integer("view_count").notNull().default(0),
+    is_short: integer("is_short", { mode: "boolean" }).notNull().default(false),
+    published_at: integer("published_at").notNull(),
+    fetched_at: integer("fetched_at").notNull(),
+    available: integer("available", { mode: "boolean" }).notNull().default(true),
+  },
+  (table) => [
+    index("idx_youtube_feed_videos_source_published").on(
+      table.source_id,
+      table.published_at,
+    ),
+    index("idx_youtube_feed_videos_fetched").on(table.fetched_at),
+  ],
+);
+
+export type YouTubeFeedSource = typeof youtubeFeedSources.$inferSelect;
+export type NewYouTubeFeedSource = typeof youtubeFeedSources.$inferInsert;
+export type YouTubeFeedVideo = typeof youtubeFeedVideos.$inferSelect;
+export type NewYouTubeFeedVideo = typeof youtubeFeedVideos.$inferInsert;
+
 // YouTube 캐시 백그라운드 예열 실행 이력
 export const youtubeWarmupRuns = sqliteTable(
   "youtube_warmup_runs",
@@ -500,6 +617,18 @@ export const naverCafeSources = sqliteTable(
     cafe_url: text("cafe_url").notNull(),
     member_uid: integer("member_uid"),
     enabled: integer("enabled", { mode: "boolean" }).default(true),
+    collection_started_at: integer("collection_started_at"),
+    initialization_completed_at: integer("initialization_completed_at"),
+    deactivated_at: integer("deactivated_at"),
+    last_seen_article_id: integer("last_seen_article_id"),
+    sync_page: integer("sync_page"),
+    sync_base_article_id: integer("sync_base_article_id"),
+    sync_newest_article_id: integer("sync_newest_article_id"),
+    last_attempt_at: integer("last_attempt_at"),
+    last_success_at: integer("last_success_at"),
+    next_check_at: integer("next_check_at"),
+    consecutive_failures: integer("consecutive_failures").notNull().default(0),
+    last_error_code: text("last_error_code"),
     sort_order: integer("sort_order").notNull().default(0),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
     updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
@@ -523,7 +652,9 @@ export const naverCafeSourceChecks = sqliteTable(
   "naver_cafe_source_checks",
   {
     id: integer().primaryKey({ autoIncrement: true }),
-    source_id: integer("source_id").notNull(),
+    source_id: integer("source_id")
+      .notNull()
+      .references(() => naverCafeSources.id, { onDelete: "cascade" }),
     source_name: text("source_name").notNull(),
     cafe_id: text("cafe_id").notNull(),
     menu_id: text("menu_id").notNull(),
@@ -563,7 +694,9 @@ export const naverCafePosts = sqliteTable(
   {
     id: text().primaryKey(),
     article_id: integer("article_id").notNull(),
-    source_id: integer("source_id").notNull(),
+    source_id: integer("source_id")
+      .notNull()
+      .references(() => naverCafeSources.id, { onDelete: "cascade" }),
     source_name: text("source_name").notNull(),
     cafe_id: text("cafe_id").notNull(),
     menu_id: text("menu_id").notNull(),
@@ -600,6 +733,21 @@ export const naverCafePosts = sqliteTable(
 
 export type NaverCafePost = typeof naverCafePosts.$inferSelect;
 export type NewNaverCafePost = typeof naverCafePosts.$inferInsert;
+
+export const naverCafeUsageDaily = sqliteTable(
+  "naver_cafe_usage_daily",
+  {
+    kst_date: text("kst_date").primaryKey(),
+    requests_used: integer("requests_used").notNull().default(0),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    check(
+      "naver_cafe_usage_daily_requests_check",
+      sql`${table.requests_used} >= 0 AND ${table.requests_used} <= 240`,
+    ),
+  ],
+);
 
 // 스케쥴 통합 업데이트 로그 테이블
 export const updateLogs = sqliteTable(
@@ -2283,6 +2431,12 @@ export const musicChannelUploadMonitors = sqliteTable(
     next_check_at: integer("next_check_at").notNull(),
     last_seen_video_id: text("last_seen_video_id"),
     last_seen_published_at: integer("last_seen_published_at"),
+    sync_page_token: text("sync_page_token"),
+    sync_base_video_id: text("sync_base_video_id"),
+    sync_newest_video_id: text("sync_newest_video_id"),
+    sync_started_at: integer("sync_started_at"),
+    last_success_at: integer("last_success_at"),
+    consecutive_failures: integer("consecutive_failures").notNull().default(0),
     last_recent_reconciled_at: integer("last_recent_reconciled_at"),
     last_error_code: text("last_error_code"),
     lease_until: integer("lease_until"),
@@ -3005,7 +3159,7 @@ export const scheduledJobItems = sqliteTable(
     ),
     check(
       "scheduled_job_items_status_check",
-      sql`${table.status} IN ('queued', 'running', 'succeeded', 'failed', 'skipped', 'throttled')`,
+      sql`${table.status} IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'skipped', 'throttled')`,
     ),
     check(
       "scheduled_job_items_attempts_check",

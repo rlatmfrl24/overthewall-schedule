@@ -42,7 +42,7 @@ export type ScheduledJobItemRecord = {
   target_key: string;
   phase: string;
   lane: ScheduledLane;
-  status: "queued" | "running" | "succeeded" | "failed" | "skipped" | "throttled";
+  status: "queued" | "running" | "succeeded" | "partial" | "failed" | "skipped" | "throttled";
   attempts: number;
   lease_token: string | null;
   lease_until: number | null;
@@ -85,7 +85,12 @@ const toProgress = (rows: Array<{ status: string; count: number | string }>) => 
   };
   for (const row of rows) {
     const count = Number(row.count) || 0;
-    if (row.status in progress && row.status !== "total") {
+    // Item-level partial is terminal. The public progress contract has no
+    // separate partial counter, so count it as completed/succeeded while the
+    // parent run retains the more precise `partial` status.
+    if (row.status === "partial") {
+      progress.succeeded += count;
+    } else if (row.status in progress && row.status !== "total") {
       progress[row.status as keyof Omit<OperationRunProgressDto, "total">] =
         count;
     }
@@ -285,7 +290,7 @@ export class D1ScheduledJobRepository {
              (o.event_type = 'execute' AND i.status = 'queued')
              OR (
                o.event_type = 'reconcile'
-               AND i.status IN ('succeeded', 'failed', 'skipped', 'throttled')
+               AND i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled')
              )
            )
          ORDER BY o.available_at, o.id
@@ -565,7 +570,7 @@ export class D1ScheduledJobRepository {
   async completeItem(
     item: ScheduledJobItemRecord,
     outcome: {
-      status: "succeeded" | "failed" | "skipped" | "throttled";
+      status: "succeeded" | "partial" | "failed" | "skipped" | "throttled";
       result?: unknown;
       errorCode?: string | null;
       error?: string | null;
@@ -644,11 +649,16 @@ export class D1ScheduledJobRepository {
        FROM scheduled_job_items WHERE run_id = ? GROUP BY status`,
     ).bind(runId).all<{ status: string; count: number }>();
     const progress = toProgress(rows.results);
+    const hasPartial = rows.results.some((row) =>
+      row.status === "partial" && Number(row.count) > 0
+    );
     const terminal = progress.succeeded + progress.failed + progress.skipped +
       progress.throttled;
     const finished = progress.total > 0 && terminal === progress.total;
     const status: ScheduledJobStatus = !finished
       ? "running"
+      : hasPartial
+        ? "partial"
       : progress.failed > 0
         ? progress.succeeded > 0 || progress.skipped > 0
           ? "partial"
@@ -868,7 +878,7 @@ export class D1ScheduledJobRepository {
                    'post_completion_reconciliation_%'
                  AND (
                    (
-                     i.status IN ('succeeded', 'failed', 'skipped', 'throttled')
+                     i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled')
                      AND COALESCE(i.last_error_code, '') != 'run_failed'
                    )
                    OR i.status = 'queued'

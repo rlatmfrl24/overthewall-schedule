@@ -24,6 +24,13 @@ const source = {
   sort_order: 0,
 };
 
+const initializedSource = {
+  ...source,
+  collection_started_at: Date.parse("2026-05-27T00:00:00Z"),
+  initialization_completed_at: Date.parse("2026-05-27T00:01:00Z"),
+  last_seen_article_id: 44096,
+};
+
 const boardResponse = {
   result: {
     articleList: [
@@ -119,7 +126,20 @@ const makeD1Store = (
         }
         throw new Error(`Unexpected D1 all SQL: ${sql}`);
       }),
+      first: vi.fn(async () => {
+        if (sql.includes("FROM settings")) return null;
+        if (sql.includes("UPDATE naver_cafe_usage_daily")) {
+          return { requests_used: 1 };
+        }
+        throw new Error(`Unexpected D1 first SQL: ${sql}`);
+      }),
       run: vi.fn(async () => {
+        if (
+          sql.includes("INSERT INTO naver_cafe_usage_daily") ||
+          sql.includes("UPDATE naver_cafe_sources")
+        ) {
+          return { success: true };
+        }
         if (sql.includes("INSERT INTO naver_cafe_posts")) {
           const [
             id,
@@ -270,6 +290,8 @@ describe("naver cafe worker service", () => {
   });
 
   it("수집 경로는 fresh memory cache가 있어도 외부 API를 다시 호출한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:00:00Z"));
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(jsonResponse(boardResponse))
@@ -299,7 +321,7 @@ describe("naver cafe worker service", () => {
     const store = makeD1Store();
 
     await fetchNaverCafePostsForSources([source], { size: 5 });
-    const result = await collectNaverCafePostsForSources([source], {
+    const result = await collectNaverCafePostsForSources([initializedSource], {
       cacheDb: store.db,
       size: 5,
       trigger: "manual",
@@ -351,7 +373,7 @@ describe("naver cafe worker service", () => {
     });
   });
 
-  it("scheduled 수집은 새 글과 source check를 D1에 저장한다", async () => {
+  it("scheduled 최초 수집은 현재 글을 watermark로만 기록하고 저장하지 않는다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-28T00:00:00Z"));
     vi.mocked(fetch).mockResolvedValue(jsonResponse(boardResponse));
@@ -364,18 +386,12 @@ describe("naver cafe worker service", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(store.posts.get("31352147:9:44096")).toMatchObject({
-      source_id: 1,
-      source_name: "나츠키",
-      title: "목욕탕 다녀온 오니",
-      comment_count: 10,
-      fetched_at: Date.now(),
-    });
+    expect(store.posts.has("31352147:9:44096")).toBe(false);
     expect(store.checks[0]).toMatchObject({
       source_id: 1,
       trigger: "scheduled",
       status: "ok",
-      post_count: 1,
+      post_count: 0,
       error: null,
     });
   });

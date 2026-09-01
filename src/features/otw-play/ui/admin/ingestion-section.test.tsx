@@ -516,9 +516,13 @@ describe("IngestionSection", () => {
     expect(screen.queryByLabelText("Guest Artist")).toBeNull();
     expect(screen.queryByLabelText("외부 가창자 검색")).toBeNull();
 
-    const songSelect = screen.getByRole("combobox", { name: "연결할 곡" });
-    fireEvent.keyDown(songSelect, { key: "Enter" });
-    fireEvent.click(await screen.findByRole("option", { name: "새 곡 입력" }));
+    const songSearch = screen.getByLabelText("기존 곡 검색");
+    expect(screen.getByRole("option", { name: /Existing Song/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /새 곡 입력/ })).toBeNull();
+    fireEvent.change(songSearch, { target: { value: "Candidate Video" } });
+    fireEvent.click(await screen.findByRole("option", {
+      name: /새 곡 입력 · Candidate Video/,
+    }));
 
     const songLabelInput = screen.getByLabelText("장르(분류)");
     fireEvent.click(screen.getByRole("button", { name: "J-POP" }));

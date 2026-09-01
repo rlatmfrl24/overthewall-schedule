@@ -96,6 +96,15 @@ export const reserveYouTubeQuota = async (
 ) => {
   if (!db) return;
   const now = Date.now();
+  await db.prepare(
+    `INSERT INTO settings (key, value, updated_at)
+     SELECT 'youtube_api_daily_quota_units',
+       COALESCE((SELECT value FROM settings
+                 WHERE key = 'youtube_warmup_daily_quota_units'), '1000'), ?
+     WHERE NOT EXISTS (
+       SELECT 1 FROM settings WHERE key = 'youtube_api_daily_quota_units'
+     )`,
+  ).bind(String(now)).run();
   const { day } = getYouTubeQuotaWindow(now);
   const ratio = getPriorityLimitRatio(priority);
   const result = await db.prepare(

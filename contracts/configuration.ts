@@ -68,6 +68,7 @@ export interface AdminSettingsDto {
   x_rich_link_preview_enabled: BooleanSettingValue;
   x_posts_visibility: SettingsVisibility;
   naver_cafe_posts_enabled: BooleanSettingValue;
+  naver_cafe_collection_enabled: BooleanSettingValue;
   naver_cafe_posts_visibility: SettingsVisibility;
   x_collection_enabled: BooleanSettingValue;
   x_collection_daily_budget_cents: string;
@@ -80,6 +81,7 @@ export interface AdminSettingsDto {
   youtube_warmup_kirinuki_enabled: BooleanSettingValue;
   youtube_warmup_last_run: string | null;
   youtube_api_daily_quota_units: string;
+  youtube_feed_enabled: BooleanSettingValue;
   otw_play_submission_daily_limit: string;
 }
 
@@ -91,6 +93,7 @@ export const SETTINGS_KEYS = [
   "x_rich_link_preview_enabled",
   "x_posts_visibility",
   "naver_cafe_posts_enabled",
+  "naver_cafe_collection_enabled",
   "naver_cafe_posts_visibility",
   "x_collection_enabled",
   "x_collection_daily_budget_cents",
@@ -103,6 +106,7 @@ export const SETTINGS_KEYS = [
   "youtube_warmup_kirinuki_enabled",
   "youtube_warmup_last_run",
   YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
+  "youtube_feed_enabled",
   OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
   LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
 ] as const satisfies readonly (keyof AdminSettingsDto)[];
@@ -365,6 +369,18 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     key: "naver_cafe_posts_enabled",
     writable: true,
     normalize: (value) => normalizeBoolean(value, "true"),
+    validate: isBooleanValue,
+  },
+  {
+    key: "naver_cafe_collection_enabled",
+    writable: true,
+    normalize: (value) => normalizeBoolean(value, "true"),
+    validate: isBooleanValue,
+  },
+  {
+    key: "youtube_feed_enabled",
+    writable: true,
+    normalize: (value) => normalizeBoolean(value, "false"),
     validate: isBooleanValue,
   },
   {

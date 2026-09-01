@@ -1,4 +1,5 @@
 import type {
+  OtwPlayAdminCatalogSubjectInput,
   OtwPlayConvertIngestionCandidateRequest,
   OtwPlayConvertIngestionCandidatesRequest,
   OtwPlayIngestionConversionOutcome,
@@ -30,6 +31,7 @@ import {
 import {
   IngestionRepositoryError,
   type IngestionRepository,
+  type IngestionReviewCatalogMaterializationIds,
   type OtwPlayIngestionQueueMessage,
 } from "./ports/ingestion-repository";
 import {
@@ -39,6 +41,9 @@ import {
 
 const PLAYLIST_HARD_CAP = 5_000;
 const PAGE_SIZE = 50;
+
+const catalogSubjectKey = (subject: OtwPlayAdminCatalogSubjectInput) =>
+  subject.kind === "new_external" ? `external:${subject.clientKey}` : null;
 
 export class IngestionServiceError extends Error {
   readonly code:
@@ -332,6 +337,9 @@ export class IngestionService {
       now: this.clock(),
     };
     if (input.action === "save") {
+      const catalogMaterialization = this.createReviewCatalogMaterialization(
+        input.input,
+      );
       return this.repository.saveCandidateReview({
         ...command,
         ...(input.expectedReviewInput !== undefined
@@ -341,6 +349,7 @@ export class IngestionService {
           ? { expectedReviewStatus: input.expectedReviewStatus }
           : {}),
         input: input.input,
+        catalogMaterialization,
       });
     }
     if (input.action === "ignore") {
@@ -355,6 +364,48 @@ export class IngestionService {
       );
     }
     return this.refreshCandidate(candidateId, input.expectedVersion, actor);
+  }
+
+  private createReviewCatalogMaterialization(
+    input: Extract<
+      OtwPlayUpdateIngestionCandidateRequest,
+      { action: "save" }
+    >["input"],
+  ): IngestionReviewCatalogMaterializationIds | null {
+    const subjects = [
+      ...input.participants.map((participant) => participant.subject),
+      ...(input.song.kind === "create"
+        ? input.song.originalArtists.map((artist) => artist.subject)
+        : []),
+    ];
+    const definitions = new Map<string, string>();
+    const entityIds: Record<string, string> = {};
+    const entityEventIds: Record<string, string> = {};
+    for (const subject of subjects) {
+      const key = catalogSubjectKey(subject);
+      if (!key) continue;
+      const definition = JSON.stringify(subject);
+      const previous = definitions.get(key);
+      if (previous && previous !== definition) {
+        throw new IngestionServiceError(
+          "invalid_request",
+          "A subject key cannot describe multiple identities",
+        );
+      }
+      definitions.set(key, definition);
+      if (!entityIds[key]) {
+        entityIds[key] = this.createId();
+        entityEventIds[key] = this.createId();
+      }
+    }
+    const createsSong = input.song.kind === "create";
+    if (definitions.size === 0 && !createsSong) return null;
+    return {
+      entityIds,
+      entityEventIds,
+      songId: createsSong ? this.createId() : null,
+      songEventId: createsSong ? this.createId() : null,
+    };
   }
 
   private async approveCandidateChannel(

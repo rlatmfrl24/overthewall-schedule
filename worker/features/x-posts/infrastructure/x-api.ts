@@ -75,6 +75,7 @@ type XUserTimelineResponse = {
   includes?: {
     media?: XTimelineMedia[];
   };
+  meta?: { next_token?: string };
 };
 
 type XTweetLookupPost = XTimelinePost & {
@@ -121,6 +122,11 @@ type StoredXPostsEntry = CachedXPostsEntry & {
   lastCheckedAt: number | null;
   lastSeenPostId: string | null;
   lastError: string | null;
+  collectionStartedAt: number | null;
+  initializationCompletedAt: number | null;
+  syncPaginationToken: string | null;
+  syncBasePostId: string | null;
+  syncNewestPostId: string | null;
 };
 
 type StoredXPostsWriteResult = {
@@ -153,6 +159,11 @@ type XPostSourceRow = {
   last_checked_at: number | string;
   updated_at: number | string;
   last_error: string | null;
+  collection_started_at: number | string | null;
+  initialization_completed_at: number | string | null;
+  sync_pagination_token: string | null;
+  sync_base_post_id: string | null;
+  sync_newest_post_id: string | null;
 };
 
 type XUserCacheValue = {
@@ -265,11 +276,12 @@ const X_LINKED_POST_NEGATIVE_CACHE_TTL_MS = 15 * 60_000;
 const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
-const X_STORED_POSTS_RETAIN_LIMIT = 20;
+const X_STORED_POSTS_RETAIN_LIMIT = 1_000;
+const X_RELATION_COLLECTION_MAX_RESULTS = 25;
 const X_REFERENCED_POST_PREVIEW_MAX_IDS = X_STORED_POSTS_RETAIN_LIMIT * 2;
 const X_RELATION_COLLECTION_VERSION = "v3";
 const X_RELATION_MARKER_TTL_MS = 10 * 365 * 24 * 60 * 60_000;
-const X_COLLECTION_MAX_RESULTS = 5;
+const X_COLLECTION_MAX_RESULTS = 25;
 const X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS = 2 * 60 * 60_000;
 const X_COLLECTION_IDLE_CHECK_INTERVAL_MS = 12 * 60 * 60_000;
 const X_COLLECTION_DORMANT_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
@@ -977,7 +989,9 @@ const readStoredPostSource = async (
     const row = await cacheDb
       .prepare(
         `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
-                updated_at, last_error
+                updated_at, last_error, collection_started_at,
+                initialization_completed_at, sync_pagination_token,
+                sync_base_post_id, sync_newest_post_id
          FROM x_post_sources
          WHERE handle = ?`,
       )
@@ -1112,6 +1126,15 @@ const readStoredPosts = async (
       lastSeenPostId:
         source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
       lastError: source?.last_error ?? null,
+      collectionStartedAt: source?.collection_started_at == null
+        ? null
+        : Number(source.collection_started_at),
+      initializationCompletedAt: source?.initialization_completed_at == null
+        ? null
+        : Number(source.initialization_completed_at),
+      syncPaginationToken: source?.sync_pagination_token ?? null,
+      syncBasePostId: source?.sync_base_post_id ?? null,
+      syncNewestPostId: source?.sync_newest_post_id ?? null,
     };
   } catch (error) {
     console.warn("Failed to read stored X posts", error);
@@ -1213,14 +1236,23 @@ const writeStoredPostSource = async (
       .prepare(
         `INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at,
-           updated_at, last_error
+           updated_at, last_error, collection_started_at,
+           initialization_completed_at, last_attempt_at, last_success_at,
+           next_check_at, consecutive_failures, last_error_code
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL)
          ON CONFLICT(handle) DO UPDATE SET
            user_id = excluded.user_id,
            username = excluded.username,
            last_seen_post_id = COALESCE(excluded.last_seen_post_id, x_post_sources.last_seen_post_id),
            last_checked_at = excluded.last_checked_at,
+           collection_started_at = COALESCE(x_post_sources.collection_started_at, excluded.collection_started_at),
+           initialization_completed_at = COALESCE(x_post_sources.initialization_completed_at, excluded.initialization_completed_at),
+           last_attempt_at = excluded.last_attempt_at,
+           last_success_at = excluded.last_success_at,
+           next_check_at = excluded.next_check_at,
+           consecutive_failures = 0,
+           last_error_code = NULL,
            updated_at = excluded.updated_at,
            last_error = excluded.last_error`,
       )
@@ -1232,6 +1264,11 @@ const writeStoredPostSource = async (
         checkedAt,
         checkedAt,
         lastError,
+        checkedAt,
+        checkedAt,
+        checkedAt,
+        checkedAt,
+        checkedAt + X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
       )
       .run();
   } catch (error) {
@@ -1265,6 +1302,38 @@ const writeStoredPostSourceError = async (
   } catch (error) {
     console.warn("Failed to write stored X post source error", error);
   }
+};
+
+const writeXSyncContinuation = async (
+  cacheDb: XCacheDb | undefined,
+  handle: string,
+  state: {
+    nextToken: string | null;
+    basePostId: string | null;
+    newestPostId: string | null;
+    completedPostId: string | null;
+  },
+) => {
+  if (!cacheDb) return;
+  const timestamp = now();
+  await cacheDb.prepare(
+    `/* x_sync_continuation */ UPDATE x_post_sources SET
+       last_seen_post_id = ?, sync_pagination_token = ?,
+       sync_base_post_id = ?, sync_newest_post_id = ?,
+       last_attempt_at = ?, last_success_at = ?, next_check_at = ?,
+       consecutive_failures = 0, last_error_code = NULL, updated_at = ?
+     WHERE handle = ?`,
+  ).bind(
+    state.nextToken ? state.basePostId : state.completedPostId,
+    state.nextToken,
+    state.nextToken ? state.basePostId : null,
+    state.nextToken ? state.newestPostId : null,
+    timestamp,
+    timestamp,
+    timestamp + (state.nextToken ? 15 * 60_000 : X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS),
+    timestamp,
+    normalizeHandle(handle),
+  ).run();
 };
 
 const getCachedUser = async (
@@ -2033,7 +2102,7 @@ const fetchXPostsForUser = async (
   );
   const relationCollectionLimit = hasRelationMarker
     ? maxResults
-    : Math.max(maxResults, X_STORED_POSTS_RETAIN_LIMIT);
+    : Math.max(maxResults, X_RELATION_COLLECTION_MAX_RESULTS);
   const stored = await readStoredPosts(
     handle,
     relationCollectionLimit,
@@ -2116,12 +2185,18 @@ const fetchXPostsForUser = async (
     expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
-  const sinceId =
-    stored?.lastSeenPostId ??
+  const syncToken = stored?.syncPaginationToken ?? null;
+  const sinceId = syncToken
+    ? stored?.syncBasePostId ?? null
+    : stored?.lastSeenPostId ??
     sortXPostsDesc(activeFallback?.posts ?? [])[0]?.id ??
     null;
-  if (hasRelationMarker && sinceId) {
+  if (syncToken) params.set("pagination_token", syncToken);
+  if ((hasRelationMarker || syncToken) && sinceId) {
     params.set("since_id", sinceId);
+  } else if (!sinceId) {
+    const collectionStartedAt = stored?.collectionStartedAt ?? now();
+    params.set("start_time", new Date(collectionStartedAt).toISOString());
   }
 
   const request = (async () => {
@@ -2134,8 +2209,18 @@ const fetchXPostsForUser = async (
         usageTracker,
       },
     );
+    const collectionStartedAt = stored?.collectionStartedAt ?? now();
+    const normalizedPosts = normalizeXTimelineResponse(response, user.username);
+    // Only a genuinely new background source receives the activation cutoff.
+    // Existing cursors and legacy on-demand reads keep their established
+    // incremental/response semantics.
+    const eligiblePosts = forceRefresh && !sinceId
+      ? normalizedPosts.filter(
+          (post) => new Date(post.createdAt).getTime() >= collectionStartedAt,
+        )
+      : normalizedPosts;
     const posts = await enrichNewXPostsWithLinkPreviews(
-      normalizeXTimelineResponse(response, user.username),
+      eligiblePosts,
       bearerToken,
       richXLinkPreviewEnabled,
       cacheDb,
@@ -2154,6 +2239,7 @@ const fetchXPostsForUser = async (
     ).slice(0, collectionLimit);
     const responsePosts = mergedPostsForStorage.slice(0, maxResults);
     const lastSeenPostId =
+      stored?.syncNewestPostId ??
       sortXPostsDesc(posts)[0]?.id ??
       sinceId ??
       mergedPostsForStorage[0]?.id ??
@@ -2168,6 +2254,17 @@ const fetchXPostsForUser = async (
       lastSeenPostId,
       mergedPostsForStorage,
     );
+    // The timeline watermark is an acknowledgement that every post in this
+    // page was durably stored. Advancing it after a D1 write failure would
+    // make the failed page unreachable on the next incremental request.
+    if (entry.storageError === null) {
+      await writeXSyncContinuation(cacheDb, handle, {
+        nextToken: response.meta?.next_token ?? null,
+        basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
+        newestPostId: lastSeenPostId,
+        completedPostId: lastSeenPostId,
+      });
+    }
     if (!hasRelationMarker && entry.storageError === null) {
       await writeCurrentRelationCollectionMarker(cacheDb, handle);
     }

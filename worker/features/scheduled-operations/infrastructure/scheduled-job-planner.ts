@@ -162,6 +162,14 @@ const planSimpleJob = async (
 ): Promise<NewScheduledItem[]> => {
   const lane = getLaneForJob(jobType);
   switch (jobType) {
+    case "youtube_feed_collection": {
+      const enabled = await env.otw_db.prepare(
+        `SELECT value FROM settings WHERE key = 'youtube_feed_enabled'`,
+      ).first<{ value: string | null }>();
+      return enabled?.value === "true"
+        ? [{ targetKey: "feed:0", phase: "collect", lane }]
+        : [];
+    }
     case "websub_maintenance":
       return ["recover-delivery", "cleanup", "recover-intent", "renew"].map(
         (phase) => ({ targetKey: phase, phase, lane }),

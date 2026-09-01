@@ -32,6 +32,19 @@ const observation = (videoId: string, title = `Video ${videoId}`) => ({
 
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
+  const monitorColumns = await db.prepare(
+    `SELECT name FROM pragma_table_info('music_channel_upload_monitors')`,
+  ).all<{ name: string }>();
+  if (!(monitorColumns.results ?? []).some((column) => column.name === "sync_page_token")) {
+    await db.batch([
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD sync_page_token text"),
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD sync_base_video_id text"),
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD sync_newest_video_id text"),
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD sync_started_at integer"),
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD last_success_at integer"),
+      db.prepare("ALTER TABLE music_channel_upload_monitors ADD consecutive_failures integer DEFAULT 0 NOT NULL"),
+    ]);
+  }
   await db.batch([
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_monitor'"),
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_automation_approval'"),

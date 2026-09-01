@@ -65,6 +65,11 @@ type FakePostSourceRecord = {
   last_checked_at: number;
   updated_at: number;
   last_error: string | null;
+  collection_started_at?: number | null;
+  initialization_completed_at?: number | null;
+  sync_pagination_token?: string | null;
+  sync_base_post_id?: string | null;
+  sync_newest_post_id?: string | null;
 };
 
 type FakeUsageEventRecord = {
@@ -294,6 +299,22 @@ const makeCacheDb = (
                 });
               }
               if (sql.includes("UPDATE x_post_sources")) {
+                if (sql.includes("x_sync_continuation")) {
+                  const [lastSeen, nextToken, basePostId, newestPostId, , , , updatedAt, handle] = args;
+                  const key = String(handle);
+                  const current = sources.get(key);
+                  if (current) {
+                    sources.set(key, {
+                      ...current,
+                      last_seen_post_id: lastSeen === null ? null : String(lastSeen),
+                      sync_pagination_token: nextToken === null ? null : String(nextToken),
+                      sync_base_post_id: basePostId === null ? null : String(basePostId),
+                      sync_newest_post_id: newestPostId === null ? null : String(newestPostId),
+                      updated_at: Number(updatedAt),
+                    });
+                  }
+                  return { success: true };
+                }
                 const [lastCheckedAt, updatedAt, lastError, handle] = args;
                 const key = String(handle);
                 const current = sources.get(key);
@@ -872,7 +893,7 @@ describe("x worker service", () => {
 
     expect(result.posts).toHaveLength(5);
     const timelineUrl = String(fetchMock.mock.calls[1]?.[0]);
-    expect(timelineUrl).toContain("max_results=20");
+    expect(timelineUrl).toContain("max_results=25");
     expect(timelineUrl).not.toContain("since_id=");
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/tweets?ids=");
     expect(target.store.has("x:relations:v2:otw_member")).toBe(true);
@@ -1073,7 +1094,7 @@ describe("x worker service", () => {
     });
   });
 
-  it("백그라운드 수집은 fresh 캐시가 있어도 X API를 새로 호출해 영구 저장한다", async () => {
+  it("백그라운드 신규 소스는 과거 캐시를 가져오지 않고 활성화 이후 글만 저장한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
 
@@ -1116,14 +1137,14 @@ describe("x worker service", () => {
 
     expect(result).toMatchObject({
       status: "success",
-      postsStored: 2,
+      postsStored: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
       "/users/u1/tweets?",
     );
     expect(posts.has("fresh")).toBe(true);
-    expect(posts.has("cached")).toBe(true);
+    expect(posts.has("cached")).toBe(false);
   });
 
   it("백그라운드 수집은 최근 확인한 저장 게시글이 있으면 X API 호출을 건너뛴다", async () => {
@@ -1170,6 +1191,47 @@ describe("x worker service", () => {
       status: "skipped",
       error: "all_handles_cooldown",
       api_calls: 0,
+    });
+  });
+
+  it("25개 초과 페이지는 continuation을 저장하고 완료 뒤에만 커서를 전진한다", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T04:00:00Z"));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "u1", username: "otw_member", name: "OTW" }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "p2", text: "newest", created_at: "2026-09-01T04:00:00Z", public_metrics: {} }],
+        meta: { next_token: "page-2" },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: [{ id: "p1", text: "older", created_at: "2026-09-01T03:59:00Z", public_metrics: {} }],
+      }));
+    const target = makeCacheDb();
+
+    await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      source: "manual",
+    });
+    expect(target.sources.get("otw_member")).toMatchObject({
+      last_seen_post_id: null,
+      sync_pagination_token: "page-2",
+      sync_newest_post_id: "p2",
+    });
+
+    await collectXPostsForHandles(["otw_member"], {
+      bearerToken: "token",
+      cacheDb: target.db,
+      source: "manual",
+    });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("pagination_token=page-2");
+    expect(target.sources.get("otw_member")).toMatchObject({
+      last_seen_post_id: "p2",
+      sync_pagination_token: null,
+      sync_newest_post_id: null,
     });
   });
 

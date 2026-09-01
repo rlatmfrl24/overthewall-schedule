@@ -23,10 +23,12 @@ describe("scheduled Workflow cron bridge", () => {
   it("starts X collection only on even UTC hours", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(4, 23))).toEqual([
       "channel_reconcile",
+      "youtube_feed_collection",
       "x_collection",
     ]);
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 23))).toEqual([
       "channel_reconcile",
+      "youtube_feed_collection",
     ]);
   });
 

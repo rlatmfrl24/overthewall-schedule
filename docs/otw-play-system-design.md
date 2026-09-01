@@ -1579,8 +1579,11 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 
 DEC-049에 따라 `music_song_tags(song_id, tag_key, display_name)`를 곡 소유 child로 둔다. `tag_key`는 NFKC 기반 검색 정규화 결과이며 `(song_id, tag_key)`로 중복을 막는다. 관리자 song/create-entry command는 최대 10개·표시명 40자의 태그를 같은 D1 batch에 저장하고 public/admin read model은 `tags`를 반환한다. 태그 vocabulary는 DB enum으로 고정하지 않는다.
 playlist candidate와 `singing_clip` candidate의 신규 곡 검수도 동일한 `song.tags` command를
-사용한다. candidate JSON 저장·CAS 비교·재진입에서 라벨을 보존하고 최종 catalog 변환이
-`music_song_tags`를 같은 batch에 생성한다. `song.kind=existing`은 기존 곡 라벨을 수정하지 않는다.
+사용한다. playlist candidate의 `ready` 저장은 candidate CAS, 새 외부 identity, 새 곡,
+`music_song_original_artists`, `music_song_tags`, catalog revision을 하나의 D1 batch로 반영하고
+`review_input_json`을 생성된 entity·song ID 참조로 치환한다. 따라서 다음 행의 admin catalog
+readback에서 즉시 검색·재사용할 수 있다. 최종 catalog 변환은 이 기존 곡을 사용해 performance와
+source만 생성한다. `song.kind=existing`은 기존 곡 라벨을 수정하지 않는다.
 
 `/play`의 발견 index와 곡 검색·상세는 같은 pathless catalog layout 아래에 두어 `OtwPlayPlayerProvider`와 단일 iframe host가 탭 이동으로 재마운트되지 않게 한다. member submission layout은 계속 분리되어 public catalog/player를 시작하지 않는다.
 

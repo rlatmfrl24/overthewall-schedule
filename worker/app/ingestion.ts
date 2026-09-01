@@ -12,7 +12,8 @@ export const createOtwPlayIngestionService = (env: Env) =>
     new D1IngestionRepository(env.otw_db),
     new YouTubeOtwPlayMetadataReader(env.YOUTUBE_API_KEY, fetch, {
       db: env.otw_db,
-      priority: "critical",
+      priority: "core",
+      origin: "otw_play_ingestion",
     }),
     {
       send: async (message: OtwPlayIngestionQueueMessage) => {

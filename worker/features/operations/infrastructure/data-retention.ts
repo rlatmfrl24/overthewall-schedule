@@ -8,6 +8,7 @@ const SCHEDULED_PRUNE_INTERVAL_MS = DAY_MS;
 type RetentionCategory =
   | "usage_events"
   | "collection_runs"
+  | "feed"
   | "logs"
   | "scheduled_operations";
 type TimestampKind = "epoch_ms" | "sqlite_datetime";
@@ -97,7 +98,7 @@ export const DATA_RETENTION_POLICIES = [
     timestampKind: "epoch_ms",
     retentionDays: 30,
     extraWhere:
-      "status IN ('succeeded', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
+      "status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled') AND finished_at IS NOT NULL",
   },
   {
     id: "scheduled-job-runs",
@@ -118,6 +119,42 @@ export const DATA_RETENTION_POLICIES = [
     timestampColumn: "day",
     timestampKind: "sqlite_datetime",
     retentionDays: 180,
+  },
+  {
+    id: "x-feed-posts",
+    category: "feed",
+    table: "x_posts",
+    label: "X new-post feed",
+    timestampColumn: "created_at",
+    timestampKind: "sqlite_datetime",
+    retentionDays: 30,
+  },
+  {
+    id: "naver-cafe-feed-posts",
+    category: "feed",
+    table: "naver_cafe_posts",
+    label: "Naver Cafe new-post feed",
+    timestampColumn: "created_at",
+    timestampKind: "sqlite_datetime",
+    retentionDays: 21,
+  },
+  {
+    id: "youtube-feed-videos",
+    category: "feed",
+    table: "youtube_feed_videos",
+    label: "YouTube new-upload feed",
+    timestampColumn: "published_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 30,
+  },
+  {
+    id: "youtube-api-cache",
+    category: "feed",
+    table: "youtube_api_cache",
+    label: "YouTube API-derived cache",
+    timestampColumn: "fetched_at",
+    timestampKind: "epoch_ms",
+    retentionDays: 30,
   },
   {
     id: "x-api-usage-events",

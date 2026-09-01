@@ -12,7 +12,7 @@ const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>
     "websub_maintenance",
     "naver_cafe_collection",
   ],
-  23: ["channel_reconcile"],
+  23: ["channel_reconcile", "youtube_feed_collection"],
   33: ["source_health"],
 };
 
