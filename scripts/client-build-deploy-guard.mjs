@@ -1,10 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { getClerkPublishableKeyKind } from "./clerk-environment.mjs";
 
-const CLERK_PRODUCTION_PUBLISHABLE_KEY_PATTERN =
-  /pk_live_[A-Za-z0-9_-]{10,}/;
-const CLERK_DEVELOPMENT_PUBLISHABLE_KEY_PATTERN =
-  /pk_test_[A-Za-z0-9_-]{10,}/;
+const CLERK_PUBLISHABLE_KEY_PATTERN = /pk_(?:test|live)_[A-Za-z0-9_-]{10,}/g;
 const ENTRY_SCRIPT_PATTERN = /<script\b[^>]*\bsrc=["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>/g;
 
 export const verifyClientBuildForDeploy = (
@@ -42,21 +40,21 @@ export const verifyClientBuildForDeploy = (
     return readFileSync(scriptPath, "utf8");
   });
 
-  if (
-    entryScripts.some((source) =>
-      CLERK_DEVELOPMENT_PUBLISHABLE_KEY_PATTERN.test(source),
-    )
-  ) {
+  const clerkKeyKinds = new Set(
+    entryScripts.flatMap((source) =>
+      Array.from(source.matchAll(CLERK_PUBLISHABLE_KEY_PATTERN), (match) =>
+        getClerkPublishableKeyKind(match[0]),
+      ),
+    ),
+  );
+
+  if (clerkKeyKinds.has("development")) {
     throw new Error(
       "Client build contains a Clerk development key. Production deploys require VITE_CLERK_PUBLISHABLE_KEY with a pk_live value.",
     );
   }
 
-  if (
-    !entryScripts.some((source) =>
-      CLERK_PRODUCTION_PUBLISHABLE_KEY_PATTERN.test(source),
-    )
-  ) {
+  if (!clerkKeyKinds.has("production")) {
     throw new Error(
       "Client build does not contain a Clerk production publishable key. Rebuild with VITE_CLERK_PUBLISHABLE_KEY before deploying.",
     );

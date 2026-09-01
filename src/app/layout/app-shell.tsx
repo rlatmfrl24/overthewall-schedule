@@ -1,4 +1,6 @@
 import {
+  ClerkFailed,
+  ClerkLoading,
   SignedIn,
   SignedOut,
   SignInButton,
@@ -6,7 +8,7 @@ import {
 } from "@clerk/clerk-react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { Menu } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import {
   getPublicSidebarMode,
   isNavItemActive,
@@ -331,18 +333,45 @@ function BrandLink({
   );
 }
 
+function LoginButton({
+  compact,
+  className,
+  ...buttonProps
+}: {
+  compact: boolean;
+} & ComponentProps<typeof Button>) {
+  return (
+    <Button
+      {...buttonProps}
+      variant="outline"
+      size={compact ? "sm" : "default"}
+      className={cn("rounded-md", compact && "h-8 px-2.5", className)}
+    >
+      로그인
+    </Button>
+  );
+}
+
 function AuthControls({ compact = false }: { compact?: boolean }) {
   return (
     <div aria-label="auth" className="flex items-center justify-center">
+      <ClerkLoading>
+        <LoginButton
+          compact={compact}
+          disabled
+          title="로그인 서비스를 불러오는 중입니다."
+        />
+      </ClerkLoading>
+      <ClerkFailed>
+        <LoginButton
+          compact={compact}
+          disabled
+          title="로그인 서비스를 불러오지 못했습니다."
+        />
+      </ClerkFailed>
       <SignedOut>
         <SignInButton>
-          <Button
-            variant="outline"
-            size={compact ? "sm" : "default"}
-            className={cn("rounded-md", compact && "h-8 px-2.5")}
-          >
-            로그인
-          </Button>
+          <LoginButton compact={compact} />
         </SignInButton>
       </SignedOut>
       <SignedIn>

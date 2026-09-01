@@ -26,6 +26,13 @@ if (!PUBLISHABLE_KEY) {
   throw new Error("Missing Publishable Key");
 }
 
+const expectedClerkKeyPrefix = import.meta.env.DEV ? "pk_test_" : "pk_live_";
+if (!PUBLISHABLE_KEY.startsWith(expectedClerkKeyPrefix)) {
+  throw new Error(
+    `Invalid Clerk environment: ${import.meta.env.DEV ? "local development" : "production"} requires a ${expectedClerkKeyPrefix.slice(0, -1)} publishable key.`,
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
