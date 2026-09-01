@@ -18,4 +18,5 @@ export {
   runDataRetentionPolicyPrune,
   runDataRetentionPrune,
   runScheduledDataRetentionPrune,
+  summarizeDataRetentionRun,
 } from "./infrastructure/data-retention";

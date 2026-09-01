@@ -1,1182 +1,276 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Coffee,
   DatabaseZap,
+  ExternalLink,
+  Gauge,
+  Inbox,
   Loader2,
-  Play,
+  MessageSquareText,
   RefreshCw,
+  TimerReset,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
+import { AdminSectionHeader } from "@/app/admin";
+import { cn } from "@/shared/lib/utils";
+import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/shared/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/shared/ui/table";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { useToast } from "@/shared/ui/toast";
-import {
-  fetchDataRetentionStatus,
-  fetchOperationRuns,
-  fetchOperationsStatus,
-  runDataRetentionPrune,
-  runNaverCafeCheckNow,
-  runAutoUpdateNow,
-  runXCollectionNow,
-} from "../../api/operations";
-import { useOperationRun } from "../../queries/use-operation-run";
-import type {
-  AutoUpdateOperationRun,
-  DataRetentionPolicyStatus,
-  NaverCafeOperationSource,
-  OperationRunAccepted,
-  OperationsIssue,
-  OperationsStatusLevel,
-  XCollectionOperationRun,
-  XDailyUsageSummary,
-  XForceRefreshPathSummary,
-  XOperationUsageSummary,
-} from "../../model/types";
-import { queryKeys } from "@/shared/query/query-keys";
-import { cn } from "@/shared/lib/utils";
-import { AdminSectionHeader } from "@/app/admin";
+import { fetchDataRetentionStatus, fetchOperationRuns, fetchOperationsStatus, runDataRetentionPrune } from "../../api/operations";
+import type { DataRetentionPolicyStatus, OperationRun, OperationsIssue } from "../../model/types";
 
 const WINDOW_HOURS = 24;
-
-const formatDateTime = (value: number | null | undefined) => {
-  if (!value) return "아직 없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "확인 불가";
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const terminalStatuses = new Set(["succeeded", "partial", "failed", "skipped", "throttled"]);
+const formatDateTime = (value: number | null | undefined) => value ? new Date(value).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "아직 없음";
+const formatDuration = (startedAt: number | null, finishedAt: number | null) => {
+  if (!startedAt) return "대기 중";
+  const seconds = Math.max(0, Math.round(((finishedAt ?? Date.now()) - startedAt) / 1000));
+  return seconds < 60 ? `${seconds}초` : `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
 };
+const runLabel = (jobType: OperationRun["jobType"]) => ({ x_collection: "X 게시글 수집", naver_cafe_collection: "네이버 카페 수집", schedule_auto_update: "자동 업데이트", retention_prune: "D1 데이터 보존", ingestion_recovery: "수집 복구", channel_reconcile: "채널 동기화", recent_reconcile: "최근 영상 동기화", websub_maintenance: "WebSub 정비", source_health: "소스 상태 점검" }[jobType] ?? jobType);
+const statusLabel = (status: string) => ({ queued: "대기", running: "실행 중", succeeded: "성공", partial: "일부 실패", failed: "실패", skipped: "건너뜀", throttled: "제한됨", ok: "정상", warning: "주의", critical: "위험" }[status] ?? status);
+const statusClass = (status: string) => cn(status === "succeeded" || status === "success" || status === "ok" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700" : status === "queued" || status === "running" || status === "skipped" || status === "warning" ? "border-amber-500/40 bg-amber-500/10 text-amber-700" : "border-destructive/40 bg-destructive/10 text-destructive");
+const progressValue = (run: OperationRun) => run.progress.total === 0 ? 0 : Math.round(((run.progress.succeeded + run.progress.failed + run.progress.skipped + run.progress.throttled) / run.progress.total) * 100);
 
-const formatDuration = (
-  startedAt: number,
-  finishedAt: number | null | undefined,
-) => {
-  if (!finishedAt) return "-";
-  const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 1000));
-  if (seconds < 60) return `${seconds}초`;
-  return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
-};
+type StatusTone = "neutral" | "success" | "warning" | "critical";
 
-const formatCost = (micros: number) => `$${(micros / 1_000_000).toFixed(4)}`;
+const statusToneClass = (tone: StatusTone) =>
+  ({
+    neutral: "border-border",
+    success: "border-emerald-500/25",
+    warning: "border-amber-500/30",
+    critical: "border-destructive/30",
+  })[tone];
 
-const formatPercent = (value: number) => `${Math.max(0, value)}%`;
+const statusIconClass = (tone: StatusTone) =>
+  ({
+    neutral: "border-border bg-muted text-muted-foreground",
+    success:
+      "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    warning:
+      "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    critical: "border-destructive/30 bg-destructive/10 text-destructive",
+  })[tone];
 
-const formatUtcDay = (day: string) => {
-  if (day === "unknown") return "확인 불가";
-  const date = new Date(`${day}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) return day;
-  return `${date.toLocaleDateString("ko-KR", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-  })} UTC`;
-};
-
-const formatOperationLabel = (operation: string) => {
-  if (operation === "user_lookup") return "사용자 조회";
-  if (operation === "timeline") return "타임라인";
-  if (operation === "tweet_lookup") return "트윗 상세";
-  return operation;
-};
-
-const formatVisibilityLabel = (visibility: "public" | "members" | "private") => {
-  if (visibility === "public") return "모두 공개";
-  if (visibility === "private") return "비공개";
-  return "회원 전용";
-};
-
-const formatRetentionCategoryLabel = (
-  category: DataRetentionPolicyStatus["category"],
-) => {
-  if (category === "usage_events") return "usage events";
-  if (category === "collection_runs") return "collection runs";
-  return "logs";
-};
-
-const getSummaryLabel = (status: OperationsStatusLevel) => {
-  if (status === "ok") return "정상";
-  if (status === "warning") return "주의";
-  return "위험";
-};
-
-const getStatusBadgeClass = (status: string) =>
-  cn(
-    status === "ok" || status === "success"
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
-      : status === "warning" || status === "stale" || status === "skipped"
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
-        : "border-destructive/40 bg-destructive/10 text-destructive",
-  );
-
-const getRunStatusLabel = (status: string) => {
-  if (status === "success") return "성공";
-  if (status === "skipped") return "건너뜀";
-  if (status === "ok") return "정상";
-  if (status === "stale") return "스테일";
-  if (status === "private") return "비공개";
-  if (status === "invalid_response") return "응답 오류";
-  if (status === "disabled") return "비활성";
-  return "실패";
-};
-
-function MetricCard({
+function StatusCard({
   title,
   value,
-  description,
-  status,
+  detail,
+  href,
+  icon: Icon,
+  tone = "neutral",
+  featured = false,
 }: {
   title: string;
   value: string;
-  description: string;
-  status?: OperationsStatusLevel;
+  detail: string;
+  href: string;
+  icon: LucideIcon;
+  tone?: StatusTone;
+  featured?: boolean;
 }) {
   return (
-    <Card>
-      <CardHeader className="space-y-1 pb-2">
-        <CardDescription>{title}</CardDescription>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-2xl">{value}</CardTitle>
-          {status ? (
-            <Badge className={getStatusBadgeClass(status)} variant="outline">
-              {getSummaryLabel(status)}
-            </Badge>
-          ) : null}
+    <Card
+      className={cn(
+        "group gap-0 overflow-hidden py-0 shadow-sm transition-colors hover:bg-muted/20",
+        statusToneClass(tone),
+        featured && "sm:col-span-2 xl:col-span-2",
+      )}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <span
+            className={cn(
+              "flex size-8 shrink-0 items-center justify-center rounded-lg border",
+              statusIconClass(tone),
+            )}
+          >
+            <Icon className="size-4" />
+          </span>
+          <Button asChild variant="ghost" size="icon-sm" className="-mr-2 -mt-2">
+            <a href={href} aria-label={`${title} 로그 보기`}>
+              <ExternalLink className="size-3.5" />
+            </a>
+          </Button>
         </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <div className="mt-3 space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">{title}</p>
+          <p className="text-xl font-semibold leading-none tabular-nums">{value}</p>
+          <p className="truncate text-xs text-muted-foreground" title={detail}>
+            {detail}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function IssueList({ issues }: { issues: OperationsIssue[] }) {
-  if (issues.length === 0) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700">
-        <CheckCircle2 className="h-4 w-4" />
-        현재 표시할 운영 이슈가 없습니다.
-      </div>
-    );
-  }
+function QueueMetric({
+  icon: Icon,
+  label,
+  value,
+  tone = "neutral",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  tone?: "neutral" | "warning" | "critical" | "primary";
+}) {
+  const toneClass = {
+    neutral: "border-border bg-muted/25 text-foreground",
+    warning:
+      "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300",
+    critical: "border-destructive/30 bg-destructive/5 text-destructive",
+    primary: "border-primary/25 bg-primary/5 text-primary",
+  }[tone];
 
   return (
-    <div className="space-y-2">
-      {issues.map((issue, index) => (
-        <div
-          key={`${issue.code}-${index}`}
-          className={cn(
-            "flex items-start gap-2 rounded-md border px-3 py-2 text-sm",
-            issue.severity === "critical"
-              ? "border-destructive/30 bg-destructive/5 text-destructive"
-              : "border-amber-500/30 bg-amber-500/5 text-amber-700",
-          )}
-        >
-          {issue.severity === "critical" ? (
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : (
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          )}
-          <span>{issue.message}</span>
-        </div>
-      ))}
+    <div className={cn("rounded-md border px-2.5 py-2", toneClass)}>
+      <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+        <Icon className="size-3.5" />
+        {label}
+      </div>
+      <p className="mt-1 text-lg font-semibold leading-none tabular-nums">
+        {value.toLocaleString("ko-KR")}
+      </p>
     </div>
   );
 }
 
-function AutoUpdateRunsTable({ runs }: { runs: AutoUpdateOperationRun[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>시각</TableHead>
-          <TableHead>구분</TableHead>
-          <TableHead>상태</TableHead>
-          <TableHead>VOD / 세션</TableHead>
-          <TableHead>재개 병합</TableHead>
-          <TableHead>대기 생성</TableHead>
-          <TableHead>억제</TableHead>
-          <TableHead>소요</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {runs.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={8} className="text-muted-foreground">
-              실행 이력이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          runs.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell>{formatDateTime(run.startedAt)}</TableCell>
-              <TableCell>
-                {run.source === "manual" ? "수동" : "스케줄"}
-              </TableCell>
-              <TableCell>
-                <Badge
-                  className={getStatusBadgeClass(run.status)}
-                  variant="outline"
-                >
-                  {getRunStatusLabel(run.status)}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {run.segmentCount} / {run.sessionCount}
-              </TableCell>
-              <TableCell>{run.resumeMergedCount}</TableCell>
-              <TableCell>{run.pendingCreatedCount}</TableCell>
-              <TableCell>
-                {run.rejectedSuppressedCount + run.shortSuppressedCount + run.holidaySuppressedCount}
-              </TableCell>
-              <TableCell>{formatDuration(run.startedAt, run.finishedAt)}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
-}
-
-function XRunsTable({ runs }: { runs: XCollectionOperationRun[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>시각</TableHead>
-          <TableHead>구분</TableHead>
-          <TableHead>상태</TableHead>
-          <TableHead>핸들</TableHead>
-          <TableHead>저장</TableHead>
-          <TableHead>API</TableHead>
-          <TableHead>비용</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {runs.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={7} className="text-muted-foreground">
-              수집 이력이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          runs.map((run) => (
-            <TableRow key={run.id}>
-              <TableCell>{formatDateTime(run.startedAt)}</TableCell>
-              <TableCell>{run.source === "manual" ? "수동" : "스케줄"}</TableCell>
-              <TableCell>
-                <Badge
-                  className={getStatusBadgeClass(run.status)}
-                  variant="outline"
-                >
-                  {getRunStatusLabel(run.status)}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                {run.refreshedHandles}/{run.checkedHandles}
-              </TableCell>
-              <TableCell>{run.postsStored}</TableCell>
-              <TableCell>{run.apiCalls}</TableCell>
-              <TableCell>{formatCost(run.estimatedCostMicros)}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
-}
-
-function XDailyUsageTable({ items }: { items: XDailyUsageSummary[] }) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>일자</TableHead>
-          <TableHead>API</TableHead>
-          <TableHead>비용</TableHead>
-          <TableHead>리소스</TableHead>
-          <TableHead>429</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={5} className="text-muted-foreground">
-              사용량 이력이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          items.map((item) => (
-            <TableRow key={item.day}>
-              <TableCell>{formatUtcDay(item.day)}</TableCell>
-              <TableCell>{item.apiCalls}</TableCell>
-              <TableCell>{formatCost(item.estimatedCostMicros)}</TableCell>
-              <TableCell>{item.resourceCount}</TableCell>
-              <TableCell>{item.rateLimitCount}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
-}
-
-function XOperationUsageTable({
-  items,
+function QueueHealthCard({
+  activeRunCount,
+  outboxBacklog,
+  staleLeaseCount,
+  used,
+  limit,
+  usedPercent,
 }: {
-  items: XOperationUsageSummary[];
+  activeRunCount: number;
+  outboxBacklog: number;
+  staleLeaseCount: number;
+  used: number;
+  limit: number;
+  usedPercent: number;
 }) {
+  const percent = Math.max(0, Math.min(100, usedPercent));
+  const remaining = Math.max(0, limit - used);
+  const barClass =
+    percent >= 90
+      ? "bg-destructive"
+      : percent >= 70
+        ? "bg-amber-500"
+        : "bg-emerald-500";
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>operation</TableHead>
-          <TableHead>API</TableHead>
-          <TableHead>실패</TableHead>
-          <TableHead>429</TableHead>
-          <TableHead>비용</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={5} className="text-muted-foreground">
-              operation별 사용량이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          items.map((item) => (
-            <TableRow key={item.operation}>
-              <TableCell>{formatOperationLabel(item.operation)}</TableCell>
-              <TableCell>{item.apiCalls}</TableCell>
-              <TableCell>{item.failureCount}</TableCell>
-              <TableCell>{item.rateLimitCount}</TableCell>
-              <TableCell>{formatCost(item.estimatedCostMicros)}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
+    <Card className="gap-0 py-0 shadow-sm">
+      <CardHeader className="px-4 pb-2 pt-4">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <span className="flex size-7 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+            <Clock3 className="size-3.5" />
+          </span>
+          작업 큐
+        </CardTitle>
+        <CardDescription className="text-xs">대기열과 일일 Queue 사용량</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 px-4 pb-4">
+        <div className="grid grid-cols-3 gap-2">
+          <QueueMetric icon={Activity} label="실행 중" value={activeRunCount} tone="primary" />
+          <QueueMetric
+            icon={Inbox}
+            label="대기 outbox"
+            value={outboxBacklog}
+            tone={outboxBacklog > 0 ? "warning" : "neutral"}
+          />
+          <QueueMetric
+            icon={TimerReset}
+            label="stale lease"
+            value={staleLeaseCount}
+            tone={staleLeaseCount > 0 ? "critical" : "neutral"}
+          />
+        </div>
+        <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex items-center gap-1.5 font-medium">
+              <Gauge className="size-3.5" />
+              일일 Queue 사용량
+            </span>
+            <span className="tabular-nums text-muted-foreground">{percent}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label="일일 Queue 사용량"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            className="h-2 overflow-hidden rounded-full bg-background"
+          >
+            <div
+              className={cn("h-full rounded-full transition-[width]", barClass)}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+            <span className="tabular-nums">
+              사용 {used.toLocaleString("ko-KR")} / {limit.toLocaleString("ko-KR")}
+            </span>
+            <span className="tabular-nums">잔여 {remaining.toLocaleString("ko-KR")}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
-
-function XForceRefreshPathTable({
-  items,
-}: {
-  items: XForceRefreshPathSummary[];
-}) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>경로</TableHead>
-          <TableHead>실행/API</TableHead>
-          <TableHead>실패</TableHead>
-          <TableHead>429</TableHead>
-          <TableHead>최근</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={5} className="text-muted-foreground">
-              force refresh 발생 이력이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          items.map((item) => (
-            <TableRow key={item.path}>
-              <TableCell>
-                <div className="flex flex-col">
-                  <span>{item.label}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.path}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell>
-                {item.runCount}/{item.apiCalls}
-              </TableCell>
-              <TableCell>{item.failureCount}</TableCell>
-              <TableCell>{item.rateLimitCount}</TableCell>
-              <TableCell>{formatDateTime(item.latestAt)}</TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
+function IssueList({ issues }: { issues: OperationsIssue[] }) {
+  if (issues.length === 0) return <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />현재 표시할 운영 이슈가 없습니다.</div>;
+  return <div className="space-y-2">{issues.map((issue, index) => <div key={`${issue.code}-${index}`} className={cn("flex gap-2 rounded-md border px-3 py-2 text-sm", issue.severity === "critical" ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-amber-500/30 bg-amber-500/5 text-amber-700")}>{issue.severity === "critical" ? <XCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}<span>{issue.message}</span></div>)}</div>;
 }
-
-function NaverCafeSourceTable({
-  sources,
-}: {
-  sources: NaverCafeOperationSource[];
-}) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>게시판</TableHead>
-          <TableHead>상태</TableHead>
-          <TableHead>stale</TableHead>
-          <TableHead>마지막 성공</TableHead>
-          <TableHead>최근 점검</TableHead>
-          <TableHead>오류/비활성 사유</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {sources.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={6} className="text-muted-foreground">
-              등록된 네이버 카페 소스가 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          sources.map((source) => {
-            const status = source.enabled
-              ? source.latestCheck?.status ?? "stale"
-              : "disabled";
-            const statusDetail =
-              source.disabledReason ?? source.latestError ?? "-";
-            return (
-              <TableRow key={source.sourceId}>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{source.sourceName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {source.cafeId}/{source.menuId}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    className={getStatusBadgeClass(status)}
-                    variant="outline"
-                  >
-                    {getRunStatusLabel(status)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  {source.stale ? (
-                    <Badge
-                      className="border-amber-500/40 bg-amber-500/10 text-amber-700"
-                      variant="outline"
-                    >
-                      stale
-                    </Badge>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-                <TableCell>{formatDateTime(source.lastSuccessAt)}</TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span>{formatDateTime(source.latestCheck?.checkedAt)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      게시글 {source.latestCheck?.postCount ?? "-"}개
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="max-w-72 truncate">
-                  {statusDetail}
-                </TableCell>
-              </TableRow>
-            );
-          })
-        )}
-      </TableBody>
-    </Table>
-  );
+function RunRow({ run }: { run: OperationRun }) {
+  const terminal = terminalStatuses.has(run.status);
+  const skippedReason = run.status === "skipped" && typeof run.summary?.reason === "string" ? run.summary.reason : null;
+  return <TableRow className={run.status === "queued" || run.status === "running" ? "bg-amber-500/[0.03]" : undefined}><TableCell className="font-medium">{runLabel(run.jobType)}<p className="mt-1 text-xs text-muted-foreground">{run.source === "manual" ? "수동 실행" : "정기 실행"}</p></TableCell><TableCell><Badge variant="outline" className={statusClass(run.status)}>{statusLabel(run.status)}</Badge></TableCell><TableCell className="min-w-48"><div className="flex items-center justify-between text-xs"><span>{run.progress.total === 0 && run.status === "skipped" ? "대상 없음" : `${progressValue(run)}%`}</span><span>{run.progress.succeeded + run.progress.failed + run.progress.skipped + run.progress.throttled}/{run.progress.total}</span></div><div className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full", run.progress.failed > 0 ? "bg-destructive" : terminal ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${progressValue(run)}%` }} /></div><p className="mt-1 text-xs text-muted-foreground">성공 {run.progress.succeeded} · 실패 {run.progress.failed} · 진행 {run.progress.running} · 대기 {run.progress.queued}</p></TableCell><TableCell>{formatDateTime(run.startedAt ?? run.acceptedAt)}<p className="mt-1 text-xs text-muted-foreground">{terminal ? `완료 ${formatDateTime(run.finishedAt)}` : `경과 ${formatDuration(run.startedAt, null)}`}</p></TableCell><TableCell className="max-w-64"><details><summary className="flex cursor-pointer list-none items-center gap-1 text-sm text-muted-foreground">상세 <ChevronDown className="h-3.5 w-3.5" /></summary><div className="mt-2 space-y-1 text-xs"><p>run ID: {run.runId}</p>{skippedReason ? <p>사유: {skippedReason}</p> : null}{run.lastError ? <p className="text-destructive">{run.lastError}</p> : null}{run.failures.map((failure) => <p key={failure.itemId} className="text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (재시도 {failure.attempts})</p>)}</div></details></TableCell></TableRow>;
 }
-
-function DataRetentionPolicyTable({
-  policies,
-}: {
-  policies: DataRetentionPolicyStatus[];
-}) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>분류</TableHead>
-          <TableHead>테이블</TableHead>
-          <TableHead className="text-right">보존</TableHead>
-          <TableHead className="text-right">대상</TableHead>
-          <TableHead className="text-right">삭제</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {policies.length === 0 ? (
-          <TableRow>
-            <TableCell
-              colSpan={5}
-              className="py-6 text-center text-muted-foreground"
-            >
-              정책이 없습니다.
-            </TableCell>
-          </TableRow>
-        ) : (
-          policies.map((policy) => (
-            <TableRow key={policy.id}>
-              <TableCell>{formatRetentionCategoryLabel(policy.category)}</TableCell>
-              <TableCell>
-                <div className="flex flex-col">
-                  <span className="font-medium">{policy.table}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {policy.timestampColumn} · 기준{" "}
-                    {formatDateTime(policy.cutoff)}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="text-right">
-                {policy.retentionDays}일
-              </TableCell>
-              <TableCell className="text-right">
-                {policy.prunableRows.toLocaleString("ko-KR")}
-              </TableCell>
-              <TableCell className="text-right">
-                {policy.deletedRows.toLocaleString("ko-KR")}
-              </TableCell>
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-    </Table>
-  );
+function RetentionPolicyTable({ policies }: { policies: DataRetentionPolicyStatus[] }) {
+  return <Table><TableHeader><TableRow><TableHead>정책</TableHead><TableHead>보존</TableHead><TableHead>현재 삭제 대상</TableHead></TableRow></TableHeader><TableBody>{policies.map((policy) => <TableRow key={policy.id}><TableCell>{policy.category === "scheduled_operations" ? "정기 작업 · " : ""}{policy.label}</TableCell><TableCell>{policy.retentionDays}일</TableCell><TableCell>{policy.prunableRows.toLocaleString("ko-KR")}건</TableCell></TableRow>)}</TableBody></Table>;
 }
 
 export function OperationsDashboard() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [activeRun, setActiveRun] = useState<OperationRunAccepted | null>(null);
-  const [notifiedRunId, setNotifiedRunId] = useState<string | null>(null);
-  const activeRunQuery = useOperationRun(activeRun);
-  const statusQuery = useQuery({
-    queryKey: queryKeys.operations.status(WINDOW_HOURS),
-    queryFn: () => fetchOperationsStatus(WINDOW_HOURS),
-    staleTime: 30_000,
-  });
-  const dataRetentionQuery = useQuery({
-    queryKey: queryKeys.operations.dataRetention(),
-    queryFn: fetchDataRetentionStatus,
-    staleTime: 60_000,
-  });
-
-  const invalidateOperations = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings.all }),
-    ]);
-  }, [queryClient]);
-
-  const autoUpdateMutation = useMutation({
-    mutationFn: runAutoUpdateNow,
-    onSuccess: (accepted) => {
-      setActiveRun(accepted);
-      toast({
-        variant: "success",
-        description: "자동 업데이트가 대기열에 등록되었습니다.",
-      });
-    },
-    onError: () => {
-      toast({
-        variant: "error",
-        description: "자동 업데이트 실행에 실패했습니다.",
-      });
-    },
-  });
-
-  const xCollectionMutation = useMutation({
-    mutationFn: runXCollectionNow,
-    onSuccess: (accepted) => {
-      setActiveRun(accepted);
-      toast({
-        variant: "success",
-        description: "X 게시글 수집이 대기열에 등록되었습니다.",
-      });
-    },
-    onError: () => {
-      toast({
-        variant: "error",
-        description: "X 게시글 수집 실행에 실패했습니다.",
-      });
-    },
-  });
-
-  const naverCafeCheckMutation = useMutation({
-    mutationFn: runNaverCafeCheckNow,
-    onSuccess: (accepted) => {
-      setActiveRun(accepted);
-      toast({
-        variant: "success",
-        description: "네이버 카페 점검이 대기열에 등록되었습니다.",
-      });
-    },
-    onError: () => {
-      toast({
-        variant: "error",
-        description: "네이버 카페 상태 점검에 실패했습니다.",
-      });
-    },
-  });
-
-  const dataRetentionMutation = useMutation({
-    mutationFn: () => runDataRetentionPrune({ dryRun: false }),
-    onSuccess: (result) => {
-      if (!("runId" in result)) return;
-      setActiveRun(result);
-      toast({
-        variant: "success",
-        description: "D1 데이터 정리가 대기열에 등록되었습니다.",
-      });
-    },
-    onError: () => {
-      toast({
-        variant: "error",
-        description: "D1 데이터 정리에 실패했습니다.",
-      });
-    },
-  });
-  const operationRunsQuery = useQuery({
-    queryKey: queryKeys.operations.runs(),
-    queryFn: () => fetchOperationRuns({ limit: 10 }),
-    staleTime: 10_000,
-    refetchInterval: (query) => query.state.data?.runs.some((run) =>
-        run.status === "queued" || run.status === "running"
-      )
-      ? 5_000
-      : 30_000,
-    refetchIntervalInBackground: false,
-    networkMode: "online",
-  });
-
-  useEffect(() => {
-    const run = activeRunQuery.data;
-    if (!run || run.runId === notifiedRunId) return;
-    if (!["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
-      return;
-    }
-    setNotifiedRunId(run.runId);
-    void invalidateOperations();
-    toast({
-      variant: run.status === "succeeded" ? "success" : "error",
-      description: run.status === "succeeded"
-        ? `${run.jobType} 작업이 완료되었습니다.`
-        : `${run.jobType} 작업이 ${run.status} 상태로 종료되었습니다.`,
-    });
-  }, [
-    activeRunQuery.data,
-    invalidateOperations,
-    notifiedRunId,
-    toast,
-  ]);
-
-  const handleDataRetentionPrune = () => {
-    const prunableRows = dataRetentionQuery.data?.totalPrunableRows ?? 0;
-    const confirmed = window.confirm(
-      `보존 기간이 지난 D1 로그 ${prunableRows.toLocaleString(
-        "ko-KR",
-      )}건을 삭제합니다. 계속할까요?`,
-    );
-    if (confirmed) {
-      dataRetentionMutation.mutate();
-    }
-  };
-
-  const isActionRunning =
-    autoUpdateMutation.isPending ||
-    xCollectionMutation.isPending ||
-    naverCafeCheckMutation.isPending ||
-    dataRetentionMutation.isPending ||
-    Boolean(
-      activeRunQuery.data &&
-      ["queued", "running"].includes(activeRunQuery.data.status),
-    );
-
-  if (statusQuery.isLoading) {
-    return (
-      <div className="flex min-h-[360px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (statusQuery.isError || !statusQuery.data) {
-    return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
-        <AdminSectionHeader
-          title="운영 대시보드"
-          description="운영 상태를 불러오지 못했습니다."
-          actions={
-            <Button
-              variant="outline"
-              onClick={() => void statusQuery.refetch()}
-            >
-              <RefreshCw className="h-4 w-4" />
-              다시 시도
-            </Button>
-          }
-        />
-      </div>
-    );
-  }
-
+  const queryClient = useQueryClient(); const { toast } = useToast(); const [retentionRunId, setRetentionRunId] = useState<string | null>(null);
+  const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), staleTime: 30_000 });
+  const runsQuery = useQuery({ queryKey: queryKeys.operations.runs(), queryFn: () => fetchOperationRuns({ limit: 20 }), staleTime: 5_000, refetchInterval: (query) => query.state.data?.runs.some((run) => run.status === "queued" || run.status === "running") ? 5_000 : 30_000 });
+  const retentionQuery = useQuery({ queryKey: queryKeys.operations.dataRetention(), queryFn: fetchDataRetentionStatus, staleTime: 30_000 });
+  const invalidate = useCallback(() => Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }), queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })]), [queryClient]);
+  const retentionMutation = useMutation({ mutationFn: () => runDataRetentionPrune({ dryRun: false }), onSuccess: (result) => { if ("runId" in result) { setRetentionRunId(result.runId); void invalidate(); toast({ variant: "success", description: "D1 데이터 정리가 대기열에 등록되었습니다." }); } }, onError: () => toast({ variant: "error", description: "D1 데이터 정리에 실패했습니다." }) });
+  useEffect(() => { const run = runsQuery.data?.runs.find((item) => item.runId === retentionRunId); if (run && terminalStatuses.has(run.status)) { setRetentionRunId(null); void invalidate(); } }, [retentionRunId, runsQuery.data, invalidate]);
+  const runs = useMemo(() => [...(runsQuery.data?.runs ?? [])].sort((a, b) => Number(b.status === "queued" || b.status === "running") - Number(a.status === "queued" || a.status === "running") || b.acceptedAt - a.acceptedAt), [runsQuery.data]);
   const data = statusQuery.data;
-  const nonQueueBudgetSummary = data.scheduledOperations.dailyUsage
-    .filter((usage) => usage.resource !== "queue_operations")
-    .map((usage) => `${usage.resource} ${usage.usedPercent}%`)
-    .join(" · ");
-
-  return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4">
-      <AdminSectionHeader
-        title="운영 대시보드"
-        description={`최근 ${data.window.hours}시간 기준 상태입니다.`}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={() => void statusQuery.refetch()}
-              disabled={statusQuery.isFetching || isActionRunning}
-            >
-              <RefreshCw
-                className={cn(
-                  "h-4 w-4",
-                  statusQuery.isFetching && "animate-spin",
-                )}
-              />
-              새로고침
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => autoUpdateMutation.mutate()}
-              disabled={isActionRunning}
-            >
-              <Play className="h-4 w-4" />
-              자동 업데이트
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => xCollectionMutation.mutate()}
-              disabled={isActionRunning}
-            >
-              <DatabaseZap className="h-4 w-4" />X 수집
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => naverCafeCheckMutation.mutate()}
-              disabled={isActionRunning}
-            >
-              <Coffee className="h-4 w-4" />
-              카페 점검
-            </Button>
-          </>
-        }
-      />
-
-      {activeRun ? (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">비동기 작업 진행 상태</CardTitle>
-            <CardDescription>
-              {activeRun.jobType} · {activeRun.runId}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-3 text-sm">
-            {activeRunQuery.isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : activeRunQuery.data ? (
-              <>
-                <Badge>{activeRunQuery.data.status}</Badge>
-                <span>
-                  완료 {activeRunQuery.data.progress.succeeded}/
-                  {activeRunQuery.data.progress.total}
-                </span>
-                <span>실패 {activeRunQuery.data.progress.failed}</span>
-                <span>대기 {activeRunQuery.data.progress.queued}</span>
-                <span>
-                  완료 시각 {formatDateTime(activeRunQuery.data.finishedAt)}
-                </span>
-                {activeRunQuery.data.failures.slice(0, 3).map((failure) => (
-                  <span
-                    key={failure.itemId}
-                    className="w-full text-destructive"
-                  >
-                    {failure.targetKey} · {failure.phase}: {failure.message}
-                  </span>
-                ))}
-              </>
-            ) : (
-              <span>작업 상태를 불러오는 중입니다.</span>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">최근 정기·수동 작업</CardTitle>
-          <CardDescription>
-            조회 시각이 아닌 canonical run의 실제 완료 시각과 item 결과입니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>작업</TableHead>
-                <TableHead>출처</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead>진행률</TableHead>
-                <TableHead>실제 완료</TableHead>
-                <TableHead>오류</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(operationRunsQuery.data?.runs ?? []).map((run) => (
-                <TableRow key={run.runId}>
-                  <TableCell className="font-medium">{run.jobType}</TableCell>
-                  <TableCell>{run.source}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={getStatusBadgeClass(run.status)}
-                    >
-                      {run.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {run.progress.succeeded + run.progress.skipped}/
-                    {run.progress.total}
-                  </TableCell>
-                  <TableCell>{formatDateTime(run.finishedAt)}</TableCell>
-                  <TableCell className="max-w-[320px] truncate">
-                    {run.failures[0]?.message ?? run.lastError ?? "-"}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!operationRunsQuery.isLoading &&
-                  (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    아직 기록된 v2 작업이 없습니다.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard
-          title="전체 상태"
-          value={getSummaryLabel(data.summary.status)}
-          description={`이슈 ${data.summary.issues.length}건`}
-          status={data.summary.status}
-        />
-        <MetricCard
-          title="자동 업데이트"
-          value={data.autoUpdate.enabled ? "활성" : "비활성"}
-          description={`최근 실행 ${formatDateTime(data.autoUpdate.lastRun)}`}
-        />
-        <MetricCard
-          title="X 수집"
-          value={`${data.xCollection.usage.apiCalls} calls`}
-          description={`${formatCost(
-            data.xCollection.usage.estimatedCostMicros,
-          )} / 최근 ${data.window.hours}시간 · 공개 ${formatVisibilityLabel(
-            data.xCollection.feed.visibility,
-          )}`}
-        />
-        <MetricCard
-          title="네이버 카페"
-          value={`${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount}`}
-          description={`최근 수집 ${formatDateTime(
-            data.naverCafe.collection.lastRun,
-          )} · 표시 ${
-            data.naverCafe.enabled ? "활성" : "비활성"
-          } · 공개 ${formatVisibilityLabel(data.naverCafe.visibility)} · 실패 ${
-            data.naverCafe.failingSourceCount
-          }개, stale ${data.naverCafe.staleSourceCount}개`}
-        />
-        <MetricCard
-          title="정기 작업 예산"
-          value={`${data.scheduledOperations.queueOperations.usedPercent}%`}
-          description={`Queue ${data.scheduledOperations.queueOperations.used.toLocaleString("ko-KR")}/${data.scheduledOperations.queueOperations.limit.toLocaleString("ko-KR")} · outbox ${data.scheduledOperations.outboxBacklog} · stale lease ${data.scheduledOperations.staleLeaseCount}${nonQueueBudgetSummary ? ` · ${nonQueueBudgetSummary}` : ""}`}
-          status={data.scheduledOperations.staleLeaseCount > 0 ||
-              data.scheduledOperations.outboxBacklog > 25
-            ? "warning"
-            : "ok"}
-        />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Clock3 className="h-4 w-4" />
-                자동 업데이트
-              </CardTitle>
-              <CardDescription>
-                다음 실행 가능 시각 {formatDateTime(data.autoUpdate.nextEligibleAt)}
-                {" · "}
-                처리 전 승인 대기 {data.autoUpdate.pending.total}건
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AutoUpdateRunsTable runs={data.autoUpdate.recentRuns} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <DatabaseZap className="h-4 w-4" />
-                X 게시글 수집
-              </CardTitle>
-              <CardDescription>
-                다음 실행 가능 시각 {formatDateTime(data.xCollection.nextEligibleAt)}
-                {" · "}
-                오늘 예산 사용률{" "}
-                {formatPercent(
-                  data.xCollection.usage.quota.todayBudgetUsedPercent,
-                )}
-                {" · "}
-                피드 공개 {formatVisibilityLabel(data.xCollection.feed.visibility)}
-                {" · "}
-                관리자 점검 {data.xCollection.feed.monitorPath}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <div className="text-xs text-muted-foreground">
-                    오늘 사용량
-                  </div>
-                  <div className="mt-1 font-semibold">
-                    {formatCost(data.xCollection.usage.quota.todayUsedMicros)}
-                  </div>
-                </div>
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <div className="text-xs text-muted-foreground">
-                    남은 일 예산
-                  </div>
-                  <div className="mt-1 font-semibold">
-                    {formatCost(
-                      data.xCollection.usage.quota.todayRemainingMicros,
-                    )}
-                  </div>
-                </div>
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <div className="text-xs text-muted-foreground">
-                    rate-limit
-                  </div>
-                  <div className="mt-1 font-semibold">
-                    {data.xCollection.usage.rateLimitCount}회
-                  </div>
-                </div>
-                <div className="rounded-md border bg-background px-3 py-2">
-                  <div className="text-xs text-muted-foreground">
-                    force refresh 경로
-                  </div>
-                  <div className="mt-1 font-semibold">
-                    {data.xCollection.usage.forceRefreshPaths.length}개
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 xl:grid-cols-2">
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">일별 사용량</h3>
-                  <XDailyUsageTable items={data.xCollection.usage.daily} />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium">operation별 사용량</h3>
-                  <XOperationUsageTable
-                    items={data.xCollection.usage.byOperation}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">
-                  force refresh 발생 경로
-                </h3>
-                <XForceRefreshPathTable
-                  items={data.xCollection.usage.forceRefreshPaths}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">최근 수집 실행</h3>
-                <XRunsTable runs={data.xCollection.recentRuns} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Coffee className="h-4 w-4" />
-                네이버 카페 소스
-              </CardTitle>
-              <CardDescription>
-                다음 수집 가능 시각{" "}
-                {formatDateTime(data.naverCafe.collection.nextEligibleAt)}
-                {" · "}
-                표시 {data.naverCafe.enabled ? "활성" : "비활성"}
-                {" · "}
-                공개 {formatVisibilityLabel(data.naverCafe.visibility)}
-                {" · "}
-                관리자 점검 {data.naverCafe.monitorPath}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <NaverCafeSourceTable sources={data.naverCafe.sources} />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          <Card className="h-fit">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <AlertTriangle className="h-4 w-4" />
-                주의 필요
-              </CardTitle>
-              <CardDescription>
-                마지막 업데이트{" "}
-                {new Date(data.updatedAt).toLocaleString("ko-KR")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <IssueList issues={data.summary.issues} />
-            </CardContent>
-          </Card>
-
-          <Card className="h-fit">
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <DatabaseZap className="h-4 w-4" />
-                    D1 데이터 보존
-                  </CardTitle>
-                  <CardDescription>
-                    usage events 90일, run/check history 180일, update/audit logs
-                    365일 보존
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void dataRetentionQuery.refetch()}
-                    disabled={
-                      dataRetentionQuery.isFetching ||
-                      dataRetentionMutation.isPending
-                    }
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "h-4 w-4",
-                        dataRetentionQuery.isFetching && "animate-spin",
-                      )}
-                    />
-                    계산
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleDataRetentionPrune}
-                    disabled={
-                      dataRetentionQuery.isLoading ||
-                      !dataRetentionQuery.data ||
-                      dataRetentionMutation.isPending
-                    }
-                  >
-                    {dataRetentionMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <DatabaseZap className="h-4 w-4" />
-                    )}
-                    prune
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {dataRetentionQuery.isLoading ? (
-                <div className="flex items-center justify-center py-6 text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  보존 정책 계산 중...
-                </div>
-              ) : dataRetentionQuery.isError || !dataRetentionQuery.data ? (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  D1 보존 상태를 불러오지 못했습니다.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-md border bg-background px-3 py-2">
-                      <div className="text-xs text-muted-foreground">
-                        삭제 대상
-                      </div>
-                      <div className="mt-1 font-semibold">
-                        {dataRetentionQuery.data.totalPrunableRows.toLocaleString(
-                          "ko-KR",
-                        )}
-                        건
-                      </div>
-                    </div>
-                    <div className="rounded-md border bg-background px-3 py-2">
-                      <div className="text-xs text-muted-foreground">
-                        마지막 삭제
-                      </div>
-                      <div className="mt-1 font-semibold">
-                        {dataRetentionQuery.data.totalDeletedRows.toLocaleString(
-                          "ko-KR",
-                        )}
-                        건
-                      </div>
-                    </div>
-                  </div>
-                  <DataRetentionPolicyTable
-                    policies={dataRetentionQuery.data.policies}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+  if (statusQuery.isLoading) return <div className="flex min-h-96 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
+  if (!data) return <div className="mx-auto max-w-3xl"><AdminSectionHeader title="운영 대시보드" description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
+  const latestRetention = retentionQuery.data?.recentRuns[0];
+  const queue = data.scheduledOperations.queueOperations;
+  const queuePercent = Math.max(0, Math.min(100, queue.usedPercent));
+  const summaryTone: StatusTone = data.summary.status === "ok" ? "success" : data.summary.status === "warning" ? "warning" : "critical";
+  const confirmPrune = () => { const count = retentionQuery.data?.totalPrunableRows ?? 0; if (window.confirm(`보존 기간이 지난 D1 데이터 ${count.toLocaleString("ko-KR")}건을 삭제합니다. 계속할까요?`)) retentionMutation.mutate(); };
+  return <div className="mx-auto flex max-w-7xl flex-col gap-4"><AdminSectionHeader title="운영 대시보드" description={`최근 ${data.window.hours}시간 기준 상태입니다.`} actions={<Button variant="outline" onClick={() => { void statusQuery.refetch(); void runsQuery.refetch(); void retentionQuery.refetch(); }} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} />새로고침</Button>} />
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <StatusCard title="전체 상태" value={statusLabel(data.summary.status)} detail={`운영 이슈 ${data.summary.issues.length}건`} href="#issues" icon={Activity} tone={summaryTone} featured />
+      <StatusCard title="자동 업데이트" value={data.autoUpdate.enabled ? "활성" : "비활성"} detail={`최근 실행 ${formatDateTime(data.autoUpdate.lastRun)}`} href="/admin/settings?tab=runs" icon={CalendarClock} tone={data.autoUpdate.enabled ? "success" : "neutral"} />
+      <StatusCard title="X 수집" value={`${data.xCollection.usage.apiCalls} calls`} detail={`예산 ${data.xCollection.usage.quota.todayBudgetUsedPercent}% · ${formatDateTime(data.xCollection.lastRun)}`} href="/admin/member-posts?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.usage.quota.todayBudgetUsedPercent >= 90 ? "critical" : data.xCollection.usage.quota.todayBudgetUsedPercent >= 70 ? "warning" : "neutral"} />
+      <StatusCard title="네이버 카페" value={`${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount}`} detail={`주의 ${data.naverCafe.failingSourceCount + data.naverCafe.staleSourceCount}개 · ${formatDateTime(data.naverCafe.collection.lastRun)}`} href="/admin/member-posts?source=naver-cafe#naver-cafe-monitoring" icon={Coffee} tone={data.naverCafe.failingSourceCount > 0 ? "critical" : data.naverCafe.staleSourceCount > 0 ? "warning" : "neutral"} />
+      <StatusCard title="정기 작업 예산" value={`${queuePercent}%`} detail={`outbox ${data.scheduledOperations.outboxBacklog} · 실행 ${data.scheduledOperations.activeRunCount}`} href="#recent-runs" icon={Gauge} tone={queuePercent >= 90 ? "critical" : queuePercent >= 70 ? "warning" : "neutral"} />
     </div>
-  );
+    <Card id="recent-runs"><CardHeader><CardTitle>최근 정기·수동 작업</CardTitle><CardDescription>실행 중인 작업을 먼저 표시합니다. 작업별 상세 로그는 각 관리 페이지에서 확인합니다.</CardDescription></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{runs.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && runs.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></CardContent></Card>
+    <div id="issues" className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"><Card><CardHeader><CardTitle>주의 필요</CardTitle><CardDescription>마지막 업데이트 {new Date(data.updatedAt).toLocaleString("ko-KR")}</CardDescription></CardHeader><CardContent><IssueList issues={data.summary.issues} /></CardContent></Card><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue.used} limit={queue.limit} usedPercent={queuePercent} /></div>
+    <Card><CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="flex items-center gap-2"><DatabaseZap className="h-4 w-4" />D1 데이터 보존</CardTitle><CardDescription>현재 삭제 대상과 최근 prune의 실제 삭제·검증 결과를 확인합니다.</CardDescription></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void retentionQuery.refetch()} disabled={retentionQuery.isFetching}><RefreshCw className={cn(retentionQuery.isFetching && "animate-spin")} />계산</Button><Button variant="destructive" size="sm" onClick={confirmPrune} disabled={!retentionQuery.data || retentionMutation.isPending}>{retentionMutation.isPending ? <Loader2 className="animate-spin" /> : <DatabaseZap />}prune</Button></div></div></CardHeader><CardContent className="space-y-5">{retentionQuery.data ? <><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">현재 삭제 대상</p><p className="mt-1 text-2xl font-semibold">{retentionQuery.data.totalPrunableRows.toLocaleString("ko-KR")}건</p></div><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">최근 삭제</p><p className="mt-1 text-2xl font-semibold">{latestRetention?.totalDeletedRows.toLocaleString("ko-KR") ?? "-"}건</p><p className="text-xs text-muted-foreground">{formatDateTime(latestRetention?.finishedAt)}</p></div><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">최근 검증</p><p className="mt-1 font-semibold">{latestRetention?.verification === "verified" ? "삭제 후 대상 없음" : latestRetention?.verification === "remaining" ? `잔여 ${latestRetention.remainingPrunableRows?.toLocaleString("ko-KR")}건` : "기존 이력: 검증 정보 없음"}</p></div></div><RetentionPolicyTable policies={retentionQuery.data.policies} /><section><h3 className="mb-2 text-sm font-semibold">최근 prune 이력</h3><Table><TableHeader><TableRow><TableHead>완료</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>삭제</TableHead><TableHead>검증</TableHead></TableRow></TableHeader><TableBody>{retentionQuery.data.recentRuns.map((run) => <TableRow key={run.runId}><TableCell>{formatDateTime(run.finishedAt)}</TableCell><TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell><TableCell><Badge variant="outline" className={statusClass(run.status)}>{statusLabel(run.status)}</Badge></TableCell><TableCell>{run.totalDeletedRows.toLocaleString("ko-KR")}건</TableCell><TableCell>{run.verification === "verified" ? "정상" : run.verification === "remaining" ? `잔여 ${run.remainingPrunableRows}건` : "미확인"}</TableCell></TableRow>)}{retentionQuery.data.recentRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">prune 이력이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></section></> : <p className="text-sm text-destructive">D1 보존 상태를 불러오지 못했습니다.</p>}</CardContent></Card>
+  </div>;
 }

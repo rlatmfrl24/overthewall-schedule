@@ -9,7 +9,10 @@ import {
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
 } from "../../otw-play";
-import { runDataRetentionPolicyPrune } from "../../operations";
+import {
+  runDataRetentionPolicyPrune,
+  summarizeDataRetentionRun,
+} from "../../operations";
 import {
   autoUpdateSchedules,
   recordAutoUpdateResultWithHistory,
@@ -320,7 +323,10 @@ export class ScheduledJobExecutor {
         "naver_cafe_collection_last_run",
         completedAt,
       );
-    } else if (run.jobType === "retention_prune") {
+    } else if (run.jobType === "retention_prune" && run.status === "succeeded") {
+      await this.repository.updateRunSummary(runId, {
+        retentionPrune: await summarizeDataRetentionRun(this.env, runId),
+      });
       await writeSetting(this.env, "data_retention_last_prune", completedAt);
     }
   }

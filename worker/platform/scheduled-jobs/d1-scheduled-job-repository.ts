@@ -751,6 +751,12 @@ export class D1ScheduledJobRepository {
     });
   }
 
+  async updateRunSummary(runId: string, summary: Record<string, unknown>) {
+    await this.db.prepare(
+      `UPDATE scheduled_job_runs SET summary_json = ?, updated_at = ? WHERE id = ?`,
+    ).bind(JSON.stringify(summary), this.clock(), runId).run();
+  }
+
   async readRunDto(runId: string) {
     const run = await this.readRun(runId);
     if (!run) return null;

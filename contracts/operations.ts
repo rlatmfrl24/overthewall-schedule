@@ -224,7 +224,8 @@ export interface NaverCafeCheckNowResponseDto {
 export type DataRetentionCategory =
   | "usage_events"
   | "collection_runs"
-  | "logs";
+  | "logs"
+  | "scheduled_operations";
 
 export interface DataRetentionPolicyStatusDto {
   id: string;
@@ -246,6 +247,28 @@ export interface DataRetentionPruneResponseDto {
   totalPrunableRows: number;
   totalDeletedRows: number;
   policies: DataRetentionPolicyStatusDto[];
+}
+
+export interface DataRetentionRunSummaryDto {
+  runId: string;
+  source: "scheduled" | "manual";
+  status: "queued" | "running" | "succeeded" | "partial" | "failed" | "skipped" | "throttled";
+  startedAt: number | null;
+  finishedAt: number | null;
+  totalDeletedRows: number;
+  verifiedAt: number | null;
+  remainingPrunableRows: number | null;
+  verification: "verified" | "remaining" | "unavailable";
+  policies: Array<{
+    id: string;
+    deletedRows: number;
+    hasMore: boolean;
+    remainingPrunableRows: number | null;
+  }>;
+}
+
+export interface DataRetentionStatusResponseDto extends DataRetentionPruneResponseDto {
+  recentRuns: DataRetentionRunSummaryDto[];
 }
 
 export interface AutoUpdateRunDetailDto {

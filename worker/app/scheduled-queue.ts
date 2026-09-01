@@ -63,8 +63,8 @@ export const handleScheduledJobQueue = async (
       await coordinator.advanceRun(item);
     }
     await coordinator.dispatchRun(item.run_id);
-    await executor.finalizeLegacyState(item.run_id);
     await repository.refreshRun(item.run_id);
+    await executor.finalizeLegacyState(item.run_id);
   };
   const retryReconciliation = async (
     message: Message<unknown>,

@@ -45,6 +45,28 @@ export type DataRetentionPruneResult = {
   policies: DataRetentionPolicyStatus[];
 };
 
+export type DataRetentionRunSummary = {
+  runId: string;
+  source: "scheduled" | "manual";
+  status: "queued" | "running" | "succeeded" | "partial" | "failed" | "skipped" | "throttled";
+  startedAt: number | null;
+  finishedAt: number | null;
+  totalDeletedRows: number;
+  verifiedAt: number | null;
+  remainingPrunableRows: number | null;
+  verification: "verified" | "remaining" | "unavailable";
+  policies: Array<{
+    id: string;
+    deletedRows: number;
+    hasMore: boolean;
+    remainingPrunableRows: number | null;
+  }>;
+};
+
+export type DataRetentionStatusResult = DataRetentionPruneResult & {
+  recentRuns: DataRetentionRunSummary[];
+};
+
 export type ScheduledDataRetentionPruneResult =
   | {
       skipped: true;
@@ -268,10 +290,10 @@ export const runDataRetentionPolicyPrune = async (
   };
 };
 
-export const getDataRetentionStatus = async (
+const readRetentionPolicies = async (
   env: Env,
   now = Date.now(),
-): Promise<DataRetentionPruneResult> => {
+): Promise<DataRetentionPolicyStatus[]> => {
   const policies: DataRetentionPolicyStatus[] = [];
   for (const policy of DATA_RETENTION_POLICIES) {
     const cutoff = getPolicyCutoff(policy, now);
@@ -287,17 +309,119 @@ export const getDataRetentionStatus = async (
       deletedRows: 0,
     });
   }
+  return policies;
+};
+
+type RetentionRunRow = {
+  id: string;
+  source: "scheduled" | "manual";
+  status: DataRetentionRunSummary["status"];
+  started_at: number | null;
+  finished_at: number | null;
+  summary_json: string | null;
+};
+
+const parseRecord = (value: string | null): Record<string, unknown> | null => {
+  if (!value) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "object" && parsed !== null
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const readLegacyRunPolicies = async (env: Env, runId: string) => {
+  const result = await env.otw_db.prepare(
+    `SELECT target_key, result_json FROM scheduled_job_items
+     WHERE run_id = ? AND phase = 'prune' AND status = 'succeeded'`,
+  ).bind(runId).all<{ target_key: string; result_json: string | null }>();
+  const grouped = new Map<string, { deletedRows: number; hasMore: boolean }>();
+  for (const row of result.results) {
+    const parsed = parseRecord(row.result_json);
+    const id = typeof parsed?.policyId === "string" ? parsed.policyId : row.target_key.split(":")[0];
+    const previous = grouped.get(id) ?? { deletedRows: 0, hasMore: false };
+    grouped.set(id, {
+      deletedRows: previous.deletedRows + (typeof parsed?.deletedRows === "number" ? parsed.deletedRows : 0),
+      hasMore: previous.hasMore || parsed?.hasMore === true,
+    });
+  }
+  return [...grouped.entries()].map(([id, value]) => ({
+    id,
+    ...value,
+    remainingPrunableRows: null,
+  }));
+};
+
+const readRecentRetentionRuns = async (env: Env): Promise<DataRetentionRunSummary[]> => {
+  const result = await env.otw_db.prepare(
+    `SELECT id, source, status, started_at, finished_at, summary_json
+     FROM scheduled_job_runs WHERE job_type = 'retention_prune'
+     ORDER BY accepted_at DESC LIMIT 5`,
+  ).all<RetentionRunRow>();
+  return Promise.all(result.results.map(async (run) => {
+    const persisted = parseRecord(run.summary_json)?.retentionPrune;
+    if (typeof persisted === "object" && persisted !== null) {
+      const summary = persisted as Omit<DataRetentionRunSummary, "runId" | "source" | "status" | "startedAt" | "finishedAt">;
+      return { ...summary, runId: run.id, source: run.source, status: run.status, startedAt: run.started_at, finishedAt: run.finished_at };
+    }
+    const policies = await readLegacyRunPolicies(env, run.id);
+    return {
+      runId: run.id,
+      source: run.source,
+      status: run.status,
+      startedAt: run.started_at,
+      finishedAt: run.finished_at,
+      totalDeletedRows: policies.reduce((total, policy) => total + policy.deletedRows, 0),
+      verifiedAt: null,
+      remainingPrunableRows: null,
+      verification: "unavailable" as const,
+      policies,
+    };
+  }));
+};
+
+export const getDataRetentionStatus = async (
+  env: Env,
+  now = Date.now(),
+): Promise<DataRetentionStatusResult> => {
+  const policies = await readRetentionPolicies(env, now);
   return {
     source: "manual",
     dryRun: true,
     startedAt: now,
     finishedAt: Date.now(),
-    totalPrunableRows: policies.reduce(
-      (total, policy) => total + policy.prunableRows,
-      0,
-    ),
+    totalPrunableRows: policies.reduce((total, policy) => total + policy.prunableRows, 0),
     totalDeletedRows: 0,
     policies,
+    recentRuns: await readRecentRetentionRuns(env),
+  };
+};
+
+export const summarizeDataRetentionRun = async (
+  env: Env,
+  runId: string,
+): Promise<Omit<DataRetentionRunSummary, "runId" | "source" | "status" | "startedAt" | "finishedAt">> => {
+  const policies = await readLegacyRunPolicies(env, runId);
+  const currentPolicies = await readRetentionPolicies(env);
+  const currentById = new Map(currentPolicies.map((policy) => [policy.id, policy.prunableRows]));
+  const verifiedAt = Date.now();
+  const verifiedPolicies = policies.map((policy) => ({
+    ...policy,
+    remainingPrunableRows: currentById.get(policy.id) ?? 0,
+  }));
+  const remainingPrunableRows = verifiedPolicies.reduce(
+    (total, policy) => total + (policy.remainingPrunableRows ?? 0),
+    0,
+  );
+  return {
+    totalDeletedRows: verifiedPolicies.reduce((total, policy) => total + policy.deletedRows, 0),
+    verifiedAt,
+    remainingPrunableRows,
+    verification: remainingPrunableRows === 0 ? "verified" : "remaining",
+    policies: verifiedPolicies,
   };
 };
 

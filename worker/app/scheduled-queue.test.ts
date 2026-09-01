@@ -192,6 +192,9 @@ describe("scheduled job queue", () => {
     expect(mocks.dispatchRun).toHaveBeenCalledWith("run-1");
     expect(mocks.finalizeLegacyState).toHaveBeenCalledWith("run-1");
     expect(mocks.refreshRun).toHaveBeenCalledWith("run-1");
+    expect(mocks.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.finalizeLegacyState.mock.invocationCallOrder[0],
+    );
     expect(ack).toHaveBeenCalledOnce();
   });
 
