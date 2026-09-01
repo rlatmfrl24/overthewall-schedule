@@ -23,19 +23,46 @@ describe("X Compliance budget and retry policy", () => {
       1,
       timestamp,
     )).toBeNull();
+    expect(getXComplianceRetryAt(
+      "compliance_upload_http_403",
+      1,
+      timestamp,
+    )).toBeNull();
   });
 
-  it("accepts only the documented HTTPS Google Storage host", () => {
+  it("accepts documented Google Storage and current X proxy transfer URLs", () => {
+    const options = { providerJobId: "1234567890", operation: "upload" as const };
     expect(validateXComplianceStorageUrl(
       "https://storage.googleapis.com/example/upload?signature=secret",
+      options,
     )).toMatchObject({ ok: true });
     expect(validateXComplianceStorageUrl(
       "https://storage.googleapis.com.evil.example/upload?signature=secret",
+      options,
     )).toEqual({
       ok: false,
       code: "compliance_storage_url_invalid",
-      detail: "protocol=https:;hostname=storage.googleapis.com.evil.example",
+      detail: "hostname=storage.googleapis.com.evil.example;path_matches=false;token_present=false",
     });
+    expect(validateXComplianceStorageUrl(
+      "https://api.x.com/2/compliance/jobs/1234567890/upload?token=secret",
+      options,
+    )).toMatchObject({ ok: true });
+  });
+
+  it("rejects X proxy URLs for another job, phase, or without a token", () => {
+    const options = { providerJobId: "1234567890", operation: "upload" as const };
+    for (const value of [
+      "https://api.x.com/2/compliance/jobs/other/upload?token=secret",
+      "https://api.x.com/2/compliance/jobs/1234567890/download?token=secret",
+      "https://api.x.com/2/compliance/jobs/1234567890/upload",
+      "https://api.x.com.evil.example/2/compliance/jobs/1234567890/upload?token=secret",
+    ]) {
+      expect(validateXComplianceStorageUrl(value, options)).toMatchObject({
+        ok: false,
+        code: "compliance_storage_url_invalid",
+      });
+    }
   });
 
   it("transient failures back off and stop at the retry limit", () => {
