@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
@@ -20,7 +21,12 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { useNaverCafePosts } from "@/features/naver-cafe";
-import type { OperationsStatusResponse } from "@/features/operations";
+import {
+  fetchOperationRuns,
+  type OperationsStatusResponse,
+} from "@/features/operations";
+import { queryKeys } from "@/shared/query/query-keys";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/shared/ui/table";
 import { useScheduleData } from "@/features/schedule-board";
 import { getMembersWithXHandles, useXPosts } from "@/features/x-posts";
 import type {
@@ -81,11 +87,23 @@ const getVisibilityLabel = (
 };
 
 const getRunStatusLabel = (status: string) => {
+  if (status === "succeeded") return "성공";
+  if (status === "running") return "실행 중";
+  if (status === "queued") return "대기";
+  if (status === "partial") return "일부 실패";
+  if (status === "throttled") return "제한됨";
   if (status === "success") return "성공";
   if (status === "skipped") return "건너뜀";
   if (status === "failed") return "실패";
   return status;
 };
+
+const getRunStatusVariant = (status: string) =>
+  status === "succeeded" || status === "success"
+    ? "default" as const
+    : status === "queued" || status === "running" || status === "skipped"
+      ? "secondary" as const
+      : "destructive" as const;
 
 const MetricTile = ({
   label,
@@ -136,6 +154,17 @@ export function MemberPostFeedMonitor({
   isRunningNaverCafeCheck?: boolean;
 }) {
   const isX = source === "x";
+  const operationRunsQuery = useQuery({
+    queryKey: [...queryKeys.operations.runs(), source, "monitoring"],
+    queryFn: () => fetchOperationRuns({
+      jobType: isX ? "x_collection" : "naver_cafe_collection",
+      limit: 10,
+    }),
+    staleTime: 10_000,
+    refetchInterval: (query) => query.state.data?.runs.some((run) =>
+      run.status === "queued" || run.status === "running"
+    ) ? 5_000 : 30_000,
+  });
   const {
     members,
     loading: membersLoading,
@@ -412,6 +441,40 @@ export function MemberPostFeedMonitor({
               <p>실제 수집 이력과 운영 지표를 불러오지 못했습니다.</p>
             ) : null}
           </div>
+        ) : null}
+
+        <section className="space-y-3 rounded-lg border bg-muted/20 p-4">
+          <div>
+            <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              실제 작업 진행률과 오류를 기준으로 표시합니다.
+            </p>
+          </div>
+          <Table>
+            <TableHeader><TableRow><TableHead>시작</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>진행</TableHead><TableHead>오류</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {(operationRunsQuery.data?.runs ?? []).map((run) => (
+                <TableRow key={run.runId}>
+                  <TableCell>{formatMonitorUpdatedAt(run.startedAt ?? run.acceptedAt)}</TableCell>
+                  <TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell>
+                  <TableCell><Badge variant={getRunStatusVariant(run.status)}>{getRunStatusLabel(run.status)}</Badge></TableCell>
+                  <TableCell>{run.progress.succeeded + run.progress.skipped}/{run.progress.total}</TableCell>
+                  <TableCell className="max-w-56 truncate">{run.failures[0]?.message ?? run.lastError ?? "-"}</TableCell>
+                </TableRow>
+              ))}
+              {!operationRunsQuery.isLoading && (operationRunsQuery.data?.runs.length ?? 0) === 0 ? (
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">작업 이력이 없습니다.</TableCell></TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </section>
+
+        {isX ? (
+          <section className="grid gap-3 lg:grid-cols-3">
+            <MetricTile label="일별 API 사용" value={`${xUsage?.daily.reduce((total, day) => total + day.apiCalls, 0) ?? 0}회`} detail={(xUsage?.daily ?? []).slice(0, 3).map((day) => `${day.day} ${day.apiCalls}회`).join(" · ") || "기록 없음"} />
+            <MetricTile label="작업별 API 사용" value={`${xUsage?.byOperation.length ?? 0}개 작업`} detail={(xUsage?.byOperation ?? []).slice(0, 3).map((item) => `${item.operation} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
+            <MetricTile label="강제 새로고침 경로" value={`${xUsage?.forceRefreshPaths.length ?? 0}개`} detail={(xUsage?.forceRefreshPaths ?? []).slice(0, 2).map((item) => `${item.label} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
+          </section>
         ) : null}
 
         {isX ? (

@@ -13,6 +13,7 @@ import {
   X,
   AlertCircle,
   Radio,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
@@ -146,7 +147,7 @@ type PendingSortKey = (typeof PENDING_SORT_OPTIONS)[number]["value"];
 type PendingActionFilter =
   (typeof PENDING_ACTION_FILTER_OPTIONS)[number]["value"];
 type PendingBatchAction = "approve" | "reject";
-type AutoUpdateTab = "review" | "rejections" | "runs" | "settings";
+export type AutoUpdateTab = "review" | "rejections" | "runs" | "settings";
 
 const AUTO_UPDATE_TABS: Array<{
   value: AutoUpdateTab;
@@ -476,7 +477,42 @@ const DiffRow = ({
   );
 };
 
-export function AutoUpdateSettingsManager() {
+function AutoUpdateKpi({
+  icon: Icon,
+  label,
+  value,
+  detail,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  detail: string;
+}) {
+  return (
+    <div className="flex min-h-[84px] items-start gap-3 p-3.5 sm:p-4">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-1 text-xl font-semibold leading-none tabular-nums">
+          {value}
+        </p>
+        <p className="mt-1 truncate text-xs text-muted-foreground" title={detail}>
+          {detail}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+export function AutoUpdateSettingsManager({
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
+}: {
+  activeTab?: AutoUpdateTab;
+  onActiveTabChange?: (tab: AutoUpdateTab) => void;
+} = {}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isSaving, setIsSaving] = useState(false);
@@ -484,7 +520,12 @@ export function AutoUpdateSettingsManager() {
   const [processingPendingId, setProcessingPendingId] = useState<number | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<AutoUpdateTab>("review");
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] = useState<AutoUpdateTab>("review");
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab;
+  const setActiveTab = (tab: AutoUpdateTab) => {
+    setUncontrolledActiveTab(tab);
+    onActiveTabChange?.(tab);
+  };
   const [pendingSort, setPendingSort] = useState<PendingSortKey>("date_asc");
   const [pendingActionFilter, setPendingActionFilter] =
     useState<PendingActionFilter>("all");
@@ -1143,44 +1184,34 @@ export function AutoUpdateSettingsManager() {
         ))}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">처리 전 후보</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">
-              {activePendingCount}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">활성 제외</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">
-              {autoUpdateStatus?.rejectionCount ?? 0}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">정보 지표</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">최근 실행 거부 억제</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">
-              {autoUpdateStatus?.latestRun?.rejectedSuppressedCount ?? 0}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-xs text-muted-foreground">마지막 · 다음 실행</p>
-            <p className="mt-1 text-sm font-medium">
-              {formatOperationTime(autoUpdateStatus?.lastRun)}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              다음 {formatOperationTime(autoUpdateStatus?.nextEligibleAt)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="gap-0 overflow-hidden py-0 shadow-sm">
+        <CardContent className="grid divide-y p-0 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+          <AutoUpdateKpi
+            icon={CheckCircle}
+            label="처리 전 후보"
+            value={activePendingCount}
+            detail={`신규 ${pendingActionCounts.create} · 수정 ${pendingActionCounts.update}`}
+          />
+          <AutoUpdateKpi
+            icon={XCircle}
+            label="활성 제외"
+            value={autoUpdateStatus?.rejectionCount ?? 0}
+            detail="다시 수집하지 않는 후보"
+          />
+          <AutoUpdateKpi
+            icon={AlertCircle}
+            label="최근 실행 거부 억제"
+            value={autoUpdateStatus?.latestRun?.rejectedSuppressedCount ?? 0}
+            detail="최근 실행에서 제외된 후보"
+          />
+          <AutoUpdateKpi
+            icon={Clock}
+            label="마지막 실행"
+            value={formatOperationTime(autoUpdateStatus?.lastRun)}
+            detail={`다음 ${formatOperationTime(autoUpdateStatus?.nextEligibleAt)}`}
+          />
+        </CardContent>
+      </Card>
 
       {isFetching && !settings ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">

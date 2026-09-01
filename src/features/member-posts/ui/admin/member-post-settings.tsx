@@ -493,10 +493,21 @@ function SectionIntro({
   );
 }
 
-export function MemberPostSettingsManager() {
+export function MemberPostSettingsManager({
+  activeSource: controlledActiveSource,
+  onActiveSourceChange,
+}: {
+  activeSource?: MemberPostSource;
+  onActiveSourceChange?: (source: MemberPostSource) => void;
+} = {}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [activeSource, setActiveSource] = useState<MemberPostSource>("x");
+  const [uncontrolledActiveSource, setUncontrolledActiveSource] = useState<MemberPostSource>("x");
+  const activeSource = controlledActiveSource ?? uncontrolledActiveSource;
+  const setActiveSource = (source: MemberPostSource) => {
+    setUncontrolledActiveSource(source);
+    onActiveSourceChange?.(source);
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningCollection, setIsRunningCollection] = useState(false);
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
