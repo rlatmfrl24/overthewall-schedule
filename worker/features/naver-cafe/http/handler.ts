@@ -25,7 +25,7 @@ import type {
 const NAVER_CAFE_POSTS_CACHE_CONTROL =
   "public, max-age=300, s-maxage=900, stale-while-revalidate=1800";
 const NAVER_CAFE_AUTHENTICATED_POSTS_CACHE_CONTROL = "no-store";
-const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v1";
+const NAVER_CAFE_POSTS_RESPONSE_CACHE_VERSION = "v2";
 
 const parseSize = (value: string | null) => {
   if (value === null || value.trim() === "") return 10;
