@@ -35,7 +35,7 @@ import {
   fetchNaverCafeSources,
   updateNaverCafeSource,
 } from "../../api/naver-cafe-api";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { ConfirmActionDialog } from "@/app/admin";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   NaverCafeSourceFormDialog,
@@ -213,13 +213,16 @@ export function NaverCafeSourceManager() {
   };
 
   return (
-    <div className="space-y-4">
-      <AdminSectionHeader
-        title="네이버 카페 게시판"
-        description="멤버별 공지 게시판의 최신글 목록을 가져올 소스를 관리합니다."
-        count={sortedSources.length}
-        actions={
-          <>
+    <section className="space-y-3 rounded-lg border bg-muted/10 p-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h4 className="text-sm font-semibold">네이버 카페 게시판</h4>
+            <Badge variant="outline">{sortedSources.length}개</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">수집할 멤버별 공지 게시판을 관리합니다.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
             <Select
               value={sourceSort}
               onValueChange={(value) => setSourceSort(value as SourceSortKey)}
@@ -250,9 +253,8 @@ export function NaverCafeSourceManager() {
             <Button onClick={handleOpenCreate} size="sm" className="gap-1.5">
               <PlusCircle className="h-4 w-4" />새 게시판
             </Button>
-          </>
-        }
-      />
+        </div>
+      </div>
 
       {isFetching && sortedSources.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
@@ -375,6 +377,6 @@ export function NaverCafeSourceManager() {
           void handleDelete();
         }}
       />
-    </div>
+    </section>
   );
 }

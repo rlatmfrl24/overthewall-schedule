@@ -294,7 +294,7 @@ describe("MemberPostSettingsManager", () => {
     vi.clearAllMocks();
   });
 
-  it("X 탭에서 설정, 비용과 계정 모니터링을 분리해 표시한다", async () => {
+  it("X 탭에서 핵심 운영 정보와 설정을 한 작업 공간에 밀집해 표시한다", async () => {
     render(createElement(MemberPostSettingsManager), {
       wrapper: createQueryWrapper(),
     });
@@ -305,17 +305,21 @@ describe("MemberPostSettingsManager", () => {
     ).toBe("true");
     expect(screen.getByText("2시간마다")).toBeTruthy();
     expect(screen.getByText(/마지막 실행:/)).toBeTruthy();
-    expect(screen.getByText("X 현재 운영 상태")).toBeTruthy();
-    expect(screen.getByText("X 수집 정책")).toBeTruthy();
-    expect(screen.getByText("X 수집 상태와 비용")).toBeTruthy();
-    expect(screen.getByText("X 수집 모니터링")).toBeTruthy();
-    expect(screen.getAllByText("오늘 예산").length).toBeGreaterThan(0);
-    expect(screen.getByRole("progressbar", { name: "X API 일일 예산 사용률" })).toBeTruthy();
+    expect(screen.getByText("X 게시글 운영")).toBeTruthy();
+    expect(screen.getByText("수집 설정")).toBeTruthy();
+    expect(screen.getByText("오늘 예산 사용")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "오늘 X API 예산 사용률" })).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByText(/수동 · 성공 · 저장 4건/)).toBeTruthy(),
     );
     expect(screen.getByText("X 계정별 관리자 피드 응답")).toBeTruthy();
     expect(screen.getByText("테스트 멤버 · @otw_member")).toBeTruthy();
+    const xDiagnostics = screen.getByText("X 계정별 관리자 피드 응답").closest("details");
+    expect(xDiagnostics?.open).toBe(false);
+    const xDiagnosticsSummary = xDiagnostics?.querySelector("summary");
+    if (!xDiagnosticsSummary) throw new Error("X diagnostics summary is missing");
+    fireEvent.click(xDiagnosticsSummary);
+    expect(xDiagnostics?.open).toBe(true);
     expect(screen.queryByText("카페 소스 관리")).toBeNull();
     expect(useXPostsMock).toHaveBeenCalledWith(
       expect.any(Array),
@@ -338,7 +342,7 @@ describe("MemberPostSettingsManager", () => {
     );
   });
 
-  it("네이버 카페 탭은 소스 설정과 게시판별 모니터링만 표시한다", async () => {
+  it("네이버 카페 탭은 소스 설정과 진단을 하나의 작업 공간에 표시한다", async () => {
     render(createElement(MemberPostSettingsManager), {
       wrapper: createQueryWrapper(),
     });
@@ -349,18 +353,17 @@ describe("MemberPostSettingsManager", () => {
     fireEvent.click(cafeTab);
 
     expect(cafeTab.getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("네이버 카페 현재 운영 상태")).toBeTruthy();
-    expect(screen.getByText("네이버 카페 수집 정책")).toBeTruthy();
+    expect(screen.getByText("네이버 카페 운영")).toBeTruthy();
+    expect(screen.getByText("수집 설정과 게시판 소스")).toBeTruthy();
     expect(screen.getByText("카페 소스 관리")).toBeTruthy();
-    expect(screen.getByText("네이버 카페 소스 상태")).toBeTruthy();
-    expect(screen.getByText("네이버 카페 수집 모니터링")).toBeTruthy();
     expect(screen.getByText("게시판별 소스 점검 상태")).toBeTruthy();
     expect(screen.getByText("테스트 게시판")).toBeTruthy();
-    expect(
-      screen.getByRole("progressbar", {
-        name: "활성 네이버 카페 게시판 정상 비율",
-      }),
-    ).toBeTruthy();
+    const cafeDiagnostics = screen.getByText("게시판별 소스 점검 상태").closest("details");
+    expect(cafeDiagnostics?.open).toBe(false);
+    const cafeDiagnosticsSummary = cafeDiagnostics?.querySelector("summary");
+    if (!cafeDiagnosticsSummary) throw new Error("Cafe diagnostics summary is missing");
+    fireEvent.click(cafeDiagnosticsSummary);
+    expect(cafeDiagnostics?.open).toBe(true);
     expect(screen.queryByText("X 백그라운드 수집")).toBeNull();
     expect(useNaverCafePostsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ admin: true, enabled: true, size: 10 }),
