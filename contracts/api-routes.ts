@@ -314,6 +314,10 @@ export const apiRoutes = {
   xPosts: {
     config: staticRoute("/api/x/config"),
     read: staticRoute("/api/x/posts"),
+    redact: dynamicRoute(
+      "/api/x/posts/:id",
+      (id: string) => `/api/x/posts/${encodeURIComponent(id)}` as const,
+    ),
     context: dynamicRoute(
       "/api/x/posts/:id/context",
       (id: string) =>

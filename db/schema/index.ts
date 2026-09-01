@@ -235,8 +235,11 @@ export const xPosts = sqliteTable(
     username: text().notNull(),
     value: text().notNull(),
     created_at: text("created_at").notNull(),
+    first_seen_at: integer("first_seen_at").notNull().default(0),
     fetched_at: integer("fetched_at").notNull(),
     hidden_at: integer("hidden_at"),
+    hidden_reason: text("hidden_reason"),
+    content_removed_at: integer("content_removed_at"),
   },
   (table) => [
     index("idx_x_posts_handle_created_at").on(table.handle, table.created_at),
@@ -629,6 +632,7 @@ export const naverCafeSources = sqliteTable(
     next_check_at: integer("next_check_at"),
     consecutive_failures: integer("consecutive_failures").notNull().default(0),
     last_error_code: text("last_error_code"),
+    archived_at: integer("archived_at"),
     sort_order: integer("sort_order").notNull().default(0),
     created_at: numeric("created_at").default(sql`CURRENT_TIMESTAMP`),
     updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
@@ -696,7 +700,7 @@ export const naverCafePosts = sqliteTable(
     article_id: integer("article_id").notNull(),
     source_id: integer("source_id")
       .notNull()
-      .references(() => naverCafeSources.id, { onDelete: "cascade" }),
+      .references(() => naverCafeSources.id, { onDelete: "restrict" }),
     source_name: text("source_name").notNull(),
     cafe_id: text("cafe_id").notNull(),
     menu_id: text("menu_id").notNull(),
@@ -710,8 +714,11 @@ export const naverCafePosts = sqliteTable(
     read_count: integer("read_count").notNull().default(0),
     like_count: integer("like_count").notNull().default(0),
     is_new: integer("is_new", { mode: "boolean" }).notNull().default(false),
+    first_seen_at: integer("first_seen_at").notNull().default(0),
     fetched_at: integer("fetched_at").notNull(),
     hidden_at: integer("hidden_at"),
+    hidden_reason: text("hidden_reason"),
+    content_removed_at: integer("content_removed_at"),
   },
   (table) => [
     index("idx_naver_cafe_posts_source_hidden_created").on(

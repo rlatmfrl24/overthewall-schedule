@@ -216,9 +216,43 @@ const performanceTagStatements = (
       .bind(performanceId, tagKey, displayName),
   );
 
+const decrementGramStatsStatements = (
+  database: D1Database,
+  songId: string,
+): D1PreparedStatement[] => [
+  database
+    .prepare(
+      `DELETE FROM music_search_gram_stats
+       WHERE song_count <= 1
+         AND EXISTS (
+         SELECT 1
+         FROM music_search_grams AS existing
+         WHERE existing.song_id = ?
+           AND existing.gram_size = music_search_gram_stats.gram_size
+           AND existing.normalized_gram = music_search_gram_stats.normalized_gram
+       )`,
+    )
+    .bind(songId),
+  database
+    .prepare(
+      `UPDATE music_search_gram_stats
+       SET song_count = song_count - 1
+       WHERE song_count > 1
+         AND EXISTS (
+         SELECT 1
+         FROM music_search_grams AS existing
+         WHERE existing.song_id = ?
+           AND existing.gram_size = music_search_gram_stats.gram_size
+           AND existing.normalized_gram = music_search_gram_stats.normalized_gram
+       )`,
+    )
+    .bind(songId),
+];
+
 const projectionStatements = (
   database: D1Database,
   songId: string,
+  options: { decrementExistingGrams?: boolean } = {},
 ): D1PreparedStatement[] => [
   database
     .prepare("DELETE FROM music_search_terms WHERE song_id = ?")
@@ -250,6 +284,9 @@ const projectionStatements = (
   `,
     )
     .bind(songId, songId, songId, songId),
+  ...(options.decrementExistingGrams === false
+    ? []
+    : decrementGramStatsStatements(database, songId)),
   database
     .prepare("DELETE FROM music_search_grams WHERE song_id = ?")
     .bind(songId),
@@ -278,13 +315,14 @@ const projectionStatements = (
   `,
     )
     .bind(songId),
-  database.prepare("DELETE FROM music_search_gram_stats"),
   database.prepare(`
     INSERT INTO music_search_gram_stats (gram_size, normalized_gram, song_count)
-    SELECT gram_size, normalized_gram, COUNT(*)
+    SELECT gram_size, normalized_gram, 1
     FROM music_search_grams
-    GROUP BY gram_size, normalized_gram
-  `),
+    WHERE song_id = ?
+    ON CONFLICT(gram_size, normalized_gram) DO UPDATE SET
+      song_count = music_search_gram_stats.song_count + 1
+  `).bind(songId),
   database
     .prepare("DELETE FROM music_public_performance_sort_keys WHERE song_id = ?")
     .bind(songId),
@@ -1515,6 +1553,7 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
       .bind(id)
       .all<{ source_id: string }>();
     const statements: D1PreparedStatement[] = [
+      ...decrementGramStatsStatements(this.database, id),
       this.database
         .prepare(
           `DELETE FROM music_performances
@@ -1540,7 +1579,9 @@ export class D1AdminCatalogRepository implements AdminCatalogRepository {
           )
           .bind(row.source_id, row.source_id, row.source_id, row.source_id),
       ),
-      ...projectionStatements(this.database, id),
+      ...projectionStatements(this.database, id, {
+        decrementExistingGrams: false,
+      }),
       this.database
         .prepare(
           `INSERT INTO music_catalog_events

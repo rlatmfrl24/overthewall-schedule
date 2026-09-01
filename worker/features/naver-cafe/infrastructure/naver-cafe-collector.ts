@@ -1,4 +1,4 @@
-import { asc, sql } from "drizzle-orm";
+import { and, asc, isNull, sql } from "drizzle-orm";
 import { naverCafeSources, type NaverCafeSource } from "@db/schema";
 import {
   buildNaverCafeArticleUrl,
@@ -225,9 +225,6 @@ const toFiniteNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 };
-
-const createSqlPlaceholders = (count: number) =>
-  Array.from({ length: count }, () => "?").join(", ");
 
 const clampMaxResults = (value: number | undefined) => {
   if (!Number.isFinite(value)) return 10;
@@ -725,11 +722,22 @@ const readLatestSourceChecks = async (
   const rows = getD1Results<NaverCafeSourceCheckRow>(
     await cacheDb
       .prepare(
-        `SELECT id, source_id, source_name, cafe_id, menu_id, trigger, status,
-                checked_at, duration_ms, post_count, error
-         FROM naver_cafe_source_checks
-         WHERE source_id IN (${createSqlPlaceholders(sourceIds.length)})
-         ORDER BY checked_at DESC, id DESC`,
+        `WITH requested(source_id) AS (
+           VALUES ${sourceIds.map(() => "(?)").join(", ")}
+         )
+         SELECT check_row.id, check_row.source_id, check_row.source_name,
+                check_row.cafe_id, check_row.menu_id, check_row.trigger,
+                check_row.status, check_row.checked_at, check_row.duration_ms,
+                check_row.post_count, check_row.error
+         FROM requested
+         JOIN naver_cafe_source_checks AS check_row
+           ON check_row.id = (
+             SELECT latest.id
+             FROM naver_cafe_source_checks AS latest
+             WHERE latest.source_id = requested.source_id
+             ORDER BY latest.checked_at DESC, latest.id DESC
+             LIMIT 1
+           )`,
       )
       .bind(...sourceIds)
       .all<NaverCafeSourceCheckRow>(),
@@ -848,12 +856,12 @@ const writeStoredNaverCafeSourcePosts = async (
     return sourceId ? [{ post, sourceId }] : [];
   });
 
-  // A post uses 17 bindings. Five rows keep each D1 statement below the
+  // A post uses 18 bindings. Five rows keep each D1 statement below the
   // 100-bind ceiling while collapsing the former per-post write loop.
   for (let index = 0; index < records.length; index += 5) {
     const chunk = records.slice(index, index + 5);
     const placeholders = chunk.map(() =>
-      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)"
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"
     ).join(", ");
     const bindings = chunk.flatMap(({ post, sourceId }) => [
       post.id,
@@ -873,13 +881,15 @@ const writeStoredNaverCafeSourcePosts = async (
       post.metrics.likeCount,
       post.isNew ? 1 : 0,
       fetchedAt,
+      fetchedAt,
     ]);
     await cacheDb
       .prepare(
         `INSERT INTO naver_cafe_posts (
            id, article_id, source_id, source_name, cafe_id, menu_id,
            member_uid, title, summary, created_at, url, thumbnail_url,
-           comment_count, read_count, like_count, is_new, fetched_at, hidden_at
+           comment_count, read_count, like_count, is_new, first_seen_at,
+           fetched_at, hidden_at, hidden_reason, content_removed_at
          )
          VALUES ${placeholders}
          ON CONFLICT(id) DO UPDATE SET
@@ -898,8 +908,11 @@ const writeStoredNaverCafeSourcePosts = async (
            like_count = excluded.like_count,
            is_new = excluded.is_new,
            fetched_at = excluded.fetched_at,
-           hidden_at = NULL
-         WHERE naver_cafe_posts.source_id IS NOT excluded.source_id
+           hidden_at = NULL,
+           hidden_reason = NULL,
+           content_removed_at = NULL
+         WHERE COALESCE(naver_cafe_posts.hidden_reason, '') <> 'admin'
+           AND (naver_cafe_posts.source_id IS NOT excluded.source_id
             OR naver_cafe_posts.source_name IS NOT excluded.source_name
             OR naver_cafe_posts.cafe_id IS NOT excluded.cafe_id
             OR naver_cafe_posts.menu_id IS NOT excluded.menu_id
@@ -913,7 +926,7 @@ const writeStoredNaverCafeSourcePosts = async (
             OR naver_cafe_posts.read_count IS NOT excluded.read_count
             OR naver_cafe_posts.like_count IS NOT excluded.like_count
             OR naver_cafe_posts.is_new IS NOT excluded.is_new
-            OR naver_cafe_posts.hidden_at IS NOT NULL`,
+            OR naver_cafe_posts.hidden_at IS NOT NULL)`,
       )
       .bind(...bindings)
       .run();
@@ -1082,7 +1095,10 @@ export const readEnabledNaverCafeSources = async (env: Env) =>
     .select()
     .from(naverCafeSources)
     .where(
-      sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`,
+      and(
+        sql`${naverCafeSources.enabled} IS NULL OR ${naverCafeSources.enabled} = 1`,
+        isNull(naverCafeSources.archived_at),
+      ),
     )
     .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
 

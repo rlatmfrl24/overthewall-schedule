@@ -276,9 +276,8 @@ const X_LINKED_POST_NEGATIVE_CACHE_TTL_MS = 15 * 60_000;
 const X_POSTS_BATCH_CONCURRENCY = 4;
 const X_ERROR_DETAIL_MAX_LENGTH = 900;
 const X_LINKED_POST_PREVIEW_MAX_IDS = 10;
-const X_STORED_POSTS_RETAIN_LIMIT = 1_000;
 const X_RELATION_COLLECTION_MAX_RESULTS = 25;
-const X_REFERENCED_POST_PREVIEW_MAX_IDS = X_STORED_POSTS_RETAIN_LIMIT * 2;
+const X_REFERENCED_POST_PREVIEW_MAX_IDS = 2_000;
 const X_RELATION_COLLECTION_VERSION = "v3";
 const X_RELATION_MARKER_TTL_MS = 10 * 365 * 24 * 60 * 60_000;
 const X_COLLECTION_MAX_RESULTS = 25;
@@ -1142,32 +1141,6 @@ const readStoredPosts = async (
   }
 };
 
-const trimStoredPosts = async (
-  cacheDb: XCacheDb | undefined,
-  handle: string,
-  retainLimit: number,
-) => {
-  if (!cacheDb) return;
-
-  try {
-    await cacheDb
-      .prepare(
-        `DELETE FROM x_posts
-         WHERE handle = ?
-           AND id NOT IN (
-             SELECT id FROM x_posts
-             WHERE handle = ?
-             ORDER BY created_at DESC, id DESC
-             LIMIT ?
-           )`,
-      )
-      .bind(normalizeHandle(handle), normalizeHandle(handle), retainLimit)
-      .run();
-  } catch (error) {
-    console.warn("Failed to trim stored X posts", error);
-  }
-};
-
 const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
@@ -1181,35 +1154,42 @@ const writeStoredPosts = async (
 
   const normalizedHandle = normalizeHandle(handle);
   try {
-    const placeholders = posts.map(() =>
-      "(?, ?, ?, ?, ?, ?, ?, NULL)"
-    ).join(", ");
-    const bindings = posts.flatMap((post) => [
-      post.id,
-      normalizedHandle,
-      user.id,
-      post.username,
-      JSON.stringify(post),
-      post.createdAt,
-      fetchedAt,
-    ]);
-    await cacheDb
-      .prepare(
-        `INSERT INTO x_posts (
-           id, handle, user_id, username, value, created_at, fetched_at, hidden_at
-         ) VALUES ${placeholders}
-         ON CONFLICT(id) DO UPDATE SET
-           handle = excluded.handle,
-           user_id = excluded.user_id,
-           username = excluded.username,
-           value = excluded.value,
-           created_at = excluded.created_at,
-           fetched_at = excluded.fetched_at,
-           hidden_at = NULL`,
-      )
-      .bind(...bindings)
-      .run();
-    await trimStoredPosts(cacheDb, normalizedHandle, X_STORED_POSTS_RETAIN_LIMIT);
+    for (let index = 0; index < posts.length; index += 12) {
+      const chunk = posts.slice(index, index + 12);
+      const placeholders = chunk.map(() =>
+        "(?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)"
+      ).join(", ");
+      const bindings = chunk.flatMap((post) => [
+        post.id,
+        normalizedHandle,
+        user.id,
+        post.username,
+        JSON.stringify(post),
+        post.createdAt,
+        fetchedAt,
+        fetchedAt,
+      ]);
+      await cacheDb
+        .prepare(
+          `INSERT INTO x_posts (
+             id, handle, user_id, username, value, created_at, first_seen_at,
+             fetched_at, hidden_at, hidden_reason, content_removed_at
+           ) VALUES ${placeholders}
+           ON CONFLICT(id) DO UPDATE SET
+             handle = excluded.handle,
+             user_id = excluded.user_id,
+             username = excluded.username,
+             value = excluded.value,
+             created_at = excluded.created_at,
+             fetched_at = excluded.fetched_at,
+             hidden_at = NULL,
+             hidden_reason = NULL,
+             content_removed_at = NULL
+           WHERE COALESCE(x_posts.hidden_reason, '') NOT IN ('admin', 'compliance')`,
+        )
+        .bind(...bindings)
+        .run();
+    }
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1219,6 +1199,28 @@ const writeStoredPosts = async (
       error: error instanceof Error ? error.message : "stored_post_write_failed",
     };
   }
+};
+
+export type XPostRedactionReason = "admin" | "compliance";
+
+export const redactStoredXPosts = async (
+  cacheDb: XCacheDb,
+  postIds: readonly string[],
+  reason: XPostRedactionReason,
+) => {
+  const uniqueIds = [...new Set(postIds.filter(Boolean))];
+  const redactedAt = Date.now();
+  let redacted = 0;
+  for (let index = 0; index < uniqueIds.length; index += 50) {
+    const chunk = uniqueIds.slice(index, index + 50);
+    const result = await cacheDb.prepare(
+      `UPDATE x_posts
+       SET value = '{}', hidden_at = ?, hidden_reason = ?, content_removed_at = ?
+       WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+    ).bind(redactedAt, reason, redactedAt, ...chunk).run();
+    redacted += Number(result.meta?.changes ?? 0) || 0;
+  }
+  return { requested: uniqueIds.length, redacted, redactedAt, reason };
 };
 
 const writeStoredPostSource = async (

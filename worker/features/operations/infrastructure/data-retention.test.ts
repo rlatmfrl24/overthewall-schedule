@@ -14,6 +14,7 @@ type FakeD1State = {
   settings: Map<string, string>;
   retentionRuns?: Array<Record<string, unknown>>;
   retentionItems?: Array<Record<string, unknown>>;
+  sizeBytes?: number;
 };
 
 const getPolicyForSql = (sql: string) =>
@@ -61,6 +62,12 @@ const makeEnv = (state: FakeD1State): Env =>
             return { count } as T;
           },
           all: async <T,>() => {
+            if (sql.includes("capacity_probe")) {
+              return {
+                results: [{ capacity_probe: 1 }] as T[],
+                meta: { size_after: state.sizeBytes },
+              };
+            }
             if (sql.includes("FROM scheduled_job_runs")) {
               return { results: (state.retentionRuns ?? []) as T[] };
             }
@@ -105,16 +112,25 @@ describe("data retention service", () => {
       settings: new Map(),
       tables: {
         x_api_usage_events: [
-          { id: 1, created_at: now - 91 * 24 * 60 * 60_000 },
+          { id: 1, created_at: now - 31 * 24 * 60 * 60_000 },
           { id: 2, created_at: now - 10 * 24 * 60 * 60_000 },
         ],
         x_collection_runs: [
-          { id: 1, started_at: now - 181 * 24 * 60 * 60_000 },
+          { id: 1, started_at: now - 31 * 24 * 60 * 60_000 },
           { id: 2, started_at: now - 7 * 24 * 60 * 60_000 },
         ],
         update_logs: [
           { id: 1, created_at: "2025-07-01 00:00:00" },
           { id: 2, created_at: "2026-07-01 00:00:00" },
+        ],
+        x_posts: [
+          { id: "post-old", created_at: "2020-01-01 00:00:00" },
+        ],
+        naver_cafe_posts: [
+          { id: "cafe-old", created_at: "2020-01-01 00:00:00" },
+        ],
+        scheduled_usage_daily: [
+          { day: "2020-01-01" },
         ],
       },
     };
@@ -127,15 +143,22 @@ describe("data retention service", () => {
     expect(
       result.policies.find((policy) => policy.id === "x-api-usage-events")
         ?.retentionDays,
-    ).toBe(90);
+    ).toBe(30);
     expect(
       result.policies.find((policy) => policy.id === "x-collection-runs")
         ?.retentionDays,
-    ).toBe(180);
+    ).toBe(30);
     expect(
       result.policies.find((policy) => policy.id === "update-logs")
         ?.retentionDays,
     ).toBe(365);
+    expect(result.policies.some((policy) => policy.table === "x_posts")).toBe(false);
+    expect(result.policies.some((policy) => policy.table === "naver_cafe_posts"))
+      .toBe(false);
+    expect(result.policies.some((policy) => policy.table === "scheduled_usage_daily"))
+      .toBe(false);
+    expect(state.tables.x_posts).toHaveLength(1);
+    expect(state.tables.naver_cafe_posts).toHaveLength(1);
   });
 
   it("prune 실행 시 cutoff 이전 행만 삭제한다", async () => {
@@ -222,6 +245,33 @@ describe("data retention service", () => {
       runId: "run-legacy",
       totalDeletedRows: 16,
       verification: "unavailable",
+    });
+  });
+
+  it.each([
+    { percent: 59, status: "ok" },
+    { percent: 60, status: "notice" },
+    { percent: 75, status: "warning" },
+    { percent: 85, status: "critical" },
+  ] as const)("D1 용량 $percent%를 $status 단계로 분류한다", async ({
+    percent,
+    status,
+  }) => {
+    const maxBytes = 1_000_000;
+    const state: FakeD1State = {
+      settings: new Map([["d1_database_max_bytes", String(maxBytes)]]),
+      tables: {},
+      sizeBytes: maxBytes * percent / 100,
+    };
+
+    const result = await getDataRetentionStatus(makeEnv(state));
+
+    expect(result.capacity).toMatchObject({
+      maxBytes,
+      sizeBytes: maxBytes * percent / 100,
+      usedPercent: percent,
+      status,
+      thresholds: [60, 75, 85],
     });
   });
 });

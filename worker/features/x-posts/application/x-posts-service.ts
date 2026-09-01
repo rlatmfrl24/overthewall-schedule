@@ -51,6 +51,8 @@ export interface XPostsApplicationPorts {
     sourcePostId: string,
   ): Promise<{ handle: string; replyToPostId: string } | null>;
   fetchPostPreview(postId: string): Promise<XLinkedPostPreviewDto | null>;
+  redactStoredPost(postId: string): Promise<boolean>;
+  writePostRedactionAudit(postId: string, actor: XActor, changed: boolean): Promise<void>;
   runCollection(): Promise<XCollectionRunResultDto>;
   writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
   warn(message: string, error: unknown): void;
@@ -208,6 +210,12 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
       sourcePostId,
       replyTo,
     };
+  },
+
+  async redactPost(postId: string, actor: XActor) {
+    const changed = await ports.redactStoredPost(postId);
+    await ports.writePostRedactionAudit(postId, actor, changed);
+    return changed;
   },
 
   async runManualCollection(actor: XActor) {

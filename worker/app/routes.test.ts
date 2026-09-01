@@ -626,6 +626,12 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [MEMBER_POLICY_GET],
   },
   {
+    id: "x-posts.redact",
+    owner: "x-posts",
+    path: "/api/x/posts/:id",
+    methods: [ADMIN_DELETE],
+  },
+  {
     id: "x-posts.context",
     owner: "x-posts",
     path: "/api/x/posts/:id/context",
@@ -652,7 +658,7 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     id: "naver-cafe.posts",
     owner: "naver-cafe",
     path: "/api/naver-cafe/posts",
-    methods: [MEMBER_POLICY_GET],
+    methods: [MEMBER_POLICY_GET, ADMIN_DELETE],
   },
   {
     id: "operations.status",

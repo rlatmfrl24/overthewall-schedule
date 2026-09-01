@@ -64,4 +64,4 @@ Naver → X → WebSub/ingestion → health/reconcile → auto-update → retent
 - `exceededCpu`, subrequest-limit 오류 0
 - outbox backlog와 stale lease는 Operations 대시보드에서 0으로 복귀
 
-완료된 outbox는 7일, item은 30일, run summary는 180일 보존한다. 공지 만료는 조회 시점 visibility 규칙이며 별도 cleanup job을 만들지 않는다.
+완료된 outbox는 7일, item은 30일, run summary는 90일 보존한다. X API 사용 이벤트·X 수집 실행·네이버 소스 검사는 30일 뒤 삭제하고, `scheduled_usage_daily`와 `naver_cafe_usage_daily` 일별 집계는 장기 보존한다. X·네이버 게시물은 일반 TTL prune 대상이 아니며 식별자·출처·최초 확인·숨김 상태를 영구 보존한다. 공지 만료는 조회 시점 visibility 규칙이며 별도 cleanup job을 만들지 않는다.

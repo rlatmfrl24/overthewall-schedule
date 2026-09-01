@@ -224,6 +224,7 @@ export interface NaverCafeCheckNowResponseDto {
 export type DataRetentionCategory =
   | "usage_events"
   | "collection_runs"
+  | "feed"
   | "logs"
   | "scheduled_operations";
 
@@ -269,6 +270,13 @@ export interface DataRetentionRunSummaryDto {
 
 export interface DataRetentionStatusResponseDto extends DataRetentionPruneResponseDto {
   recentRuns: DataRetentionRunSummaryDto[];
+  capacity: {
+    sizeBytes: number | null;
+    maxBytes: number;
+    usedPercent: number | null;
+    status: "unavailable" | "ok" | "notice" | "warning" | "critical";
+    thresholds: readonly [60, 75, 85];
+  };
 }
 
 export interface AutoUpdateRunDetailDto {

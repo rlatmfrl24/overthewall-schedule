@@ -158,6 +158,7 @@ export const readOperationsStatusRows = async (
       .prepare(
         `SELECT id, name, cafe_id, menu_id, cafe_url, member_uid, enabled, sort_order
          FROM naver_cafe_sources
+         WHERE archived_at IS NULL
          ORDER BY sort_order, name`,
       )
       .all<NaverCafeSourceRow>(),
@@ -167,7 +168,7 @@ export const readOperationsStatusRows = async (
                 checked_at, duration_ms, post_count, error
          FROM naver_cafe_source_checks
          ORDER BY checked_at DESC
-         LIMIT 1000`,
+         LIMIT 200`,
       )
       .all<NaverCafeSourceCheckRow>(),
   ]);

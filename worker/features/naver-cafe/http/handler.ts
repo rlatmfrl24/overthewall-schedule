@@ -6,6 +6,7 @@ import {
 } from "../domain/board-urls";
 import {
   badRequest,
+  getActorInfo,
   json,
   methodNotAllowed,
   parseNumericId,
@@ -264,6 +265,21 @@ export const createNaverCafeHandler =
   }
 
   if (url.pathname === "/api/naver-cafe/posts") {
+    if (request.method === "DELETE") {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return admin.response;
+      const id = url.searchParams.get("id")?.trim() ?? "";
+      if (!/^[A-Za-z0-9:_-]{1,200}$/.test(id)) {
+        return badRequest("Invalid post id");
+      }
+      const redacted = await application.redactPost(
+        id,
+        getActorInfo(request, admin.user),
+      );
+      return redacted
+        ? new Response("Redacted", { status: 200 })
+        : new Response("Post not found", { status: 404 });
+    }
     if (request.method !== "GET") return methodNotAllowed();
 
     const adminView = url.searchParams.get("admin") === "1";

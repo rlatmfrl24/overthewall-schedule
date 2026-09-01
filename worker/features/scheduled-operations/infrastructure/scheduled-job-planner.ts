@@ -58,16 +58,15 @@ const planNaverCafeCollection = async (
 ): Promise<NewScheduledItem[]> => {
   const sources = await readEnabledNaverCafeSources(env);
   if (sources.length === 0) return [];
-  const checks = await env.otw_db.prepare(
-    `SELECT source_id AS sourceId, MAX(checked_at) AS lastCheckedAt
-     FROM naver_cafe_source_checks GROUP BY source_id`,
-  ).all<{ sourceId: number; lastCheckedAt: number | string | null }>();
   const latestPosts = await env.otw_db.prepare(
     `SELECT source_id AS sourceId, MAX(created_at) AS latestPostAt
      FROM naver_cafe_posts WHERE hidden_at IS NULL GROUP BY source_id`,
   ).all<{ sourceId: number; latestPostAt: string | null }>();
   const lastCheckedBySource = new Map(
-    checks.results.map((row) => [row.sourceId, Number(row.lastCheckedAt) || 0]),
+    sources.map((source) => [
+      source.id,
+      Number(source.last_attempt_at ?? source.last_success_at) || 0,
+    ]),
   );
   const latestPostBySource = new Map(
     latestPosts.results.map((row) => [
