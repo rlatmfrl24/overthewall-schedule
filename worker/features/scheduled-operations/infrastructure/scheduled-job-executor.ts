@@ -101,6 +101,41 @@ export const toXCollectionOutcome = (
   };
 };
 
+export const toYouTubeFeedCollectionOutcome = (
+  result: Awaited<ReturnType<typeof runScheduledYouTubeFeedCollection>>,
+): ScheduledJobExecutionOutcome => {
+  if (result.status === "skipped") {
+    return {
+      status: "skipped",
+      result,
+      attempted: result.attempted,
+      succeeded: result.succeeded,
+      failed: result.failed,
+    };
+  }
+  const completed = result.succeeded + result.failed;
+  const status = result.failed > 0
+    ? result.succeeded > 0 ? "partial" : "failed"
+    : completed === result.attempted
+      ? "succeeded"
+      : "partial";
+  const errorCode = result.failed > 0
+    ? "youtube_feed_collection_failed"
+    : null;
+  const error = result.failed > 0
+    ? `YouTube feed collection failed for ${result.failed} of ${result.attempted} sources`
+    : null;
+  return {
+    status,
+    result,
+    attempted: result.attempted,
+    succeeded: result.succeeded,
+    failed: result.failed,
+    errorCode,
+    error,
+  };
+};
+
 const parseContinuation = (item: ScheduledJobItemRecord) => {
   if (!item.continuation_json) return {} as Record<string, unknown>;
   try {
@@ -244,16 +279,7 @@ export class ScheduledJobExecutor {
       }
       case "youtube_feed_collection": {
         const result = await runScheduledYouTubeFeedCollection(this.env);
-        return {
-          status: result.status,
-          result,
-          attempted: result.attempted,
-          succeeded: result.succeeded,
-          failed: result.failed,
-          errorCode: result.status === "failed"
-            ? "youtube_feed_collection_failed"
-            : null,
-        };
+        return toYouTubeFeedCollectionOutcome(result);
       }
       case "schedule_auto_update": {
         const rangeDays = await readAutoUpdateRangeDays(this.env);

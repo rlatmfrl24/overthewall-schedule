@@ -229,6 +229,116 @@ describe("D1 scheduled job state machine", () => {
     });
   });
 
+  it("오류와 미완료가 없는 YouTube partial을 succeeded로 정규화한다", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "youtube_feed_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:youtube:resolved-partial",
+    });
+    await repository.addItems(run.id, [{
+      targetKey: "youtube-feed",
+      phase: "collect",
+      lane: "maintenance",
+    }]);
+    const [outbox] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(outbox!.id);
+    const item = await repository.claimItem(outbox!.item_id);
+
+    expect(await repository.completeItem(item!, {
+      status: "partial",
+      result: { status: "partial", attempted: 1, succeeded: 1, failed: 0 },
+    })).toBe(true);
+
+    expect(await repository.readRun(run.id)).toMatchObject({
+      status: "succeeded",
+    });
+    expect(await repository.readRunDto(run.id)).toMatchObject({
+      status: "succeeded",
+      progress: { total: 1, succeeded: 1, failed: 0 },
+      failures: [],
+    });
+
+    await db.prepare(
+      "UPDATE scheduled_job_runs SET status = 'partial' WHERE id = ?",
+    ).bind(run.id).run();
+    expect(await repository.readRunDto(run.id)).toMatchObject({
+      status: "succeeded",
+      progress: { total: 1, succeeded: 1, failed: 0 },
+    });
+    expect((await repository.listRunDtos({
+      status: "succeeded",
+      limit: 10,
+    })).map((entry) => entry.runId)).toContain(run.id);
+    expect((await repository.listRunDtos({
+      status: "partial",
+      limit: 10,
+    })).map((entry) => entry.runId)).not.toContain(run.id);
+  });
+
+  it("실제 소스 실패가 있는 YouTube partial과 내부 진행률을 보존한다", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "youtube_feed_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:youtube:true-partial",
+    });
+    await repository.addItems(run.id, [{
+      targetKey: "youtube-feed",
+      phase: "collect",
+      lane: "maintenance",
+    }]);
+    const [outbox] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(outbox!.id);
+    const item = await repository.claimItem(outbox!.item_id);
+
+    expect(await repository.completeItem(item!, {
+      status: "partial",
+      result: { status: "partial", attempted: 5, succeeded: 4, failed: 1 },
+      errorCode: "youtube_feed_collection_failed",
+      error: "YouTube feed collection failed for 1 of 5 sources",
+    })).toBe(true);
+
+    expect(await repository.readRun(run.id)).toMatchObject({
+      status: "partial",
+    });
+    const counters = await db.prepare(
+      `SELECT total_items AS total, completed_items AS completed,
+              failed_items AS failed
+       FROM scheduled_job_runs WHERE id = ?`,
+    ).bind(run.id).first<{ total: number; completed: number; failed: number }>();
+    expect(counters).toEqual({ total: 5, completed: 5, failed: 1 });
+    expect(await repository.readRunDto(run.id)).toMatchObject({
+      status: "partial",
+      progress: { total: 5, succeeded: 4, failed: 1 },
+      failures: [{
+        code: "youtube_feed_collection_failed",
+        message: "YouTube feed collection failed for 1 of 5 sources",
+      }],
+    });
+    expect((await repository.listRunDtos({
+      status: "partial",
+      limit: 10,
+    })).map((entry) => entry.runId)).toContain(run.id);
+    expect((await repository.listRunDtos({
+      status: "succeeded",
+      limit: 10,
+    })).map((entry) => entry.runId)).not.toContain(run.id);
+
+    expect(await repository.retryRun(run.id)).toMatchObject({
+      kind: "accepted",
+      run: { status: "queued" },
+    });
+    expect(await repository.readItem(item!.id)).toMatchObject({
+      status: "queued",
+      last_error_code: null,
+      last_error: null,
+    });
+    const retryOutbox = await repository.claimPendingOutbox(run.id, 10);
+    expect(retryOutbox).toHaveLength(1);
+    expect(retryOutbox[0]?.item_id).toBe(item!.id);
+  });
+
   it("run 실패는 아직 dispatch되지 않은 item과 outbox를 함께 종료한다", async () => {
     const repository = createRepository();
     const run = await repository.createRun({

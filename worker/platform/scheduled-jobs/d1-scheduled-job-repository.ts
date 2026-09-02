@@ -103,6 +103,120 @@ const toProgress = (rows: Array<{ status: string; count: number | string }>) => 
   return progress;
 };
 
+type PartialItemEvidenceRow = {
+  id: string;
+  target_key: string;
+  phase: string;
+  status: "partial";
+  attempts: number;
+  result_json: string | null;
+  last_error_code: string | null;
+  last_error: string | null;
+  updated_at: number;
+  retry_pending: number | string;
+};
+
+type FailedItemEvidenceRow = Omit<PartialItemEvidenceRow, "status"> & {
+  status: "failed";
+};
+
+type YouTubeFeedProgress = {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  retryPending: boolean;
+};
+
+const toNonNegativeInteger = (value: unknown) =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+
+const parseYouTubeFeedProgress = (
+  item: PartialItemEvidenceRow,
+): YouTubeFeedProgress | null => {
+  const result = parseJsonRecord(item.result_json);
+  if (!result) return null;
+  const attempted = toNonNegativeInteger(result.attempted);
+  const succeeded = toNonNegativeInteger(result.succeeded);
+  const failed = toNonNegativeInteger(result.failed);
+  if (
+    attempted === null || succeeded === null || failed === null ||
+    succeeded + failed > attempted
+  ) {
+    return null;
+  }
+  return {
+    attempted,
+    succeeded,
+    failed,
+    retryPending: Number(item.retry_pending) > 0 ||
+      (toNonNegativeInteger(result.retryScheduled) ?? 0) > 0 ||
+      result.retryAt !== null && result.retryAt !== undefined,
+  };
+};
+
+const isResolvedYouTubePartial = (item: PartialItemEvidenceRow) => {
+  const progress = parseYouTubeFeedProgress(item);
+  return progress !== null &&
+    progress.succeeded === progress.attempted &&
+    progress.failed === 0 &&
+    !progress.retryPending &&
+    item.last_error_code === null &&
+    item.last_error === null;
+};
+
+const applyYouTubePartialProgress = (
+  progress: OperationRunProgressDto,
+  items: PartialItemEvidenceRow[],
+) => {
+  const normalized = { ...progress };
+  for (const item of items) {
+    const nested = parseYouTubeFeedProgress(item);
+    if (!nested || nested.attempted === 0) continue;
+    normalized.total += nested.attempted - 1;
+    normalized.succeeded += nested.succeeded - 1;
+    normalized.failed += nested.failed;
+  }
+  return normalized;
+};
+
+const canNormalizeYouTubePartials = (
+  run: ScheduledJobRunRecord,
+  partialCount: number,
+  items: PartialItemEvidenceRow[],
+) => run.job_type === "youtube_feed_collection" &&
+  run.last_error === null &&
+  partialCount > 0 &&
+  items.length === partialCount &&
+  items.every(isResolvedYouTubePartial);
+
+const toYouTubePartialFailure = (
+  item: PartialItemEvidenceRow,
+): OperationRunFailureDto => {
+  const progress = parseYouTubeFeedProgress(item);
+  const code = item.last_error_code ??
+    (progress?.retryPending
+      ? "youtube_feed_collection_retry_pending"
+      : "youtube_feed_collection_partial");
+  const message = item.last_error ?? (progress
+    ? progress.failed > 0
+      ? `YouTube feed collection failed for ${progress.failed} of ${progress.attempted} sources`
+      : progress.succeeded < progress.attempted
+        ? `YouTube feed collection completed ${progress.succeeded} of ${progress.attempted} sources`
+        : "YouTube feed collection is waiting for retry completion"
+    : "YouTube feed collection returned an unverified partial result");
+  return {
+    itemId: item.id,
+    targetKey: item.target_key,
+    phase: item.phase,
+    code,
+    message,
+    attempts: item.attempts,
+    lastAttemptAt: item.updated_at,
+  };
+};
+
 const toRunDto = (
   run: ScheduledJobRunRecord,
   progress: OperationRunProgressDto,
@@ -656,22 +770,55 @@ export class D1ScheduledJobRepository {
     const hasPartial = rows.results.some((row) =>
       row.status === "partial" && Number(row.count) > 0
     );
-    const terminal = progress.succeeded + progress.failed + progress.skipped +
+    const partialCount = rows.results.find((row) => row.status === "partial")
+      ?.count ?? 0;
+    let effectiveProgress = progress;
+    let hasEffectivePartial = hasPartial;
+    if (hasPartial) {
+      const [run, partialResult] = await Promise.all([
+        this.readRun(runId),
+        this.db.prepare(
+          `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
+                  i.result_json, i.last_error_code, i.last_error, i.updated_at,
+                  EXISTS(
+                    SELECT 1 FROM scheduled_outbox o
+                    WHERE o.item_id = i.id
+                      AND o.status IN ('pending', 'failed', 'dispatching')
+                  ) AS retry_pending
+           FROM scheduled_job_items i
+           WHERE i.run_id = ? AND i.status = 'partial'`,
+        ).bind(runId).all<PartialItemEvidenceRow>(),
+      ]);
+      if (run?.job_type === "youtube_feed_collection") {
+        effectiveProgress = applyYouTubePartialProgress(
+          progress,
+          partialResult.results,
+        );
+        hasEffectivePartial = !canNormalizeYouTubePartials(
+          run,
+          Number(partialCount),
+          partialResult.results,
+        );
+      }
+    }
+    const rawTerminal = progress.succeeded + progress.failed + progress.skipped +
       progress.throttled;
-    const finished = progress.total > 0 && terminal === progress.total;
+    const finished = progress.total > 0 && rawTerminal === progress.total;
     const status: ScheduledJobStatus = !finished
       ? "running"
-      : hasPartial
+      : hasEffectivePartial
         ? "partial"
-      : progress.failed > 0
-        ? progress.succeeded > 0 || progress.skipped > 0
+      : effectiveProgress.failed > 0
+        ? effectiveProgress.succeeded > 0 || effectiveProgress.skipped > 0
           ? "partial"
           : "failed"
-        : progress.throttled > 0
+        : effectiveProgress.throttled > 0
           ? "throttled"
-          : progress.succeeded > 0
+          : effectiveProgress.succeeded > 0
             ? "succeeded"
             : "skipped";
+    const completed = effectiveProgress.succeeded + effectiveProgress.failed +
+      effectiveProgress.skipped + effectiveProgress.throttled;
     await this.db.prepare(
       `UPDATE scheduled_job_runs
        SET status = ?, started_at = COALESCE(started_at, ?),
@@ -682,10 +829,10 @@ export class D1ScheduledJobRepository {
       status,
       now,
       finished ? now : null,
-      progress.total,
-      terminal,
-      progress.failed,
-      progress.skipped + progress.throttled,
+      effectiveProgress.total,
+      completed,
+      effectiveProgress.failed,
+      effectiveProgress.skipped + effectiveProgress.throttled,
       now,
       runId,
     ).run();
@@ -774,29 +921,55 @@ export class D1ScheduledJobRepository {
   async readRunDto(runId: string) {
     const run = await this.readRun(runId);
     if (!run || !isScheduledJobType(run.job_type)) return null;
-    const [progressRows, failuresResult] = await Promise.all([
+    const partialEvidence = run.job_type === "youtube_feed_collection"
+      ? this.db.prepare(
+        `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
+                i.result_json, i.last_error_code, i.last_error, i.updated_at,
+                EXISTS(
+                  SELECT 1 FROM scheduled_outbox o
+                  WHERE o.item_id = i.id
+                    AND o.status IN ('pending', 'failed', 'dispatching')
+                ) AS retry_pending
+         FROM scheduled_job_items i
+         WHERE i.run_id = ? AND i.status = 'partial'`,
+      ).bind(runId).all<PartialItemEvidenceRow>()
+      : Promise.resolve({ results: [] as PartialItemEvidenceRow[] });
+    const [progressRows, failuresResult, partialResult] = await Promise.all([
       this.db.prepare(
         `SELECT status, COUNT(*) AS count
          FROM scheduled_job_items WHERE run_id = ? GROUP BY status`,
       ).bind(runId).all<{ status: string; count: number }>(),
       this.db.prepare(
-        `SELECT id, target_key, phase, last_error_code, last_error, attempts,
-                updated_at
-         FROM scheduled_job_items
-         WHERE run_id = ? AND status = 'failed'
-         ORDER BY updated_at DESC LIMIT 20`,
-      ).bind(runId).all<{
-        id: string;
-        target_key: string;
-        phase: string;
-        last_error_code: string | null;
-        last_error: string | null;
-        attempts: number;
-        updated_at: number;
-      }>(),
+        `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
+                i.result_json, i.last_error_code, i.last_error, i.updated_at,
+                EXISTS(
+                  SELECT 1 FROM scheduled_outbox o
+                  WHERE o.item_id = i.id
+                    AND o.status IN ('pending', 'failed', 'dispatching')
+                ) AS retry_pending
+         FROM scheduled_job_items i
+         WHERE i.run_id = ? AND i.status = 'failed'
+         ORDER BY i.updated_at DESC
+         LIMIT 20`,
+      ).bind(runId).all<FailedItemEvidenceRow>(),
+      partialEvidence,
     ]);
-    const failures: OperationRunFailureDto[] = failuresResult.results.map(
-      (item) => ({
+    // The YouTube planner creates one wrapper item per run. Read that wrapper
+    // separately so the operator-visible failure list remains bounded.
+    const partialItems = partialResult.results;
+    const partialCount = Number(
+      progressRows.results.find((row) => row.status === "partial")?.count ?? 0,
+    );
+    const normalizeYouTubePartial = canNormalizeYouTubePartials(
+      run,
+      partialCount,
+      partialItems,
+    );
+    const progress = run.job_type === "youtube_feed_collection"
+      ? applyYouTubePartialProgress(toProgress(progressRows.results), partialItems)
+      : toProgress(progressRows.results);
+    const failures: OperationRunFailureDto[] = [
+      ...failuresResult.results.map((item) => ({
         itemId: item.id,
         targetKey: item.target_key,
         phase: item.phase,
@@ -804,9 +977,16 @@ export class D1ScheduledJobRepository {
         message: item.last_error ?? "Unknown scheduled job failure",
         attempts: item.attempts,
         lastAttemptAt: item.updated_at,
-      }),
+      })),
+      ...partialItems
+        .filter((item) => !isResolvedYouTubePartial(item))
+        .map(toYouTubePartialFailure),
+    ].slice(0, 20);
+    return toRunDto(
+      normalizeYouTubePartial ? { ...run, status: "succeeded" } : run,
+      progress,
+      failures,
     );
-    return toRunDto(run, toProgress(progressRows.results), failures);
   }
 
   async listRunDtos(input: {
@@ -815,24 +995,44 @@ export class D1ScheduledJobRepository {
     limit: number;
   }) {
     const conditions: string[] = [
-      `job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})`,
+      `r.job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})`,
     ];
     const bindings: unknown[] = [...scheduledJobTypes];
     if (input.jobType) {
-      conditions.push("job_type = ?");
+      conditions.push("r.job_type = ?");
       bindings.push(input.jobType);
     }
-    if (input.status) {
-      conditions.push("status = ?");
+    if (input.status === "succeeded") {
+      conditions.push(
+        "(r.status = ? OR (r.job_type = 'youtube_feed_collection' AND r.status = 'partial'))",
+      );
+      bindings.push(input.status);
+    } else if (input.status) {
+      conditions.push("r.status = ?");
       bindings.push(input.status);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-    const rows = await this.db.prepare(
-      `SELECT id FROM scheduled_job_runs ${where}
-       ORDER BY accepted_at DESC LIMIT ?`,
-    ).bind(...bindings, input.limit).all<{ id: string }>();
-    const runs = await Promise.all(rows.results.map((row) => this.readRunDto(row.id)));
-    return runs.filter((run): run is OperationRunDto => run !== null);
+    const readsNeedNormalization = input.status === "succeeded" ||
+      input.status === "partial";
+    const pageSize = readsNeedNormalization ? Math.max(input.limit, 50) : input.limit;
+    const runs: OperationRunDto[] = [];
+    let offset = 0;
+    do {
+      const rows = await this.db.prepare(
+        `SELECT r.id FROM scheduled_job_runs r ${where}
+         ORDER BY r.accepted_at DESC, r.id DESC LIMIT ? OFFSET ?`,
+      ).bind(...bindings, pageSize, offset).all<{ id: string }>();
+      const page = await Promise.all(
+        rows.results.map((row) => this.readRunDto(row.id)),
+      );
+      runs.push(...page.filter(
+        (run): run is OperationRunDto => run !== null &&
+          (!input.status || run.status === input.status),
+      ));
+      offset += rows.results.length;
+      if (!readsNeedNormalization || rows.results.length < pageSize) break;
+    } while (runs.length < input.limit);
+    return runs.slice(0, input.limit);
   }
 
   async retryRun(runId: string) {
@@ -853,7 +1053,7 @@ export class D1ScheduledJobRepository {
         `UPDATE scheduled_job_items
          SET status = 'queued', available_at = ?, last_error_code = NULL,
              last_error = NULL, finished_at = NULL, updated_at = ?
-         WHERE run_id = ? AND status IN ('failed', 'throttled')
+         WHERE run_id = ? AND status IN ('partial', 'failed', 'throttled')
            AND EXISTS (
              SELECT 1 FROM scheduled_job_runs r
              WHERE r.id = ? AND r.status IN ('failed', 'partial', 'throttled')
