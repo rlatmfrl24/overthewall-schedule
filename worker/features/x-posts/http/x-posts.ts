@@ -115,7 +115,7 @@ export const createXPostsHandler =
     );
   }
 
-  if (["/api/x/history/posts", "/api/x/history/summary", "/api/x/history/health"].includes(url.pathname)) {
+  if (["/api/x/history/posts", "/api/x/history/health"].includes(url.pathname)) {
     if (request.method !== "GET") return methodNotAllowed();
     const admin = await requireAdminUser(request, env);
     if (!admin.ok) return admin.response;
@@ -136,18 +136,6 @@ export const createXPostsHandler =
         cursor: cursor ?? undefined,
         limit,
       }), 200, { headers: { "Cache-Control": "no-store" } });
-    }
-    if (url.pathname === "/api/x/history/summary") {
-      const now = new Date();
-      const defaultTo = now.toISOString().slice(0, 10);
-      const defaultFrom = new Date(now.getTime() - 29 * 24 * 60 * 60_000).toISOString().slice(0, 10);
-      const from = url.searchParams.get("from") ?? defaultFrom;
-      const to = url.searchParams.get("to") ?? defaultTo;
-      const maximumFrom = new Date(now.getTime() - 365 * 24 * 60 * 60_000).toISOString().slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from < maximumFrom || from > to) {
-        return badRequest("Invalid X history date range");
-      }
-      return json(await application.readHistorySummary(from, to), 200, { headers: { "Cache-Control": "no-store" } });
     }
     return json(await application.readHistoryHealth(), 200, { headers: { "Cache-Control": "no-store" } });
   }

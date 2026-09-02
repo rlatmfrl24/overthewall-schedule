@@ -64,7 +64,6 @@ export interface XPostsApplicationPorts {
   runCollection(): Promise<XCollectionRunResultDto>;
   writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
   readHistoryPosts(options: XHistoryReadOptions): Promise<unknown>;
-  readHistorySummary(from: string, to: string): Promise<unknown>;
   readHistoryHealth(): Promise<unknown>;
   warn(message: string, error: unknown): void;
 }
@@ -251,10 +250,6 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
 
   readHistoryPosts(options: XHistoryReadOptions) {
     return ports.readHistoryPosts(options);
-  },
-
-  readHistorySummary(from: string, to: string) {
-    return ports.readHistorySummary(from, to);
   },
 
   readHistoryHealth() {

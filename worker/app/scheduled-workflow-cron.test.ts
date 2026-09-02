@@ -16,6 +16,7 @@ const makeDb = (
     activeJob: 1,
     hasPosts: 1,
     lastCycleAt: 0,
+    lastAttemptAt: 0,
   },
   d1WriteGate = {
     consumed: 0,
@@ -47,7 +48,6 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 33))).toEqual([
       "source_health",
-      "x_metrics_refresh",
       "x_compliance",
     ]);
   });
@@ -108,7 +108,7 @@ describe("scheduled Workflow cron bridge", () => {
       scheduledTime,
     } as ScheduledController, env);
 
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalledWith({
       params: { jobType: "x_compliance", scheduledFor: scheduledTime },
     });
@@ -145,7 +145,7 @@ describe("scheduled Workflow cron bridge", () => {
       scheduledTime,
     } as ScheduledController, env);
 
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalledWith({
       params: { jobType: "x_compliance", scheduledFor: scheduledTime },
     });
@@ -160,6 +160,7 @@ describe("scheduled Workflow cron bridge", () => {
         activeJob: 0,
         hasPosts: 1,
         lastCycleAt: scheduledTime,
+        lastAttemptAt: scheduledTime,
       }),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;
@@ -169,13 +170,13 @@ describe("scheduled Workflow cron bridge", () => {
       scheduledTime,
     } as ScheduledController, env);
 
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalledWith({
       params: { jobType: "x_compliance", scheduledFor: scheduledTime },
     });
   });
 
-  it("allows a new cycle after a terminal failed job no longer has a retry", async () => {
+  it("does not start a new cycle within 24 hours of a terminal failed job", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     const scheduledTime = utc(5, 33);
     const env = {
@@ -184,6 +185,32 @@ describe("scheduled Workflow cron bridge", () => {
         activeJob: 0,
         hasPosts: 1,
         lastCycleAt: 0,
+        lastAttemptAt: scheduledTime - 23 * 60 * 60_000,
+      }),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON,
+      scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).not.toHaveBeenCalledWith({
+      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
+    });
+  });
+
+  it("allows a new cycle 24 hours after a terminal failed job", async () => {
+    const create = vi.fn().mockResolvedValue(undefined);
+    const scheduledTime = utc(5, 33);
+    const env = {
+      otw_db: makeDb([], {
+        dueJob: 0,
+        activeJob: 0,
+        hasPosts: 1,
+        lastCycleAt: 0,
+        lastAttemptAt: scheduledTime - 24 * 60 * 60_000,
       }),
       SCHEDULED_OPERATIONS_WORKFLOW: { create },
     } as unknown as Env;

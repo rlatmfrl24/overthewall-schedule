@@ -1,6 +1,5 @@
 export const scheduledJobTypes = [
   "x_collection",
-  "x_metrics_refresh",
   "x_compliance",
   "naver_cafe_collection",
   "youtube_feed_collection",

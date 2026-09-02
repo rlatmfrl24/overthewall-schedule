@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { estimateXApiRequestCostMicros } from "./x-api";
 
 describe("X API request cost admission", () => {
-  it("charges metric-only lookups for Post resources only", () => {
+  it("charges batched Post lookups for Post resources only", () => {
     const ids = Array.from({ length: 100 }, (_, index) => String(index + 1));
     const path = `/tweets?${new URLSearchParams({
       ids: ids.join(","),
-      "tweet.fields": "public_metrics",
+      "tweet.fields": "created_at",
     })}`;
 
     expect(estimateXApiRequestCostMicros("tweet_lookup", path)).toBe(500_000);

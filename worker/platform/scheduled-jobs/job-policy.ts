@@ -24,7 +24,6 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
     { rowsRead: number; rowsWritten: number }
   > = {
     x_collection: { rowsRead: 500, rowsWritten: 50 },
-    x_metrics_refresh: { rowsRead: 400, rowsWritten: 250 },
     // The 5,000 IDs are read into one JSON shard row. D1 accounts written
     // rows, not JSON elements, so reserve for state/index updates instead of
     // pretending every input ID is a write.
@@ -45,7 +44,6 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
 export const getLaneForJob = (jobType: ScheduledJobType): ScheduledLane => {
   switch (jobType) {
     case "x_collection":
-    case "x_metrics_refresh":
     case "x_compliance":
       return "x";
     case "naver_cafe_collection":
@@ -81,7 +79,6 @@ export const getAdmissionPriority = (
     case "channel_reconcile":
       return "core";
     case "source_health":
-    case "x_metrics_refresh":
     case "recent_reconcile":
     case "youtube_feed_collection":
     case "retention_prune":
@@ -114,7 +111,6 @@ export const getScheduledBucket = (
     naver_cafe_collection: 60 * 60_000,
     youtube_feed_collection: 60 * 60_000,
     x_collection: 2 * 60 * 60_000,
-    x_metrics_refresh: 60 * 60_000,
     x_compliance: 60 * 60_000,
     // The scheduler probes hourly so the configured 1/6/12/24-hour interval
     // can be enforced by the planner without collapsing every probe in a day.

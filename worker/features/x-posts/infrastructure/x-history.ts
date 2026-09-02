@@ -11,14 +11,6 @@ import {
   X_COMPLIANCE_REQUEST_COST_MICROS,
 } from "../domain/x-compliance-policy";
 
-const HOUR_MS = 60 * 60_000;
-const DAY_MS = 24 * HOUR_MS;
-const KST_OFFSET_MS = 9 * HOUR_MS;
-const D1_MAX_BIND_PARAMETERS = 100;
-const X_METRIC_ERROR_FIXED_BINDINGS = 3;
-const X_METRIC_ERROR_CHUNK_SIZE =
-  D1_MAX_BIND_PARAMETERS - X_METRIC_ERROR_FIXED_BINDINGS;
-
 type D1 = Pick<D1Database, "prepare">;
 
 type MemberRow = { uid: number | string; name: string; url_twitter: string | null };
@@ -33,10 +25,6 @@ type FactRow = {
   link_count: number | string;
   hidden_at: number | string | null;
   hidden_reason: string | null;
-  initial_snapshot_completed_at: number | string | null;
-  after_24h_snapshot_completed_at: number | string | null;
-  next_metrics_at: number | string | null;
-  last_metrics_error: string | null;
 };
 
 export type XHistoryPostDto = {
@@ -51,7 +39,6 @@ export type XHistoryPostDto = {
   status: "visible" | "redacted";
   hiddenAt: number | null;
   hiddenReason: string | null;
-  snapshot: { initialAt: number | null; after24hAt: number | null };
 };
 
 const settingIsEnabled = async (db: D1, key: string) => {
@@ -81,9 +68,6 @@ const asNumber = (value: number | string | null | undefined) => {
   return Number.isFinite(number) ? number : 0;
 };
 
-const kstDate = (timestamp: number) =>
-  new Date(timestamp + KST_OFFSET_MS).toISOString().slice(0, 10);
-
 const toHistoryPost = (row: FactRow): XHistoryPostDto => ({
   postId: row.post_id,
   memberUid: asNumber(row.member_uid),
@@ -96,10 +80,6 @@ const toHistoryPost = (row: FactRow): XHistoryPostDto => ({
   status: row.hidden_at === null ? "visible" : "redacted",
   hiddenAt: row.hidden_at === null ? null : asNumber(row.hidden_at),
   hiddenReason: row.hidden_reason,
-  snapshot: {
-    initialAt: row.initial_snapshot_completed_at === null ? null : asNumber(row.initial_snapshot_completed_at),
-    after24hAt: row.after_24h_snapshot_completed_at === null ? null : asNumber(row.after_24h_snapshot_completed_at),
-  },
 });
 
 const findMemberByHandle = async (db: D1, handle: string) => {
@@ -130,9 +110,8 @@ export const recordXPostFacts = async (
          post_id, member_uid, member_name_snapshot, post_type, created_at,
          first_seen_at, media_count, link_count, edit_root_post_id,
          superseded_by_post_id, hidden_at, hidden_reason,
-         initial_snapshot_completed_at, after_24h_snapshot_completed_at,
-         next_metrics_at, last_metrics_error, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL, ?)
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
        ON CONFLICT(post_id) DO UPDATE SET
          member_uid = excluded.member_uid,
          member_name_snapshot = excluded.member_name_snapshot,
@@ -150,79 +129,11 @@ export const recordXPostFacts = async (
       post.media.length,
       post.links?.length ?? 0,
       post.id,
-      createdAt + DAY_MS,
       timestamp,
     ).run();
     recorded += 1;
   }
   return { recorded, skipped: posts.length - recorded };
-};
-
-const rebuildDailyMetric = async (db: D1, memberUid: number, date: string, timestamp: number) => {
-  await db.prepare(
-    `INSERT INTO x_member_daily_metrics (
-       kst_date, member_uid, post_count, reply_count, quote_count,
-       media_post_count, link_post_count, initial_like_count,
-       initial_reply_count, initial_repost_count, initial_quote_count,
-       after_24h_like_count, after_24h_reply_count, after_24h_repost_count,
-       after_24h_quote_count, snapshot_covered_count, deleted_count, recalculated_at
-     )
-     SELECT ?, ?,
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL AND f.post_type = 'reply'),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL AND f.post_type = 'quote'),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL AND f.media_count > 0),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL AND f.link_count > 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND i.snapshot_kind = 'initial' THEN i.like_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND i.snapshot_kind = 'initial' THEN i.reply_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND i.snapshot_kind = 'initial' THEN i.repost_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND i.snapshot_kind = 'initial' THEN i.quote_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND a.snapshot_kind = 'after_24h' THEN a.like_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND a.snapshot_kind = 'after_24h' THEN a.reply_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND a.snapshot_kind = 'after_24h' THEN a.repost_count ELSE 0 END), 0),
-       COALESCE(SUM(CASE WHEN f.hidden_at IS NULL AND a.snapshot_kind = 'after_24h' THEN a.quote_count ELSE 0 END), 0),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NULL AND i.snapshot_kind = 'initial'),
-       COUNT(*) FILTER (WHERE f.hidden_at IS NOT NULL), ?
-     FROM x_post_facts f
-     LEFT JOIN x_post_metric_snapshots i ON i.post_id = f.post_id AND i.snapshot_kind = 'initial'
-     LEFT JOIN x_post_metric_snapshots a ON a.post_id = f.post_id AND a.snapshot_kind = 'after_24h'
-     WHERE f.member_uid = ? AND date((f.created_at + ?) / 1000, 'unixepoch') = ?
-     ON CONFLICT(kst_date, member_uid) DO UPDATE SET
-       post_count = excluded.post_count, reply_count = excluded.reply_count,
-       quote_count = excluded.quote_count, media_post_count = excluded.media_post_count,
-       link_post_count = excluded.link_post_count, initial_like_count = excluded.initial_like_count,
-       initial_reply_count = excluded.initial_reply_count, initial_repost_count = excluded.initial_repost_count,
-       initial_quote_count = excluded.initial_quote_count, after_24h_like_count = excluded.after_24h_like_count,
-       after_24h_reply_count = excluded.after_24h_reply_count, after_24h_repost_count = excluded.after_24h_repost_count,
-       after_24h_quote_count = excluded.after_24h_quote_count, snapshot_covered_count = excluded.snapshot_covered_count,
-       deleted_count = excluded.deleted_count, recalculated_at = excluded.recalculated_at`,
-  ).bind(date, memberUid, timestamp, memberUid, KST_OFFSET_MS, date).run();
-};
-
-const rebuildAffectedDailyMetrics = async (db: D1, postIds: readonly string[], timestamp: number) => {
-  const uniquePostIds = [...new Set(postIds.filter(Boolean))];
-  if (uniquePostIds.length === 0) return;
-  const targets = new Map<string, { memberUid: number; date: string }>();
-  for (
-    let index = 0;
-    index < uniquePostIds.length;
-    index += D1_MAX_BIND_PARAMETERS
-  ) {
-    const chunk = uniquePostIds.slice(
-      index,
-      index + D1_MAX_BIND_PARAMETERS,
-    );
-    const rows = await db.prepare(
-      `SELECT member_uid, created_at FROM x_post_facts
-       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(...chunk).all<{ member_uid: number | string; created_at: number | string }>();
-    for (const row of rows.results) {
-      const memberUid = asNumber(row.member_uid);
-      const date = kstDate(asNumber(row.created_at));
-      targets.set(`${memberUid}:${date}`, { memberUid, date });
-    }
-  }
-  for (const target of targets.values()) await rebuildDailyMetric(db, target.memberUid, target.date, timestamp);
 };
 
 export const redactXPostHistory = async (db: D1, postIds: readonly string[], reason: "admin" | "compliance", timestamp = Date.now()) => {
@@ -231,124 +142,11 @@ export const redactXPostHistory = async (db: D1, postIds: readonly string[], rea
   for (let index = 0; index < ids.length; index += 50) {
     const chunk = ids.slice(index, index + 50);
     await db.prepare(
-      `UPDATE x_post_facts SET hidden_at = ?, hidden_reason = ?,
-         next_metrics_at = NULL, last_metrics_error = NULL, updated_at = ?
+      `UPDATE x_post_facts SET hidden_at = ?, hidden_reason = ?, updated_at = ?
        WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
     ).bind(timestamp, reason, timestamp, ...chunk).run();
-    await db.prepare(
-      `DELETE FROM x_post_metric_snapshots WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(...chunk).run();
   }
-  await rebuildAffectedDailyMetrics(db, ids, timestamp);
   return { redacted: ids.length };
-};
-
-export const applyXMetricSnapshots = async (
-  db: D1,
-  snapshots: Array<{ postId: string; kind: "initial" | "after_24h"; capturedAt: number; metrics: { likeCount: number; replyCount: number; repostCount: number; quoteCount: number } }>,
-) => {
-  if (snapshots.length === 0) return { applied: 0 };
-  const now = Date.now();
-  for (const snapshot of snapshots) {
-    await db.prepare(
-      `INSERT INTO x_post_metric_snapshots (
-         post_id, snapshot_kind, captured_at, like_count, reply_count, repost_count, quote_count
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(post_id, snapshot_kind) DO UPDATE SET captured_at = excluded.captured_at,
-         like_count = excluded.like_count, reply_count = excluded.reply_count,
-         repost_count = excluded.repost_count, quote_count = excluded.quote_count`,
-    ).bind(snapshot.postId, snapshot.kind, snapshot.capturedAt, snapshot.metrics.likeCount,
-      snapshot.metrics.replyCount, snapshot.metrics.repostCount, snapshot.metrics.quoteCount).run();
-    await db.prepare(
-      `UPDATE x_post_facts SET
-         initial_snapshot_completed_at = CASE WHEN ? = 'initial' THEN ? ELSE initial_snapshot_completed_at END,
-         after_24h_snapshot_completed_at = CASE WHEN ? = 'after_24h' THEN ? ELSE after_24h_snapshot_completed_at END,
-         next_metrics_at = CASE WHEN ? = 'initial' THEN created_at + ? ELSE NULL END,
-         last_metrics_error = NULL, updated_at = ? WHERE post_id = ?`,
-    ).bind(snapshot.kind, snapshot.capturedAt, snapshot.kind, snapshot.capturedAt,
-      snapshot.kind, DAY_MS, now, snapshot.postId).run();
-  }
-  await rebuildAffectedDailyMetrics(db, snapshots.map((item) => item.postId), now);
-  return { applied: snapshots.length };
-};
-
-export const readDueXMetricFacts = async (db: D1, limit = 100, timestamp = Date.now()) => {
-  const rows = await db.prepare(
-    `SELECT post_id, member_uid, member_name_snapshot, post_type, created_at, first_seen_at,
-            media_count, link_count, hidden_at, hidden_reason, initial_snapshot_completed_at,
-            after_24h_snapshot_completed_at, next_metrics_at, last_metrics_error
-     FROM x_post_facts WHERE hidden_at IS NULL AND next_metrics_at IS NOT NULL
-       AND next_metrics_at <= ? ORDER BY next_metrics_at ASC LIMIT ?`,
-  ).bind(timestamp, Math.max(1, Math.min(limit, 100))).all<FactRow>();
-  return rows.results.map(toHistoryPost);
-};
-
-export const deferXMetricFacts = async (
-  db: D1,
-  postIds: string[],
-  errorCode: string,
-  nextMetricsAt: number,
-  timestamp = Date.now(),
-) => {
-  for (
-    let index = 0;
-    index < postIds.length;
-    index += X_METRIC_ERROR_CHUNK_SIZE
-  ) {
-    const chunk = postIds.slice(index, index + X_METRIC_ERROR_CHUNK_SIZE);
-    await db.prepare(
-      `UPDATE x_post_facts SET last_metrics_error = ?, next_metrics_at = ?, updated_at = ?
-       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(
-      errorCode.slice(0, 200),
-      nextMetricsAt,
-      timestamp,
-      ...chunk,
-    ).run();
-  }
-};
-
-export const runXMetricRefresh = async (
-  db: D1,
-  readMetrics: (postIds: string[]) => Promise<Map<string, { likeCount: number; replyCount: number; repostCount: number; quoteCount: number }>>,
-  timestamp = Date.now(),
-) => {
-  if (!(await settingIsEnabled(db, "x_metrics_snapshot_enabled"))) {
-    return { status: "skipped" as const, reason: "feature_disabled", attempted: 0, succeeded: 0, failed: 0 };
-  }
-  const due = await readDueXMetricFacts(db, 100, timestamp);
-  if (due.length === 0) return { status: "skipped" as const, reason: "no_due_metrics", attempted: 0, succeeded: 0, failed: 0 };
-  try {
-    const metrics = await readMetrics(due.map((item) => item.postId));
-    const snapshots = due.flatMap((fact) => {
-      const value = metrics.get(fact.postId);
-      if (!value) return [];
-      return [{ postId: fact.postId, kind: fact.snapshot.initialAt === null ? "initial" as const : "after_24h" as const, capturedAt: timestamp, metrics: value }];
-    });
-    await applyXMetricSnapshots(db, snapshots);
-    const returnedPostIds = new Set(snapshots.map((snapshot) => snapshot.postId));
-    const missingPostIds = due
-      .map((fact) => fact.postId)
-      .filter((postId) => !returnedPostIds.has(postId));
-    await deferXMetricFacts(
-      db,
-      missingPostIds,
-      "not_returned",
-      timestamp + DAY_MS,
-      timestamp,
-    );
-    return {
-      status: snapshots.length === due.length ? "succeeded" as const : "partial" as const,
-      attempted: due.length,
-      succeeded: snapshots.length,
-      failed: due.length - snapshots.length,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "x_metrics_refresh_failed";
-    const postIds = due.map((item) => item.postId);
-    await deferXMetricFacts(db, postIds, message, timestamp + HOUR_MS, timestamp);
-    return { status: "failed" as const, attempted: due.length, succeeded: 0, failed: due.length, errorCode: message };
-  }
 };
 
 export const readXHistoryPosts = async (db: D1, options: { memberUid?: number; from?: number; to?: number; cursor?: { createdAt: number; postId: string }; limit: number }) => {
@@ -360,8 +158,7 @@ export const readXHistoryPosts = async (db: D1, options: { memberUid?: number; f
   if (options.cursor) { where.push("(created_at < ? OR (created_at = ? AND post_id < ?))"); bindings.push(options.cursor.createdAt, options.cursor.createdAt, options.cursor.postId); }
   const rows = await db.prepare(
     `SELECT post_id, member_uid, member_name_snapshot, post_type, created_at, first_seen_at,
-            media_count, link_count, hidden_at, hidden_reason, initial_snapshot_completed_at,
-            after_24h_snapshot_completed_at, next_metrics_at, last_metrics_error
+            media_count, link_count, hidden_at, hidden_reason
      FROM x_post_facts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY created_at DESC, post_id DESC LIMIT ?`,
   ).bind(...bindings, options.limit + 1).all<FactRow>();
@@ -371,27 +168,13 @@ export const readXHistoryPosts = async (db: D1, options: { memberUid?: number; f
   return { posts, hasMore, nextCursor: hasMore && last ? `${last.createdAt}:${last.postId}` : null };
 };
 
-export const readXHistorySummary = async (db: D1, from: string, to: string) => {
-  const rows = await db.prepare(
-    `SELECT kst_date AS kstDate, member_uid AS memberUid, post_count AS postCount,
-            reply_count AS replyCount, quote_count AS quoteCount,
-            media_post_count AS mediaPostCount, link_post_count AS linkPostCount,
-            initial_like_count AS initialLikeCount, after_24h_like_count AS after24hLikeCount,
-            snapshot_covered_count AS snapshotCoveredCount, deleted_count AS deletedCount
-     FROM x_member_daily_metrics WHERE kst_date >= ? AND kst_date <= ?
-     ORDER BY kst_date DESC, member_uid ASC`,
-  ).bind(from, to).all<Record<string, unknown>>();
-  return rows.results;
-};
-
 export const readXHistoryHealth = async (db: D1, timestamp = Date.now()) => {
-  const [due, latest, budget, jobs] = await Promise.all([
-    db.prepare("SELECT COUNT(*) AS count FROM x_post_facts WHERE hidden_at IS NULL AND next_metrics_at <= ?").bind(timestamp).first<{ count: number | string }>(),
+  const [latest, budget, jobs] = await Promise.all([
     db.prepare("SELECT MAX(last_success_at) AS lastSuccessAt FROM x_post_sources").first<{ lastSuccessAt: number | string | null }>(),
     db.prepare("SELECT COALESCE(SUM(estimated_cost_micros), 0) AS used FROM x_api_usage_events WHERE created_at >= ?").bind(Date.UTC(new Date(timestamp).getUTCFullYear(), new Date(timestamp).getUTCMonth(), new Date(timestamp).getUTCDate())).first<{ used: number | string }>(),
     db.prepare("SELECT status, next_check_at AS nextCheckAt, error_code AS errorCode FROM x_compliance_jobs ORDER BY created_at DESC LIMIT 1").first<Record<string, unknown>>(),
   ]);
-  return { metricBacklog: asNumber(due?.count), lastCollectionSuccessAt: latest?.lastSuccessAt === null ? null : asNumber(latest?.lastSuccessAt), budgetUsedMicros: asNumber(budget?.used), latestCompliance: jobs ?? null };
+  return { lastCollectionSuccessAt: latest?.lastSuccessAt === null ? null : asNumber(latest?.lastSuccessAt), budgetUsedMicros: asNumber(budget?.used), latestCompliance: jobs ?? null };
 };
 
 type ComplianceJobRow = {
@@ -469,9 +252,16 @@ const createComplianceShard = async (db: D1, timestamp: number) => {
      LIMIT 1`,
   ).first<{ id: string }>();
   if (unresolved) return null;
-  const lastCycle = await db.prepare("SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at'")
-    .first<{ value: string | null }>();
-  if (timestamp - asNumber(lastCycle?.value) < X_COMPLIANCE_CYCLE_MS) return null;
+  const cadence = await db.prepare(
+    `SELECT
+       (SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at') AS lastCycleAt,
+       (SELECT MAX(created_at) FROM x_compliance_jobs) AS lastAttemptAt`,
+  ).first<{ lastCycleAt: string | null; lastAttemptAt: number | string | null }>();
+  const cadenceAnchor = Math.max(
+    asNumber(cadence?.lastCycleAt),
+    asNumber(cadence?.lastAttemptAt),
+  );
+  if (timestamp - cadenceAnchor < X_COMPLIANCE_CYCLE_MS) return null;
   const ids = await db.prepare(
     `SELECT id FROM x_posts WHERE hidden_at IS NULL AND content_removed_at IS NULL
      ORDER BY first_seen_at ASC LIMIT ?`,

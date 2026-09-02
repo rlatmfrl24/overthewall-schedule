@@ -11,7 +11,6 @@ import {
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import {
-  applyXMetricSnapshots,
   recordXPostFacts,
   redactXPostHistory,
 } from "./x-history";
@@ -1214,17 +1213,6 @@ const writeStoredPosts = async (
     // the existing feed can stay enabled until the approved analytics use-case
     // is confirmed in the X Developer Console.
     await recordXPostFacts(cacheDb, normalizedHandle, posts, fetchedAt);
-    if ((await readD1Setting(cacheDb, "x_metrics_snapshot_enabled")) === "true") {
-      await applyXMetricSnapshots(
-        cacheDb,
-        posts.map((post) => ({
-          postId: post.id,
-          kind: "initial" as const,
-          capturedAt: fetchedAt,
-          metrics: post.metrics,
-        })),
-      );
-    }
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1257,33 +1245,6 @@ export const redactStoredXPosts = async (
   }
   await redactXPostHistory(cacheDb, uniqueIds, reason, redactedAt);
   return { requested: uniqueIds.length, redacted, redactedAt, reason };
-};
-
-/** Authoritative metric lookup for the scheduled history refresh. */
-export const fetchXPostMetricsByIds = async (
-  postIds: readonly string[],
-  options: { bearerToken?: string | null; cacheDb?: XCacheDb; usageSource?: string } = {},
-) => {
-  const ids = [...new Set(postIds.filter(Boolean))].slice(0, 100);
-  if (ids.length === 0) return new Map<string, XPostItem["metrics"]>();
-  const token = options.bearerToken?.trim();
-  if (!token) throw new XApiError("X bearer token not configured", 500, { code: "missing_bearer_token" });
-  const tracker: XApiUsageTracker = {
-    apiCalls: 0,
-    estimatedCostMicros: 0,
-    reservedCostMicros: 0,
-    source: options.usageSource ?? "metrics_refresh",
-  };
-  const params = new URLSearchParams({
-    ids: ids.join(","),
-    "tweet.fields": "public_metrics",
-  });
-  const response = await requestXApi<XTweetLookupResponse>(
-    `/tweets?${params}`,
-    token,
-    { cacheDb: options.cacheDb, operation: "tweet_lookup", usageTracker: tracker },
-  );
-  return new Map((response.data ?? []).map((post) => [post.id, normalizeXMetrics(post.public_metrics)]));
 };
 
 const writeStoredPostSource = async (

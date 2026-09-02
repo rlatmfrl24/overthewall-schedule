@@ -22,7 +22,6 @@ import { readXSetting } from "./x-settings";
 import {
   readXHistoryHealth,
   readXHistoryPosts,
-  readXHistorySummary,
 } from "./x-history";
 
 export const buildXPostsApplication = (env: Env) => {
@@ -117,7 +116,6 @@ export const buildXPostsApplication = (env: Env) => {
       });
     },
     readHistoryPosts: (options) => readXHistoryPosts(env.otw_db, options),
-    readHistorySummary: (from, to) => readXHistorySummary(env.otw_db, from, to),
     readHistoryHealth: () => readXHistoryHealth(env.otw_db),
     warn: (message, error) => console.warn(message, error),
   });
