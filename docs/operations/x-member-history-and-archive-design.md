@@ -9,11 +9,13 @@
 
 ## 1. 수집 계약
 
-- `x_collection_enabled=true`인 동안 2시간마다 수집 가능 여부를 확인한다.
+- 비용 최적화 rollout 전에는 2시간, 활성화 후 정상 상태에서는 30분마다 수집
+  가능 여부를 확인한다. 상세 계약은
+  [`x-api-cost-minimization-design.md`](./x-api-cost-minimization-design.md)를 따른다.
 - 신규 소스는 `collection_started_at` 이후 게시물만 수집한다. 비활성화 후 다시 켤
   때도 재활성화 시각을 새 기준점으로 삼아 중지 기간을 소급하지 않는다.
-- 첫 요청은 `start_time`, 이후 요청은 `since_id`를 사용한다. 페이지당 25개이며
-  다음 페이지가 있으면 pagination token과 기준 watermark를 저장한다.
+- 첫 요청은 `start_time`, 이후 요청은 `since_id`를 사용한다. optimizer 경로는
+  5건으로 시작하고 다음 페이지가 있으면 25건 continuation으로 이어받는다.
 - 공급자 오류, 부분 페이지, D1 저장 실패에서는 정상 cursor를 전진시키지 않는다.
   continuation 전체가 확인된 뒤에만 이번 실행의 최신 ID로 watermark를 바꾼다.
 - 공개 요청은 D1만 읽는다. 사용자 요청으로 유료 X API를 호출하지 않는다.

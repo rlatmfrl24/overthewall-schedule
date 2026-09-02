@@ -21,4 +21,16 @@ describe("X API request cost admission", () => {
 
     expect(estimateXApiRequestCostMicros("tweet_lookup", path)).toBe(40_000);
   });
+
+  it("separates cached-author User lookup from the Post lookup", () => {
+    const postPath = `/tweets?${new URLSearchParams({
+      ids: "1,2",
+      "tweet.fields": "author_id,created_at,attachments",
+      expansions: "attachments.media_keys",
+    })}`;
+    const userPath = `/users?${new URLSearchParams({ ids: "10,20" })}`;
+
+    expect(estimateXApiRequestCostMicros("tweet_lookup", postPath)).toBe(20_000);
+    expect(estimateXApiRequestCostMicros("user_lookup", userPath)).toBe(20_000);
+  });
 });

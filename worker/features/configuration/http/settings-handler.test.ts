@@ -255,7 +255,7 @@ describe("settings worker route", () => {
 
   it("잘못된 X 수집 주기를 거부한다", async () => {
     const response = await handleSettings(
-      makeJsonRequest({ x_collection_interval_hours: "1" }),
+      makeJsonRequest({ x_collection_interval_hours: "3" }),
       makeEnv(),
     );
 

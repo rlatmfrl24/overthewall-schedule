@@ -2,7 +2,8 @@
 
 X의 상세 계약은
 [`x-member-history-and-archive-design.md`](./x-member-history-and-archive-design.md)를
-권위 문서로 사용한다.
+권위 문서로 사용한다. API 비용·30분 수집 계약은
+[`x-api-cost-minimization-design.md`](./x-api-cost-minimization-design.md)를 따른다.
 
 ## 수집 범위
 
@@ -10,7 +11,8 @@ X의 상세 계약은
   소급 수집하지 않는다.
 - 공급자 장애는 cursor를 유지하고 재개한다. 관리자 비활성 기간은 소급하지 않고
   재활성화 시각부터 새로 수집한다.
-- X는 2시간 간격, 25개 페이지와 영속 continuation을 사용한다.
+- X는 optimizer 활성 시 30분 간격, 5건 첫 페이지와 25건 영속 continuation을
+  사용한다. 70% guard나 공급자 backoff에서는 실효 주기를 1시간으로 완화한다.
 - 네이버는 내부 Endpoint의 15개 페이지를 실행당 최대 3페이지 확인한다.
 
 ## 장기 보존

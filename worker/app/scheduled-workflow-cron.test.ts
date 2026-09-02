@@ -44,7 +44,7 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
   });
 
-  it("starts X collection only on even UTC hours", () => {
+  it("starts X collection at 23 and 53 minutes every hour", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(4, 23))).toEqual([
       "channel_reconcile",
       "youtube_feed_collection",
@@ -53,6 +53,10 @@ describe("scheduled Workflow cron bridge", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 23))).toEqual([
       "channel_reconcile",
       "youtube_feed_collection",
+      "x_collection",
+    ]);
+    expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 53))).toEqual([
+      "x_collection",
     ]);
   });
 

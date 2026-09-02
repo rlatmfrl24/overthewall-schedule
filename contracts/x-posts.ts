@@ -118,4 +118,23 @@ export interface XHistoryPostsResponseDto {
 export interface XHistoryHealthResponseDto {
   lastCollectionSuccessAt: number | null;
   budgetUsedMicros: number;
+  optimizer: {
+    enabled: boolean;
+    configuredIntervalMinutes: number;
+    effectiveIntervalMinutes: number;
+    fallbackReason: string | null;
+    referencePreviewMode: "cached_author" | "post_only" | "link_only";
+    previewBacklog: number;
+    authorCacheHitsToday: number;
+    authorCacheMissesToday: number;
+    coalescedHandlesToday: number;
+  };
+  utcCost: {
+    day: string;
+    uniquePosts: number;
+    uniqueUsers: number;
+    uniqueMedia: number;
+    listedCostMicros: number;
+    conservativeCostMicros: number;
+  };
 }

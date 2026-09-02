@@ -104,7 +104,7 @@ export const getScheduledBucket = (
     source_health: 60 * 60_000,
     naver_cafe_collection: 60 * 60_000,
     youtube_feed_collection: 60 * 60_000,
-    x_collection: 2 * 60 * 60_000,
+    x_collection: 30 * 60_000,
     // The scheduler probes hourly so the configured 1/6/12/24-hour interval
     // can be enforced by the planner without collapsing every probe in a day.
     schedule_auto_update: 60 * 60_000,

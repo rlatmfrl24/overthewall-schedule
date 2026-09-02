@@ -262,24 +262,161 @@ export const readXHistoryHealth = async (
   db: D1,
   timestamp = Date.now(),
 ): Promise<XHistoryHealthResponseDto> => {
-  const [latest, budget] = await Promise.all([
+  const day = new Date(timestamp).toISOString().slice(0, 10);
+  const dayStart = Date.UTC(
+    new Date(timestamp).getUTCFullYear(),
+    new Date(timestamp).getUTCMonth(),
+    new Date(timestamp).getUTCDate(),
+  );
+  const [latest, budget, settings, resources, dailyCost, references, coalesced, guards] = await Promise.all([
     db.prepare(
       "SELECT MAX(last_success_at) AS lastSuccessAt FROM x_post_sources",
     ).first<{ lastSuccessAt: number | string | null }>(),
     db.prepare(
       "SELECT COALESCE(SUM(estimated_cost_micros), 0) AS used FROM x_api_usage_events WHERE created_at >= ?",
-    ).bind(
-      Date.UTC(
-        new Date(timestamp).getUTCFullYear(),
-        new Date(timestamp).getUTCMonth(),
-        new Date(timestamp).getUTCDate(),
-      ),
-    ).first<{ used: number | string }>(),
+    ).bind(dayStart).first<{ used: number | string }>(),
+    db.prepare(
+      `SELECT key, value FROM settings WHERE key IN (
+         'x_cost_optimizer_enabled', 'x_collection_interval_hours',
+         'x_reference_preview_mode', 'x_api_backoff_until'
+       )`,
+    ).all<{ key: string; value: string | null }>(),
+    db.prepare(
+      `SELECT resource_type, COUNT(*) AS count FROM x_api_resource_daily
+       WHERE utc_day = ? GROUP BY resource_type`,
+    ).bind(day).all<{ resource_type: string; count: number | string }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(listed_cost_micros), 0) AS listed,
+              COALESCE(SUM(conservative_cost_micros), 0) AS conservative,
+              COALESCE(SUM(CASE WHEN operation = 'linked_user_cache_hit' THEN resource_count ELSE 0 END), 0) AS cacheHits,
+              COALESCE(SUM(CASE WHEN operation = 'linked_user_cache_miss' THEN resource_count ELSE 0 END), 0) AS cacheMisses
+       FROM x_api_usage_daily WHERE utc_day = ?`,
+    ).bind(day).first<{
+      listed: number | string;
+      conservative: number | string;
+      cacheHits: number | string;
+      cacheMisses: number | string;
+    }>(),
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM x_post_references
+       WHERE resolution_state = 'pending'`,
+    ).first<{ count: number | string }>(),
+    db.prepare(
+      `SELECT COALESCE(SUM(coalesced_handles), 0) AS count
+       FROM x_collection_runs WHERE started_at >= ?`,
+    ).bind(dayStart).first<{ count: number | string }>(),
+    db.prepare(
+      `SELECT resource, COALESCE(SUM(used + reserved), 0) AS consumed,
+              MAX(limit_value) AS limitValue
+       FROM scheduled_usage_daily WHERE day = ? AND lane = 'all'
+       GROUP BY resource`,
+    ).bind(day).all<{ resource: string; consumed: number | string; limitValue: number | string | null }>(),
   ]);
+  const settingMap = new Map(settings.results.map((row) => [row.key, row.value]));
+  const configuredHours = Number(settingMap.get("x_collection_interval_hours") ?? "2");
+  const optimizerEnabled = settingMap.get("x_cost_optimizer_enabled") === "true";
+  const backoffUntil = Number(settingMap.get("x_api_backoff_until") ?? 0);
+  const guarded = guards.results.find((row) => {
+    const limit = Number(row.limitValue ?? 0);
+    return limit > 0 && Number(row.consumed) / limit >= 0.7;
+  });
+  const fallbackByResource: Record<string, string> = {
+    x_api_cost_micros: "x_budget",
+    d1_rows_read: "d1_reads",
+    d1_rows_written: "d1_writes",
+    queue_operations: "queue",
+  };
+  const fallbackReason = backoffUntil > timestamp
+    ? "provider_backoff"
+    : guarded
+      ? fallbackByResource[guarded.resource] ?? guarded.resource
+      : null;
+  const resourceCounts = new Map(resources.results.map((row) => [row.resource_type, asNumber(row.count)]));
+  const previewMode = settingMap.get("x_reference_preview_mode");
   return {
     lastCollectionSuccessAt: latest?.lastSuccessAt === null
       ? null
       : asNumber(latest?.lastSuccessAt),
     budgetUsedMicros: asNumber(budget?.used),
+    optimizer: {
+      enabled: optimizerEnabled,
+      configuredIntervalMinutes: configuredHours * 60,
+      effectiveIntervalMinutes: optimizerEnabled && fallbackReason
+        ? Math.max(configuredHours * 60, 60)
+        : configuredHours * 60,
+      fallbackReason,
+      referencePreviewMode: previewMode === "post_only" || previewMode === "link_only"
+        ? previewMode
+        : "cached_author",
+      previewBacklog: asNumber(references?.count),
+      authorCacheHitsToday: asNumber(dailyCost?.cacheHits),
+      authorCacheMissesToday: asNumber(dailyCost?.cacheMisses),
+      coalescedHandlesToday: asNumber(coalesced?.count),
+    },
+    utcCost: {
+      day,
+      uniquePosts: resourceCounts.get("post") ?? 0,
+      uniqueUsers: resourceCounts.get("user") ?? 0,
+      uniqueMedia: resourceCounts.get("media") ?? 0,
+      listedCostMicros: asNumber(dailyCost?.listed),
+      conservativeCostMicros: asNumber(dailyCost?.conservative),
+    },
   };
+};
+
+export const backfillXPostReferencesFromStoredPosts = async (
+  db: D1,
+  limit = 100,
+) => {
+  const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const rows = await db.prepare(
+    `SELECT p.id, p.value
+     FROM x_posts p
+     WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL
+       AND (json_extract(p.value, '$.quote.postId') IS NOT NULL
+         OR json_extract(p.value, '$.reply.postId') IS NOT NULL)
+       AND NOT EXISTS (
+         SELECT 1 FROM x_post_references r WHERE r.source_post_id = p.id
+       )
+     ORDER BY p.first_seen_at, p.id LIMIT ?`,
+  ).bind(boundedLimit).all<{ id: string; value: string }>();
+  let recorded = 0;
+  let invalid = 0;
+  const timestamp = Date.now();
+  for (const row of rows.results) {
+    const post = parseBackfillPost(row.value);
+    if (!post || post.id !== row.id) {
+      invalid += 1;
+      continue;
+    }
+    const references = [
+      post.quote ? { type: "quote", id: post.quote.postId, hydrated: Boolean(post.quote.post) } : null,
+      post.reply ? { type: "reply", id: post.reply.postId, hydrated: Boolean(post.reply.post) } : null,
+    ].filter((reference): reference is { type: "quote" | "reply"; id: string; hydrated: boolean } =>
+      Boolean(reference?.id)
+    );
+    for (const reference of references) {
+      const local = await db.prepare("SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1")
+        .bind(reference.id).first<{ found: number }>();
+      const state = local ? "local" : reference.hydrated ? "hydrated" : "pending";
+      await db.prepare(
+        `INSERT OR IGNORE INTO x_post_references (
+           source_post_id, relation_type, referenced_post_id,
+           resolution_state, attempt_count, next_attempt_at, hydrated_at,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      ).bind(
+        row.id,
+        reference.type,
+        reference.id,
+        state,
+        state === "pending" ? timestamp : null,
+        reference.hydrated ? timestamp : null,
+        timestamp,
+        timestamp,
+      ).run();
+      recorded += 1;
+    }
+  }
+  return { scanned: rows.results.length, recorded, invalid };
 };

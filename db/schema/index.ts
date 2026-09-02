@@ -273,6 +273,9 @@ export const xPostSources = sqliteTable("x_post_sources", {
   next_check_at: integer("next_check_at"),
   consecutive_failures: integer("consecutive_failures").notNull().default(0),
   last_error_code: text("last_error_code"),
+  lease_token: text("lease_token"),
+  lease_until: integer("lease_until"),
+  generation: integer().notNull().default(0),
   last_checked_at: integer("last_checked_at").notNull(),
   updated_at: integer("updated_at").notNull(),
   last_error: text("last_error"),
@@ -280,6 +283,86 @@ export const xPostSources = sqliteTable("x_post_sources", {
 
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
+
+export const xPostReferences = sqliteTable(
+  "x_post_references",
+  {
+    source_post_id: text("source_post_id")
+      .notNull()
+      .references(() => xPosts.id, { onDelete: "cascade" }),
+    relation_type: text("relation_type")
+      .$type<"reply" | "quote">()
+      .notNull(),
+    referenced_post_id: text("referenced_post_id").notNull(),
+    resolution_state: text("resolution_state")
+      .$type<"pending" | "local" | "hydrated" | "link_only" | "terminal">()
+      .notNull()
+      .default("pending"),
+    attempt_count: integer("attempt_count").notNull().default(0),
+    next_attempt_at: integer("next_attempt_at"),
+    last_error_code: text("last_error_code"),
+    hydrated_at: integer("hydrated_at"),
+    created_at: integer("created_at").notNull(),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.source_post_id, table.relation_type] }),
+    index("idx_x_post_references_due").on(
+      table.resolution_state,
+      table.next_attempt_at,
+    ),
+    index("idx_x_post_references_target").on(table.referenced_post_id),
+    check(
+      "x_post_references_relation_check",
+      sql`${table.relation_type} IN ('reply', 'quote')`,
+    ),
+    check(
+      "x_post_references_state_check",
+      sql`${table.resolution_state} IN ('pending', 'local', 'hydrated', 'link_only', 'terminal')`,
+    ),
+  ],
+);
+
+export const xApiResourceDaily = sqliteTable(
+  "x_api_resource_daily",
+  {
+    utc_day: text("utc_day").notNull(),
+    resource_type: text("resource_type")
+      .$type<"post" | "user" | "media">()
+      .notNull(),
+    resource_id: text("resource_id").notNull(),
+    first_operation: text("first_operation").notNull(),
+    unit_cost_micros: integer("unit_cost_micros").notNull(),
+    first_seen_at: integer("first_seen_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.utc_day, table.resource_type, table.resource_id],
+    }),
+    index("idx_x_api_resource_daily_seen").on(table.first_seen_at),
+  ],
+);
+
+export const xApiUsageDaily = sqliteTable(
+  "x_api_usage_daily",
+  {
+    utc_day: text("utc_day").notNull(),
+    operation: text().notNull(),
+    resource_type: text("resource_type").notNull(),
+    request_count: integer("request_count").notNull().default(0),
+    resource_count: integer("resource_count").notNull().default(0),
+    unique_resource_count: integer("unique_resource_count").notNull().default(0),
+    listed_cost_micros: integer("listed_cost_micros").notNull().default(0),
+    conservative_cost_micros: integer("conservative_cost_micros")
+      .notNull()
+      .default(0),
+    updated_at: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.utc_day, table.operation, table.resource_type] }),
+    index("idx_x_api_usage_daily_day").on(table.utc_day),
+  ],
+);
 
 // X 장기 기록은 원문 x_posts와 분리한다. 관리자 원문 제거 이후에도
 // 최소 식별자와 tombstone을 남기기 위한 정규화 레이어다.
@@ -349,6 +432,10 @@ export const xCollectionRuns = sqliteTable(
     estimated_cost_micros: integer("estimated_cost_micros")
       .notNull()
       .default(0),
+    effective_interval_minutes: integer("effective_interval_minutes"),
+    unique_resources: integer("unique_resources").notNull().default(0),
+    preview_deferred: integer("preview_deferred").notNull().default(0),
+    coalesced_handles: integer("coalesced_handles").notNull().default(0),
     status: text().notNull(),
     error: text(),
   },
