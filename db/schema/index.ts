@@ -558,12 +558,6 @@ export const youtubeApiUsageEvents = sqliteTable(
   },
   (table) => [
     index("idx_youtube_api_usage_events_created_at").on(table.created_at),
-    index("idx_youtube_api_usage_events_operation").on(table.operation),
-    index("idx_youtube_api_usage_events_status").on(table.status),
-    index("idx_youtube_api_usage_events_cache_key").on(table.cache_key),
-    index("idx_youtube_api_usage_events_request_origin").on(
-      table.request_origin,
-    ),
     check(
       "youtube_api_usage_events_operation_check",
       sql`operation IN ('channels.list', 'playlistItems.list', 'videos.list')`,
@@ -595,10 +589,7 @@ export const youtubeApiUsageContexts = sqliteTable(
     ingestion_job_id: text("ingestion_job_id"),
     monitor_id: text("monitor_id"),
   },
-  (table) => [
-    index("idx_youtube_api_usage_contexts_origin").on(table.origin),
-    index("idx_youtube_api_usage_contexts_workload").on(table.workload),
-  ],
+  () => [],
 );
 
 // 일반 YouTube 신규 업로드 피드 수집 상태. OTW Play 카탈로그와 분리한다.

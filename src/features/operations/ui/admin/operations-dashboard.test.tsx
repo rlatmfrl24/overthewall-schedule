@@ -40,6 +40,7 @@ const makeOperationsStatus = (
     queueOperations: { used: 95, limit: 100, usedPercent: 95 },
     d1WriteGuard: {
       status: "available",
+      measurement: "admission_estimate",
       used: 12_000,
       reserved: 1_000,
       limit: 40_000,
@@ -173,6 +174,7 @@ describe("OperationsDashboard", () => {
     fetchOperationsStatusMock.mockResolvedValue(makeOperationsStatus({
       d1WriteGuard: {
         status: "blocked",
+        measurement: "admission_estimate",
         used: 38_000,
         reserved: 2_000,
         limit: 40_000,
@@ -211,6 +213,7 @@ describe("OperationsDashboard", () => {
 
     const guardAlert = await screen.findByRole("alert");
     expect(guardAlert.textContent).toContain("Workflow 생성 차단");
+    expect(guardAlert.textContent).toContain("예상치");
     expect(guardAlert.textContent).toContain("run을 만들지 않는 사전 차단");
     expect(guardAlert.textContent).toContain("38,000");
     expect(guardAlert.textContent).toContain("2,000");
@@ -218,7 +221,7 @@ describe("OperationsDashboard", () => {
     expect(guardAlert.textContent).toContain("X 게시글 수집");
     expect(guardAlert.textContent).toContain("D1 데이터 보존");
     expect(guardAlert.textContent).toContain("추가 D1 쓰기 작업을 피하세요");
-    expect(screen.getByRole("progressbar", { name: "D1 일일 쓰기 사용량" }).getAttribute("aria-valuenow")).toBe("100");
+    expect(screen.getByRole("progressbar", { name: "D1 일일 예상 쓰기 사용량" }).getAttribute("aria-valuenow")).toBe("100");
 
     expect(screen.getByText("건너뜀")).toBeTruthy();
     expect(screen.getByText("대상 없음")).toBeTruthy();

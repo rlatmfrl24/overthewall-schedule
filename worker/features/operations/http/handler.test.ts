@@ -414,6 +414,7 @@ describe("operations worker route", () => {
       scheduledOperations: {
         d1WriteGuard: {
           status: string;
+          measurement: string;
           used: number;
           reserved: number;
           limit: number;
@@ -427,6 +428,7 @@ describe("operations worker route", () => {
     expect(response.status).toBe(200);
     expect(body.scheduledOperations.d1WriteGuard).toMatchObject({
       status: "blocked",
+      measurement: "admission_estimate",
       used: 38_000,
       reserved: 2_000,
       limit: 40_000,
@@ -543,6 +545,56 @@ describe("operations worker route", () => {
     expect(response.status).toBe(200);
     expect(body.xCollection.lastRun).toBe(oldSuccessAt);
     expect(body.summary.issues.map((issue) => issue.code)).toContain(
+      "x_collection_stale",
+    );
+  });
+
+  it("예산 초과로 shard가 skip되어도 일부 handle 수집이 성공했으면 freshness를 갱신한다", async () => {
+    const partialProgressAt = Date.now() - 30 * 60_000;
+    const oldSuccessAt = Date.now() - 12 * 60 * 60_000;
+    const response = await handleOperations(
+      new Request("https://example.com/api/operations/status?windowHours=24"),
+      makeEnv(
+        makeStatusD1({}, [
+          {
+            id: 5,
+            source: "scheduled",
+            started_at: partialProgressAt - 1000,
+            finished_at: partialProgressAt,
+            checked_handles: 4,
+            refreshed_handles: 2,
+            posts_returned: 2,
+            posts_stored: 2,
+            api_calls: 2,
+            estimated_cost_micros: 10_000,
+            status: "skipped",
+            error: "budget_exceeded",
+          },
+          {
+            id: 4,
+            source: "scheduled",
+            started_at: oldSuccessAt - 1000,
+            finished_at: oldSuccessAt,
+            checked_handles: 4,
+            refreshed_handles: 4,
+            posts_returned: 0,
+            posts_stored: 0,
+            api_calls: 4,
+            estimated_cost_micros: 0,
+            status: "success",
+            error: null,
+          },
+        ]),
+      ),
+    );
+    const body = (await response.json()) as {
+      summary: { issues: Array<{ code: string }> };
+      xCollection: { lastRun: number | null };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.xCollection.lastRun).toBe(partialProgressAt);
+    expect(body.summary.issues.map((issue) => issue.code)).not.toContain(
       "x_collection_stale",
     );
   });

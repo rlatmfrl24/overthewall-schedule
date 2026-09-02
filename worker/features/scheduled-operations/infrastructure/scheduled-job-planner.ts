@@ -29,14 +29,14 @@ const chunk = <T>(items: T[], size: number) => {
 
 const planXCollection = async (
   env: Env,
-  run: ScheduledJobRunRecord,
+  source: ScheduledJobRunRecord["source"],
   timestamp: number,
 ): Promise<NewScheduledItem[]> => {
   const rows = await env.otw_db.prepare(
     `SELECT value FROM settings WHERE key = 'x_collection_enabled'`,
   ).first<{ value: string | null }>();
   if (rows?.value === "false") return [];
-  if (run.source === "scheduled") {
+  if (source === "scheduled") {
     const decision = await getScheduledXCollectionDecision(
       getDb(env),
       timestamp,
@@ -98,14 +98,14 @@ const planNaverCafeCollection = async (
 
 const planAutoUpdate = async (
   env: Env,
-  run: ScheduledJobRunRecord,
+  source: ScheduledJobRunRecord["source"],
   timestamp: number,
 ): Promise<NewScheduledItem[]> => {
   const enabled = await env.otw_db.prepare(
     `SELECT value FROM settings WHERE key = 'auto_update_enabled'`,
   ).first<{ value: string | null }>();
   if (enabled?.value !== "true") return [];
-  if (run.source === "scheduled") {
+  if (source === "scheduled") {
     const [interval, lastRun] = await Promise.all([
       env.otw_db.prepare(
         `SELECT value FROM settings WHERE key = 'auto_update_interval_hours'`,
@@ -244,23 +244,34 @@ export class ScheduledJobPlanner {
     this.repository = repository;
   }
 
+  private async buildItems(
+    jobType: ScheduledJobType,
+    source: ScheduledJobRunRecord["source"],
+    timestamp: number,
+  ) {
+    switch (jobType) {
+      case "x_collection":
+        return planXCollection(this.env, source, timestamp);
+      case "naver_cafe_collection":
+        return planNaverCafeCollection(this.env, timestamp);
+      case "schedule_auto_update":
+        return planAutoUpdate(this.env, source, timestamp);
+      default:
+        return planSimpleJob(this.env, jobType, timestamp);
+    }
+  }
+
+  planScheduled(jobType: ScheduledJobType, timestamp: number) {
+    return this.buildItems(jobType, "scheduled", timestamp);
+  }
+
   async plan(run: ScheduledJobRunRecord) {
     const timestamp = run.scheduled_for ?? Date.now();
-    let items: NewScheduledItem[];
-    switch (run.job_type) {
-      case "x_collection":
-        items = await planXCollection(this.env, run, timestamp);
-        break;
-      case "naver_cafe_collection":
-        items = await planNaverCafeCollection(this.env, timestamp);
-        break;
-      case "schedule_auto_update":
-        items = await planAutoUpdate(this.env, run, timestamp);
-        break;
-      default:
-        items = await planSimpleJob(this.env, run.job_type, timestamp);
-        break;
-    }
+    const items = await this.buildItems(
+      run.job_type,
+      run.source,
+      timestamp,
+    );
     return this.repository.addItems(run.id, items);
   }
 }

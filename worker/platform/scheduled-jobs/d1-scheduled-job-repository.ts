@@ -297,7 +297,7 @@ export class D1ScheduledJobRepository {
     ).bind(runId).first<ScheduledJobRunRecord>();
   }
 
-  private readRunByIdempotencyKey(idempotencyKey: string) {
+  readRunByIdempotencyKey(idempotencyKey: string) {
     return this.db.prepare(
       `SELECT id, job_type, source, idempotency_key, scheduled_bucket, status,
               scheduled_for, accepted_at, started_at, finished_at, last_error,
