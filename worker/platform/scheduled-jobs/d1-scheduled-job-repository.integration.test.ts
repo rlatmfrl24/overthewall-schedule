@@ -303,6 +303,33 @@ describe("D1 scheduled job state machine", () => {
     expect(await repository.claimPendingOutbox(run.id, 10)).toEqual([]);
   });
 
+  it("제거된 legacy job type은 조회 DTO와 retry 경로에서 차단한다", async () => {
+    const repository = createRepository();
+    await db.prepare(
+      `INSERT INTO scheduled_job_runs (
+         id, job_type, source, idempotency_key, status, accepted_at,
+         last_error, created_at, updated_at
+       ) VALUES (?, 'x_metrics_refresh', 'scheduled', ?, 'failed', ?, ?, ?, ?)`,
+    ).bind(
+      "legacy-x-metrics",
+      "scheduled:x-metrics:legacy",
+      timestamp,
+      "legacy_job_type_removed",
+      timestamp,
+      timestamp,
+    ).run();
+
+    expect(await repository.readRunDto("legacy-x-metrics")).toBeNull();
+    expect(await repository.retryRun("legacy-x-metrics")).toEqual({
+      kind: "not_retryable",
+      status: "failed",
+    });
+    const row = await db.prepare(
+      "SELECT status FROM scheduled_job_runs WHERE id = ?",
+    ).bind("legacy-x-metrics").first<{ status: string }>();
+    expect(row?.status).toBe("failed");
+  });
+
   it("실패한 run retry는 failed item과 outbox만 다시 queued로 만든다", async () => {
     const repository = createRepository();
     const run = await repository.createRun({

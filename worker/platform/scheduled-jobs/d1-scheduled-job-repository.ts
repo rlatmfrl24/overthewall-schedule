@@ -6,6 +6,7 @@ import type {
   ScheduledJobStatus,
   ScheduledJobType,
 } from "@contracts/scheduled-operations";
+import { isScheduledJobType } from "@contracts/scheduled-operations";
 import {
   SCHEDULED_D1_READ_DAILY_TARGET,
   SCHEDULED_D1_WRITE_DAILY_TARGET,
@@ -769,7 +770,7 @@ export class D1ScheduledJobRepository {
 
   async readRunDto(runId: string) {
     const run = await this.readRun(runId);
-    if (!run) return null;
+    if (!run || !isScheduledJobType(run.job_type)) return null;
     const [progressRows, failuresResult] = await Promise.all([
       this.db.prepare(
         `SELECT status, COUNT(*) AS count
@@ -832,7 +833,10 @@ export class D1ScheduledJobRepository {
   async retryRun(runId: string) {
     const current = await this.readRun(runId);
     if (!current) return { kind: "not_found" as const };
-    if (!["failed", "partial", "throttled"].includes(current.status)) {
+    if (
+      !isScheduledJobType(current.job_type) ||
+      !["failed", "partial", "throttled"].includes(current.status)
+    ) {
       return {
         kind: "not_retryable" as const,
         status: current.status,
