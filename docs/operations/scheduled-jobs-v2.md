@@ -155,6 +155,21 @@ D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피
 facts 기록은 일반 TTL에서 제외한다. 비용 최소화 계약은
 `x-api-cost-minimization-design.md`를 따른다.
 
+### 2026-09-02 X API 최소화 rollout Closeout
+
+- PR #107, merge `d1f9363`, migration `0079`, Worker
+  `be965267-b4b1-4583-9bd7-84af77802260`으로 구현·배포 Closeout을 완료했다.
+- optimizer와 `cached_author`는 활성화했고 preview 예산은 UTC 5센트다. 안정 관찰을
+  위해 저장 interval은 2시간이며 최소 24시간 gate 통과 뒤에만 30분으로 전환한다.
+- Closeout snapshot은 post/facts 199/199, source/watermark 8/8, continuation 0,
+  pending migration·FK 위반 0이다.
+- X Workflow는 23·53분, 나머지 정규 작업은 기존 3·13·33분 계약을 유지한다.
+  X·D1·Queue 원장 또는 공급자 backoff가 70% guard에 도달하면 X 실효 주기는
+  60분으로 완화된다.
+- 2026-09-02부터 2026-10-02까지 automation `x-30`이 매일 15:30 KST에 수집 결과,
+  cursor, reference backfill, 비용, D1·Queue와 오류를 관찰한다. 7일·30일 비용 판정은
+  구현 완료와 분리된 운영 Closeout이다.
+
 ## 배포 순서
 
 `pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고 통합 Worker 한 개를 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경, 기존 Worker/Queue 삭제는 자동으로 수행하지 않는다. 최초 통합 전환은 `cloudflare-production-account-migration.md`의 drain·consumer handoff gate를 따라야 한다. Wrangler config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.

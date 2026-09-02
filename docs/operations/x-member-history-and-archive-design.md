@@ -86,7 +86,7 @@ hard delete와 복원 API는 제공하지 않는다. 관리자 화면은 실행 
 
 | 영역 | 판정 | 근거 |
 | --- | --- | --- |
-| 신규 수집 | 완료 | 8개 source, watermark 8/8, continuation 0, 2시간 incremental 경로 유지 |
+| 신규 수집 | 완료·관찰 중 | 8개 source, watermark 8/8, continuation 0. PR #107의 5→25 optimizer를 활성화하고 2시간 안정 관찰 뒤 조건부 30분 전환 |
 | 영구 저장 | 완료 | `x_posts`가 일반 TTL에서 제외되고 숨김 행 복원 방지 적용 |
 | 관리자 archive | 완료 | 필터·50/100 cursor·원문/상태 표시·no-store 관리자 API와 UI 적용 |
 | 단건 원문 제거 | 완료 | 원문·미디어 제거, 공개 숨김, facts tombstone, 감사 로그, 멱등 재호출 구현 |
