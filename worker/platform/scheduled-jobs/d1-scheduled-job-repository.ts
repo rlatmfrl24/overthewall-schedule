@@ -6,7 +6,10 @@ import type {
   ScheduledJobStatus,
   ScheduledJobType,
 } from "@contracts/scheduled-operations";
-import { isScheduledJobType } from "@contracts/scheduled-operations";
+import {
+  isScheduledJobType,
+  scheduledJobTypes,
+} from "@contracts/scheduled-operations";
 import {
   SCHEDULED_D1_READ_DAILY_TARGET,
   SCHEDULED_D1_WRITE_DAILY_TARGET,
@@ -811,8 +814,10 @@ export class D1ScheduledJobRepository {
     status?: ScheduledJobStatus;
     limit: number;
   }) {
-    const conditions: string[] = [];
-    const bindings: unknown[] = [];
+    const conditions: string[] = [
+      `job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})`,
+    ];
+    const bindings: unknown[] = [...scheduledJobTypes];
     if (input.jobType) {
       conditions.push("job_type = ?");
       bindings.push(input.jobType);

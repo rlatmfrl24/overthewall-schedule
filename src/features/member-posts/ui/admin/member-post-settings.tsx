@@ -63,6 +63,7 @@ import {
 import { NaverCafeSourceManager } from "@/features/naver-cafe";
 import { queryKeys } from "@/shared/query/query-keys";
 import { cn } from "@/shared/lib/utils";
+import { XPostHistoryManager } from "./x-post-history-manager";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -556,6 +557,8 @@ export function MemberPostSettingsManager({
 
   const isRichXLinkPreviewEnabled =
     settings?.x_rich_link_preview_enabled !== "false";
+  const isXHistoryAnalyticsEnabled =
+    settings?.x_history_analytics_enabled !== "false";
   const xPostsVisibility = settings?.x_posts_visibility ?? "members";
   const isNaverCafePostsEnabled =
     settings?.naver_cafe_posts_enabled !== "false";
@@ -758,6 +761,39 @@ export function MemberPostSettingsManager({
       toast({
         variant: "error",
         description: "멤버 게시글 관리 설정 변경에 실패했습니다.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleToggleXHistoryAnalytics = async (enabled: boolean) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        x_history_analytics_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.settings.detail(),
+      });
+      patchSettings({
+        x_history_analytics_enabled: enabled ? "true" : "false",
+      });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.memberPosts.all,
+      });
+      toast({
+        variant: "success",
+        description: enabled
+          ? "X 기록 색인과 관리자 아카이브를 활성화했습니다. 누락 항목은 수집 실행마다 보충됩니다."
+          : "X 기록 색인을 중지했습니다. 신규 게시물 원본 수집은 계속됩니다.",
+      });
+    } catch (error) {
+      console.error("Failed to update X history analytics setting:", error);
+      toast({
+        variant: "error",
+        description: "X 기록 분석 설정 변경에 실패했습니다.",
       });
     } finally {
       setIsSaving(false);
@@ -1125,8 +1161,33 @@ export function MemberPostSettingsManager({
                 </div>
               </div>
               </div>
+              <div className="border-t pt-3">
+                <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <Label htmlFor="x-history-analytics-enabled" className="text-sm font-semibold">
+                      관리자 영구 아카이브 색인
+                    </Label>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      꺼도 신규 게시물 원본 수집과 영구 보존은 계속됩니다. 다시 켜면 공급자 호출 없이 D1 원문에서 누락 색인을 보충합니다.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <Badge variant={isXHistoryAnalyticsEnabled ? "default" : "secondary"}>
+                      {isXHistoryAnalyticsEnabled ? "활성화" : "비활성"}
+                    </Badge>
+                    <Switch
+                      id="x-history-analytics-enabled"
+                      checked={isXHistoryAnalyticsEnabled}
+                      onCheckedChange={handleToggleXHistoryAnalytics}
+                      disabled={!settings || isSaving}
+                    />
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
+
+          <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
 
             </div>
             </MemberPostFeedMonitor>

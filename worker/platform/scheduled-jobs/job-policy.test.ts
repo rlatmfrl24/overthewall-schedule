@@ -36,13 +36,6 @@ describe("scheduled background admission policy", () => {
     }
   });
 
-  it("Compliance 입력 ID를 D1 write 행으로 과대 산정하지 않는다", () => {
-    expect(getEstimatedD1RowsPerItem("x_compliance")).toEqual({
-      rowsRead: 5_500,
-      rowsWritten: 100,
-    });
-  });
-
   it("auto-update probe는 hour별 idempotency bucket을 사용한다", () => {
     const firstHour = Date.parse("2026-08-31T01:05:00.000Z");
     const nextHour = Date.parse("2026-08-31T02:05:00.000Z");

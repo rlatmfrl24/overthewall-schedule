@@ -19,7 +19,6 @@ rollout flag와 무관하게 접수된다.
 
 - `scheduled_v2_naver_cafe_collection_enabled`
 - `scheduled_v2_x_collection_enabled`
-- `scheduled_v2_x_compliance_enabled`
 - `scheduled_v2_youtube_feed_collection_enabled`
 - `scheduled_v2_websub_maintenance_enabled`
 - `scheduled_v2_ingestion_recovery_enabled`
@@ -40,7 +39,7 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 - X는 4 handle, Naver Cafe는 4 source 단위이며 post/source-check를 bulk SQL로 기록한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 WebSub 즉시 알림을 1차 경로로 사용하고 channel reconcile은 누락 복구용이다. scheduler는 매시 23분에 due 여부만 확인하며, 채널별 실제 reconcile 간격은 6시간이다.
-- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health와 due인 X Compliance는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
 - 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·WebSub maintenance·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. 실시간 ingestion과 WebSub delivery Queue는 기존 concurrency 1/2를 유지한다.
 - X Workflow는 2시간, auto-update Workflow는 1시간마다 eligibility를 점검한다. 실제 실행 여부는 각각 `x_collection_interval_hours`와 `auto_update_interval_hours` 및 마지막 실행 시각으로 판정하므로 더 긴 관리 설정을 덮어쓰지 않는다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
@@ -79,12 +78,11 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 
 | 영역                   | 판정             | production 근거                                                                                                                                    | 남은 확인·후속                                                                                                                 |
 | ---------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| 공용 scheduler·rollout | 완료             | 정규 수집·OTW Play lane이 v2 scheduler에서 실행됨                                                                                                  | X Compliance의 실제 정상 결과는 아래 운영 canary 판정에 따름                                                                   |
+| 공용 scheduler·rollout | 완료             | 정규 수집·OTW Play lane이 v2 scheduler에서 실행됨                                                                                                  | 제거된 job type은 read model과 수동 실행 계약에서 허용하지 않음                                                                |
 | X 신규 피드            | 부분 완료        | 8개 source·160개 post, watermark 8/8, continuation 0, scheduled run 성공 6·skip 9                                                                  | 기존 source의 `last_attempt_at`·`last_success_at` 8/8 NULL. 실제 source refresh 뒤 row-level readback 필요                     |
 | X 공개 read            | 완료             | 공개 member-post GET 전후 `x_api_usage_events` 1,604건·max ID 7,161·추정비용 합계 14,140,000 micros로 동일                                         | 공개 archive는 추가하지 않음                                                                                                   |
 | X 장기 저장·redaction  | 완료             | X post 일반 TTL 제외, tombstone·관리자 redaction·재수집 복구 방지 구현                                                                             | 기존 160건·8 handle·숨김 0건 유지                                                                                              |
 | X 참여 지표 재조회     | 완료             | PR #103 runtime 제거 뒤 Worker `0948db90-1d51-48ae-84a6-f43822047819` 배포, migration `0077` 적용. 전용 table·setting·run·usage event 0건             | 신규 수집 응답의 수집 시점 지표만 유지                                                                                         |
-| X Batch Compliance     | 운영 canary 실패 | create는 성공하지만 공급자가 반환한 `api.x.com` upload URL에 공식 `PUT text/plain`을 수행하면 HTTP 404. redaction 0건                               | 공급자 upload 계약 정상화 후 전체 상태 전이와 정상 실행 3회 확인                                                              |
 | 네이버                 | 완료             | 8개 active source 모두 초기화·watermark, continuation 0, post 360건, scheduled run 성공 14·skip 13                                                 | 내부 Endpoint 변경 감시와 관리자 킬스위치 유지                                                                                 |
 | 일반 YouTube           | 부분 완료        | 14개 source(공식 8·키리누키 6) 모두 초기화·watermark, continuation 0, 영상 119건(공식 20·키리누키 99), run 성공 4                                  | `partial` 1건은 total/completed 1/1·failed 0·`last_error=NULL`이므로 결과 정규화 readback gap으로 추적                         |
 | OTW Play WebSub        | 완료             | monitor 1·active 1, subscription active 1, `verified_at=2026-09-01T05:14:09Z`, lease `2026-09-06T05:14:09Z`, 오류 없음                             | pause·승인 철회 시 unsubscribe 계약 유지                                                                                       |
@@ -105,49 +103,12 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 | `source_health`           | succeeded 5, skipped 23  |
 | `websub_maintenance`      | succeeded 6, skipped 21  |
 | `x_collection`            | succeeded 6, skipped 9   |
-| `x_compliance`            | failed 1                 |
 | `youtube_feed_collection` | succeeded 4, partial 1   |
 
-X 장기 기록·관리자 history·Batch Compliance의 코드와 migration은 배포했다. 로컬
-전체 migration chain도 검증했고 기본 로컬 DB에 `0075`와 `0076`을 적용했으며,
-Windows Wrangler의 일시적 `bad port`만 1회 재시도하도록 보강했다. 참여 지표
-재조회는 비용 절감 결정으로 제거한다. 실제 Compliance canary는 미완료이므로 X
-자동화 전체를 완료로 표시하지 않는다.
-
-### 2026-09-02 X Compliance 운영 hold
-
-- `x_compliance_enabled=true`, `scheduled_v2_x_compliance_enabled=false`
-- 미전달 `queued` run 3건은 `operator_disabled_x_compliance`로 `skipped`
-- 실행 가능한 Compliance item·outbox 0건, 공유 background Queue 전체 purge 없음
-- 실패 job 1건·입력 160개·시도 3회는 감사 이력으로 유지
-- 관측 비용: Compliance `$0.015` / 당일 X 전체 `$0.630`
-- 원인: create 성공 뒤 공급자가 반환한 `api.x.com` upload URL이 공식
-  `PUT text/plain` 요청에 HTTP 404를 반환한다. `api.twitter.com`으로 hostname을
-  바꾼 canary도 같은 404여서 애플리케이션 URL 치환으로 해결할 수 없다.
-- 조치: upload/download 404를 terminal 처리하고, 마지막 성공 또는 마지막 job
-  시도 중 더 최근 값을 기준으로 24시간/due preflight를 적용한다. 일일 상한
-  `$0.05`, D1 write 예약 5,500→100은 유지한다.
-- 확장 canary: `resumable` 생략, Bearer 포함/미포함 PUT, OPTIONS까지 모두 같은
-  `api.x.com` upload route에서 404였다. 공식 `xdevplatform/compliant-client`의
-  인증 없는 `PUT text/plain`과도 요청 계약이 일치하므로 X 공급자 incident로
-  판정한다. Enterprise 전용 Compliance stream으로 우회하지 않는다.
-
-`d1_rows_written` 원장은 실제 Cloudflare usage가 아니라 admission 추정치다. 기존
-Compliance 5 item은 27,500을 예약해 내부 40,000 목표의 68.75%를 소진했지만 실제
-D1 write 27,500행을 발생시킨 것은 아니다. 하루 한 cycle과 100행/item 정책에서는
-일반적인 5~6단계가 500~600행/일을 예약하고, API 호출 상한과 후속 단계를 모두
-사용하는 보수적 최악은 약 1,200행/일이다. Free 100,000 writes/day와 별도로 내부
-목표 40,000을 유지한다.
-
-운영 D1의 이동 24시간 actual은 408,039 writes로 Free 한도를 넘었지만, query
-insight의 실행당 약 3,870 write는 Compliance가 아니라 이미 증분화한 과거
-`music_search_gram_stats` 전체 재구축이었다. 최근 6시간 top-200 query actual은
-총 835 writes이고 Compliance·gram stats write는 0이다. 다음 UTC reset 이후에도
-이 수준이 유지되는지 별도 readback한다.
-
-Compliance는 장기 저장된 X 본문을 삭제·비공개·정지 상태와 동기화하는 정책상
-필요하므로 폐기하지 않는다. 실제 create→upload→poll→download→apply canary와
-redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유지한다.
+X 장기 기록과 관리자 history는 유지한다. 공급자 upload HTTP 404로 정상 실행이
+불가능했던 삭제 동기화 batch는 2026-09-02에 런타임·scheduler·설정·D1 계약에서
+제거했다. 33분 cron은 이제 `source_health`만 실행한다. 자세한 실패 증거는
+`docs/archive/x-provider-upload-404-incident-closeout.md`의 역사 기록으로 분리했다.
 
 ### 2026-09-02 X 참여 지표 비용 절감 결정
 
@@ -158,7 +119,7 @@ redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유�
   위해 유지하며 추가 X 호출을 만들지 않는다.
 - `x_post_metric_snapshots`, `x_member_daily_metrics`, facts의 metric scheduling
   column, 관련 setting·실행 이력·usage event는 contract migration에서 제거한다.
-- 게시물 원문·facts·수집 cursor·Compliance 상태와 관리자 history API는 유지한다.
+- 게시물 원문·facts·수집 cursor와 관리자 history API는 유지한다.
 
 ### 2026-09-02 X 참여 지표 제거 Closeout
 
@@ -176,6 +137,21 @@ redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유�
 
 D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피드 DTO와
 수집 시점 `public_metrics`는 유지되지만 이후 metric 재조회 경로는 존재하지 않는다.
+
+### 2026-09-02 X 공급자 삭제 동기화 제거 Closeout
+
+- runtime 선배포: `fcf12304-a291-4280-92f0-3e15892ff5b9`
+- migration: `0078_wealthy_marvel_apes.sql`
+- 최종 Worker: `26d325ac-6ab2-41a2-8d36-24e3d1cc53c1` 100%
+- 운영 D1 readback: `2026-09-02T04:15Z`
+- 보존: X post 198, facts 198, source 8, watermark 8, continuation 0,
+  공용 `all/x_api_cost_micros` 원장 3일치
+- 제거: 전용 schema·setting·run/item/outbox·usage event·일별 원장 전부 0
+- 검증: FK 위반·pending migration 0, 공개 GET 전후 X usage event 불변,
+  관리자 archive 50건과 다음 cursor 페이지 실제 조회 성공
+
+이후 33분 cron은 `source_health`만 계획한다. X는 짝수 UTC 시각의 23분에 2시간
+간격 eligibility를 확인하고, 영구 원문·facts 기록은 일반 TTL에서 제외한다.
 
 ## 배포 순서
 

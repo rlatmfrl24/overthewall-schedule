@@ -30,11 +30,8 @@ export {
 } from "./infrastructure/x-collection";
 export {
   redactStoredXPosts,
-  type XPostRedactionReason,
 } from "./infrastructure/x-api";
 export {
   readXHistoryHealth,
   readXHistoryPosts,
-  runXCompliance,
 } from "./infrastructure/x-history";
-export { X_COMPLIANCE_CYCLE_MS } from "./domain/x-compliance-policy";

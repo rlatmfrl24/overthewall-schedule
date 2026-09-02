@@ -169,14 +169,6 @@ const planSimpleJob = async (
         ? [{ targetKey: "feed:0", phase: "collect", lane }]
         : [];
     }
-    case "x_compliance": {
-      const enabled = await env.otw_db.prepare(
-        `SELECT value FROM settings WHERE key = 'x_compliance_enabled'`,
-      ).first<{ value: string | null }>();
-      return enabled?.value === "true"
-        ? [{ targetKey: "due:compliance", phase: "advance", lane }]
-        : [];
-    }
     case "websub_maintenance":
       return ["recover-delivery", "cleanup", "recover-intent", "renew"].map(
         (phase) => ({ targetKey: phase, phase, lane }),

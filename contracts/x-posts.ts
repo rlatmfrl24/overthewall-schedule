@@ -91,3 +91,31 @@ export interface XPostsResponseDto {
 export interface XPostsConfigResponseDto {
   visibility: XPostsVisibility;
 }
+
+export type XHistoryPostStatus = "visible" | "redacted";
+
+export interface XHistoryPostDto {
+  postId: string;
+  memberUid: number;
+  memberName: string;
+  postType: "post" | "reply" | "quote";
+  createdAt: number;
+  firstSeenAt: number;
+  mediaCount: number;
+  linkCount: number;
+  status: XHistoryPostStatus;
+  hiddenAt: number | null;
+  hiddenReason: string | null;
+  post: XPostDto | null;
+}
+
+export interface XHistoryPostsResponseDto {
+  posts: XHistoryPostDto[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export interface XHistoryHealthResponseDto {
+  lastCollectionSuccessAt: number | null;
+  budgetUsedMicros: number;
+}
