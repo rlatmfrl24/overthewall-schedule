@@ -281,8 +281,8 @@ export const xPostSources = sqliteTable("x_post_sources", {
 export type XPostSource = typeof xPostSources.$inferSelect;
 export type NewXPostSource = typeof xPostSources.$inferInsert;
 
-// X 장기 기록은 원문 x_posts와 분리한다. Compliance redaction 이후에도
-// 최소 식별자와 집계 정합성만 남기기 위한 정규화 레이어다.
+// X 장기 기록은 원문 x_posts와 분리한다. 관리자 원문 제거 이후에도
+// 최소 식별자와 tombstone을 남기기 위한 정규화 레이어다.
 export const xPostFacts = sqliteTable(
   "x_post_facts",
   {
@@ -306,38 +306,6 @@ export const xPostFacts = sqliteTable(
     check(
       "x_post_facts_type_check",
       sql`${table.post_type} IN ('post', 'reply', 'quote')`,
-    ),
-  ],
-);
-
-export const xComplianceJobs = sqliteTable(
-  "x_compliance_jobs",
-  {
-    id: text().primaryKey(),
-    provider_job_id: text("provider_job_id").unique(),
-    status: text().notNull(),
-    input_count: integer("input_count").notNull().default(0),
-    input_json: text("input_json"),
-    upload_url: text("upload_url"),
-    download_url: text("download_url"),
-    created_at: integer("created_at").notNull(),
-    upload_started_at: integer("upload_started_at"),
-    uploaded_at: integer("uploaded_at"),
-    last_polled_at: integer("last_polled_at"),
-    downloaded_at: integer("downloaded_at"),
-    applied_at: integer("applied_at"),
-    next_check_at: integer("next_check_at"),
-    attempts: integer().notNull().default(0),
-    error_code: text("error_code"),
-    error_detail: text("error_detail"),
-    updated_at: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("idx_x_compliance_jobs_due").on(table.status, table.next_check_at),
-    index("idx_x_compliance_jobs_created").on(table.created_at),
-    check(
-      "x_compliance_jobs_status_check",
-      sql`${table.status} IN ('created', 'uploading', 'uploaded', 'pending', 'complete', 'applied', 'failed')`,
     ),
   ],
 );
