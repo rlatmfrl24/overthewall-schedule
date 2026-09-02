@@ -83,7 +83,7 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 | X 신규 피드            | 부분 완료        | 8개 source·160개 post, watermark 8/8, continuation 0, scheduled run 성공 6·skip 9                                                                  | 기존 source의 `last_attempt_at`·`last_success_at` 8/8 NULL. 실제 source refresh 뒤 row-level readback 필요                     |
 | X 공개 read            | 완료             | 공개 member-post GET 전후 `x_api_usage_events` 1,604건·max ID 7,161·추정비용 합계 14,140,000 micros로 동일                                         | 공개 archive는 추가하지 않음                                                                                                   |
 | X 장기 저장·redaction  | 완료             | X post 일반 TTL 제외, tombstone·관리자 redaction·재수집 복구 방지 구현                                                                             | 기존 160건·8 handle·숨김 0건 유지                                                                                              |
-| X 참여 지표 재조회     | 제거             | 신규 수집 응답의 수집 시점 지표만 유지하고 24시간 재조회·snapshot·일별 engagement 집계·scheduler/API를 제거                                        | contract migration 적용 뒤 관련 table·setting·실행 이력 0건 readback                                                         |
+| X 참여 지표 재조회     | 완료             | PR #103 runtime 제거 뒤 Worker `0948db90-1d51-48ae-84a6-f43822047819` 배포, migration `0077` 적용. 전용 table·setting·run·usage event 0건             | 신규 수집 응답의 수집 시점 지표만 유지                                                                                         |
 | X Batch Compliance     | 운영 canary 실패 | create는 성공하지만 공급자가 반환한 `api.x.com` upload URL에 공식 `PUT text/plain`을 수행하면 HTTP 404. redaction 0건                               | 공급자 upload 계약 정상화 후 전체 상태 전이와 정상 실행 3회 확인                                                              |
 | 네이버                 | 완료             | 8개 active source 모두 초기화·watermark, continuation 0, post 360건, scheduled run 성공 14·skip 13                                                 | 내부 Endpoint 변경 감시와 관리자 킬스위치 유지                                                                                 |
 | 일반 YouTube           | 부분 완료        | 14개 source(공식 8·키리누키 6) 모두 초기화·watermark, continuation 0, 영상 119건(공식 20·키리누키 99), run 성공 4                                  | `partial` 1건은 total/completed 1/1·failed 0·`last_error=NULL`이므로 결과 정규화 readback gap으로 추적                         |
@@ -155,6 +155,23 @@ redaction readback 전까지 수동·정규 자동화 모두 운영 hold를 유�
 - `x_post_metric_snapshots`, `x_member_daily_metrics`, facts의 metric scheduling
   column, 관련 setting·실행 이력·usage event는 contract migration에서 제거한다.
 - 게시물 원문·facts·수집 cursor·Compliance 상태와 관리자 history API는 유지한다.
+
+### 2026-09-02 X 참여 지표 제거 Closeout
+
+- runtime PR: [#103](https://github.com/rlatmfrl24/overthewall-schedule/pull/103),
+  merge `c0fbedb4883e8103a0791245c107f9def702ac83`
+- schema PR: [#104](https://github.com/rlatmfrl24/overthewall-schedule/pull/104),
+  migration `0077_ambiguous_post.sql`
+- production Worker: `0948db90-1d51-48ae-84a6-f43822047819`
+- production D1 적용·readback: `2026-09-02T02:58:29Z`
+- 삭제: snapshot 227, 일별 집계 48, run 15, item 9, outbox 9, usage event 3,
+  metric setting 2
+- 보존: `x_post_facts` 127, `x_posts` 198
+- 검증: 전용 table·index·setting·run·usage event 0, pending migration 0,
+  `PRAGMA foreign_key_check` 0
+
+D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피드 DTO와
+수집 시점 `public_metrics`는 유지되지만 이후 metric 재조회 경로는 존재하지 않는다.
 
 ## 배포 순서
 
