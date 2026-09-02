@@ -14,6 +14,10 @@ import {
 const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 const KST_OFFSET_MS = 9 * HOUR_MS;
+const D1_MAX_BIND_PARAMETERS = 100;
+const X_METRIC_ERROR_FIXED_BINDINGS = 3;
+const X_METRIC_ERROR_CHUNK_SIZE =
+  D1_MAX_BIND_PARAMETERS - X_METRIC_ERROR_FIXED_BINDINGS;
 
 type D1 = Pick<D1Database, "prepare">;
 
@@ -196,16 +200,27 @@ const rebuildDailyMetric = async (db: D1, memberUid: number, date: string, times
 };
 
 const rebuildAffectedDailyMetrics = async (db: D1, postIds: readonly string[], timestamp: number) => {
-  if (postIds.length === 0) return;
-  const rows = await db.prepare(
-    `SELECT member_uid, created_at FROM x_post_facts
-     WHERE post_id IN (${postIds.map(() => "?").join(", ")})`,
-  ).bind(...postIds).all<{ member_uid: number | string; created_at: number | string }>();
+  const uniquePostIds = [...new Set(postIds.filter(Boolean))];
+  if (uniquePostIds.length === 0) return;
   const targets = new Map<string, { memberUid: number; date: string }>();
-  for (const row of rows.results) {
-    const memberUid = asNumber(row.member_uid);
-    const date = kstDate(asNumber(row.created_at));
-    targets.set(`${memberUid}:${date}`, { memberUid, date });
+  for (
+    let index = 0;
+    index < uniquePostIds.length;
+    index += D1_MAX_BIND_PARAMETERS
+  ) {
+    const chunk = uniquePostIds.slice(
+      index,
+      index + D1_MAX_BIND_PARAMETERS,
+    );
+    const rows = await db.prepare(
+      `SELECT member_uid, created_at FROM x_post_facts
+       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
+    ).bind(...chunk).all<{ member_uid: number | string; created_at: number | string }>();
+    for (const row of rows.results) {
+      const memberUid = asNumber(row.member_uid);
+      const date = kstDate(asNumber(row.created_at));
+      targets.set(`${memberUid}:${date}`, { memberUid, date });
+    }
   }
   for (const target of targets.values()) await rebuildDailyMetric(db, target.memberUid, target.date, timestamp);
 };
@@ -294,10 +309,23 @@ export const runXMetricRefresh = async (
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "x_metrics_refresh_failed";
-    await db.prepare(
-      `UPDATE x_post_facts SET last_metrics_error = ?, next_metrics_at = ?, updated_at = ?
-       WHERE post_id IN (${due.map(() => "?").join(", ")})`,
-    ).bind(message.slice(0, 200), timestamp + HOUR_MS, timestamp, ...due.map((item) => item.postId)).run();
+    const postIds = due.map((item) => item.postId);
+    for (
+      let index = 0;
+      index < postIds.length;
+      index += X_METRIC_ERROR_CHUNK_SIZE
+    ) {
+      const chunk = postIds.slice(index, index + X_METRIC_ERROR_CHUNK_SIZE);
+      await db.prepare(
+        `UPDATE x_post_facts SET last_metrics_error = ?, next_metrics_at = ?, updated_at = ?
+         WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
+      ).bind(
+        message.slice(0, 200),
+        timestamp + HOUR_MS,
+        timestamp,
+        ...chunk,
+      ).run();
+    }
     return { status: "failed" as const, attempted: due.length, succeeded: 0, failed: due.length, errorCode: message };
   }
 };

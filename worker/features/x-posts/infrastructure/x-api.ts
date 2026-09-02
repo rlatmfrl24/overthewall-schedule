@@ -517,7 +517,14 @@ const getCommaSeparatedParamCount = (path: string, key: string) => {
   return value.split(",").map((item) => item.trim()).filter(Boolean).length;
 };
 
-const estimateXApiRequestCostMicros = (
+const getCommaSeparatedParams = (path: string, key: string) => {
+  const query = path.split("?")[1] ?? "";
+  const value = new URLSearchParams(query).get(key);
+  if (!value) return [];
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+};
+
+export const estimateXApiRequestCostMicros = (
   operation: XApiUsageOperation,
   path: string,
 ) => {
@@ -527,10 +534,18 @@ const estimateXApiRequestCostMicros = (
 
   if (operation === "tweet_lookup") {
     const idCount = getCommaSeparatedParamCount(path, "ids");
+    const expansions = getCommaSeparatedParams(path, "expansions");
+    const includesUsers = expansions.some((value) =>
+      value === "author_id" ||
+      value === "entities.mentions.username" ||
+      value.endsWith(".author_id") ||
+      value.endsWith("_user_id")
+    );
+    const includesMedia = expansions.includes("attachments.media_keys");
     return (
       idCount * X_POST_READ_COST_MICROS +
-      idCount * X_USER_READ_COST_MICROS +
-      idCount * X_MEDIA_READ_COST_MICROS
+      (includesUsers ? idCount * X_USER_READ_COST_MICROS : 0) +
+      (includesMedia ? idCount * X_MEDIA_READ_COST_MICROS : 0)
     );
   }
 
