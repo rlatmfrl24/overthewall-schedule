@@ -744,6 +744,26 @@ describe("operations worker route", () => {
     );
   });
 
+  it("제거된 X Compliance 수동 실행 요청을 거부한다", async () => {
+    const createRun = vi.fn();
+    const asyncHandler = createOperationsHandler({
+      getApplication: () => ({ createRun }) as never,
+    });
+
+    const response = await asyncHandler(
+      new Request("https://example.com/api/operations/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobType: "x_compliance" }),
+      }),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("jobType is invalid");
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
   it("terminal operation retry는 현재 상태와 함께 409를 반환한다", async () => {
     const retryRun = vi.fn(async () => ({
       kind: "not_retryable" as const,
