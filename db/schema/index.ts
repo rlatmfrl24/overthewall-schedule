@@ -298,75 +298,15 @@ export const xPostFacts = sqliteTable(
     superseded_by_post_id: text("superseded_by_post_id"),
     hidden_at: integer("hidden_at"),
     hidden_reason: text("hidden_reason"),
-    initial_snapshot_completed_at: integer("initial_snapshot_completed_at"),
-    after_24h_snapshot_completed_at: integer("after_24h_snapshot_completed_at"),
-    next_metrics_at: integer("next_metrics_at"),
-    last_metrics_error: text("last_metrics_error"),
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
     index("idx_x_post_facts_member_created").on(table.member_uid, table.created_at),
-    index("idx_x_post_facts_metrics_due").on(table.next_metrics_at),
     index("idx_x_post_facts_visible_created").on(table.hidden_at, table.created_at),
     check(
       "x_post_facts_type_check",
       sql`${table.post_type} IN ('post', 'reply', 'quote')`,
     ),
-  ],
-);
-
-export const xPostMetricSnapshots = sqliteTable(
-  "x_post_metric_snapshots",
-  {
-    post_id: text("post_id").notNull(),
-    snapshot_kind: text("snapshot_kind").notNull(),
-    captured_at: integer("captured_at").notNull(),
-    like_count: integer("like_count").notNull().default(0),
-    reply_count: integer("reply_count").notNull().default(0),
-    repost_count: integer("repost_count").notNull().default(0),
-    quote_count: integer("quote_count").notNull().default(0),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.post_id, table.snapshot_kind],
-      name: "pk_x_post_metric_snapshots",
-    }),
-    index("idx_x_post_metric_snapshots_captured").on(table.captured_at),
-    check(
-      "x_post_metric_snapshots_kind_check",
-      sql`${table.snapshot_kind} IN ('initial', 'after_24h')`,
-    ),
-  ],
-);
-
-export const xMemberDailyMetrics = sqliteTable(
-  "x_member_daily_metrics",
-  {
-    kst_date: text("kst_date").notNull(),
-    member_uid: integer("member_uid").notNull(),
-    post_count: integer("post_count").notNull().default(0),
-    reply_count: integer("reply_count").notNull().default(0),
-    quote_count: integer("quote_count").notNull().default(0),
-    media_post_count: integer("media_post_count").notNull().default(0),
-    link_post_count: integer("link_post_count").notNull().default(0),
-    initial_like_count: integer("initial_like_count").notNull().default(0),
-    initial_reply_count: integer("initial_reply_count").notNull().default(0),
-    initial_repost_count: integer("initial_repost_count").notNull().default(0),
-    initial_quote_count: integer("initial_quote_count").notNull().default(0),
-    after_24h_like_count: integer("after_24h_like_count").notNull().default(0),
-    after_24h_reply_count: integer("after_24h_reply_count").notNull().default(0),
-    after_24h_repost_count: integer("after_24h_repost_count").notNull().default(0),
-    after_24h_quote_count: integer("after_24h_quote_count").notNull().default(0),
-    snapshot_covered_count: integer("snapshot_covered_count").notNull().default(0),
-    deleted_count: integer("deleted_count").notNull().default(0),
-    recalculated_at: integer("recalculated_at").notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.kst_date, table.member_uid],
-      name: "pk_x_member_daily_metrics",
-    }),
-    index("idx_x_member_daily_metrics_member_date").on(table.member_uid, table.kst_date),
   ],
 );
 
