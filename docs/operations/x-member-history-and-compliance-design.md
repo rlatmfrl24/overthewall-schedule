@@ -108,6 +108,25 @@ redaction 결과는 `x_posts.value`를 비우고 공개 노출을 중지하며 `
 공급자가 지원하지 않는다고 거절했다. 따라서 코드·기능 플래그는 유지하되 자동
 rollout은 공급자 전체 상태 전이 성공 전까지 `false`로 둔다.
 
+같은 날 확장 canary는 공식 Quickstart처럼 create body에서 `resumable`을 완전히
+생략하고 현재 보관 ID 1개를 제출했다. 반환 URL은 다시
+`api.x.com/2/compliance/jobs/{id}/upload`였고 다음 요청이 모두 빈 body의 HTTP
+404였다.
+
+- 공식 형식의 인증 없는 `PUT`, `Content-Type: text/plain`
+- 동일 URL에 Bearer를 추가한 `PUT`
+- 지원 method 확인용 `OPTIONS`(응답 `Allow` 없음)
+
+X가 공개한 `xdevplatform/compliant-client`도 인증 없는 `requests.put`과
+`text/plain`을 사용하므로 현재 구현 형식과 일치한다. Compliance stream은 공식상
+Enterprise 전용이어서 현재 저비용 배포의 대체 경로로 사용하지 않는다. 이 장애는
+애플리케이션 URL 치환이나 재시도로 정상화할 수 없으며 X 측 upload route 복구 또는
+계정별 entitlement 수정이 필요하다.
+
+지원 요청에는 App/Project, UTC create 시각, provider job ID, upload hostname·path,
+upload expiry, PUT/OPTIONS의 404와 resumable 400을 포함한다. signed URL의 `token`
+query와 Bearer token은 첨부하지 않는다.
+
 활성화 조건은 다음과 같다.
 
 1. 새 job create와 ID upload 성공
@@ -116,6 +135,11 @@ rollout은 공급자 전체 상태 전이 성공 전까지 `false`로 둔다.
 4. 테스트 redaction의 원문 제거·tombstone 유지 확인
 5. 같은 cycle 중복 job 0건과 비용·D1 원장 일치
 6. 성공 후 `scheduled_v2_x_compliance_enabled=true` readback
+
+공급자 incident 동안 `x_compliance_enabled=true`,
+`scheduled_v2_x_compliance_enabled=false`를 유지한다. 관리자 수동 redaction은 계속
+사용할 수 있지만 Batch Compliance 수동 실행은 같은 공급자 404를 만들 수 있으므로
+canary 외에는 실행하지 않는다.
 
 ## 6. 관리자 API
 

@@ -127,6 +127,10 @@ Windows Wrangler의 일시적 `bad port`만 1회 재시도하도록 보강했다
 - 조치: upload/download 404를 terminal 처리하고, 마지막 성공 또는 마지막 job
   시도 중 더 최근 값을 기준으로 24시간/due preflight를 적용한다. 일일 상한
   `$0.05`, D1 write 예약 5,500→100은 유지한다.
+- 확장 canary: `resumable` 생략, Bearer 포함/미포함 PUT, OPTIONS까지 모두 같은
+  `api.x.com` upload route에서 404였다. 공식 `xdevplatform/compliant-client`의
+  인증 없는 `PUT text/plain`과도 요청 계약이 일치하므로 X 공급자 incident로
+  판정한다. Enterprise 전용 Compliance stream으로 우회하지 않는다.
 
 `d1_rows_written` 원장은 실제 Cloudflare usage가 아니라 admission 추정치다. 기존
 Compliance 5 item은 27,500을 예약해 내부 40,000 목표의 68.75%를 소진했지만 실제
