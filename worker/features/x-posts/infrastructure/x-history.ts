@@ -60,7 +60,9 @@ const parseStoredPost = (value: string | null, postId: string): XPostDto | null 
   try {
     const parsed = JSON.parse(value) as Partial<XPostDto>;
     return parsed.id === postId && typeof parsed.text === "string" &&
-        typeof parsed.createdAt === "string" && typeof parsed.url === "string"
+        typeof parsed.createdAt === "string" && typeof parsed.url === "string" &&
+        typeof parsed.username === "string" && Array.isArray(parsed.media) &&
+        typeof parsed.metrics === "object" && parsed.metrics !== null
       ? parsed as XPostDto
       : null;
   } catch {

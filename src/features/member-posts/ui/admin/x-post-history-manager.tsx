@@ -39,6 +39,13 @@ const postKindLabel: Record<XHistoryPostDto["postType"], string> = {
   quote: "인용",
 };
 
+const getReferencedPost = (item: XHistoryPostDto) => {
+  if (!item.post) return null;
+  if (item.post.reply) return { kind: "답글 대상", ...item.post.reply };
+  if (item.post.quote) return { kind: "인용 원문", ...item.post.quote };
+  return null;
+};
+
 export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -122,8 +129,9 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
               <p className="rounded-md border p-4 text-sm text-muted-foreground">조건에 맞는 기록이 없습니다.</p>
             ) : (
               <div className="space-y-3">
-                {historyQuery.data?.posts.map((item) => (
-                  <article key={item.postId} className="rounded-lg border p-4">
+                {historyQuery.data?.posts.map((item) => {
+                  const referenced = getReferencedPost(item);
+                  return <article key={item.postId} className="rounded-lg border p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong>{item.memberName}</strong>
@@ -135,6 +143,25 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                     {item.post ? (
                       <>
                         <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{item.post.text}</p>
+                        {referenced && (
+                          <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm">
+                            <p className="mb-1 font-medium">{referenced.kind}</p>
+                            {referenced.post ? (
+                              <>
+                                <p className="whitespace-pre-wrap break-words text-muted-foreground">
+                                  {referenced.post.text}
+                                </p>
+                                <a href={referenced.post.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs underline">
+                                  참조 게시물 열기 <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </>
+                            ) : (
+                              <a href={`https://x.com/i/web/status/${referenced.postId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline">
+                                참조 ID로 X에서 열기 <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
+                        )}
                         {item.post.media.length > 0 && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{item.post.media.map((media) => media.previewImageUrl || media.url ? <img key={media.mediaKey} src={media.previewImageUrl ?? media.url ?? ""} alt={media.altText ?? "X 게시물 미디어"} className="aspect-video w-full rounded-md border object-cover" loading="lazy" /> : null)}</div>}
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>미디어 {item.mediaCount}</span><span>링크 {item.linkCount}</span><a href={item.post.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">X 원문 <ExternalLink className="h-3 w-3" /></a></div>
                         <Button type="button" size="sm" variant="destructive" className="mt-3" onClick={() => setConfirmPost(item)}><ShieldX className="mr-1 h-4 w-4" />원문 제거 및 숨김</Button>
@@ -142,8 +169,8 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                     ) : (
                       <p className="mt-3 text-sm text-muted-foreground">원문과 미디어가 제거되었습니다. 게시물 ID {item.postId}{item.hiddenAt ? ` · ${formatDate(item.hiddenAt)}` : ""}</p>
                     )}
-                  </article>
-                ))}
+                  </article>;
+                })}
               </div>
             )}
 

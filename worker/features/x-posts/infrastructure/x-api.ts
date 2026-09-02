@@ -1248,7 +1248,10 @@ export const redactStoredXPosts = async (
     ).bind(redactedAt, redactedAt, ...chunk).run();
     redacted += Number(result.meta?.changes ?? 0) || 0;
   }
-  if (redacted > 0) {
+  // Re-apply the tombstone whenever the stored post exists. If a previous
+  // request updated x_posts but the facts write failed, an idempotent retry
+  // must heal the normalized archive instead of leaving it visible there.
+  if (found > 0) {
     await redactXPostHistory(cacheDb, uniqueIds, redactedAt);
   }
   return {
