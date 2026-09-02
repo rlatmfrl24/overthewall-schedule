@@ -4,7 +4,7 @@
 
 - 상태: canonical implementation contract
 - 구현일: 2026-09-02
-- rollout 기본값: `x_cost_optimizer_enabled=false`, `x_collection_interval_hours=2`
+- rollout 현재값(2026-09-02): `x_cost_optimizer_enabled=true`, `x_collection_interval_hours=2`
 - 제품 계약: 소스 활성화 이후 신규 게시물만 수집하고 D1에 영구 보존하며 공개 요청은 D1만 읽는다.
 
 ## 1. 비용 기준선과 목표
@@ -106,10 +106,22 @@ D1·Queue 70% guard를 넘겨 수집 빈도를 유지하지 않는다.
 | 작성자 30일 cache | 구현 완료 | Post/User lookup 분리, `linked_user` D1 cache, `cached_author/post_only/link_only` |
 | 30/60분 scheduler | 구현 완료 | 23·53분 Cron, 30분 bucket, 70%·provider backoff 실효 60분 전환 |
 | 공개 API 호환 | 구현 완료 | 공개 route·DTO·D1-only reader 변경 없음 |
-| 운영 migration·flag | 미수행 | 이 문서 작성 시점에는 코드 구현만 완료했으며 운영 D1과 flag를 변경하지 않음 |
-| PR·Worker version·운영 readback | 대기 | 배포 PR/Worker identity와 authority readback 후 기록 |
+| 운영 migration·flag | 1단계 완료 | 2026-09-02 migration `0079` 적용, FK 오류 0, optimizer=`true`, preview=`cached_author`/5센트, 24시간 관찰을 위해 interval=`2` 유지 |
+| PR·Worker version·운영 readback | 배포 완료·병합 대기 | PR #107 head `f1d7ad0`, Worker `9bb27081-6bb4-4fe6-a34c-ffe5f03f3774`, posts=199, sources/watermarks=8/8, continuation=0 |
 | 7일 비용 Closeout | 대기 | Developer Console 실제 청구와 월 run-rate 대조 후 기록 |
 
 운영 Closeout에는 PR, Worker version, migration 적용 시각, source/watermark/
 continuation, 빈 poll write 0, cache hit/miss, coalesced 수, 70% fallback canary와 7일
 실제 비용을 추가한다. 관측 전에는 `$9.50` 목표 달성을 완료로 표현하지 않는다.
+
+### 2026-09-02 운영 rollout readback
+
+- 원격 migration 적용 후 pending migration과 `PRAGMA foreign_key_check` 결과는 모두 0이다.
+- 배포된 Cron은 `3,13,23,33,53 * * * *`이며 공개 X API는 필수 handle을 포함한
+  기존 요청에서 D1 저장 게시물을 정상 반환했다.
+- optimizer는 활성화했지만 수집 간격은 2시간으로 유지한다. 24시간 이상 신규행,
+  cursor, reference backfill, 예산·D1·Queue guard를 관찰한 뒤 조건을 만족할 때만
+  `0.5`로 전환한다.
+- 30일 관찰 기간에는 일별 내부 원장과 7일·30일 Developer Console 실제 청구를
+  구분해 기록한다. 공급자 실제 청구 확인 전에는 내부 추정치를 확정 비용으로
+  표현하지 않는다.
