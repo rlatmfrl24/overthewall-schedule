@@ -24,6 +24,8 @@ import {
 import type { Env } from "../../../platform/types";
 import {
   scheduledJobTypes,
+  type OperationJobHealth,
+  type OperationRunDto,
   type ScheduledJobStatus,
   type ScheduledJobType,
 } from "@contracts/scheduled-operations";
@@ -35,12 +37,32 @@ import type {
   OperationsActor,
   OperationsApplication,
 } from "../application/operations-application";
+import { CloudflareD1ObservabilityReader } from "./cloudflare-d1-observability-reader";
 
 const MEMBER_POSTS_PUBLIC_PATH = "/feed";
 const MEMBER_POSTS_MONITOR_PATH = "/admin/member-posts";
 const NaverCafeCheckSize = 5;
 const NaverCafeStaleThresholdMs = 24 * 60 * 60_000;
 const NaverCafeCollectionIntervalHours = 1;
+
+const normalSkipReasons = new Set([
+  "no_targets",
+  "no_eligible_targets",
+  "all_handles_cooldown",
+  "coalesced",
+  "not_due",
+]);
+
+const skipReasonLabels: Record<string, string> = {
+  no_targets: "처리할 대상 없음",
+  no_eligible_targets: "현재 점검 대상 없음",
+  all_handles_cooldown: "모든 X 소스가 다음 점검 대기 중",
+  coalesced: "동일 작업과 병합됨",
+  not_due: "아직 실행 시각이 아님",
+  v2_rollout_disabled: "예약 작업 비활성",
+  budget_exceeded: "일일 예산 초과",
+  daily_background_budget_exhausted: "정기 작업 일일 예산 초과",
+};
 
 type StatusLevel = "ok" | "warning" | "critical";
 type FeedVisibility = "public" | "members" | "private";
@@ -936,6 +958,119 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   };
 };
 
+const getRunReasonCode = (run: OperationRunDto | null) => {
+  const summaryReason = run?.summary?.reason;
+  if (typeof summaryReason === "string" && summaryReason.trim()) {
+    return summaryReason.trim();
+  }
+  return run?.lastError?.trim() || null;
+};
+
+export const classifyOperationJobHealth = (
+  enabled: boolean,
+  run: OperationRunDto | null,
+  normalSkip: boolean,
+  stale: boolean,
+): OperationJobHealth => {
+  if (!enabled) return "inactive";
+  if (!run) return "attention";
+  if (run.status === "failed") return "critical";
+  if (run.status === "partial" || run.status === "throttled") {
+    return "attention";
+  }
+  if (run.status === "skipped" && !normalSkip) return "attention";
+  if (stale) return "attention";
+  return "healthy";
+};
+
+const getJobExpectedIntervalMs = (
+  jobType: ScheduledJobType,
+  settings: Map<string, string | null>,
+) => {
+  if (jobType === "x_collection") {
+    return parseXCollectionIntervalHours(normalizeXCollectionIntervalHours(
+      settings.get("x_collection_interval_hours"),
+    )) * 60 * 60_000;
+  }
+  if (jobType === "schedule_auto_update") {
+    return parseAutoUpdateIntervalHours(normalizeAutoUpdateIntervalHours(
+      settings.get("auto_update_interval_hours"),
+    )) * 60 * 60_000;
+  }
+  return ({
+    ingestion_recovery: 60 * 60_000,
+    websub_maintenance: 60 * 60_000,
+    channel_reconcile: 6 * 60 * 60_000,
+    source_health: 24 * 60 * 60_000,
+    naver_cafe_collection: 6 * 60 * 60_000,
+    youtube_feed_collection: 6 * 60 * 60_000,
+    recent_reconcile: 24 * 60 * 60_000,
+    retention_prune: 24 * 60 * 60_000,
+  } satisfies Partial<Record<ScheduledJobType, number>>)[jobType] ??
+    60 * 60_000;
+};
+
+const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
+  const client = new ScheduledRunClient(env);
+  const settingKeys = [...scheduledJobTypes.map(
+    (jobType) => `scheduled_v2_${jobType}_enabled`,
+  ), "x_collection_interval_hours", "auto_update_interval_hours"];
+  const placeholders = settingKeys.map(() => "?").join(", ");
+  const [latestRuns, latestSuccessRows, settingRows] = await Promise.all([
+    client.listLatestRunsByJobType(),
+    client.readLatestSuccessfulRunTimes(),
+    env.otw_db.prepare(
+      `SELECT key, value FROM settings WHERE key IN (${placeholders})`,
+    ).bind(...settingKeys).all<SettingRow>(),
+  ]);
+  const runByJobType = new Map(latestRuns.map((run) => [run.jobType, run]));
+  const successByJobType = new Map(
+    latestSuccessRows.map((row) => [row.jobType, row.latestSuccessAt]),
+  );
+  const settings = getSettingMap(settingRows.results);
+  return {
+    summaries: scheduledJobTypes.map((jobType) => {
+      const latestRun = runByJobType.get(jobType) ?? null;
+      const runReasonCode = getRunReasonCode(latestRun);
+      const normalSkip = latestRun?.status === "skipped" &&
+        runReasonCode !== null && normalSkipReasons.has(runReasonCode);
+      const latestCheckAt = latestRun
+        ? latestRun.finishedAt ?? latestRun.startedAt ?? latestRun.acceptedAt
+        : null;
+      const normalizedSuccessAt = latestRun?.status === "succeeded"
+        ? latestRun.finishedAt ?? latestRun.startedAt ?? latestRun.acceptedAt
+        : null;
+      const latestSuccessAt = Math.max(
+        successByJobType.get(jobType) ?? 0,
+        normalizedSuccessAt ?? 0,
+      ) || null;
+      const enabled = settings.get(`scheduled_v2_${jobType}_enabled`) === "true";
+      const intervalMs = getJobExpectedIntervalMs(jobType, settings);
+      const nextExpectedAt = latestCheckAt === null
+        ? null
+        : latestCheckAt + intervalMs;
+      const stale = enabled && nextExpectedAt !== null &&
+        now > nextExpectedAt + intervalMs;
+      const reasonCode = stale ? "stale_check" : runReasonCode;
+      return {
+        jobType,
+        latestRun,
+        latestCheckAt,
+        latestSuccessAt,
+        nextExpectedAt,
+        health: classifyOperationJobHealth(enabled, latestRun, normalSkip, stale),
+        normalSkip,
+        reasonCode,
+        reasonLabel: reasonCode === null
+          ? null
+          : reasonCode === "stale_check"
+            ? "예상 주기보다 최근 점검이 늦습니다. 예약 작업 상태를 확인하세요."
+            : skipReasonLabels[reasonCode] ?? "확인이 필요한 실행 결과",
+      };
+    }),
+  };
+};
+
 type CollectNaverCafePosts = (
   sources: Array<{
     id: number;
@@ -1030,6 +1165,18 @@ export class D1OperationsApplication implements OperationsApplication {
 
   getStatus(windowHours: number) {
     return getOperationsStatus(this.env, windowHours);
+  }
+
+  getD1Observability() {
+    return new CloudflareD1ObservabilityReader(
+      this.env.CLOUDFLARE_ACCOUNT_ID,
+      this.env.CLOUDFLARE_D1_DATABASE_ID,
+      this.env.CLOUDFLARE_D1_ANALYTICS_READ_TOKEN,
+    ).read7Days();
+  }
+
+  getJobSummaries() {
+    return getOperationJobSummaries(this.env);
   }
 
   async checkNaverCafe(actor: OperationsActor) {

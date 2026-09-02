@@ -75,6 +75,8 @@ export const apiRoutes = {
   },
   operations: {
     status: staticRoute("/api/operations/status"),
+    d1Observability: staticRoute("/api/operations/d1-observability"),
+    jobSummaries: staticRoute("/api/operations/job-summaries"),
     runs: staticRoute("/api/operations/runs"),
     run: dynamicRoute(
       "/api/operations/runs/:runId",

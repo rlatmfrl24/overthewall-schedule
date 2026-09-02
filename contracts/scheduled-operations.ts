@@ -75,6 +75,28 @@ export type OperationRunListDto = {
   runs: OperationRunDto[];
 };
 
+export type OperationJobHealth =
+  | "healthy"
+  | "attention"
+  | "critical"
+  | "inactive";
+
+export type OperationJobSummaryDto = {
+  jobType: ScheduledJobType;
+  latestRun: OperationRunDto | null;
+  latestCheckAt: number | null;
+  latestSuccessAt: number | null;
+  nextExpectedAt: number | null;
+  health: OperationJobHealth;
+  normalSkip: boolean;
+  reasonCode: string | null;
+  reasonLabel: string | null;
+};
+
+export type OperationJobSummaryListDto = {
+  summaries: OperationJobSummaryDto[];
+};
+
 export type CreateOperationRunRequestDto = {
   jobType: ScheduledJobType;
 };

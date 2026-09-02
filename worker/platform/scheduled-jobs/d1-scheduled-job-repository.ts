@@ -182,7 +182,7 @@ const applyYouTubePartialProgress = (
 };
 
 const canNormalizeYouTubePartials = (
-  run: ScheduledJobRunRecord,
+  run: Pick<ScheduledJobRunRecord, "job_type" | "last_error">,
   partialCount: number,
   items: PartialItemEvidenceRow[],
 ) => run.job_type === "youtube_feed_collection" &&
@@ -1033,6 +1033,128 @@ export class D1ScheduledJobRepository {
       if (!readsNeedNormalization || rows.results.length < pageSize) break;
     } while (runs.length < input.limit);
     return runs.slice(0, input.limit);
+  }
+
+  async listLatestRunDtosByJobType() {
+    const rows = await this.db.prepare(
+      `WITH ranked AS (
+         SELECT r.id, r.job_type,
+                ROW_NUMBER() OVER (
+                  PARTITION BY r.job_type
+                  ORDER BY r.accepted_at DESC, r.id DESC
+                ) AS row_number
+         FROM scheduled_job_runs r
+         WHERE r.job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})
+       )
+       SELECT id FROM ranked WHERE row_number = 1`,
+    ).bind(...scheduledJobTypes).all<{ id: string }>();
+    const runs = await Promise.all(
+      rows.results.map((row) => this.readRunDto(row.id)),
+    );
+    return runs.filter((run): run is OperationRunDto => run !== null);
+  }
+
+  async readLatestSuccessfulRunTimes() {
+    const rows = await this.db.prepare(
+      `SELECT job_type AS jobType, MAX(finished_at) AS latestSuccessAt
+       FROM scheduled_job_runs
+       WHERE job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})
+         AND status = 'succeeded' AND finished_at IS NOT NULL
+       GROUP BY job_type`,
+    ).bind(...scheduledJobTypes).all<{
+      jobType: ScheduledJobType;
+      latestSuccessAt: number | string;
+    }>();
+    const latestByJobType = new Map<ScheduledJobType, number>();
+    for (const row of rows.results) {
+      if (!isScheduledJobType(row.jobType)) continue;
+      latestByJobType.set(row.jobType, Number(row.latestSuccessAt));
+    }
+
+    // Older YouTube runs can retain a raw `partial` status even when their
+    // nested source result proves that every target succeeded. Keep the
+    // operator-facing latest-success timestamp aligned with readRunDto's
+    // normalization without hydrating every historical run separately.
+    const rawYouTubeSuccessAt = latestByJobType.get("youtube_feed_collection") ?? null;
+    const partialRows = await this.db.prepare(
+      `SELECT r.id AS run_id, r.finished_at, r.last_error,
+              i.id, i.target_key, i.phase, i.status, i.attempts,
+              i.result_json, i.last_error_code, i.last_error AS item_last_error,
+              i.updated_at,
+              EXISTS(
+                SELECT 1 FROM scheduled_outbox o
+                WHERE o.item_id = i.id
+                  AND o.status IN ('pending', 'failed', 'dispatching')
+              ) AS retry_pending
+       FROM scheduled_job_runs r
+       INNER JOIN scheduled_job_items i ON i.run_id = r.id
+       WHERE r.job_type = 'youtube_feed_collection'
+         AND r.status = 'partial'
+         AND r.last_error IS NULL
+         AND r.finished_at IS NOT NULL
+         AND i.status = 'partial'
+         AND (? IS NULL OR r.finished_at > ?)
+       ORDER BY r.finished_at DESC, r.id DESC, i.id ASC`,
+    ).bind(rawYouTubeSuccessAt, rawYouTubeSuccessAt).all<{
+      run_id: string;
+      finished_at: number | string;
+      last_error: string | null;
+      id: string;
+      target_key: string;
+      phase: string;
+      status: string;
+      attempts: number;
+      result_json: string | null;
+      last_error_code: string | null;
+      item_last_error: string | null;
+      updated_at: number;
+      retry_pending: number;
+    }>();
+    const partialsByRun = new Map<string, {
+      finishedAt: number;
+      lastError: string | null;
+      items: PartialItemEvidenceRow[];
+    }>();
+    for (const row of partialRows.results) {
+      const current = partialsByRun.get(row.run_id) ?? {
+        finishedAt: Number(row.finished_at),
+        lastError: row.last_error,
+        items: [],
+      };
+      current.items.push({
+        id: row.id,
+        target_key: row.target_key,
+        phase: row.phase,
+        status: "partial",
+        attempts: row.attempts,
+        result_json: row.result_json,
+        last_error_code: row.last_error_code,
+        last_error: row.item_last_error,
+        updated_at: row.updated_at,
+        retry_pending: row.retry_pending,
+      });
+      partialsByRun.set(row.run_id, current);
+    }
+    for (const candidate of partialsByRun.values()) {
+      if (canNormalizeYouTubePartials(
+        { job_type: "youtube_feed_collection", last_error: candidate.lastError },
+        candidate.items.length,
+        candidate.items,
+      )) {
+        latestByJobType.set(
+          "youtube_feed_collection",
+          Math.max(
+            latestByJobType.get("youtube_feed_collection") ?? 0,
+            candidate.finishedAt,
+          ),
+        );
+      }
+    }
+
+    return [...latestByJobType].map(([jobType, latestSuccessAt]) => ({
+      jobType,
+      latestSuccessAt,
+    }));
   }
 
   async retryRun(runId: string) {

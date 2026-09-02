@@ -274,6 +274,60 @@ describe("D1 scheduled job state machine", () => {
       status: "partial",
       limit: 10,
     })).map((entry) => entry.runId)).not.toContain(run.id);
+    expect(await repository.readLatestSuccessfulRunTimes()).toContainEqual({
+      jobType: "youtube_feed_collection",
+      latestSuccessAt: timestamp,
+    });
+  });
+
+  it("작업별 최신 점검과 과거의 마지막 성공 시각을 서로 분리한다", async () => {
+    const repository = createRepository();
+    const succeeded = await repository.createRun({
+      jobType: "x_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:x:succeeded",
+    });
+    await repository.addItems(succeeded.id, [{
+      targetKey: "handle:member",
+      phase: "collect",
+      lane: "x",
+    }]);
+    const [outbox] = await repository.claimPendingOutbox(succeeded.id, 1);
+    await repository.markOutboxDispatched(outbox!.id);
+    const item = await repository.claimItem(outbox!.item_id);
+    expect(await repository.completeItem(item!, { status: "succeeded" })).toBe(true);
+    const latestSuccessAt = timestamp;
+
+    timestamp += 60_000;
+    const neutralSkip = await repository.createRun({
+      jobType: "x_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:x:not-due",
+    });
+    await repository.skipRun(neutralSkip.id, "all_handles_cooldown");
+
+    timestamp += 60_000;
+    const failed = await repository.createRun({
+      jobType: "naver_cafe_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:naver:failed",
+    });
+    await repository.markRunFailed(failed.id, "upstream_unavailable");
+
+    const latestByType = await repository.listLatestRunDtosByJobType();
+    expect(latestByType.find((run) => run.jobType === "x_collection")).toMatchObject({
+      runId: neutralSkip.id,
+      status: "skipped",
+      summary: { reason: "all_handles_cooldown" },
+    });
+    expect(latestByType.find((run) => run.jobType === "naver_cafe_collection")).toMatchObject({
+      runId: failed.id,
+      status: "failed",
+    });
+    expect(await repository.readLatestSuccessfulRunTimes()).toContainEqual({
+      jobType: "x_collection",
+      latestSuccessAt,
+    });
   });
 
   it("실제 소스 실패가 있는 YouTube partial과 내부 진행률을 보존한다", async () => {

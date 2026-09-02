@@ -298,6 +298,61 @@ describe("operations worker route", () => {
     );
   });
 
+  it("D1 실계측은 7d만 허용하고 관리자 no-store로 반환한다", async () => {
+    const getD1Observability = vi.fn(async () => ({
+      status: "unconfigured",
+      generatedAt: "2026-07-09T00:00:00.000Z",
+      cacheAgeSeconds: null,
+      timezone: "UTC",
+      windowDays: 7,
+      currentDay: null,
+      daily: [],
+      topWriteWorkloads: [],
+      reasonCode: "token_unconfigured",
+    }));
+    const route = createOperationsHandler({
+      getApplication: () => ({ getD1Observability }) as never,
+    });
+
+    const response = await route(
+      new Request("https://example.com/api/operations/d1-observability?window=7d"),
+      makeEnv(),
+    );
+    const invalid = await route(
+      new Request("https://example.com/api/operations/d1-observability?window=30d"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization");
+    expect(await response.json()).toMatchObject({
+      status: "unconfigured",
+      reasonCode: "token_unconfigured",
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.text()).toBe("window must be 7d");
+    expect(getD1Observability).toHaveBeenCalledOnce();
+  });
+
+  it("작업별 최신 요약을 별도 no-store 계약으로 반환한다", async () => {
+    const getJobSummaries = vi.fn(async () => ({ summaries: [] }));
+    const route = createOperationsHandler({
+      getApplication: () => ({ getJobSummaries }) as never,
+    });
+
+    const response = await route(
+      new Request("https://example.com/api/operations/job-summaries"),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Authorization");
+    expect(await response.json()).toEqual({ summaries: [] });
+    expect(getJobSummaries).toHaveBeenCalledOnce();
+  });
+
   it("status는 저장된 운영 이력만 집계하고 no-store로 반환한다", async () => {
     const response = await handleOperations(
       new Request("https://example.com/api/operations/status?windowHours=24"),

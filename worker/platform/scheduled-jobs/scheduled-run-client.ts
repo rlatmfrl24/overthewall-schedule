@@ -105,6 +105,14 @@ export class ScheduledRunClient {
     return this.repository.listRunDtos(input);
   }
 
+  listLatestRunsByJobType() {
+    return this.repository.listLatestRunDtosByJobType();
+  }
+
+  readLatestSuccessfulRunTimes() {
+    return this.repository.readLatestSuccessfulRunTimes();
+  }
+
   async retryRun(runId: string) {
     const outcome = await this.repository.retryRun(runId);
     if (outcome.kind !== "accepted") return outcome;

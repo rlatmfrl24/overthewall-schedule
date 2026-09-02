@@ -6,6 +6,7 @@ interface AdminSectionHeaderProps {
   description?: string;
   count?: number;
   actions?: ReactNode;
+  headingLevel?: 1 | 2;
 }
 
 export function AdminSectionHeader({
@@ -13,12 +14,14 @@ export function AdminSectionHeader({
   description,
   count,
   actions,
+  headingLevel = 2,
 }: AdminSectionHeaderProps) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+          <Heading className="text-xl font-semibold tracking-tight">{title}</Heading>
           {typeof count === "number" && (
             <Badge variant="secondary" className="h-5 px-2 text-xs">
               {count}

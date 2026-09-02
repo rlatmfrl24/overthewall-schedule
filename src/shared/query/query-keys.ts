@@ -174,6 +174,10 @@ export const queryKeys = {
     all: ["operations"] as const,
     status: (windowHours: number) =>
       [...queryKeys.operations.all, "status", windowHours] as const,
+    d1Observability: () =>
+      [...queryKeys.operations.all, "d1-observability", "7d"] as const,
+    jobSummaries: () =>
+      [...queryKeys.operations.all, "job-summaries"] as const,
     dataRetention: () =>
       [...queryKeys.operations.all, "data-retention"] as const,
     run: (runId: string) =>

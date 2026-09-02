@@ -1115,6 +1115,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOperations,
   },
   {
+    id: "operations.d1-observability",
+    owner: "operations",
+    path: apiRoutes.operations.d1Observability.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOperations,
+  },
+  {
+    id: "operations.job-summaries",
+    owner: "operations",
+    path: apiRoutes.operations.jobSummaries.pattern,
+    methods: methods(get(ADMIN_NO_STORE)),
+    handler: handleOperations,
+  },
+  {
     id: "operations.runs",
     owner: "operations",
     path: apiRoutes.operations.runs.pattern,

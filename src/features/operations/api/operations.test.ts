@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  fetchD1Observability,
   fetchDataRetentionStatus,
+  fetchOperationJobSummaries,
   fetchOperationsStatus,
   runAutoUpdateNow,
   runDataRetentionPrune,
@@ -31,6 +33,22 @@ describe("operations api", () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/operations/status?windowHours=72",
+      { cache: "no-store" },
+    );
+  });
+
+  it("D1 실계측과 작업별 최신 요약을 no-store로 조회한다", async () => {
+    await fetchD1Observability();
+    await fetchOperationJobSummaries();
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/operations/d1-observability?window=7d",
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/operations/job-summaries",
       { cache: "no-store" },
     );
   });

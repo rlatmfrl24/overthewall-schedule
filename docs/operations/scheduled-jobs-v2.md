@@ -226,6 +226,40 @@ steady-state 목표는 약 11,600에서 8,700 rows/day로 약 25% 낮추는 것�
 - 내부 admission 예상치는 안전을 위해 기존 40,000 rows/day 한도를 유지한다.
   실제 쓰기 감소를 이유로 guard를 완화하지 않는다.
 
+## 운영 대시보드 관측 계약
+
+운영 화면은 내부 admission 예상치와 Cloudflare D1 실계측을 같은 수치처럼
+보여주지 않는다.
+
+- `GET /api/operations/d1-observability?window=7d`는 관리자 전용이며
+  `d1AnalyticsAdaptiveGroups`와 `d1QueriesAdaptiveGroups`를 읽어 UTC 당일 실제
+  rows read/written, 최근 7일 추세, 최근 24시간 쓰기 원인 상위를 반환한다.
+- 실계측 reader는 5초 timeout과 Workers Cache API 5분 캐시만 사용한다. D1에
+  로그나 캐시 행을 쓰지 않고 브라우저 응답은 `Cache-Control: no-store`다.
+- 전용 secret `CLOUDFLARE_D1_ANALYTICS_READ_TOKEN`은 Account Analytics Read
+  최소 권한만 사용한다. 토큰 미설정·권한 오류·Cloudflare 장애는 화면에서
+  `실계측 확인 불가`로 표시하되 전체 운영 상태와 scheduler를 차단하지 않는다.
+- 화면의 `Cloudflare D1 실제 사용량`은 Free 기준 일 5,000,000 rows read와
+  100,000 rows written 대비 70/85/95% 상태를 표시한다. 청구 확정값이 아니라
+  Cloudflare Metrics 집계임을 함께 표시한다.
+- 기존 `scheduled_usage_daily`의 40,000 rows/day 값은 `정기 작업 쓰기 예산`으로
+  표시한다. 이는 예약 작업 실행 허용을 위한 보수적 예상치이며 실계측과 합치거나
+  자동 보정하지 않는다.
+- `GET /api/operations/job-summaries`는 job type별 최신 실행, 최근 점검, 최근 성공,
+  다음 예상 시각과 판정을 반환한다. `no_targets`, `no_eligible_targets`,
+  `all_handles_cooldown`, `coalesced`, `not_due`는 중립 결과이고 예산·quota·backoff·
+  인프라 오류와 알 수 없는 skip은 주의 이상이다.
+- X 카드의 freshness는 최근 실제 성공 하나만 보지 않는다. 최근 정상 no-op 또는
+  일부 handle 갱신이 있으면 최근 점검으로 인정하고, 예산 소진으로 갱신이 0건인
+  skip은 정상으로 위장하지 않는다.
+- 기본 탭은 `작업별 최신`이며 `/api/operations/runs`의 전체 시간순 이력은 사용자가
+  `전체 이력` 탭을 열었을 때만 조회한다. 이 지연 조회 자체가 대시보드의 반복 D1
+  read를 줄인다.
+
+운영 적용 후에는 같은 UTC 일의 API 값과 Cloudflare D1 Metrics 화면을 대조하고,
+24시간 동안 실계측·40,000행 예상치·쓰기 원인 상위를 함께 관찰한다. 관측 결과를
+근거로 하는 guard 조정은 이 UI 릴리스와 분리한다.
+
 ## 배포 순서
 
 `pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고 통합 Worker 한 개를 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경, 기존 Worker/Queue 삭제는 자동으로 수행하지 않는다. 최초 통합 전환은 `cloudflare-production-account-migration.md`의 drain·consumer handoff gate를 따라야 한다. Wrangler config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.
