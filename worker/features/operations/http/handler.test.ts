@@ -386,6 +386,55 @@ describe("operations worker route", () => {
     );
   });
 
+  it("예산 초과 skip은 정상 수집으로 위장하지 않고 오래된 성공 경고를 유지한다", async () => {
+    const oldSuccessAt = Date.now() - 12 * 60 * 60_000;
+    const response = await handleOperations(
+      new Request("https://example.com/api/operations/status?windowHours=24"),
+      makeEnv(
+        makeStatusD1({}, [
+          {
+            id: 4,
+            source: "scheduled",
+            started_at: Date.now() - 30 * 60_000 - 1000,
+            finished_at: Date.now() - 30 * 60_000,
+            checked_handles: 8,
+            refreshed_handles: 0,
+            posts_returned: 0,
+            posts_stored: 0,
+            api_calls: 0,
+            estimated_cost_micros: 0,
+            status: "skipped",
+            error: "budget_exceeded",
+          },
+          {
+            id: 3,
+            source: "scheduled",
+            started_at: oldSuccessAt - 1000,
+            finished_at: oldSuccessAt,
+            checked_handles: 8,
+            refreshed_handles: 8,
+            posts_returned: 0,
+            posts_stored: 0,
+            api_calls: 8,
+            estimated_cost_micros: 0,
+            status: "success",
+            error: null,
+          },
+        ]),
+      ),
+    );
+    const body = (await response.json()) as {
+      summary: { issues: Array<{ code: string }> };
+      xCollection: { lastRun: number | null };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.xCollection.lastRun).toBe(oldSuccessAt);
+    expect(body.summary.issues.map((issue) => issue.code)).toContain(
+      "x_collection_stale",
+    );
+  });
+
   it("pending은 과거 처리 로그 추정 없이 실제 행을 경고 대상으로 집계한다", async () => {
     const now = Date.now();
     const updateLogsStatement = makeStatement([

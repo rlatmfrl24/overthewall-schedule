@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Loader2, RefreshCw, ShieldX } from "lucide-react";
+import { Archive, ChevronDown, ExternalLink, Loader2, RefreshCw, ShieldX } from "lucide-react";
 import type { XHistoryPostDto, XHistoryPostStatus } from "@contracts/x-posts";
 import { fetchActiveMembers } from "@/features/members";
 import { queryKeys } from "@/shared/query/query-keys";
@@ -49,6 +49,7 @@ const getReferencedPost = (item: XHistoryPostDto) => {
 export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [revealed, setRevealed] = useState(false);
   const [memberUid, setMemberUid] = useState("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [from, setFrom] = useState("");
@@ -73,7 +74,7 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
   const historyQuery = useQuery({
     queryKey: queryKeys.memberPosts.xHistory(query),
     queryFn: () => fetchXHistoryPosts(query),
-    enabled,
+    enabled: enabled && revealed,
     staleTime: 30_000,
   });
   const redactMutation = useMutation({
@@ -92,13 +93,28 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
   const resetPage = () => setCursorStack([undefined]);
 
   return (
-    <Card>
+    <details
+      className="group overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm"
+      onToggle={(event) => setRevealed(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center gap-2">
+          <Archive className="h-4 w-4 text-muted-foreground" />
+          보관 기록 관리
+        </span>
+        <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
+          필요할 때만 열기
+          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="border-t p-4">
+      <Card className="border-0 shadow-none">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base">X 전체 기록</CardTitle>
+            <CardTitle className="text-base">X 보관 기록</CardTitle>
             <CardDescription>
-              관리자 전용 영구 아카이브입니다. 원문 제거는 복원할 수 없으며 tombstone과 감사 기록은 남습니다.
+              관리자 전용 보관 기록입니다. 평소에는 수집 상태만 확인하고 필요한 경우에만 이 화면을 사용합니다.
             </CardDescription>
           </div>
           <Button type="button" size="sm" variant="outline" onClick={() => void historyQuery.refetch()} disabled={!enabled || historyQuery.isFetching}>
@@ -124,7 +140,7 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
             {historyQuery.isLoading ? (
               <div className="flex justify-center py-10 text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />기록 불러오는 중...</div>
             ) : historyQuery.isError ? (
-              <p className="rounded-md border border-destructive/40 p-4 text-sm text-destructive">X 전체 기록을 불러오지 못했습니다.</p>
+              <p className="rounded-md border border-destructive/40 p-4 text-sm text-destructive">X 보관 기록을 불러오지 못했습니다.</p>
             ) : historyQuery.data?.posts.length === 0 ? (
               <p className="rounded-md border p-4 text-sm text-muted-foreground">조건에 맞는 기록이 없습니다.</p>
             ) : (
@@ -164,7 +180,18 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                         )}
                         {item.post.media.length > 0 && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{item.post.media.map((media) => media.previewImageUrl || media.url ? <img key={media.mediaKey} src={media.previewImageUrl ?? media.url ?? ""} alt={media.altText ?? "X 게시물 미디어"} className="aspect-video w-full rounded-md border object-cover" loading="lazy" /> : null)}</div>}
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>미디어 {item.mediaCount}</span><span>링크 {item.linkCount}</span><a href={item.post.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">X 원문 <ExternalLink className="h-3 w-3" /></a></div>
-                        <Button type="button" size="sm" variant="destructive" className="mt-3" onClick={() => setConfirmPost(item)}><ShieldX className="mr-1 h-4 w-4" />원문 제거 및 숨김</Button>
+                        <details className="mt-3 rounded-md border border-dashed bg-muted/10">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
+                            기타 관리
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </summary>
+                          <div className="border-t px-3 py-3">
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              삭제·비공개 등으로 원문 노출을 중지해야 할 때만 사용합니다.
+                            </p>
+                            <Button type="button" size="sm" variant="outline" className="mt-2 text-muted-foreground hover:border-destructive/50 hover:text-destructive" onClick={() => setConfirmPost(item)}><ShieldX className="mr-1 h-4 w-4" />원문 제거 및 숨김</Button>
+                          </div>
+                        </details>
                       </>
                     ) : (
                       <p className="mt-3 text-sm text-muted-foreground">원문과 미디어가 제거되었습니다. 게시물 ID {item.postId}{item.hiddenAt ? ` · ${formatDate(item.hiddenAt)}` : ""}</p>
@@ -196,6 +223,8 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+      </Card>
+      </div>
+    </details>
   );
 }
