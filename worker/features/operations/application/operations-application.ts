@@ -16,6 +16,8 @@ export type OperationRunRetryResult =
 
 export interface OperationsApplication {
   getStatus(windowHours: number): Promise<unknown>;
+  getD1Observability(): Promise<unknown>;
+  getJobSummaries(): Promise<unknown>;
   checkNaverCafe(actor: OperationsActor): Promise<unknown>;
   getDataRetentionStatus(): Promise<unknown>;
   pruneDataRetention(

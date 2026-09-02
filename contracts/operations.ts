@@ -214,6 +214,62 @@ export interface OperationsStatusResponseDto {
   };
 }
 
+export type D1ObservabilityStatus =
+  | "available"
+  | "unconfigured"
+  | "unavailable";
+
+export type D1ObservabilityReasonCode =
+  | "token_unconfigured"
+  | "permission_denied"
+  | "upstream_timeout"
+  | "upstream_error"
+  | "invalid_response";
+
+export interface D1ObservabilityDailyMetricDto {
+  day: string;
+  rowsRead: number;
+  rowsWritten: number;
+  readQueries: number;
+  writeQueries: number;
+}
+
+export interface D1ObservabilityCurrentDayDto
+  extends D1ObservabilityDailyMetricDto {
+  rowsReadLimit: number;
+  rowsWrittenLimit: number;
+  rowsReadPercent: number;
+  rowsWrittenPercent: number;
+}
+
+export interface D1ObservabilityWriteWorkloadDto {
+  key:
+    | "search_index"
+    | "scheduled_operations"
+    | "youtube_usage"
+    | "x_collection"
+    | "naver_collection"
+    | "retention"
+    | "maintenance"
+    | "other";
+  label: string;
+  rowsWritten: number;
+  queryCount: number;
+  sharePercent: number;
+}
+
+export interface D1ObservabilityResponseDto {
+  status: D1ObservabilityStatus;
+  generatedAt: string;
+  cacheAgeSeconds: number | null;
+  timezone: "UTC";
+  windowDays: 7;
+  currentDay: D1ObservabilityCurrentDayDto | null;
+  daily: D1ObservabilityDailyMetricDto[];
+  topWriteWorkloads: D1ObservabilityWriteWorkloadDto[];
+  reasonCode?: D1ObservabilityReasonCode;
+}
+
 export interface NaverCafeCheckNowResponseDto {
   success: boolean;
   updatedAt: string;

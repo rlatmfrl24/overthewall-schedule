@@ -7,6 +7,9 @@ import type {
   DataRetentionPruneResponseDto,
   DataRetentionRunSummaryDto,
   DataRetentionStatusResponseDto,
+  D1ObservabilityDailyMetricDto,
+  D1ObservabilityResponseDto,
+  D1ObservabilityWriteWorkloadDto,
   NaverCafeCheckNowResponseDto,
   NaverCafeOperationSourceDto,
   NaverCafeSourceCheckStatus,
@@ -23,6 +26,8 @@ import type {
 import type {
   OperationRunAcceptedDto,
   OperationRunDto,
+  OperationJobSummaryDto,
+  OperationJobSummaryListDto,
   OperationRunListDto,
   OperationRunProgressDto,
   ScheduledJobStatus,
@@ -36,6 +41,9 @@ export type DataRetentionPolicyStatus = DataRetentionPolicyStatusDto;
 export type DataRetentionPruneResponse = DataRetentionPruneResponseDto;
 export type DataRetentionRunSummary = DataRetentionRunSummaryDto;
 export type DataRetentionStatusResponse = DataRetentionStatusResponseDto;
+export type D1ObservabilityDailyMetric = D1ObservabilityDailyMetricDto;
+export type D1ObservabilityResponse = D1ObservabilityResponseDto;
+export type D1ObservabilityWriteWorkload = D1ObservabilityWriteWorkloadDto;
 export type NaverCafeCheckNowResponse = NaverCafeCheckNowResponseDto;
 export type NaverCafeOperationSource = NaverCafeOperationSourceDto;
 export type OperationsIssue = OperationsIssueDto;
@@ -51,6 +59,8 @@ export type {
   NaverCafeSourceCheckStatus,
   OperationsStatusLevel,
   OperationRunAcceptedDto as OperationRunAccepted,
+  OperationJobSummaryDto as OperationJobSummary,
+  OperationJobSummaryListDto as OperationJobSummaryList,
   OperationRunDto as OperationRun,
   OperationRunListDto as OperationRunList,
   OperationRunProgressDto as OperationRunProgress,

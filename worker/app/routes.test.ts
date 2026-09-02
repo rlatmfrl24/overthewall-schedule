@@ -679,6 +679,18 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
+    id: "operations.d1-observability",
+    owner: "operations",
+    path: "/api/operations/d1-observability",
+    methods: [ADMIN_GET],
+  },
+  {
+    id: "operations.job-summaries",
+    owner: "operations",
+    path: "/api/operations/job-summaries",
+    methods: [ADMIN_GET],
+  },
+  {
     id: "operations.runs",
     owner: "operations",
     path: "/api/operations/runs",

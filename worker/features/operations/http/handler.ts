@@ -27,6 +27,9 @@ const parseWindowHours = (value: string | null) => {
     : null;
 };
 
+const parseD1Window = (value: string | null) =>
+  value === null || value.trim() === "" || value.trim() === "7d" ? 7 : null;
+
 const parseDryRun = (value: string | null) => {
   if (value === null || value.trim() === "") return null;
   const normalized = value.trim().toLowerCase();
@@ -73,6 +76,23 @@ export const createOperationsHandler =
         return badRequest("windowHours must be an integer between 1 and 168");
       }
       return json(await application.getStatus(windowHours), 200, {
+        headers: NO_STORE_HEADERS,
+      });
+    }
+
+    if (url.pathname === "/api/operations/d1-observability") {
+      if (request.method !== "GET") return methodNotAllowed();
+      if (parseD1Window(url.searchParams.get("window")) === null) {
+        return badRequest("window must be 7d");
+      }
+      return json(await application.getD1Observability(), 200, {
+        headers: NO_STORE_HEADERS,
+      });
+    }
+
+    if (url.pathname === "/api/operations/job-summaries") {
+      if (request.method !== "GET") return methodNotAllowed();
+      return json(await application.getJobSummaries(), 200, {
         headers: NO_STORE_HEADERS,
       });
     }

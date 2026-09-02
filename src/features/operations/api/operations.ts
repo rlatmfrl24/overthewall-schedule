@@ -3,6 +3,8 @@ import { apiFetch } from "@/shared/api/client";
 import type {
   DataRetentionPruneResponse,
   DataRetentionStatusResponse,
+  D1ObservabilityResponse,
+  OperationJobSummaryList,
   OperationsStatusResponse,
   OperationRun,
   OperationRunAccepted,
@@ -17,6 +19,21 @@ export async function fetchOperationsStatus(
   const params = new URLSearchParams({ windowHours: String(windowHours) });
   return apiFetch<OperationsStatusResponse>(
     withRouteSearch(apiRoutes.operations.status.build(), params),
+    { cache: "no-store" },
+  );
+}
+
+export async function fetchD1Observability(): Promise<D1ObservabilityResponse> {
+  const params = new URLSearchParams({ window: "7d" });
+  return apiFetch<D1ObservabilityResponse>(
+    withRouteSearch(apiRoutes.operations.d1Observability.build(), params),
+    { cache: "no-store" },
+  );
+}
+
+export async function fetchOperationJobSummaries(): Promise<OperationJobSummaryList> {
+  return apiFetch<OperationJobSummaryList>(
+    apiRoutes.operations.jobSummaries.build(),
     { cache: "no-store" },
   );
 }
