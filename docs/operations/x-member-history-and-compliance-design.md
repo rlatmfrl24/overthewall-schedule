@@ -38,6 +38,21 @@ snapshot으로 복제하지 않는다.
 기존 snapshot·집계·관련 scheduled run은 제거 migration에서 삭제한다. 일반 X
 게시물, 원문, facts, cursor, 수집 원장과 Compliance 이력은 유지한다.
 
+### 2026-09-02 구현 Closeout
+
+- 런타임 제거: [PR #103](https://github.com/rlatmfrl24/overthewall-schedule/pull/103),
+  merge `c0fbedb4883e8103a0791245c107f9def702ac83`
+- production Worker: `0948db90-1d51-48ae-84a6-f43822047819`
+- contract 제거: [PR #104](https://github.com/rlatmfrl24/overthewall-schedule/pull/104),
+  migration `0077_ambiguous_post.sql`
+- production 적용·readback: `2026-09-02T02:58:29Z`
+
+운영에서 snapshot 227건, 일별 집계 48건, 관련 run 15건, item·outbox 각 9건,
+usage event 3건과 두 setting을 제거했다. 전용 table·index·setting·run·usage event는
+모두 0건이고 `x_post_facts` 127건, `x_posts` 198건은 보존됐다. facts는 아래에서
+정의한 13개 column만 가지며 `PRAGMA foreign_key_check`와 pending migration은 모두
+0건이다.
+
 ## 3. 데이터 권위
 
 ### `x_posts`
@@ -115,7 +130,7 @@ rollout은 공급자 전체 상태 전이 성공 전까지 `false`로 둔다.
 
 - 공개 신규 피드·장기 history cursor가 참여 지표 제거 전과 동일하게 동작
 - 운영·설정 API 어디에서도 metrics refresh job이나 snapshot flag를 허용하지 않음
-- remote D1에서 전용 테이블·컬럼·설정·대기 작업이 0건
+- remote D1에서 전용 테이블·컬럼·설정·작업·usage event가 0건
 - 공개 요청 전후 X API 사용 이벤트 증가 0
 - Compliance 24시간 gate와 terminal 실패 24시간 backoff 검증
 - 공급자 canary 전체 상태 전이 후에만 자동 rollout 활성화

@@ -103,3 +103,17 @@ write 예약 현실화를 적용한다. 장기 저장 본문을 공개하는 동
 실행 가능한 상태는 0건이었다. 기존 outbox 9건도 모두 이미 `dispatched`된 감사
 이력이므로 추가 공급자 호출을 일으키지 않는다. contract migration은 이 관련
 설정·실행 이력·전용 테이블을 삭제한다.
+
+### 2026-09-02 X 참여 지표 제거 Closeout
+
+[PR #103](https://github.com/rlatmfrl24/overthewall-schedule/pull/103)으로 재조회
+job·API·관리자 UI·공급자 lookup을 먼저 제거하고 production Worker
+`0948db90-1d51-48ae-84a6-f43822047819`의 100% 배포를 확인했다. 그 뒤
+[PR #104](https://github.com/rlatmfrl24/overthewall-schedule/pull/104)의 migration
+`0077_ambiguous_post.sql`을 운영 D1에 적용했다.
+
+`2026-09-02T02:58:29Z` readback에서 snapshot 227건·일별 집계 48건·관련 run
+15건·item/outbox 각 9건·usage event 3건·두 setting이 제거됐다. 전용 table·index와
+모든 관련 운영 행은 0건이고, `x_post_facts` 127건·`x_posts` 198건은 유지됐다.
+pending migration과 FK 위반도 0건이다. 이 시점부터 참여 지표는 일반 신규 수집
+응답에 포함된 수집 시점 값만 피드 호환용으로 저장하며 별도 재조회하지 않는다.
