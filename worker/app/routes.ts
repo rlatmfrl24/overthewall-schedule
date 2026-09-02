@@ -1062,13 +1062,6 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleXPosts,
   },
   {
-    id: "x-posts.history-summary",
-    owner: "x-posts",
-    path: apiRoutes.xPosts.historySummary.pattern,
-    methods: methods(get(ADMIN_NO_STORE)),
-    handler: handleXPosts,
-  },
-  {
     id: "x-posts.history-health",
     owner: "x-posts",
     path: apiRoutes.xPosts.historyHealth.pattern,

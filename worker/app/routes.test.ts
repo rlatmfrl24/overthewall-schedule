@@ -644,12 +644,6 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [ADMIN_GET],
   },
   {
-    id: "x-posts.history-summary",
-    owner: "x-posts",
-    path: "/api/x/history/summary",
-    methods: [ADMIN_GET],
-  },
-  {
     id: "x-posts.history-health",
     owner: "x-posts",
     path: "/api/x/history/health",

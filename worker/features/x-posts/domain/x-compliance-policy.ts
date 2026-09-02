@@ -3,11 +3,11 @@ const HOUR_MS = 60 * MINUTE_MS;
 
 export const X_COMPLIANCE_BATCH_SIZE = 5_000;
 export const X_COMPLIANCE_POLL_DELAY_MS = 15 * MINUTE_MS;
-export const X_COMPLIANCE_CYCLE_MS = 12 * HOUR_MS;
+export const X_COMPLIANCE_CYCLE_MS = 24 * HOUR_MS;
 export const X_COMPLIANCE_REQUEST_COST_MICROS = 5_000;
-// Ten paid Compliance API requests per UTC day. At the normal two cycles per
-// day this leaves room for create plus multiple status polls without allowing
-// a broken state machine to consume the collection budget.
+// Ten paid Compliance API requests per UTC day. A normal daily cycle uses
+// create plus a small number of status polls; this ceiling prevents a broken
+// state machine from consuming the collection budget.
 export const X_COMPLIANCE_DAILY_BUDGET_MICROS = 50_000;
 export const X_COMPLIANCE_MAX_ATTEMPTS = 5;
 export const X_COMPLIANCE_MAX_RETRY_DELAY_MS = 6 * HOUR_MS;
@@ -83,9 +83,11 @@ const TERMINAL_ERROR_CODES = new Set([
   "compliance_upload_http_400",
   "compliance_upload_http_401",
   "compliance_upload_http_403",
+  "compliance_upload_http_404",
   "compliance_download_http_400",
   "compliance_download_http_401",
   "compliance_download_http_403",
+  "compliance_download_http_404",
   "x_compliance_http_400",
   "x_compliance_http_401",
   "x_compliance_http_403",

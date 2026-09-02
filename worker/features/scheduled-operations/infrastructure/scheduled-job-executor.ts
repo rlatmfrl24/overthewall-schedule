@@ -20,10 +20,8 @@ import {
   type AutoUpdateResult,
 } from "../../schedules";
 import {
-  fetchXPostMetricsByIds,
   runXCollectionForHandles,
   runXCompliance,
-  runXMetricRefresh,
 } from "../../x-posts";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
@@ -221,24 +219,6 @@ export class ScheduledJobExecutor {
         return toXCollectionOutcome(
           await runXCollectionForHandles(this.env, handles, run.source),
         );
-      }
-      case "x_metrics_refresh": {
-        const result = await runXMetricRefresh(
-          this.env.otw_db,
-          (postIds) => fetchXPostMetricsByIds(postIds, {
-            bearerToken: this.env.X_BEARER_TOKEN,
-            cacheDb: this.env.otw_db,
-            usageSource: `metrics:${run.source}`,
-          }),
-        );
-        return {
-          status: result.status,
-          result,
-          attempted: result.attempted,
-          succeeded: result.succeeded,
-          failed: result.failed,
-          errorCode: "errorCode" in result ? result.errorCode ?? null : null,
-        };
       }
       case "x_compliance": {
         const result = await runXCompliance(this.env.otw_db, this.env.X_BEARER_TOKEN);

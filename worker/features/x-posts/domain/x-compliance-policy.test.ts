@@ -3,12 +3,14 @@ import {
   getNextUtcDayStart,
   getXComplianceRetryAt,
   validateXComplianceStorageUrl,
+  X_COMPLIANCE_CYCLE_MS,
   X_COMPLIANCE_DAILY_BUDGET_MICROS,
 } from "./x-compliance-policy";
 
 describe("X Compliance budget and retry policy", () => {
   it("caps the workload at ten paid requests per UTC day", () => {
     expect(X_COMPLIANCE_DAILY_BUDGET_MICROS).toBe(50_000);
+    expect(X_COMPLIANCE_CYCLE_MS).toBe(24 * 60 * 60_000);
   });
 
   it("terminal contract and authentication errors are not retried", () => {
@@ -25,6 +27,11 @@ describe("X Compliance budget and retry policy", () => {
     )).toBeNull();
     expect(getXComplianceRetryAt(
       "compliance_upload_http_403",
+      1,
+      timestamp,
+    )).toBeNull();
+    expect(getXComplianceRetryAt(
+      "compliance_upload_http_404",
       1,
       timestamp,
     )).toBeNull();

@@ -14,7 +14,7 @@ const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>
     "naver_cafe_collection",
   ],
   23: ["channel_reconcile", "youtube_feed_collection"],
-  33: ["source_health", "x_metrics_refresh", "x_compliance"],
+  33: ["source_health", "x_compliance"],
 };
 
 export function selectScheduledWorkflowJobs(
@@ -49,6 +49,7 @@ type XComplianceCronGateRow = {
   activeJob: number | string;
   hasPosts: number | string;
   lastCycleAt: number | string | null;
+  lastAttemptAt: number | string | null;
 };
 
 type ScheduledD1WriteGateRow = {
@@ -88,12 +89,17 @@ const isXComplianceDue = async (env: Env, scheduledTime: number) => {
          SELECT 1 FROM x_posts
          WHERE hidden_at IS NULL AND content_removed_at IS NULL
        ) AS hasPosts,
-       (SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at') AS lastCycleAt`,
+       (SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at') AS lastCycleAt,
+       (SELECT MAX(created_at) FROM x_compliance_jobs) AS lastAttemptAt`,
   ).bind(scheduledTime).first<XComplianceCronGateRow>();
   if (Number(row?.dueJob ?? 0) > 0) return true;
   if (Number(row?.activeJob ?? 0) > 0) return false;
   if (Number(row?.hasPosts ?? 0) === 0) return false;
-  return scheduledTime - Number(row?.lastCycleAt ?? 0) >= X_COMPLIANCE_CYCLE_MS;
+  const cadenceAnchor = Math.max(
+    Number(row?.lastCycleAt ?? 0),
+    Number(row?.lastAttemptAt ?? 0),
+  );
+  return scheduledTime - cadenceAnchor >= X_COMPLIANCE_CYCLE_MS;
 };
 
 export async function filterRunnableScheduledWorkflowJobs(

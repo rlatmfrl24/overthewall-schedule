@@ -169,14 +169,6 @@ const planSimpleJob = async (
         ? [{ targetKey: "feed:0", phase: "collect", lane }]
         : [];
     }
-    case "x_metrics_refresh": {
-      const enabled = await env.otw_db.prepare(
-        `SELECT value FROM settings WHERE key = 'x_metrics_snapshot_enabled'`,
-      ).first<{ value: string | null }>();
-      return enabled?.value === "true"
-        ? [{ targetKey: "due:metrics", phase: "refresh", lane }]
-        : [];
-    }
     case "x_compliance": {
       const enabled = await env.otw_db.prepare(
         `SELECT value FROM settings WHERE key = 'x_compliance_enabled'`,
