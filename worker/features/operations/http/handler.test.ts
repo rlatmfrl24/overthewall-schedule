@@ -44,6 +44,7 @@ const makeStatement = <T,>(rows: T[]) => {
   const statement = {
     bind: vi.fn(() => statement),
     all: vi.fn(async () => ({ results: rows })),
+    __batchResult: { results: rows },
   };
   return statement;
 };
@@ -51,9 +52,43 @@ const makeStatement = <T,>(rows: T[]) => {
 const makeStatusD1 = (
   settingOverrides: Record<string, string> = {},
   xRunsOverride?: Array<Record<string, unknown>>,
+  scheduledUsageRows: Array<Record<string, unknown>> = [
+    {
+      resource: "queue_operations",
+      used: 95,
+      reserved: 0,
+      limitValue: 5_000,
+    },
+    {
+      resource: "d1_rows_written",
+      used: 0,
+      reserved: 0,
+      limitValue: 40_000,
+    },
+  ],
 ) => {
   const now = Date.now();
   const prepare = vi.fn((sql: string) => {
+    if (sql.includes("FROM scheduled_job_runs")) {
+      return makeStatement([{
+        activeRunCount: 0,
+        staleLeaseCount: 0,
+        outboxBacklog: 0,
+        oldestOutboxAvailableAt: null,
+      }]);
+    }
+    if (
+      sql.includes("FROM scheduled_usage_daily") &&
+      sql.includes("resource = 'd1_rows_written'")
+    ) {
+      return makeStatement([
+        scheduledUsageRows.find((row) => row.resource === "d1_rows_written") ??
+        { used: 0, reserved: 0, limitValue: null },
+      ]);
+    }
+    if (sql.includes("FROM scheduled_usage_daily")) {
+      return makeStatement(scheduledUsageRows);
+    }
     if (sql.includes("FROM settings")) {
       return makeStatement([
         { key: "auto_update_enabled", value: "true" },
@@ -68,6 +103,16 @@ const makeStatusD1 = (
         { key: "naver_cafe_posts_enabled", value: "true" },
         { key: "naver_cafe_posts_visibility", value: "members" },
         { key: "naver_cafe_collection_last_run", value: String(now - 45 * 60_000) },
+        { key: "scheduled_v2_x_collection_enabled", value: "true" },
+        { key: "scheduled_v2_naver_cafe_collection_enabled", value: "true" },
+        { key: "scheduled_v2_youtube_feed_collection_enabled", value: "true" },
+        { key: "scheduled_v2_schedule_auto_update_enabled", value: "true" },
+        { key: "scheduled_v2_ingestion_recovery_enabled", value: "true" },
+        { key: "scheduled_v2_channel_reconcile_enabled", value: "true" },
+        { key: "scheduled_v2_recent_reconcile_enabled", value: "true" },
+        { key: "scheduled_v2_websub_maintenance_enabled", value: "true" },
+        { key: "scheduled_v2_source_health_enabled", value: "true" },
+        { key: "scheduled_v2_retention_prune_enabled", value: "true" },
       ].map((setting) => ({
         ...setting,
         value: settingOverrides[setting.key] ?? setting.value,
@@ -197,7 +242,11 @@ const makeStatusD1 = (
     throw new Error(`Unexpected SQL: ${sql}`);
   });
 
-  return { prepare } as unknown as D1Database;
+  const batch = vi.fn(async (statements: Array<{ __batchResult?: D1Result<unknown> }>) =>
+    statements.map((statement) => statement.__batchResult ?? { results: [] })
+  );
+
+  return { prepare, batch } as unknown as D1Database;
 };
 
 const makeEnv = (db: D1Database = makeStatusD1()): Env =>
@@ -335,6 +384,69 @@ describe("operations worker route", () => {
       stale: false,
     });
     expect(collectNaverCafePostsForSourcesMock).not.toHaveBeenCalled();
+  });
+
+  it("D1 write guard 차단을 usage ledger 읽기만으로 별도 계약에 표시한다", async () => {
+    const db = makeStatusD1({}, undefined, [
+      {
+        resource: "queue_operations",
+        used: 1_200,
+        reserved: 50,
+        limitValue: 5_000,
+      },
+      {
+        resource: "d1_rows_written",
+        used: 38_000,
+        reserved: 2_000,
+        limitValue: 40_000,
+      },
+    ]) as D1Database & { prepare: ReturnType<typeof vi.fn> };
+
+    const response = await handleOperations(
+      new Request("https://example.com/api/operations/status?windowHours=24"),
+      makeEnv(db),
+    );
+    const body = (await response.json()) as {
+      summary: {
+        status: string;
+        issues: Array<{ code: string; severity: string }>;
+      };
+      scheduledOperations: {
+        d1WriteGuard: {
+          status: string;
+          used: number;
+          reserved: number;
+          limit: number;
+          usedPercent: number;
+          blockedJobTypes: string[];
+          resetAt: number;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.scheduledOperations.d1WriteGuard).toMatchObject({
+      status: "blocked",
+      used: 38_000,
+      reserved: 2_000,
+      limit: 40_000,
+      usedPercent: 100,
+      resetAt: Date.UTC(2026, 6, 10, 0, 0),
+    });
+    expect(body.scheduledOperations.d1WriteGuard.blockedJobTypes).toEqual(
+      expect.arrayContaining([
+        "x_collection",
+        "schedule_auto_update",
+        "retention_prune",
+      ]),
+    );
+    expect(body.summary.status).toBe("critical");
+    expect(body.summary.issues).toContainEqual(expect.objectContaining({
+      code: "scheduled_d1_write_guard_blocked",
+      severity: "critical",
+    }));
+    const preparedSql = db.prepare.mock.calls.map(([sql]) => String(sql));
+    expect(preparedSql.some((sql) => /^\s*(?:INSERT|UPDATE|DELETE)\b/i.test(sql))).toBe(false);
   });
 
   it("모든 핸들이 쿨다운 중인 정상 no-op을 최근 X 수집으로 인정한다", async () => {

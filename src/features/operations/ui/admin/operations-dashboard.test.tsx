@@ -38,6 +38,15 @@ const makeOperationsStatus = (
     outboxBacklog: 0,
     oldestOutboxAvailableAt: null,
     queueOperations: { used: 95, limit: 100, usedPercent: 95 },
+    d1WriteGuard: {
+      status: "available",
+      used: 12_000,
+      reserved: 1_000,
+      limit: 40_000,
+      usedPercent: 32.5,
+      blockedJobTypes: [],
+      resetAt: Date.UTC(2026, 8, 2, 0, 0),
+    },
     dailyUsage: [],
     ...overrides,
   },
@@ -158,5 +167,107 @@ describe("OperationsDashboard", () => {
     expect(outbox.parentElement?.className).toContain("bg-muted/25");
     expect(stale.parentElement?.className).toContain("bg-destructive/5");
     expect(screen.getByText("2")).toBeTruthy();
+  });
+
+  it("shows a blocked D1 write guard separately from an ordinary skipped run", async () => {
+    fetchOperationsStatusMock.mockResolvedValue(makeOperationsStatus({
+      d1WriteGuard: {
+        status: "blocked",
+        used: 38_000,
+        reserved: 2_000,
+        limit: 40_000,
+        usedPercent: 100,
+        blockedJobTypes: ["x_collection", "retention_prune"],
+        resetAt: Date.UTC(2026, 8, 2, 0, 0),
+      },
+    }));
+    fetchOperationRunsMock.mockResolvedValue({
+      runs: [{
+        runId: "run-skipped",
+        jobType: "source_health",
+        source: "scheduled",
+        status: "skipped",
+        idempotencyKey: "scheduled:source_health:test",
+        scheduledFor: Date.UTC(2026, 8, 1, 23, 33),
+        acceptedAt: Date.UTC(2026, 8, 1, 23, 33),
+        startedAt: Date.UTC(2026, 8, 1, 23, 33),
+        finishedAt: Date.UTC(2026, 8, 1, 23, 33),
+        progress: {
+          total: 0,
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          skipped: 0,
+          throttled: 0,
+        },
+        failures: [],
+        summary: { reason: "no_eligible_targets" },
+        lastError: null,
+      }],
+    });
+
+    render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
+
+    const guardAlert = await screen.findByRole("alert");
+    expect(guardAlert.textContent).toContain("Workflow 생성 차단");
+    expect(guardAlert.textContent).toContain("run을 만들지 않는 사전 차단");
+    expect(guardAlert.textContent).toContain("38,000");
+    expect(guardAlert.textContent).toContain("2,000");
+    expect(guardAlert.textContent).toContain("40,000");
+    expect(guardAlert.textContent).toContain("X 게시글 수집");
+    expect(guardAlert.textContent).toContain("D1 데이터 보존");
+    expect(guardAlert.textContent).toContain("추가 D1 쓰기 작업을 피하세요");
+    expect(screen.getByRole("progressbar", { name: "D1 일일 쓰기 사용량" }).getAttribute("aria-valuenow")).toBe("100");
+
+    expect(screen.getByText("건너뜀")).toBeTruthy();
+    expect(screen.getByText("대상 없음")).toBeTruthy();
+    expect(screen.getByText("사유: no_eligible_targets")).toBeTruthy();
+  });
+
+  it("reads back genuine YouTube partial source counts instead of the wrapper item count", async () => {
+    fetchOperationRunsMock.mockResolvedValue({
+      runs: [{
+        runId: "youtube-partial",
+        jobType: "youtube_feed_collection",
+        source: "scheduled",
+        status: "partial",
+        idempotencyKey: "scheduled:youtube:partial",
+        scheduledFor: null,
+        acceptedAt: 1_756_684_800_000,
+        startedAt: 1_756_684_800_000,
+        finishedAt: 1_756_684_801_000,
+        progress: {
+          total: 5,
+          queued: 0,
+          running: 0,
+          succeeded: 4,
+          failed: 1,
+          skipped: 0,
+          throttled: 0,
+        },
+        failures: [{
+          itemId: "youtube-feed-item",
+          targetKey: "youtube-feed",
+          phase: "collect",
+          code: "youtube_feed_collection_partial",
+          message: "YouTube feed collection failed for 1 of 5 sources",
+          attempts: 1,
+          lastAttemptAt: 1_756_684_801_000,
+        }],
+        summary: null,
+        lastError: null,
+      }],
+    } satisfies OperationRunList);
+
+    render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
+
+    expect(await screen.findByText("YouTube 신규 피드 수집")).toBeTruthy();
+    expect(screen.getByText("일부 실패")).toBeTruthy();
+    expect(screen.getByText("5/5")).toBeTruthy();
+    expect(screen.getByText("성공 4 · 실패 1 · 진행 0 · 대기 0")).toBeTruthy();
+    expect(
+      screen.getByText(/YouTube feed collection failed for 1 of 5 sources/),
+    ).toBeTruthy();
   });
 });

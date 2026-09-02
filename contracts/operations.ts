@@ -1,4 +1,5 @@
 import type { NaverCafePostsVisibility } from "./naver-cafe";
+import type { ScheduledJobType } from "./scheduled-operations";
 import type { XPostsVisibility } from "./x-posts";
 
 export type OperationsStatusLevel = "ok" | "warning" | "critical";
@@ -127,6 +128,15 @@ export interface OperationsStatusResponseDto {
       used: number;
       limit: number;
       usedPercent: number;
+    };
+    d1WriteGuard: {
+      status: "available" | "blocked" | "unavailable";
+      used: number;
+      reserved: number;
+      limit: number;
+      usedPercent: number;
+      blockedJobTypes: ScheduledJobType[];
+      resetAt: number;
     };
     dailyUsage: Array<{
       resource: string;

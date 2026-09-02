@@ -73,6 +73,7 @@ const OTW_PLAY_HARDENING_MIGRATION_NAMES = [
 const OTW_PLAY_PERFORMANCE_TAGS_MIGRATION_NAME =
   "0070_otw-play-performance-tags.sql";
 const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
+const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 
 export default defineConfig({
   resolve: {
@@ -146,6 +147,29 @@ export default defineConfig({
       const scheduledOperationsMigration = migrationsByName.get(
         SCHEDULED_OPERATIONS_MIGRATION_NAME,
       );
+      const scheduledOperationsPartialSource = migrationsByName.get(
+        SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME,
+      );
+      const scheduledOperationsPartialStart =
+        scheduledOperationsPartialSource?.queries.findIndex((query) =>
+          query.includes("PRAGMA foreign_keys=OFF")
+        ) ?? -1;
+      const scheduledOperationsPartialEnd =
+        scheduledOperationsPartialSource?.queries.findIndex((query) =>
+          query.includes("idx_scheduled_job_items_lease")
+        ) ?? -1;
+      const scheduledOperationsPartialMigration =
+        scheduledOperationsPartialSource &&
+          scheduledOperationsPartialStart >= 0 &&
+          scheduledOperationsPartialEnd >= scheduledOperationsPartialStart
+          ? {
+              name: `${SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME}:scheduled-job-items`,
+              queries: scheduledOperationsPartialSource.queries.slice(
+                scheduledOperationsPartialStart,
+                scheduledOperationsPartialEnd + 1,
+              ),
+            }
+          : null;
 
       if (otwPlayCatalogMigrations.length !== 1) {
         throw new Error(
@@ -198,6 +222,11 @@ export default defineConfig({
           `Expected scheduled operations migration: ${SCHEDULED_OPERATIONS_MIGRATION_NAME}`,
         );
       }
+      if (!scheduledOperationsPartialMigration) {
+        throw new Error(
+          `Expected scheduled operations partial migration: ${SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME}`,
+        );
+      }
 
       return {
         miniflare: {
@@ -221,7 +250,10 @@ export default defineConfig({
             OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: [
               otwPlayExternalIdentityConsolidationMigration,
             ],
-            SCHEDULED_OPERATIONS_MIGRATIONS: [scheduledOperationsMigration],
+            SCHEDULED_OPERATIONS_MIGRATIONS: [
+              scheduledOperationsMigration,
+              scheduledOperationsPartialMigration,
+            ],
           },
         },
       };

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { toXCollectionOutcome } from "./scheduled-job-executor";
+import {
+  toXCollectionOutcome,
+  toYouTubeFeedCollectionOutcome,
+} from "./scheduled-job-executor";
 
 const result = (
   status: "success" | "skipped" | "failed",
@@ -42,6 +45,51 @@ describe("scheduled job executor outcomes", () => {
       status: "failed",
       errorCode: "rate_limited",
       error: "rate_limited",
+    });
+  });
+
+  it("normalizes a fully completed YouTube result from partial to succeeded", () => {
+    expect(toYouTubeFeedCollectionOutcome({
+      status: "partial",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+    })).toMatchObject({
+      status: "succeeded",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      errorCode: null,
+    });
+  });
+
+  it("preserves a genuine YouTube partial and exposes its failure", () => {
+    expect(toYouTubeFeedCollectionOutcome({
+      status: "partial",
+      attempted: 5,
+      succeeded: 4,
+      failed: 1,
+    })).toMatchObject({
+      status: "partial",
+      attempted: 5,
+      succeeded: 4,
+      failed: 1,
+      errorCode: "youtube_feed_collection_failed",
+      error: "YouTube feed collection failed for 1 of 5 sources",
+    });
+  });
+
+  it("keeps an incomplete YouTube result partial even without a reported failure", () => {
+    expect(toYouTubeFeedCollectionOutcome({
+      status: "partial",
+      attempted: 2,
+      succeeded: 1,
+      failed: 0,
+    })).toMatchObject({
+      status: "partial",
+      attempted: 2,
+      succeeded: 1,
+      failed: 0,
     });
   });
 });
