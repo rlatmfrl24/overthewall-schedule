@@ -52,10 +52,26 @@ export class ScheduledJobCoordinator {
 
   async runScheduled(jobType: ScheduledJobType, scheduledFor = Date.now()) {
     const scheduledBucket = getScheduledBucket(jobType, scheduledFor);
+    const idempotencyKey = `scheduled:${jobType}:${scheduledBucket}`;
+    const existingRun = await this.repository.readRunByIdempotencyKey(
+      idempotencyKey,
+    );
+    if (existingRun) return existingRun;
+
+    // Scheduled probes are intentionally more frequent than several provider
+    // cadences. Resolve due targets before creating durable run/item/outbox
+    // rows so an expected no-op costs reads only and does not inflate D1
+    // writes or the operator run history.
+    const plannedItems = await this.planner.planScheduled(
+      jobType,
+      scheduledFor,
+    );
+    if (plannedItems.length === 0) return null;
+
     const run = await this.repository.createRun({
       jobType,
       source: "scheduled",
-      idempotencyKey: `scheduled:${jobType}:${scheduledBucket}`,
+      idempotencyKey,
       scheduledBucket,
       scheduledFor,
     });
@@ -75,11 +91,8 @@ export class ScheduledJobCoordinator {
       );
       return this.repository.readRun(run.id);
     }
-    const itemIds = await this.planner.plan(run);
-    if (itemIds.length === 0) {
-      await this.repository.skipRun(run.id);
-      return this.repository.readRun(run.id);
-    }
+    const itemIds = await this.repository.addItems(run.id, plannedItems);
+    if (itemIds.length === 0) return this.repository.readRun(run.id);
     await this.dispatchRun(run.id);
     return this.repository.readRun(run.id);
   }

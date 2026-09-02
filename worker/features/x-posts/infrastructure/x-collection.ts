@@ -60,6 +60,11 @@ type XUsageGuardRow = {
   limit_value: number | string | null;
 };
 
+export const normalizeXCollectionHandles = (handles: readonly string[]) =>
+  Array.from(new Set(
+    handles.map((handle) => handle.trim().toLowerCase()).filter(Boolean),
+  ));
+
 export const getXUsageFallbackReason = (
   rows: readonly XUsageGuardRow[],
   backoffUntil: number,
@@ -152,14 +157,25 @@ export const resolveXEffectiveCollectionPolicy = async (
 const claimXSourceLeases = async (env: Env, handles: string[], currentTime: number) => {
   const claimed: string[] = [];
   const token = crypto.randomUUID();
-  for (const handle of handles) {
-    await env.otw_db.prepare(
-      `INSERT INTO x_post_sources (
-         handle, last_checked_at, updated_at, collection_started_at,
-         generation
-       ) VALUES (?, 0, ?, ?, 0)
-       ON CONFLICT(handle) DO NOTHING`,
-    ).bind(handle, currentTime, currentTime).run();
+  const normalizedHandles = normalizeXCollectionHandles(handles);
+  if (normalizedHandles.length === 0) {
+    return { claimed, token, coalesced: 0 };
+  }
+  const existing = await env.otw_db.prepare(
+    `SELECT handle FROM x_post_sources
+     WHERE handle IN (${normalizedHandles.map(() => "?").join(", ")})`,
+  ).bind(...normalizedHandles).all<{ handle: string }>();
+  const existingHandles = new Set(existing.results.map((row) => row.handle));
+  for (const handle of normalizedHandles) {
+    if (!existingHandles.has(handle)) {
+      await env.otw_db.prepare(
+        `INSERT INTO x_post_sources (
+           handle, last_checked_at, updated_at, collection_started_at,
+           generation
+         ) VALUES (?, 0, ?, ?, 0)
+         ON CONFLICT(handle) DO NOTHING`,
+      ).bind(handle, currentTime, currentTime).run();
+    }
     const row = await env.otw_db.prepare(
       `UPDATE x_post_sources
        SET lease_token = ?, lease_until = ?, generation = generation + 1,
@@ -170,7 +186,11 @@ const claimXSourceLeases = async (env: Env, handles: string[], currentTime: numb
       .first<{ handle: string }>();
     if (row?.handle) claimed.push(row.handle);
   }
-  return { claimed, token, coalesced: handles.length - claimed.length };
+  return {
+    claimed,
+    token,
+    coalesced: normalizedHandles.length - claimed.length,
+  };
 };
 
 const releaseXSourceLeases = async (env: Env, token: string) => {
@@ -208,12 +228,8 @@ export const readActiveXHandles = async (db: DbInstance) => {
     .from(members)
     .where(activeCondition);
 
-  return Array.from(
-    new Set(
-      rows
-        .map((member) => extractXHandleFromUrl(member.urlTwitter))
-        .filter((handle): handle is string => Boolean(handle)),
-    ),
+  return normalizeXCollectionHandles(
+    rows.flatMap((member) => extractXHandleFromUrl(member.urlTwitter) ?? []),
   );
 };
 

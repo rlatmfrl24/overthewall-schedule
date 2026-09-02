@@ -131,6 +131,7 @@ export interface OperationsStatusResponseDto {
     };
     d1WriteGuard: {
       status: "available" | "blocked" | "unavailable";
+      measurement: "admission_estimate";
       used: number;
       reserved: number;
       limit: number;

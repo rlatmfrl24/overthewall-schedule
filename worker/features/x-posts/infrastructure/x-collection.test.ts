@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   getXCollectionScheduleDecision,
   getXUsageFallbackReason,
+  normalizeXCollectionHandles,
 } from "./x-collection";
 
 describe("x collection schedule", () => {
+  it("대소문자가 다른 동일 handle을 하나의 lower-case source로 정규화한다", () => {
+    expect(normalizeXCollectionHandles([
+      " Kurenai_Natsuki ",
+      "kurenai_natsuki",
+      "TERRI_NUNNA",
+      "",
+    ])).toEqual(["kurenai_natsuki", "terri_nunna"]);
+  });
+
   it("주기가 지나지 않았으면 scheduled 수집을 건너뛴다", () => {
     const now = Date.parse("2026-05-28T08:00:00Z");
     const lastRun = String(now - 60 * 60 * 1000);

@@ -110,12 +110,15 @@ const getLatestHealthyXCollectionAt = (
     status: string;
     error: string | null;
     finished_at: number | null;
+    refreshed_handles: number;
   }>,
 ) =>
   rows.find(
     (row) =>
       row.status === "success" ||
-      (row.status === "skipped" && row.error === "all_handles_cooldown"),
+      (row.status === "skipped" && (
+        row.error === "all_handles_cooldown" || row.refreshed_handles > 0
+      )),
   )?.finished_at ?? null;
 
 const getVisiblePendingSummary = async (
@@ -489,6 +492,7 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
     queueOperations: { used: 0, limit: 5_000, usedPercent: 0 },
     d1WriteGuard: {
       status: "unavailable" as const,
+      measurement: "admission_estimate" as const,
       used: 0,
       reserved: 0,
       limit: SCHEDULED_D1_WRITE_DAILY_TARGET,
@@ -613,6 +617,7 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
       },
       d1WriteGuard: {
         status: d1WriteBlocked ? "blocked" as const : "available" as const,
+        measurement: "admission_estimate" as const,
         used: d1WriteUsed,
         reserved: d1WriteReserved,
         limit: d1WriteLimit,

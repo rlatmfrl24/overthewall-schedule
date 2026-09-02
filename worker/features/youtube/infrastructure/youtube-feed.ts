@@ -105,7 +105,8 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
      WHERE youtube_channel_id IS NOT NULL AND length(trim(youtube_channel_id)) > 0
        AND (is_deprecated IS NULL OR is_deprecated != 1)
      ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
-       member_uid = excluded.member_uid, updated_at = excluded.updated_at`,
+       member_uid = excluded.member_uid, updated_at = excluded.updated_at
+     WHERE youtube_feed_sources.member_uid IS NOT excluded.member_uid`,
   ).bind(timestamp, timestamp, timestamp, timestamp).run();
   await env.otw_db.prepare(
     `INSERT INTO youtube_feed_sources
@@ -115,7 +116,9 @@ const syncSourceRegistry = async (env: Env, timestamp: number) => {
      WHERE 1 = 1
      ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
        kirinuki_channel_id = excluded.kirinuki_channel_id,
-       updated_at = excluded.updated_at`,
+       updated_at = excluded.updated_at
+     WHERE youtube_feed_sources.kirinuki_channel_id IS NOT
+       excluded.kirinuki_channel_id`,
   ).bind(timestamp, timestamp, timestamp, timestamp).run();
 };
 

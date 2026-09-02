@@ -170,6 +170,62 @@ facts 기록은 일반 TTL에서 제외한다. 비용 최소화 계약은
   cursor, reference backfill, 비용, D1·Queue와 오류를 관찰한다. 7일·30일 비용 판정은
   구현 완료와 분리된 운영 Closeout이다.
 
+## 2026-09-03 scheduler D1 write 튜닝
+
+### 운영 진단 기준선
+
+- Operations의 `scheduled_usage_daily/d1_rows_written`은 실제 Cloudflare 계측값이
+  아니라 job별 보수적 상한을 예약하는 admission 예상치다. 2026-09-02에는
+  `23,410/40,000`(58.52%)이었으며 Cloudflare D1의 실제 `Rows Written`과 직접
+  비교하면 안 된다. 대시보드는 이 값을 `D1 write guard · 예상치`로 표시한다.
+- 같은 시점 Cloudflare D1 Insights의 최근 6시간 상위 50개 query 실제 쓰기는
+  2,889 rows였다. 단순 일 환산은 약 11,600 rows/day다.
+- 최근 1일 상위 query 38,308 rows에는 OTW Play 검색 gram 재구축 약 15,800 rows와
+  migration이 포함됐다. 이는 정규 scheduler의 일상적인 steady-state 쓰기로
+  간주하지 않는다.
+- 정규 부하는 run/item/outbox lifecycle, YouTube API usage event, 변경이 없는
+  YouTube source registry upsert가 주원인이었다. X 원문 저장은 지배적인 원인이
+  아니었다.
+
+### 적용 계약
+
+- scheduled probe에 실제 due target이 없으면 run/item/outbox 행을 만들지 않는다.
+  같은 idempotency bucket에 이미 생성된 run이 있으면 먼저 반환해 retry와 복구
+  계약은 유지한다. 관리자 수동 실행은 감사 가능성을 위해 기존처럼 no-target
+  결과도 기록한다.
+- X 수집의 `skipped` run이라도 같은 shard에서 `refreshed_handles > 0`이면 마지막
+  정상 수집 freshness를 갱신한다. 예산을 모두 소모해 갱신 handle이 0개인 skip은
+  정상 성공으로 취급하지 않는다. `budget_exceeded` 경고와 UTC 비용 guard는
+  freshness와 독립적으로 계속 표시한다.
+- X handle은 trim·lower-case·dedupe한 뒤 lease를 잡는다. 이미 존재하는 source에는
+  매 실행마다 충돌 insert를 보내지 않는다. migration `0081`은 cursor가 없는
+  대소문자 중복 source만 정리하며 stateful 비정규 row가 있으면 원격 적용 전에
+  중단한다.
+- 일반 YouTube source registry는 owner가 실제로 바뀐 경우에만 update한다.
+- `youtube_api_usage_events`는 실제 조회가 사용하는 `created_at` index만 유지한다.
+  operation/status/cache-key/origin 및 사용되지 않는 context index는 migration
+  `0080`에서 제거한다. usage event와 집계 자체는 보존하므로 운영 관측은 줄이지
+  않는다.
+
+최근 실행량을 그대로 가정한 정적 절감 추정은 약 2,900 rows/day다. 세부적으로
+사용되지 않는 usage index 약 1,744, no-target run lifecycle 약 602, 변경 없는
+YouTube source update 약 443, X 중복 source insert 약 96 rows/day다. 따라서
+steady-state 목표는 약 11,600에서 8,700 rows/day로 약 25% 낮추는 것이다. 이 값은
+배포 전 추정이며 완료 판정은 배포 후 D1 Insights 6시간·24시간 readback으로 한다.
+
+### 배포 후 완료 조건
+
+- X partial-progress skip이 stale 경고를 만들지 않고, 실제 갱신 0건인 오래된 상태는
+  계속 경고한다.
+- no-target scheduled probe가 `scheduled_job_runs/items/outbox`를 증가시키지 않는다.
+- X source가 canonical 8개로 유지되고 watermark·continuation·게시물 수가 감소하지
+  않는다.
+- migration pending과 `PRAGMA foreign_key_check`가 모두 0이다.
+- D1 Insights의 24시간 steady-state 쓰기가 12,000 rows 이하이고, 일회성 catalog
+  rebuild나 migration이 발생한 날은 해당 query를 분리해 보고한다.
+- 내부 admission 예상치는 안전을 위해 기존 40,000 rows/day 한도를 유지한다.
+  실제 쓰기 감소를 이유로 guard를 완화하지 않는다.
+
 ## 배포 순서
 
 `pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고 통합 Worker 한 개를 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경, 기존 Worker/Queue 삭제는 자동으로 수행하지 않는다. 최초 통합 전환은 `cloudflare-production-account-migration.md`의 drain·consumer handoff gate를 따라야 한다. Wrangler config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.

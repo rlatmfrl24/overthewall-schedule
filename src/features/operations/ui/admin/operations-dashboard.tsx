@@ -267,14 +267,14 @@ function D1WriteGuardCard({
           <div>
             <CardTitle className="flex items-center gap-2 text-sm">
               <ShieldAlert className="size-4" />
-              D1 write guard
+              D1 write guard · 예상치
             </CardTitle>
             <CardDescription className="mt-1 text-xs">
               {blocked
                 ? "일일 쓰기 한도에 도달해 cron이 Workflow와 run을 만들지 않는 사전 차단입니다. 기존 run의 일반 ‘건너뜀’과 다릅니다."
                 : unavailable
                   ? "usage ledger를 읽지 못해 cron guard 상태를 확인할 수 없습니다."
-                  : "cron Workflow 생성 전에 확인하는 일일 D1 쓰기 예산입니다."}
+                  : "cron Workflow 생성 전에 작업별 보수적 상한을 합산한 admission 예상치입니다. Cloudflare의 실제 Rows Written과는 다릅니다."}
             </CardDescription>
           </div>
           <Badge
@@ -288,7 +288,7 @@ function D1WriteGuardCard({
       <CardContent className="space-y-3 px-4 pb-4">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-md border bg-background/70 p-3">
-            <p className="text-xs text-muted-foreground">사용</p>
+            <p className="text-xs text-muted-foreground">예상 사용</p>
             <p className="mt-1 text-lg font-semibold tabular-nums">
               {guard.used.toLocaleString("ko-KR")}
             </p>
@@ -325,7 +325,7 @@ function D1WriteGuardCard({
           </div>
           <div
             role="progressbar"
-            aria-label="D1 일일 쓰기 사용량"
+            aria-label="D1 일일 예상 쓰기 사용량"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
@@ -399,7 +399,7 @@ export function OperationsDashboard() {
       <StatusCard title="자동 업데이트" value={data.autoUpdate.enabled ? "활성" : "비활성"} detail={`최근 실행 ${formatDateTime(data.autoUpdate.lastRun)}`} href="/admin/settings?tab=runs" icon={CalendarClock} tone={data.autoUpdate.enabled ? "success" : "neutral"} />
       <StatusCard title="X 수집" value={`${data.xCollection.usage.apiCalls} calls`} detail={`예산 ${data.xCollection.usage.quota.todayBudgetUsedPercent}% · ${formatDateTime(data.xCollection.lastRun)}`} href="/admin/member-posts?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.usage.quota.todayBudgetUsedPercent >= 90 ? "critical" : data.xCollection.usage.quota.todayBudgetUsedPercent >= 70 ? "warning" : "neutral"} />
       <StatusCard title="네이버 카페" value={`${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount}`} detail={`주의 ${data.naverCafe.failingSourceCount + data.naverCafe.staleSourceCount}개 · ${formatDateTime(data.naverCafe.collection.lastRun)}`} href="/admin/member-posts?source=naver-cafe#naver-cafe-monitoring" icon={Coffee} tone={data.naverCafe.failingSourceCount > 0 ? "critical" : data.naverCafe.staleSourceCount > 0 ? "warning" : "neutral"} />
-      <StatusCard title="D1 write guard" value={d1WriteGuard.status === "blocked" ? "차단" : d1WriteGuard.status === "unavailable" ? "확인 불가" : `${Math.max(0, Math.min(100, d1WriteGuard.usedPercent))}%`} detail={d1WriteGuard.status === "blocked" ? `${d1WriteGuard.blockedJobTypes.length}개 작업 · reset ${formatDateTime(d1WriteGuard.resetAt)}` : `사용 ${d1WriteGuard.used.toLocaleString("ko-KR")} · 예약 ${d1WriteGuard.reserved.toLocaleString("ko-KR")}`} href="#d1-write-guard" icon={ShieldAlert} tone={d1WriteGuard.status === "blocked" ? "critical" : d1WriteGuard.status === "unavailable" ? "warning" : d1WriteGuard.usedPercent >= 80 ? "warning" : "neutral"} />
+      <StatusCard title="D1 write guard" value={d1WriteGuard.status === "blocked" ? "차단" : d1WriteGuard.status === "unavailable" ? "확인 불가" : `${Math.max(0, Math.min(100, d1WriteGuard.usedPercent))}%`} detail={d1WriteGuard.status === "blocked" ? `${d1WriteGuard.blockedJobTypes.length}개 작업 · reset ${formatDateTime(d1WriteGuard.resetAt)}` : `예상 ${d1WriteGuard.used.toLocaleString("ko-KR")} · 예약 ${d1WriteGuard.reserved.toLocaleString("ko-KR")}`} href="#d1-write-guard" icon={ShieldAlert} tone={d1WriteGuard.status === "blocked" ? "critical" : d1WriteGuard.status === "unavailable" ? "warning" : d1WriteGuard.usedPercent >= 80 ? "warning" : "neutral"} />
     </div>
     <D1WriteGuardCard guard={d1WriteGuard} />
     <Card id="recent-runs"><CardHeader><CardTitle>최근 정기·수동 작업</CardTitle><CardDescription>실행 중인 작업을 먼저 표시합니다. 작업별 상세 로그는 각 관리 페이지에서 확인합니다.</CardDescription></CardHeader><CardContent className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{runs.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && runs.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></CardContent></Card>
