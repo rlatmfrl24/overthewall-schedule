@@ -80,8 +80,10 @@ export const buildXPostsApplication = (env: Env) => {
         throw error;
       }
     },
-    redactStoredPost: async (postId) =>
-      (await redactStoredXPosts(env.otw_db, [postId], "admin")).redacted > 0,
+    redactStoredPost: async (postId) => {
+      const result = await redactStoredXPosts(env.otw_db, [postId]);
+      return { found: result.found > 0, changed: result.redacted > 0 };
+    },
     writePostRedactionAudit: async (postId, actor, changed) => {
       await insertAdminAuditLog(db, {
         eventType: "x_post.redacted",

@@ -19,10 +19,7 @@ import {
   scanAndPersistRecentChzzkObservations,
   type AutoUpdateResult,
 } from "../../schedules";
-import {
-  runXCollectionForHandles,
-  runXCompliance,
-} from "../../x-posts";
+import { runXCollectionForHandles } from "../../x-posts";
 import { runScheduledYouTubeFeedCollection } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
@@ -219,17 +216,6 @@ export class ScheduledJobExecutor {
         return toXCollectionOutcome(
           await runXCollectionForHandles(this.env, handles, run.source),
         );
-      }
-      case "x_compliance": {
-        const result = await runXCompliance(this.env.otw_db, this.env.X_BEARER_TOKEN);
-        return {
-          status: result.status === "partial" ? "partial" : result.status,
-          result,
-          attempted: 1,
-          succeeded: result.status === "succeeded" ? 1 : 0,
-          failed: result.status === "failed" ? 1 : 0,
-          errorCode: "errorCode" in result ? result.errorCode ?? null : null,
-        };
       }
       case "naver_cafe_collection": {
         const sourceIds = new Set(getNumberArray(continuation.sourceIds));

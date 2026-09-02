@@ -1,5 +1,8 @@
 import type { XCollectionRunResultDto } from "@contracts/operations";
 import type {
+  XHistoryHealthResponseDto,
+  XHistoryPostStatus,
+  XHistoryPostsResponseDto,
   XLinkedPostPreviewDto,
   XPostsByHandleDto,
   XPostsResponseDto,
@@ -16,6 +19,7 @@ export type XHistoryReadOptions = {
   memberUid?: number;
   from?: number;
   to?: number;
+  status?: XHistoryPostStatus;
   cursor?: { createdAt: number; postId: string };
   limit: number;
 };
@@ -59,12 +63,12 @@ export interface XPostsApplicationPorts {
     sourcePostId: string,
   ): Promise<{ handle: string; replyToPostId: string } | null>;
   fetchPostPreview(postId: string): Promise<XLinkedPostPreviewDto | null>;
-  redactStoredPost(postId: string): Promise<boolean>;
+  redactStoredPost(postId: string): Promise<{ found: boolean; changed: boolean }>;
   writePostRedactionAudit(postId: string, actor: XActor, changed: boolean): Promise<void>;
   runCollection(): Promise<XCollectionRunResultDto>;
   writeCollectionAudit(input: XCollectionAuditInput): Promise<void>;
-  readHistoryPosts(options: XHistoryReadOptions): Promise<unknown>;
-  readHistoryHealth(): Promise<unknown>;
+  readHistoryPosts(options: XHistoryReadOptions): Promise<XHistoryPostsResponseDto>;
+  readHistoryHealth(): Promise<XHistoryHealthResponseDto>;
   warn(message: string, error: unknown): void;
 }
 
@@ -223,9 +227,9 @@ export const createXPostsApplication = (ports: XPostsApplicationPorts) => ({
   },
 
   async redactPost(postId: string, actor: XActor) {
-    const changed = await ports.redactStoredPost(postId);
-    await ports.writePostRedactionAudit(postId, actor, changed);
-    return changed;
+    const result = await ports.redactStoredPost(postId);
+    await ports.writePostRedactionAudit(postId, actor, result.changed);
+    return result.found;
   },
 
   async runManualCollection(actor: XActor) {

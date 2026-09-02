@@ -72,7 +72,6 @@ export interface AdminSettingsDto {
   naver_cafe_posts_visibility: SettingsVisibility;
   x_collection_enabled: BooleanSettingValue;
   x_history_analytics_enabled: BooleanSettingValue;
-  x_compliance_enabled: BooleanSettingValue;
   x_collection_daily_budget_cents: string;
   x_collection_interval_hours: XCollectionIntervalHours;
   x_collection_last_run: string | null;
@@ -99,7 +98,6 @@ export const SETTINGS_KEYS = [
   "naver_cafe_posts_visibility",
   "x_collection_enabled",
   "x_history_analytics_enabled",
-  "x_compliance_enabled",
   "x_collection_daily_budget_cents",
   "x_collection_interval_hours",
   "x_collection_last_run",
@@ -401,12 +399,6 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
   },
   {
     key: "x_history_analytics_enabled",
-    writable: true,
-    normalize: (value) => normalizeBoolean(value, "false"),
-    validate: isBooleanValue,
-  },
-  {
-    key: "x_compliance_enabled",
     writable: true,
     normalize: (value) => normalizeBoolean(value, "false"),
     validate: isBooleanValue,

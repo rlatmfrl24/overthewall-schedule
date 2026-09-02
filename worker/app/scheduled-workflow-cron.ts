@@ -1,5 +1,4 @@
 import type { ScheduledJobType } from "@contracts/scheduled-operations";
-import { X_COMPLIANCE_CYCLE_MS } from "../features/x-posts";
 import type { Env } from "../platform/types";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33 * * * *";
@@ -14,7 +13,7 @@ const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>
     "naver_cafe_collection",
   ],
   23: ["channel_reconcile", "youtube_feed_collection"],
-  33: ["source_health", "x_compliance"],
+  33: ["source_health"],
 };
 
 export function selectScheduledWorkflowJobs(
@@ -44,14 +43,6 @@ type ScheduledWorkflowSettingRow = {
   value: string | null;
 };
 
-type XComplianceCronGateRow = {
-  dueJob: number | string;
-  activeJob: number | string;
-  hasPosts: number | string;
-  lastCycleAt: number | string | null;
-  lastAttemptAt: number | string | null;
-};
-
 type ScheduledD1WriteGateRow = {
   consumed: number | string;
   limitValue: number | string | null;
@@ -72,36 +63,6 @@ const hasScheduledD1WriteCapacity = async (
   return Number(row.consumed) < Number(row.limitValue);
 };
 
-const isXComplianceDue = async (env: Env, scheduledTime: number) => {
-  const row = await env.otw_db.prepare(
-    `SELECT
-       EXISTS(
-         SELECT 1 FROM x_compliance_jobs
-         WHERE status IN ('created', 'uploading', 'uploaded', 'pending', 'complete', 'failed')
-           AND next_check_at IS NOT NULL AND next_check_at <= ?
-       ) AS dueJob,
-       EXISTS(
-         SELECT 1 FROM x_compliance_jobs
-         WHERE status IN ('created', 'uploading', 'uploaded', 'pending', 'complete')
-            OR (status = 'failed' AND next_check_at IS NOT NULL)
-       ) AS activeJob,
-       EXISTS(
-         SELECT 1 FROM x_posts
-         WHERE hidden_at IS NULL AND content_removed_at IS NULL
-       ) AS hasPosts,
-       (SELECT value FROM settings WHERE key = 'x_compliance_last_cycle_at') AS lastCycleAt,
-       (SELECT MAX(created_at) FROM x_compliance_jobs) AS lastAttemptAt`,
-  ).bind(scheduledTime).first<XComplianceCronGateRow>();
-  if (Number(row?.dueJob ?? 0) > 0) return true;
-  if (Number(row?.activeJob ?? 0) > 0) return false;
-  if (Number(row?.hasPosts ?? 0) === 0) return false;
-  const cadenceAnchor = Math.max(
-    Number(row?.lastCycleAt ?? 0),
-    Number(row?.lastAttemptAt ?? 0),
-  );
-  return scheduledTime - cadenceAnchor >= X_COMPLIANCE_CYCLE_MS;
-};
-
 export async function filterRunnableScheduledWorkflowJobs(
   jobs: readonly ScheduledJobType[],
   scheduledTime: number,
@@ -110,7 +71,6 @@ export async function filterRunnableScheduledWorkflowJobs(
   if (jobs.length === 0) return [];
   if (!(await hasScheduledD1WriteCapacity(env, scheduledTime))) return [];
   const keys = jobs.map((jobType) => `scheduled_v2_${jobType}_enabled`);
-  if (jobs.includes("x_compliance")) keys.push("x_compliance_enabled");
   const rows = await env.otw_db.prepare(
     `SELECT key, value FROM settings WHERE key IN (${keys.map(() => "?").join(", ")})`,
   ).bind(...keys).all<ScheduledWorkflowSettingRow>();
@@ -119,13 +79,9 @@ export async function filterRunnableScheduledWorkflowJobs(
       .filter((row) => row.value === "true")
       .map((row) => row.key),
   );
-  const enabledJobs = jobs.filter((jobType) =>
-    enabledKeys.has(`scheduled_v2_${jobType}_enabled`) &&
-    (jobType !== "x_compliance" || enabledKeys.has("x_compliance_enabled"))
+  return jobs.filter((jobType) =>
+    enabledKeys.has(`scheduled_v2_${jobType}_enabled`)
   );
-  if (!enabledJobs.includes("x_compliance")) return enabledJobs;
-  if (await isXComplianceDue(env, scheduledTime)) return enabledJobs;
-  return enabledJobs.filter((jobType) => jobType !== "x_compliance");
 }
 
 export async function handleScheduledWorkflowCron(

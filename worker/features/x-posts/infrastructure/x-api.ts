@@ -1204,7 +1204,8 @@ const writeStoredPosts = async (
              hidden_at = NULL,
              hidden_reason = NULL,
              content_removed_at = NULL
-           WHERE COALESCE(x_posts.hidden_reason, '') NOT IN ('admin', 'compliance')`,
+           WHERE x_posts.hidden_at IS NULL
+             AND x_posts.content_removed_at IS NULL`,
         )
         .bind(...bindings)
         .run();
@@ -1224,27 +1225,39 @@ const writeStoredPosts = async (
   }
 };
 
-export type XPostRedactionReason = "admin" | "compliance";
-
 export const redactStoredXPosts = async (
   cacheDb: XCacheDb,
   postIds: readonly string[],
-  reason: XPostRedactionReason,
 ) => {
   const uniqueIds = [...new Set(postIds.filter(Boolean))];
   const redactedAt = Date.now();
+  let found = 0;
   let redacted = 0;
   for (let index = 0; index < uniqueIds.length; index += 50) {
     const chunk = uniqueIds.slice(index, index + 50);
+    const existing = await cacheDb.prepare(
+      `SELECT COUNT(*) AS count FROM x_posts
+       WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+    ).bind(...chunk).first<{ count: number | string }>();
+    found += Number(existing?.count ?? 0) || 0;
     const result = await cacheDb.prepare(
       `UPDATE x_posts
-       SET value = '{}', hidden_at = ?, hidden_reason = ?, content_removed_at = ?
-       WHERE id IN (${chunk.map(() => "?").join(", ")})`,
-    ).bind(redactedAt, reason, redactedAt, ...chunk).run();
+       SET value = '{}', hidden_at = ?, hidden_reason = 'admin', content_removed_at = ?
+       WHERE id IN (${chunk.map(() => "?").join(", ")})
+         AND hidden_at IS NULL AND content_removed_at IS NULL`,
+    ).bind(redactedAt, redactedAt, ...chunk).run();
     redacted += Number(result.meta?.changes ?? 0) || 0;
   }
-  await redactXPostHistory(cacheDb, uniqueIds, reason, redactedAt);
-  return { requested: uniqueIds.length, redacted, redactedAt, reason };
+  if (redacted > 0) {
+    await redactXPostHistory(cacheDb, uniqueIds, redactedAt);
+  }
+  return {
+    requested: uniqueIds.length,
+    found,
+    redacted,
+    redactedAt,
+    reason: "admin" as const,
+  };
 };
 
 const writeStoredPostSource = async (

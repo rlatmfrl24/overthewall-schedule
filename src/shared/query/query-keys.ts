@@ -131,6 +131,8 @@ export const queryKeys = {
       [...queryKeys.memberPosts.all, "x", handlesKey, maxResults, admin] as const,
     xContext: (postId: string) =>
       [...queryKeys.memberPosts.all, "x-context", postId] as const,
+    xHistory: (query: object) =>
+      [...queryKeys.memberPosts.all, "x-history", query] as const,
     naverCafe: (size: number, admin: boolean) =>
       [...queryKeys.memberPosts.all, "naver-cafe", size, admin] as const,
     aggregate: (

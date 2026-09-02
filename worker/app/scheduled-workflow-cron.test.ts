@@ -11,13 +11,6 @@ const utc = (hour: number, minute: number) =>
 
 const makeDb = (
   disabledKeys: readonly string[] = [],
-  complianceGate = {
-    dueJob: 1,
-    activeJob: 1,
-    hasPosts: 1,
-    lastCycleAt: 0,
-    lastAttemptAt: 0,
-  },
   d1WriteGate = {
     consumed: 0,
     limitValue: 40_000,
@@ -35,7 +28,7 @@ const makeDb = (
       }),
       first: async () => sql.includes("FROM scheduled_usage_daily")
         ? d1WriteGate
-        : complianceGate,
+        : null,
     }),
   })),
 });
@@ -48,7 +41,6 @@ describe("scheduled Workflow cron bridge", () => {
     ]);
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 33))).toEqual([
       "source_health",
-      "x_compliance",
     ]);
   });
 
@@ -95,29 +87,10 @@ describe("scheduled Workflow cron bridge", () => {
     });
   });
 
-  it("does not create a Workflow for disabled rollout lanes", async () => {
-    const create = vi.fn().mockResolvedValue(undefined);
-    const env = {
-      otw_db: makeDb(["scheduled_v2_x_compliance_enabled"]),
-      SCHEDULED_OPERATIONS_WORKFLOW: { create },
-    } as unknown as Env;
-    const scheduledTime = utc(5, 33);
-
-    await handleScheduledWorkflowCron({
-      cron: SCHEDULED_WORKFLOW_CRON,
-      scheduledTime,
-    } as ScheduledController, env);
-
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create).not.toHaveBeenCalledWith({
-      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
-    });
-  });
-
   it("does not create Workflows after the internal D1 write guard is exhausted", async () => {
     const create = vi.fn().mockResolvedValue(undefined);
     const env = {
-      otw_db: makeDb([], undefined, {
+      otw_db: makeDb([], {
         consumed: 40_000,
         limitValue: 40_000,
       }),
@@ -130,99 +103,6 @@ describe("scheduled Workflow cron bridge", () => {
     } as ScheduledController, env);
 
     expect(create).not.toHaveBeenCalled();
-  });
-
-  it("requires the provider feature switch as well as the scheduled switch", async () => {
-    const create = vi.fn().mockResolvedValue(undefined);
-    const env = {
-      otw_db: makeDb(["x_compliance_enabled"]),
-      SCHEDULED_OPERATIONS_WORKFLOW: { create },
-    } as unknown as Env;
-    const scheduledTime = utc(5, 33);
-
-    await handleScheduledWorkflowCron({
-      cron: SCHEDULED_WORKFLOW_CRON,
-      scheduledTime,
-    } as ScheduledController, env);
-
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create).not.toHaveBeenCalledWith({
-      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
-    });
-  });
-
-  it("does not probe Compliance while its next cycle is not due", async () => {
-    const create = vi.fn().mockResolvedValue(undefined);
-    const scheduledTime = utc(5, 33);
-    const env = {
-      otw_db: makeDb([], {
-        dueJob: 0,
-        activeJob: 0,
-        hasPosts: 1,
-        lastCycleAt: scheduledTime,
-        lastAttemptAt: scheduledTime,
-      }),
-      SCHEDULED_OPERATIONS_WORKFLOW: { create },
-    } as unknown as Env;
-
-    await handleScheduledWorkflowCron({
-      cron: SCHEDULED_WORKFLOW_CRON,
-      scheduledTime,
-    } as ScheduledController, env);
-
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create).not.toHaveBeenCalledWith({
-      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
-    });
-  });
-
-  it("does not start a new cycle within 24 hours of a terminal failed job", async () => {
-    const create = vi.fn().mockResolvedValue(undefined);
-    const scheduledTime = utc(5, 33);
-    const env = {
-      otw_db: makeDb([], {
-        dueJob: 0,
-        activeJob: 0,
-        hasPosts: 1,
-        lastCycleAt: 0,
-        lastAttemptAt: scheduledTime - 23 * 60 * 60_000,
-      }),
-      SCHEDULED_OPERATIONS_WORKFLOW: { create },
-    } as unknown as Env;
-
-    await handleScheduledWorkflowCron({
-      cron: SCHEDULED_WORKFLOW_CRON,
-      scheduledTime,
-    } as ScheduledController, env);
-
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(create).not.toHaveBeenCalledWith({
-      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
-    });
-  });
-
-  it("allows a new cycle 24 hours after a terminal failed job", async () => {
-    const create = vi.fn().mockResolvedValue(undefined);
-    const scheduledTime = utc(5, 33);
-    const env = {
-      otw_db: makeDb([], {
-        dueJob: 0,
-        activeJob: 0,
-        hasPosts: 1,
-        lastCycleAt: 0,
-        lastAttemptAt: scheduledTime - 24 * 60 * 60_000,
-      }),
-      SCHEDULED_OPERATIONS_WORKFLOW: { create },
-    } as unknown as Env;
-
-    await handleScheduledWorkflowCron({
-      cron: SCHEDULED_WORKFLOW_CRON,
-      scheduledTime,
-    } as ScheduledController, env);
-
-    expect(create).toHaveBeenCalledWith({
-      params: { jobType: "x_compliance", scheduledFor: scheduledTime },
-    });
   });
 
   it("fails loudly when a configured Workflow binding is absent", async () => {

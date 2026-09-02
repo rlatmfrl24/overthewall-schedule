@@ -10,6 +10,7 @@ import {
   collectXPostsForHandles,
   extractXHandleFromUrl,
 } from "./x-api";
+import { backfillXPostFactsFromStoredPosts } from "./x-history";
 import type { Env } from "../../../platform/types";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
@@ -89,6 +90,11 @@ export const runXCollectionForHandles = async (
   handles: string[],
   source: XCollectionSource,
 ): Promise<XCollectionRunResult> => {
+  try {
+    await backfillXPostFactsFromStoredPosts(env.otw_db, 100);
+  } catch (error) {
+    console.warn("Failed to backfill stored X post facts", error);
+  }
   const result = await collectXPostsForHandles(handles, {
     bearerToken: env.X_BEARER_TOKEN,
     cacheDb: env.otw_db,

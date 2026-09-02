@@ -124,15 +124,22 @@ export const createXPostsHandler =
       const memberUid = parseBoundedInteger(url.searchParams.get("memberUid"), 0, 1, Number.MAX_SAFE_INTEGER);
       const from = url.searchParams.get("from") ? Date.parse(url.searchParams.get("from")!) : null;
       const to = url.searchParams.get("to") ? Date.parse(url.searchParams.get("to")!) : null;
+      const statusValue = url.searchParams.get("status");
+      const status = statusValue === null || statusValue === "all"
+        ? undefined
+        : statusValue === "visible" || statusValue === "redacted"
+          ? statusValue
+          : null;
       const cursor = parseHistoryCursor(url.searchParams.get("cursor"));
       if (limit === null || memberUid === null || (from !== null && !Number.isFinite(from)) ||
-        (to !== null && !Number.isFinite(to)) || cursor === undefined) {
+        (to !== null && !Number.isFinite(to)) || cursor === undefined || status === null) {
         return badRequest("Invalid X history query");
       }
       return json(await application.readHistoryPosts({
         memberUid: memberUid || undefined,
         from: from ?? undefined,
         to: to ?? undefined,
+        status,
         cursor: cursor ?? undefined,
         limit,
       }), 200, { headers: { "Cache-Control": "no-store" } });
