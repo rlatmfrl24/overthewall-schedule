@@ -22,10 +22,14 @@ import {
   type XUsageSummaryRow,
 } from "./operations-read-model";
 import type { Env } from "../../../platform/types";
-import type {
-  ScheduledJobStatus,
-  ScheduledJobType,
+import {
+  scheduledJobTypes,
+  type ScheduledJobStatus,
+  type ScheduledJobType,
 } from "@contracts/scheduled-operations";
+import {
+  SCHEDULED_D1_WRITE_DAILY_TARGET,
+} from "../../../platform/scheduled-jobs/job-policy";
 import { ScheduledRunClient } from "../../../platform/scheduled-jobs";
 import type {
   OperationsActor,
@@ -474,12 +478,24 @@ const buildNaverCafeStatus = (
 };
 
 const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
+  const resetAt = Date.parse(
+    `${new Date(now).toISOString().slice(0, 10)}T00:00:00.000Z`,
+  ) + 24 * 60 * 60_000;
   const fallback = {
     activeRunCount: 0,
     staleLeaseCount: 0,
     outboxBacklog: 0,
     oldestOutboxAvailableAt: null as number | null,
     queueOperations: { used: 0, limit: 5_000, usedPercent: 0 },
+    d1WriteGuard: {
+      status: "unavailable" as const,
+      used: 0,
+      reserved: 0,
+      limit: SCHEDULED_D1_WRITE_DAILY_TARGET,
+      usedPercent: 0,
+      blockedJobTypes: [] as ScheduledJobType[],
+      resetAt,
+    },
     dailyUsage: [] as Array<{
       resource: string;
       reserved: number;
@@ -490,7 +506,7 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
   };
   try {
     const day = new Date(now).toISOString().slice(0, 10);
-    const [stateResult, usageResult] = await db.batch([
+    const [stateResult, usageResult, d1WriteGuardResult] = await db.batch([
       db.prepare(
         `SELECT
            (SELECT COUNT(*) FROM scheduled_job_runs
@@ -511,6 +527,13 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
                 MAX(limit_value) AS limitValue
          FROM scheduled_usage_daily
          WHERE day = ? GROUP BY resource ORDER BY resource`,
+      ).bind(day),
+      db.prepare(
+        `SELECT COALESCE(SUM(used), 0) AS used,
+                COALESCE(SUM(reserved), 0) AS reserved,
+                MAX(limit_value) AS limitValue
+         FROM scheduled_usage_daily
+         WHERE day = ? AND lane = 'all' AND resource = 'd1_rows_written'`,
       ).bind(day),
     ]);
     const state = stateResult.results[0] as {
@@ -552,6 +575,30 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
       usedPercent: 0,
     };
     const queueTotal = usage.used + usage.reserved;
+    const d1WriteRow = d1WriteGuardResult.results[0] as {
+      used?: number | string;
+      reserved?: number | string;
+      limitValue?: number | string | null;
+    } | undefined;
+    const d1WriteUsed = Number(d1WriteRow?.used ?? 0);
+    const d1WriteReserved = Number(d1WriteRow?.reserved ?? 0);
+    const d1WriteLedgerLimit = d1WriteRow?.limitValue == null
+      ? null
+      : Number(d1WriteRow.limitValue);
+    const d1WriteLimit = d1WriteLedgerLimit ??
+      SCHEDULED_D1_WRITE_DAILY_TARGET;
+    const d1WriteBlocked = d1WriteLedgerLimit !== null &&
+      d1WriteUsed + d1WriteReserved >= d1WriteLedgerLimit;
+    const d1WriteUsedPercent = d1WriteLimit > 0
+      ? Math.min(
+        100,
+        Math.round(
+          ((d1WriteUsed + d1WriteReserved) / d1WriteLimit) * 1_000,
+        ) / 10,
+      )
+      : d1WriteBlocked
+        ? 100
+        : 0;
     return {
       activeRunCount: Number(state?.activeRunCount ?? 0),
       staleLeaseCount: Number(state?.staleLeaseCount ?? 0),
@@ -563,6 +610,15 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
         used: queueTotal,
         limit: usage.limit || 5_000,
         usedPercent: usage.usedPercent,
+      },
+      d1WriteGuard: {
+        status: d1WriteBlocked ? "blocked" as const : "available" as const,
+        used: d1WriteUsed,
+        reserved: d1WriteReserved,
+        limit: d1WriteLimit,
+        usedPercent: d1WriteUsedPercent,
+        blockedJobTypes: [] as ScheduledJobType[],
+        resetAt,
       },
       dailyUsage,
     };
@@ -646,7 +702,21 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     env.otw_db,
     now,
   );
+  if (scheduledOperations.d1WriteGuard.status === "blocked") {
+    scheduledOperations.d1WriteGuard.blockedJobTypes = scheduledJobTypes.filter(
+      (jobType) => settings.get(`scheduled_v2_${jobType}_enabled`) === "true",
+    );
+  }
   const issues: Issue[] = [];
+
+  if (scheduledOperations.d1WriteGuard.status === "blocked") {
+    issues.push({
+      severity: "critical",
+      code: "scheduled_d1_write_guard_blocked",
+      message:
+        "D1 일일 쓰기 한도에 도달해 cron이 정기 작업 Workflow를 만들지 않고 있습니다.",
+    });
+  }
 
   if (scheduledOperations.staleLeaseCount > 0) {
     issues.push({

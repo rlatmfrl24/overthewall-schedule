@@ -116,7 +116,17 @@ export const readOperationsStatusRows = async (
            'x_posts_visibility',
            'naver_cafe_posts_enabled',
            'naver_cafe_posts_visibility',
-           'naver_cafe_collection_last_run'
+           'naver_cafe_collection_last_run',
+           'scheduled_v2_x_collection_enabled',
+           'scheduled_v2_naver_cafe_collection_enabled',
+           'scheduled_v2_youtube_feed_collection_enabled',
+           'scheduled_v2_schedule_auto_update_enabled',
+           'scheduled_v2_ingestion_recovery_enabled',
+           'scheduled_v2_channel_reconcile_enabled',
+           'scheduled_v2_recent_reconcile_enabled',
+           'scheduled_v2_websub_maintenance_enabled',
+           'scheduled_v2_source_health_enabled',
+           'scheduled_v2_retention_prune_enabled'
          )`,
       )
       .all<SettingRow>(),
