@@ -283,6 +283,31 @@ export const readDueXMetricFacts = async (db: D1, limit = 100, timestamp = Date.
   return rows.results.map(toHistoryPost);
 };
 
+export const deferXMetricFacts = async (
+  db: D1,
+  postIds: string[],
+  errorCode: string,
+  nextMetricsAt: number,
+  timestamp = Date.now(),
+) => {
+  for (
+    let index = 0;
+    index < postIds.length;
+    index += X_METRIC_ERROR_CHUNK_SIZE
+  ) {
+    const chunk = postIds.slice(index, index + X_METRIC_ERROR_CHUNK_SIZE);
+    await db.prepare(
+      `UPDATE x_post_facts SET last_metrics_error = ?, next_metrics_at = ?, updated_at = ?
+       WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
+    ).bind(
+      errorCode.slice(0, 200),
+      nextMetricsAt,
+      timestamp,
+      ...chunk,
+    ).run();
+  }
+};
+
 export const runXMetricRefresh = async (
   db: D1,
   readMetrics: (postIds: string[]) => Promise<Map<string, { likeCount: number; replyCount: number; repostCount: number; quoteCount: number }>>,
@@ -301,6 +326,17 @@ export const runXMetricRefresh = async (
       return [{ postId: fact.postId, kind: fact.snapshot.initialAt === null ? "initial" as const : "after_24h" as const, capturedAt: timestamp, metrics: value }];
     });
     await applyXMetricSnapshots(db, snapshots);
+    const returnedPostIds = new Set(snapshots.map((snapshot) => snapshot.postId));
+    const missingPostIds = due
+      .map((fact) => fact.postId)
+      .filter((postId) => !returnedPostIds.has(postId));
+    await deferXMetricFacts(
+      db,
+      missingPostIds,
+      "not_returned",
+      timestamp + DAY_MS,
+      timestamp,
+    );
     return {
       status: snapshots.length === due.length ? "succeeded" as const : "partial" as const,
       attempted: due.length,
@@ -310,22 +346,7 @@ export const runXMetricRefresh = async (
   } catch (error) {
     const message = error instanceof Error ? error.message : "x_metrics_refresh_failed";
     const postIds = due.map((item) => item.postId);
-    for (
-      let index = 0;
-      index < postIds.length;
-      index += X_METRIC_ERROR_CHUNK_SIZE
-    ) {
-      const chunk = postIds.slice(index, index + X_METRIC_ERROR_CHUNK_SIZE);
-      await db.prepare(
-        `UPDATE x_post_facts SET last_metrics_error = ?, next_metrics_at = ?, updated_at = ?
-         WHERE post_id IN (${chunk.map(() => "?").join(", ")})`,
-      ).bind(
-        message.slice(0, 200),
-        timestamp + HOUR_MS,
-        timestamp,
-        ...chunk,
-      ).run();
-    }
+    await deferXMetricFacts(db, postIds, message, timestamp + HOUR_MS, timestamp);
     return { status: "failed" as const, attempted: due.length, succeeded: 0, failed: due.length, errorCode: message };
   }
 };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deferXMetricFacts,
   parseComplianceResultIds,
   redactXPostHistory,
   runXMetricRefresh,
@@ -28,6 +29,32 @@ describe("X Compliance result parsing", () => {
 });
 
 describe("X history D1 bind limits", () => {
+  it("defers posts missing from a metrics response without exceeding 100 bindings", async () => {
+    const bindCounts: number[] = [];
+    const db = {
+      prepare: () => ({
+        bind: (...values: unknown[]) => ({
+          run: async () => {
+            bindCounts.push(values.length);
+            return { success: true };
+          },
+        }),
+      }),
+    } as unknown as Pick<D1Database, "prepare">;
+    const ids = Array.from({ length: 100 }, (_, index) => `post-${index}`);
+
+    await deferXMetricFacts(
+      db,
+      ids,
+      "not_returned",
+      Date.parse("2026-09-03T00:33:00Z"),
+      Date.parse("2026-09-02T00:33:00Z"),
+    );
+
+    expect(bindCounts).toEqual([100, 6]);
+    expect(Math.max(...bindCounts)).toBeLessThanOrEqual(100);
+  });
+
   it("records a 100-post metric failure without exceeding 100 bindings", async () => {
     const timestamp = Date.parse("2026-09-02T00:33:00Z");
     const dueRows = Array.from({ length: 100 }, (_, index) => ({
