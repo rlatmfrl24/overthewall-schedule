@@ -183,6 +183,10 @@ type XLinkedPostCacheValue = {
   post: XLinkedPostPreviewItem | null;
 };
 
+type XLinkedUserCacheValue = {
+  user: XApiUser | null;
+};
+
 type XHandlePostsResult = {
   handle: string;
   userId: string | null;
@@ -205,6 +209,10 @@ type FetchXPostsForHandlesOptions = {
   usageTracker?: XApiUsageTracker;
   usageSource?: string;
   forceRefreshPath?: string | null;
+  newPostsOnly?: boolean;
+  continuationMaxResults?: number;
+  referencePreviewMode?: "cached_author" | "post_only" | "link_only";
+  effectiveIntervalMinutes?: number;
 };
 
 type XApiUsageOperation = "user_lookup" | "timeline" | "tweet_lookup";
@@ -213,6 +221,10 @@ type XApiUsageTracker = {
   apiCalls: number;
   estimatedCostMicros: number;
   reservedCostMicros: number;
+  uniqueResources: number;
+  previewDeferred: number;
+  authorCacheHits: number;
+  authorCacheMisses: number;
   source?: string | null;
   forceRefreshPath?: string | null;
 };
@@ -223,6 +235,10 @@ type CollectXPostsOptions = {
   cacheDb?: XCacheDb;
   richXLinkPreviewEnabled?: boolean;
   source?: string;
+  optimizerEnabled?: boolean;
+  effectiveIntervalMinutes?: number;
+  referencePreviewMode?: "cached_author" | "post_only" | "link_only";
+  coalescedHandles?: number;
 };
 
 type XApiResponseWithResources = {
@@ -326,6 +342,7 @@ const getPostsCacheKey = (
   )}:${maxResults}:${richXLinkPreviewEnabled ? "rich" : "plain"}`;
 
 const getLinkedPostCacheKey = (id: string) => `x:linked-post:v1:${id}`;
+const getLinkedUserCacheKey = (id: string) => `x:linked-user:v1:${id}`;
 
 const getRelationCollectionMarkerKey = (handle: string) =>
   `x:relations:${X_RELATION_COLLECTION_VERSION}:${normalizeHandle(handle)}`;
@@ -528,7 +545,10 @@ export const estimateXApiRequestCostMicros = (
   path: string,
 ) => {
   if (operation === "user_lookup") {
-    return getCommaSeparatedParamCount(path, "usernames") * X_USER_READ_COST_MICROS;
+    return Math.max(
+      getCommaSeparatedParamCount(path, "usernames"),
+      getCommaSeparatedParamCount(path, "ids"),
+    ) * X_USER_READ_COST_MICROS;
   }
 
   if (operation === "tweet_lookup") {
@@ -686,6 +706,73 @@ const estimateXApiUsage = (
   };
 };
 
+const getXResourceId = (value: unknown, key: "id" | "media_key") => {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as Record<string, unknown>)[key];
+  return typeof id === "string" && id ? id : null;
+};
+
+const recordDailyXApiResources = async (
+  cacheDb: XCacheDb,
+  operation: XApiUsageOperation,
+  response: XApiResponseWithResources,
+  timestamp: number,
+) => {
+  const day = new Date(timestamp).toISOString().slice(0, 10);
+  const resources: Array<{
+    type: "post" | "user" | "media";
+    id: string;
+    listed: number;
+    conservative: number;
+  }> = [];
+  for (const item of response.data ?? []) {
+    const id = getXResourceId(item, "id");
+    if (!id) continue;
+    resources.push(operation === "user_lookup"
+      ? { type: "user", id, listed: X_USER_READ_COST_MICROS, conservative: X_USER_READ_COST_MICROS }
+      : { type: "post", id, listed: X_POST_READ_COST_MICROS, conservative: X_POST_READ_COST_MICROS });
+  }
+  for (const item of response.includes?.users ?? []) {
+    const id = getXResourceId(item, "id");
+    if (id) resources.push({ type: "user", id, listed: X_USER_READ_COST_MICROS, conservative: X_USER_READ_COST_MICROS });
+  }
+  for (const item of response.includes?.media ?? []) {
+    const id = getXResourceId(item, "media_key");
+    if (id) resources.push({ type: "media", id, listed: 0, conservative: X_MEDIA_READ_COST_MICROS });
+  }
+
+  let uniqueCount = 0;
+  let listedCostMicros = 0;
+  let conservativeCostMicros = 0;
+  for (const resource of resources) {
+    const inserted = await cacheDb.prepare(
+      `INSERT OR IGNORE INTO x_api_resource_daily (
+         utc_day, resource_type, resource_id, first_operation,
+         first_seen_at, unit_cost_micros
+       ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).bind(day, resource.type, resource.id, operation, timestamp, resource.conservative).run();
+    if (Number(inserted.meta?.changes ?? 0) <= 0) continue;
+    uniqueCount += 1;
+    listedCostMicros += resource.listed;
+    conservativeCostMicros += resource.conservative;
+  }
+  await cacheDb.prepare(
+    `INSERT INTO x_api_usage_daily (
+       utc_day, operation, resource_type, request_count, resource_count,
+       unique_resource_count, listed_cost_micros,
+       conservative_cost_micros, updated_at
+     ) VALUES (?, ?, 'mixed', 1, ?, ?, ?, ?, ?)
+     ON CONFLICT(utc_day, operation, resource_type) DO UPDATE SET
+       request_count = x_api_usage_daily.request_count + 1,
+       resource_count = x_api_usage_daily.resource_count + excluded.resource_count,
+       unique_resource_count = x_api_usage_daily.unique_resource_count + excluded.unique_resource_count,
+       listed_cost_micros = x_api_usage_daily.listed_cost_micros + excluded.listed_cost_micros,
+       conservative_cost_micros = x_api_usage_daily.conservative_cost_micros + excluded.conservative_cost_micros,
+       updated_at = excluded.updated_at`,
+  ).bind(day, operation, resources.length, uniqueCount, listedCostMicros, conservativeCostMicros, timestamp).run();
+  return { conservativeCostMicros, uniqueCount };
+};
+
 const writeXApiUsageEvent = async (
   cacheDb: XCacheDb | undefined,
   operation: XApiUsageOperation,
@@ -712,6 +799,10 @@ const writeXApiUsageEvent = async (
   if (!cacheDb) return estimate.estimatedCostMicros;
 
   try {
+    if (response) {
+      const recorded = await recordDailyXApiResources(cacheDb, operation, response, now());
+      if (usageTracker) usageTracker.uniqueResources += recorded.uniqueCount;
+    }
     await cacheDb
       .prepare(
         `INSERT INTO x_api_usage_events (
@@ -945,7 +1036,7 @@ const readD1Cache = async <T>(
 const writeD1Cache = async <T>(
   cacheDb: XCacheDb | undefined,
   key: string,
-  type: "user" | "posts" | "linked_post" | "relation_version",
+  type: "user" | "posts" | "linked_post" | "linked_user" | "relation_version",
   value: T,
   fetchedAt: number,
   ttlMs: number,
@@ -1160,6 +1251,61 @@ const readStoredPosts = async (
   }
 };
 
+const recordXPostReferences = async (
+  cacheDb: XCacheDb,
+  posts: XPostItem[],
+  recordedAt: number,
+) => {
+  for (const post of posts) {
+    const references = [
+      post.quote
+        ? { type: "quote", id: post.quote.postId, hydrated: Boolean(post.quote.post) }
+        : null,
+      post.reply
+        ? { type: "reply", id: post.reply.postId, hydrated: Boolean(post.reply.post) }
+        : null,
+    ].filter((reference): reference is { type: "quote" | "reply"; id: string; hydrated: boolean } =>
+      Boolean(reference?.id)
+    );
+    for (const reference of references) {
+      const local = await cacheDb.prepare(
+        "SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1",
+      ).bind(reference.id).first<{ found: number }>();
+      const state = local
+        ? "local"
+        : reference.hydrated
+          ? "hydrated"
+          : "pending";
+      await cacheDb.prepare(
+        `INSERT INTO x_post_references (
+           source_post_id, relation_type, referenced_post_id,
+           resolution_state, attempt_count, next_attempt_at, hydrated_at,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+         ON CONFLICT(source_post_id, relation_type) DO UPDATE SET
+           referenced_post_id = excluded.referenced_post_id,
+           resolution_state = CASE
+             WHEN x_post_references.resolution_state = 'terminal'
+               THEN x_post_references.resolution_state
+             ELSE excluded.resolution_state
+           END,
+           next_attempt_at = excluded.next_attempt_at,
+           hydrated_at = COALESCE(excluded.hydrated_at, x_post_references.hydrated_at),
+           updated_at = excluded.updated_at`,
+      ).bind(
+        post.id,
+        reference.type,
+        reference.id,
+        state,
+        state === "pending" ? recordedAt : null,
+        reference.hydrated ? recordedAt : null,
+        recordedAt,
+        recordedAt,
+      ).run();
+    }
+  }
+};
+
 const writeStoredPosts = async (
   cacheDb: XCacheDb | undefined,
   handle: string,
@@ -1214,6 +1360,7 @@ const writeStoredPosts = async (
     // the existing feed can stay enabled until the approved analytics use-case
     // is confirmed in the X Developer Console.
     await recordXPostFacts(cacheDb, normalizedHandle, posts, fetchedAt);
+    await recordXPostReferences(cacheDb, posts, fetchedAt);
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1270,6 +1417,7 @@ const writeStoredPostSource = async (
   lastSeenPostId: string | null,
   checkedAt: number,
   lastError: string | null = null,
+  effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
 ) => {
   if (!cacheDb) return;
 
@@ -1310,7 +1458,7 @@ const writeStoredPostSource = async (
         checkedAt,
         checkedAt,
         checkedAt,
-        checkedAt + X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
+        checkedAt + effectiveIntervalMs,
       )
       .run();
   } catch (error) {
@@ -1326,20 +1474,39 @@ const writeStoredPostSourceError = async (
   if (!cacheDb || !lastError) return;
 
   const checkedAt = now();
+  const retryAt = checkedAt + (lastError === "rate_limited"
+    ? X_COLLECTION_RATE_LIMIT_BACKOFF_MS
+    : X_COLLECTION_ERROR_BACKOFF_MS);
   try {
     await cacheDb
       .prepare(
         `INSERT INTO x_post_sources (
            handle, user_id, username, last_seen_post_id, last_checked_at,
-           updated_at, last_error
+           updated_at, last_error, last_attempt_at, next_check_at,
+           consecutive_failures, last_error_code
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
          ON CONFLICT(handle) DO UPDATE SET
            last_checked_at = excluded.last_checked_at,
+           last_attempt_at = excluded.last_attempt_at,
+           next_check_at = excluded.next_check_at,
+           consecutive_failures = x_post_sources.consecutive_failures + 1,
+           last_error_code = excluded.last_error_code,
            updated_at = excluded.updated_at,
            last_error = excluded.last_error`,
       )
-      .bind(normalizeHandle(handle), null, null, null, checkedAt, checkedAt, lastError)
+      .bind(
+        normalizeHandle(handle),
+        null,
+        null,
+        null,
+        checkedAt,
+        checkedAt,
+        lastError,
+        checkedAt,
+        retryAt,
+        lastError,
+      )
       .run();
   } catch (error) {
     console.warn("Failed to write stored X post source error", error);
@@ -1355,6 +1522,7 @@ const writeXSyncContinuation = async (
     newestPostId: string | null;
     completedPostId: string | null;
   },
+  effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
 ) => {
   if (!cacheDb) return;
   const timestamp = now();
@@ -1372,7 +1540,7 @@ const writeXSyncContinuation = async (
     state.nextToken ? state.newestPostId : null,
     timestamp,
     timestamp,
-    timestamp + (state.nextToken ? 15 * 60_000 : X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS),
+    timestamp + (state.nextToken ? 15 * 60_000 : effectiveIntervalMs),
     timestamp,
     normalizeHandle(handle),
   ).run();
@@ -1495,6 +1663,7 @@ const setCachedPosts = async (
   cacheDb?: XCacheDb,
   lastSeenPostId?: string | null,
   postsToStore: XPostItem[] = posts,
+  effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
 ): Promise<CachedXPostsWriteEntry> => {
   const fetchedAt = now();
   const entry = {
@@ -1532,6 +1701,8 @@ const setCachedPosts = async (
       user,
       lastSeenPostId ?? sortXPostsDesc(posts)[0]?.id ?? null,
       fetchedAt,
+      null,
+      effectiveIntervalMs,
     );
   }
 
@@ -1854,18 +2025,96 @@ const normalizeLinkedXPost = (
   };
 };
 
+const fetchLinkedXUsersByIds = async (
+  ids: string[],
+  bearerToken: string,
+  cacheDb?: XCacheDb,
+  usageTracker?: XApiUsageTracker,
+) => {
+  const usersById = new Map<string, XApiUser>();
+  const idsToFetch: string[] = [];
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  for (const id of Array.from(new Set(ids.filter(Boolean)))) {
+    const cached = await readD1Cache<XLinkedUserCacheValue>(
+      cacheDb,
+      getLinkedUserCacheKey(id),
+      X_USER_LOOKUP_CACHE_POLICY.freshTtlMs,
+    );
+    if (cached) {
+      if (usageTracker) usageTracker.authorCacheHits += 1;
+      cacheHits += 1;
+      if (cached.value.user) usersById.set(id, cached.value.user);
+      continue;
+    }
+    if (usageTracker) usageTracker.authorCacheMisses += 1;
+    cacheMisses += 1;
+    idsToFetch.push(id);
+  }
+  if (cacheDb && (cacheHits > 0 || cacheMisses > 0)) {
+    const day = new Date(now()).toISOString().slice(0, 10);
+    for (const [operation, count] of [
+      ["linked_user_cache_hit", cacheHits],
+      ["linked_user_cache_miss", cacheMisses],
+    ] as const) {
+      if (count <= 0) continue;
+      await cacheDb.prepare(
+        `INSERT INTO x_api_usage_daily (
+           utc_day, operation, resource_type, request_count, resource_count,
+           unique_resource_count, listed_cost_micros,
+           conservative_cost_micros, updated_at
+         ) VALUES (?, ?, 'user', 1, ?, 0, 0, 0, ?)
+         ON CONFLICT(utc_day, operation, resource_type) DO UPDATE SET
+           request_count = x_api_usage_daily.request_count + 1,
+           resource_count = x_api_usage_daily.resource_count + excluded.resource_count,
+           updated_at = excluded.updated_at`,
+      ).bind(day, operation, count, now()).run();
+    }
+  }
+  for (let offset = 0; offset < idsToFetch.length; offset += 100) {
+    const chunk = idsToFetch.slice(offset, offset + 100);
+    const params = new URLSearchParams({
+      ids: chunk.join(","),
+      "user.fields": "name,username,profile_image_url,protected",
+    });
+    const response = await requestXApi<XUsersByUsernamesResponse>(
+      `/users?${params}`,
+      bearerToken,
+      { cacheDb, operation: "user_lookup", usageTracker },
+    );
+    const fetched = new Map((response.data ?? []).map((user) => [user.id, user]));
+    for (const id of chunk) {
+      const user = fetched.get(id) ?? null;
+      if (user) usersById.set(id, user);
+      await writeD1Cache<XLinkedUserCacheValue>(
+        cacheDb,
+        getLinkedUserCacheKey(id),
+        "linked_user",
+        { user },
+        now(),
+        user
+          ? X_USER_LOOKUP_CACHE_POLICY.freshTtlMs
+          : X_USER_LOOKUP_CACHE_POLICY.notFoundTtlMs,
+      );
+    }
+  }
+  return usersById;
+};
+
 const fetchLinkedXPostsByIds = async (
   ids: string[],
   bearerToken: string,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
   maxIds = X_LINKED_POST_PREVIEW_MAX_IDS,
+  previewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
 ): Promise<Map<string, XLinkedPostPreviewItem>> => {
   const requestedIds = Array.from(new Set(ids.filter(Boolean))).slice(
     0,
     maxIds,
   );
   if (requestedIds.length === 0) return new Map();
+  if (previewMode === "link_only") return new Map();
 
   const result = new Map<string, XLinkedPostPreviewItem>();
   const idsToFetch: string[] = [];
@@ -1898,9 +2147,8 @@ const fetchLinkedXPostsByIds = async (
 
   const params = new URLSearchParams({
     ids: idsToFetch.join(","),
-    "tweet.fields": "created_at,public_metrics,attachments",
-    expansions: "author_id,attachments.media_keys",
-    "user.fields": "name,username,profile_image_url,protected",
+    "tweet.fields": "author_id,created_at,public_metrics,attachments",
+    expansions: "attachments.media_keys",
     "media.fields": "url,preview_image_url,type,width,height,alt_text",
   });
 
@@ -1913,9 +2161,20 @@ const fetchLinkedXPostsByIds = async (
       usageTracker,
     },
   );
-  const usersById = new Map(
+  const includedUsers = new Map(
     (response.includes?.users ?? []).map((user) => [user.id, user]),
   );
+  const usersById = previewMode === "cached_author"
+    ? await fetchLinkedXUsersByIds(
+        (response.data ?? []).flatMap((post) =>
+          post.author_id && !includedUsers.has(post.author_id) ? [post.author_id] : []
+        ),
+        bearerToken,
+        cacheDb,
+        usageTracker,
+      )
+    : new Map<string, XApiUser>();
+  for (const [id, user] of includedUsers) usersById.set(id, user);
   const mediaByKey = new Map(
     (response.includes?.media ?? []).map((media) => [media.media_key, media]),
   );
@@ -1956,6 +2215,14 @@ const fetchLinkedXPostsByIds = async (
       now(),
       X_LINKED_POST_NEGATIVE_CACHE_TTL_MS,
     );
+    if (cacheDb) {
+      await cacheDb.prepare(
+        `UPDATE x_post_references
+         SET resolution_state = 'terminal', next_attempt_at = NULL,
+             last_error_code = 'not_found_or_unavailable', updated_at = ?
+         WHERE referenced_post_id = ? AND resolution_state = 'pending'`,
+      ).bind(now(), id).run();
+    }
   }
 
   return result;
@@ -1973,6 +2240,10 @@ export const fetchXPostPreviewById = async (
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
+    uniqueResources: 0,
+    previewDeferred: 0,
+    authorCacheHits: 0,
+    authorCacheMisses: 0,
     source: options.usageSource ?? "reply-context",
     forceRefreshPath: null,
   };
@@ -2005,6 +2276,7 @@ const enrichXPostsWithLinkedPostPreviews = async (
   bearerToken: string,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
+  previewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
 ) => {
   const linkedStatusIds = collectLinkedXStatusIds(posts);
   if (linkedStatusIds.length === 0) return posts;
@@ -2016,6 +2288,8 @@ const enrichXPostsWithLinkedPostPreviews = async (
       bearerToken,
       cacheDb,
       usageTracker,
+      X_LINKED_POST_PREVIEW_MAX_IDS,
+      previewMode,
     );
   } catch (error) {
     console.warn("Failed to enrich X linked post previews", error);
@@ -2043,6 +2317,7 @@ const enrichXPostsWithReferencedPosts = async (
   bearerToken: string,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
+  previewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
 ) => {
   const postsWithInferredQuotes = inferMissingXQuoteReferences(posts);
   const referenceIds = Array.from(
@@ -2065,6 +2340,7 @@ const enrichXPostsWithReferencedPosts = async (
       cacheDb,
       usageTracker,
       X_REFERENCED_POST_PREVIEW_MAX_IDS,
+      previewMode,
     );
   } catch (error) {
     console.warn("Failed to enrich referenced X posts", error);
@@ -2102,6 +2378,7 @@ const enrichNewXPostsWithLinkPreviews = async (
   richXLinkPreviewEnabled: boolean,
   cacheDb?: XCacheDb,
   usageTracker?: XApiUsageTracker,
+  previewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
 ) => {
   const postsWithInferredQuotes = inferMissingXQuoteReferences(posts);
   const postsWithLinkPreviews = await enrichXPostsWithLinkPreviews(
@@ -2116,6 +2393,7 @@ const enrichNewXPostsWithLinkPreviews = async (
     bearerToken,
     cacheDb,
     usageTracker,
+    previewMode,
   );
 };
 
@@ -2129,6 +2407,10 @@ const fetchXPostsForUser = async (
   staleFallback?: CachedXPostsEntry,
   usageTracker?: XApiUsageTracker,
   forceRefresh = false,
+  newPostsOnly = false,
+  continuationMaxResults = X_COLLECTION_MAX_RESULTS,
+  referencePreviewMode: "cached_author" | "post_only" | "link_only" = "cached_author",
+  effectiveIntervalMs = X_COLLECTION_ACTIVE_CHECK_INTERVAL_MS,
 ): Promise<{
   posts: XPostItem[];
   error: string | null;
@@ -2177,11 +2459,14 @@ const fetchXPostsForUser = async (
     richXLinkPreviewEnabled,
     cacheDb,
   );
-  const collectionLimit =
+  const baseCollectionLimit =
     !hasRelationMarker &&
     Boolean((stored?.posts.length ?? 0) > 0 || (cached?.posts.length ?? 0) > 0)
       ? relationCollectionLimit
       : maxResults;
+  const collectionLimit = stored?.syncPaginationToken
+    ? continuationMaxResults
+    : baseCollectionLimit;
 
   if (hasRelationMarker && !forceRefresh && cached && isCacheFresh(cached)) {
     return {
@@ -2267,24 +2552,33 @@ const fetchXPostsForUser = async (
       richXLinkPreviewEnabled,
       cacheDb,
       usageTracker,
+      referencePreviewMode,
     );
-    const mergedPostsForStorage = (
+    const postsForReferenceEnrichment = newPostsOnly
+      ? posts
+      : mergeXPosts(posts, stored?.posts ?? activeFallback?.posts ?? []);
+    const enrichedPosts = (
       await enrichXPostsWithReferencedPosts(
-        mergeXPosts(
-          posts,
-          stored?.posts ?? activeFallback?.posts ?? [],
-        ),
+        postsForReferenceEnrichment,
         bearerToken,
         cacheDb,
         usageTracker,
+        referencePreviewMode,
       )
     ).slice(0, collectionLimit);
-    const responsePosts = mergedPostsForStorage.slice(0, maxResults);
+    const enrichedNewPosts = newPostsOnly
+      ? enrichedPosts
+      : enrichedPosts.filter((post) => posts.some((item) => item.id === post.id));
+    const mergedPostsForResponse = (newPostsOnly
+      ? mergeXPosts(enrichedPosts, stored?.posts ?? activeFallback?.posts ?? [])
+      : enrichedPosts
+    ).slice(0, collectionLimit);
+    const responsePosts = mergedPostsForResponse.slice(0, maxResults);
     const lastSeenPostId =
       stored?.syncNewestPostId ??
       sortXPostsDesc(posts)[0]?.id ??
       sinceId ??
-      mergedPostsForStorage[0]?.id ??
+      mergedPostsForResponse[0]?.id ??
       null;
     const entry = await setCachedPosts(
       handle,
@@ -2294,7 +2588,8 @@ const fetchXPostsForUser = async (
       richXLinkPreviewEnabled,
       cacheDb,
       lastSeenPostId,
-      mergedPostsForStorage,
+      newPostsOnly ? enrichedNewPosts : mergedPostsForResponse,
+      effectiveIntervalMs,
     );
     // The timeline watermark is an acknowledgement that every post in this
     // page was durably stored. Advancing it after a D1 write failure would
@@ -2305,7 +2600,7 @@ const fetchXPostsForUser = async (
         basePostId: syncToken ? stored?.syncBasePostId ?? null : sinceId,
         newestPostId: lastSeenPostId,
         completedPostId: lastSeenPostId,
-      });
+      }, effectiveIntervalMs);
     }
     if (!hasRelationMarker && entry.storageError === null) {
       await writeCurrentRelationCollectionMarker(cacheDb, handle);
@@ -2460,6 +2755,10 @@ export const fetchXPostsForHandles = async (
     usageTracker,
     usageSource,
     forceRefreshPath,
+    newPostsOnly = false,
+    continuationMaxResults = X_COLLECTION_MAX_RESULTS,
+    referencePreviewMode = "cached_author",
+    effectiveIntervalMinutes = 120,
   } = options;
   const normalizedHandles = Array.from(
     new Set(handles.map(normalizeHandle).filter(Boolean)),
@@ -2472,6 +2771,10 @@ export const fetchXPostsForHandles = async (
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
+    uniqueResources: 0,
+    previewDeferred: 0,
+    authorCacheHits: 0,
+    authorCacheMisses: 0,
     source: usageSource ?? null,
     forceRefreshPath: forceRefresh ? forceRefreshPath ?? "unknown" : null,
   };
@@ -2643,6 +2946,10 @@ export const fetchXPostsForHandles = async (
               stalePostsByHandle.get(handle),
               activeUsageTracker,
               forceRefresh,
+              newPostsOnly,
+              continuationMaxResults,
+              referencePreviewMode,
+              effectiveIntervalMinutes * 60_000,
             );
           return {
             handle,
@@ -2692,6 +2999,10 @@ const writeXCollectionRun = async (
     estimatedCostMicros: number;
     status: "success" | "skipped" | "failed";
     error?: string | null;
+    effectiveIntervalMinutes?: number;
+    uniqueResources?: number;
+    previewDeferred?: number;
+    coalescedHandles?: number;
   },
 ) => {
   if (!cacheDb) return;
@@ -2702,9 +3013,10 @@ const writeXCollectionRun = async (
         `INSERT INTO x_collection_runs (
            source, started_at, finished_at, checked_handles, refreshed_handles,
            posts_returned, posts_stored, api_calls, estimated_cost_micros,
-           status, error
+           status, error, effective_interval_minutes, unique_resources,
+           preview_deferred, coalesced_handles
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         data.source,
@@ -2718,6 +3030,10 @@ const writeXCollectionRun = async (
         data.estimatedCostMicros,
         data.status,
         data.error ?? null,
+        data.effectiveIntervalMinutes ?? null,
+        data.uniqueResources ?? 0,
+        data.previewDeferred ?? 0,
+        data.coalescedHandles ?? 0,
       )
       .run();
   } catch (error) {
@@ -2800,6 +3116,23 @@ const getXCollectionHandlesToRefresh = async (
   return handlesToRefresh;
 };
 
+const getOptimizedXCollectionHandlesToRefresh = async (
+  handles: string[],
+  cacheDb?: XCacheDb,
+) => {
+  if (!cacheDb) return handles;
+  const due: string[] = [];
+  const timestamp = now();
+  for (const handle of handles) {
+    const row = await cacheDb.prepare(
+      `SELECT next_check_at FROM x_post_sources WHERE handle = ?`,
+    ).bind(normalizeHandle(handle)).first<{ next_check_at: number | string | null }>();
+    const nextCheckAt = Number(row?.next_check_at ?? 0);
+    if (!Number.isFinite(nextCheckAt) || nextCheckAt <= timestamp) due.push(handle);
+  }
+  return due;
+};
+
 const writeXCollectionSourceErrors = async (
   cacheDb: XCacheDb | undefined,
   byHandle: XHandlePostsResult[],
@@ -2821,6 +3154,10 @@ export const collectXPostsForHandles = async (
     maxResults = X_COLLECTION_MAX_RESULTS,
     richXLinkPreviewEnabled = false,
     source = "scheduled",
+    optimizerEnabled = false,
+    effectiveIntervalMinutes = 120,
+    referencePreviewMode = "cached_author",
+    coalescedHandles = 0,
   } = options;
   const startedAt = now();
   const normalizedHandles = Array.from(
@@ -2830,9 +3167,30 @@ export const collectXPostsForHandles = async (
     apiCalls: 0,
     estimatedCostMicros: 0,
     reservedCostMicros: 0,
+    uniqueResources: 0,
+    previewDeferred: 0,
+    authorCacheHits: 0,
+    authorCacheMisses: 0,
     source,
     forceRefreshPath: `collection:${source}`,
   };
+  let effectiveReferencePreviewMode = referencePreviewMode;
+  if (optimizerEnabled && referencePreviewMode !== "link_only" && cacheDb) {
+    const budgetCents = Number.parseInt(
+      (await readD1Setting(cacheDb, "x_reference_preview_daily_budget_cents")) ?? "5",
+      10,
+    );
+    const day = new Date(startedAt).toISOString().slice(0, 10);
+    const used = await cacheDb.prepare(
+      `SELECT COALESCE(SUM(conservative_cost_micros), 0) AS used
+       FROM x_api_usage_daily
+       WHERE utc_day = ? AND operation = 'tweet_lookup'`,
+    ).bind(day).first<{ used: number | string }>();
+    if (Number(used?.used ?? 0) >= Math.max(0, budgetCents) * 10_000) {
+      effectiveReferencePreviewMode = "link_only";
+      tracker.previewDeferred += 1;
+    }
+  }
 
   const enabled = (await readD1Setting(cacheDb, "x_collection_enabled")) !== "false";
   if (!enabled || normalizedHandles.length === 0) {
@@ -2843,12 +3201,16 @@ export const collectXPostsForHandles = async (
       postsStored: 0,
       apiCalls: 0,
       estimatedCostMicros: 0,
+      uniqueResources: 0,
+      previewDeferred: 0,
+      coalescedHandles,
       status: "skipped" as const,
     };
     await writeXCollectionRun(cacheDb, {
       source,
       startedAt,
       finishedAt: now(),
+      effectiveIntervalMinutes,
       ...result,
     });
     return result;
@@ -2863,6 +3225,9 @@ export const collectXPostsForHandles = async (
       postsStored: 0,
       apiCalls: 0,
       estimatedCostMicros: 0,
+      uniqueResources: 0,
+      previewDeferred: 0,
+      coalescedHandles,
       status: "failed" as const,
       error: "missing_bearer_token",
     };
@@ -2870,6 +3235,7 @@ export const collectXPostsForHandles = async (
       source,
       startedAt,
       finishedAt: now(),
+      effectiveIntervalMinutes,
       ...result,
     });
     return result;
@@ -2881,6 +3247,8 @@ export const collectXPostsForHandles = async (
     // must not be turned into a no-op by the adaptive scheduled cooldown.
     const handlesToRefresh = source === "manual"
       ? normalizedHandles
+      : optimizerEnabled
+        ? await getOptimizedXCollectionHandlesToRefresh(normalizedHandles, cacheDb)
       : await getXCollectionHandlesToRefresh(
         normalizedHandles,
         maxResults,
@@ -2896,6 +3264,9 @@ export const collectXPostsForHandles = async (
         postsStored: 0,
         apiCalls: 0,
         estimatedCostMicros: 0,
+        uniqueResources: 0,
+        previewDeferred: 0,
+        coalescedHandles,
         status: "skipped" as const,
         error: "all_handles_cooldown",
       };
@@ -2903,6 +3274,7 @@ export const collectXPostsForHandles = async (
         source,
         startedAt,
         finishedAt: now(),
+        effectiveIntervalMinutes,
         ...result,
       });
       return result;
@@ -2916,6 +3288,10 @@ export const collectXPostsForHandles = async (
       forceRefresh: true,
       refresh: true,
       usageTracker: tracker,
+      newPostsOnly: optimizerEnabled,
+      continuationMaxResults: X_COLLECTION_MAX_RESULTS,
+      referencePreviewMode: effectiveReferencePreviewMode,
+      effectiveIntervalMinutes,
     });
     await writeXCollectionSourceErrors(cacheDb, content.byHandle);
     const refreshedHandles = content.byHandle.filter(
@@ -2938,6 +3314,9 @@ export const collectXPostsForHandles = async (
       postsStored,
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
+      uniqueResources: tracker.uniqueResources,
+      previewDeferred: tracker.previewDeferred,
+      coalescedHandles,
       status,
       ...(failureError ? { error: failureError } : {}),
     };
@@ -2945,6 +3324,7 @@ export const collectXPostsForHandles = async (
       source,
       startedAt,
       finishedAt: now(),
+      effectiveIntervalMinutes,
       ...result,
     });
     return result;
@@ -2966,6 +3346,9 @@ export const collectXPostsForHandles = async (
       postsStored: 0,
       apiCalls: tracker.apiCalls,
       estimatedCostMicros: tracker.estimatedCostMicros,
+      uniqueResources: tracker.uniqueResources,
+      previewDeferred: tracker.previewDeferred,
+      coalescedHandles,
       status: failureError === "budget_exceeded"
         ? ("skipped" as const)
         : ("failed" as const),
@@ -2975,6 +3358,7 @@ export const collectXPostsForHandles = async (
       source,
       startedAt,
       finishedAt: now(),
+      effectiveIntervalMinutes,
       ...result,
     });
     return result;

@@ -39,9 +39,9 @@ YouTube API 응답 캐시는 HTTP Worker의 수요 기반 SWR을 유지한다.
 - X는 4 handle, Naver Cafe는 4 source 단위이며 post/source-check를 bulk SQL로 기록한다.
 - source health는 공개 catalog revision CAS 비용을 포함해 2 source/item으로 시작한다. 설계 상한 5보다 보수적인 값이며 due source 수만큼 item을 만들어 처리량은 유지한다.
 - 업로드 감시는 WebSub 즉시 알림을 1차 경로로 사용하고 channel reconcile은 누락 복구용이다. scheduler는 매시 23분에 due 여부만 확인하며, 채널별 실제 reconcile 간격은 6시간이다.
-- Free 계정의 Cron Trigger 한 개(`3,13,23,33 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 짝수 UTC 시각의 X는 23분, source health는 33분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
+- Free 계정의 Cron Trigger 한 개(`3,13,23,33,53 * * * *`)가 시각별 job type을 하나의 `ScheduledOperationsWorkflow`에 전달한다. ingestion recovery와 auto-update는 3분, WebSub maintenance와 Naver Cafe는 13분, channel reconcile·일반 YouTube feed와 X는 23분, source health는 33분, 두 번째 X probe는 53분에 분산한다. 일일 recent reconcile과 retention은 18:03 UTC 실행에 합류한다.
 - 논리 lane은 D1 관측·admission·lease 기준으로 유지하되 물리 Queue는 control, critical, background로 통합한다. critical은 recovery·WebSub maintenance·YouTube source correctness를, background는 X·Naver·auto-update·retention을 concurrency 1로 직렬화한다. 실시간 ingestion과 WebSub delivery Queue는 기존 concurrency 1/2를 유지한다.
-- X Workflow는 2시간, auto-update Workflow는 1시간마다 eligibility를 점검한다. 실제 실행 여부는 각각 `x_collection_interval_hours`와 `auto_update_interval_hours` 및 마지막 실행 시각으로 판정하므로 더 긴 관리 설정을 덮어쓰지 않는다.
+- X Workflow idempotency bucket은 30분, auto-update Workflow는 1시간마다 eligibility를 점검한다. X optimizer 비활성 기본값은 기존 2시간을 유지하며, 활성화 후 `0.5` 설정에서는 30분을 사용한다. X 비용·D1·Queue 70% 또는 공급자 backoff에서는 설정을 바꾸지 않고 실효 주기만 1시간으로 완화한다.
 - auto-update는 2 channel scan → member/date match → finalizer 순으로 실행한다. 시간별 idempotency bucket을 사용해 1시간 설정도 누락하지 않는다.
 - X API 비용과 모든 YouTube quota는 외부 호출 전에 `scheduled_usage_daily`에서 원자 예약한다. YouTube 일일 quota day는 공급자 기준인 `America/Los_Angeles` 자정에 전환하고 상태 화면도 같은 원장을 읽는다. 각 item dispatch도 Queue operations·예상 D1 rows read·rows written을 한 문장에서 함께 예약해 하나라도 일일 목표를 넘으면 전체 예약을 거부한다. Queue retry도 추가 operations 예산을 예약하지 못하면 재시도하지 않고 throttled로 종료한다.
 - item 실행 결과를 terminal 상태로 저장한 뒤 다음 단계 생성이나 outbox 전송이 실패하면 같은 메시지의 재전달에서 후속 조정만 다시 수행한다. retry 예산까지 소진되면 run을 실패로 표시하고, 운영자 retry가 `reconcile` outbox로 외부 작업 재실행 없이 후속 조정만 복구한다. lease token CAS를 잃은 worker는 완료·재시도 상태를 덮어쓰지 않는다.
@@ -150,8 +150,10 @@ D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피
 - 검증: FK 위반·pending migration 0, 공개 GET 전후 X usage event 불변,
   관리자 archive 50건과 다음 cursor 페이지 실제 조회 성공
 
-이후 33분 cron은 `source_health`만 계획한다. X는 짝수 UTC 시각의 23분에 2시간
-간격 eligibility를 확인하고, 영구 원문·facts 기록은 일반 TTL에서 제외한다.
+이후 33분 cron은 `source_health`만 계획한다. X는 23·53분에 30분 bucket을
+확인하되 optimizer rollout 전에는 기존 2시간 eligibility를 유지한다. 영구 원문·
+facts 기록은 일반 TTL에서 제외한다. 비용 최소화 계약은
+`x-api-cost-minimization-design.md`를 따른다.
 
 ## 배포 순서
 

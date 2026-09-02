@@ -1,7 +1,7 @@
 import type { ScheduledJobType } from "@contracts/scheduled-operations";
 import type { Env } from "../platform/types";
 
-export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33 * * * *";
+export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
 
 const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>> = {
   3: [
@@ -27,7 +27,7 @@ export function selectScheduledWorkflowJobs(
   const scheduledMinute = scheduledAt.getUTCMinutes();
   const jobs = [...(MINUTE_JOBS[scheduledMinute] ?? [])];
 
-  if (scheduledMinute === 23 && scheduledHour % 2 === 0) {
+  if (scheduledMinute === 23 || scheduledMinute === 53) {
     jobs.push("x_collection");
   }
 

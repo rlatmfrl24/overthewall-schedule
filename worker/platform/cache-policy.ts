@@ -43,7 +43,7 @@ export const WORKER_CACHE_POLICY = {
       version: "v4",
     },
     linkedPostLookup: {
-      freshTtlMs: 7 * DAY_MS,
+      freshTtlMs: 30 * DAY_MS,
     },
   },
   naverCafe: {

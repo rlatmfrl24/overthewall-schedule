@@ -39,20 +39,20 @@ describe("auto update interval helpers", () => {
     );
   });
 
-  it("X 게시글 수집 주기는 2시간 이상만 허용하고 기본값도 2시간을 사용한다", () => {
-    expect(isXCollectionIntervalHours("1")).toBe(false);
+  it("X 게시글 수집 주기는 30분부터 허용하고 기본값은 2시간을 사용한다", () => {
+    expect(isXCollectionIntervalHours("0.5")).toBe(true);
+    expect(isXCollectionIntervalHours("1")).toBe(true);
     expect(isXCollectionIntervalHours("2")).toBe(true);
     expect(isXCollectionIntervalHours("6")).toBe(true);
     expect(isXCollectionIntervalHours("12")).toBe(true);
     expect(isXCollectionIntervalHours("24")).toBe(true);
     expect(isXCollectionIntervalHours("3")).toBe(false);
-    expect(normalizeXCollectionIntervalHours("1")).toBe(
-      DEFAULT_X_COLLECTION_INTERVAL_HOURS,
-    );
+    expect(normalizeXCollectionIntervalHours("1")).toBe("1");
     expect(normalizeXCollectionIntervalHours("3")).toBe(
       DEFAULT_X_COLLECTION_INTERVAL_HOURS,
     );
-    expect(parseXCollectionIntervalHours("1")).toBe(2);
+    expect(parseXCollectionIntervalHours("0.5")).toBe(0.5);
+    expect(parseXCollectionIntervalHours("1")).toBe(1);
     expect(parseXCollectionIntervalHours("2")).toBe(2);
     expect(parseXCollectionIntervalHours("12")).toBe(12);
   });
@@ -80,7 +80,7 @@ describe("settings policy", () => {
       auto_update_enabled: null,
       auto_update_interval_hours: "6",
       live_schedule_auto_fill_enabled: "true",
-      x_collection_interval_hours: "2",
+      x_collection_interval_hours: "1",
       youtube_warmup_enabled: "true",
       youtube_warmup_interval_hours: "1",
       youtube_warmup_daily_quota_units: "10000",
@@ -93,14 +93,20 @@ describe("settings policy", () => {
       parseSettingsUpdatePayload({
         auto_update_enabled: "false",
         auto_update_last_run: "9999999999999",
-        x_collection_interval_hours: "24",
+        x_collection_interval_hours: "0.5",
+        x_cost_optimizer_enabled: "true",
+        x_reference_preview_mode: "cached_author",
+        x_reference_preview_daily_budget_cents: "5",
         unknown_setting: "ignored",
       }),
     ).toEqual({
       ok: true,
       updates: [
         { key: "auto_update_enabled", value: "false" },
-        { key: "x_collection_interval_hours", value: "24" },
+        { key: "x_collection_interval_hours", value: "0.5" },
+        { key: "x_cost_optimizer_enabled", value: "true" },
+        { key: "x_reference_preview_mode", value: "cached_author" },
+        { key: "x_reference_preview_daily_budget_cents", value: "5" },
       ],
     });
   });
@@ -122,5 +128,8 @@ describe("settings policy", () => {
       ok: false,
       error: "Invalid otw_play_submission_daily_limit",
     });
+    expect(
+      parseSettingsUpdatePayload({ x_reference_preview_mode: "full" }),
+    ).toEqual({ ok: false, error: "Invalid x_reference_preview_mode" });
   });
 });

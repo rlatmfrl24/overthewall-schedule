@@ -38,6 +38,7 @@ import { Switch } from "@/shared/ui/switch";
 import { useToast } from "@/shared/ui/toast";
 import {
   isXCollectionIntervalHours,
+  isXReferencePreviewMode,
   normalizeXCollectionIntervalHours,
   X_COLLECTION_INTERVAL_HOURS,
   fetchSettings,
@@ -94,7 +95,7 @@ const VISIBILITY_OPTIONS: Array<{
 const X_COLLECTION_INTERVAL_OPTIONS = X_COLLECTION_INTERVAL_HOURS.map(
   (value) => ({
     value,
-    label: `${value}시간마다`,
+    label: value === "0.5" ? "30분마다" : `${value}시간마다`,
   }),
 );
 
@@ -499,6 +500,7 @@ export function MemberPostSettingsManager({
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
     useState(false);
   const [budgetDraft, setBudgetDraft] = useState("100");
+  const [previewBudgetDraft, setPreviewBudgetDraft] = useState("5");
   const [collectionRun, setCollectionRun] =
     useState<OperationRunAccepted | null>(null);
   const collectionRunQuery = useOperationRun(collectionRun);
@@ -544,6 +546,10 @@ export function MemberPostSettingsManager({
   }, [settings?.x_collection_daily_budget_cents]);
 
   useEffect(() => {
+    setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "5");
+  }, [settings?.x_reference_preview_daily_budget_cents]);
+
+  useEffect(() => {
     const run = collectionRunQuery.data;
     if (!run || !["succeeded", "partial", "failed", "skipped", "throttled"].includes(run.status)) {
       return;
@@ -567,6 +573,8 @@ export function MemberPostSettingsManager({
   const naverCafePostsVisibility =
     settings?.naver_cafe_posts_visibility ?? "members";
   const isXCollectionEnabled = settings?.x_collection_enabled !== "false";
+  const isXCostOptimizerEnabled = settings?.x_cost_optimizer_enabled === "true";
+  const xReferencePreviewMode = settings?.x_reference_preview_mode ?? "cached_author";
   const xCollectionInterval = normalizeXCollectionIntervalHours(
     settings?.x_collection_interval_hours,
   );
@@ -623,6 +631,50 @@ export function MemberPostSettingsManager({
         variant: "error",
         description: "X 게시글 수집 설정 변경에 실패했습니다.",
       });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleToggleXCostOptimizer = async (enabled: boolean) => {
+    if (!settings) return;
+    setIsSaving(true);
+    try {
+      const value = enabled ? "true" : "false";
+      await updateSettings({ x_cost_optimizer_enabled: value });
+      patchSettings({ x_cost_optimizer_enabled: value });
+      toast({
+        variant: "success",
+        description: enabled
+          ? "X API 비용 최적화를 활성화했습니다."
+          : "X API 비용 최적화를 비활성화했습니다.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleXReferencePreviewModeChange = async (mode: string) => {
+    if (!settings || !isXReferencePreviewMode(mode)) return;
+    setIsSaving(true);
+    try {
+      await updateSettings({ x_reference_preview_mode: mode });
+      patchSettings({ x_reference_preview_mode: mode });
+      toast({ variant: "success", description: "X 참조 미리보기 비용 모드를 저장했습니다." });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveXReferencePreviewBudget = async () => {
+    if (!settings) return;
+    const value = String(Math.min(Math.max(Number.parseInt(previewBudgetDraft, 10) || 0, 0), 100));
+    setIsSaving(true);
+    try {
+      await updateSettings({ x_reference_preview_daily_budget_cents: value });
+      patchSettings({ x_reference_preview_daily_budget_cents: value });
+      setPreviewBudgetDraft(value);
+      toast({ variant: "success", description: "X 미리보기 일일 예산을 저장했습니다." });
     } finally {
       setIsSaving(false);
     }
@@ -1130,6 +1182,78 @@ export function MemberPostSettingsManager({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-center">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="x-cost-optimizer" className="text-sm font-semibold">
+                    X API 비용 최적화
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    첫 페이지를 5건으로 제한하고 신규행만 저장합니다. 사용량 70% 또는 공급자 backoff에서는 1시간으로 자동 완화합니다.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-3">
+                  <Badge variant={isXCostOptimizerEnabled ? "default" : "secondary"}>
+                    {isXCostOptimizerEnabled ? "활성화" : "비활성"}
+                  </Badge>
+                  <Switch
+                    id="x-cost-optimizer"
+                    checked={isXCostOptimizerEnabled}
+                    onCheckedChange={handleToggleXCostOptimizer}
+                    disabled={!settings || isSaving}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="x-reference-preview-mode" className="text-sm font-semibold">
+                    인용·답글 미리보기 모드
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    작성자 캐시는 30일 재사용합니다. 비용 비상 시 게시글만 또는 링크만 표시할 수 있습니다.
+                  </p>
+                </div>
+                <Select
+                  value={xReferencePreviewMode}
+                  onValueChange={(value) => void handleXReferencePreviewModeChange(value)}
+                  disabled={!settings || isSaving}
+                >
+                  <SelectTrigger id="x-reference-preview-mode" className="w-full" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cached_author">작성자 캐시</SelectItem>
+                    <SelectItem value="post_only">게시글만</SelectItem>
+                    <SelectItem value="link_only">링크만</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <Label htmlFor="x-preview-budget" className="text-sm font-semibold">
+                    미리보기 일일 예산 센트
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    기본 5센트이며 소진 시 신규 게시물은 저장하고 참조는 직접 링크로 남깁니다.
+                  </p>
+                </div>
+                <div className="flex w-full shrink-0 gap-2 sm:w-48">
+                  <Input
+                    id="x-preview-budget"
+                    inputMode="numeric"
+                    value={previewBudgetDraft}
+                    onChange={(event) => setPreviewBudgetDraft(event.target.value)}
+                    disabled={!settings || isSaving}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleSaveXReferencePreviewBudget()}
+                    disabled={!settings || isSaving}
+                  >
+                    저장
+                  </Button>
+                </div>
               </div>
               <div className="border-t pt-3">
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">

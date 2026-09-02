@@ -10,7 +10,10 @@ import {
   collectXPostsForHandles,
   extractXHandleFromUrl,
 } from "./x-api";
-import { backfillXPostFactsFromStoredPosts } from "./x-history";
+import {
+  backfillXPostFactsFromStoredPosts,
+  backfillXPostReferencesFromStoredPosts,
+} from "./x-history";
 import type { Env } from "../../../platform/types";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
@@ -18,6 +21,8 @@ const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
 // Background collection uses a bounded 25-post page. Public feed limits stay
 // independent (5..20) and always read stored D1 content.
 const X_COLLECTION_MAX_RESULTS = 25;
+const X_OPTIMIZED_FIRST_PAGE_RESULTS = 5;
+const X_SOURCE_LEASE_MS = 10 * 60_000;
 
 type XCollectionSource = "manual" | "scheduled";
 
@@ -25,7 +30,18 @@ type XCollectionServiceResult = Awaited<
   ReturnType<typeof collectXPostsForHandles>
 >;
 
-export type XCollectionRunResult = Omit<XCollectionServiceResult, "error"> & {
+type XCollectionObservability = {
+  uniqueResources: number;
+  previewDeferred: number;
+  coalescedHandles: number;
+  effectiveIntervalMinutes: number;
+  fallbackReason: XEffectiveCollectionPolicy["fallbackReason"];
+};
+
+export type XCollectionRunResult = Omit<
+  XCollectionServiceResult,
+  "error" | keyof XCollectionObservability
+> & Partial<XCollectionObservability> & {
   success: boolean;
   error: string | null;
   updatedAt: string;
@@ -36,6 +52,132 @@ export type XCollectionScheduleDecision = {
   intervalHours: number;
   lastRun: number;
   elapsedMs: number;
+};
+
+type XUsageGuardRow = {
+  resource: string;
+  consumed: number | string;
+  limit_value: number | string | null;
+};
+
+export const getXUsageFallbackReason = (
+  rows: readonly XUsageGuardRow[],
+  backoffUntil: number,
+  currentTime: number,
+): XEffectiveCollectionPolicy["fallbackReason"] => {
+  if (Number.isFinite(backoffUntil) && backoffUntil > currentTime) {
+    return "provider_backoff";
+  }
+  const fallbackByResource: Record<string, XEffectiveCollectionPolicy["fallbackReason"]> = {
+    x_api_cost_micros: "x_budget",
+    d1_rows_read: "d1_reads",
+    d1_rows_written: "d1_writes",
+    queue_operations: "queue",
+  };
+  const guarded = rows.find((row) => {
+    const limit = Number(row.limit_value ?? 0);
+    return limit > 0 && Number(row.consumed) / limit >= 0.7;
+  });
+  return guarded ? fallbackByResource[guarded.resource] ?? null : null;
+};
+
+export type XEffectiveCollectionPolicy = {
+  optimizerEnabled: boolean;
+  configuredIntervalMinutes: number;
+  effectiveIntervalMinutes: number;
+  fallbackReason: "x_budget" | "d1_reads" | "d1_writes" | "queue" | "provider_backoff" | null;
+  referencePreviewMode: "cached_author" | "post_only" | "link_only";
+};
+
+export const resolveXEffectiveCollectionPolicy = async (
+  env: Env,
+  currentTime = Date.now(),
+): Promise<XEffectiveCollectionPolicy> => {
+  const db = getDb(env);
+  const optimizerEnabled = (await getSetting(db, "x_cost_optimizer_enabled")) === "true";
+  const configuredHours = parseXCollectionIntervalHours(
+    await getSetting(db, X_COLLECTION_INTERVAL_SETTING_KEY),
+  );
+  const previewModeValue = await getSetting(db, "x_reference_preview_mode");
+  const referencePreviewMode = previewModeValue === "post_only" || previewModeValue === "link_only"
+    ? previewModeValue
+    : "cached_author";
+  const configuredIntervalMinutes = configuredHours * 60;
+  if (!optimizerEnabled) {
+    return {
+      optimizerEnabled,
+      configuredIntervalMinutes,
+      effectiveIntervalMinutes: configuredIntervalMinutes,
+      fallbackReason: null,
+      referencePreviewMode,
+    };
+  }
+
+  const backoffUntil = Number.parseInt(
+    (await getSetting(db, "x_api_backoff_until")) ?? "0",
+    10,
+  );
+  const earlyFallbackReason = getXUsageFallbackReason([], backoffUntil, currentTime);
+  if (earlyFallbackReason) {
+    return {
+      optimizerEnabled,
+      configuredIntervalMinutes,
+      effectiveIntervalMinutes: Math.max(configuredIntervalMinutes, 60),
+      fallbackReason: earlyFallbackReason,
+      referencePreviewMode,
+    };
+  }
+
+  const day = new Date(currentTime).toISOString().slice(0, 10);
+  const rows = await env.otw_db.prepare(
+    `SELECT resource, COALESCE(SUM(used + reserved), 0) AS consumed,
+            MAX(limit_value) AS limit_value
+     FROM scheduled_usage_daily
+     WHERE day = ? AND lane = 'all'
+       AND resource IN ('x_api_cost_micros', 'd1_rows_read', 'd1_rows_written', 'queue_operations')
+     GROUP BY resource`,
+  ).bind(day).all<XUsageGuardRow>();
+  const fallbackReason = getXUsageFallbackReason(rows.results, 0, currentTime);
+  return {
+    optimizerEnabled,
+    configuredIntervalMinutes,
+    effectiveIntervalMinutes: fallbackReason
+      ? Math.max(configuredIntervalMinutes, 60)
+      : configuredIntervalMinutes,
+    fallbackReason,
+    referencePreviewMode,
+  };
+};
+
+const claimXSourceLeases = async (env: Env, handles: string[], currentTime: number) => {
+  const claimed: string[] = [];
+  const token = crypto.randomUUID();
+  for (const handle of handles) {
+    await env.otw_db.prepare(
+      `INSERT INTO x_post_sources (
+         handle, last_checked_at, updated_at, collection_started_at,
+         generation
+       ) VALUES (?, 0, ?, ?, 0)
+       ON CONFLICT(handle) DO NOTHING`,
+    ).bind(handle, currentTime, currentTime).run();
+    const row = await env.otw_db.prepare(
+      `UPDATE x_post_sources
+       SET lease_token = ?, lease_until = ?, generation = generation + 1,
+           updated_at = ?
+       WHERE handle = ? AND (lease_until IS NULL OR lease_until <= ?)
+       RETURNING handle`,
+    ).bind(token, currentTime + X_SOURCE_LEASE_MS, currentTime, handle, currentTime)
+      .first<{ handle: string }>();
+    if (row?.handle) claimed.push(row.handle);
+  }
+  return { claimed, token, coalesced: handles.length - claimed.length };
+};
+
+const releaseXSourceLeases = async (env: Env, token: string) => {
+  await env.otw_db.prepare(
+    `UPDATE x_post_sources SET lease_token = NULL, lease_until = NULL
+     WHERE lease_token = ?`,
+  ).bind(token).run();
 };
 
 const normalizeLastRun = (value: string | null | undefined) => {
@@ -76,7 +218,7 @@ export const readActiveXHandles = async (db: DbInstance) => {
 };
 
 const normalizeCollectionResult = (
-  result: XCollectionServiceResult,
+  result: XCollectionServiceResult & Partial<XCollectionObservability>,
   updatedAtMs: number,
 ): XCollectionRunResult => ({
   ...result,
@@ -92,17 +234,35 @@ export const runXCollectionForHandles = async (
 ): Promise<XCollectionRunResult> => {
   try {
     await backfillXPostFactsFromStoredPosts(env.otw_db, 100);
+    await backfillXPostReferencesFromStoredPosts(env.otw_db, 100);
   } catch (error) {
-    console.warn("Failed to backfill stored X post facts", error);
+    console.warn("Failed to backfill stored X post facts or references", error);
   }
-  const result = await collectXPostsForHandles(handles, {
-    bearerToken: env.X_BEARER_TOKEN,
-    cacheDb: env.otw_db,
-    maxResults: X_COLLECTION_MAX_RESULTS,
-    richXLinkPreviewEnabled: false,
-    source,
-  });
-  return normalizeCollectionResult(result, Date.now());
+  const policy = await resolveXEffectiveCollectionPolicy(env);
+  const lease = await claimXSourceLeases(env, handles, Date.now());
+  try {
+    const result = await collectXPostsForHandles(lease.claimed, {
+      bearerToken: env.X_BEARER_TOKEN,
+      cacheDb: env.otw_db,
+      maxResults: policy.optimizerEnabled
+        ? X_OPTIMIZED_FIRST_PAGE_RESULTS
+        : X_COLLECTION_MAX_RESULTS,
+      richXLinkPreviewEnabled: false,
+      source,
+      optimizerEnabled: policy.optimizerEnabled,
+      effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
+      referencePreviewMode: policy.referencePreviewMode,
+      coalescedHandles: lease.coalesced,
+    });
+    return normalizeCollectionResult({
+      ...result,
+      effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
+      fallbackReason: policy.fallbackReason,
+      coalescedHandles: lease.coalesced,
+    }, Date.now());
+  } finally {
+    await releaseXSourceLeases(env, lease.token);
+  }
 };
 
 export const runXCollection = async (

@@ -16,11 +16,28 @@ export const AUTO_UPDATE_RANGE_DAYS = ["1", "2", "3", "5", "7"] as const;
 export type AutoUpdateRangeDays = (typeof AUTO_UPDATE_RANGE_DAYS)[number];
 export const DEFAULT_AUTO_UPDATE_RANGE_DAYS: AutoUpdateRangeDays = "3";
 
-export const X_COLLECTION_INTERVAL_HOURS = ["2", "6", "12", "24"] as const;
+export const X_COLLECTION_INTERVAL_HOURS = [
+  "0.5",
+  "1",
+  "2",
+  "6",
+  "12",
+  "24",
+] as const;
 export type XCollectionIntervalHours =
   (typeof X_COLLECTION_INTERVAL_HOURS)[number];
 export const DEFAULT_X_COLLECTION_INTERVAL_HOURS: XCollectionIntervalHours =
   "2";
+
+export const X_REFERENCE_PREVIEW_MODES = [
+  "cached_author",
+  "post_only",
+  "link_only",
+] as const;
+export type XReferencePreviewMode =
+  (typeof X_REFERENCE_PREVIEW_MODES)[number];
+export const DEFAULT_X_REFERENCE_PREVIEW_MODE: XReferencePreviewMode =
+  "cached_author";
 
 export const YOUTUBE_WARMUP_INTERVAL_HOURS = [
   "1",
@@ -72,8 +89,11 @@ export interface AdminSettingsDto {
   naver_cafe_posts_visibility: SettingsVisibility;
   x_collection_enabled: BooleanSettingValue;
   x_history_analytics_enabled: BooleanSettingValue;
+  x_cost_optimizer_enabled: BooleanSettingValue;
   x_collection_daily_budget_cents: string;
   x_collection_interval_hours: XCollectionIntervalHours;
+  x_reference_preview_mode: XReferencePreviewMode;
+  x_reference_preview_daily_budget_cents: string;
   x_collection_last_run: string | null;
   youtube_warmup_enabled: BooleanSettingValue;
   youtube_warmup_interval_hours: YouTubeWarmupIntervalHours;
@@ -98,8 +118,11 @@ export const SETTINGS_KEYS = [
   "naver_cafe_posts_visibility",
   "x_collection_enabled",
   "x_history_analytics_enabled",
+  "x_cost_optimizer_enabled",
   "x_collection_daily_budget_cents",
   "x_collection_interval_hours",
+  "x_reference_preview_mode",
+  "x_reference_preview_daily_budget_cents",
   "x_collection_last_run",
   "youtube_warmup_enabled",
   "youtube_warmup_interval_hours",
@@ -196,6 +219,19 @@ export const normalizeXCollectionIntervalHours = (
 export const parseXCollectionIntervalHours = (
   value: string | null | undefined,
 ) => Number(normalizeXCollectionIntervalHours(value));
+
+export const isXReferencePreviewMode = (
+  value: unknown,
+): value is XReferencePreviewMode =>
+  typeof value === "string" &&
+  (X_REFERENCE_PREVIEW_MODES as readonly string[]).includes(value);
+
+export const normalizeXReferencePreviewMode = (
+  value: string | null | undefined,
+): XReferencePreviewMode =>
+  isXReferencePreviewMode(value)
+    ? value
+    : DEFAULT_X_REFERENCE_PREVIEW_MODE;
 
 export const isYouTubeWarmupIntervalHours = (
   value: unknown,
@@ -328,6 +364,18 @@ const normalizeXCollectionDailyBudgetCents = (
   value: string | null | undefined,
 ) => (isXCollectionDailyBudgetCents(value) ? value : "100");
 
+const isXReferencePreviewDailyBudgetCents = (
+  value: unknown,
+): value is string => {
+  if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return false;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100;
+};
+
+const normalizeXReferencePreviewDailyBudgetCents = (
+  value: string | null | undefined,
+) => (isXReferencePreviewDailyBudgetCents(value) ? value : "5");
+
 const passthroughNullable = (value: string | null | undefined) => value ?? null;
 
 const SETTINGS_CONFIGS: readonly SettingConfig[] = [
@@ -404,6 +452,12 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     validate: isBooleanValue,
   },
   {
+    key: "x_cost_optimizer_enabled",
+    writable: true,
+    normalize: (value) => normalizeBoolean(value, "false"),
+    validate: isBooleanValue,
+  },
+  {
     key: "x_collection_daily_budget_cents",
     writable: true,
     normalize: normalizeXCollectionDailyBudgetCents,
@@ -414,6 +468,20 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     writable: true,
     normalize: normalizeXCollectionIntervalHours,
     validate: isXCollectionIntervalHours,
+    persistOnRead: true,
+  },
+  {
+    key: "x_reference_preview_mode",
+    writable: true,
+    normalize: normalizeXReferencePreviewMode,
+    validate: isXReferencePreviewMode,
+    persistOnRead: true,
+  },
+  {
+    key: "x_reference_preview_daily_budget_cents",
+    writable: true,
+    normalize: normalizeXReferencePreviewDailyBudgetCents,
+    validate: isXReferencePreviewDailyBudgetCents,
     persistOnRead: true,
   },
   {

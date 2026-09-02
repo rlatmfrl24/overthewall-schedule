@@ -18,6 +18,7 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `cache-policy.md`                                      | Frontend, Worker memory, D1, and HTTP cache TTL roles.                                             |
 | `operations/member-post-storage-policy.md`             | X and Naver member-post retention, redaction, public-read, and implementation closeout policy.     |
 | `operations/x-member-history-and-archive-design.md`    | Canonical forward-only X feed, permanent admin archive, redaction, cost, and operational Closeout.      |
+| `operations/x-api-cost-minimization-design.md`         | X 신규행 전용 5→25 수집, 작성자 cache, 일별 고유 비용 원장, 조건부 30분 운영 계약.                      |
 | `operations/scheduled-jobs-v2.md`                      | D1/Workflow/Queue scheduler operations and the production collection-stabilization closeout.       |
 | `otw-play-product-requirements.md`                     | Living product requirements and decision baseline for OTW Play.                                    |
 | `otw-play-system-design.md`                            | Clean Architecture, Cloudflare runtime, API, algorithms, and D1 schema design for OTW Play.        |
