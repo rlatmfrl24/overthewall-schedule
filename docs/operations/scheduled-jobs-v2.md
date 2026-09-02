@@ -138,6 +138,21 @@ X 장기 기록과 관리자 history는 유지한다. 공급자 upload HTTP 404�
 D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피드 DTO와
 수집 시점 `public_metrics`는 유지되지만 이후 metric 재조회 경로는 존재하지 않는다.
 
+### 2026-09-02 X 공급자 삭제 동기화 제거 Closeout
+
+- runtime 선배포: `fcf12304-a291-4280-92f0-3e15892ff5b9`
+- migration: `0078_wealthy_marvel_apes.sql`
+- 최종 Worker: `307fac5d-e08b-4110-b250-98aeb00602e6` 100%
+- 운영 D1 readback: `2026-09-02T04:02Z`
+- 보존: X post 198, facts 198, source 8, watermark 8, continuation 0,
+  공용 `all/x_api_cost_micros` 원장 3일치
+- 제거: 전용 schema·setting·run/item/outbox·usage event·일별 원장 전부 0
+- 검증: FK 위반·pending migration 0, 공개 GET 전후 X usage event 불변,
+  관리자 archive 50건과 다음 cursor 페이지 실제 조회 성공
+
+이후 33분 cron은 `source_health`만 계획한다. X는 짝수 UTC 시각의 23분에 2시간
+간격 eligibility를 확인하고, 영구 원문·facts 기록은 일반 TTL에서 제외한다.
+
 ## 배포 순서
 
 `pnpm deploy`는 운영 D1에 미적용 migration이 있으면 중단하고 통합 Worker 한 개를 배포한다. Queue 생성, secret 쓰기, migration 적용, rollout flag 변경, 기존 Worker/Queue 삭제는 자동으로 수행하지 않는다. 최초 통합 전환은 `cloudflare-production-account-migration.md`의 drain·consumer handoff gate를 따라야 한다. Wrangler config에는 Workflow의 `schedules`를 두지 않는다. 해당 속성은 Workers Paid 전용이며 Free 운영 환경은 Cron bridge를 권위 진입점으로 사용한다.

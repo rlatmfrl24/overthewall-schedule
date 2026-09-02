@@ -50,8 +50,8 @@ X의 상세 계약은
   런타임, scheduler, 설정, 비용 이벤트, 전용 원장·테이블과 과거 run/item/outbox는
   운영에서 삭제한다.
 - 게시물 원본과 공용 실제 X 비용 집계는 보존한다.
-- 런타임 제거 Worker `fcf12304-a291-4280-92f0-3e15892ff5b9`가 100% 배포됐고,
-  제거 전용 Queue backlog는 0이었다.
+- 최종 Worker `307fac5d-e08b-4110-b250-98aeb00602e6`이 100% 배포됐고, 제거 전용
+  Queue backlog와 운영 D1 잔여물은 모두 0이다. facts는 198/198로 보충됐다.
 
 공급자 404의 진단 근거와 폐기 결정은
 [`../archive/x-provider-upload-404-incident-closeout.md`](../archive/x-provider-upload-404-incident-closeout.md)에

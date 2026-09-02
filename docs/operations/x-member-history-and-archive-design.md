@@ -91,11 +91,16 @@ hard delete와 복원 API는 제공하지 않는다. 관리자 화면은 실행 
 | 분석 킬스위치 | 완료 | 원본 수집과 분리하고 재활성화 시 D1-only 100건 보충 구현 |
 | 공급자 삭제 동기화 배치 | 제거 완료 | 공급자 upload route의 반복 HTTP 404로 런타임·설정·scheduler·원장·테이블에서 제거 |
 
-런타임 선배포 버전은 `fcf12304-a291-4280-92f0-3e15892ff5b9`이다. 그 직전 운영
-snapshot은 게시물 198건, facts 127건, source 8개였다. migration `0078`은 잔여
-운영 이력을 정리하고 유효성 검사를 통과한 누락 facts 71건을 D1 원문에서 보충한다.
-운영 migration readback과 최종 Worker 버전은 배포가 완료된 시점에 이 문서에
-추가한다.
+런타임 선배포 버전은 `fcf12304-a291-4280-92f0-3e15892ff5b9`, migration 이후 최종
+Worker는 `307fac5d-e08b-4110-b250-98aeb00602e6`이다. `2026-09-02T04:02Z` 운영
+readback에서 migration `0078`이 누락 facts 71건을 D1 원문에서 보충해 게시물 198,
+facts 198이 일치했다. source 8, watermark 8, continuation 0과 공용 X 비용 원장은
+유지됐고 제거 대상 schema·setting·run/item/outbox·usage event·전용 원장은 모두
+0이다. D1 크기는 16,195,584 bytes이며 FK 위반과 pending migration도 0이다.
+
+같은 배포의 `/admin/member-posts`에서 첫 50건과 다음 cursor 페이지의 원문·미디어·
+유형·시각을 실제 관리자 세션으로 확인했다. 공개 X API 호출 전후 usage event는
+1,620건·max ID 7,180·14,875,000 micros로 같아 공급자 호출 0회도 확인했다.
 
 ## 6. 완료 조건
 
