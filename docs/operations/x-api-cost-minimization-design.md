@@ -1,10 +1,13 @@
-# X API 최소화·조건부 30분 수집 설계
+# X API 최소화·조건부 30분 수집 설계 및 구현 Closeout
 
 ## 문서 상태
 
-- 상태: canonical implementation contract
+- 상태: 구현·운영 rollout Closeout 완료, 30일 관찰 진행 중
 - 구현일: 2026-09-02
+- Closeout readback: 2026-09-02 15:02 KST
+- 관찰 기간: 2026-09-02 ~ 2026-10-02
 - rollout 현재값(2026-09-02): `x_cost_optimizer_enabled=true`, `x_collection_interval_hours=2`
+- production authority: PR #107, merge `d1f93638390ad7a02d1ca43e38fb8f65035a33f8`, Worker `be965267-b4b1-4583-9bd7-84af77802260`
 - 제품 계약: 소스 활성화 이후 신규 게시물만 수집하고 D1에 영구 보존하며 공개 요청은 D1만 읽는다.
 
 ## 1. 비용 기준선과 목표
@@ -97,7 +100,7 @@ D1·Queue 70% guard를 넘겨 수집 빈도를 유지하지 않는다.
 즉시 비용 rollback은 `link_only` → interval `2` → optimizer `false` 순서다. 모든
 단계에서 저장 게시물과 watermark는 유지되며 공개 DTO는 변하지 않는다.
 
-## 7. 구현 Closeout
+## 7. 구현·운영 Closeout
 
 | 항목 | 상태 | 근거 |
 | --- | --- | --- |
@@ -106,13 +109,16 @@ D1·Queue 70% guard를 넘겨 수집 빈도를 유지하지 않는다.
 | 작성자 30일 cache | 구현 완료 | Post/User lookup 분리, `linked_user` D1 cache, `cached_author/post_only/link_only` |
 | 30/60분 scheduler | 구현 완료 | 23·53분 Cron, 30분 bucket, 70%·provider backoff 실효 60분 전환 |
 | 공개 API 호환 | 구현 완료 | 공개 route·DTO·D1-only reader 변경 없음 |
-| 운영 migration·flag | 1단계 완료 | 2026-09-02 migration `0079` 적용, FK 오류 0, optimizer=`true`, preview=`cached_author`/5센트, 24시간 관찰을 위해 interval=`2` 유지 |
-| PR·Worker version·운영 readback | 배포 완료·병합 대기 | PR #107 head `f1d7ad0`, Worker `9bb27081-6bb4-4fe6-a34c-ffe5f03f3774`, posts=199, sources/watermarks=8/8, continuation=0 |
-| 7일 비용 Closeout | 대기 | Developer Console 실제 청구와 월 run-rate 대조 후 기록 |
+| 운영 migration·flag | 완료 | migration `0079`, FK·pending migration 0, optimizer=`true`, preview=`cached_author`/5센트 |
+| PR·Worker version | 완료 | PR #107, merge `d1f9363`, production Worker `be965267-b4b1-4583-9bd7-84af77802260` 100% |
+| 운영 데이터 보존 | 완료 | post/facts 199/199, source/watermark 8/8, continuation 0, 공개 GET 200 |
+| reference backfill | 운영 관찰 중 | invalid JSON 0, 관계 보유 post 112, Closeout 시점 reference 0; 다음 eligible 수집부터 100건씩 D1-only 처리 |
+| 30분 주기 전환 | 운영 관찰 중 | 최소 24시간 동안 interval=`2` 유지 후 안정성·70% guard를 통과할 때만 `0.5`로 변경 |
+| 7일·30일 비용 Closeout | 운영 관찰 중 | 내부 원장과 Developer Console 실제 청구를 대조한 뒤 확정 |
 
-운영 Closeout에는 PR, Worker version, migration 적용 시각, source/watermark/
-continuation, 빈 poll write 0, cache hit/miss, coalesced 수, 70% fallback canary와 7일
-실제 비용을 추가한다. 관측 전에는 `$9.50` 목표 달성을 완료로 표현하지 않는다.
+구현 Closeout은 완료됐지만 운영 효과 검증은 별도다. 관찰 기간에는 빈 poll write 0,
+cache hit/miss, coalesced 수, 70% fallback canary와 실제 비용을 누적한다. 관측 전에는
+`$9.50` 목표 달성이나 30분 주기 안정화를 완료로 표현하지 않는다.
 
 ### 2026-09-02 운영 rollout readback
 
@@ -125,3 +131,24 @@ continuation, 빈 poll write 0, cache hit/miss, coalesced 수, 70% fallback cana
 - 30일 관찰 기간에는 일별 내부 원장과 7일·30일 Developer Console 실제 청구를
   구분해 기록한다. 공급자 실제 청구 확인 전에는 내부 추정치를 확정 비용으로
   표현하지 않는다.
+
+### 2026-09-02 구현 Closeout 및 관찰 handoff
+
+- PR #107은 `2026-09-02T05:57:28Z`에 merge `d1f9363`으로 병합됐다.
+- 병합 커밋의 Cloudflare Workers Build가 성공했고 production Worker
+  `be965267-b4b1-4583-9bd7-84af77802260`이 100% 활성 상태다.
+- migration `0079` 이후 pending migration과 FK 위반은 0이다. D1 크기는
+  16,322,560 bytes이고 post/facts 199/199, source/watermark 8/8, continuation 0이다.
+- 운영 설정은 optimizer=`true`, interval=`2`, preview=`cached_author`, preview 일일
+  예산 5센트다. 즉 비용 최소화 로직은 활성화됐지만 수집 빈도 증가는 아직 보류한다.
+- UTC 2026-09-02 원장은 X 635,000/1,000,000 micros(63.5%), D1 read
+  84,700/2,000,000(4.2%), D1 write 6,510/40,000(16.3%)다. 모두 rollout guard
+  70% 미만이지만 X는 경계에 가까우므로 최소 24시간 관찰을 우선한다.
+- 공개 `/feed`와 parameterized `/api/x/posts`는 최종 Worker에서 200을 반환했다.
+- 관찰 automation `x-30`은 매일 15:30 KST에 이 스레드에서 실행한다. 최소 24시간
+  이후 gate가 정상이면 interval을 `0.5`로 전환하고, 7일째 중간 비용 판정과 30일째
+  최종 운영 Closeout을 작성한 뒤 스스로 일시중지한다.
+
+이 문서 변경 이후 관찰 기간에는 결함 수정이나 안전 rollback을 제외한 수집 런타임
+변경을 하지 않는다. 실제 X Developer Console 청구는 자동 읽기가 불가능할 수 있으므로
+7일·30일 판정 시 운영자가 Console 금액만 확인해 내부 원장과 대조한다.
