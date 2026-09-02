@@ -142,8 +142,8 @@ D1 크기는 16,265,216 bytes에서 16,216,064 bytes로 감소했다. 공개 피
 
 - runtime 선배포: `fcf12304-a291-4280-92f0-3e15892ff5b9`
 - migration: `0078_wealthy_marvel_apes.sql`
-- 최종 Worker: `307fac5d-e08b-4110-b250-98aeb00602e6` 100%
-- 운영 D1 readback: `2026-09-02T04:02Z`
+- 최종 Worker: `26d325ac-6ab2-41a2-8d36-24e3d1cc53c1` 100%
+- 운영 D1 readback: `2026-09-02T04:15Z`
 - 보존: X post 198, facts 198, source 8, watermark 8, continuation 0,
   공용 `all/x_api_cost_micros` 원장 3일치
 - 제거: 전용 schema·setting·run/item/outbox·usage event·일별 원장 전부 0
