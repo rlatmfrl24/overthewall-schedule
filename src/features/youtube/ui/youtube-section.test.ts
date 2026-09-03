@@ -7,10 +7,15 @@ import type { YouTubeVideo } from "../model/types";
 
 const useYouTubeVideosMock = vi.hoisted(() => vi.fn());
 const useFilteredYouTubeVideosMock = vi.hoisted(() => vi.fn());
+const useYouTubeShortsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../queries/use-youtube-videos", () => ({
   useYouTubeVideos: useYouTubeVideosMock,
   useFilteredYouTubeVideos: useFilteredYouTubeVideosMock,
+}));
+
+vi.mock("../queries/use-youtube-shorts", () => ({
+  useYouTubeShorts: useYouTubeShortsMock,
 }));
 
 vi.mock("@/assets/icon_youtube_shorts.svg", () => ({
@@ -72,7 +77,23 @@ describe("YouTubeSection", () => {
     });
     useFilteredYouTubeVideosMock.mockReturnValue({
       filteredVideos: videos,
-      filteredShorts: shorts,
+      filteredShorts: [],
+    });
+    useYouTubeShortsMock.mockReturnValue({
+      shorts,
+      collection: {
+        state: "ready",
+        baselineTarget: 20,
+        requested: 20,
+        returned: 1,
+        revalidateAfterMs: null,
+      },
+      error: null,
+      hasLoaded: true,
+      hasMore: true,
+      loadMore: vi.fn(),
+      loading: false,
+      loadingMore: false,
     });
 
     render(
@@ -88,6 +109,9 @@ describe("YouTubeSection", () => {
     expect(screen.queryByText("일반 영상 4")).toBeNull();
     expect(screen.getByText("Shorts")).toBeTruthy();
     expect(screen.getByText("쇼츠 101")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Shorts 20개 더 보기" }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "동영상 3개 더 보기" }));
 

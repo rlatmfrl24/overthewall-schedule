@@ -25,7 +25,7 @@ export const getEstimatedD1RowsPerItem = (jobType: ScheduledJobType) => {
   > = {
     x_collection: { rowsRead: 500, rowsWritten: 50 },
     naver_cafe_collection: { rowsRead: 500, rowsWritten: 70 },
-    youtube_feed_collection: { rowsRead: 500, rowsWritten: 150 },
+    youtube_feed_collection: { rowsRead: 1_000, rowsWritten: 600 },
     schedule_auto_update: { rowsRead: 1_000, rowsWritten: 100 },
     ingestion_recovery: { rowsRead: 1_000, rowsWritten: 100 },
     websub_maintenance: { rowsRead: 300, rowsWritten: 25 },

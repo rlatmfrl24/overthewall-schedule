@@ -568,6 +568,13 @@
       "when": 1788386104112,
       "tag": "0081_normalize_x_source_handles",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1788387336803,
+      "tag": "0082_chief_tigra",
+      "breakpoints": true
     }
   ]
 }

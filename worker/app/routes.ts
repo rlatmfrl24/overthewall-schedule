@@ -426,6 +426,15 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleYouTube,
   },
   {
+    id: "youtube.shorts",
+    owner: "youtube",
+    path: apiRoutes.youtube.shorts.pattern,
+    methods: methods(
+      get({ auth: "public", cache: PUBLIC_MEDIA_CACHE, successStatus: 200 }),
+    ),
+    handler: handleYouTube,
+  },
+  {
     id: "youtube.cache-status",
     owner: "youtube",
     path: apiRoutes.youtube.cacheStatus.pattern,

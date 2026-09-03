@@ -113,6 +113,8 @@ export const queryKeys = {
     all: ["media"] as const,
     youtube: (channelIdsKey: string, maxResults: number) =>
       [...queryKeys.media.all, "youtube", channelIdsKey, maxResults] as const,
+    youtubeShorts: (channelIdsKey: string, limit: number) =>
+      [...queryKeys.media.all, "youtube-shorts", channelIdsKey, limit] as const,
     chzzkVods: (channelIdsKey: string, videosPerMember: number) =>
       [...queryKeys.media.all, "chzzk-vods", channelIdsKey, videosPerMember] as const,
     chzzkLatestVods: (channelIdsKey: string) =>

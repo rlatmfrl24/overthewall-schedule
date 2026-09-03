@@ -17,6 +17,26 @@ export interface YouTubeVideosResponseDto {
   cache: YouTubePublicCacheMetadataDto;
 }
 
+export type YouTubeShortsCollectionState =
+  | "ready"
+  | "refreshing"
+  | "partial"
+  | "exhausted";
+
+export interface YouTubeShortsResponseDto {
+  items: YouTubeVideoDto[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  updatedAt: string;
+  collection: {
+    state: YouTubeShortsCollectionState;
+    baselineTarget: 20;
+    requested: number;
+    returned: number;
+    revalidateAfterMs: 15000 | null;
+  };
+}
+
 export interface KirinukiChannelDto {
   id: number;
   channel_name: string;

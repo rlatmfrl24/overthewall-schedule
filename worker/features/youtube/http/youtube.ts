@@ -16,6 +16,8 @@ import {
   YouTubeTargetsNotAllowedError,
   type YouTubeApplication,
 } from "../application/youtube-service";
+import { YouTubeShortsCursorError } from "../domain/shorts-cursor";
+import { YouTubeShortsUnavailableError } from "../domain/shorts-errors";
 
 const YOUTUBE_CACHE_CONTROL =
   "public, max-age=60, s-maxage=300, stale-while-revalidate=600";
@@ -156,6 +158,77 @@ export const createYouTubeHandler =
       }
       console.error("Failed to handle /api/youtube/videos", error);
       return new Response("Failed to fetch YouTube videos", { status: 502 });
+    }
+  }
+
+  if (url.pathname === "/api/youtube/shorts") {
+    if (request.method !== "GET") {
+      return methodNotAllowed();
+    }
+
+    const parsedTargets = parseYouTubeChannelTargets(
+      url.searchParams.get("channelIds"),
+    );
+    if (!parsedTargets.ok) return badRequest(parsedTargets.message);
+    const limit = parseYouTubeMaxResults(url.searchParams.get("limit"));
+    if (limit === null) {
+      return badRequest("limit must be an integer between 1 and 20");
+    }
+
+    try {
+      const content = await application.readShorts(
+        parsedTargets.channelIds,
+        limit,
+        url.searchParams.get("cursor"),
+        ctx,
+      );
+      const stable =
+        content.collection.state === "ready" ||
+        content.collection.state === "exhausted";
+      return json(content, 200, {
+        headers: {
+          "Cache-Control": stable
+            ? YOUTUBE_CACHE_CONTROL
+            : PRIVATE_YOUTUBE_CACHE_CONTROL,
+        },
+      });
+    } catch (error) {
+      if (error instanceof YouTubeAllowlistUnavailableError) {
+        return new Response(error.message, {
+          status: 503,
+          headers: {
+            "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+            "Retry-After": "15",
+          },
+        });
+      }
+      if (
+        error instanceof YouTubeTargetsNotAllowedError ||
+        error instanceof YouTubeShortsCursorError
+      ) {
+        return badRequest(
+          error instanceof YouTubeShortsCursorError
+            ? "Invalid cursor"
+            : "Unapproved channelIds",
+        );
+      }
+      if (error instanceof YouTubeShortsUnavailableError) {
+        return new Response(error.message, {
+          status: 503,
+          headers: {
+            "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+            "Retry-After": String(error.retryAfterSeconds),
+          },
+        });
+      }
+      console.error("Failed to handle /api/youtube/shorts", error);
+      return new Response("Failed to fetch YouTube Shorts", {
+        status: 503,
+        headers: {
+          "Cache-Control": PRIVATE_YOUTUBE_CACHE_CONTROL,
+          "Retry-After": "15",
+        },
+      });
     }
   }
 

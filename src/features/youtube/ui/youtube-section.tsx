@@ -4,6 +4,7 @@ import {
   useYouTubeVideos,
   useFilteredYouTubeVideos,
 } from "../queries/use-youtube-videos";
+import { useYouTubeShorts } from "../queries/use-youtube-shorts";
 import { YouTubePlaylist } from "./youtube-playlist";
 import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 import { Button } from "@/shared/ui/button";
@@ -67,16 +68,31 @@ export const YouTubeSection = ({
   const [visibleVideoCount, setVisibleVideoCount] = useState(gridColumnCount);
   const hasYouTubeMember = members.some((member) => member.youtube_channel_id);
 
-  const { videos, shorts, error, hasLoaded, loading } = useYouTubeVideos(
+  const { videos, error, hasLoaded, loading } = useYouTubeVideos(
     members,
     { maxResults: 20 },
   );
 
-  const { filteredVideos, filteredShorts } = useFilteredYouTubeVideos(
+  const { filteredVideos } = useFilteredYouTubeVideos(
     videos,
-    shorts,
+    [],
     selectedMemberUids,
   );
+  const shortsMembers = useMemo(() => {
+    if (!selectedMemberUids || selectedMemberUids.length === 0) return members;
+    const selected = new Set(selectedMemberUids);
+    return members.filter((member) => selected.has(member.uid));
+  }, [members, selectedMemberUids]);
+  const {
+    shorts,
+    collection: shortsCollection,
+    error: shortsError,
+    hasLoaded: shortsLoaded,
+    hasMore: hasMoreShorts,
+    loadMore: loadMoreShorts,
+    loading: loadingShorts,
+    loadingMore: loadingMoreShorts,
+  } = useYouTubeShorts(shortsMembers, { limit: 20 });
   const selectedMemberKey = selectedMemberUids?.join(",") || "all";
   const clampedVisibleVideoCount = Math.min(
     visibleVideoCount,
@@ -120,7 +136,19 @@ export const YouTubeSection = ({
   }
 
   const isInitialLoading =
-    !hasLoaded || (loading && videos.length === 0 && shorts.length === 0);
+    !hasLoaded ||
+    !shortsLoaded ||
+    (loading && videos.length === 0) ||
+    (loadingShorts && shorts.length === 0);
+  const shortsNeedsCollection =
+    shortsCollection.state === "refreshing" ||
+    shortsCollection.state === "partial";
+  const showShortsButton = hasMoreShorts || shortsNeedsCollection;
+  const shortsButtonLabel = loadingMoreShorts
+    ? "Shorts 추가 수집 중"
+    : shortsNeedsCollection
+      ? "계속 찾기"
+      : "Shorts 20개 더 보기";
 
   return (
     <div className="space-y-8">
@@ -173,12 +201,40 @@ export const YouTubeSection = ({
           {/* 쇼츠 플레이리스트 */}
           <YouTubePlaylist
             title="Shorts"
-            videos={filteredShorts}
+            videos={shorts}
             members={members}
             variant="short"
             layout="shorts-grid"
             emptyMessage="업로드된 Shorts가 없습니다."
           />
+
+          <div className="space-y-3 text-center">
+            <p
+              className="min-h-5 text-sm text-muted-foreground"
+              aria-live="polite"
+            >
+              {loadingMoreShorts
+                ? "Shorts 추가 항목을 찾고 있습니다. 기존 항목은 그대로 유지됩니다."
+                : shortsError ??
+                  (shortsNeedsCollection
+                    ? "아직 페이지가 확정되지 않았습니다. 계속 찾을 수 있습니다."
+                    : "")}
+            </p>
+            {showShortsButton && (
+              <Button
+                type="button"
+                variant="outline"
+                size="default"
+                disabled={loadingMoreShorts}
+                aria-label={shortsButtonLabel}
+                onClick={() => void loadMoreShorts()}
+                className="h-10 w-full max-w-xs rounded-lg border-border/70 bg-card px-4 text-sm font-semibold text-foreground shadow-sm hover:border-primary/50 hover:bg-primary/10 hover:text-primary sm:w-auto"
+              >
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                {shortsButtonLabel}
+              </Button>
+            )}
+          </div>
         </>
       )}
     </div>
