@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   YouTubeCacheRefreshRunSummaryDto,
   YouTubePublicCacheMetadataDto,
+  YouTubeShortsResponseDto,
   YouTubeVideoDto,
 } from "@contracts/youtube";
 import type { Env } from "../../../platform/types";
@@ -189,12 +190,26 @@ const createHarness = () => {
   }));
   const runCacheRefresh = vi.fn(async () => manualRefreshResult);
   const writeWarmupAudit = vi.fn(async () => undefined);
+  const readShorts = vi.fn(async (): Promise<YouTubeShortsResponseDto> => ({
+    items: [],
+    nextCursor: null,
+    hasMore: false,
+    updatedAt: "2026-07-09T00:00:00.000Z",
+    collection: {
+      state: "exhausted" as const,
+      baselineTarget: 20 as const,
+      requested: 20,
+      returned: 0,
+      revalidateAfterMs: null,
+    },
+  }));
   const ports = {
     isApiConfigured: () => true,
     readAllowedChannelIds: vi.fn(
       async () => new Set([youtubeChannelA, youtubeChannelB]),
     ),
     readChannelsWithSWR,
+    readShorts,
     readCacheTargets,
     readCacheStatus,
     readCacheAnalytics,
@@ -218,6 +233,7 @@ const createHarness = () => {
     readWarmupStatus,
     runCacheRefresh,
     writeWarmupAudit,
+    readShorts,
   };
 };
 
@@ -289,6 +305,66 @@ describe("youtube worker route", () => {
       ],
       ctx,
     );
+  });
+
+  it("Shorts ready 응답은 공개 캐시를 사용하고 전용 port에 cursor를 전달한다", async () => {
+    const { handleYouTube, readShorts } = createHarness();
+    readShorts.mockResolvedValueOnce({
+      items: [{ ...makeVideo(youtubeChannelA), isShort: true, duration: 30 }],
+      nextCursor: "next",
+      hasMore: true,
+      updatedAt: "2026-07-09T00:00:00.000Z",
+      collection: {
+        state: "ready",
+        baselineTarget: 20,
+        requested: 20,
+        returned: 1,
+        revalidateAfterMs: null,
+      },
+    });
+    const ctx = makeExecutionContext();
+    const response = await handleYouTube(
+      new Request(
+        `https://example.com/api/youtube/shorts?channelIds=${youtubeChannelA}&limit=20&cursor=cursor-1`,
+      ),
+      makeEnv(),
+      ctx,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toContain("public");
+    expect(readShorts).toHaveBeenCalledWith(
+      [youtubeChannelA],
+      20,
+      "cursor-1",
+      ctx,
+    );
+  });
+
+  it("Shorts refreshing 응답은 no-store로 반환한다", async () => {
+    const { handleYouTube, readShorts } = createHarness();
+    readShorts.mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      hasMore: true,
+      updatedAt: "2026-07-09T00:00:00.000Z",
+      collection: {
+        state: "refreshing",
+        baselineTarget: 20,
+        requested: 20,
+        returned: 0,
+        revalidateAfterMs: 15000,
+      },
+    });
+    const response = await handleYouTube(
+      new Request(
+        `https://example.com/api/youtube/shorts?channelIds=${youtubeChannelA}`,
+      ),
+      makeEnv(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("API 키가 없어도 fresh D1 cache를 반환한다", async () => {
@@ -529,9 +605,16 @@ describe("youtube worker route", () => {
       ),
       makeEnv(),
     );
+    const invalidShortsLimitResponse = await handleYouTube(
+      new Request(
+        `https://example.com/api/youtube/shorts?channelIds=${youtubeChannelA}&limit=21`,
+      ),
+      makeEnv(),
+    );
 
     expect(invalidChannelResponse.status).toBe(400);
     expect(invalidLimitResponse.status).toBe(400);
+    expect(invalidShortsLimitResponse.status).toBe(400);
     expect(readChannelsWithSWR).not.toHaveBeenCalled();
   });
 

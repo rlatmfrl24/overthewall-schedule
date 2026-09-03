@@ -102,6 +102,14 @@ const makeEnv = (state: FakeD1State): Env =>
   }) as Env;
 
 describe("data retention service", () => {
+  it("YouTube feed metadata retention is based on fetched_at", () => {
+    expect(
+      DATA_RETENTION_POLICIES.find(
+        (policy) => policy.id === "youtube-feed-videos",
+      ),
+    ).toMatchObject({ timestampColumn: "fetched_at", retentionDays: 30 });
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

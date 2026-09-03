@@ -72,4 +72,30 @@ describe("youtube api", () => {
       fetchMembersYouTubeVideos([makeMember(1, "UC_A")]),
     ).rejects.toThrow("failed");
   });
+
+  it("Shorts cursor와 선택 채널을 전용 endpoint로 전달한다", async () => {
+    apiFetchMock.mockResolvedValue({
+      items: [{ videoId: "s1", channelId: "UC_B" }],
+      nextCursor: "next",
+      hasMore: true,
+      updatedAt: "2026-09-03T00:00:00Z",
+      collection: {
+        state: "ready",
+        baselineTarget: 20,
+        requested: 20,
+        returned: 1,
+        revalidateAfterMs: null,
+      },
+    });
+    const { fetchMembersYouTubeShorts } = await import("./youtube");
+    const result = await fetchMembersYouTubeShorts(
+      [makeMember(2, "UC_B"), makeMember(1, "UC_A")],
+      { cursor: "cursor-1" },
+    );
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/youtube/shorts?channelIds=UC_A%2CUC_B&limit=20&cursor=cursor-1",
+    );
+    expect(result?.items[0]?.memberUid).toBe(2);
+  });
 });

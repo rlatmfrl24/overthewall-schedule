@@ -92,4 +92,20 @@ describe("scheduled job executor outcomes", () => {
       failed: 0,
     });
   });
+
+  it("preserves a completed source pass as partial when Shorts backfill hit quota", () => {
+    expect(toYouTubeFeedCollectionOutcome({
+      status: "partial",
+      attempted: 8,
+      succeeded: 8,
+      failed: 0,
+      quotaBlocked: true,
+    })).toMatchObject({
+      status: "partial",
+      attempted: 8,
+      succeeded: 8,
+      failed: 0,
+      errorCode: "youtube_feed_collection_quota_blocked",
+    });
+  });
 });

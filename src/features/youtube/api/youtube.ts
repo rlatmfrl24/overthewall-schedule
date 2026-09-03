@@ -1,8 +1,14 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { apiFetch } from "@/shared/api/client";
 import type { MemberDto } from "@contracts/members";
-import type { YouTubeVideosResponseDto } from "@contracts/youtube";
-import type { YouTubeVideosResponse } from "../model/types";
+import type {
+  YouTubeShortsResponseDto,
+  YouTubeVideosResponseDto,
+} from "@contracts/youtube";
+import type {
+  YouTubeShortsResponse,
+  YouTubeVideosResponse,
+} from "../model/types";
 
 interface FetchYouTubeVideosOptions {
   maxResults?: number;
@@ -71,5 +77,34 @@ export async function fetchMembersYouTubeVideos(
     ...response,
     videos: videosWithMember,
     shorts: shortsWithMember,
+  };
+}
+
+export async function fetchMembersYouTubeShorts(
+  members: MemberDto[],
+  options: { limit?: number; cursor?: string | null } = {},
+): Promise<YouTubeShortsResponse | null> {
+  const channelToMember = new Map<string, number>();
+  for (const member of members) {
+    if (member.youtube_channel_id) {
+      channelToMember.set(member.youtube_channel_id, member.uid);
+    }
+  }
+  const channelIds = [...channelToMember.keys()].sort();
+  if (channelIds.length === 0) return null;
+  const params = new URLSearchParams({
+    channelIds: channelIds.join(","),
+    limit: String(options.limit ?? 20),
+  });
+  if (options.cursor) params.set("cursor", options.cursor);
+  const response = await apiFetch<YouTubeShortsResponseDto>(
+    withRouteSearch(apiRoutes.youtube.shorts.build(), params),
+  );
+  return {
+    ...response,
+    items: response.items.map((video) => ({
+      ...video,
+      memberUid: channelToMember.get(video.channelId),
+    })),
   };
 }

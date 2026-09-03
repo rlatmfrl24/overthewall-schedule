@@ -24,6 +24,7 @@ export {
   runManualYouTubeCacheRefresh,
 } from "./infrastructure/youtube-warmup";
 export {
+  readOfficialYouTubeShorts,
   readStoredYouTubeFeed,
   runScheduledYouTubeFeedCollection,
 } from "./infrastructure/youtube-feed";

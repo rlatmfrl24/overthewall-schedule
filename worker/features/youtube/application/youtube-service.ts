@@ -4,6 +4,7 @@ import type {
   YouTubeCacheRefreshRunSummaryDto,
   YouTubeCacheAnalyticsDto,
   YouTubePublicCacheMetadataDto,
+  YouTubeShortsResponseDto,
   UpdateKirinukiChannelDto,
   YouTubeCacheStatusResponseDto,
   YouTubeVideoDto,
@@ -58,6 +59,12 @@ export interface YouTubeApplicationPorts {
     shorts: YouTubeVideoDto[];
     oldestRetainedAt: string | null;
   } | null>;
+  readShorts?(
+    channelIds: readonly string[],
+    limit: number,
+    cursor: string | null,
+    ctx?: ExecutionContext,
+  ): Promise<YouTubeShortsResponseDto>;
   readCacheTargets(): Promise<YouTubeCacheTargetDescriptor[]>;
   readCacheStatus(
     windowHours: number,
@@ -263,6 +270,31 @@ export const createYouTubeApplication = (
       targetCount: result.byChannel.length,
       availableTargetCount: result.byChannel.filter((item) => item.content).length,
     };
+  },
+
+  async readShorts(
+    channelIds: string[],
+    limit: number,
+    cursor: string | null,
+    ctx?: ExecutionContext,
+  ) {
+    let allowedChannelIds: ReadonlySet<string>;
+    try {
+      allowedChannelIds = await ports.readAllowedChannelIds();
+    } catch (error) {
+      throw new YouTubeAllowlistUnavailableError({ cause: error });
+    }
+    const authorized = authorizeYouTubeChannelTargets(
+      channelIds,
+      allowedChannelIds,
+    );
+    if (!authorized.ok) {
+      throw new YouTubeTargetsNotAllowedError(authorized.unauthorized);
+    }
+    if (!ports.readShorts) {
+      throw new Error("youtube_shorts_storage_unavailable");
+    }
+    return ports.readShorts(channelIds, limit, cursor, ctx);
   },
 
   listKirinukiChannels: () => ports.listKirinukiChannels(),

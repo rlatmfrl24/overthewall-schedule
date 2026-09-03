@@ -612,6 +612,13 @@ export const youtubeFeedSources = sqliteTable(
     sync_page_token: text("sync_page_token"),
     sync_base_video_id: text("sync_base_video_id"),
     sync_newest_video_id: text("sync_newest_video_id"),
+    backfill_page_token: text("backfill_page_token"),
+    backfill_frontier_published_at: integer(
+      "backfill_frontier_published_at",
+    ),
+    backfill_exhausted_at: integer("backfill_exhausted_at"),
+    backfill_lease_until: integer("backfill_lease_until"),
+    backfill_retry_after: integer("backfill_retry_after"),
     last_attempt_at: integer("last_attempt_at"),
     last_success_at: integer("last_success_at"),
     next_check_at: integer("next_check_at"),
@@ -668,6 +675,11 @@ export const youtubeFeedVideos = sqliteTable(
       table.published_at,
     ),
     index("idx_youtube_feed_videos_fetched").on(table.fetched_at),
+    index("idx_youtube_feed_videos_short_published").on(
+      table.is_short,
+      sql`${table.published_at} DESC`,
+      table.video_id,
+    ),
   ],
 );
 

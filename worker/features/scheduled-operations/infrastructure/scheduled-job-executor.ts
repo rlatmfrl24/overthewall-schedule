@@ -102,7 +102,10 @@ export const toXCollectionOutcome = (
 };
 
 export const toYouTubeFeedCollectionOutcome = (
-  result: Awaited<ReturnType<typeof runScheduledYouTubeFeedCollection>>,
+  result: Pick<
+    Awaited<ReturnType<typeof runScheduledYouTubeFeedCollection>>,
+    "status" | "attempted" | "succeeded" | "failed"
+  > & Partial<Awaited<ReturnType<typeof runScheduledYouTubeFeedCollection>>>,
 ): ScheduledJobExecutionOutcome => {
   if (result.status === "skipped") {
     return {
@@ -114,17 +117,28 @@ export const toYouTubeFeedCollectionOutcome = (
     };
   }
   const completed = result.succeeded + result.failed;
+  const backfillIncomplete = result.quotaBlocked === true ||
+    Number(result.backoffSources ?? 0) > 0 ||
+    Number(result.backfillFailed ?? 0) > 0;
   const status = result.failed > 0
     ? result.succeeded > 0 ? "partial" : "failed"
+    : backfillIncomplete
+      ? "partial"
     : completed === result.attempted
       ? "succeeded"
       : "partial";
   const errorCode = result.failed > 0
     ? "youtube_feed_collection_failed"
-    : null;
+    : backfillIncomplete
+      ? result.quotaBlocked === true
+        ? "youtube_feed_collection_quota_blocked"
+        : "youtube_feed_collection_backfill_pending"
+      : null;
   const error = result.failed > 0
     ? `YouTube feed collection failed for ${result.failed} of ${result.attempted} sources`
-    : null;
+    : backfillIncomplete
+      ? "YouTube Shorts backfill is waiting for quota or source retry"
+      : null;
   return {
     status,
     result,

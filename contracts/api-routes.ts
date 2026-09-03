@@ -334,6 +334,7 @@ export const apiRoutes = {
   },
   youtube: {
     videos: staticRoute("/api/youtube/videos"),
+    shorts: staticRoute("/api/youtube/shorts"),
     cacheStatus: staticRoute("/api/youtube/cache/status"),
     cacheRefresh: staticRoute("/api/youtube/cache/refresh"),
     cacheWarmup: staticRoute("/api/youtube/cache/warmup/run"),

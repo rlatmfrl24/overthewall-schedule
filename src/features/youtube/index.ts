@@ -25,7 +25,12 @@ export type {
   YouTubeWarmupSource,
   YouTubeWarmupStatusSummary,
 } from "./api/youtube-cache";
-export type { YouTubeVideo, YouTubeVideosResponse } from "./model/types";
+export type {
+  YouTubeShortsResponse,
+  YouTubeVideo,
+  YouTubeVideosResponse,
+} from "./model/types";
+export { useYouTubeShorts } from "./queries/use-youtube-shorts";
 export {
   filterYouTubeVideosByMembers,
   useFilteredYouTubeVideos,

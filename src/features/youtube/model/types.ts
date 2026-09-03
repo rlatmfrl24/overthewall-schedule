@@ -1,5 +1,6 @@
 import type {
   YouTubeVideoDto,
+  YouTubeShortsResponseDto,
   YouTubeVideosResponseDto,
 } from "@contracts/youtube";
 
@@ -13,4 +14,11 @@ export type YouTubeVideosResponse = Omit<
 > & {
   videos: YouTubeVideo[];
   shorts: YouTubeVideo[];
+};
+
+export type YouTubeShortsResponse = Omit<
+  YouTubeShortsResponseDto,
+  "items"
+> & {
+  items: YouTubeVideo[];
 };

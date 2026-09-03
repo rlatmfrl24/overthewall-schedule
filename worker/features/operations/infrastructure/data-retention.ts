@@ -125,7 +125,7 @@ export const DATA_RETENTION_POLICIES = [
     category: "feed",
     table: "youtube_feed_videos",
     label: "YouTube 신규 업로드 피드",
-    timestampColumn: "published_at",
+    timestampColumn: "fetched_at",
     timestampKind: "epoch_ms",
     retentionDays: 30,
   },
