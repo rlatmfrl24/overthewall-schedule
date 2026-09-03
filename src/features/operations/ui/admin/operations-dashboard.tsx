@@ -654,7 +654,7 @@ export function OperationsDashboard() {
   const historyRuns = useMemo(() => [...(runsQuery.data?.runs ?? [])].sort((left, right) => Number(right.status === "queued" || right.status === "running") - Number(left.status === "queued" || left.status === "running") || right.acceptedAt - left.acceptedAt), [runsQuery.data]);
   const data = statusQuery.data;
   if (statusQuery.isLoading) return <div className="flex min-h-96 items-center justify-center"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>;
-  if (!data) return <div className="mx-auto max-w-3xl"><AdminSectionHeader headingLevel={1} title="운영 대시보드" description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
+  if (!data) return <div className="w-full"><AdminSectionHeader headingLevel={1} title="운영 대시보드" description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
 
   const latestRetention = retentionQuery.data?.recentRuns[0];
   const queue = data.scheduledOperations.queueOperations;
@@ -679,12 +679,12 @@ export function OperationsDashboard() {
   };
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-testid="operations-dashboard">
       <AdminSectionHeader headingLevel={1} title="운영 대시보드" description={`운영 상태 ${data.window.hours}시간 · D1 실계측 UTC 일자 기준`} actions={<Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 새로고침</Button>} />
 
       <section className="space-y-3" aria-labelledby="attention-heading">
         <SectionHeading id="attention-heading" title="지금 확인할 것" description="문제와 대기열 상태를 다른 이력보다 먼저 확인합니다." />
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue.used} limit={queue.limit} usedPercent={Math.max(0, Math.min(100, queue.usedPercent))} /></div>
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue.used} limit={queue.limit} usedPercent={Math.max(0, Math.min(100, queue.usedPercent))} /></div>
       </section>
 
       <section className="space-y-3" aria-labelledby="collection-heading">

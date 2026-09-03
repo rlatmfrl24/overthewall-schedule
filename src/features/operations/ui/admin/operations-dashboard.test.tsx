@@ -227,6 +227,17 @@ describe("OperationsDashboard", () => {
     expect(screen.getByText("잔여 5")).toBeTruthy();
   });
 
+  it("uses the available page width without stretching the empty issue card", async () => {
+    render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
+
+    const dashboard = await screen.findByTestId("operations-dashboard");
+    const attentionGrid = screen.getByTestId("operations-attention-grid");
+
+    expect(dashboard.className).toContain("w-full");
+    expect(dashboard.className).not.toContain("max-w-7xl");
+    expect(attentionGrid.className).toContain("items-start");
+  });
+
   it("keeps zero outbox neutral while calling out stale leases", async () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
