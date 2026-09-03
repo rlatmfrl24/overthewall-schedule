@@ -9,7 +9,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
-import { isAdminUser } from "@/app/admin";
+import { useAdminStatus } from "@/features/auth";
 import { Button } from "@/shared/ui/button";
 import {
   Card,
@@ -29,7 +29,9 @@ import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
 export function OtwPlayShell({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useUser();
   const publicConfig = useOtwPlayConfig();
-  const isAdmin = isLoaded && isAdminUser(user?.id);
+  const adminStatusQuery = useAdminStatus(
+    isLoaded && isSignedIn ? user?.id : null,
+  );
 
   if (publicConfig.isPending) {
     return (
@@ -76,7 +78,33 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAdmin) {
+  if (adminStatusQuery.isPending) {
+    return (
+      <main className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" /> 관리자 미리보기 권한 확인 중
+        </div>
+      </main>
+    );
+  }
+
+  if (adminStatusQuery.isError) {
+    return (
+      <OtwPlayAccessCard
+        title="관리자 권한을 확인하지 못했습니다"
+        description="잠시 후 다시 확인해 주세요."
+      >
+        <Button
+          className="w-full rounded-full"
+          onClick={() => void adminStatusQuery.refetch()}
+        >
+          다시 확인
+        </Button>
+      </OtwPlayAccessCard>
+    );
+  }
+
+  if (!adminStatusQuery.data?.isAdmin) {
     return (
       <OtwPlayAccessCard
         title="OTW Play 공개 준비 중입니다"

@@ -15,7 +15,6 @@ interface __BaseEnv_Env {
 	ASSETS: Fetcher;
 	OTW_PLAY_PUBLIC_ORIGIN: "https://otw-schedule.info";
 	VITE_CLERK_PUBLISHABLE_KEY: string;
-	VITE_CLERK_ADMIN_IDS: string;
 	CLOUDFLARE_ACCOUNT_ID: string;
 	CLOUDFLARE_DATABASE_ID: string;
 	CLOUDFLARE_D1_TOKEN: string;

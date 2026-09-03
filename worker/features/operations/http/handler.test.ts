@@ -354,9 +354,12 @@ describe("operations worker route", () => {
   });
 
   it("status는 저장된 운영 이력만 집계하고 no-store로 반환한다", async () => {
+    const db = makeStatusD1() as D1Database & {
+      prepare: ReturnType<typeof vi.fn>;
+    };
     const response = await handleOperations(
       new Request("https://example.com/api/operations/status?windowHours=24"),
-      makeEnv(),
+      makeEnv(db),
     );
     const body = (await response.json()) as {
       summary: { status: string };
@@ -398,6 +401,16 @@ describe("operations worker route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const queueStateSql = db.prepare.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => sql.includes("AS outboxBacklog"));
+    expect(queueStateSql).toContain(
+      "INNER JOIN scheduled_job_items i ON i.id = o.item_id",
+    );
+    expect(queueStateSql).toContain(
+      "INNER JOIN scheduled_job_runs r ON r.id = o.run_id",
+    );
+    expect(queueStateSql).toContain("r.status IN ('queued', 'running')");
     expect(body.summary.status).toBe("warning");
     expect(body.autoUpdate.pending.total).toBe(2);
     expect(body.xCollection.usage.apiCalls).toBe(2);

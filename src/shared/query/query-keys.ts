@@ -1,6 +1,11 @@
 import type { UpdateLogQuery } from "@contracts/audit";
 
 export const queryKeys = {
+  auth: {
+    all: ["auth"] as const,
+    adminStatus: (userId: string) =>
+      [...queryKeys.auth.all, "admin-status", userId] as const,
+  },
   otwPlay: {
     all: ["otw-play"] as const,
     config: (audience: "public" | "admin-preview" = "public") =>

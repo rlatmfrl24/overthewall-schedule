@@ -1,4 +1,5 @@
 import { apiRoutes } from "@contracts/api-routes";
+import { createAuthStatusHandler } from "../features/auth";
 import {
   createHandleR2Asset,
   R2AssetReader,
@@ -180,6 +181,7 @@ const handleAdminSettings = createAdminSettingsHandler(
 const handleR2Asset = createHandleR2Asset((env) =>
   env.ASSET_BUCKET ? new R2AssetReader(env.ASSET_BUCKET) : null,
 );
+const handleAuthStatus = createAuthStatusHandler();
 const handleAdminAuditLogs = createHandleAdminAuditLogs(
   (env) => new D1AdminAuditLogReader(getDb(env)),
 );
@@ -356,6 +358,17 @@ const head = (
 ): WorkerRouteMethodContract => ({ method: "HEAD", ...contract });
 
 const routeDefinitions: readonly WorkerRouteDefinition[] = [
+  {
+    id: "auth.admin-status",
+    owner: "auth",
+    path: apiRoutes.auth.adminStatus.pattern,
+    methods: methods(get({
+      auth: "optional",
+      cache: "no-store",
+      successStatus: 200,
+    })),
+    handler: handleAuthStatus,
+  },
   {
     id: "assets.get",
     owner: "assets",

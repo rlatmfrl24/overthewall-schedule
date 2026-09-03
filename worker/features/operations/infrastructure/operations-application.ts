@@ -539,12 +539,24 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
              WHERE status IN ('queued', 'running')) AS activeRunCount,
            (SELECT COUNT(*) FROM scheduled_job_items
              WHERE status = 'running' AND lease_until < ?) AS staleLeaseCount,
-           (SELECT COUNT(*) FROM scheduled_outbox
-             WHERE status IN ('pending', 'failed')
-                OR (status = 'dispatching' AND lease_until < ?)) AS outboxBacklog,
-           (SELECT MIN(available_at) FROM scheduled_outbox
-             WHERE status IN ('pending', 'failed')
-                OR (status = 'dispatching' AND lease_until < ?))
+           (SELECT COUNT(*) FROM scheduled_outbox o
+             INNER JOIN scheduled_job_items i ON i.id = o.item_id
+             INNER JOIN scheduled_job_runs r ON r.id = o.run_id
+             WHERE (o.status IN ('pending', 'failed')
+                OR (o.status = 'dispatching' AND o.lease_until < ?))
+               AND r.status IN ('queued', 'running')
+               AND ((o.event_type = 'execute' AND i.status = 'queued')
+                 OR (o.event_type = 'reconcile' AND i.status IN
+                   ('succeeded', 'partial', 'failed', 'skipped', 'throttled')))) AS outboxBacklog,
+           (SELECT MIN(o.available_at) FROM scheduled_outbox o
+             INNER JOIN scheduled_job_items i ON i.id = o.item_id
+             INNER JOIN scheduled_job_runs r ON r.id = o.run_id
+             WHERE (o.status IN ('pending', 'failed')
+                OR (o.status = 'dispatching' AND o.lease_until < ?))
+               AND r.status IN ('queued', 'running')
+               AND ((o.event_type = 'execute' AND i.status = 'queued')
+                 OR (o.event_type = 'reconcile' AND i.status IN
+                   ('succeeded', 'partial', 'failed', 'skipped', 'throttled'))))
              AS oldestOutboxAvailableAt`,
       ).bind(now, now, now),
       db.prepare(

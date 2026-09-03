@@ -56,7 +56,7 @@ export class ScheduledJobCoordinator {
     const existingRun = await this.repository.readRunByIdempotencyKey(
       idempotencyKey,
     );
-    if (existingRun) return existingRun;
+    if (existingRun && existingRun.status !== "queued") return existingRun;
 
     // Scheduled probes are intentionally more frequent than several provider
     // cadences. Resolve due targets before creating durable run/item/outbox
@@ -66,9 +66,13 @@ export class ScheduledJobCoordinator {
       jobType,
       scheduledFor,
     );
-    if (plannedItems.length === 0) return null;
+    if (plannedItems.length === 0) {
+      if (!existingRun) return null;
+      await this.repository.skipRun(existingRun.id, "no_targets_after_resume");
+      return this.repository.readRun(existingRun.id);
+    }
 
-    const run = await this.repository.createRun({
+    const run = existingRun ?? await this.repository.createRun({
       jobType,
       source: "scheduled",
       idempotencyKey,
@@ -91,8 +95,7 @@ export class ScheduledJobCoordinator {
       );
       return this.repository.readRun(run.id);
     }
-    const itemIds = await this.repository.addItems(run.id, plannedItems);
-    if (itemIds.length === 0) return this.repository.readRun(run.id);
+    await this.repository.addItems(run.id, plannedItems);
     await this.dispatchRun(run.id);
     return this.repository.readRun(run.id);
   }

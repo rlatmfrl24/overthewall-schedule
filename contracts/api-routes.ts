@@ -30,6 +30,9 @@ const encodeAssetKey = (key: string) =>
     .join("/");
 
 export const apiRoutes = {
+  auth: {
+    adminStatus: staticRoute("/api/auth/admin-status"),
+  },
   assets: {
     object: dynamicRoute(
       "/r2-assets/*key",

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   useConfig: vi.fn(),
   useUser: vi.fn(),
-  isAdminUser: vi.fn(),
+  useAdminStatus: vi.fn(),
   childMounted: vi.fn(),
   navigate: vi.fn(),
   providerModes: [] as boolean[],
@@ -23,8 +23,8 @@ vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useUser: mocks.useUser,
 }));
-vi.mock("@/app/admin", () => ({
-  isAdminUser: mocks.isAdminUser,
+vi.mock("@/features/auth", () => ({
+  useAdminStatus: mocks.useAdminStatus,
 }));
 vi.mock("../../queries/use-public-catalog", () => ({
   OtwPlayCatalogRequestProvider: ({
@@ -72,7 +72,12 @@ describe("OtwPlayShell config gate", () => {
       isSignedIn: true,
       user: { id: "admin-user" },
     });
-    mocks.isAdminUser.mockReturnValue(true);
+    mocks.useAdminStatus.mockReturnValue({
+      data: { authenticated: true, isAdmin: true },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
     mocks.useConfig.mockImplementation((options?: { adminPreview?: boolean }) => ({
       isPending: false,
       isError: false,
@@ -116,7 +121,12 @@ describe("OtwPlayShell config gate", () => {
   });
 
   it("keeps member contribution routes available while public read is off", () => {
-    mocks.isAdminUser.mockReturnValue(false);
+    mocks.useAdminStatus.mockReturnValue({
+      data: { authenticated: true, isAdmin: false },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
 
     render(<OtwPlayShell><ChildCatalogRequest /></OtwPlayShell>);
 
@@ -178,7 +188,6 @@ describe("OtwPlayShell config gate", () => {
       isSignedIn: false,
       user: null,
     });
-    mocks.isAdminUser.mockReturnValue(false);
     mocks.useConfig.mockReturnValue({
       isPending: false,
       isError: false,
@@ -195,7 +204,6 @@ describe("OtwPlayShell config gate", () => {
   });
 
   it("uses the same public API/cache experience for signed-in members in 1/0", () => {
-    mocks.isAdminUser.mockReturnValue(false);
     mocks.useConfig.mockReturnValue({
       isPending: false,
       isError: false,
