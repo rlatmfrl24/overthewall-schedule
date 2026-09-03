@@ -7,7 +7,7 @@ import type {
   OtwPlayMemberSubmissionStatus,
   OtwPlayParticipantRole,
 } from "@contracts/otw-play";
-import { isAdminUser } from "@/app/admin";
+import { useAdminStatus } from "@/features/auth";
 import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
@@ -52,7 +52,8 @@ function BackToPlayLink() {
 export function OtwPlaySubmissionsPage() {
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const isAdmin = isAdminUser(user?.id);
+  const adminStatusQuery = useAdminStatus(user?.id);
+  const isAdmin = adminStatusQuery.data?.isAdmin === true;
   const list = useMyOtwPlaySubmissions();
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);

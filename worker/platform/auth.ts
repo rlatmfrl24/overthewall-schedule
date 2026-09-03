@@ -371,10 +371,7 @@ export const authenticateOptionalRequest = async (
 };
 
 export const isAdminUser = (env: Env, userId: string) => {
-  const configuredAdminIds = env.CLERK_ADMIN_IDS?.trim()
-    ? env.CLERK_ADMIN_IDS
-    : env.VITE_CLERK_ADMIN_IDS;
-  const adminIds = (configuredAdminIds ?? "")
+  const adminIds = (env.CLERK_ADMIN_IDS ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);

@@ -56,6 +56,28 @@ describe("D1 scheduled job state machine", () => {
     expect(count?.count).toBe(1);
   });
 
+  it("terminal run에 남은 outbox는 다시 claim하지 않는다", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "x_collection",
+      source: "scheduled",
+      idempotencyKey: "scheduled:x:terminal-outbox",
+    });
+    await repository.addItems(run.id, [{
+      targetKey: "handle:terminal",
+      phase: "collect",
+      lane: "x",
+    }]);
+    await repository.skipRun(run.id, "operator_closed");
+    await db.prepare(
+      `UPDATE scheduled_outbox
+       SET status = 'failed', last_error = 'historical_failure'
+       WHERE run_id = ?`,
+    ).bind(run.id).run();
+
+    expect(await repository.claimPendingOutbox(run.id, 10)).toEqual([]);
+  });
+
   it("item/outbox 중복을 제거하고 outbox를 CAS로 한 번만 claim한다", async () => {
     const repository = createRepository();
     const run = await repository.createRun({

@@ -92,4 +92,110 @@ describe("scheduled job physical queue mapping", () => {
     expect(result).toBe(existing);
     expect(planScheduled).not.toHaveBeenCalled();
   });
+
+  it("resumes a queued idempotent run that was interrupted before items were added", async () => {
+    const existing = {
+      id: "queued-run",
+      job_type: "x_collection",
+      source: "scheduled",
+      idempotency_key: "scheduled:x_collection:queued",
+      scheduled_bucket: "queued",
+      status: "queued",
+      scheduled_for: Date.UTC(2026, 8, 3, 0, 23),
+      accepted_at: Date.UTC(2026, 8, 3, 0, 23),
+      started_at: null,
+      finished_at: null,
+      last_error: null,
+      summary_json: null,
+    } as const;
+    const statement = {
+      bind: vi.fn(),
+      first: vi.fn(async () => ({ value: "true" })),
+    };
+    statement.bind.mockReturnValue(statement);
+    const resumedEnv = {
+      ...env,
+      otw_db: { prepare: vi.fn(() => statement) },
+    } as unknown as Env;
+    vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "readRunByIdempotencyKey",
+    ).mockResolvedValue(existing);
+    vi.spyOn(ScheduledJobPlanner.prototype, "planScheduled").mockResolvedValue([{
+      targetKey: "handle:member",
+      phase: "collect",
+      lane: "x",
+    }]);
+    const createRun = vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "createRun",
+    );
+    vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "getBackgroundUsagePercent",
+    ).mockResolvedValue(0);
+    const addItems = vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "addItems",
+    ).mockResolvedValue(["item-1"]);
+    vi.spyOn(D1ScheduledJobRepository.prototype, "readRun")
+      .mockResolvedValue(existing);
+    const dispatchRun = vi.spyOn(
+      ScheduledJobCoordinator.prototype,
+      "dispatchRun",
+    ).mockResolvedValue({ claimed: 1, dispatched: 1, failed: 0 });
+
+    const result = await new ScheduledJobCoordinator(resumedEnv).runScheduled(
+      "x_collection",
+      existing.scheduled_for,
+    );
+
+    expect(result).toBe(existing);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(addItems).toHaveBeenCalledWith(existing.id, [
+      expect.objectContaining({ targetKey: "handle:member" }),
+    ]);
+    expect(dispatchRun).toHaveBeenCalledWith(existing.id);
+  });
+
+  it("closes a resumed queued run when recalculation finds no targets", async () => {
+    const existing = {
+      id: "queued-no-targets",
+      job_type: "x_collection",
+      source: "scheduled",
+      idempotency_key: "scheduled:x_collection:no-targets",
+      scheduled_bucket: "no-targets",
+      status: "queued",
+      scheduled_for: Date.UTC(2026, 8, 3, 0, 53),
+      accepted_at: Date.UTC(2026, 8, 3, 0, 53),
+      started_at: null,
+      finished_at: null,
+      last_error: null,
+      summary_json: null,
+    } as const;
+    const closed = { ...existing, status: "skipped" as const };
+    vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "readRunByIdempotencyKey",
+    ).mockResolvedValue(existing);
+    vi.spyOn(ScheduledJobPlanner.prototype, "planScheduled")
+      .mockResolvedValue([]);
+    const skipRun = vi.spyOn(
+      D1ScheduledJobRepository.prototype,
+      "skipRun",
+    ).mockResolvedValue();
+    vi.spyOn(D1ScheduledJobRepository.prototype, "readRun")
+      .mockResolvedValue(closed);
+
+    const result = await new ScheduledJobCoordinator(env).runScheduled(
+      "x_collection",
+      existing.scheduled_for,
+    );
+
+    expect(skipRun).toHaveBeenCalledWith(
+      existing.id,
+      "no_targets_after_resume",
+    );
+    expect(result).toBe(closed);
+  });
 });

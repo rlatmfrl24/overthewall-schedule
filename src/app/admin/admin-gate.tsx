@@ -9,12 +9,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
-import { isAdminUser } from "./is-admin";
+import { useAdminStatus } from "@/features/auth";
 import { AdminLayout } from "./admin-layout";
 
 export function AdminGate() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const authorized = isAdminUser(user?.id);
+  const adminStatusQuery = useAdminStatus(
+    isLoaded && isSignedIn ? user?.id : null,
+  );
 
   if (!isLoaded) {
     return (
@@ -48,7 +50,44 @@ export function AdminGate() {
     );
   }
 
-  if (!authorized) {
+  if (adminStatusQuery.isPending) {
+    return (
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (adminStatusQuery.isError) {
+    return (
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
+            <ShieldAlert className="mb-2 h-10 w-10 text-amber-500" />
+            <CardTitle className="text-xl">권한 확인에 실패했습니다</CardTitle>
+            <CardDescription>
+              서버에서 관리자 권한을 확인하지 못했습니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button
+              className="w-full rounded-full"
+              onClick={() => void adminStatusQuery.refetch()}
+            >
+              다시 확인
+            </Button>
+            <Link to="/" className="w-full">
+              <Button variant="ghost" className="w-full rounded-full">
+                홈으로
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!adminStatusQuery.data?.isAdmin) {
     return (
       <div className="flex min-h-0 w-full flex-1 items-center justify-center px-4">
         <Card className="w-full max-w-md">
@@ -60,14 +99,8 @@ export function AdminGate() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground">현재 계정 ID:</p>
-              <code className="mt-1 inline-block rounded bg-muted px-2 py-1 text-xs">
-                {user.id}
-              </code>
-            </div>
             <div className="text-center text-xs text-muted-foreground">
-              (허용된 관리자 ID가 등록되어 있어야 합니다)
+              관리자 권한은 서버 설정을 기준으로 확인합니다.
             </div>
             <Link to="/" className="w-full">
               <Button variant="outline" className="w-full rounded-full">

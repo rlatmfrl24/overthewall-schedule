@@ -1,5 +1,5 @@
 import { useUser } from "@clerk/clerk-react";
-import { isAdminUser } from "@/app/admin";
+import { useAdminStatus } from "@/features/auth";
 import { DailySchedule } from "@/features/schedule-board";
 import { createFileRoute } from "@tanstack/react-router";
 
@@ -9,9 +9,10 @@ export const Route = createFileRoute("/")({
 
 function RouteComponent() {
   const { isLoaded, user } = useUser();
+  const adminStatusQuery = useAdminStatus(isLoaded ? user?.id : null);
   return (
     <DailySchedule
-      enableAdminLiveScheduleAutoFill={isLoaded && isAdminUser(user?.id)}
+      enableAdminLiveScheduleAutoFill={adminStatusQuery.data?.isAdmin === true}
     />
   );
 }

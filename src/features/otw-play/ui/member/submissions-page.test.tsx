@@ -7,12 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   detail: vi.fn(),
-  isAdminUser: vi.fn(),
+  useAdminStatus: vi.fn(),
 }));
 vi.mock("@clerk/clerk-react", () => ({
   useUser: () => ({ user: { id: "user-one" } }),
 }));
-vi.mock("@/app/admin", () => ({ isAdminUser: mocks.isAdminUser }));
+vi.mock("@/features/auth", () => ({ useAdminStatus: mocks.useAdminStatus }));
 vi.mock("../../queries/use-member-submissions", () => ({
   useMyOtwPlaySubmissions: mocks.list,
   useMyOtwPlaySubmission: mocks.detail,
@@ -37,7 +37,12 @@ const renderPage = () => {
 describe("OtwPlaySubmissionsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isAdminUser.mockReturnValue(false);
+    mocks.useAdminStatus.mockReturnValue({
+      data: { authenticated: true, isAdmin: false },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
     mocks.detail.mockReturnValue({ isPending: false, data: null });
   });
   afterEach(cleanup);
@@ -97,7 +102,12 @@ describe("OtwPlaySubmissionsPage", () => {
   });
 
   it("links an approved catalog entry from the administrator preview", () => {
-    mocks.isAdminUser.mockReturnValue(true);
+    mocks.useAdminStatus.mockReturnValue({
+      data: { authenticated: true, isAdmin: true },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
     mocks.list.mockReturnValue({
       isPending: false,
       data: {

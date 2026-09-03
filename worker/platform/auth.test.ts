@@ -238,7 +238,7 @@ describe("worker auth", () => {
     }
   });
 
-  it("uses the Vite admin allowlist when the worker-only allowlist is absent", async () => {
+  it("fails closed when the worker-only admin allowlist is absent", async () => {
     const token = await signToken();
     const result = await requireAdminUser(
       new Request("https://example.com/api/settings", {
@@ -246,13 +246,12 @@ describe("worker auth", () => {
       }),
       makeEnv({
         CLERK_ADMIN_IDS: undefined,
-        VITE_CLERK_ADMIN_IDS: "user_admin",
       }),
     );
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.user.id).toBe("user_admin");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
     }
   });
 

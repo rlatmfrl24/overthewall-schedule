@@ -15,7 +15,7 @@ import {
 import { useNaverCafePostsConfig } from "@/features/naver-cafe";
 import { useXPostsConfig } from "@/features/x-posts";
 import { useOtwPlayConfig } from "@/features/otw-play";
-import { isAdminUser } from "@/app/admin";
+import { useAdminStatus } from "@/features/auth";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
 
@@ -235,7 +235,10 @@ export function getPublicNavigationSections({
 
 export function usePublicNavigationSections() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const isAdmin = isLoaded && isAdminUser(user?.id);
+  const adminStatusQuery = useAdminStatus(
+    isLoaded && isSignedIn ? user?.id : null,
+  );
+  const isAdmin = adminStatusQuery.data?.isAdmin === true;
   const { visibility: xPostsVisibility } = useXPostsConfig();
   const { enabled: cafePostsEnabled, visibility: cafePostsVisibility } =
     useNaverCafePostsConfig();

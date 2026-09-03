@@ -400,10 +400,12 @@ export class D1ScheduledJobRepository {
          SELECT o.id
          FROM scheduled_outbox o
          INNER JOIN scheduled_job_items i ON i.id = o.item_id
+         INNER JOIN scheduled_job_runs r ON r.id = o.run_id
          WHERE ${where}
            (o.status IN ('pending', 'failed')
              OR (o.status = 'dispatching' AND o.lease_until < ?))
            AND o.available_at <= ?
+           AND r.status IN ('queued', 'running')
            AND (
              (o.event_type = 'execute' AND i.status = 'queued')
              OR (

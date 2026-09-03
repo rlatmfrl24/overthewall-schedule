@@ -143,6 +143,19 @@ const ADMIN_POST_CREATED = {
 
 const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
   {
+    id: "auth.admin-status",
+    owner: "auth",
+    path: "/api/auth/admin-status",
+    methods: [
+      {
+        method: "GET",
+        auth: "optional",
+        cache: "no-store",
+        successStatus: 200,
+      },
+    ],
+  },
+  {
     id: "assets.get",
     owner: "assets",
     path: "/r2-assets/*key",
@@ -831,6 +844,7 @@ describe("OTW Worker route manifest", () => {
 
   it("requires valid owner, auth, cache, status, and numeric metadata", () => {
     const owners = new Set([
+      "auth",
       "assets",
       "audit",
       "chzzk",
