@@ -374,7 +374,8 @@ export class CloudflareD1ObservabilityReader {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await this.fetcher(
+      const response = await this.fetcher.call(
+        globalThis,
         "https://api.cloudflare.com/client/v4/graphql",
         {
           method: "POST",
