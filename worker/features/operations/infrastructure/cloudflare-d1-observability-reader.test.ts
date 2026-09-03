@@ -79,10 +79,13 @@ describe("Cloudflare D1 observability reader", () => {
   });
 
   it("reads UTC daily metrics and returns categorized workloads without raw SQL", async () => {
-    const fetcher = vi.fn(async (
+    const fetchContext: { value?: unknown } = {};
+    const fetcher = vi.fn(async function (
+      this: unknown,
       _input: RequestInfo | URL,
       _init?: RequestInit,
-    ) => {
+    ) {
+      fetchContext.value = this;
       void _input;
       void _init;
       return Response.json(payload);
@@ -125,6 +128,7 @@ describe("Cloudflare D1 observability reader", () => {
     expect(result.daily).toHaveLength(7);
     expect(JSON.stringify(result)).not.toContain("scheduled_job_items");
     expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetchContext.value).toBe(globalThis);
     const [endpoint, init] = fetcher.mock.calls[0];
     expect(endpoint).toBe("https://api.cloudflare.com/client/v4/graphql");
     const request = JSON.parse(String(init?.body)) as {
