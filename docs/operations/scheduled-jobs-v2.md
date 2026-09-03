@@ -236,8 +236,9 @@ steady-state 목표는 약 11,600에서 8,700 rows/day로 약 25% 낮추는 것�
   rows read/written, 최근 7일 추세, 최근 24시간 쓰기 원인 상위를 반환한다.
 - 실계측 reader는 5초 timeout과 Workers Cache API 5분 캐시만 사용한다. D1에
   로그나 캐시 행을 쓰지 않고 브라우저 응답은 `Cache-Control: no-store`다.
-- 전용 secret `CLOUDFLARE_D1_ANALYTICS_READ_TOKEN`은 Account Analytics Read
-  최소 권한만 사용한다. 토큰 미설정·권한 오류·Cloudflare 장애는 화면에서
+- 운영 D1 관리에 사용하는 `CLOUDFLARE_D1_TOKEN`에 Account Analytics Read
+  권한을 함께 부여하고 Worker secret에도 같은 이름으로 저장한다. 별도 analytics
+  token은 사용하지 않는다. 토큰 미설정·권한 오류·Cloudflare 장애는 화면에서
   `실계측 확인 불가`로 표시하되 전체 운영 상태와 scheduler를 차단하지 않는다.
 - 화면의 `Cloudflare D1 실제 사용량`은 Free 기준 일 5,000,000 rows read와
   100,000 rows written 대비 70/85/95% 상태를 표시한다. 청구 확정값이 아니라

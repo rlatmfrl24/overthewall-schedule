@@ -482,7 +482,7 @@ function UsageProgress({ label, value, limit, percent }: { label: string; value:
 
 const d1ReasonLabel = (reasonCode: D1ObservabilityResponse["reasonCode"]) =>
   ({
-    token_unconfigured: "Analytics 읽기 토큰이 설정되지 않았습니다.",
+    token_unconfigured: "D1 토큰이 Worker secret에 설정되지 않았습니다.",
     permission_denied: "Analytics 읽기 권한을 확인해야 합니다.",
     upstream_timeout: "Cloudflare 응답 시간이 초과되었습니다.",
     upstream_error: "Cloudflare Metrics를 일시적으로 불러오지 못했습니다.",

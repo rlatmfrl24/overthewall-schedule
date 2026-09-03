@@ -153,7 +153,7 @@ Required target secrets include, as applicable:
 - `CLERK_AUTHORIZED_PARTIES`
 - `CLERK_JWKS_URL` when explicitly configured
 - `OTW_PLAY_ANALYTICS_READ_TOKEN`
-- `CLOUDFLARE_D1_ANALYTICS_READ_TOKEN` with Account Analytics Read only
+- `CLOUDFLARE_D1_TOKEN` with the existing D1 permissions and Account Analytics Read
 - `YOUTUBE_CACHE_ANALYTICS_READ_TOKEN` when separate
 - `OTW_PLAY_WEBSUB_SECRET_V1`
 

@@ -380,6 +380,8 @@ describe("OperationsDashboard", () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
     expect(await screen.findByText("실계측 확인 불가")).toBeTruthy();
+    expect(screen.getByText(/D1 토큰이 Worker secret에 설정되지 않았습니다/))
+      .toBeTruthy();
     expect(screen.getByText(/전체 운영 상태에는 영향을 주지 않습니다/)).toBeTruthy();
     expect(screen.getByText("지금 확인할 운영 이슈가 없습니다")).toBeTruthy();
   });
