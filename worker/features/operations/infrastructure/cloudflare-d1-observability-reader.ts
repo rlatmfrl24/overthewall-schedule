@@ -409,6 +409,9 @@ export class CloudflareD1ObservabilityReader {
         );
       }
       if (!response.ok) {
+        console.warn("cloudflare_d1_observability_upstream_response", {
+          status: response.status,
+        });
         return emptyResponse("unavailable", generatedAt, "upstream_error");
       }
       let payload: unknown;
@@ -442,6 +445,9 @@ export class CloudflareD1ObservabilityReader {
       }
       return parsed;
     } catch (error) {
+      console.warn("cloudflare_d1_observability_fetch_error", {
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
       return emptyResponse(
         "unavailable",
         generatedAt,
