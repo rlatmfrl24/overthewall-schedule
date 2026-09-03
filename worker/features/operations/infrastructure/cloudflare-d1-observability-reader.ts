@@ -307,6 +307,11 @@ const hasPermissionError = (payload: unknown) => {
   );
 };
 
+const sanitizeRuntimeErrorMessage = (error: unknown) =>
+  (error instanceof Error ? error.message : "unknown")
+    .replace(/[A-Za-z0-9._~-]{20,}/g, "[redacted]")
+    .slice(0, 160);
+
 export class CloudflareD1ObservabilityReader {
   private readonly accountId: string | undefined;
   private readonly databaseId: string | undefined;
@@ -447,6 +452,7 @@ export class CloudflareD1ObservabilityReader {
     } catch (error) {
       console.warn("cloudflare_d1_observability_fetch_error", {
         errorName: error instanceof Error ? error.name : "unknown",
+        errorMessage: sanitizeRuntimeErrorMessage(error),
       });
       return emptyResponse(
         "unavailable",
