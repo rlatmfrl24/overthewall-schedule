@@ -200,6 +200,37 @@ describe("Cloudflare D1 observability reader", () => {
     expect(JSON.stringify(result)).not.toContain("provider detail");
   });
 
+  it("redacts long values from fetch error diagnostics", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetcher = vi.fn(async () => {
+      throw new TypeError(
+        "Invalid header secret_value_that_must_not_appear_in_logs",
+      );
+    });
+
+    const result = await new CloudflareD1ObservabilityReader(
+      "account",
+      "database",
+      "token",
+      fetcher as typeof fetch,
+      () => NOW,
+      null,
+    ).read7Days();
+
+    expect(result).toMatchObject({
+      status: "unavailable",
+      reasonCode: "upstream_error",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "cloudflare_d1_observability_fetch_error",
+      {
+        errorName: "TypeError",
+        errorMessage: "Invalid header [redacted]",
+      },
+    );
+    warn.mockRestore();
+  });
+
   it("uses the Workers cache without a second GraphQL request", async () => {
     const cached = {
       status: "available",
