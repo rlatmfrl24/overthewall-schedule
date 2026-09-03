@@ -165,7 +165,7 @@
   //   wrangler secret put CLERK_ISSUER
   //   wrangler secret put CLERK_ADMIN_IDS
   //   wrangler secret put CLERK_AUTHORIZED_PARTIES
-  //   wrangler secret put CLOUDFLARE_D1_ANALYTICS_READ_TOKEN
+  //   wrangler secret put CLOUDFLARE_D1_TOKEN
   //   wrangler secret put OTW_PLAY_ANALYTICS_READ_TOKEN
   //   wrangler secret put OTW_PLAY_WEBSUB_SECRET_V1
   //   wrangler secret put CLERK_JWKS_URL  // 선택: CLERK_ISSUER에서 자동 추론 가능

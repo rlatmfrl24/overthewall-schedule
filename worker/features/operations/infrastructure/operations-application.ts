@@ -1171,7 +1171,7 @@ export class D1OperationsApplication implements OperationsApplication {
     return new CloudflareD1ObservabilityReader(
       this.env.CLOUDFLARE_ACCOUNT_ID,
       this.env.CLOUDFLARE_D1_DATABASE_ID,
-      this.env.CLOUDFLARE_D1_ANALYTICS_READ_TOKEN,
+      this.env.CLOUDFLARE_D1_TOKEN,
     ).read7Days();
   }
 
