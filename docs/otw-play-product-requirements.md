@@ -83,7 +83,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-022 | 공개 cache는 revision과 canonical query로 격리하고 인증·cookie 요청은 저장하지 않는다. | 확정 | 구조화된 첫 catalog page, config/facets와 detail만 Cache API에 저장하며 자유 검색과 cursor page는 저장하지 않는다. |
 | DEC-023 | 공개 검색·참여자 정렬의 성능 projection은 canonical catalog와 같은 D1에 두되 권위 데이터로 사용하지 않는다. | 확정 | 공개 read가 활성일 때 파생 read model revision이 catalog revision과 다르면 config 이외 공개 조회를 cache 전에 `503`으로 중단한다. flag-off `404`가 우선이며 config는 항상 현재 flag와 catalog revision을 제공한다. |
 | DEC-024 | 관리자 카탈로그는 DB aggregate별 선행 등록 화면이 아니라 YouTube 영상 등록 작업을 중심으로 구성한다. | 확정 | `song`, `performance`, `entity`, `channel` 분리는 내부에 유지하되 현재 멤버와 권위 채널은 자동 추천·연결하고 외부 인물·그룹과 미등록 채널은 같은 흐름에서 명시적으로 확인한다. |
-| DEC-025 | 새 영상 등록은 metadata 확인 직후 `오리지널곡`, `공식 커버곡`, `노래방송`으로 유형을 먼저 확정한다. | 확정 | 오리지널·커버는 수동 곡 연결 화면을 건너뛴다. 오리지널은 검증한 영상 제목과 선택한 참여자로 song을 만들고, 커버는 관리자가 원곡 제목과 원곡 가수명을 구분해 입력해 song을 만든다. 다곡·구간 연결이 필요한 노래방송은 후속 범위로 표시하고 현재 command로 저장하지 않는다. |
+| DEC-025 | 새 영상 등록은 metadata 확인 직후 `오리지널곡`, `공식 커버곡`, `노래방송`으로 유형을 먼저 확정한다. | DEC-076으로 입력 보완 | 일반 오리지널·커버는 수동 곡 연결 화면을 건너뛴다. 오리지널은 검증한 영상 제목과 선택한 참여자로 song을 만들고, 커버는 관리자가 원곡 제목과 원곡 가수명을 구분해 입력해 song을 만든다. 순차 메들리의 각 곡은 별도 유형이 아니라 DEC-076의 입력 전용 모드를 거친 독립 커버로 처리하고, 노래방송은 후속 범위로 표시해 현재 command로 저장하지 않는다. |
 | DEC-026 | 관리자 hard delete는 테스트·오입력 catalog를 정리하는 용도로 `draft`와 `withdrawn`에 허용한다. | 확정 | draft·withdrawn 가창은 개별 삭제할 수 있고, 곡은 연결된 가창에 `published`가 없을 때 함께 삭제할 수 있다. 현재 게시 중인 가창, 승인 proposal 참조와 merge 대상은 삭제하지 않으며 삭제 event와 revision은 남긴다. |
 | DEC-027 | 곡 정보 수정의 일상 입력은 곡명·원곡 가수·OTW 오리지널 여부에 집중한다. | 확정 | 원곡 공개일은 수정 form에서 노출하지 않고 기존 값을 보존한다. 원곡 가수는 등록과 동일한 자동완성·재사용 identity·새 외부 칩으로 편집하며 identity 생성과 song/revision 갱신을 한 D1 batch로 처리한다. |
 | DEC-028 | 가창 정보 수정은 일부 분류만 고치는 축약 form이 아니라 가창의 모든 운영 metadata를 한 흐름에서 교정한다. | 확정 | 연결 곡, 현재 멤버·외부 참여자와 역할·표시 credit, 관계·공개 형태·참여 형태·품질, 가창 공개일시, YouTube source·채널·구간·source 역할과 내부 메모를 수정한다. 공개 상태 전이는 별도 게시·철회 command로 유지하고, 새 identity와 projection·event·revision은 같은 D1 batch에 포함한다. |
@@ -134,6 +134,7 @@ OTW Play는 오버더월 멤버들의 오리지널곡과 공식 커버곡을 곡
 | DEC-073 | 새 외부 인물·그룹은 현재 관리자 작업 안에서 하나의 임시 identity로 즉시 공유하고, 동일 이름의 저장된 또는 임시 주체가 있으면 중복 생성하지 않는다. | 확정 | 원곡 가수·가창 참여자·채널 소유 주체 입력은 같은 `clientKey`를 재사용한다. 이름은 NFKC·공백·대소문자를 정규화해 정확히 일치하는 후보를 판단하되 관리자가 기존 후보를 명시적으로 선택한다. 기존의 정규화 이름 중복은 `0067` migration에서 가장 오래된 active identity로 모든 참조를 이동한 뒤 한 행으로 통합하고, 외부 identity의 `(entity_kind, normalized_name)` 부분 unique index로 재발을 차단한다. command 성공 뒤에는 권위 catalog를 다시 읽어 외부 주체 관리 목록에 반영한다. |
 | DEC-074 | 곡 태그와 특정 커버·가창 영상 라벨은 서로 다른 권위 범위로 관리한다. | 확정 | 곡 태그는 모든 가창에 공유되는 음악 분류이고, performance 태그는 한 커버·가창 버전에만 적용한다. 관리자는 통합 등록, 가창 수정, 제안 승인, playlist 및 `singing_clip` 검수에서 performance 태그를 최대 10개까지 자유 입력할 수 있다. 두 태그를 자동 복사하거나 상속하지 않으며 public DTO와 목록·상세·player는 두 계층을 구분해 표시한다. |
 | DEC-075 | playlist 가져오기의 행별 보완은 목록 우측 패널이 아니라 독립 popup에서 수행한다. | 확정 | 후보 목록은 전체 폭을 유지하고 popup은 header·독립 scroll body·고정 action 영역을 사용한다. 이전·다음 후보 이동 시 작성 중 draft를 보존하고, 저장 성공 시 popup을 닫아 job 단위 작업으로 복귀한다. job·filter 변경, 제외 또는 변환으로 현재 후보가 사라지면 popup도 닫으며 modal focus·배경 차단 계약을 따른다. |
+| DEC-076 | 희소한 순차 메들리는 별도 aggregate나 영상 유형 없이 같은 공식 영상의 곡별 독립 커버 구간으로 등록한다. | 확정 | `새 영상 등록`은 항상 시작·종료 위치 control을 표시한다. 일반 영상은 `0`과 영상 끝 기본값을 사용한다. 커버의 입력 전용 `medley_segment` 모드는 권위 영상 길이 안의 명시적 구간과 기존 곡 선택 또는 새 곡 입력을 요구하며 항상 `draft`로 저장하지만 DB나 공개 DTO에는 남기지 않는다. `메들리 수록` performance 태그는 추천만 하고 필수로 강제하지 않는다. 같은 media source는 재사용하고 `(source_id, start_seconds)` 중복은 계속 차단한다. 저장 성공 뒤 `같은 영상의 다음 커버 추가`는 직전 종료 위치를 다음 시작 위치로 미리 채우되 새 독립 command를 실행한다. 메들리 그룹·트랙 수·전체 연속 재생은 만들지 않으며 동시에 곡이 겹치는 메시업은 지원하지 않는다. |
 
 ## 4. 제품 원칙
 
@@ -487,6 +488,13 @@ detail로 자동 복사하지 않는다.
 - ADM-038: 관리자는 참조가 없는 외부 인물·그룹 identity를 되돌릴 수 없음 확인 뒤
   삭제할 수 있어야 한다. 현재 멤버 identity 또는 곡·가창·승인 채널·공개 projection·제안·비종료 후보 검수가
   참조하는 identity는 삭제할 수 없고 연결 교정이나 보관을 안내해야 한다.
+- ADM-039: `새 영상 등록`은 시작 위치와 종료 위치를 함께 표시하고 권위 YouTube
+  길이를 기준으로 `0 <= start < end <= duration`을 검증해야 한다. 일반 전체 영상은
+  시작 `0`과 영상 끝을 기본값으로 사용할 수 있다. 커버의 입력 전용 `medley_segment`
+  모드는 영상 제목으로 song을 추론하지 않고 기존 곡을 검색하거나 새 곡·원곡 가수를
+  명시적으로 입력하며 비공개 draft만 생성해야 한다. `메들리 수록` performance 태그는
+  선택 입력이다. 같은 영상의 다음 커버 추가는 URL·채널·참여자 기본값과 직전 종료 위치를 재사용하되 각 구간을
+  별도 검증·저장하고 exact source/start 중복을 거부해야 한다.
 - ADM-013 [후속]: 방송일, 시작 시각과 종료 시각을 입력하고 구간을 미리 확인할 수 있어야 한다.
 
 ### 10.2 상태 관리
@@ -680,6 +688,12 @@ MVP는 최소한 다음 대표 시나리오를 실제 사용자 흐름에서 만
 13. `public_read_enabled=1`이면 `/play`와 published 곡 직접 URL은 익명 `200`과 self-canonical을 제공하되 `navigation_visible=0` canary에서는 `noindex`와 sitemap 제외를 유지한다. `navigation_visible=1`에서만 `/play`와 published 곡을 색인·sitemap에 포함하며, `/play/songs`, unknown·withdrawn 곡과 회원·관리자 전용 경로는 sitemap에 포함하지 않는다.
 14. source 점검 장애가 곡·가창 metadata를 삭제하지 않으며 quota·429와 확정된 재생 불가 상태를 구분한다.
 15. public read를 먼저 활성화해 익명 검색·상세·재생을 검증한 뒤에만 navigation을 노출할 수 있다.
+16. 관리자가 같은 공식 메들리 영상에서 서로 다른 두 곡을 명시적 시작·종료 구간으로
+    각각 draft 등록하면 media source는 하나만 보존되고 두 performance가 서로 다른
+    `(source_id, start_seconds)`로 연결되며 각 곡 상세에서 지정 구간만 재생된다.
+17. `medley_segment` 커버 등록은 영상 제목을 곡명으로 자동 사용하거나 즉시 publish하지 않고,
+    구간이 영상 길이를 벗어나거나 같은 source/start가 이미 존재하면 mutation 없이
+    필드 오류 또는 기존 song/performance 링크를 반환한다.
 
 ## 15. 기존 프로젝트와의 관계
 
@@ -814,6 +828,7 @@ production WebSub 설정으로 해결되었다.
 | 2026-08-31 | DEC-074 확정. 곡 공통 태그와 특정 커버·가창 영상의 performance 태그를 분리하고, 모든 관리자 등록·검수 흐름과 공개 목록·상세·player에 독립 저장·표시 계약을 추가 |
 | 2026-08-31 | DEC-075 확정. playlist 가져오기 행별 보완을 우측 sticky panel에서 독립 popup으로 분리하고, 목록 전체 폭·내부 scroll·이전/다음 후보 이동·draft 보존·저장 후 복귀 계약을 추가 |
 | 2026-09-01 | DEC-059·ADM-026 보완. 행별 보완의 기존 곡 검색과 검색 결과 없음→새 곡 입력 전환을 명시하고, ready 저장 트랜잭션에서 새 곡·원곡 가수·외부 가창자 identity를 즉시 catalog에 반영해 다음 행에서 재사용하도록 확정. performance draft 일괄 변환 경계는 유지 |
+| 2026-09-03 | DEC-076·ADM-039 확정. 희소한 순차 메들리를 별도 유형이나 aggregate가 아닌 동일 media source의 곡별 독립 커버로 등록하도록 `새 영상 등록`을 시작·종료 위치 입력형으로 재정의. 입력 전용 `medley_segment`는 명시적 곡 연결과 draft 저장을 요구하고 `메들리 수록` 태그는 선택 추천으로 유지한다. 다음 커버 추가는 직전 종료 위치를 재사용하는 독립 command로 제한하며 메시업·그룹·전체 연속 재생은 제외 |
 
 ## 19. 참고
 

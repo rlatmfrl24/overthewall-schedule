@@ -130,6 +130,14 @@ describe("AdminCatalogService", () => {
       code: "invalid_request",
       fields: { startSeconds: "invalid_segment" },
     });
+    await expect(service.preflightCatalogEntry({
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 10,
+      endSeconds: 181,
+    })).rejects.toMatchObject({
+      code: "invalid_request",
+      fields: { endSeconds: "invalid_segment" },
+    });
     await expect(service.createCatalogEntry({
       expectedCatalogRevision: 4,
       youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
@@ -152,10 +160,98 @@ describe("AdminCatalogService", () => {
       publicationTarget: "draft",
     }, actor)).rejects.toMatchObject({
       code: "invalid_request",
-      fields: { startSeconds: "invalid_segment" },
+      fields: { endSeconds: "invalid_segment" },
     });
     expect(preflightCatalogEntry).not.toHaveBeenCalled();
     expect(createCatalogEntry).not.toHaveBeenCalled();
+  });
+
+  it("enforces input-only medley segment rules before catalog persistence", async () => {
+    const video = {
+      videoId: "dQw4w9WgXcQ",
+      channelId: `UC${"M".repeat(22)}`,
+      channelTitle: "Member Channel",
+      title: "Verified title",
+      thumbnailUrl: null,
+      durationSeconds: 180,
+      publishedAt: 123,
+      availabilityStatus: "playable" as const,
+    };
+    const createCatalogEntry = vi.fn(async () => ({
+      data: { performance: { id: "medley-performance" } },
+      catalogRevision: 5,
+    }));
+    const service = new AdminCatalogService(
+      {
+        preflightCatalogEntry: vi.fn(),
+        createCatalogEntry,
+      } as unknown as AdminCatalogRepository,
+      { readChannel: vi.fn(), readVideo: vi.fn(async () => video) },
+      { record: vi.fn(async () => undefined) },
+      () => "generated-id",
+      false,
+    );
+    const base = {
+      expectedCatalogRevision: 4,
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 30,
+      endSeconds: 90,
+      registrationMode: "medley_segment" as const,
+      song: { kind: "existing" as const, songId: "song-1" },
+      participants: [{
+        subject: { kind: "member" as const, memberUid: 1 },
+        participantRole: "vocal" as const,
+        creditOrder: 0,
+      }],
+      channel: {
+        kind: "recognized_member" as const,
+        memberUid: 1,
+        channelRole: "member_music" as const,
+      },
+      relationType: "cover" as const,
+      releaseType: "official_video" as const,
+      participationType: "solo" as const,
+      publicationTarget: "draft" as const,
+    };
+
+    await expect(service.createCatalogEntry(base, actor)).resolves.toMatchObject({
+      catalogRevision: 5,
+    });
+    expect(createCatalogEntry).toHaveBeenCalledOnce();
+
+    for (const [override, field] of [
+      [{ publicationTarget: "published" as const }, "publicationTarget"],
+      [{ relationType: "original" as const }, "relationType"],
+      [{ song: { kind: "from_video" as const } }, "song"],
+      [{ endSeconds: undefined }, "endSeconds"],
+    ] as const) {
+      await expect(
+        service.createCatalogEntry({ ...base, ...override }, actor),
+      ).rejects.toMatchObject({
+        code: "invalid_request",
+        fields: { [field]: expect.any(String) },
+      });
+    }
+
+    const unknownDurationService = new AdminCatalogService(
+      {
+        preflightCatalogEntry: vi.fn(),
+        createCatalogEntry: vi.fn(),
+      } as unknown as AdminCatalogRepository,
+      {
+        readChannel: vi.fn(),
+        readVideo: vi.fn(async () => ({ ...video, durationSeconds: null })),
+      },
+      { record: vi.fn(async () => undefined) },
+      () => "generated-id",
+      false,
+    );
+    await expect(
+      unknownDurationService.createCatalogEntry(base, actor),
+    ).rejects.toMatchObject({
+      code: "invalid_request",
+      fields: { endSeconds: "duration_unavailable" },
+    });
   });
 
   it("coordinates successful admin lifecycle commands and audit mirrors", async () => {

@@ -278,13 +278,18 @@ describe("OTW Play admin catalog handler", () => {
         body: JSON.stringify({
           youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
           startSeconds: 0,
+          endSeconds: 180,
         }),
       }),
       env,
     );
     expect(preflightResponse.status).toBe(200);
     expect(preflightResponse.headers.get("Cache-Control")).toBe("no-store");
-    expect(preflightCatalogEntry).toHaveBeenCalledOnce();
+    expect(preflightCatalogEntry).toHaveBeenCalledWith({
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 0,
+      endSeconds: 180,
+    });
 
     const createResponse = await handler(
       new Request("https://example.com/api/play/admin/catalog-entries", {
@@ -294,6 +299,8 @@ describe("OTW Play admin catalog handler", () => {
           expectedCatalogRevision: 1,
           youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
           startSeconds: 0,
+          endSeconds: 180,
+          registrationMode: "medley_segment",
           song: { kind: "existing", songId: "song-1" },
           participants: [
             {
@@ -313,7 +320,15 @@ describe("OTW Play admin catalog handler", () => {
     );
     expect(createResponse.status).toBe(201);
     expect(createResponse.headers.get("Cache-Control")).toBe("no-store");
-    expect(createCatalogEntry).toHaveBeenCalledOnce();
+    expect(createCatalogEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endSeconds: 180,
+        registrationMode: "medley_segment",
+        relationType: "cover",
+        publicationTarget: "draft",
+      }),
+      expect.objectContaining({ userId: "admin" }),
+    );
   });
 
   it("returns a redacted YouTube diagnostic with the request id", async () => {

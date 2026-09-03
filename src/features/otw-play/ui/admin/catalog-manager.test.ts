@@ -1720,6 +1720,110 @@ describe("OtwPlayCatalogManager", () => {
     );
   });
 
+  it("registers a medley track as a draft cover and prepares the next segment", async () => {
+    fetchCatalogMock.mockResolvedValue({
+      ...catalog,
+      songs: [
+        {
+          id: "song-medley",
+          slug: "song-medley",
+          title: "메들리 기존 곡",
+          normalizedTitle: "메들리 기존 곡",
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          archivedAt: null,
+          version: 0,
+          tags: [],
+          aliases: [{ alias: "Medley Song", locale: null, aliasKind: null }],
+          originalArtists: [],
+        },
+      ],
+    });
+    render(createElement(OtwPlayCatalogManager), {
+      wrapper: createQueryWrapper(),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
+    const dialog = screen.getByRole("dialog", { name: "새 YouTube 영상 등록" });
+    expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
+    expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
+      target: { value: "https://youtu.be/dQw4w9WgXcQ" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("시작 위치(초)"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), {
+      target: { value: "90" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
+    await waitFor(() =>
+      expect(preflightEntryMock).toHaveBeenCalledWith({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 10,
+        endSeconds: 90,
+      }),
+    );
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /공식 커버곡/ }));
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "메들리의 한 곡 구간" }));
+    fireEvent.change(within(dialog).getByLabelText("기존 곡 검색"), {
+      target: { value: "Medley Song" },
+    });
+    fireEvent.click(
+      await within(dialog).findByRole("option", { name: /메들리 기존 곡/ }),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
+    fireEvent.change(within(dialog).getByLabelText("가창 참여자 검색"), {
+      target: { value: "현재 멤버" },
+    });
+    fireEvent.click(
+      await within(dialog).findByRole("option", { name: /현재 멤버/ }),
+    );
+    expect(within(dialog).getByRole("button", { name: "메들리 수록" })).toBeTruthy();
+    expect(within(dialog).queryByLabelText("선택한 커버 영상 라벨")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: /다음/ }));
+    expect(within(dialog).getByText("메들리 구간")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "게시" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "임시 저장" }));
+
+    await waitFor(() =>
+      expect(createEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          registrationMode: "medley_segment",
+          relationType: "cover",
+          startSeconds: 10,
+          endSeconds: 90,
+          song: { kind: "existing", songId: "song-medley" },
+          publicationTarget: "draft",
+        }),
+      ),
+    );
+    const savedRequest = createEntryMock.mock.calls.at(-1)?.[0];
+    expect(savedRequest).not.toHaveProperty("performanceTags");
+    expect(await within(dialog).findByText("메들리 커버 구간을 임시 저장했습니다.")).toBeTruthy();
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "같은 영상의 다음 커버 추가" }),
+    );
+    expect(within(dialog).getByLabelText("시작 위치(초)")).toHaveProperty("value", "90");
+    expect(within(dialog).getByLabelText("종료 위치(초)")).toHaveProperty("value", "180");
+    expect(within(dialog).getByLabelText("YouTube URL")).toHaveProperty(
+      "value",
+      "https://youtu.be/dQw4w9WgXcQ",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
+    await waitFor(() =>
+      expect(preflightEntryMock).toHaveBeenLastCalledWith({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 90,
+        endSeconds: 180,
+      }),
+    );
+  });
+
   it("reuses a new external identity across integrated registration fields", async () => {
     render(createElement(OtwPlayCatalogManager), {
       wrapper: createQueryWrapper(),

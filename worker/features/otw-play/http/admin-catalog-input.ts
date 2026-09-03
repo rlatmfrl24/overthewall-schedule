@@ -777,9 +777,25 @@ export const parseCatalogEntryPreflight = (
   if (!isObject(value)) return fail({ body: "object_required" });
   const youtubeUrl = nonEmptyString(value.youtubeUrl, 500);
   const startSeconds = integer(value.startSeconds);
-  return youtubeUrl && startSeconds !== null
-    ? { ok: true, value: { youtubeUrl, startSeconds } }
-    : fail({ body: "invalid_preflight" });
+  const endSeconds =
+    value.endSeconds === null || value.endSeconds === undefined
+      ? null
+      : integer(value.endSeconds);
+  if (!youtubeUrl) {
+    return fail({ body: "invalid_preflight" });
+  }
+  if (startSeconds === null || startSeconds < 0) {
+    return fail({ startSeconds: "invalid_segment" });
+  }
+  if (
+    (value.endSeconds !== null &&
+      value.endSeconds !== undefined &&
+      endSeconds === null) ||
+    (endSeconds !== null && endSeconds <= startSeconds)
+  ) {
+    return fail({ endSeconds: "invalid_segment" });
+  }
+  return { ok: true, value: { youtubeUrl, startSeconds, endSeconds } };
 };
 
 export const parseCreateCatalogEntry = (
@@ -795,6 +811,21 @@ export const parseCreateCatalogEntry = (
     value.endSeconds === null || value.endSeconds === undefined
       ? null
       : integer(value.endSeconds);
+  const registrationMode =
+    value.registrationMode === undefined
+      ? "standard"
+      : inValues(value.registrationMode, ["standard", "medley_segment"] as const);
+  if (startSeconds === null || startSeconds < 0) {
+    return fail({ startSeconds: "invalid_segment" });
+  }
+  if (
+    (value.endSeconds !== null &&
+      value.endSeconds !== undefined &&
+      endSeconds === null) ||
+    (endSeconds !== null && endSeconds <= startSeconds)
+  ) {
+    return fail({ endSeconds: "invalid_segment" });
+  }
   const relationType = inValues(value.relationType, OTW_PLAY_RELATION_TYPES);
   const releaseType = inValues(value.releaseType, [
     "official_mv",
@@ -940,6 +971,23 @@ export const parseCreateCatalogEntry = (
       item?.participantRole === "featured_vocal" ||
       item?.participantRole === "chorus",
   );
+  if (!registrationMode) {
+    return fail({ registrationMode: "unsupported" });
+  }
+  if (registrationMode === "medley_segment") {
+    if (relationType !== "cover") {
+      return fail({ relationType: "cover_required" });
+    }
+    if (song?.kind === "from_video") {
+      return fail({ song: "explicit_song_required" });
+    }
+    if (endSeconds === null) {
+      return fail({ endSeconds: "required" });
+    }
+    if (publicationTarget !== "draft") {
+      return fail({ publicationTarget: "draft_required" });
+    }
+  }
   if (
     expectedCatalogRevision === null ||
     !youtubeUrl ||
@@ -979,6 +1027,7 @@ export const parseCreateCatalogEntry = (
       youtubeUrl,
       startSeconds,
       endSeconds,
+      registrationMode,
       song,
       participants: participants.filter(
         (item): item is NonNullable<typeof item> => item !== null,

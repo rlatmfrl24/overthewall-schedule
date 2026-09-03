@@ -1,8 +1,8 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
-상태: 아키텍처 하드닝 구현·검증 기준 반영, 운영 canary·공개 gate 분리
+상태: 아키텍처 하드닝 구현·검증 기준 반영, DEC-076 독립 커버 구간 등록 구현 반영
 
-기준일: 2026-08-27
+기준일: 2026-09-03
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -168,6 +168,7 @@ canary는 각 운영 흐름의 권위 readback으로 완료한다.
 | PR-9C | candidate 검수·draft 변환                      | 완료      | 자동 publish 없음                               |
 | PR-9D1 | clip monitor·WebSub·비공개 draft 검수          | 구현 완료 | 실제 신규 upload canary 별도                    |
 | 운영 보완 | 외부 identity 삭제·라벨·채널 주체 교정      | 완료      | PR #82–#84, migration `0064` production 적용 완료 |
+| 메들리 예외 | 새 영상 시작·종료 위치와 곡별 독립 cover 등록 | 구현 반영 | 기존 schema·단건 command 재사용, migration 없음 |
 
 PR 수는 코드 규모에 따라 더 쪼갤 수 있지만 migration 번호 하나에 무관한
 기능을 섞지 않는다.
@@ -659,9 +660,10 @@ adversarial 데이터 분포에 대해 rows read 5,000 이하를 수학적으로
 ### 사용자 흐름
 
 ```text
-새 영상 등록 → YouTube metadata·중복·채널 preflight → 영상 유형 선택
-(커버는 원곡 제목·가수 입력) → 현재 멤버·외부 칩과 공개·참여 분류 →
-전체 검토 → draft 또는 confirm 후 publish
+새 영상 등록 → URL·시작·종료 위치 입력 → YouTube metadata·구간·중복·채널 preflight
+→ 영상 유형과 곡 결정(커버는 원곡 제목·가수, 메들리 입력 모드는 기존·신규 곡 명시)
+→ 현재 멤버·외부 칩과 공개·참여 분류 → 전체 검토
+→ 일반 영상은 draft 또는 confirm 후 publish, 메들리 커버 구간은 draft
 ```
 
 DEC-024에 따라 별도 인물·그룹, 공식 채널, 곡, 가창 탭을 일상 진입점으로 사용하지
@@ -670,12 +672,27 @@ ID는 자동 추천·연결하고, 외부 identity와 unknown channel은 같은 
 생성·승인하거나 pending으로 보류한다. 기존 entity/channel endpoint는 고급 수정과
 호환성을 위해 유지한다.
 
-일반 `새 영상 등록`에서는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저
+일반 `새 영상 등록`에서는 URL과 항상 보이는 시작·종료 위치를 먼저 입력한다. 전체
+영상의 기본값은 시작 `0`, 종료 `영상 끝`이며 preflight와 commit은 권위 duration을
+기준으로 구간을 검증한다. 이후 오리지널곡·공식 커버곡·노래방송을
 선택한다. 오리지널은 기존 곡 검색과 새 곡 form을 건너뛰고 commit에서 다시 검증한
 YouTube title과 participant로 song을 자동 생성한다. 커버는 영상 유형 단계 안에서
 원곡 제목과 하나 이상의 원곡 가수를 필수로 받으며, 기존 identity 추천 또는 명시적인
 새 외부 identity 칩을 `create` song command에 전달한다. 기존 곡에서 `다른 가창 추가`로
-진입했을 때는 기존 song ID와 원곡 정보를 재사용한다. 노래방송은 다곡·구간 연결 계약이
+진입했을 때는 기존 song ID와 원곡 정보를 재사용한다.
+
+DEC-076의 공식 커버 입력 전용 `medley_segment`는 기존 segment schema와 단건 통합
+command만 재사용한다. 관리자는 명시적 시작·종료 위치와 기존 곡 또는 새 곡·원곡 가수를
+입력한다. UI는 `메들리 수록` performance tag를 선택 가능한 추천으로 표시하고 publication
+target을 `draft`로 제한한다. 입력 모드는 DB나 공개 DTO에 저장하지 않는다.
+동일 media source를 upsert한 뒤 서로 다른 `(source_id, start_seconds)` performance를
+각 command의 한 D1 batch로 저장하며 별도 group table, migration, batch publish 또는
+연속 재생 authority를 추가하지 않는다. 저장 성공 뒤 `같은 영상의 다음 커버 추가`는
+직전 종료 위치를 다음 시작 위치로 채우고 URL·채널·참여자 기본값을 재사용하지만 새
+preflight와 commit을 수행한다. 메시업은 지원하지 않으며 source/start를 인위적으로
+달리해 중복 performance를 만들지 않는다.
+
+노래방송은 다곡·구간 연결 계약이
 마련되기 전까지 다음 단계와 저장을 막으며 별도 staging data도 만들지 않는다.
 오리지널 자동 생성 song은 normalized video title과 commit에서 검증한 video ID로
 versioned dedupe key material을 만든다. 커버 song은 normalized original title과 resolved
@@ -765,6 +782,14 @@ service policy switch와 UI 검수 조건을 함께 활성화한다.
 - 현재 멤버 자동완성, 외부/그룹 free chip과 기존 identity 명시 재사용
 - 승인 채널 자동 적용, 멤버 채널 자동 연결, unknown 승인·보류와 revoked 차단
 - 오리지널·커버의 수동 곡 연결 생략과 metadata 기반 song+performance 생성, 기존 곡의 `다른 가창 추가`, draft와 confirm publish를 통합 command로 검증
+- 새 영상 등록의 시작·종료 위치가 권위 duration 안인지 검증하고 일반 전체 영상의
+  `0`·`영상 끝` 기본값을 보존
+- `medley_segment` 커버가 영상 제목 추론 없이 기존·신규 song을 명시하고 정확한
+  segment가 있는 draft만 만드는지, `메들리 수록` 태그 없이도 저장되는지 검증
+- 같은 영상의 다음 커버 추가가 직전 종료 위치를 시작 위치로 재사용하되 새 preflight,
+  revision과 exact source/start 중복 검사를 수행하는지 검증
+- 같은 media source의 서로 다른 구간 두 개가 서로 다른 song/performance에 연결되고
+  공개 player가 각 구간의 상대 progress와 종료 경계를 지키는지 검증
 - 노래방송 선택 시 다음 단계와 저장이 불가능하고 mutation이 0건인지 검증
 - YouTube mismatch, 중복, stale revision, event/projection 실패의 전체 rollback
 - 최상위 카탈로그·제안 검수 두 섹션과 오류 후 dialog 입력 보존

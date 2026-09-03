@@ -142,6 +142,7 @@ previous/play/next, repeat/shuffle, mute/volume을 소유한다. transport 아�
 icon·`게시 채널` label·channel 이름만 남겨 가창자와 업로드 주체를 구분하고, 참여자 이미지를
 channel avatar로 재사용하지 않는다. segment source는
 `start_seconds`를 0점으로 환산하고 `end_seconds`가 있으면 그 구간 안으로 제한한다.
+시작 위치는 포함하고 종료 위치는 다음 구간으로 넘어가는 배타적 경계로 취급한다.
 권위 channel avatar URL이 없는 현재 wire contract에서는 연결된 current member profile을
 사용하고 나머지는 중립 fallback을 사용한다. 하단 queue 영역은
 순서·선택·삭제·재정렬만 제공하고 남은 높이를 독립 스크롤한다. 하단 PlaybackBar,
@@ -886,8 +887,13 @@ erDiagram
 CHECK 대상이 아니다. source relation은 열거값만 제한하고 방향은 source ID 두
 개의 순서로 표현한다.
 
-공식 영상 MVP의 source 구간은 `start_seconds=0`, `end_seconds=NULL`이다.
-`end_seconds`가 있으면 `end_seconds > start_seconds` check를 둔다.
+기존 일반 공식 영상의 source 구간은 `start_seconds=0`, `end_seconds=NULL`을 허용한다.
+새 영상 등록 UI는 전체 영상도 `start_seconds=0`, `end_seconds=duration_seconds`를
+명시적으로 보낸다. DEC-076의 입력 전용 `medley_segment` 커버는 같은 media source를 재사용하면서 명시적
+`start_seconds`와 `end_seconds`를 저장한다. DB는 `end_seconds > start_seconds`를
+검증하고 application service는 권위 YouTube 길이를 알고 있을 때
+`end_seconds <= duration_seconds`도 검증한다. 같은 `(source_id, start_seconds)`를
+두 performance에 연결하는 것은 계속 금지한다.
 
 ### 6.7 관계와 삭제 정책
 
@@ -1133,19 +1139,37 @@ identity와 참조 중인 외부 identity는 `422 PLAY_ADMIN_VALIDATION_FAILED`�
 revision을 같은 D1 batch에 기록한다.
 
 통합 등록의 preflight는 mutation 없이 authoritative YouTube video/channel metadata,
-동일 source segment, 기존 채널 상태와 `members.youtube_channel_id` 및 활성
+요청한 시작·종료 위치, 동일 source segment, 기존 채널 상태와
+`members.youtube_channel_id` 및 활성
 `member_links.youtube_channel_id` 일치를 확인한다. commit은 client가 표시한 제목과
 채널 주장을 사용하지 않고 metadata를 다시 조회한다. preflight revision과 commit
 revision이 다르면 `409 PLAY_ADMIN_STALE_WRITE`, 동일 video/segment면 기존 song과
 performance ID를 포함한 `409 PLAY_ADMIN_DUPLICATE_SOURCE`를 반환한다.
 
-새 영상 UI는 preflight 뒤 오리지널곡·공식 커버곡·노래방송을 먼저 구분한다.
+새 영상 UI는 URL과 항상 보이는 시작·종료 위치를 입력한 뒤 preflight하고,
+오리지널곡·공식 커버곡·노래방송을 구분한다. 일반 전체 영상은
+시작 `0`과 영상 끝을 기본값으로 사용한다.
 오리지널은 수동 song 선택을 요구하지 않고 검증된 video title로 내부 song을 만들며,
 선택한 participant identity를 original artist credit으로 재사용한다. 공식 커버는
 관리자가 `원곡 제목`과 하나 이상의 `원곡 가수` identity를 별도로 입력하고 그 값으로
 song을 만든다. client의 video title/channel 주장은 계속 신뢰하지 않지만, 관리자가
 명시적으로 입력한 원곡 정보는 catalog command의 검증된 입력으로 취급한다. 기존 곡의
-`다른 가창 추가` 진입만 명시적으로 그 song과 원곡 정보를 재사용한다. 노래방송은 한
+`다른 가창 추가` 진입은 명시적으로 그 song과 원곡 정보를 재사용한다.
+
+공식 커버의 입력 전용 `registrationMode='medley_segment'`는 별도 aggregate나 batch
+command를 만들지 않는 희소 예외다. 시작과 종료를 모두 요구하고 권위 영상 길이 안인지
+확인한 뒤, 기존 곡 검색 또는 새 곡·원곡 가수의 명시적 입력으로 song을 정한다. 영상
+제목으로 song을 자동 생성하지 않으며 `publication_status='draft'`만 허용한다.
+performance tag `메들리 수록`은 UI 추천일 뿐 선택하지 않아도 저장할 수 있고 command
+검증 기준으로 사용하지 않는다. `registrationMode`도 persistence와 공개 DTO에는 남기지 않는다.
+source upsert, song/performance, participant, segment, event와 두 revision은 기존 단건
+통합 command의 한 D1 batch로 저장한다. 성공 응답의 `같은 영상의 다음 커버 추가`는
+URL·채널·참여자 기본값과 직전 `end_seconds`를 다음 `start_seconds`로 채우지만 새
+preflight·commit을 수행한다. 저장된 구간 사이의 그룹·순서·완전성은 권위 데이터로
+만들지 않는다. 동시에 여러 곡이 겹치는 메시업은 지원하지 않고 같은 source/start를
+인위적으로 다르게 만들어 등록하지 않는다.
+
+노래방송은 한
 source에 여러 곡과 segment를 연결해야 하므로 현재 통합 command가 받지 않으며
 canonical row나 staging row를 생성하지 않는다.
 오리지널 자동 생성 song은 normalized video title과 검증된 YouTube video ID로 dedupe
@@ -1550,6 +1574,9 @@ fixture와 preview 배포에서 기준선을 만들고, 운영 24시간·7일 �
 - 공개 repository만으로 draft, proposal 또는 rejected 데이터를 읽을 수 없다.
 - 전 소속 멤버는 기존 연결을 보존하면서 조회 시 external chip으로 투영된다.
 - 같은 YouTube 영상은 media source 하나로 보존되고 여러 performance 구간에 연결될 수 있다.
+- `medley_segment` 커버 단건 등록은 명시한 구간과 기존·신규 song을 사용해 draft만 만들고,
+  같은 영상의 다음 구간도 별도 preflight·commit과 exact source/start 중복 검사를 거친다.
+- 메들리 입력 모드는 별도 schema aggregate, 영상 유형, 전체 게시 상태 또는 연속 재생 authority를 만들지 않는다.
 - 같은 제안을 동시에 승인해도 canonical performance는 하나만 생성된다.
 - 승인 중 event 쓰기가 실패하면 proposal과 catalog 모두 원래 상태다.
 - 검색, member ANY/ALL과 세 정렬이 keyset pagination에서 중복·누락 없이 동작한다.

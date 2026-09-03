@@ -18,8 +18,28 @@ describe("OTW Play admin input", () => {
       parseCatalogEntryPreflight({
         youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
         startSeconds: 0,
+        endSeconds: 180,
       }),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: true, value: { endSeconds: 180 } });
+    expect(
+      parseCatalogEntryPreflight({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 20,
+        endSeconds: 20,
+      }),
+    ).toEqual({ ok: false, fields: { endSeconds: "invalid_segment" } });
+    expect(
+      parseCatalogEntryPreflight({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: -1,
+      }),
+    ).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
+    expect(
+      parseCatalogEntryPreflight({
+        youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+        startSeconds: 0.5,
+      }),
+    ).toEqual({ ok: false, fields: { startSeconds: "invalid_segment" } });
     const command = {
       expectedCatalogRevision: 7,
       youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
@@ -66,6 +86,7 @@ describe("OTW Play admin input", () => {
     expect(parseCreateCatalogEntry(command)).toMatchObject({
       ok: true,
       value: {
+        registrationMode: "standard",
         song: { kind: "create", tags: ["K-POP", "보컬로이드"] },
         participants: [{ subject: { kind: "member", memberUid: 1 } }],
         performanceTags: ["어쿠스틱", "2026 버전"],
@@ -90,6 +111,60 @@ describe("OTW Play admin input", () => {
         relationType: "cover",
       }),
     ).toMatchObject({ ok: false });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        endSeconds: 120,
+        registrationMode: "medley_segment",
+        publicationTarget: "draft",
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        endSeconds: 120,
+        registrationMode: "medley_segment",
+        relationType: "cover",
+        publicationTarget: "draft",
+      },
+    });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        endSeconds: 120,
+        registrationMode: "medley_segment",
+      }),
+    ).toEqual({
+      ok: false,
+      fields: { publicationTarget: "draft_required" },
+    });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        endSeconds: 120,
+        registrationMode: "unknown",
+      }),
+    ).toEqual({
+      ok: false,
+      fields: { registrationMode: "unsupported" },
+    });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        startSeconds: -1,
+      }),
+    ).toEqual({
+      ok: false,
+      fields: { startSeconds: "invalid_segment" },
+    });
+    expect(
+      parseCreateCatalogEntry({
+        ...command,
+        endSeconds: 12.5,
+      }),
+    ).toEqual({
+      ok: false,
+      fields: { endSeconds: "invalid_segment" },
+    });
     expect(
       parseCreateCatalogEntry({
         ...command,
