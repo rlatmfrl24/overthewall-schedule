@@ -374,7 +374,7 @@ const isXReferencePreviewDailyBudgetCents = (
 
 const normalizeXReferencePreviewDailyBudgetCents = (
   value: string | null | undefined,
-) => (isXReferencePreviewDailyBudgetCents(value) ? value : "5");
+) => (isXReferencePreviewDailyBudgetCents(value) ? value : "10");
 
 const passthroughNullable = (value: string | null | undefined) => value ?? null;
 

@@ -6,6 +6,7 @@ import type {
   XPostDto,
 } from "@contracts/x-posts";
 import type { XPostItem } from "../../../platform/types";
+import { readXReferenceBudget } from "./x-reference-budget";
 
 type D1 = Pick<D1Database, "prepare">;
 
@@ -298,9 +299,16 @@ export const readXHistoryHealth = async (
       cacheMisses: number | string;
     }>(),
     db.prepare(
-      `SELECT COUNT(*) AS count FROM x_post_references
-       WHERE resolution_state = 'pending'`,
-    ).first<{ count: number | string }>(),
+      `SELECT SUM(CASE WHEN r.resolution_state IN ('pending','local','link_only') AND r.hydrated_at IS NULL THEN 1 ELSE 0 END) AS count,
+       SUM(CASE WHEN r.author_state='pending' THEN 1 ELSE 0 END) AS authors,
+       SUM(CASE WHEN r.resolution_state='terminal' THEN 1 ELSE 0 END) AS terminal,
+       MIN(CASE WHEN (r.resolution_state IN ('pending','local','link_only') AND r.hydrated_at IS NULL) OR r.author_state='pending' THEN r.created_at END) AS oldest,
+       MIN(COALESCE(r.next_attempt_at,r.author_next_attempt_at)) AS next,
+       SUM(CASE WHEN COALESCE(r.last_error_code,r.author_last_error_code,'') NOT IN
+         ('','budget_exceeded','preview_budget_exceeded','preview_disabled','not_found_or_unavailable') THEN 1 ELSE 0 END) AS errors
+       FROM x_post_references r JOIN x_posts p ON p.id=r.source_post_id
+       WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL`,
+    ).first<{ count: number; authors: number; terminal: number; oldest: number | null; next: number | null; errors: number }>(),
     db.prepare(
       `SELECT COALESCE(SUM(coalesced_handles), 0) AS count
        FROM x_collection_runs WHERE started_at >= ?`,
@@ -309,9 +317,11 @@ export const readXHistoryHealth = async (
       `SELECT resource, COALESCE(SUM(used + reserved), 0) AS consumed,
               MAX(limit_value) AS limitValue
        FROM scheduled_usage_daily WHERE day = ? AND lane = 'all'
+       AND resource IN ('x_api_cost_micros','d1_rows_read','d1_rows_written','queue_operations')
        GROUP BY resource`,
     ).bind(day).all<{ resource: string; consumed: number | string; limitValue: number | string | null }>(),
   ]);
+  const referenceBudget = await readXReferenceBudget(db, timestamp);
   const settingMap = new Map(settings.results.map((row) => [row.key, row.value]));
   const configuredHours = Number(settingMap.get("x_collection_interval_hours") ?? "2");
   const optimizerEnabled = settingMap.get("x_cost_optimizer_enabled") === "true";
@@ -338,6 +348,13 @@ export const readXHistoryHealth = async (
       ? null
       : asNumber(latest?.lastSuccessAt),
     budgetUsedMicros: asNumber(budget?.used),
+    referenceHydration: {
+      pendingPosts: asNumber(references?.count), pendingAuthors: asNumber(references?.authors),
+      terminal: asNumber(references?.terminal), oldestPendingAt: references?.oldest ?? null,
+      nextAttemptAt: references?.next ?? null, errors: asNumber(references?.errors),
+      budgetDay: referenceBudget.day, budgetLimitMicros: referenceBudget.previewLimit,
+      budgetUsedMicros: referenceBudget.previewUsed, budgetReservedMicros: referenceBudget.previewReserved,
+    },
     optimizer: {
       enabled: optimizerEnabled,
       configuredIntervalMinutes: configuredHours * 60,
@@ -373,11 +390,11 @@ export const backfillXPostReferencesFromStoredPosts = async (
     `SELECT p.id, p.value
      FROM x_posts p
      WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL
-       AND (json_extract(p.value, '$.quote.postId') IS NOT NULL
-         OR json_extract(p.value, '$.reply.postId') IS NOT NULL)
-       AND NOT EXISTS (
-         SELECT 1 FROM x_post_references r WHERE r.source_post_id = p.id
-       )
+       AND json_valid(p.value)
+       AND ((json_extract(p.value, '$.quote.postId') IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM x_post_references r WHERE r.source_post_id=p.id AND r.relation_type='quote'))
+         OR (json_extract(p.value, '$.reply.postId') IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM x_post_references r WHERE r.source_post_id=p.id AND r.relation_type='reply')))
      ORDER BY p.first_seen_at, p.id LIMIT ?`,
   ).bind(boundedLimit).all<{ id: string; value: string }>();
   let recorded = 0;
@@ -410,7 +427,7 @@ export const backfillXPostReferencesFromStoredPosts = async (
         reference.type,
         reference.id,
         state,
-        state === "pending" ? timestamp : null,
+        !reference.hydrated ? timestamp : null,
         reference.hydrated ? timestamp : null,
         timestamp,
         timestamp,

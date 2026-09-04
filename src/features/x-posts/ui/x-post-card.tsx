@@ -278,7 +278,7 @@ const XEmbeddedPostCard = ({
       href={post.url}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`${post.name ?? `@${post.username}`} 게시글 열기`}
+      aria-label={`${post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`} 게시글 열기`}
       className="block overflow-hidden rounded-xl border border-border/70 bg-muted/20 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex min-w-0 items-start gap-2.5 p-2.5">
@@ -297,10 +297,10 @@ const XEmbeddedPostCard = ({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-sm font-semibold text-foreground">
-              {post.name ?? `@${post.username}`}
+              {post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              @{post.username}
+              {post.username === "i" ? "" : `@${post.username}`}
               {post.createdAt ? ` · ${formatRelativeDate(post.createdAt)}` : ""}
             </span>
             <span className="ml-auto inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground">
@@ -369,7 +369,7 @@ const XReplyPreviewCard = ({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`${post.name ?? `@${post.username}`} 답글 원문 열기`}
+      aria-label={`${post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`} 답글 원문 열기`}
       className="flex min-w-0 items-start gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {post.profileImageUrl ? (
@@ -387,10 +387,10 @@ const XReplyPreviewCard = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex min-w-0 items-center gap-1.5 text-xs">
           <span className="truncate font-semibold text-foreground">
-            {post.name ?? `@${post.username}`}
+            {post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`}
           </span>
           <span className="truncate text-muted-foreground">
-            @{post.username}
+            {post.username === "i" ? "" : `@${post.username}`}
           </span>
           {post.createdAt ? (
             <>
@@ -444,7 +444,7 @@ const XMissingReplyContextCard = ({
     <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-xs text-muted-foreground">
       <MessageCircle className="h-4 w-4 shrink-0" />
       <span className="min-w-32 flex-1">
-        {replyContext.error ?? "관련 트윗 원문이 아직 저장되지 않았습니다."}
+        {replyContext.error ?? "원문이 아직 준비되지 않았거나 확인할 수 없습니다"}
       </span>
       <Button
         type="button"
@@ -459,9 +459,7 @@ const XMissingReplyContextCard = ({
         ) : null}
         {replyContext.loading
           ? "불러오는 중"
-          : replyContext.error
-            ? "다시 불러오기"
-            : "관련 트윗 불러오기"}
+          : "저장된 원문 다시 확인"}
       </Button>
       <a
         href={href}

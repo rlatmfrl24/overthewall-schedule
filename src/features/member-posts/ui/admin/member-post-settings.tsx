@@ -65,6 +65,7 @@ import { NaverCafeSourceManager } from "@/features/naver-cafe";
 import { queryKeys } from "@/shared/query/query-keys";
 import { cn } from "@/shared/lib/utils";
 import { XPostHistoryManager } from "./x-post-history-manager";
+import { XReferenceHealth } from "./x-reference-health";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -500,7 +501,7 @@ export function MemberPostSettingsManager({
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
     useState(false);
   const [budgetDraft, setBudgetDraft] = useState("100");
-  const [previewBudgetDraft, setPreviewBudgetDraft] = useState("5");
+  const [previewBudgetDraft, setPreviewBudgetDraft] = useState("10");
   const [collectionRun, setCollectionRun] =
     useState<OperationRunAccepted | null>(null);
   const collectionRunQuery = useOperationRun(collectionRun);
@@ -546,7 +547,7 @@ export function MemberPostSettingsManager({
   }, [settings?.x_collection_daily_budget_cents]);
 
   useEffect(() => {
-    setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "5");
+    setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "10");
   }, [settings?.x_reference_preview_daily_budget_cents]);
 
   useEffect(() => {
@@ -1234,7 +1235,7 @@ export function MemberPostSettingsManager({
                     미리보기 일일 예산 센트
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    기본 5센트이며 소진 시 신규 게시물은 저장하고 참조는 직접 링크로 남깁니다.
+                    기본 10센트입니다. 신규 수집을 우선하며, 소진된 원문 보강은 다음 UTC 일로 이월합니다. 저장된 원문 연결에는 X 비용이 들지 않습니다.
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 gap-2 sm:w-48">
@@ -1255,6 +1256,7 @@ export function MemberPostSettingsManager({
                   </Button>
                 </div>
               </div>
+              <XReferenceHealth />
               <div className="border-t pt-3">
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
