@@ -234,6 +234,11 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
+            X_REFERENCE_MIGRATIONS: migrations.filter(({ name }) =>
+              /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_)/.test(name)
+            ).map(migration => /^(0071_|0072_)/.test(migration.name)
+              ? { ...migration, queries: migration.queries.filter(query => /^\s*ALTER TABLE `x_/.test(query)) }
+              : migration),
             OTW_PLAY_CATALOG_MIGRATIONS: otwPlayCatalogMigrations,
             OTW_PLAY_PROPOSAL_SEARCH_MIGRATIONS:
               otwPlayProposalSearchMigrations,

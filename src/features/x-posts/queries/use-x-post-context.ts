@@ -1,11 +1,12 @@
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchXPostContext } from "../api/x-posts-api";
 import { queryKeys } from "@/shared/query/query-keys";
 
-const X_CONTEXT_STALE_TIME_MS = 7 * 24 * 60 * 60_000;
+const X_CONTEXT_STALE_TIME_MS = 5 * 60_000;
 
 export function useXPostContext(postId: string) {
+  const client = useQueryClient();
   const query = useQuery({
     queryKey: queryKeys.memberPosts.xContext(postId),
     queryFn: () => fetchXPostContext(postId),
@@ -16,13 +17,15 @@ export function useXPostContext(postId: string) {
   const { refetch } = query;
 
   const load = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
+    const result = await refetch();
+    if (result.data) await client.invalidateQueries({ queryKey: queryKeys.memberPosts.all,
+      predicate: query => !query.queryKey.includes("x-context") });
+  }, [refetch, client]);
 
   return {
     context: query.data ?? null,
     loading: query.isFetching,
-    error: query.error ? "관련 트윗을 불러오지 못했습니다." : null,
+    error: query.error ? "원문이 아직 준비되지 않았거나 확인할 수 없습니다" : null,
     load,
   };
 }

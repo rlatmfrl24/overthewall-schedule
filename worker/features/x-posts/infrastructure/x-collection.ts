@@ -15,6 +15,8 @@ import {
   backfillXPostReferencesFromStoredPosts,
 } from "./x-history";
 import type { Env } from "../../../platform/types";
+import { hydrateXReferences } from "./x-reference-hydration";
+import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
@@ -42,6 +44,7 @@ export type XCollectionRunResult = Omit<
   XCollectionServiceResult,
   "error" | keyof XCollectionObservability
 > & Partial<XCollectionObservability> & {
+  referenceHydration?: XReferenceHydrationResultDto;
   success: boolean;
   error: string | null;
   updatedAt: string;
@@ -248,12 +251,8 @@ export const runXCollectionForHandles = async (
   handles: string[],
   source: XCollectionSource,
 ): Promise<XCollectionRunResult> => {
-  try {
-    await backfillXPostFactsFromStoredPosts(env.otw_db, 100);
-    await backfillXPostReferencesFromStoredPosts(env.otw_db, 100);
-  } catch (error) {
-    console.warn("Failed to backfill stored X post facts or references", error);
-  }
+  await backfillXPostFactsFromStoredPosts(env.otw_db, 100);
+  await backfillXPostReferencesFromStoredPosts(env.otw_db, 100);
   const policy = await resolveXEffectiveCollectionPolicy(env);
   const lease = await claimXSourceLeases(env, handles, Date.now());
   try {
@@ -269,6 +268,8 @@ export const runXCollectionForHandles = async (
       effectiveIntervalMinutes: policy.effectiveIntervalMinutes,
       referencePreviewMode: policy.referencePreviewMode,
       coalescedHandles: lease.coalesced,
+      afterTimeline: (tracker) => hydrateXReferences({ db: env.otw_db, handles: lease.claimed,
+        bearerToken: env.X_BEARER_TOKEN ?? "", mode: policy.referencePreviewMode, tracker }),
     });
     return normalizeCollectionResult({
       ...result,

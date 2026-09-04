@@ -314,7 +314,16 @@ describe("XPostCard", () => {
     expect(screen.queryByRole("button", { name: /관련 트윗/ })).toBeNull();
   });
 
-  it("답글 프리뷰가 없으면 관련 트윗 재조회와 원문 링크를 제공한다", () => {
+  it("작성자 조회 대기 중에도 확보된 답글 원문과 직접 링크를 표시한다", () => {
+    const parent = makeLinkedPost({ username: "i", name: null, text: "확보된 원문", url: "https://x.com/i/web/status/9876543210" });
+    renderCard(makePost({ reply: { postId: parent.id, conversationId: null, post: parent } }));
+    expect(screen.getByText("작성자 정보 확인 중")).toBeTruthy();
+    expect(screen.getByText("확보된 원문")).toBeTruthy();
+    expect(screen.queryByText("@i")).toBeNull();
+    expect(screen.getByRole("link", { name: "작성자 정보 확인 중 답글 원문 열기" }).getAttribute("href")).toBe(parent.url);
+  });
+
+  it("답글 프리뷰가 없으면 저장된 원문 확인과 직접 링크를 제공한다", () => {
     const replyToPostId = "2059529979700846500";
     const load = vi.fn();
     useXPostContextMock.mockReturnValue({
@@ -334,9 +343,9 @@ describe("XPostCard", () => {
     );
 
     expect(
-      screen.getByText("관련 트윗 원문이 아직 저장되지 않았습니다."),
+      screen.getByText("원문이 아직 준비되지 않았거나 확인할 수 없습니다"),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "관련 트윗 불러오기" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장된 원문 다시 확인" }));
     expect(load).toHaveBeenCalledTimes(1);
     expect(
       screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"),

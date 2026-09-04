@@ -189,7 +189,7 @@ export const createXPostsHandler =
     try {
       const content = await application.readReplyContext(sourcePostId);
       return json(content, 200, {
-        headers: getXPostsCacheHeaders({ adminView, debug, visibility }),
+        headers: { "Cache-Control": "no-store" },
       });
     } catch (error) {
       if (error instanceof XReplyContextNotFoundError) {

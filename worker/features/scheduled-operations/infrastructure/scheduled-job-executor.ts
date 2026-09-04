@@ -91,6 +91,10 @@ const batchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
 export const toXCollectionOutcome = (
   result: Awaited<ReturnType<typeof runXCollectionForHandles>>,
 ): ScheduledJobExecutionOutcome => {
+  if ("referenceHydration" in result && result.referenceHydration?.failed) {
+    return { status: result.refreshedHandles > 0 ? "partial" : "failed", result,
+      errorCode: result.referenceHydration.errorCode, error: "X 원문 보강 재시도 대기" };
+  }
   if (result.status === "success") return succeeded(result);
   const error = result.error ?? `x_collection_${result.status}`;
   return {

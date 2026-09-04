@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import {
   toXCollectionOutcome,
   toYouTubeFeedCollectionOutcome,
@@ -21,6 +22,17 @@ const result = (
 });
 
 describe("scheduled job executor outcomes", () => {
+  it("keeps preview budget deferral neutral but exposes actual hydration errors", () => {
+    const referenceHydration: XReferenceHydrationResultDto = { status: "deferred", scanned: 1, hydrated: 0, authorsResolved: 0,
+      deferred: 1, failed: 0, terminal: 0, coalesced: 0, retryAt: 1, errorCode: "preview_budget_exceeded" };
+    expect(toXCollectionOutcome({ ...result("success"), referenceHydration }).status).toBe("succeeded");
+    referenceHydration.failed = 1;
+    referenceHydration.status = "failed";
+    referenceHydration.errorCode = "x_api_503";
+    expect(toXCollectionOutcome({ ...result("success"), referenceHydration })).toMatchObject({ status: "partial", errorCode: "x_api_503" });
+    expect(toXCollectionOutcome({ ...result("failed"), referenceHydration }).status).toBe("failed");
+  });
+
   it("maps a successful X collection to a succeeded item", () => {
     expect(toXCollectionOutcome(result("success"))).toMatchObject({
       status: "succeeded",
