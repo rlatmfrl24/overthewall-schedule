@@ -236,17 +236,17 @@ Post와 User를 최대 100 IDs로 분리 조회하는 계약은 X의
 
 ### 검증 및 운영 Closeout 게이트
 
-| 항목                    | 상태           | 증거/남은 작업                                                                                                                           |
-| ----------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 격리 브랜치·구현        | 구현 완료      | 신규/기존 참조 분리, D1 우선, target lease, Post/User 단계 분리, 이중 예산, 공개 D1-only                                                 |
-| 생성 migration          | 로컬 검증 완료 | 0083, 전체 83개 migration 실제 적용 validate-only 및 작업 worktree 로컬 초기화 통과                                                      |
-| D1 회귀                 | 로컬 검증 완료 | 26개 통합 테스트: 기존 18건 및 검토 후 추가 회귀 8건. 실제 수집 진입점, 페이지 재처리, 관계별 무료 복구, 원문 제거 전파·rollback·경합 등 |
-| Worker·React·preflight  | 로컬 검증 완료 | 검토 수정 후 `pnpm preflight` PASS: 단위 1,532 + Worker 통합 210 = 1,742건, 커버리지 기준·프로덕션 build·D1 doctor·mirror 통과           |
-| PR·운영 Worker          | 미적용         | 현재 요청에서 commit/push/배포하지 않음. PR 번호와 Worker version은 배포 시 기록                                                         |
-| 운영 migration·10센트   | 미적용         | 승인 후 additive migration → Worker 배포 → preview 설정 `10` 순서                                                                        |
-| 운영 D1·대표 `/feed`    | 미검증         | 운영 누락 수 재조회, 정상 pipeline에서 무료 D1 복구부터 진행; 유료 일괄 수동 조회 금지                                                   |
-| 로컬 브라우저           | 부분 검증      | `localhost:5184/feed` 실제 진입 및 로그인 보호 확인. 인증된 피드/관리자 화면은 테스트 계정 세션이 없어 미검증; 접근 제어를 우회하지 않음 |
-| 두 정규 실행·UTC 초기화 | 미검증         | 대표 답글 표시, cursor 불변, used/reserved 정합성, 공개 호출의 공급자/write 0 확인                                                       |
+| 항목                    | 상태           | 증거/남은 작업                                                                                                                               |
+| ----------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 격리 브랜치·구현        | 구현 완료      | 신규/기존 참조 분리, D1 우선, target lease, Post/User 단계 분리, 이중 예산, 공개 D1-only                                                     |
+| 생성 migration          | 로컬 검증 완료 | 0083, 전체 83개 migration 실제 적용 validate-only 및 작업 worktree 로컬 초기화 통과                                                          |
+| D1 회귀                 | 로컬 검증 완료 | 28개 통합 테스트: 기존 18건 및 검토 후 추가 회귀 10건. 실제 수집 진입점, cursor ACK 실패, 페이지 재처리, 원문 제거 전파·rollback·경합 등     |
+| Worker·React·preflight  | 로컬 검증 완료 | 최종 `pnpm preflight` PASS: 단위 1,532 + Worker 통합 212 = 1,744건, 커버리지 기준·프로덕션 build·D1 doctor·mirror 통과                       |
+| PR·운영 Worker          | 병합 준비      | [PR #118](https://github.com/rlatmfrl24/overthewall-schedule/pull/118), runtime head `54b269e`. 병합·배포의 최종 readback은 PR ledger에 기록 |
+| 운영 migration·10센트   | 부분 적용      | 2026-09-04 05:22:01 UTC 원격 0083 적용 완료, pending 0. Worker 배포 후 preview 설정 `10`을 적용하는 순서 유지                                |
+| 운영 D1·대표 `/feed`    | 미검증         | 운영 누락 수 재조회, 정상 pipeline에서 무료 D1 복구부터 진행; 유료 일괄 수동 조회 금지                                                       |
+| 로컬 브라우저           | 부분 검증      | `localhost:5184/feed` 실제 진입 및 로그인 보호 확인. 인증된 피드/관리자 화면은 테스트 계정 세션이 없어 미검증; 접근 제어를 우회하지 않음     |
+| 두 정규 실행·UTC 초기화 | 미검증         | 대표 답글 표시, cursor 불변, used/reserved 정합성, 공개 호출의 공급자/write 0 확인                                                           |
 
 배포 후 `PR / merge SHA / Worker version / 적용 시각 / D1 누락·대기·terminal / 공개 피드 확인`
 을 기록한다. 2026-09-04 로컬 검증은 `git diff --check`, 문서/신규 파일 formatter,
@@ -303,3 +303,15 @@ Post와 User를 최대 100 IDs로 분리 조회하는 계약은 X의
   preview 5센트다. 기존 production은 Worker `7bafc85d-f2df-4a70-ab3e-0ff15ef80bc9`이며
   master `2abcb2a`의 Workers Builds 성공과 일치한다. 원격 0083 적용 확인 전에는
   자동 배포를 유발하는 PR 병합을 진행하지 않는다.
+- 최종 preflight는 runtime head `54b269e`에서 PASS다. 247개 파일/1,744건,
+  coverage statements 79.29%·branches 66.30%·functions 82.87%·lines 80.80%,
+  production Worker/client build, 로컬 D1 doctor 및 mirror 16개 일치를 확인했다.
+  첫 전체 실행은 Cloudflare 테스트 pool 시작 중 `undici: bad port`로 3개 파일이 실행되지
+  않아 FAIL로 기록했다. 테스트 제외나 기준 완화 없이 동일 명령 재실행에서 모두 통과했다.
+- 운영 0083 적용 후 추가 7개 컬럼·index 존재, pending migration 0, 게시물/source/reference
+  수 감소 없음, invalid JSON 및 FK 위반 0을 재확인했다. 사전 Time Travel bookmark는
+  `00005da0-00000000-000050dc-9c53841c115fbd450134b492a3091696`이다.
+- [PR #118 검증 ledger](https://github.com/rlatmfrl24/overthewall-schedule/pull/118)
+  에 FAIL/PASS 근거·원격 적용 시각 및 이후 merge SHA/Worker version/운영 UI 결과를
+  기록한다. 브라우저의 실제 관리자 인증 진입과 기존 운영 설정도 확인했다.
+  삭제 canary, 두 정규 실행 및 UTC 경계 이후의 보강 재개는 병합 PASS와 별개의 운영 관측이다.
