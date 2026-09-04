@@ -575,6 +575,13 @@
       "when": 1788387336803,
       "tag": "0082_chief_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1788491499809,
+      "tag": "0083_youthful_norman_osborn",
+      "breakpoints": true
     }
   ]
 }

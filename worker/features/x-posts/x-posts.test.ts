@@ -169,6 +169,10 @@ const makeCacheDb = (
               if (sql.includes("FROM x_post_sources")) {
                 return (sources.get(String(args[0])) ?? null) as T | null;
               }
+              if (sql.includes("SELECT 1 AS hidden FROM x_posts")) {
+                const post = posts.get(String(args[0]));
+                return (post && post.hidden_at !== null ? { hidden: 1 } : null) as T | null;
+              }
               if (sql.includes("FROM x_posts")) {
                 const post = posts.get(String(args[0]));
                 return (post && post.hidden_at === null ? post : null) as T | null;
@@ -299,25 +303,15 @@ const makeCacheDb = (
                   last_checked_at: Number(lastCheckedAt),
                   updated_at: Number(updatedAt),
                   last_error: lastError === null ? null : String(lastError),
+                  ...(sql.includes("sync_pagination_token") ? {
+                    last_seen_post_id: lastSeenPostId === null ? null : String(lastSeenPostId),
+                    sync_pagination_token: args[12] === null ? null : String(args[12]),
+                    sync_base_post_id: args[13] === null ? null : String(args[13]),
+                    sync_newest_post_id: args[14] === null ? null : String(args[14]),
+                  } : {}),
                 });
               }
               if (sql.includes("UPDATE x_post_sources")) {
-                if (sql.includes("x_sync_continuation")) {
-                  const [lastSeen, nextToken, basePostId, newestPostId, , , , updatedAt, handle] = args;
-                  const key = String(handle);
-                  const current = sources.get(key);
-                  if (current) {
-                    sources.set(key, {
-                      ...current,
-                      last_seen_post_id: lastSeen === null ? null : String(lastSeen),
-                      sync_pagination_token: nextToken === null ? null : String(nextToken),
-                      sync_base_post_id: basePostId === null ? null : String(basePostId),
-                      sync_newest_post_id: newestPostId === null ? null : String(newestPostId),
-                      updated_at: Number(updatedAt),
-                    });
-                  }
-                  return { success: true };
-                }
                 const [lastCheckedAt, updatedAt, lastError, handle] = args;
                 const key = String(handle);
                 const current = sources.get(key);
@@ -2810,50 +2804,25 @@ describe("x worker service", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("답글 문맥 API는 저장된 공개 답글에서 서버가 도출한 바로 위 게시글만 조회한다", async () => {
+  it("답글 문맥 API는 저장된 원문만 반환하고 공급자를 호출하지 않는다", async () => {
     const target = makeCacheDb(publicXSettings);
     const { sourcePostId, replyToPostId } = seedReplyPost(target);
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
-        data: [
-          {
-            id: replyToPostId,
-            author_id: "u0",
-            text: "parent post",
-            created_at: "2026-02-12T23:00:00Z",
-            public_metrics: {},
-          },
-        ],
-        includes: {
-          users: [
-            { id: "u0", username: "parent_user", name: "Parent User" },
-          ],
-        },
-      }),
-    );
-
+    const parent = { ...makePost(replyToPostId, "parent_user"), text: "parent post" };
+    target.posts.set(replyToPostId, { id: replyToPostId, handle: "parent_user",
+      user_id: "u0", username: "parent_user", value: JSON.stringify(parent),
+      created_at: parent.createdAt, fetched_at: Date.now(), hidden_at: null });
+    const statements = vi.spyOn(target.db, "prepare");
     const response = await handleXPosts(
-      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
-      makeRouteEnv(target.db),
-    );
-
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`), makeRouteEnv(target.db));
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600",
-    );
-    await expect(response.json()).resolves.toMatchObject({
-      sourcePostId,
-      replyTo: {
-        id: replyToPostId,
-        text: "parent post",
-        username: "parent_user",
-      },
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain(
-      `/tweets?ids=${replyToPostId}`,
-    );
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toMatchObject({ sourcePostId,
+      replyTo: { id: replyToPostId, text: "parent post", username: "parent_user" } });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(target.usageEvents).toHaveLength(0);
+    expect(statements.mock.calls.every(([sql]) => !/^\s*(INSERT|UPDATE|DELETE|REPLACE)/i.test(sql))).toBe(true);
   });
+
 
   it("답글 문맥 캐시가 적중하면 토큰이나 외부 호출 없이 반환한다", async () => {
     vi.useFakeTimers();
@@ -2899,49 +2868,19 @@ describe("x worker service", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("15분이 지난 답글 문맥 미발견 캐시는 외부 조회를 다시 시도한다", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-02-13T00:30:00Z"));
-    const replyToPostId = "2059529979700846500";
-    const target = makeCacheDb({
-      ...publicXSettings,
-      [`x:linked-post:v1:${replyToPostId}`]: {
-        type: "linked_post",
-        value: JSON.stringify({ post: null }),
-        fetched_at: Date.now() - 16 * 60_000,
-        expires_at: Date.now() - 60_000,
-      },
-    });
-    const { sourcePostId } = seedReplyPost(target, { replyToPostId });
-    vi.mocked(fetch).mockResolvedValueOnce(
-      jsonResponse({
-        data: [
-          {
-            id: replyToPostId,
-            author_id: "u0",
-            text: "recovered parent post",
-            created_at: "2026-02-12T23:00:00Z",
-            public_metrics: {},
-          },
-        ],
-        includes: {
-          users: [{ id: "u0", username: "parent_user", name: "Parent User" }],
-        },
-      }),
-    );
-
+  it("만료된 미발견 캐시에서도 공개 context는 공급자를 호출하지 않는다", async () => {
+    const target = makeCacheDb(publicXSettings);
+    const { sourcePostId, replyToPostId } = seedReplyPost(target);
+    target.store.set(`x:linked-post:v1:${replyToPostId}`, { type: "linked_post",
+      value: JSON.stringify({ post: null }), fetched_at: Date.now() - 20 * 60_000,
+      expires_at: Date.now() - 5 * 60_000 });
     const response = await handleXPosts(
-      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`),
-      makeRouteEnv(target.db),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      sourcePostId,
-      replyTo: { id: replyToPostId, text: "recovered parent post" },
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
+      new Request(`https://example.com/api/x/posts/${sourcePostId}/context`), makeRouteEnv(target.db));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(fetch).not.toHaveBeenCalled();
   });
+
 
   it("답글 문맥 API는 잘못된 ID와 임의 또는 숨김 게시글 ID를 차단한다", async () => {
     const invalidTarget = makeCacheDb(publicXSettings);
@@ -2968,10 +2907,10 @@ describe("x worker service", () => {
   });
 
   it.each([
-    [429, 429],
-    [503, 502],
+    [429, 404],
+    [503, 404],
   ])(
-    "답글 문맥 외부 lookup의 %i 응답을 공개 API %i로 매핑한다",
+    "공급자 %i 장애와 무관하게 미저장 원문은 %i이며 유료 요청하지 않는다",
     async (sourceStatus, expectedStatus) => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const target = makeCacheDb(publicXSettings);
@@ -2987,6 +2926,7 @@ describe("x worker service", () => {
 
       expect(response.status).toBe(expectedStatus);
       expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(fetch).not.toHaveBeenCalled();
     },
   );
 

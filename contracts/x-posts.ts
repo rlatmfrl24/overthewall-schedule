@@ -71,6 +71,19 @@ export interface XPostContextResponseDto {
   replyTo: XLinkedPostPreviewDto;
 }
 
+export interface XReferenceHydrationResultDto {
+  status: "complete" | "deferred" | "failed";
+  scanned: number;
+  hydrated: number;
+  authorsResolved: number;
+  deferred: number;
+  failed: number;
+  terminal: number;
+  coalesced: number;
+  retryAt: number | null;
+  errorCode: string | null;
+}
+
 export interface XPostsByHandleDto {
   handle: string;
   userId: string | null;
@@ -116,6 +129,11 @@ export interface XHistoryPostsResponseDto {
 }
 
 export interface XHistoryHealthResponseDto {
+  referenceHydration?: {
+    pendingPosts: number; pendingAuthors: number; terminal: number; oldestPendingAt: number | null;
+    nextAttemptAt: number | null; errors: number; budgetDay: string;
+    budgetLimitMicros: number; budgetUsedMicros: number; budgetReservedMicros: number;
+  };
   lastCollectionSuccessAt: number | null;
   budgetUsedMicros: number;
   optimizer: {

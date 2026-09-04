@@ -60,9 +60,7 @@ export const buildXPostsApplication = (env: Env) => {
     fetchPostPreview: async (postId) => {
       try {
         return await fetchXPostPreviewById(postId, {
-          bearerToken: env.X_BEARER_TOKEN,
           cacheDb: env.otw_db,
-          usageSource: "reply-context",
         });
       } catch (error) {
         if (error instanceof XApiError) {
