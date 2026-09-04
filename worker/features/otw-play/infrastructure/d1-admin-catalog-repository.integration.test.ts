@@ -1,5 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
+import type { OtwPlayAdminCatalogSubjectInput } from "@contracts/otw-play";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   AdminCatalogRepositoryError,
@@ -10,6 +11,8 @@ import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 
 type TestEnv = Env & {
   OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
+  OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
+  OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: D1Migration[];
 };
 
 const testEnv = env as TestEnv;
@@ -827,6 +830,10 @@ describe("D1AdminCatalogRepository", () => {
   });
 
   it("reuses one media source for independent medley cover segments", async () => {
+    await applyD1Migrations(db, [
+      ...testEnv.OTW_PLAY_INGESTION_MIGRATIONS,
+      ...testEnv.OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS,
+    ]);
     const repository = new D1AdminCatalogRepository(db);
     const singer = await createEntity(repository, "Medley Singer");
     const channel = await repository.createChannel(
@@ -875,6 +882,9 @@ describe("D1AdminCatalogRepository", () => {
       startSeconds: number,
       endSeconds: number,
       tags?: string[],
+      participant: OtwPlayAdminCatalogSubjectInput = {
+        kind: "entity", entityId: singer.data.id,
+      },
     ) => {
       const preflight = await repository.preflightCatalogEntry(video, startSeconds);
       return repository.createCatalogEntry({
@@ -886,7 +896,7 @@ describe("D1AdminCatalogRepository", () => {
           registrationMode: "medley_segment",
           song: { kind: "existing", songId },
           participants: [{
-            subject: { kind: "entity", entityId: singer.data.id },
+            subject: participant,
             participantRole: "vocal",
             creditOrder: 0,
           }],
@@ -901,8 +911,8 @@ describe("D1AdminCatalogRepository", () => {
         actor,
         now: NOW + startSeconds,
         ids: {
-          entityIds: {},
-          entityEventIds: {},
+          entityIds: { "external:medley-guest": `${performanceId}-guest` },
+          entityEventIds: { "external:medley-guest": `${performanceId}-guest-event` },
           channelId: `${performanceId}-unused-channel`,
           channelEventId: `${performanceId}-unused-channel-event`,
           songId: `${performanceId}-unused-song`,
@@ -914,19 +924,33 @@ describe("D1AdminCatalogRepository", () => {
       });
     };
 
-    await createSegment(
+    const firstSegment = await createSegment(
       "medley-performance-one",
       firstSong.data.id,
       0,
       120,
       ["메들리 수록"],
+      { kind: "new_external", clientKey: "medley-guest", entityKind: "person", displayName: "Medley Guest" },
     );
-    await createSegment(
+    expect(firstSegment.data.createdEntities).toHaveLength(1);
+    const savedGuest = firstSegment.data.createdEntities[0]!;
+    const secondSegment = await createSegment(
       "medley-performance-two",
       secondSong.data.id,
       120,
       300,
+      undefined,
+      { kind: "entity", entityId: savedGuest.id },
     );
+    expect(secondSegment.data.createdEntities).toEqual([]);
+    expect(secondSegment.data.performance.participants[0]?.entityId).toBe(savedGuest.id);
+    expect(secondSegment.data.performance.publicationStatus).toBe("draft");
+    const guestCount = await db.prepare(
+      "SELECT COUNT(*) AS count FROM music_entities WHERE normalized_name = 'medley guest' AND member_uid IS NULL",
+    ).first<{ count: number }>();
+    expect(Number(guestCount?.count)).toBe(1);
+    const foreignKeys = await db.prepare("PRAGMA foreign_key_check").all();
+    expect(foreignKeys.results).toEqual([]);
 
     const sourceCount = await db.prepare(
       `SELECT COUNT(*) AS count FROM music_media_sources

@@ -23,13 +23,19 @@ import {
   Youtube,
 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/ui/popover";
 import { cn } from "@/shared/lib/utils";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
 import {
-  OtwPlayPerformanceMetadata,
+  OtwPlayPerformanceBadges,
   OtwPlayPerformanceTags,
   OtwPlaySongTags,
 } from "../public/catalog-components";
@@ -386,7 +392,7 @@ export function OtwPlayPlayerQueuePanel() {
                   tags={current.performance.tags}
                   singleLine
                 />
-                <OtwPlayPerformanceMetadata
+                <OtwPlayPerformanceBadges
                   performance={current.performance}
                   singleLine
                 />
@@ -428,47 +434,10 @@ export function OtwPlayPlayerQueuePanel() {
 
               <div
                 data-testid="otw-play-transport-controls"
-                className="mt-1 flex items-center justify-center gap-1 xl:justify-between"
+                className="mt-2 grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2"
+                role="group"
+                aria-label="재생 컨트롤"
               >
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="이전 항목"
-                  onClick={player.previous}
-                >
-                  <SkipBack />
-                </Button>
-                {player.status === "playing" ? (
-                  <Button
-                    type="button"
-                    size="icon-lg"
-                    className="rounded-full"
-                    aria-label="일시정지"
-                    onClick={player.pause}
-                  >
-                    <Pause />
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="icon-lg"
-                    className="rounded-full"
-                    aria-label="재생"
-                    onClick={player.resume}
-                  >
-                    <Play />
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="다음 항목"
-                  onClick={() => player.next()}
-                >
-                  <SkipForward />
-                </Button>
                 <Button
                   type="button"
                   variant="ghost"
@@ -479,39 +448,114 @@ export function OtwPlayPlayerQueuePanel() {
                 >
                   <RepeatIcon />
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="현재 곡을 제외하고 대기열 섞기"
-                  aria-pressed={player.queue.shuffled}
-                  disabled={player.queue.items.length < 2}
-                  onClick={player.shuffle}
-                >
-                  <Shuffle />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={player.muted ? "음소거 해제" : "음소거"}
-                  aria-pressed={player.muted}
-                  onClick={player.toggleMuted}
-                >
-                  <VolumeIcon />
-                </Button>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={player.muted ? 0 : player.volume}
-                  aria-label="재생 볼륨"
-                  onChange={(event) =>
-                    player.setVolume(Number(event.currentTarget.value))
-                  }
-                  className="h-8 w-16 min-w-0 cursor-pointer accent-primary sm:w-24 xl:w-16"
-                />
+                <div className="flex items-center justify-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="이전 항목"
+                    onClick={player.previous}
+                  >
+                    <SkipBack />
+                  </Button>
+                  {player.status === "playing" ? (
+                    <Button
+                      type="button"
+                      size="icon-lg"
+                      className="rounded-full shadow-sm"
+                      aria-label="일시정지"
+                      onClick={player.pause}
+                    >
+                      <Pause />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="icon-lg"
+                      className="rounded-full shadow-sm"
+                      aria-label="재생"
+                      onClick={player.resume}
+                    >
+                      <Play />
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="다음 항목"
+                    onClick={() => player.next()}
+                  >
+                    <SkipForward />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="현재 곡을 제외하고 대기열 섞기"
+                    aria-pressed={player.queue.shuffled}
+                    disabled={player.queue.items.length < 2}
+                    onClick={player.shuffle}
+                  >
+                    <Shuffle />
+                  </Button>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`볼륨 조절, 현재 ${player.muted ? 0 : player.volume}%`}
+                      >
+                        <VolumeIcon />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      side="top"
+                      align="center"
+                      sideOffset={8}
+                      className="!z-[80] w-16 rounded-xl p-2"
+                      aria-label="볼륨 컨트롤"
+                      onEscapeKeyDown={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex flex-col items-center gap-2">
+                        <output
+                          htmlFor="otw-play-volume"
+                          className="text-[11px] font-semibold tabular-nums text-muted-foreground"
+                        >
+                          {player.muted ? 0 : player.volume}%
+                        </output>
+                        <input
+                          id="otw-play-volume"
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={player.muted ? 0 : player.volume}
+                          aria-label="재생 볼륨"
+                          aria-orientation="vertical"
+                          onChange={(event) =>
+                            player.setVolume(Number(event.currentTarget.value))
+                          }
+                          className="h-28 w-8 cursor-pointer accent-primary"
+                          style={{ writingMode: "vertical-lr", direction: "rtl" }}
+                        />
+                        <Button
+                          type="button"
+                          variant={player.muted ? "secondary" : "ghost"}
+                          size="icon-sm"
+                          aria-label={player.muted ? "음소거 해제" : "음소거"}
+                          aria-pressed={player.muted}
+                          onClick={player.toggleMuted}
+                        >
+                          <VolumeIcon />
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </div>
 
               <PublisherIdentity track={current} />
@@ -684,11 +728,12 @@ function PublisherIdentity({
       data-testid="otw-play-publisher-identity"
       className="mt-3 flex min-w-0 items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
     >
-      <Youtube className="size-4 shrink-0" aria-hidden="true" />
-      <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.1em]">
-        게시 채널
-      </span>
-      <span aria-hidden="true">·</span>
+      <Badge
+        variant="outline"
+        className="h-6 shrink-0 gap-1 px-2 text-[10px] font-medium text-muted-foreground"
+      >
+        <Youtube className="size-3" aria-hidden="true" /> 게시 채널
+      </Badge>
       <span className="min-w-0 truncate font-medium text-foreground/75">
         {track.source.channel.displayName}
       </span>

@@ -133,6 +133,25 @@ const subjectFromEntity = (entity: OtwPlayAdminEntityDto): SelectedSubject => ({
   subject: { kind: "entity", entityId: entity.id },
 });
 
+const reuseCreatedSubjects = (
+  selections: SelectedSubject[],
+  createdEntities: OtwPlayAdminEntityDto[],
+): SelectedSubject[] =>
+  selections.flatMap((selection) => {
+    const { subject } = selection;
+    if (subject.kind !== "new_external") return [selection];
+    const entity = createdEntities.find(
+      (candidate) =>
+        candidate.memberUid === null &&
+        candidate.entityKind === subject.entityKind &&
+        normalizeSubjectName(candidate.displayName) ===
+          normalizeSubjectName(subject.displayName),
+    );
+    // Never carry a creation command into the next independent segment.
+    // An unresolved credit must be selected again instead of duplicated.
+    return entity ? [{ ...subjectFromEntity(entity), label: selection.label }] : [];
+  });
+
 export function SubjectPicker({
   label,
   placeholder = "멤버 또는 기존 외부 identity 검색",
@@ -523,10 +542,11 @@ export function CatalogEntryDialog({
       preflight?.video.durationSeconds !== undefined &&
       parsedEndSeconds <= preflight.video.durationSeconds,
   );
+  const hasExistingSong = songId !== "" && songId !== "__new";
+  const hasNewSongDetails =
+    Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0;
   const hasExplicitSong =
-    songId !== "" &&
-    (songId !== "__new" ||
-      (Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0));
+    hasExistingSong || (songId === "__new" && hasNewSongDetails);
   const stepReady = [
     Boolean(
       preflight &&
@@ -538,9 +558,7 @@ export function CatalogEntryDialog({
       (videoKind === "cover" &&
         (registrationMode === "medley_segment"
           ? hasExplicitSong
-          : Boolean(songId) ||
-            (Boolean(coverOriginalTitle.trim()) &&
-              coverOriginalArtists.length > 0))),
+          : hasExistingSong || hasNewSongDetails)),
     participants.length > 0 &&
       (!needsChannelOwnerChoice || channelOwners.length > 0),
     true,
@@ -603,7 +621,7 @@ export function CatalogEntryDialog({
     setSaving(true);
     setErrorMessage(null);
     try {
-      await createOtwPlayCatalogEntry(buildRequest(target));
+      const result = await createOtwPlayCatalogEntry(buildRequest(target));
       await onSaved();
       toast({ variant: "success", description: target === "published" ? "영상을 게시했습니다." : "영상을 임시 저장했습니다." });
       if (
@@ -611,6 +629,8 @@ export function CatalogEntryDialog({
         preflight?.video.durationSeconds !== null &&
         preflight?.video.durationSeconds !== undefined
       ) {
+        setParticipants(reuseCreatedSubjects(participants, result.data.createdEntities));
+        setChannelOwners(reuseCreatedSubjects(channelOwners, result.data.createdEntities));
         setCompletedMedleySegment({
           endSeconds: parsedEndSeconds,
           durationSeconds: preflight.video.durationSeconds,
@@ -726,7 +746,10 @@ export function CatalogEntryDialog({
                       }`}
                       onClick={() => {
                         setVideoKind(kind);
-                        if (kind !== "cover") setRegistrationMode("standard");
+                        if (kind !== "cover") {
+                          setRegistrationMode("standard");
+                          if (songId === "__new") setSongId("");
+                        }
                       }}
                     >
                       <span className="font-semibold">{label}</span>
@@ -750,6 +773,8 @@ export function CatalogEntryDialog({
                           setCoverOriginalTitle("");
                           setCoverOriginalArtists([]);
                           setSongTags([]);
+                        } else if (checked !== true && songId === "__new") {
+                          setSongId("");
                         }
                       }}
                       aria-label="메들리의 한 곡 구간"

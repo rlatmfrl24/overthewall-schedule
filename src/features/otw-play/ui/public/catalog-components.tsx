@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Check, ListPlus, Play, StepForward } from "lucide-react";
+import { CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
@@ -119,6 +119,58 @@ export function OtwPlayPerformanceMetadata({
   );
 }
 
+export function OtwPlayPerformanceBadges({
+  performance,
+  singleLine = false,
+}: {
+  performance: Pick<
+    OtwPlayPublicPerformanceSummaryDto,
+    "relation" | "releaseType" | "participation" | "releasedAt"
+  >;
+  singleLine?: boolean;
+}) {
+  const releasedAt = performance.releasedAt
+    ? new Date(performance.releasedAt).toLocaleDateString("ko-KR")
+    : null;
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1.5",
+        singleLine ? "shrink-0 flex-nowrap whitespace-nowrap" : "flex-wrap",
+      )}
+      aria-label="가창 및 공개 정보"
+    >
+      <Badge
+        variant="outline"
+        className="h-6 border-primary/25 bg-primary/5 px-2 text-[11px] font-medium text-primary"
+      >
+        {relationLabel[performance.relation]}
+      </Badge>
+      <Badge
+        variant="secondary"
+        className="h-6 px-2 text-[11px] font-medium"
+      >
+        {releaseTypeLabel[performance.releaseType]}
+      </Badge>
+      <Badge
+        variant="outline"
+        className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
+      >
+        {participationLabel[performance.participation]}
+      </Badge>
+      <Badge
+        variant="outline"
+        className="h-6 gap-1 px-2 text-[11px] font-medium tabular-nums text-muted-foreground"
+        aria-label={releasedAt ? `게시일 ${releasedAt}` : "게시일 미상"}
+      >
+        <CalendarDays className="size-3" aria-hidden="true" />
+        {releasedAt ?? "게시일 미상"}
+      </Badge>
+    </div>
+  );
+}
+
 export function OtwPlayParticipantChip({
   participant,
 }: {
@@ -128,7 +180,7 @@ export function OtwPlayParticipantChip({
     return (
       <Link
         to="/play/songs"
-        search={{ member: String(participant.uid) }}
+        search={{ member: String(participant.uid), participantRole: "vocal" }}
         aria-label={`현재 OTW 멤버, ${participant.displayName}`}
         className="inline-flex min-h-8 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent"
       >
@@ -301,14 +353,18 @@ export function OtwPlaySongRow({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-xl border bg-card shadow-sm",
-        hero ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]" : "flex gap-3 p-3",
+        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/40 focus-within:shadow-md hover:border-primary/25 hover:shadow-md",
+        hero
+          ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
+          : "grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-4 sm:p-4",
       )}
     >
       <div
         className={cn(
           "relative shrink-0 overflow-hidden bg-muted",
-          hero ? "aspect-video min-h-[220px]" : "h-20 w-36 rounded-lg sm:h-24 sm:w-44",
+          hero
+            ? "aspect-video min-h-[220px]"
+            : "aspect-video w-full self-start rounded-xl ring-1 ring-border/50",
         )}
       >
         {source ? (
@@ -329,14 +385,44 @@ export function OtwPlaySongRow({
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
         )}
       </div>
-      <div className={cn("min-w-0 flex-1", hero ? "flex flex-col justify-center gap-4 p-5 sm:p-7" : "space-y-2")}>
-        <div>
-          <div className="mb-1 flex flex-wrap items-center gap-2">
+      <div
+        className={cn(
+          "min-w-0 flex-1",
+          hero
+            ? "flex flex-col justify-center gap-4 p-5 sm:p-7"
+            : "flex flex-col gap-2.5",
+        )}
+      >
+        {!hero ? (
+          <div className="flex flex-wrap items-center gap-1.5">
             <OtwPlaySongTags tags={song.tags} />
-            <span className="text-xs text-muted-foreground">
+            <OtwPlayPerformanceBadges performance={performance} />
+            <OtwPlayPerformanceTags tags={performance.tags} />
+            <Badge
+              variant="outline"
+              className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
+            >
               공식 버전 {song.performanceCount}개
-            </span>
+            </Badge>
+            {!song.playable ? (
+              <Badge
+                variant="outline"
+                className="h-6 border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+              >
+                현재 재생 불가
+              </Badge>
+            ) : null}
           </div>
+        ) : null}
+        <div>
+          {hero ? (
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <OtwPlaySongTags tags={song.tags} />
+              <span className="text-xs text-muted-foreground">
+                공식 버전 {song.performanceCount}개
+              </span>
+            </div>
+          ) : null}
           <Link
             to="/play/songs/$songSlug"
             params={{ songSlug: song.slug }}
@@ -345,18 +431,23 @@ export function OtwPlaySongRow({
           >
             {song.title}
           </Link>
-          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-            원곡 가수 {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}
+          <p
+            className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+            aria-label={`원곡 가수 ${song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}`}
+          >
+            <Disc3 className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "아티스트 정보 없음"}
+            </span>
           </p>
         </div>
         <OtwPlayParticipantSummary participants={performance.participants} />
-        <OtwPlayPerformanceTags tags={performance.tags} />
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <OtwPlayPerformanceMetadata performance={performance} />
-          <span>{performance.releasedAt ? new Date(performance.releasedAt).toLocaleDateString("ko-KR") : "공개일 미상"}</span>
-          {!song.playable ? <span className="text-amber-600 dark:text-amber-400">현재 재생 불가</span> : null}
-        </div>
-        <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
+        <OtwPlayPerformanceActions
+          song={song}
+          performance={performance}
+          compact={!hero}
+          className={cn(!hero && "mt-auto border-t pt-2.5")}
+        />
       </div>
     </article>
   );
