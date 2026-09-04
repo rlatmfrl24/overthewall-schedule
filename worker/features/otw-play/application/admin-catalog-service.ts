@@ -160,22 +160,41 @@ export class AdminCatalogService {
     endSeconds: number | null | undefined,
     durationSeconds: number | null,
   ) {
-    if (
-      !Number.isSafeInteger(startSeconds) ||
-      startSeconds < 0 ||
-      (endSeconds !== null &&
-        endSeconds !== undefined &&
-        (!Number.isSafeInteger(endSeconds) || endSeconds <= startSeconds)) ||
-      (durationSeconds !== null &&
-        (startSeconds >= durationSeconds ||
-          (endSeconds !== null &&
-            endSeconds !== undefined &&
-            endSeconds > durationSeconds)))
-    ) {
+    if (!Number.isSafeInteger(startSeconds) || startSeconds < 0) {
       throw new AdminCatalogServiceError(
         "invalid_request",
         "The source segment is invalid",
         { startSeconds: "invalid_segment" },
+      );
+    }
+    if (
+      endSeconds !== null &&
+      endSeconds !== undefined &&
+      (!Number.isSafeInteger(endSeconds) || endSeconds <= startSeconds)
+    ) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "The source segment is invalid",
+        { endSeconds: "invalid_segment" },
+      );
+    }
+    if (durationSeconds !== null && startSeconds >= durationSeconds) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "The source segment is outside the video duration",
+        { startSeconds: "invalid_segment" },
+      );
+    }
+    if (
+      durationSeconds !== null &&
+      endSeconds !== null &&
+      endSeconds !== undefined &&
+      endSeconds > durationSeconds
+    ) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "The source segment is outside the video duration",
+        { endSeconds: "invalid_segment" },
       );
     }
   }
@@ -183,15 +202,13 @@ export class AdminCatalogService {
   async preflightCatalogEntry(
     input: OtwPlayAdminCatalogEntryPreflightRequest,
   ) {
-    if (!Number.isSafeInteger(input.startSeconds) || input.startSeconds < 0) {
-      throw new AdminCatalogServiceError(
-        "invalid_request",
-        "startSeconds must be a non-negative integer",
-        { startSeconds: "invalid" },
-      );
-    }
+    this.validateSourceSegment(input.startSeconds, input.endSeconds, null);
     const video = await this.readVerifiedVideo(input.youtubeUrl);
-    this.validateSourceSegment(input.startSeconds, null, video.durationSeconds);
+    this.validateSourceSegment(
+      input.startSeconds,
+      input.endSeconds,
+      video.durationSeconds,
+    );
     return this.repository.preflightCatalogEntry(video, input.startSeconds);
   }
 
@@ -206,6 +223,36 @@ export class AdminCatalogService {
     },
   ) {
     validateVersion(input.expectedCatalogRevision);
+    if (input.registrationMode === "medley_segment") {
+      if (input.relationType !== "cover") {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "Medley segments must be registered as covers",
+          { relationType: "cover_required" },
+        );
+      }
+      if (input.song.kind === "from_video") {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "Medley segments require an explicit song",
+          { song: "explicit_song_required" },
+        );
+      }
+      if (input.endSeconds === null || input.endSeconds === undefined) {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "Medley segments require an end position",
+          { endSeconds: "required" },
+        );
+      }
+      if (input.publicationTarget !== "draft") {
+        throw new AdminCatalogServiceError(
+          "invalid_request",
+          "Medley segments must be reviewed as drafts",
+          { publicationTarget: "draft_required" },
+        );
+      }
+    }
     if (input.releaseType === "broadcast" && input.publicationTarget !== "draft") {
       throw new AdminCatalogServiceError(
         "invalid_request",
@@ -249,6 +296,16 @@ export class AdminCatalogService {
     }
 
     const video = await this.readVerifiedVideo(input.youtubeUrl);
+    if (
+      input.registrationMode === "medley_segment" &&
+      video.durationSeconds === null
+    ) {
+      throw new AdminCatalogServiceError(
+        "invalid_request",
+        "Medley segments require an authoritative video duration",
+        { endSeconds: "duration_unavailable" },
+      );
+    }
     this.validateSourceSegment(
       input.startSeconds,
       input.endSeconds,

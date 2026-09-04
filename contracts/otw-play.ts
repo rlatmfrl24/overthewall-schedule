@@ -1332,6 +1332,7 @@ export type OtwPlayAdminCatalogChannelDecision =
 export interface OtwPlayAdminCatalogEntryPreflightRequest {
   youtubeUrl: string;
   startSeconds: number;
+  endSeconds?: number | null;
 }
 
 export interface OtwPlayAdminCatalogEntryPreflightDto {
@@ -1371,6 +1372,7 @@ export interface OtwPlayAdminCreateCatalogEntryRequest {
   youtubeUrl: string;
   startSeconds: number;
   endSeconds?: number | null;
+  registrationMode?: "standard" | "medley_segment";
   song: OtwPlayAdminCatalogSongDecision;
   performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];

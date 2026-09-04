@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react";
 import {
+  useEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -29,8 +30,50 @@ const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
 export function OtwPlayHomePage() {
   const [featuredIndex, setFeaturedIndex] = useState(0);
   const dragStartX = useRef<number | null>(null);
-  const latest = useOtwPlayCatalog({ limit: 8 });
+  const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
+  const latest = useOtwPlayCatalog({ limit: 24 });
   const facets = useOtwPlayFacets();
+  const {
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  } = latest;
+
+  useEffect(() => {
+    const target = loadMoreTarget;
+    if (
+      !target ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+
+    let requested = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting || requested) return;
+        requested = true;
+        observer.unobserve(target);
+        void fetchNextPage();
+      },
+      { rootMargin: "320px 0px" },
+    );
+    observer.observe(target);
+    return () => {
+      requested = true;
+      observer.disconnect();
+    };
+  }, [
+    loadMoreTarget,
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  ]);
 
   if (latest.isPending || facets.isPending) {
     return (
@@ -44,21 +87,33 @@ export function OtwPlayHomePage() {
     );
   }
 
-  if (latest.isError || facets.isError) {
-    const failed = latest.isError ? latest : facets;
+  if (facets.isError) {
     return (
       <div className="mx-auto max-w-screen-2xl p-4 sm:p-6 lg:p-8">
         <OtwPlayQueryError
-          error={failed.error}
-          retry={() => void failed.refetch()}
+          error={facets.error}
+          retry={() => void facets.refetch()}
+        />
+      </div>
+    );
+  }
+
+  if (latest.isError && !latest.data) {
+    return (
+      <div className="mx-auto max-w-screen-2xl p-4 sm:p-6 lg:p-8">
+        <OtwPlayQueryError
+          error={latest.error}
+          retry={() => void latest.refetch()}
         />
       </div>
     );
   }
 
   const songs = pageItems(latest);
-  const activeIndex = songs.length === 0 ? 0 : featuredIndex % songs.length;
-  const featured = songs[activeIndex] ?? null;
+  const featuredSongs = latest.data?.pages[0]?.data.items.slice(0, 8) ?? [];
+  const activeIndex =
+    featuredSongs.length === 0 ? 0 : featuredIndex % featuredSongs.length;
+  const featured = featuredSongs[activeIndex] ?? null;
   const featuredParticipants = featured
     ? presentOtwPlayParticipants(
         featured.representativePerformance.participants,
@@ -66,9 +121,9 @@ export function OtwPlayHomePage() {
     : null;
 
   const moveFeatured = (direction: -1 | 1) => {
-    if (songs.length < 2) return;
+    if (featuredSongs.length < 2) return;
     setFeaturedIndex((current) =>
-      (current + direction + songs.length) % songs.length,
+      (current + direction + featuredSongs.length) % featuredSongs.length,
     );
   };
 
@@ -117,18 +172,21 @@ export function OtwPlayHomePage() {
           onKeyDown={handleHeroKeyDown}
         >
           <article className="relative cursor-grab active:cursor-grabbing">
-            <div className="relative h-[clamp(19rem,32vw,30rem)] w-full">
+            <div
+              data-testid="otw-play-hero-media"
+              className="relative aspect-video w-full"
+            >
               <SongImage song={featured} eager />
               <div className="absolute inset-0 bg-black/55" />
-              <div className="absolute inset-x-0 bottom-0 flex max-w-3xl flex-col gap-3 p-5 text-white sm:p-7 lg:p-8">
+              <div className="absolute inset-x-0 bottom-0 flex max-w-3xl flex-col gap-2 p-4 text-white sm:gap-3 sm:p-7 lg:p-8">
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-white/75">
                     New on OTW Play
                   </p>
-                  <div className="mb-2"><OtwPlaySongTags tags={featured.tags} /></div>
+                  <div className="mb-2 hidden sm:block"><OtwPlaySongTags tags={featured.tags} /></div>
                   <h1
                     id="play-home-featured"
-                    className="max-w-2xl break-words text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl"
+                    className="line-clamp-2 max-w-2xl break-words text-2xl font-bold leading-tight sm:line-clamp-none sm:text-4xl lg:text-5xl"
                   >
                     {featured.title}
                   </h1>
@@ -138,7 +196,7 @@ export function OtwPlayHomePage() {
                     </span>
                     <OtwPlayPerformanceMetadata performance={featured.representativePerformance} inverse />
                   </div>
-                  <div className="mt-2">
+                  <div className="mt-2 hidden sm:block">
                     <OtwPlayPerformanceTags
                       tags={featured.representativePerformance.tags}
                     />
@@ -165,7 +223,7 @@ export function OtwPlayHomePage() {
             </div>
           </article>
 
-          {songs.length > 1 ? (
+          {featuredSongs.length > 1 ? (
             <>
               <Button
                 type="button"
@@ -179,9 +237,9 @@ export function OtwPlayHomePage() {
               </Button>
               <div
                 className="absolute bottom-4 right-4 z-20 flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-2"
-                aria-label={`${activeIndex + 1} / ${songs.length}`}
+                aria-label={`${activeIndex + 1} / ${featuredSongs.length}`}
               >
-                {songs.map((song, index) => (
+                {featuredSongs.map((song, index) => (
                   <button
                     type="button"
                     key={song.id}
@@ -218,28 +276,7 @@ export function OtwPlayHomePage() {
         </section>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(15rem,0.75fr)]">
-        {songs.length > 1 ? (
-          <section aria-labelledby="play-home-latest" className="min-w-0">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Songs
-                </p>
-                <h2 id="play-home-latest" className="text-lg font-semibold sm:text-xl">
-                  최근 공개된 곡
-                </h2>
-              </div>
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/play/songs" search={{}}>
-                  곡 검색 <ArrowRight />
-                </Link>
-              </Button>
-            </div>
-            <RecentSongTable songs={songs.slice(0, 5)} />
-          </section>
-        ) : null}
-
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
         <section aria-labelledby="play-home-members" className="min-w-0 space-y-3">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -256,29 +293,99 @@ export function OtwPlayHomePage() {
               </Link>
             </Button>
           </div>
-          <div className="grid grid-cols-4 gap-x-3 gap-y-4 border-t pt-4 xl:grid-cols-3 2xl:grid-cols-4">
-            {facets.data?.data.members.slice(0, 7).map((member) => (
-              <Link
-                key={member.memberUid}
-                to="/play/songs"
-                search={{ member: String(member.memberUid) }}
-                className="group flex min-w-0 flex-col items-center gap-2 text-center"
-                aria-label={`${member.displayName} 곡 보기`}
-              >
-                <img
-                  src={`/profile/${member.code}.webp`}
-                  alt=""
-                  width={80}
-                  height={80}
-                  className="size-12 rounded-full object-cover ring-1 ring-border transition-transform group-hover:-translate-y-1 sm:size-14"
-                />
-                <span className="line-clamp-2 min-h-8 w-full break-keep text-xs font-medium leading-4">
-                  {member.displayName}
-                </span>
-              </Link>
-            ))}
+          <div
+            className="overflow-x-auto border-y py-4 [scrollbar-width:thin]"
+            role="region"
+            aria-label="현재 멤버 목록"
+            tabIndex={0}
+          >
+            <div className="flex min-w-max gap-3 px-1 sm:gap-4">
+              {facets.data?.data.members.map((member) => (
+                <Link
+                  key={member.memberUid}
+                  to="/play/songs"
+                  search={{
+                    member: String(member.memberUid),
+                    participantRole: "vocal",
+                  }}
+                  className="group flex w-20 shrink-0 flex-col items-center gap-2 text-center sm:w-24"
+                  aria-label={`${member.displayName} 메인 보컬 곡 보기`}
+                >
+                  <img
+                    src={`/profile/${member.code}.webp`}
+                    alt=""
+                    width={80}
+                    height={80}
+                    className="size-14 rounded-full object-cover ring-1 ring-border transition-transform group-hover:-translate-y-1 sm:size-16"
+                  />
+                  <span className="line-clamp-2 min-h-8 w-full break-keep text-xs font-medium leading-4">
+                    {member.oshiMark ? (
+                      <span aria-hidden="true">{member.oshiMark} </span>
+                    ) : null}
+                    {member.displayName}
+                  </span>
+                </Link>
+              ))}
+            </div>
           </div>
         </section>
+
+        {songs.length > 0 ? (
+          <section aria-labelledby="play-home-latest" className="min-w-0">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Songs
+                </p>
+                <h2 id="play-home-latest" className="text-lg font-semibold sm:text-xl">
+                  최근 공개된 곡
+                </h2>
+              </div>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/play/songs" search={{}}>
+                  곡 검색 <ArrowRight />
+                </Link>
+              </Button>
+            </div>
+            <RecentSongTable songs={songs} />
+            <div
+              ref={setLoadMoreTarget}
+              className="flex min-h-14 items-center justify-center pt-3"
+              aria-live="polite"
+            >
+              {isFetchNextPageError ? (
+                <div role="alert" className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <span>다음 최신곡을 불러오지 못했습니다.</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void fetchNextPage()}
+                  >
+                    다시 시도
+                  </Button>
+                </div>
+              ) : hasNextPage ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isFetchingNextPage}
+                  onClick={() => void fetchNextPage()}
+                >
+                  {isFetchingNextPage ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : null}
+                  {isFetchingNextPage ? "최신곡 불러오는 중" : "더 불러오기"}
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  최신 수록곡을 모두 불러왔습니다.
+                </p>
+              )}
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

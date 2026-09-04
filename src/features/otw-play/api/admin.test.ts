@@ -90,12 +90,15 @@ describe("OTW Play admin API", () => {
     const preflight = {
       youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
       startSeconds: 0,
+      endSeconds: 180,
     };
     await preflightOtwPlayCatalogEntry(preflight);
     const command = {
       expectedCatalogRevision: 1,
       youtubeUrl: preflight.youtubeUrl,
       startSeconds: 0,
+      endSeconds: 90,
+      registrationMode: "medley_segment" as const,
       song: { kind: "existing" as const, songId: "song-1" },
       participants: [
         {

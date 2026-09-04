@@ -14,6 +14,7 @@ import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,7 @@ import {
   preflightOtwPlayCatalogEntry,
 } from "../../api/admin";
 import { SongTagPicker } from "../song-tag-picker";
+import { SongConnectionPicker } from "./song-connection-picker";
 
 export type SelectedSubject = {
   key: string;
@@ -102,7 +104,7 @@ const preflightErrorMessage = (error: unknown) => {
     case "AUTH_REQUIRED":
       return "관리자 로그인 세션을 확인한 뒤 페이지를 새로고침하세요.";
     case "PLAY_ADMIN_INVALID_REQUEST":
-      return `지원하는 YouTube 영상 URL과 시작 위치를 확인하세요.${requestSuffix}`;
+      return `지원하는 YouTube 영상 URL과 시작·종료 위치를 확인하세요.${requestSuffix}`;
     case "PLAY_ADMIN_EXTERNAL_SERVICE_UNAVAILABLE":
       return `YouTube metadata 조회에 실패했습니다${error.fields?.youtube ? `: ${error.fields.youtube}` : ". 잠시 후 다시 시도하세요."}${requestSuffix}`;
     case "PLAY_ADMIN_INTERNAL_ERROR":
@@ -130,6 +132,25 @@ const subjectFromEntity = (entity: OtwPlayAdminEntityDto): SelectedSubject => ({
         : "기존 외부 인물",
   subject: { kind: "entity", entityId: entity.id },
 });
+
+const reuseCreatedSubjects = (
+  selections: SelectedSubject[],
+  createdEntities: OtwPlayAdminEntityDto[],
+): SelectedSubject[] =>
+  selections.flatMap((selection) => {
+    const { subject } = selection;
+    if (subject.kind !== "new_external") return [selection];
+    const entity = createdEntities.find(
+      (candidate) =>
+        candidate.memberUid === null &&
+        candidate.entityKind === subject.entityKind &&
+        normalizeSubjectName(candidate.displayName) ===
+          normalizeSubjectName(subject.displayName),
+    );
+    // Never carry a creation command into the next independent segment.
+    // An unresolved credit must be selected again instead of duplicated.
+    return entity ? [{ ...subjectFromEntity(entity), label: selection.label }] : [];
+  });
 
 export function SubjectPicker({
   label,
@@ -411,12 +432,17 @@ export function CatalogEntryDialog({
   const [step, setStep] = useState(0);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [startSeconds, setStartSeconds] = useState("0");
+  const [endSeconds, setEndSeconds] = useState("");
   const [preflight, setPreflight] = useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
   const [checking, setChecking] = useState(false);
   const [channelChoice, setChannelChoice] = useState<"approved" | "pending">("pending");
   const [channelRole, setChannelRole] = useState<"member_music" | "member_main" | "project_official" | "otw_official" | "unit_official">("project_official");
   const [songId, setSongId] = useState("");
+  const [songQuery, setSongQuery] = useState("");
   const [videoKind, setVideoKind] = useState<VideoKind | null>(null);
+  const [registrationMode, setRegistrationMode] = useState<
+    NonNullable<OtwPlayAdminCreateCatalogEntryRequest["registrationMode"]>
+  >("standard");
   const [coverOriginalTitle, setCoverOriginalTitle] = useState("");
   const [coverOriginalArtists, setCoverOriginalArtists] = useState<SelectedSubject[]>([]);
   const [songTags, setSongTags] = useState<string[]>([]);
@@ -429,6 +455,10 @@ export function CatalogEntryDialog({
   const [saving, setSaving] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [completedMedleySegment, setCompletedMedleySegment] = useState<{
+    endSeconds: number;
+    durationSeconds: number;
+  } | null>(null);
   const draftExternalSubjects = uniqueNewExternalSubjects([
     ...coverOriginalArtists,
     ...participants,
@@ -440,11 +470,14 @@ export function CatalogEntryDialog({
     setStep(0);
     setYoutubeUrl("");
     setStartSeconds("0");
+    setEndSeconds("");
     setPreflight(null);
     setErrorMessage(null);
     setChannelChoice("pending");
     setChannelRole("project_official");
     setVideoKind(null);
+    setRegistrationMode("standard");
+    setSongQuery("");
     setCoverOriginalTitle("");
     setCoverOriginalArtists([]);
     setSongTags([]);
@@ -454,6 +487,7 @@ export function CatalogEntryDialog({
     setReleaseType("official_video");
     setParticipationType("solo");
     setInternalNote("");
+    setCompletedMedleySegment(null);
     if (preselectedSongId) {
       setSongId(preselectedSongId);
     } else {
@@ -468,11 +502,14 @@ export function CatalogEntryDialog({
       const result = await preflightOtwPlayCatalogEntry({
         youtubeUrl,
         startSeconds: Number(startSeconds),
+        endSeconds: endSeconds.trim() ? Number(endSeconds) : null,
       });
       setPreflight(result);
-      setVideoKind(null);
-      setCoverOriginalTitle("");
-      setCoverOriginalArtists([]);
+      if (result.video.durationSeconds === null) {
+        setErrorMessage("영상 길이를 확인할 수 없어 시작·종료 구간을 등록할 수 없습니다.");
+      } else if (!endSeconds.trim()) {
+        setEndSeconds(String(result.video.durationSeconds));
+      }
       setChannelChoice(result.channel.state === "approved" || result.channel.state === "recognized_member" ? "approved" : "pending");
       if (result.channel.channelRole === "member_music" || result.channel.channelRole === "member_main" || result.channel.channelRole === "project_official" || result.channel.channelRole === "otw_official" || result.channel.channelRole === "unit_official") {
         setChannelRole(result.channel.channelRole);
@@ -494,12 +531,34 @@ export function CatalogEntryDialog({
       preflight.channel.state !== "recognized_member" &&
       !(preflight.channel.catalogChannelId && channelChoice === "pending"),
   );
+  const parsedStartSeconds = Number(startSeconds);
+  const parsedEndSeconds = Number(endSeconds);
+  const segmentValid = Boolean(
+    preflight?.video.durationSeconds !== null &&
+      Number.isSafeInteger(parsedStartSeconds) &&
+      parsedStartSeconds >= 0 &&
+      Number.isSafeInteger(parsedEndSeconds) &&
+      parsedEndSeconds > parsedStartSeconds &&
+      preflight?.video.durationSeconds !== undefined &&
+      parsedEndSeconds <= preflight.video.durationSeconds,
+  );
+  const hasExistingSong = songId !== "" && songId !== "__new";
+  const hasNewSongDetails =
+    Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0;
+  const hasExplicitSong =
+    hasExistingSong || (songId === "__new" && hasNewSongDetails);
   const stepReady = [
-    Boolean(preflight && !preflight.duplicate && preflight.channel.state !== "revoked"),
+    Boolean(
+      preflight &&
+        !preflight.duplicate &&
+        preflight.channel.state !== "revoked" &&
+        segmentValid,
+    ),
     videoKind === "original" ||
       (videoKind === "cover" &&
-        (Boolean(songId) ||
-          (Boolean(coverOriginalTitle.trim()) && coverOriginalArtists.length > 0))),
+        (registrationMode === "medley_segment"
+          ? hasExplicitSong
+          : hasExistingSong || hasNewSongDetails)),
     participants.length > 0 &&
       (!needsChannelOwnerChoice || channelOwners.length > 0),
     true,
@@ -521,9 +580,10 @@ export function CatalogEntryDialog({
     return {
       expectedCatalogRevision: preflight.catalogRevision,
       youtubeUrl,
-      startSeconds: Number(startSeconds),
-      endSeconds: null,
-      song: songId
+      startSeconds: parsedStartSeconds,
+      endSeconds: parsedEndSeconds,
+      registrationMode,
+      song: songId && songId !== "__new"
         ? { kind: "existing", songId }
         : videoKind === "original"
           ? songTags.length > 0 ? { kind: "from_video", tags: songTags } : { kind: "from_video" }
@@ -561,10 +621,23 @@ export function CatalogEntryDialog({
     setSaving(true);
     setErrorMessage(null);
     try {
-      await createOtwPlayCatalogEntry(buildRequest(target));
+      const result = await createOtwPlayCatalogEntry(buildRequest(target));
       await onSaved();
       toast({ variant: "success", description: target === "published" ? "영상을 게시했습니다." : "영상을 임시 저장했습니다." });
-      onOpenChange(false);
+      if (
+        registrationMode === "medley_segment" &&
+        preflight?.video.durationSeconds !== null &&
+        preflight?.video.durationSeconds !== undefined
+      ) {
+        setParticipants(reuseCreatedSubjects(participants, result.data.createdEntities));
+        setChannelOwners(reuseCreatedSubjects(channelOwners, result.data.createdEntities));
+        setCompletedMedleySegment({
+          endSeconds: parsedEndSeconds,
+          durationSeconds: preflight.video.durationSeconds,
+        });
+      } else {
+        onOpenChange(false);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "등록에 실패했습니다.";
       setErrorMessage(message);
@@ -572,6 +645,24 @@ export function CatalogEntryDialog({
     } finally {
       setSaving(false);
     }
+  };
+
+  const prepareNextMedleySegment = () => {
+    if (!completedMedleySegment) return;
+    setStep(0);
+    setStartSeconds(String(completedMedleySegment.endSeconds));
+    setEndSeconds(String(completedMedleySegment.durationSeconds));
+    setPreflight(null);
+    setVideoKind("cover");
+    setRegistrationMode("medley_segment");
+    setSongId("");
+    setSongQuery("");
+    setCoverOriginalTitle("");
+    setCoverOriginalArtists([]);
+    setSongTags([]);
+    setInternalNote("");
+    setErrorMessage(null);
+    setCompletedMedleySegment(null);
   };
 
   return (
@@ -582,22 +673,38 @@ export function CatalogEntryDialog({
             <DialogTitle>새 YouTube 영상 등록</DialogTitle>
             <DialogDescription>영상을 확인하고 유형·참여자·공식 채널만 선택하면 내부 곡과 가창이 함께 등록됩니다.</DialogDescription>
           </DialogHeader>
-          <ol className="grid grid-cols-4 gap-1" aria-label="등록 단계">
-            {STEPS.map((label, index) => (
-              <li key={label} className={`rounded-md px-2 py-2 text-center text-xs ${index === step ? "bg-primary text-primary-foreground" : index < step ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                <span className="hidden sm:inline">{index + 1}. </span>{label}
-              </li>
-            ))}
-          </ol>
+          {!completedMedleySegment && (
+            <ol className="grid grid-cols-4 gap-1" aria-label="등록 단계">
+              {STEPS.map((label, index) => (
+                <li key={label} className={`rounded-md px-2 py-2 text-center text-xs ${index === step ? "bg-primary text-primary-foreground" : index < step ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                  <span className="hidden sm:inline">{index + 1}. </span>{label}
+                </li>
+              ))}
+            </ol>
+          )}
 
-          {errorMessage && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{errorMessage}</div>}
+          {!completedMedleySegment && errorMessage && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{errorMessage}</div>}
 
+          {completedMedleySegment ? (
+            <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 py-8 text-center" role="status">
+              <div>
+                <h3 className="text-lg font-semibold">메들리 커버 구간을 임시 저장했습니다.</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  같은 영상의 다음 곡을 이어서 등록하거나 현재 작업을 마칠 수 있습니다.
+                </p>
+              </div>
+              <Badge variant="outline">
+                다음 시작 위치 {completedMedleySegment.endSeconds}초
+              </Badge>
+            </div>
+          ) : (
           <div className="min-h-[360px] space-y-5 py-2">
             {step === 0 && (
               <>
-                <div className="grid gap-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
-                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setPreflight(null); setVideoKind(null); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
+                <div className="grid gap-3 sm:grid-cols-[1fr_120px_120px_auto] sm:items-end">
+                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setEndSeconds(""); setPreflight(null); setVideoKind(null); setRegistrationMode("standard"); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
                   <div className="space-y-1.5"><Label htmlFor="catalog-start">시작 위치(초)</Label><Input id="catalog-start" type="number" min="0" value={startSeconds} onChange={(event) => { setStartSeconds(event.target.value); setPreflight(null); }} /></div>
+                  <div className="space-y-1.5"><Label htmlFor="catalog-end">종료 위치(초)</Label><Input id="catalog-end" type="number" min="1" value={endSeconds} onChange={(event) => { setEndSeconds(event.target.value); setPreflight(null); }} placeholder="확인 후 자동 입력" /></div>
                   <Button onClick={() => void runPreflight()} disabled={checking || !youtubeUrl.trim()}>{checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} 영상 확인</Button>
                 </div>
                 {preflight && (
@@ -606,7 +713,7 @@ export function CatalogEntryDialog({
                     <div className="space-y-3">
                       <div><div className="font-semibold">{preflight.video.title}</div><div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div></div>
                       {preflight.duplicate && <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><strong>이미 등록된 영상 구간입니다.</strong><div>곡 {preflight.duplicate.songId} · 가창 {preflight.duplicate.performanceId}</div><Button type="button" variant="link" className="h-auto p-0" onClick={() => onOpenChange(false)}>기존 항목 보기</Button></div>}
-                      <div className="flex flex-wrap items-center gap-2"><Badge variant={preflight.channel.state === "revoked" ? "destructive" : "secondary"}>채널: {preflight.channel.state === "approved" ? "승인됨" : preflight.channel.state === "recognized_member" ? "멤버 채널 자동 인식" : preflight.channel.state === "pending" ? "검수 대기" : preflight.channel.state === "inactive" ? "비활성" : preflight.channel.state === "revoked" ? "철회됨" : "미등록"}</Badge><Badge variant="outline">catalog r{preflight.catalogRevision}</Badge></div>
+                      <div className="flex flex-wrap items-center gap-2"><Badge variant={preflight.channel.state === "revoked" ? "destructive" : "secondary"}>채널: {preflight.channel.state === "approved" ? "승인됨" : preflight.channel.state === "recognized_member" ? "멤버 채널 자동 인식" : preflight.channel.state === "pending" ? "검수 대기" : preflight.channel.state === "inactive" ? "비활성" : preflight.channel.state === "revoked" ? "철회됨" : "미등록"}</Badge><Badge variant="outline">구간 {startSeconds}초–{endSeconds || "?"}초</Badge><Badge variant="outline">catalog r{preflight.catalogRevision}</Badge></div>
                       {preflight.channel.state === "revoked" ? <p className="text-sm text-destructive">철회된 채널에서는 등록하거나 게시할 수 없습니다. 고급 관리에서 상태를 확인하세요.</p> : preflight.channel.state !== "approved" && preflight.channel.state !== "recognized_member" && <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><Label>채널 처리</Label><Select value={channelChoice} onValueChange={(value) => setChannelChoice(value as "approved" | "pending")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="approved">공식 채널로 승인</SelectItem><SelectItem value="pending">보류하고 draft만 저장</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label>채널 역할</Label><Select value={channelRole} onValueChange={(value) => setChannelRole(value as typeof channelRole)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="otw_official">OTW 공식</SelectItem><SelectItem value="unit_official">유닛 공식</SelectItem><SelectItem value="member_music">멤버 노래 채널</SelectItem><SelectItem value="member_main">멤버 메인 채널</SelectItem><SelectItem value="project_official">승인 프로젝트</SelectItem></SelectContent></Select></div></div>}
                     </div>
                   </div>
@@ -619,7 +726,7 @@ export function CatalogEntryDialog({
                 <div>
                   <h3 className="font-semibold">이 영상은 어떤 유형인가요?</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    오리지널곡과 공식 커버곡은 별도의 곡 연결 없이 다음 단계로 진행합니다.
+                    메들리는 별도 유형이 아니라 수록곡마다 독립적인 공식 커버곡으로 등록합니다.
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3" role="group" aria-label="영상 유형">
@@ -637,7 +744,13 @@ export function CatalogEntryDialog({
                           ? "border-primary bg-primary/5"
                           : "hover:bg-muted"
                       }`}
-                      onClick={() => setVideoKind(kind)}
+                      onClick={() => {
+                        setVideoKind(kind);
+                        if (kind !== "cover") {
+                          setRegistrationMode("standard");
+                          if (songId === "__new") setSongId("");
+                        }
+                      }}
                     >
                       <span className="font-semibold">{label}</span>
                       <span className="mt-2 block text-sm text-muted-foreground">
@@ -646,7 +759,35 @@ export function CatalogEntryDialog({
                     </button>
                   ))}
                 </div>
-                {songId && (
+                {videoKind === "cover" && (
+                  <label className="flex items-start gap-3 rounded-xl border bg-card p-4">
+                    <Checkbox
+                      checked={registrationMode === "medley_segment"}
+                      onCheckedChange={(checked) => {
+                        setRegistrationMode(
+                          checked === true ? "medley_segment" : "standard",
+                        );
+                        setSongQuery("");
+                        if (checked === true && !preselectedSongId) {
+                          setSongId("");
+                          setCoverOriginalTitle("");
+                          setCoverOriginalArtists([]);
+                          setSongTags([]);
+                        } else if (checked !== true && songId === "__new") {
+                          setSongId("");
+                        }
+                      }}
+                      aria-label="메들리의 한 곡 구간"
+                    />
+                    <span>
+                      <span className="block font-medium">메들리의 한 곡 구간</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">
+                        기존 곡을 명시적으로 연결하고 이 구간을 비공개 draft로 저장합니다.
+                      </span>
+                    </span>
+                  </label>
+                )}
+                {songId && songId !== "__new" && registrationMode === "standard" && (
                   <div className="rounded-lg border bg-muted/30 p-3 text-sm">
                     `다른 가창 추가`에서 선택한 기존 곡
                     <strong className="ml-1">
@@ -655,7 +796,34 @@ export function CatalogEntryDialog({
                     을 자동으로 재사용합니다.
                   </div>
                 )}
-                {videoKind === "cover" && !songId && (
+                {videoKind === "cover" && registrationMode === "medley_segment" && (
+                  <div className="rounded-xl border bg-card p-4">
+                    <SongConnectionPicker
+                      inputKey="catalog-medley"
+                      catalog={catalog}
+                      selectedSongId={songId}
+                      query={songQuery}
+                      onQueryChange={setSongQuery}
+                      onSelectExisting={(nextSongId, title) => {
+                        setSongId(nextSongId);
+                        setSongQuery(title);
+                        setCoverOriginalTitle("");
+                        setCoverOriginalArtists([]);
+                        setSongTags([]);
+                      }}
+                      onSelectNew={(title) => {
+                        setSongId("__new");
+                        setSongQuery(title);
+                        setCoverOriginalTitle(title);
+                        setCoverOriginalArtists([]);
+                        setSongTags([]);
+                      }}
+                    />
+                  </div>
+                )}
+                {videoKind === "cover" &&
+                  ((registrationMode === "standard" && !songId) ||
+                    (registrationMode === "medley_segment" && songId === "__new")) && (
                   <div className="space-y-4 rounded-xl border bg-card p-4">
                     <div>
                       <h4 className="font-semibold">원곡 정보</h4>
@@ -685,7 +853,10 @@ export function CatalogEntryDialog({
                     />
                   </div>
                 )}
-                {videoKind !== "karaoke" && !songId ? (
+                {(videoKind === "original" && !songId) ||
+                (videoKind === "cover" &&
+                  ((registrationMode === "standard" && !songId) ||
+                    songId === "__new")) ? (
                   <div className="rounded-xl border bg-card p-4">
                     <SongTagPicker tags={songTags} onChange={setSongTags} />
                   </div>
@@ -734,7 +905,7 @@ export function CatalogEntryDialog({
                     placeholder="이 영상만의 라벨 입력"
                     selectedLabel="선택한 커버 영상 라벨"
                     description="이 커버 영상·가창 버전에만 적용됩니다. 곡의 장르·분류와 별도로 최대 10개까지 입력할 수 있습니다."
-                    recommendedTags={[]}
+                    recommendedTags={registrationMode === "medley_segment" ? ["메들리 수록"] : []}
                   />
                 </div>
                 <div className="space-y-1.5"><Label>내부 메모 (선택)</Label><Textarea value={internalNote} onChange={(event) => setInternalNote(event.target.value)} /></div>
@@ -748,21 +919,21 @@ export function CatalogEntryDialog({
                   <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="등록 영상" className="mb-3 aspect-video w-full rounded-md object-cover" />
                   <div className="font-medium">{preflight.video.title}</div>
                   <div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div>
-                  <Badge className="mt-2" variant="outline">{channelChoice === "approved" || preflight.channel.state === "approved" || preflight.channel.state === "recognized_member" ? "승인 채널" : "채널 검수 대기"}</Badge>
+                  <div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{channelChoice === "approved" || preflight.channel.state === "approved" || preflight.channel.state === "recognized_member" ? "승인 채널" : "채널 검수 대기"}</Badge><Badge variant="outline">{startSeconds}초–{endSeconds}초</Badge>{registrationMode === "medley_segment" ? <Badge>메들리 구간</Badge> : null}</div>
                   {needsChannelOwnerChoice && <div className="mt-3 text-sm"><span className="font-medium">연결 주체:</span> {channelOwners.map((owner) => owner.label).join(", ")}</div>}
                 </div>
                 <div className="space-y-4 rounded-xl border p-4">
                   <div>
                     <div className="text-sm font-semibold">곡</div>
                     <div>
-                      {songId
+                      {songId && songId !== "__new"
                         ? catalog.songs.find((song) => song.id === songId)?.title
                         : videoKind === "cover"
                           ? coverOriginalTitle
                           : preflight.video.title}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {songId
+                      {songId && songId !== "__new"
                         ? "기존 곡을 자동 재사용"
                         : videoKind === "original"
                           ? "영상 제목으로 자동 생성 · 참여자를 원곡 가수로 사용"
@@ -773,16 +944,24 @@ export function CatalogEntryDialog({
                   <div><div className="text-sm font-semibold">분류</div><div className="text-sm text-muted-foreground">{videoKind === "original" ? "오리지널곡" : "공식 커버곡"} · {releaseType === "official_mv" ? "공식 MV" : "공식 영상"} · {participationLabels[participationType]}</div></div>
                   {songTags.length > 0 ? <div><div className="text-sm font-semibold">곡 분류</div><div className="mt-1 flex flex-wrap gap-1">{songTags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div></div> : null}
                   {performanceTags.length > 0 ? <div><div className="text-sm font-semibold">커버 영상 라벨</div><div className="mt-1 flex flex-wrap gap-1">{performanceTags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div> : null}
-                  <div className="rounded-md bg-muted p-3 text-sm">임시 저장은 공개되지 않습니다. 게시는 승인·활성 채널에서만 가능하며 확인 후 즉시 공개 상태가 됩니다.</div>
+                  <div className="rounded-md bg-muted p-3 text-sm">{registrationMode === "medley_segment" ? "메들리의 각 커버 구간은 검토를 위해 비공개 draft로만 저장됩니다." : "임시 저장은 공개되지 않습니다. 게시는 승인·활성 채널에서만 가능하며 확인 후 즉시 공개 상태가 됩니다."}</div>
                 </div>
               </div>
             )}
           </div>
+          )}
 
-          <DialogFooter className="border-t pt-4 sm:justify-between">
-            <div><Button type="button" variant="outline" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || saving}><ArrowLeft className="h-4 w-4" /> 이전</Button></div>
-            {step < 3 ? <Button type="button" onClick={() => setStep((value) => Math.min(3, value + 1))} disabled={!stepReady}>다음 <ArrowRight className="h-4 w-4" /></Button> : <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" disabled={saving} onClick={() => void save("draft")}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} 임시 저장</Button><Button type="button" disabled={saving || !channelCanPublish} title={channelCanPublish ? undefined : "승인·활성 채널에서만 게시할 수 있습니다."} onClick={() => setConfirmPublish(true)}>게시</Button></div>}
-          </DialogFooter>
+          {completedMedleySegment ? (
+            <DialogFooter className="border-t pt-4">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>완료</Button>
+              <Button type="button" onClick={prepareNextMedleySegment}>같은 영상의 다음 커버 추가</Button>
+            </DialogFooter>
+          ) : (
+            <DialogFooter className="border-t pt-4 sm:justify-between">
+              <div><Button type="button" variant="outline" onClick={() => setStep((value) => Math.max(0, value - 1))} disabled={step === 0 || saving}><ArrowLeft className="h-4 w-4" /> 이전</Button></div>
+              {step < 3 ? <Button type="button" onClick={() => setStep((value) => Math.min(3, value + 1))} disabled={!stepReady}>다음 <ArrowRight className="h-4 w-4" /></Button> : <div className="flex flex-col-reverse gap-2 sm:flex-row"><Button type="button" variant="outline" disabled={saving} onClick={() => void save("draft")}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} 임시 저장</Button>{registrationMode === "standard" ? <Button type="button" disabled={saving || !channelCanPublish} title={channelCanPublish ? undefined : "승인·활성 채널에서만 게시할 수 있습니다."} onClick={() => setConfirmPublish(true)}>게시</Button> : null}</div>}
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
       <ConfirmActionDialog open={confirmPublish} onOpenChange={setConfirmPublish} title="이 영상을 게시할까요?" description="자동 생성되는 곡과 가창 metadata가 공개 카탈로그 상태로 저장됩니다. 영상 유형과 채널 정보를 다시 확인해 주세요." confirmLabel="게시" onConfirm={() => { setConfirmPublish(false); void save("published"); }} />

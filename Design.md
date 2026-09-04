@@ -123,17 +123,23 @@
 - 상단 탐색은 `발견`, `곡 검색` 두 항목으로 제한한다. 오리지널과 커버 구분은
   곡 검색 화면의 관계 필터에서 제공하며 모바일에서는 같은 두 항목을 가로
   스크롤 가능한 sticky tab으로 제공한다.
-- 발견은 겹친 card stack 대신 하나의 넓은 대표 배너를 사용하고, 최근 공개곡은
-  반복 card가 아닌 구분선 기반 compact table로 표시한다. 데스크톱에서는 hero,
-  최근 곡과 멤버 진입점을 한 viewport 안에 우선 수용한다.
+- 발견은 첫 페이지의 최대 8곡을 16:9 대표 배너로 표시한다. 그 아래에는 모든
+  현재 멤버의 메인 보컬 곡 진입점과 최근 공개곡 compact table을 순서대로 둔다.
+  최근 곡은 24곡 단위로 내부 스크롤에서 이어서 불러오며, 로딩 오류나 자동 감지
+  미지원 시에도 명시적인 더 불러오기·다시 시도 버튼을 제공한다.
+- 곡 검색의 상세 필터는 모든 화면에서 기본적으로 접어두고, 적용된 조건은 필터를
+  펼치지 않아도 칩으로 확인·해제할 수 있게 한다. 멤버를 모두 해제하면 멤버 조건도
+  함께 해제한다.
 - 곡 목록은 썸네일 16:9, 곡명, 원곡 가수, 대표 가창과 버전 수를 읽기 쉬운
   행으로 표시한다. 저장 playlist처럼 보이는 library affordance는 만들지 않는다.
 - 데스크톱은 우측 380px `PlayerQueuePanel` 하나를 사용한다. 단일 iframe은 panel
   상단에 356×200px로 항상 보인다. iframe 아래에는 곡명과 현재 멤버 profile·외부 person·group
   icon 및 참여자 이름을 먼저 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 음악/가창
   분류는 그 아래 보조 metadata로 내린다. 실제 IFrame 위치를 반영하는 seekable progress와
-  진행/남은 시간 다음에 상태 문구 없는 previous/play/next, 반복·셔플·음소거·볼륨 control
-  row를 둔다. 게시 채널은 transport 아래의 작은 YouTube source attribution으로 분리한다.
+  진행/남은 시간 다음에 상태 문구 없는 previous/play/next와 반복·셔플 control row를
+  둔다. 볼륨 버튼은 세로 슬라이더와 음소거 버튼을 담은 접근 가능한 popover를 연다.
+  가창 관계·공개 유형·참여 형태·게시일은 작은 배지로 표시하고, 게시 채널은 transport
+  아래의 작은 YouTube source attribution으로 분리한다.
   플레이큐는 같은 panel의 남은 높이를 사용해
   player 아래에서 독립 스크롤한다. 하단 재생바, player 접기·펼치기와 overlay
   상세 panel은 만들지 않는다.

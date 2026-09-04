@@ -1,5 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
+import type { OtwPlayAdminCatalogSubjectInput } from "@contracts/otw-play";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   AdminCatalogRepositoryError,
@@ -10,6 +11,8 @@ import { D1AdminCatalogRepository } from "./d1-admin-catalog-repository";
 
 type TestEnv = Env & {
   OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS: D1Migration[];
+  OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
+  OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS: D1Migration[];
 };
 
 const testEnv = env as TestEnv;
@@ -824,6 +827,184 @@ describe("D1AdminCatalogRepository", () => {
       ],
     });
     expect(originalResult.data.performance.relationType).toBe("original");
+  });
+
+  it("reuses one media source for independent medley cover segments", async () => {
+    await applyD1Migrations(db, [
+      ...testEnv.OTW_PLAY_INGESTION_MIGRATIONS,
+      ...testEnv.OTW_PLAY_EXTERNAL_IDENTITY_CONSOLIDATION_MIGRATIONS,
+    ]);
+    const repository = new D1AdminCatalogRepository(db);
+    const singer = await createEntity(repository, "Medley Singer");
+    const channel = await repository.createChannel(
+      {
+        externalChannelId: `UC${"L".repeat(22)}`,
+        displayName: "Medley Channel",
+        channelRole: "member_music",
+        entityIds: [singer.data.id],
+      },
+      actor,
+      { channelId: "medley-channel", eventId: "medley-channel-event" },
+      NOW,
+    );
+    const createSong = async (songId: string, title: string) =>
+      repository.createSong(
+        {
+          slug: songId,
+          title,
+          isOtwOriginal: false,
+          originalReleaseDate: null,
+          originalReleasePrecision: "unknown",
+          aliases: [],
+          originalArtists: [
+            { entityId: singer.data.id, creditOrder: 0, isPrimary: true },
+          ],
+        },
+        actor,
+        { songId, eventId: `${songId}-event` },
+        NOW,
+      );
+    const firstSong = await createSong("medley-song-one", "Medley Song One");
+    const secondSong = await createSong("medley-song-two", "Medley Song Two");
+    const video = {
+      videoId: "mEdLeYVid_1",
+      channelId: channel.data.externalChannelId,
+      channelTitle: channel.data.displayName,
+      title: "Two Song Medley",
+      thumbnailUrl: null,
+      durationSeconds: 300,
+      publishedAt: NOW,
+      availabilityStatus: "playable" as const,
+    };
+    const createSegment = async (
+      performanceId: string,
+      songId: string,
+      startSeconds: number,
+      endSeconds: number,
+      tags?: string[],
+      participant: OtwPlayAdminCatalogSubjectInput = {
+        kind: "entity", entityId: singer.data.id,
+      },
+    ) => {
+      const preflight = await repository.preflightCatalogEntry(video, startSeconds);
+      return repository.createCatalogEntry({
+        input: {
+          expectedCatalogRevision: preflight.catalogRevision,
+          youtubeUrl: `https://youtu.be/${video.videoId}`,
+          startSeconds,
+          endSeconds,
+          registrationMode: "medley_segment",
+          song: { kind: "existing", songId },
+          participants: [{
+            subject: participant,
+            participantRole: "vocal",
+            creditOrder: 0,
+          }],
+          channel: { kind: "existing", channelId: channel.data.id },
+          relationType: "cover",
+          releaseType: "official_video",
+          participationType: "solo",
+          ...(tags ? { performanceTags: tags } : {}),
+          publicationTarget: "draft",
+        },
+        video,
+        actor,
+        now: NOW + startSeconds,
+        ids: {
+          entityIds: { "external:medley-guest": `${performanceId}-guest` },
+          entityEventIds: { "external:medley-guest": `${performanceId}-guest-event` },
+          channelId: `${performanceId}-unused-channel`,
+          channelEventId: `${performanceId}-unused-channel-event`,
+          songId: `${performanceId}-unused-song`,
+          songEventId: `${performanceId}-unused-song-event`,
+          performanceId,
+          performanceEventId: `${performanceId}-event`,
+          sourceId: `${performanceId}-source`,
+        },
+      });
+    };
+
+    const firstSegment = await createSegment(
+      "medley-performance-one",
+      firstSong.data.id,
+      0,
+      120,
+      ["메들리 수록"],
+      { kind: "new_external", clientKey: "medley-guest", entityKind: "person", displayName: "Medley Guest" },
+    );
+    expect(firstSegment.data.createdEntities).toHaveLength(1);
+    const savedGuest = firstSegment.data.createdEntities[0]!;
+    const secondSegment = await createSegment(
+      "medley-performance-two",
+      secondSong.data.id,
+      120,
+      300,
+      undefined,
+      { kind: "entity", entityId: savedGuest.id },
+    );
+    expect(secondSegment.data.createdEntities).toEqual([]);
+    expect(secondSegment.data.performance.participants[0]?.entityId).toBe(savedGuest.id);
+    expect(secondSegment.data.performance.publicationStatus).toBe("draft");
+    const guestCount = await db.prepare(
+      "SELECT COUNT(*) AS count FROM music_entities WHERE normalized_name = 'medley guest' AND member_uid IS NULL",
+    ).first<{ count: number }>();
+    expect(Number(guestCount?.count)).toBe(1);
+    const foreignKeys = await db.prepare("PRAGMA foreign_key_check").all();
+    expect(foreignKeys.results).toEqual([]);
+
+    const sourceCount = await db.prepare(
+      `SELECT COUNT(*) AS count FROM music_media_sources
+       WHERE provider = 'youtube' AND external_id = ?`,
+    ).bind(video.videoId).first<{ count: number }>();
+    const links = await db.prepare(
+      `SELECT link.performance_id, link.source_id, link.start_seconds, link.end_seconds
+       FROM music_performance_sources AS link
+       JOIN music_media_sources AS source ON source.id = link.source_id
+       WHERE source.provider = 'youtube' AND source.external_id = ?
+       ORDER BY link.start_seconds`,
+    ).bind(video.videoId).all<{
+      performance_id: string;
+      source_id: string;
+      start_seconds: number;
+      end_seconds: number;
+    }>();
+    expect(Number(sourceCount?.count)).toBe(1);
+    expect(links.results).toEqual([
+      {
+        performance_id: "medley-performance-one",
+        source_id: "medley-performance-one-source",
+        start_seconds: 0,
+        end_seconds: 120,
+      },
+      {
+        performance_id: "medley-performance-two",
+        source_id: "medley-performance-one-source",
+        start_seconds: 120,
+        end_seconds: 300,
+      },
+    ]);
+    const catalog = await repository.readCatalog();
+    expect(
+      catalog.performances.find((item) => item.id === "medley-performance-one")?.tags,
+    ).toEqual(["메들리 수록"]);
+    expect(
+      catalog.performances.find((item) => item.id === "medley-performance-two")?.tags,
+    ).toEqual([]);
+
+    await expect(
+      createSegment(
+        "medley-performance-duplicate",
+        secondSong.data.id,
+        120,
+        200,
+      ),
+    ).rejects.toMatchObject({ code: "duplicate_source" });
+    const afterDuplicate = await repository.readCatalog();
+    expect(
+      afterDuplicate.performances.some(
+        (item) => item.id === "medley-performance-duplicate",
+      ),
+    ).toBe(false);
   });
 
   it("writes a draft atomically and publishes only after official channel approval", async () => {

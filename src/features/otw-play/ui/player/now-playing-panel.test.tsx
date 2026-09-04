@@ -80,6 +80,7 @@ const track = {
     relation: "cover",
     releaseType: "official_video",
     participation: "solo",
+    releasedAt: "2026-08-18T00:00:00.000Z",
     participants: [
       {
         entityId: "entity-1",
@@ -244,14 +245,7 @@ describe("OTW Play player and queue rail", () => {
     expect(
       screen.getByRole("region", { name: "모바일 플레이큐" }).className,
     ).toContain("xl:hidden");
-    const volumeSliders = screen.getAllByRole("slider", { name: "재생 볼륨" });
-    expect(volumeSliders).toHaveLength(1);
-    fireEvent.change(volumeSliders[0], {
-      target: { value: "42" },
-    });
-    expect(actions.setVolume).toHaveBeenCalledWith(42);
-    fireEvent.click(screen.getAllByRole("button", { name: "음소거" })[0]);
-    expect(actions.toggleMuted).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("slider", { name: "재생 볼륨" })).toBeNull();
     expect(
       within(screen.getByRole("region", { name: "플레이큐" }))
         .queryByLabelText("YouTube 영상 플레이어"),
@@ -284,14 +278,36 @@ describe("OTW Play player and queue rail", () => {
       within(metadata).getByLabelText("음악 분류").className,
     ).toContain("flex-nowrap");
     expect(
-      within(metadata).getByLabelText("가창 분류").className,
+      within(metadata).getByLabelText("가창 및 공개 정보").className,
     ).toContain("flex-nowrap");
+    expect(within(metadata).getByText("공식 커버").className).toContain("rounded-full");
+    expect(within(metadata).getByText("공식 영상").className).toContain("rounded-full");
+    expect(within(metadata).getByLabelText(/^게시일 /).className).toContain("rounded-full");
     expect(screen.getByText("OTW 공식 채널")).toBeTruthy();
     expect(screen.queryByText("재생 대기")).toBeNull();
     expect(screen.queryByText("재생 중")).toBeNull();
     expect(within(transportControls).getByRole("button", { name: "이전 항목" })).toBeTruthy();
     expect(within(transportControls).getByRole("button", { name: /반복 꺼짐/ })).toBeTruthy();
-    expect(within(transportControls).getByRole("button", { name: "음소거" })).toBeTruthy();
+    fireEvent.click(
+      within(transportControls).getByRole("button", {
+        name: "볼륨 조절, 현재 100%",
+      }),
+    );
+    const volumeControls = screen.getByLabelText("볼륨 컨트롤");
+    const volumeSlider = within(volumeControls).getByRole("slider", {
+      name: "재생 볼륨",
+    });
+    expect(volumeSlider.getAttribute("aria-orientation")).toBe("vertical");
+    expect(volumeSlider.style.writingMode).toBe("vertical-lr");
+    expect(volumeSlider.className).toContain("h-28");
+    fireEvent.change(volumeSlider, { target: { value: "42" } });
+    expect(actions.setVolume).toHaveBeenCalledWith(42);
+    fireEvent.click(
+      within(volumeControls).getByRole("button", { name: "음소거" }),
+    );
+    expect(actions.toggleMuted).toHaveBeenCalledOnce();
+    fireEvent.keyDown(volumeControls, { key: "Escape" });
+    expect(screen.queryByRole("slider", { name: "재생 볼륨" })).toBeNull();
     expect(
       within(identityActions).getByRole("link", { name: "YouTube에서 열기" }),
     ).toBeTruthy();

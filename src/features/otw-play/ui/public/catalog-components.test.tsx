@@ -1,8 +1,19 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OtwPlayPublicParticipantDto } from "@contracts/otw-play";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  OtwPlayPublicParticipantDto,
+  OtwPlayPublicSongSummaryDto,
+} from "@contracts/otw-play";
+
+const mocks = vi.hoisted(() => ({
+  usePlayer: vi.fn(),
+}));
+
+vi.mock("../../player/play-player-context", () => ({
+  useOtwPlayPlayer: mocks.usePlayer,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, search }: { children: React.ReactNode; search?: unknown }) => (
@@ -14,6 +25,7 @@ import {
   OtwPlayParticipantChip,
   OtwPlayParticipantCreditGroups,
   OtwPlayParticipantSummary,
+  OtwPlaySongRow,
 } from "./catalog-components";
 
 const base = {
@@ -25,6 +37,15 @@ const base = {
 };
 
 describe("OtwPlayParticipantChip", () => {
+  beforeEach(() => {
+    mocks.usePlayer.mockReturnValue({
+      queue: { items: [] },
+      play: vi.fn(),
+      enqueue: vi.fn(),
+      playNext: vi.fn(),
+    });
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -32,7 +53,7 @@ describe("OtwPlayParticipantChip", () => {
   it.each([
     [
       { ...base, kind: "current_member", uid: 7, code: "singer", oshiMark: "🎵", unitName: null },
-      { member: "7" },
+      { member: "7", participantRole: "vocal" },
     ],
     [
       { ...base, kind: "external" },
@@ -47,6 +68,85 @@ describe("OtwPlayParticipantChip", () => {
     expect(screen.getByRole("link").getAttribute("data-search")).toBe(
       JSON.stringify(expectedSearch),
     );
+  });
+
+  it("presents catalog metadata as separate top chips without a visible artist label", () => {
+    const song: OtwPlayPublicSongSummaryDto = {
+      id: "song-1",
+      slug: "song-1",
+      title: "검색 결과 노래",
+      isOtwOriginal: false,
+      originalReleaseDate: null,
+      originalReleasePrecision: "unknown",
+      originalArtists: [
+        {
+          entityId: "artist-1",
+          slug: "yorushika",
+          displayName: "요루시카",
+          kind: "group",
+        },
+      ],
+      tags: ["J-POP"],
+      representativePerformance: {
+        id: "performance-1",
+        relation: "cover",
+        releaseType: "official_video",
+        participation: "solo",
+        releasedAt: "2026-08-18T00:00:00.000Z",
+        tags: ["어쿠스틱"],
+        participants: [
+          {
+            ...base,
+            entityId: "member-1",
+            slug: "member-1",
+            displayName: "참여 멤버",
+            kind: "current_member",
+            uid: 1,
+            code: "member-1",
+            oshiMark: null,
+            unitName: null,
+          },
+        ],
+        selectedSource: {
+          sourceId: "source-1",
+          provider: "youtube",
+          externalId: "video-1",
+          title: "공식 영상",
+          thumbnailUrl: "https://example.com/thumbnail.jpg",
+          durationSeconds: 180,
+          providerPublishedAt: null,
+          availability: "playable",
+          sourceRole: "official",
+          startSeconds: 0,
+          endSeconds: null,
+          priority: 0,
+          isPrimary: true,
+          playable: true,
+          channel: {
+            id: "channel-1",
+            displayName: "공식 채널",
+            role: "member_main",
+          },
+        },
+        sourceCount: 1,
+        playable: true,
+        usingFallback: false,
+      },
+      performanceCount: 1,
+      playable: true,
+    };
+
+    render(<OtwPlaySongRow song={song} />);
+
+    const metadata = screen.getByLabelText("가창 및 공개 정보");
+    const title = screen.getByRole("link", { name: "검색 결과 노래" });
+    expect(metadata.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(metadata).getByText("공식 커버").className).toContain("rounded-full");
+    expect(within(metadata).getByText("공식 영상").className).toContain("rounded-full");
+    expect(within(metadata).getByText("솔로").className).toContain("rounded-full");
+    expect(within(metadata).getByLabelText(/^게시일 /).className).toContain("rounded-full");
+    expect(screen.getByText("요루시카")).toBeTruthy();
+    expect(screen.queryByText(/^원곡 가수/)).toBeNull();
   });
 
   it("keeps supporting credits out of compact summaries", () => {
