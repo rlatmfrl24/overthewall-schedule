@@ -1,6 +1,6 @@
 import { format, isValid, parseISO } from "date-fns";
-import { createFileRoute } from "@tanstack/react-router";
-import { SnapshotPreviewManager } from "@/features/schedule-board";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+
 
 type SnapshotMode = "grid" | "timeline";
 type SnapshotTheme = "light" | "dark";
@@ -44,45 +44,5 @@ export const Route = createFileRoute("/admin/snapshot")({
     mode: normalizeMode(search.mode),
     theme: normalizeTheme(search.theme),
   }),
-  component: RouteComponent,
+  beforeLoad: ({ search }) => { throw redirect({ to: "/admin/content", search: { ...search, tab: "snapshot" }, replace: true }); },
 });
-
-function RouteComponent() {
-  const navigate = Route.useNavigate();
-  const { date, mode, theme } = Route.useSearch();
-
-  return (
-    <SnapshotPreviewManager
-      date={date}
-      mode={mode}
-      theme={theme}
-      onDateChange={(nextDate) => {
-        void navigate({
-          search: (prev) => ({
-            ...prev,
-            date: nextDate,
-          }),
-          replace: true,
-        });
-      }}
-      onModeChange={(nextMode) => {
-        void navigate({
-          search: (prev) => ({
-            ...prev,
-            mode: nextMode,
-          }),
-          replace: true,
-        });
-      }}
-      onThemeChange={(nextTheme) => {
-        void navigate({
-          search: (prev) => ({
-            ...prev,
-            theme: nextTheme,
-          }),
-          replace: true,
-        });
-      }}
-    />
-  );
-}

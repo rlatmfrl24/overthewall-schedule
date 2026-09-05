@@ -1,10 +1,11 @@
 import type {
+  LogFilters,
   UpdateLogDto,
   UpdateLogPageResponseDto,
   UpdateLogQuery,
 } from "../../../../../contracts/audit";
 
-export interface UpdateLogReadOptions {
+export interface UpdateLogReadOptions extends LogFilters {
   limit: number;
   page: number | null;
   pageSize: number | null;

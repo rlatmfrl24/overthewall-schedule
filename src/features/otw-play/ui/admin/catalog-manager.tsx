@@ -1,3 +1,6 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -74,7 +77,7 @@ import { OperationsSection } from "./operations-section";
 import { IngestionSection } from "./ingestion-section";
 import { ChannelMonitorSection } from "./channel-monitor-section";
 
-type Section =
+export type Section =
   | "catalog"
   | "import"
   | "channels"
@@ -168,12 +171,14 @@ const Field = ({
   </div>
 );
 
-export function OtwPlayCatalogManager() {
+export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorMode }: { activeSection?: Section; onSectionChange?: (section: Section) => void; monitorMode?: "review" | "sources" } = {}) {
   const catalogQuery = useOtwPlayAdminCatalog();
   const proposalsQuery = useOtwPlayAdminProposals();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [section, setSection] = useState<Section>("catalog");
+  const [localSection, setLocalSection] = useState<Section>("catalog");
+  const section = activeSection ?? localSection;
+  const setSection = onSectionChange ?? setLocalSection;
   const sourceHealthQuery = useOtwPlayAdminSourceHealth(
     section === "source-health" || section === "operations",
   );
@@ -198,6 +203,7 @@ export function OtwPlayCatalogManager() {
         queryKey: queryKeys.otwPlay.adminSourceHealth(),
       }),
       queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
     ]);
   };
   const refreshRelease = async () => {
@@ -312,12 +318,12 @@ export function OtwPlayCatalogManager() {
   return (
     <div className="space-y-5">
       <AdminSectionHeader
-        title="OTW Play 카탈로그"
-        description="YouTube 영상 하나를 확인해 곡, 가창, 참여자와 공식 채널을 한 흐름에서 등록합니다."
-        count={catalog?.songs.length}
+        title={monitorMode === "sources" && section === "automatic-review" ? "Play 채널 감시" : activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
+        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "automatic-review" ? monitorMode === "sources" ? "감시 채널의 수집 상태와 승인 연결을 확인합니다." : "새 업로드 후보를 오래된 순서로 검토합니다. 검토 저장과 게시는 별도 동작입니다." : section === "review" ? "사용자 제안의 영상·곡·참여자를 확인한 뒤 승인하거나 거절합니다." : "곡, 가창, 참여자와 공식 채널을 연결하고 공개 상태를 관리합니다."}
+        count={section === "catalog" ? catalog?.songs.length : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
-            {catalog && (
+            {catalog && section === "catalog" && (
               <Button
                 size="sm"
                 onClick={() => {
@@ -335,19 +341,20 @@ export function OtwPlayCatalogManager() {
               disabled={catalogQuery.isFetching}
             >
               {catalogQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              새로고침
+              상태 새로고침
             </Button>
           </div>
         }
       />
-      {catalog && (
+      <QueryReadback updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />
+      {catalog && section === "catalog" && (
         <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">곡 {catalog.songs.length}</Badge>
           <Badge variant="secondary">가창 {catalog.performances.length}</Badge>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
-        {SECTIONS.map((item) => (
+      <div className={activeSection && section !== "catalog" ? "hidden" : "flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2"}>
+        {!activeSection && SECTIONS.map((item) => (
           <Button
             key={item.value}
             size="sm"
@@ -358,14 +365,14 @@ export function OtwPlayCatalogManager() {
           </Button>
         ))}
         {catalog && (
-          <div className="ml-auto flex gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline">catalog r{catalog.revision}</Badge>
+          <details className="ml-auto text-xs text-muted-foreground"><summary className="cursor-pointer">공개 데이터 {readModelReady ? "반영됨" : "불일치 확인 필요"}</summary><div className="mt-2 flex gap-2">
+            <Badge variant="outline">카탈로그 r{catalog.revision}</Badge>
             <Badge
               variant={readModelReady ? "secondary" : "destructive"}
             >
-              read model r{catalog.readModelRevision}
+              공개 데이터 r{catalog.readModelRevision}
             </Badge>
-          </div>
+          </div></details>
         )}
       </div>
       {catalog && !readModelReady && (
@@ -373,8 +380,8 @@ export function OtwPlayCatalogManager() {
           role="alert"
           className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
         >
-          공개 read model revision이 catalog와 다릅니다. 전체 projection 복구와
-          검증이 끝날 때까지 관리자 쓰기를 중단했습니다.
+          저장된 카탈로그와 공개용 데이터가 일치하지 않습니다. 데이터 반영 상태를 복구하고
+          검증할 때까지 편집할 수 없습니다.
         </div>
       )}
 
@@ -414,6 +421,7 @@ export function OtwPlayCatalogManager() {
       )}
       {section === "automatic-review" && (
         <ChannelMonitorSection
+          mode={monitorMode}
           catalog={catalog ?? null}
           catalogLoading={catalogQuery.isLoading}
           onOpenCatalog={() => setSection("catalog")}
@@ -517,8 +525,12 @@ function ProposalSection({
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const [proposalDirty, setProposalDirty] = useState(false);
+  useUnsavedChanges(proposalDirty);
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, updateSearch] = useConsoleSearch();
+  const selectedId = search.selected ?? null;
+  const setSelectedId = (selected: string | null) => updateSearch({selected: selected ?? undefined}, false);
   const [approvalPreflight, setApprovalPreflight] =
     useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
   const approvalPreflightRequestId = useRef(0);
@@ -549,6 +561,7 @@ function ProposalSection({
   );
 
   useEffect(() => {
+    setProposalDirty(false);
     selectedProposalIdRef.current = selected?.id ?? null;
     approvalPreflightRequestId.current += 1;
     if (!selected) {
@@ -703,7 +716,7 @@ function ProposalSection({
           })),
         };
     if (!window.confirm("최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?")) return;
-    await run("제안 승인", () =>
+    const approved = await run("제안 승인", () =>
       approveOtwPlayProposal(selected.id, {
         expectedVersion: selected.version,
         expectedCatalogRevision: approvalPreflight.catalogRevision,
@@ -719,8 +732,7 @@ function ProposalSection({
         publish: true,
       }),
     );
-    setApprovalPreflight(null);
-    setSingingCreditConfirmed(false);
+    if (approved) { setProposalDirty(false); setApprovalPreflight(null); setSingingCreditConfirmed(false); }
   };
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
   return (
@@ -728,7 +740,7 @@ function ProposalSection({
       <CardHeader>
         <CardTitle className="text-base">공식 커버 제안 검수</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3" onChangeCapture={() => setProposalDirty(true)}>
         <p className="text-sm text-muted-foreground">
           최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
         </p>
@@ -739,6 +751,104 @@ function ProposalSection({
               {fetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               다시 시도
             </Button>
+          </div>
+        ) : null}
+        {!error && proposals.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+            대기 중인 제안이 없습니다.
+          </div>
+        ) : !error ? (
+          <div className="overflow-x-auto">
+            <Table className="console-history-table w-full">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>제목</TableHead>
+                  <TableHead>YouTube</TableHead>
+                  <TableHead>참여자</TableHead>
+                  <TableHead>거절 코드</TableHead>
+                  <TableHead className="text-right">작업</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {proposals.map((proposal) => (
+                  <TableRow
+                    key={proposal.id}
+                    data-state={
+                      selected?.id === proposal.id ? "selected" : undefined
+                    }
+                  >
+                    <TableCell className="whitespace-normal">
+                      <button
+                        type="button"
+                        className="font-medium text-left hover:underline"
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                        }}
+                      >
+                        {proposal.submittedTitle}
+                      </button>
+
+                    </TableCell>
+                    <TableCell>
+                      <a
+                        className="text-primary hover:underline"
+                        href={proposal.submittedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        원본 영상
+                      </a>
+                    </TableCell>
+                    <TableCell>
+                      {proposal.participants
+                        .map((item) => item.submittedNameSnapshot)
+                        .join(", ") || "미입력"}
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        aria-label={`${proposal.submittedTitle} 거절 코드`}
+                        value={reasons[proposal.id] ?? ""}
+                        onChange={(event) =>
+                          setReasons((current) => ({
+                            ...current,
+                            [proposal.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="duplicate 등"
+                      />
+                    </TableCell>
+                    <TableCell className="whitespace-normal"><div className="flex flex-wrap justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedId(proposal.id);
+                        }}
+                      >
+                        검수
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={
+                          !reasons[proposal.id]?.trim() || saving !== null
+                        }
+                        onClick={() =>
+                          void run("제안 거절", () =>
+                            rejectOtwPlayProposal(proposal.id, {
+                              expectedVersion: proposal.version,
+                              resultCode: reasons[proposal.id]!.trim(),
+                            }),
+                          )
+                        }
+                      >
+                        거절
+                      </Button>
+                    </div></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         ) : null}
         {!error && selected && (
@@ -1258,110 +1368,7 @@ function ProposalSection({
             </div>
           </div>
         )}
-        {!error && proposals.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-            대기 중인 제안이 없습니다.
-          </div>
-        ) : !error ? (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[850px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>제목</TableHead>
-                  <TableHead>YouTube</TableHead>
-                  <TableHead>참여자</TableHead>
-                  <TableHead>거절 코드</TableHead>
-                  <TableHead className="text-right">작업</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {proposals.map((proposal) => (
-                  <TableRow
-                    key={proposal.id}
-                    data-state={
-                      selected?.id === proposal.id ? "selected" : undefined
-                    }
-                  >
-                    <TableCell>
-                      <button
-                        type="button"
-                        className="font-medium text-left hover:underline"
-                        onClick={() => {
-                          setSelectedId(proposal.id);
-                          setApprovalPreflight(null);
-                          setSingingCreditConfirmed(false);
-                        }}
-                      >
-                        {proposal.submittedTitle}
-                      </button>
-                      <div className="text-xs text-muted-foreground">
-                        v{proposal.version}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <a
-                        className="text-primary hover:underline"
-                        href={proposal.submittedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {proposal.youtubeVideoId}
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      {proposal.participants
-                        .map((item) => item.submittedNameSnapshot)
-                        .join(", ") || "미입력"}
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        aria-label={`${proposal.submittedTitle} 거절 코드`}
-                        value={reasons[proposal.id] ?? ""}
-                        onChange={(event) =>
-                          setReasons((current) => ({
-                            ...current,
-                            [proposal.id]: event.target.value,
-                          }))
-                        }
-                        placeholder="duplicate 등"
-                      />
-                    </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedId(proposal.id);
-                          setApprovalPreflight(null);
-                          setSingingCreditConfirmed(false);
-                        }}
-                      >
-                        검수
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={
-                          !reasons[proposal.id]?.trim() || saving !== null
-                        }
-                        onClick={() =>
-                          void run("제안 거절", () =>
-                            rejectOtwPlayProposal(proposal.id, {
-                              expectedVersion: proposal.version,
-                              resultCode: reasons[proposal.id]!.trim(),
-                            }),
-                          )
-                        }
-                      >
-                        거절
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : null}
+
       </CardContent>
     </Card>
   );
@@ -1574,6 +1581,8 @@ function ChannelSection({
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const [search, updateSearch] = useConsoleSearch();
+  const visibleChannels = items.filter((item) => !search.q || [item.displayName, ...item.entityIds.map((id) => entities.find((entity) => entity.id === id)?.displayName ?? "")].join(" ").toLocaleLowerCase().includes(search.q.toLocaleLowerCase()));
   const empty = {
     externalChannelId: "",
     displayName: "",
@@ -1591,6 +1600,11 @@ function ChannelSection({
     entityIds: string[];
   }>(empty);
   const [editing, setEditing] = useState<OtwPlayAdminChannelDto | null>(null);
+  const formDirty = JSON.stringify(form) !== JSON.stringify(editing ? {
+    externalChannelId: editing.externalChannelId, displayName: editing.displayName, channelRole: editing.channelRole,
+    verificationStatus: editing.verificationStatus, active: editing.active, entityIds: editing.entityIds,
+  } : empty);
+  const canDiscard = useUnsavedChanges(formDirty);
   const [entitySearch, setEntitySearch] = useState("");
   const [confirmingEntityChange, setConfirmingEntityChange] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<
@@ -1702,7 +1716,80 @@ function ChannelSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-4 p-4">
-        <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center gap-2"><Input aria-label="Play 승인 채널 검색" placeholder="채널명·연결 주체 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a href="#play-channel-editor" className="text-sm underline">채널 등록·수정 ↓</a></div>
+        <div className="space-y-2">
+          <div className="text-sm font-medium">등록된 채널</div>
+          <div className="overflow-x-auto rounded-lg border">
+          <Table className="console-history-table w-full">
+            <TableHeader>
+              <TableRow>
+                <TableHead>채널</TableHead>
+                <TableHead>역할</TableHead>
+                <TableHead>연결 주체</TableHead>
+                <TableHead>검수</TableHead>
+                <TableHead>활성</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleChannels.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="whitespace-normal">
+                    <div>{item.displayName}</div>
+                    <details className="text-xs text-muted-foreground"><summary>채널 ID</summary><span className="break-all">{item.externalChannelId}</span></details>
+                  </TableCell>
+                  <TableCell>{channelRoleLabels[item.channelRole]}</TableCell>
+                  <TableCell>
+                    {item.entityIds.length === 0 ? (
+                      <span className="text-muted-foreground">없음</span>
+                    ) : (
+                      <div className="flex max-w-72 flex-wrap gap-1">
+                        {item.entityIds.map((entityId) => (
+                          <Badge key={entityId} variant="outline">
+                            {entityById.get(entityId)?.displayName ?? entityId}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>{channelVerificationLabels[item.verificationStatus]}</TableCell>
+                  <TableCell>{item.active ? "예" : "아니오"}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`${item.displayName} 수정`}
+                      onClick={async () => {
+                        if (formDirty && !await canDiscard()) return;
+                        document.getElementById("play-channel-editor")?.scrollIntoView({block: "start"});
+                        lookupRequestRef.current += 1;
+                        setEditing(item);
+                        setForm({
+                          externalChannelId: item.externalChannelId,
+                          displayName: item.displayName,
+                          channelRole: item.channelRole,
+                          verificationStatus: item.verificationStatus,
+                          active: item.active,
+                          entityIds: [...item.entityIds],
+                        });
+                        setLookupStatus("verified");
+                        setLookupError(null);
+                        setVerifiedChannelId(item.externalChannelId);
+                        setEntitySearch("");
+                        setConfirmingEntityChange(false);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          </div>
+        </div>
+
+        <div id="play-channel-editor" className="space-y-4 rounded-xl border bg-muted/20 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 등록"}</div>
@@ -1913,77 +2000,6 @@ function ChannelSection({
             >
               {editing ? "채널 수정 저장" : "채널 등록"}
             </Button>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <div className="text-sm font-medium">등록된 채널</div>
-          <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>채널</TableHead>
-                <TableHead>역할</TableHead>
-                <TableHead>연결 주체</TableHead>
-                <TableHead>검수</TableHead>
-                <TableHead>활성</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>
-                    <div>{item.displayName}</div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {item.externalChannelId}
-                    </div>
-                  </TableCell>
-                  <TableCell>{channelRoleLabels[item.channelRole]}</TableCell>
-                  <TableCell>
-                    {item.entityIds.length === 0 ? (
-                      <span className="text-muted-foreground">없음</span>
-                    ) : (
-                      <div className="flex max-w-72 flex-wrap gap-1">
-                        {item.entityIds.map((entityId) => (
-                          <Badge key={entityId} variant="outline">
-                            {entityById.get(entityId)?.displayName ?? entityId}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell>{channelVerificationLabels[item.verificationStatus]}</TableCell>
-                  <TableCell>{item.active ? "예" : "아니오"}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`${item.displayName} 수정`}
-                      onClick={() => {
-                        lookupRequestRef.current += 1;
-                        setEditing(item);
-                        setForm({
-                          externalChannelId: item.externalChannelId,
-                          displayName: item.displayName,
-                          channelRole: item.channelRole,
-                          verificationStatus: item.verificationStatus,
-                          active: item.active,
-                          entityIds: [...item.entityIds],
-                        });
-                        setLookupStatus("verified");
-                        setLookupError(null);
-                        setVerifiedChannelId(item.externalChannelId);
-                        setEntitySearch("");
-                        setConfirmingEntityChange(false);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
           </div>
         </div>
         <EntitySection

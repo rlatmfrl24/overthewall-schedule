@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { updateLogs } from "@db/schema";
 import type { DbInstance } from "../../../platform/db";
 import type {
@@ -10,7 +10,14 @@ export const readUpdateLogs = async (
   db: DbInstance,
   options: UpdateLogReadOptions,
 ) => {
-  const logQuery = db.select().from(updateLogs).$dynamic();
+  const where = and(
+    options.action ? eq(updateLogs.action, options.action) : undefined,
+    options.target ? sql`cast(${updateLogs.member_uid} as text) = ${options.target}` : undefined,
+    options.q ? sql`instr(lower(coalesce(${updateLogs.title}, '') || ' ' || coalesce(${updateLogs.member_name}, '') || ' ' || coalesce(${updateLogs.actor_name}, '')), lower(${options.q})) > 0` : undefined,
+    options.from ? sql`datetime(${updateLogs.created_at}) >= datetime(${options.from})` : undefined,
+    options.until ? sql`datetime(${updateLogs.created_at}) < datetime(${options.until}, '+1 day')` : undefined,
+  );
+  const logQuery = db.select().from(updateLogs).where(where).$dynamic();
 
   if (options.page === null && options.pageSize === null) {
     return logQuery
@@ -23,7 +30,7 @@ export const readUpdateLogs = async (
   const offset = (page - 1) * pageSize;
   const countResult = await db
     .select({ count: sql<number>`count(*)` })
-    .from(updateLogs);
+    .from(updateLogs).where(where);
   const total = Number(countResult[0]?.count ?? 0);
   const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
 

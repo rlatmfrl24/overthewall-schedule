@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { scheduledJobTypes, scheduledJobStatuses } from "@contracts/scheduled-operations";
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -51,6 +54,7 @@ import {
   fetchDataRetentionStatus,
   fetchOperationJobSummaries,
   fetchOperationRuns,
+  fetchOperationRun,
   fetchOperationsStatus,
   runDataRetentionPrune,
 } from "../../api/operations";
@@ -231,6 +235,7 @@ function StatusCard({
   href,
   icon: Icon,
   tone = "neutral",
+  children,
 }: {
   title: string;
   value: string;
@@ -238,37 +243,23 @@ function StatusCard({
   href: string;
   icon: LucideIcon;
   tone?: StatusTone;
+  children?: ReactNode;
 }) {
   return (
-    <Card
-      className={cn(
-        "group gap-0 overflow-hidden py-0 shadow-sm transition-colors hover:bg-muted/20",
-        statusToneClass(tone),
-      )}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <span
-            className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-lg border",
-              statusIconClass(tone),
-            )}
-          >
-            <Icon className="size-4" aria-hidden="true" />
-          </span>
-          <Button asChild variant="ghost" size="icon-sm" className="-mr-2 -mt-2">
-            <a href={href} aria-label={`${title} 상세 보기`}>
-              <ExternalLink className="size-3.5" />
-            </a>
-          </Button>
-        </div>
-        <div className="mt-3 space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="text-xl font-semibold leading-none tabular-nums">{value}</p>
-          <p className="text-xs leading-5 text-muted-foreground">{detail}</p>
-        </div>
-      </CardContent>
-    </Card>
+    <article className={cn("rounded-lg border p-3 transition-colors hover:bg-muted/20", statusToneClass(tone))}>
+      <div className="flex items-center gap-2">
+        <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-md border", statusIconClass(tone))}>
+          <Icon className="size-4" aria-hidden="true" />
+        </span>
+        <h3 className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">{title}</h3>
+        <Button asChild variant="ghost" size="icon-sm" className="-mr-1 shrink-0">
+          <a href={href} aria-label={`${title} 상세 보기`}><ExternalLink className="size-3.5" /></a>
+        </Button>
+      </div>
+      <p className="mt-2 text-lg font-semibold leading-tight tabular-nums">{value}</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+      {children}
+    </article>
   );
 }
 
@@ -333,7 +324,7 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ul className="space-y-2">
+        <ul className="max-h-72 space-y-2 overflow-y-auto pr-1" aria-label="즉시 조치 목록" tabIndex={0}>
           {issues.map((issue, index) => {
             const guidance = guidanceForIssue(issue);
             return (
@@ -354,7 +345,7 @@ function IssuePanel({ issues, updatedAt }: { issues: OperationsIssue[]; updatedA
                   <p><span className="font-medium">원인:</span> {issue.message}</p>
                   <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">영향:</span> {guidance.impact}</p>
                   <p className="mt-1 text-xs text-muted-foreground"><span className="font-medium text-foreground">조치:</span> {guidance.action}</p>
-                  <p className="mt-1 text-[11px] text-muted-foreground">코드 {issue.code}</p>
+                  <a className="mt-1 inline-block text-xs font-medium underline" href={issue.code.startsWith("x_") ? "/admin/collection?source=x" : issue.code.startsWith("naver_") ? "/admin/collection?source=naver-cafe" : issue.code.includes("guard") ? "/admin/resources" : "/admin/history?tab=runs"}>근거 확인 및 조치 →</a><details className="text-xs text-muted-foreground"><summary>진단 코드</summary>{issue.code}</details>
                 </div>
               </div>
             </li>
@@ -570,18 +561,35 @@ function RunProgress({ run }: { run: OperationRun }) {
   const neutral = isNeutralSkip(run);
   return (
     <div className="min-w-48">
-      <div className="flex items-center justify-between text-xs"><span>{run.progress.total === 0 && neutral ? neutralSkipLabel(getRunReason(run)) : `${progressValue(run)}%`}</span><span>{run.progress.succeeded + run.progress.failed + run.progress.skipped + run.progress.throttled}/{run.progress.total}</span></div>
+      <div className="flex items-center justify-between text-xs"><span>{run.progress.total === 0 && neutral ? neutralSkipLabel(getRunReason(run)) : `${progressValue(run)}%`}</span><span>{run.progress.succeeded + run.progress.failed + run.progress.skipped + run.progress.throttled}/{run.progress.total} 작업 묶음</span></div>
       <div role="progressbar" aria-label={`${runLabel(run.jobType)} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue(run)} className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className={cn("h-full", run.progress.failed > 0 ? "bg-destructive" : neutral ? "bg-muted-foreground/40" : terminal ? "bg-emerald-500" : "bg-amber-500")} style={{ width: `${progressValue(run)}%` }} /></div>
-      <p className="mt-1 text-xs text-muted-foreground">성공 {run.progress.succeeded} · 실패 {run.progress.failed} · 진행 {run.progress.running} · 대기 {run.progress.queued}</p>
+      <p className="mt-1 text-xs text-muted-foreground">성공 {run.progress.succeeded} · 실패 {run.progress.failed} · 진행 {run.progress.running} · 대기 {run.progress.queued} · 건너뜀 {run.progress.skipped} · 제한 {run.progress.throttled}</p>
     </div>
   );
 }
 
 function RunDetails({ run }: { run: OperationRun }) {
-  const reason = getRunReason(run);
-  return (
-    <details><summary className="flex cursor-pointer list-none items-center gap-1 text-sm text-muted-foreground">상세 <ChevronDown className="size-3.5" /></summary><div className="mt-2 space-y-1 text-xs"><p>run ID: {run.runId}</p>{reason ? <p>사유: {reason}</p> : null}{run.lastError ? <p className="text-destructive">{run.lastError}</p> : null}{run.failures.map((failure) => <p key={failure.itemId} className="text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (재시도 {failure.attempts})</p>)}</div></details>
-  );
+  const [search, update] = useConsoleSearch();
+  const open = search.selected === run.runId;
+  const detail = useQuery({queryKey: queryKeys.operations.run(run.runId), queryFn: () => fetchOperationRun(run.runId), enabled: open, staleTime: 30_000});
+  const recorded = detail.data ?? run;
+  const reason = getRunReason(recorded);
+  return <details open={open} className="whitespace-normal break-words">
+    <summary onClick={(event) => { event.preventDefault(); update({selected: open ? undefined : run.runId}, false); }} className="flex cursor-pointer list-none items-center gap-1 text-sm text-muted-foreground">상세 <ChevronDown className="size-3.5" /></summary>
+    {open && <div className="mt-2 min-w-0 space-y-2 text-xs">
+      <QueryReadback updatedAt={detail.dataUpdatedAt} fetching={detail.isFetching} error={detail.isError}/>
+      {reason && <p>사유: {reason}</p>}{recorded.lastError && <p className="text-destructive">{recorded.lastError}</p>}
+      {recorded.xCollection?.items.map((item) => <article key={item.itemId} className="space-y-1 rounded border p-2">
+        <p className="font-semibold break-words">{item.targetKey.replace(/^handles:\d+:/, "@").replaceAll(",", " · @")} · {statusLabel(item.status)}</p>
+        <p>게시물 수집: {item.collection ? `응답 ${item.collection.postsReturned}건 · 저장 ${item.collection.postsStored}건` : "수집 결과 기록 없음"}</p>
+        {item.collection?.error && <p>{item.collection.error}</p>}
+        {item.referenceHydration ? <><p>보강: 원문 {item.referenceHydration.hydrated}건 · 작성자 {item.referenceHydration.authorsResolved}건</p><p>이월 {item.referenceHydration.deferred} · 실패 {item.referenceHydration.failed} · 접근 불가 {item.referenceHydration.terminal}</p><p>{item.referenceHydration.errorCode} · 재시도 가능 {formatDateTime(item.referenceHydration.retryAt)}</p></> : <p>보강 결과 기록 없음</p>}
+        <p>시도 {item.attempts}회 · 결과 갱신 {formatDateTime(item.updatedAt)}{item.retryPending ? ` · 재시도 대기 ${formatDateTime(item.nextRetryAt)}` : ""}</p>
+      </article>)}
+      {recorded.failures.map((failure) => <p key={failure.itemId} className="break-words text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (시도 {failure.attempts}회)</p>)}
+      <p className="break-all text-muted-foreground">실행 ID: {recorded.runId}</p>
+    </div>}
+  </details>;
 }
 
 function RunRow({ run }: { run: OperationRun }) {
@@ -623,8 +631,8 @@ function JobSummaryTable({ summaries }: { summaries: OperationJobSummary[] }) {
   const sorted = [...summaries].sort((left, right) => jobSummaryPriority(left) - jobSummaryPriority(right) || (right.latestCheckAt ?? 0) - (left.latestCheckAt ?? 0));
   return (
     <>
-      <div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>판정</TableHead><TableHead>최근 점검</TableHead><TableHead>최근 성공</TableHead><TableHead>다음 기준</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{sorted.map((summary) => <TableRow key={summary.jobType}><TableCell className="font-medium">{runLabel(summary.jobType)}</TableCell><TableCell><JobSummaryStatus summary={summary} /></TableCell><TableCell className="tabular-nums">{formatDateTime(summary.latestCheckAt)}</TableCell><TableCell className="tabular-nums">{formatDateTime(summary.latestSuccessAt)}</TableCell><TableCell className="tabular-nums">{formatDateTime(summary.nextExpectedAt)}</TableCell><TableCell className="max-w-72 text-sm text-muted-foreground">{summary.reasonLabel ?? (summary.latestRun ? "정상 완료" : "실행 기록 없음")}</TableCell></TableRow>)}</TableBody></Table></div>
-      <div className="space-y-2 md:hidden">{sorted.map((summary) => <article key={summary.jobType} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><h3 className="text-sm font-semibold">{runLabel(summary.jobType)}</h3><JobSummaryStatus summary={summary} /></div><dl className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><dt className="text-muted-foreground">최근 점검</dt><dd>{formatDateTime(summary.latestCheckAt)}</dd></div><div><dt className="text-muted-foreground">최근 성공</dt><dd>{formatDateTime(summary.latestSuccessAt)}</dd></div><div className="col-span-2"><dt className="text-muted-foreground">다음 기준</dt><dd>{formatDateTime(summary.nextExpectedAt)}</dd></div></dl><p className="mt-2 text-xs text-muted-foreground">{summary.reasonLabel ?? (summary.latestRun ? "정상 완료" : "실행 기록 없음")}</p></article>)}</div>
+      <div className="hidden overflow-x-auto xl:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>판정</TableHead><TableHead>최근 점검</TableHead><TableHead>최근 성공</TableHead><TableHead>다음 기준</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{sorted.map((summary) => <TableRow key={summary.jobType}><TableCell className="font-medium">{runLabel(summary.jobType)}</TableCell><TableCell><JobSummaryStatus summary={summary} /></TableCell><TableCell className="tabular-nums">{formatDateTime(summary.latestCheckAt)}</TableCell><TableCell className="tabular-nums">{formatDateTime(summary.latestSuccessAt)}</TableCell><TableCell className="tabular-nums">{formatDateTime(summary.nextExpectedAt)}</TableCell><TableCell className="max-w-72 text-sm text-muted-foreground">{summary.reasonLabel ?? (summary.latestRun ? "정상 완료" : "실행 기록 없음")}</TableCell></TableRow>)}</TableBody></Table></div>
+      <div className="space-y-2 xl:hidden">{sorted.map((summary) => <article key={summary.jobType} className="rounded-lg border p-3"><div className="flex items-start justify-between gap-3"><h3 className="text-sm font-semibold">{runLabel(summary.jobType)}</h3><JobSummaryStatus summary={summary} /></div><dl className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><dt className="text-muted-foreground">최근 점검</dt><dd>{formatDateTime(summary.latestCheckAt)}</dd></div><div><dt className="text-muted-foreground">최근 성공</dt><dd>{formatDateTime(summary.latestSuccessAt)}</dd></div><div className="col-span-2"><dt className="text-muted-foreground">다음 기준</dt><dd>{formatDateTime(summary.nextExpectedAt)}</dd></div></dl><p className="mt-2 text-xs text-muted-foreground">{summary.reasonLabel ?? (summary.latestRun ? "정상 완료" : "실행 기록 없음")}</p></article>)}</div>
     </>
   );
 }
@@ -633,41 +641,45 @@ function RetentionPolicyTable({ policies }: { policies: DataRetentionPolicyStatu
   return <Table><TableHeader><TableRow><TableHead>정책</TableHead><TableHead>보존</TableHead><TableHead>현재 삭제 대상</TableHead></TableRow></TableHeader><TableBody>{policies.map((policy) => <TableRow key={policy.id}><TableCell>{policy.category === "scheduled_operations" ? "정기 작업 · " : ""}{policy.label}</TableCell><TableCell>{policy.retentionDays}일</TableCell><TableCell>{policy.prunableRows.toLocaleString("ko-KR")}건</TableCell></TableRow>)}</TableBody></Table>;
 }
 
-export function OperationsDashboard() {
+export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog }: { view?: "all" | "home" | "resources" | "history"; onRefresh?: () => void; referenceBacklog?: ReactNode } = {}) {
+  const [search, updateSearch] = useConsoleSearch();
+  const jobType = scheduledJobTypes.find((type) => type === search.source);
+  const runStatus = scheduledJobStatuses.find((status) => status === search.state);
+  const page = search.page ?? 1;
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [retentionRunId, setRetentionRunId] = useState<string | null>(null);
-  const [runView, setRunView] = useState<"summary" | "history">("summary");
-  const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), refetchInterval: 30_000 });
-  const jobSummariesQuery = useQuery({ queryKey: queryKeys.operations.jobSummaries(), queryFn: fetchOperationJobSummaries, refetchInterval: 60_000 });
-  const d1Query = useQuery({ queryKey: queryKeys.operations.d1Observability(), queryFn: fetchD1Observability, staleTime: 5 * 60_000, refetchInterval: 5 * 60_000 });
+  const [runView, setRunView] = useState<"summary" | "history">(view === "history" ? "history" : "summary");
+  const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), staleTime: 30_000 });
+  const jobSummariesQuery = useQuery({ queryKey: queryKeys.operations.jobSummaries(), queryFn: fetchOperationJobSummaries, enabled: view !== "resources", staleTime: 60_000 });
+  const d1Query = useQuery({ queryKey: queryKeys.operations.d1Observability(), queryFn: fetchD1Observability, staleTime: 5 * 60_000, enabled: view === "all" || view === "resources" });
   const runsQuery = useQuery({
-    queryKey: queryKeys.operations.runs(),
-    queryFn: () => fetchOperationRuns({ limit: 20 }),
+    queryKey: [...queryKeys.operations.runs(), {jobType, runStatus, page, from: search.from, until: search.until}],
+    queryFn: () => fetchOperationRuns({ limit: 26, offset: (page - 1) * 25, jobType, status: runStatus, from: search.from, until: search.until }),
     enabled: runView === "history" || retentionRunId !== null,
-    refetchInterval: (query) => (query.state.data?.runs ?? []).some((run) => run.status === "queued" || run.status === "running") ? 5_000 : 30_000,
+    refetchInterval: (query) => (query.state.data?.runs ?? []).some((run) => run.status === "queued" || run.status === "running") ? 5_000 : false,
   });
-  const retentionQuery = useQuery({ queryKey: queryKeys.operations.dataRetention(), queryFn: fetchDataRetentionStatus, staleTime: 30_000 });
+  const retentionQuery = useQuery({ queryKey: queryKeys.operations.dataRetention(), queryFn: fetchDataRetentionStatus, enabled: view === "all" || view === "resources", staleTime: 30_000 });
   const invalidate = useCallback(() => Promise.all([queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }), queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })]), [queryClient]);
   const retentionMutation = useMutation({ mutationFn: () => runDataRetentionPrune({ dryRun: false }), onSuccess: (result) => { if ("runId" in result) { setRetentionRunId(result.runId); void invalidate(); toast({ variant: "success", description: "D1 데이터 정리가 대기열에 등록되었습니다." }); } }, onError: () => toast({ variant: "error", description: "D1 데이터 정리에 실패했습니다." }) });
   useEffect(() => { const run = runsQuery.data?.runs.find((item) => item.runId === retentionRunId); if (run && terminalStatuses.has(run.status)) { setRetentionRunId(null); void invalidate(); } }, [retentionRunId, runsQuery.data, invalidate]);
-  const historyRuns = useMemo(() => [...(runsQuery.data?.runs ?? [])].sort((left, right) => Number(right.status === "queued" || right.status === "running") - Number(left.status === "queued" || left.status === "running") || right.acceptedAt - left.acceptedAt), [runsQuery.data]);
+  const historyRuns = useMemo(() => [...(runsQuery.data?.runs ?? []).slice(0, 25)].sort((left, right) => Number(right.status === "queued" || right.status === "running") - Number(left.status === "queued" || left.status === "running") || right.acceptedAt - left.acceptedAt), [runsQuery.data]);
   const data = statusQuery.data;
-  if (statusQuery.isLoading) return <div className="flex min-h-96 items-center justify-center"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>;
-  if (!data) return <div className="w-full"><AdminSectionHeader headingLevel={1} title="운영 대시보드" description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
+  if ((view === "all" || view === "home") && statusQuery.isLoading) return <div className="flex min-h-96 items-center justify-center"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>;
+  if (!data && (view === "all" || view === "home")) return <div className="w-full"><AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : "운영 대시보드"} description="운영 상태를 불러오지 못했습니다." actions={<Button variant="outline" onClick={() => void statusQuery.refetch()}><RefreshCw />다시 시도</Button>} /></div>;
 
   const latestRetention = retentionQuery.data?.recentRuns[0];
-  const queue = data.scheduledOperations.queueOperations;
-  const d1WriteGuard = data.scheduledOperations.d1WriteGuard;
+  const queue = data?.scheduledOperations.queueOperations;
+  const d1WriteGuard = data?.scheduledOperations.d1WriteGuard;
   const summaries = jobSummariesQuery.data?.summaries ?? [];
   const youtubeSummary = summaries.find((item) => item.jobType === "youtube_feed_collection");
-  const latestStoredXRun = data.xCollection.recentRuns.find((run) => run.postsStored > 0);
-  const xIssues = data.summary.issues.filter((issue) => issue.code.startsWith("x_"));
-  const naverIssues = data.summary.issues.filter((issue) => issue.code.startsWith("naver_"));
-  const autoIssues = data.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule"));
+  const latestStoredXRun = data?.xCollection.recentRuns.find((run) => run.postsStored > 0);
+  const xIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("x_")) ?? [];
+  const naverIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("naver_")) ?? [];
+  const autoIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule")) ?? [];
   const toneForIssues = (issues: OperationsIssue[]): StatusTone => issues.some((issue) => issue.severity === "critical") ? "critical" : issues.length > 0 ? "warning" : "success";
   const confirmPrune = () => { const count = retentionQuery.data?.totalPrunableRows ?? 0; if (window.confirm(`보존 기간이 지난 D1 데이터 ${count.toLocaleString("ko-KR")}건을 삭제합니다. 계속할까요?`)) retentionMutation.mutate(); };
-  const refreshAll = () => { void statusQuery.refetch(); void jobSummariesQuery.refetch(); void d1Query.refetch(); void retentionQuery.refetch(); if (runView === "history") void runsQuery.refetch(); };
+  const refreshAll = () => { onRefresh?.(); void statusQuery.refetch(); if (view !== "resources") void jobSummariesQuery.refetch(); if (view === "all" || view === "resources") { void d1Query.refetch(); void retentionQuery.refetch(); } if (runView === "history") void runsQuery.refetch(); };
   const selectRunView = (view: "summary" | "history") => {
     setRunView(view);
     window.requestAnimationFrame(() => document.getElementById(view === "summary" ? "job-summary-tab" : "job-history-tab")?.focus());
@@ -680,39 +692,84 @@ export function OperationsDashboard() {
 
   return (
     <div className="flex w-full flex-col gap-6" data-testid="operations-dashboard">
-      <AdminSectionHeader headingLevel={1} title="운영 대시보드" description={`운영 상태 ${data.window.hours}시간 · D1 실계측 UTC 일자 기준`} actions={<Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 새로고침</Button>} />
+      {view !== "resources" && <AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : view === "history" ? "작업 실행 이력" : "운영 대시보드"} description={`운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} actions={<Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 상태 새로고침</Button>} />}
 
-      <section className="space-y-3" aria-labelledby="attention-heading">
+      <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />
+      {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <SectionHeading id="attention-heading" title="지금 확인할 것" description="문제와 대기열 상태를 다른 이력보다 먼저 확인합니다." />
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue.used} limit={queue.limit} usedPercent={Math.max(0, Math.min(100, queue.usedPercent))} /></div>
-      </section>
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>
+      </section> : null}
 
-      <section className="space-y-3" aria-labelledby="collection-heading">
+      {data && view === "home" && <section aria-label="사람의 검토 필요" className="rounded-lg border bg-card p-3">
+        <h2 className="mb-2 font-semibold">사람의 검토 필요</h2>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <a className="rounded border p-3 hover:bg-muted" href="/admin/review?tab=schedule">일정 승인 <strong className="float-right">{data.autoUpdate.pending.total}건</strong></a>
+          {(["automatic", "proposals", "imports"] as const).map((kind) => {
+            const entry = data.review?.entries.find((item) => item.kind === kind);
+            return <a key={kind} className="rounded border p-3 hover:bg-muted" href={`/admin/otw-play?tab=${kind === "automatic" ? "automatic-review" : kind === "proposals" ? "review" : "import"}`}>{kind === "automatic" ? "자동 영상 후보" : kind === "proposals" ? "사용자 제안" : "가져오기 검토"}<strong className="float-right">{entry?.status === "available" ? `${entry.count}건` : "미확인"}</strong></a>;
+          })}
+        </div><p className="mt-2 text-xs text-muted-foreground">종류별 대기량이며 후보가 중복될 수 있습니다. 검토 저장과 공개는 별도 동작입니다.</p>
+      </section>}
+      {data && view === "home" && (
+        <section aria-label="자동 처리 대기" className="space-y-2 rounded-lg border p-3">
+          <h2 className="font-semibold">자동 처리 대기</h2>
+          <div className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div className="min-w-0 space-y-1">
+              <p className="flex items-baseline justify-between gap-3"><span>전송 대기</span><strong className="tabular-nums">{data.scheduledOperations.outboxBacklog}건</strong></p>
+              <a className="text-xs text-muted-foreground underline" href="/admin/history?tab=runs">실행 근거 확인 →</a>
+            </div>
+            <div className="min-w-0 border-t pt-3 md:border-t-0 md:border-l md:pt-0 md:pl-3">
+              {referenceBacklog ?? <a className="underline" href="/admin/collection?source=x">X 원문·작성자 보강 사유 확인 →</a>}
+            </div>
+          </div>
+        </section>
+      )}
+      {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="collection-heading">
         <SectionHeading id="collection-heading" title="수집 상태" description="공급자별 최근 정상 점검과 실제 수집 결과를 구분합니다." />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatusCard title="자동 업데이트" value={data.autoUpdate.enabled ? statusLabel(autoIssues.length ? data.summary.status : "ok") : "비활성"} detail={`최근 정상 ${formatDateTime(data.autoUpdate.lastRun)} · 대기 ${data.autoUpdate.pending.total}건`} href="/admin/settings?tab=runs" icon={CalendarClock} tone={data.autoUpdate.enabled ? toneForIssues(autoIssues) : "neutral"} />
-          <StatusCard title="X 신규 게시물" value={data.xCollection.enabled ? statusLabel(xIssues.some((issue) => issue.severity === "critical") ? "critical" : xIssues.length ? "warning" : "ok") : "비활성"} detail={`최근 점검 ${formatDateTime(data.xCollection.lastRun)} · 신규 저장 ${formatDateTime(latestStoredXRun?.finishedAt)} · UTC 예산 ${data.xCollection.usage.quota.todayBudgetUsedPercent}%`} href="/admin/member-posts?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.enabled ? toneForIssues(xIssues) : "neutral"} />
-          <StatusCard title="네이버 카페" value={data.naverCafe.enabled ? statusLabel(naverIssues.some((issue) => issue.severity === "critical") ? "critical" : naverIssues.length ? "warning" : "ok") : "비활성"} detail={`활성 ${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount} · 최근 점검 ${formatDateTime(data.naverCafe.collection.lastRun)}`} href="/admin/member-posts?source=naver-cafe#naver-cafe-monitoring" icon={Coffee} tone={data.naverCafe.enabled ? toneForIssues(naverIssues) : "neutral"} />
-          <StatusCard title="YouTube 신규 피드" value={youtubeSummary ? statusLabel(youtubeSummary.health) : "확인 중"} detail={`최근 점검 ${formatDateTime(youtubeSummary?.latestCheckAt)} · 최근 성공 ${formatDateTime(youtubeSummary?.latestSuccessAt)}`} href="#scheduled-jobs" icon={Youtube} tone={youtubeSummary?.health === "critical" ? "critical" : youtubeSummary?.health === "attention" ? "warning" : youtubeSummary?.health === "healthy" ? "success" : "neutral"} />
+          <StatusCard title="자동 업데이트" value={data.autoUpdate.enabled ? statusLabel(autoIssues.length ? data.summary.status : "ok") : "비활성"} detail={`최근 정상 ${formatDateTime(data.autoUpdate.lastRun)} · 대기 ${data.autoUpdate.pending.total}건`} href="/admin/collection?source=schedule" icon={CalendarClock} tone={data.autoUpdate.enabled ? toneForIssues(autoIssues) : "neutral"} />
+          <StatusCard title="X 신규 게시물" value={data.xCollection.enabled ? statusLabel(xIssues.some((issue) => issue.severity === "critical") ? "critical" : xIssues.length ? "warning" : "ok") : "비활성"} detail={`최근 점검 ${formatDateTime(data.xCollection.lastRun)} · 신규 저장 ${formatDateTime(latestStoredXRun?.finishedAt)} · UTC 예산 ${data.xCollection.usage.quota.todayBudgetUsedPercent}%`} href="/admin/collection?source=x#x-monitoring" icon={MessageSquareText} tone={data.xCollection.enabled ? toneForIssues(xIssues) : "neutral"} />
+          <StatusCard title="네이버 카페" value={data.naverCafe.enabled ? statusLabel(naverIssues.some((issue) => issue.severity === "critical") ? "critical" : naverIssues.length ? "warning" : "ok") : "비활성"} detail={`활성 ${data.naverCafe.enabledSourceCount}/${data.naverCafe.sourceCount} · 최근 점검 ${formatDateTime(data.naverCafe.collection.lastRun)}`} href="/admin/collection?source=naver-cafe#naver-cafe-monitoring" icon={Coffee} tone={data.naverCafe.enabled ? toneForIssues(naverIssues) : "neutral"} />
+          <StatusCard
+            title="YouTube 신규 피드"
+            value={jobSummariesQuery.isError ? "조회 실패" : youtubeSummary ? statusLabel(youtubeSummary.health) : jobSummariesQuery.isFetching ? "확인 중" : jobSummariesQuery.isSuccess ? "기록 없음" : "미확인"}
+            detail={youtubeSummary
+              ? `${jobSummariesQuery.isError ? `이전 판정: ${statusLabel(youtubeSummary.health)} · ` : ""}최근 점검 ${formatDateTime(youtubeSummary.latestCheckAt)} · 최근 성공 ${formatDateTime(youtubeSummary.latestSuccessAt)}`
+              : jobSummariesQuery.isError ? "수집 상태를 확인하지 못했습니다. 상태 새로고침으로 다시 조회해 주세요." : jobSummariesQuery.isSuccess ? "YouTube 신규 피드 수집 상태 기록이 없습니다." : "수집 상태를 조회하고 있습니다."}
+            href="/admin/history?tab=runs&source=youtube_feed_collection"
+            icon={Youtube}
+            tone={jobSummariesQuery.isError ? "warning" : youtubeSummary?.health === "critical" ? "critical" : youtubeSummary?.health === "attention" ? "warning" : youtubeSummary?.health === "healthy" ? "success" : "neutral"}
+          >
+            <div className="mt-2 [&_p]:my-0"><QueryReadback updatedAt={jobSummariesQuery.dataUpdatedAt} fetching={jobSummariesQuery.isFetching} error={jobSummariesQuery.isError} /></div>
+          </StatusCard>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="space-y-3" aria-labelledby="resources-heading">
+      {view === "all" || view === "resources" ? <section className="space-y-3" aria-labelledby="resources-heading">
         <SectionHeading id="resources-heading" title="자원 및 한도" description="Cloudflare 실계측과 내부 실행 허용 예상치를 혼동하지 않도록 분리합니다." />
-        <div className="grid gap-4 lg:grid-cols-3"><D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} /><D1WriteGuardCard guard={d1WriteGuard} /></div>
-      </section>
+        <div className="grid gap-4 lg:grid-cols-3"><D1ObservabilityCard data={d1Query.data} loading={d1Query.isLoading} />{d1WriteGuard ? <D1WriteGuardCard guard={d1WriteGuard} /> : <p role="status">실행 보호 한도 미확인</p>}</div>
+      </section> : null}
 
-      <section id="scheduled-jobs" className="space-y-3" aria-labelledby="jobs-heading">
+      {view === "all" || view === "history" ? <section id="scheduled-jobs" className="space-y-3" aria-labelledby="jobs-heading">
+        {runView === "history" && <div className="flex flex-wrap items-end gap-2">
+          <label className="text-xs">작업 종류<select className="block h-9 rounded border bg-background px-2" value={search.source ?? ""} onChange={(e) => updateSearch({source: e.target.value, page: 1})}><option value="">모든 작업</option>{scheduledJobTypes.map((type) => <option key={type} value={type}>{runLabel(type)}</option>)}</select></label>
+          <label className="text-xs">결과<select className="block h-9 rounded border bg-background px-2" value={search.state ?? ""} onChange={(e) => updateSearch({state: e.target.value, page: 1})}><option value="">모든 결과</option>{scheduledJobStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label>
+          <label className="text-xs">시작일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label>
+          <label className="text-xs">종료일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
+          <Button variant="outline" disabled={page === 1} onClick={() => updateSearch({page: page - 1}, false)}>이전</Button><span>{page}페이지</span><Button variant="outline" disabled={(runsQuery.data?.runs.length ?? 0) <= 25} onClick={() => updateSearch({page: page + 1}, false)}>다음</Button>
+        </div>
+        }
+        {runView === "history" && <QueryReadback updatedAt={runsQuery.dataUpdatedAt} fetching={runsQuery.isFetching} error={runsQuery.isError}/>}
         <SectionHeading id="jobs-heading" title="정기 작업 상태" description="기본 화면은 작업 종류별 최신 의미 있는 실행만 표시합니다." />
         <Card>
           <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-base">예약·수동 작업</CardTitle><CardDescription className="mt-1">대상이 없는 정기 점검은 D1 쓰기 절감을 위해 run을 저장하지 않습니다.</CardDescription></div><div role="tablist" aria-label="작업 이력 보기" className="flex rounded-md border p-1" onKeyDown={handleRunTabKeyDown}><Button id="job-summary-tab" role="tab" tabIndex={runView === "summary" ? 0 : -1} aria-selected={runView === "summary"} aria-controls="job-summary-panel" variant={runView === "summary" ? "secondary" : "ghost"} size="sm" onClick={() => setRunView("summary")}><ListChecks /> 작업별 최신</Button><Button id="job-history-tab" role="tab" tabIndex={runView === "history" ? 0 : -1} aria-selected={runView === "history"} aria-controls="job-history-panel" variant={runView === "history" ? "secondary" : "ghost"} size="sm" onClick={() => setRunView("history")}><History /> 전체 이력</Button></div></div></CardHeader>
           <CardContent>
-            {runView === "summary" ? <div id="job-summary-panel" role="tabpanel" aria-labelledby="job-summary-tab">{jobSummariesQuery.isLoading ? <div className="flex min-h-32 items-center justify-center"><Loader2 className="size-5 animate-spin" /></div> : <JobSummaryTable summaries={summaries} />}</div> : <div id="job-history-panel" role="tabpanel" aria-labelledby="job-history-tab"><div className="hidden overflow-x-auto md:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{historyRuns.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && historyRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></div><div className="space-y-2 md:hidden">{historyRuns.map((run) => <RunCard key={run.runId} run={run} />)}</div></div>}
+            {runView === "summary" ? <div id="job-summary-panel" role="tabpanel" aria-labelledby="job-summary-tab"><QueryReadback updatedAt={jobSummariesQuery.dataUpdatedAt} fetching={jobSummariesQuery.isFetching} error={jobSummariesQuery.isError} />{jobSummariesQuery.isLoading ? <div className="flex min-h-32 items-center justify-center"><Loader2 className="size-5 animate-spin" /></div> : <JobSummaryTable summaries={summaries} />}</div> : <div id="job-history-panel" role="tabpanel" aria-labelledby="job-history-tab"><div className="hidden overflow-x-auto xl:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>작업 묶음 진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{historyRuns.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && !runsQuery.isError && historyRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></div><div className="space-y-2 xl:hidden">{historyRuns.map((run) => <RunCard key={run.runId} run={run} />)}</div></div>}
           </CardContent>
         </Card>
-      </section>
+      </section> : null}
 
-      <section className="space-y-3" aria-labelledby="retention-heading">
+      {view === "all" || view === "resources" ? <section className="space-y-3" aria-labelledby="retention-heading">
         <SectionHeading id="retention-heading" title="보존·정리" description="저장 용량과 기간이 지난 운영 로그 정리를 확인합니다." />
         <Card>
           <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="flex items-center gap-2 text-base"><DatabaseZap className="size-4" /> D1 데이터 보존</CardTitle><CardDescription>게시물 식별 이력과 일별 집계는 보존하고 기간이 지난 운영 원문 로그만 정리합니다.</CardDescription></div><Button variant="outline" size="sm" onClick={() => void retentionQuery.refetch()} disabled={retentionQuery.isFetching}><RefreshCw className={cn(retentionQuery.isFetching && "animate-spin")} /> 삭제 대상 다시 계산</Button></div></CardHeader>
@@ -720,7 +777,7 @@ export function OperationsDashboard() {
             {retentionQuery.data ? <><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-lg border p-3"><p className="flex items-center gap-1.5 text-xs text-muted-foreground"><HardDrive className="size-3.5" /> 저장 용량</p><p className="mt-1 text-2xl font-semibold">{retentionQuery.data.capacity.usedPercent === null ? "-" : `${retentionQuery.data.capacity.usedPercent}%`}</p><p className="text-xs text-muted-foreground">{formatBytes(retentionQuery.data.capacity.sizeBytes)} / {formatBytes(retentionQuery.data.capacity.maxBytes)}</p><Badge variant="outline" className={statusClass(retentionQuery.data.capacity.status === "notice" ? "warning" : retentionQuery.data.capacity.status)}>{retentionQuery.data.capacity.status === "unavailable" ? "확인 불가" : retentionQuery.data.capacity.status === "ok" ? "정상" : retentionQuery.data.capacity.status === "notice" ? "60% 알림" : retentionQuery.data.capacity.status === "warning" ? "75% 경고" : "85% 위험"}</Badge></div><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">현재 삭제 대상</p><p className="mt-1 text-2xl font-semibold">{retentionQuery.data.totalPrunableRows.toLocaleString("ko-KR")}건</p></div><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">최근 삭제</p><p className="mt-1 text-2xl font-semibold">{latestRetention?.totalDeletedRows.toLocaleString("ko-KR") ?? "-"}건</p><p className="text-xs text-muted-foreground">{formatDateTime(latestRetention?.finishedAt)}</p></div><div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">최근 검증</p><p className="mt-1 font-semibold">{latestRetention?.verification === "verified" ? "삭제 후 대상 없음" : latestRetention?.verification === "remaining" ? `잔여 ${latestRetention.remainingPrunableRows?.toLocaleString("ko-KR")}건` : "기존 이력: 검증 정보 없음"}</p></div></div><RetentionPolicyTable policies={retentionQuery.data.policies} /><section><h3 className="mb-2 text-sm font-semibold">최근 정리 이력</h3><Table><TableHeader><TableRow><TableHead>완료</TableHead><TableHead>구분</TableHead><TableHead>상태</TableHead><TableHead>삭제</TableHead><TableHead>검증</TableHead></TableRow></TableHeader><TableBody>{retentionQuery.data.recentRuns.map((run) => <TableRow key={run.runId}><TableCell>{formatDateTime(run.finishedAt)}</TableCell><TableCell>{run.source === "manual" ? "수동" : "정기"}</TableCell><TableCell><Badge variant="outline" className={statusClass(run.status)}>{statusLabel(run.status)}</Badge></TableCell><TableCell>{run.totalDeletedRows.toLocaleString("ko-KR")}건</TableCell><TableCell>{run.verification === "verified" ? "정상" : run.verification === "remaining" ? `잔여 ${run.remainingPrunableRows}건` : "미확인"}</TableCell></TableRow>)}{retentionQuery.data.recentRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">정리 이력이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></section><details className="rounded-lg border border-dashed p-3"><summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium"><Info className="size-4 text-muted-foreground" /> 고급 작업 · 데이터 정리 <ChevronDown className="ml-auto size-4" /></summary><div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted-foreground">보존 기간이 지난 운영 로그를 영구 삭제합니다. 게시물 영구 기록은 대상이 아닙니다.</p><Button variant="destructive" size="sm" onClick={confirmPrune} disabled={retentionMutation.isPending}>{retentionMutation.isPending ? <Loader2 className="animate-spin" /> : <DatabaseZap />} 데이터 정리 실행</Button></div></details></> : <p className="text-sm text-destructive">D1 보존 상태를 불러오지 못했습니다.</p>}
           </CardContent>
         </Card>
-      </section>
+      </section> : null}
     </div>
   );
 }

@@ -29,13 +29,18 @@ import { Route as PlayCatalogRouteImport } from './routes/play/_catalog'
 import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
 import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminReviewRouteImport } from './routes/admin/review'
+import { Route as AdminResourcesRouteImport } from './routes/admin/resources'
 import { Route as AdminOtwPlayRouteImport } from './routes/admin/otw-play'
 import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
 import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
 import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
 import { Route as AdminLogsRouteImport } from './routes/admin/logs'
 import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
+import { Route as AdminHistoryRouteImport } from './routes/admin/history'
 import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
+import { Route as AdminContentRouteImport } from './routes/admin/content'
+import { Route as AdminCollectionRouteImport } from './routes/admin/collection'
 import { Route as PlayCatalogIndexRouteImport } from './routes/play/_catalog/index'
 import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
 import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
@@ -141,6 +146,16 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminReviewRoute = AdminReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminResourcesRoute = AdminResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminOtwPlayRoute = AdminOtwPlayRouteImport.update({
   id: '/otw-play',
   path: '/otw-play',
@@ -171,9 +186,24 @@ const AdminKirinukiRoute = AdminKirinukiRouteImport.update({
   path: '/kirinuki',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminHistoryRoute = AdminHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminDdaysRoute = AdminDdaysRouteImport.update({
   id: '/ddays',
   path: '/ddays',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminContentRoute = AdminContentRouteImport.update({
+  id: '/content',
+  path: '/content',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCollectionRoute = AdminCollectionRouteImport.update({
+  id: '/collection',
+  path: '/collection',
   getParentRoute: () => AdminRoute,
 } as any)
 const PlayCatalogIndexRoute = PlayCatalogIndexRouteImport.update({
@@ -220,13 +250,18 @@ export interface FileRoutesByFullPath {
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/admin/collection': typeof AdminCollectionRoute
+  '/admin/content': typeof AdminContentRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/history': typeof AdminHistoryRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/otw-play': typeof AdminOtwPlayRoute
+  '/admin/resources': typeof AdminResourcesRoute
+  '/admin/review': typeof AdminReviewRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -251,13 +286,18 @@ export interface FileRoutesByTo {
   '/rights': typeof RightsRoute
   '/snapshot': typeof SnapshotRoute
   '/weekly': typeof WeeklyRoute
+  '/admin/collection': typeof AdminCollectionRoute
+  '/admin/content': typeof AdminContentRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/history': typeof AdminHistoryRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/otw-play': typeof AdminOtwPlayRoute
+  '/admin/resources': typeof AdminResourcesRoute
+  '/admin/review': typeof AdminReviewRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -283,13 +323,18 @@ export interface FileRoutesById {
   '/snapshot': typeof SnapshotRoute
   '/vods': typeof VodsRouteWithChildren
   '/weekly': typeof WeeklyRoute
+  '/admin/collection': typeof AdminCollectionRoute
+  '/admin/content': typeof AdminContentRoute
   '/admin/ddays': typeof AdminDdaysRoute
+  '/admin/history': typeof AdminHistoryRoute
   '/admin/kirinuki': typeof AdminKirinukiRoute
   '/admin/logs': typeof AdminLogsRoute
   '/admin/member-posts': typeof AdminMemberPostsRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/otw-play': typeof AdminOtwPlayRoute
+  '/admin/resources': typeof AdminResourcesRoute
+  '/admin/review': typeof AdminReviewRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/snapshot': typeof AdminSnapshotRoute
   '/admin/youtube-cache': typeof AdminYoutubeCacheRoute
@@ -320,13 +365,18 @@ export interface FileRouteTypes {
     | '/snapshot'
     | '/vods'
     | '/weekly'
+    | '/admin/collection'
+    | '/admin/content'
     | '/admin/ddays'
+    | '/admin/history'
     | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
     | '/admin/otw-play'
+    | '/admin/resources'
+    | '/admin/review'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -351,13 +401,18 @@ export interface FileRouteTypes {
     | '/rights'
     | '/snapshot'
     | '/weekly'
+    | '/admin/collection'
+    | '/admin/content'
     | '/admin/ddays'
+    | '/admin/history'
     | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
     | '/admin/otw-play'
+    | '/admin/resources'
+    | '/admin/review'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -382,13 +437,18 @@ export interface FileRouteTypes {
     | '/snapshot'
     | '/vods'
     | '/weekly'
+    | '/admin/collection'
+    | '/admin/content'
     | '/admin/ddays'
+    | '/admin/history'
     | '/admin/kirinuki'
     | '/admin/logs'
     | '/admin/member-posts'
     | '/admin/notices'
     | '/admin/operations'
     | '/admin/otw-play'
+    | '/admin/resources'
+    | '/admin/review'
     | '/admin/settings'
     | '/admin/snapshot'
     | '/admin/youtube-cache'
@@ -563,6 +623,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/review': {
+      id: '/admin/review'
+      path: '/review'
+      fullPath: '/admin/review'
+      preLoaderRoute: typeof AdminReviewRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/resources': {
+      id: '/admin/resources'
+      path: '/resources'
+      fullPath: '/admin/resources'
+      preLoaderRoute: typeof AdminResourcesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/otw-play': {
       id: '/admin/otw-play'
       path: '/otw-play'
@@ -605,11 +679,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminKirinukiRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/history': {
+      id: '/admin/history'
+      path: '/history'
+      fullPath: '/admin/history'
+      preLoaderRoute: typeof AdminHistoryRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/ddays': {
       id: '/admin/ddays'
       path: '/ddays'
       fullPath: '/admin/ddays'
       preLoaderRoute: typeof AdminDdaysRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/content': {
+      id: '/admin/content'
+      path: '/content'
+      fullPath: '/admin/content'
+      preLoaderRoute: typeof AdminContentRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/collection': {
+      id: '/admin/collection'
+      path: '/collection'
+      fullPath: '/admin/collection'
+      preLoaderRoute: typeof AdminCollectionRouteImport
       parentRoute: typeof AdminRoute
     }
     '/play/_catalog/': {
@@ -658,13 +753,18 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminCollectionRoute: typeof AdminCollectionRoute
+  AdminContentRoute: typeof AdminContentRoute
   AdminDdaysRoute: typeof AdminDdaysRoute
+  AdminHistoryRoute: typeof AdminHistoryRoute
   AdminKirinukiRoute: typeof AdminKirinukiRoute
   AdminLogsRoute: typeof AdminLogsRoute
   AdminMemberPostsRoute: typeof AdminMemberPostsRoute
   AdminNoticesRoute: typeof AdminNoticesRoute
   AdminOperationsRoute: typeof AdminOperationsRoute
   AdminOtwPlayRoute: typeof AdminOtwPlayRoute
+  AdminResourcesRoute: typeof AdminResourcesRoute
+  AdminReviewRoute: typeof AdminReviewRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminSnapshotRoute: typeof AdminSnapshotRoute
   AdminYoutubeCacheRoute: typeof AdminYoutubeCacheRoute
@@ -672,13 +772,18 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminCollectionRoute: AdminCollectionRoute,
+  AdminContentRoute: AdminContentRoute,
   AdminDdaysRoute: AdminDdaysRoute,
+  AdminHistoryRoute: AdminHistoryRoute,
   AdminKirinukiRoute: AdminKirinukiRoute,
   AdminLogsRoute: AdminLogsRoute,
   AdminMemberPostsRoute: AdminMemberPostsRoute,
   AdminNoticesRoute: AdminNoticesRoute,
   AdminOperationsRoute: AdminOperationsRoute,
   AdminOtwPlayRoute: AdminOtwPlayRoute,
+  AdminResourcesRoute: AdminResourcesRoute,
+  AdminReviewRoute: AdminReviewRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminSnapshotRoute: AdminSnapshotRoute,
   AdminYoutubeCacheRoute: AdminYoutubeCacheRoute,

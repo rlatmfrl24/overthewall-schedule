@@ -1,3 +1,4 @@
+import { parseLogFilters } from "@contracts/audit";
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import { readAdminAuditLogs } from "../application/read-admin-audit-logs";
@@ -34,10 +35,13 @@ export const createHandleAdminAuditLogs =
       parsePage(url.searchParams.get("pageSize"), 50),
       200,
     );
+    let filters;
+    try { filters = parseLogFilters(url.searchParams); } catch { return new Response("Invalid log filters", { status: 400 }); }
     const result = await readAdminAuditLogs(
       resolveReader(env),
       page,
       pageSize,
+      filters,
     );
     return Response.json(result, { headers: NO_STORE_HEADERS });
   };

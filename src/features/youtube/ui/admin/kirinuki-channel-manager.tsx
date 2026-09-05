@@ -1,3 +1,6 @@
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { Input } from "@/shared/ui/input";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KirinukiChannelDto } from "@contracts/youtube";
@@ -6,7 +9,6 @@ import {
   PlusCircle,
   Pencil,
   Trash2,
-  ExternalLink,
   Youtube,
   RefreshCw,
 } from "lucide-react";
@@ -52,6 +54,7 @@ const KIRINUKI_CHANNELS_QUERY_KEY = [
 ] as const;
 
 export function KirinukiChannelManager() {
+  const [search, updateSearch] = useConsoleSearch();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -175,7 +178,7 @@ export function KirinukiChannelManager() {
       <AdminSectionHeader
         title="키리누키 채널 관리"
         description="VOD 페이지 키리누키 섹션에 표시될 유튜브 채널을 관리합니다."
-        count={sortedChannels.length}
+        count={channelsQuery.data ? sortedChannels.length : undefined}
         actions={
           <>
             <Select
@@ -196,6 +199,7 @@ export function KirinukiChannelManager() {
             <Button
               variant="outline"
               size="sm"
+              aria-label="키리누키 채널 상태 새로고침"
               onClick={() => void channelsQuery.refetch()}
               disabled={channelsQuery.isFetching}
             >
@@ -213,7 +217,9 @@ export function KirinukiChannelManager() {
         }
       />
 
-      {channelsQuery.isFetching && sortedChannels.length === 0 ? (
+      <div className="flex flex-wrap gap-3"><Input aria-label="키리누키 채널 검색" placeholder="채널명 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a className="text-sm underline" href="/admin/otw-play?tab=channels">Play 승인 채널 →</a><a className="text-sm underline" href="/admin/otw-play?tab=play-monitor">Play 감시 대상 →</a></div>
+      <QueryReadback updatedAt={channelsQuery.dataUpdatedAt} fetching={channelsQuery.isFetching} error={channelsQuery.isError} />
+      {channelsQuery.isError && !channelsQuery.data ? <p>채널 목록을 확인할 수 없습니다.</p> : channelsQuery.isFetching && sortedChannels.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
         </div>
@@ -223,18 +229,18 @@ export function KirinukiChannelManager() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[920px]">
+          <Table className="w-full">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[70px]">구분</TableHead>
                 <TableHead className="w-[220px]">채널명</TableHead>
-                <TableHead className="w-[240px]">채널 ID</TableHead>
-                <TableHead>채널 URL</TableHead>
+                <TableHead>연결·사용처</TableHead>
+
                 <TableHead className="w-[90px] text-right">작업</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedChannels.map((channel) => (
+              {sortedChannels.filter((channel) => !search.q || channel.channel_name.toLocaleLowerCase().includes(search.q.toLocaleLowerCase())).map((channel) => (
                 <TableRow key={channel.id}>
                   <TableCell>
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-100">
@@ -242,21 +248,7 @@ export function KirinukiChannelManager() {
                     </span>
                   </TableCell>
                   <TableCell className="font-medium">{channel.channel_name}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {channel.youtube_channel_id}
-                  </TableCell>
-                  <TableCell>
-                    <a
-                      href={channel.channel_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex max-w-[330px] items-center gap-1 truncate text-xs text-primary hover:underline"
-                      title={channel.channel_url}
-                    >
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                      {channel.channel_url}
-                    </a>
-                  </TableCell>
+                  <TableCell className="text-xs"><span>키리누키 피드</span><details><summary>채널 정보</summary><p className="break-all">{channel.youtube_channel_id}</p><a className="underline" href={channel.channel_url} target="_blank" rel="noreferrer">YouTube 채널 열기 ↗</a></details></TableCell>
                   <TableCell className="text-right">
                     <div className="inline-flex items-center gap-1">
                       <Button

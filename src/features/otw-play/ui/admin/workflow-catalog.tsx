@@ -1,3 +1,5 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -129,7 +131,8 @@ export function WorkflowCatalog({
   onPublishDrafts: (performances: OtwPlayAdminPerformanceDto[]) => Promise<void>;
   onAddPerformance: (songId: string) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [consoleSearch, updateConsole] = useConsoleSearch();
+  const expanded = new Set(consoleSearch.selected ? [consoleSearch.selected] : []);
   const [editSong, setEditSong] = useState<OtwPlayAdminSongDto | null>(null);
   const [editPerformance, setEditPerformance] = useState<OtwPlayAdminPerformanceDto | null>(null);
   const [confirmation, setConfirmation] = useState<{
@@ -140,6 +143,15 @@ export function WorkflowCatalog({
     action: () => Promise<void>;
   } | null>(null);
   const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const filteredSongs = activeSongs.filter((song) => {
+    const text = [song.title, ...song.originalArtists.map((artist) => artist.displayName)].join(" ").toLocaleLowerCase();
+    return (!consoleSearch.q || text.includes(consoleSearch.q.toLocaleLowerCase())) &&
+      (!consoleSearch.category || song.tags?.includes(consoleSearch.category)) &&
+      (!consoleSearch.state || catalog.performances.some((item) => item.songId === song.id && item.publicationStatus === consoleSearch.state));
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredSongs.length / 25));
+  const page = Math.min(consoleSearch.page ?? 1, totalPages);
+  const visibleSongs = filteredSongs.slice((page - 1) * 25, page * 25);
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
   const draftPerformances = catalog.performances.filter(
     (performance) =>
@@ -254,6 +266,14 @@ export function WorkflowCatalog({
 
   return (
     <>
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2">
+        <Input aria-label="곡명·원곡 가수 검색" placeholder="곡명·원곡 가수 검색" className="w-64" value={consoleSearch.q ?? ""} onChange={(event) => updateConsole({ q: event.target.value, page: 1 })} />
+        <select aria-label="게시 상태" className="h-9 rounded border bg-background px-2" value={consoleSearch.state ?? ""} onChange={(event) => updateConsole({ state: event.target.value, page: 1 })}><option value="">모든 게시 상태</option><option value="draft">임시 저장만</option><option value="published">게시됨</option><option value="withdrawn">철회된 가창</option></select>
+        <select aria-label="곡 분류" className="h-9 rounded border bg-background px-2" value={consoleSearch.category ?? ""} onChange={(event) => updateConsole({ category: event.target.value, page: 1 })}><option value="">모든 분류</option>{[...new Set(activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => <option key={tag}>{tag}</option>)}</select>
+        <span className="ml-auto text-sm">{filteredSongs.length}곡 · {page}/{totalPages}</span>
+        <Button variant="outline" disabled={page <= 1} onClick={() => updateConsole({ page: page - 1 }, false)}>이전</Button><Button variant="outline" disabled={page >= totalPages} onClick={() => updateConsole({ page: page + 1 }, false)}>다음</Button>
+      </div>
+      {filteredSongs.length === 0 && <p role="status" className="p-4">조건에 맞는 곡이 없습니다.</p>}
       {activeSongs.length === 0 ? (
         <div className="rounded-xl border border-dashed p-12 text-center text-sm text-muted-foreground">
           등록된 곡이 없습니다. 새 영상 등록에서 첫 곡과 가창을 함께 만드세요.
@@ -290,20 +310,20 @@ export function WorkflowCatalog({
             </Button>
           </div>
           <div className="hidden overflow-x-auto rounded-xl border md:block">
-            <Table className="min-w-[900px]">
+            <Table className="w-full">
               <TableHeader><TableRow><TableHead className="w-10" /><TableHead>곡</TableHead><TableHead>원곡 가수</TableHead><TableHead>가창</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader>
               <TableBody>
-                {activeSongs.flatMap((song) => {
+                {visibleSongs.flatMap((song) => {
                   const performances = catalog.performances.filter((item) => item.songId === song.id);
                   const open = expanded.has(song.id);
                   const rows = [
                     <TableRow key={song.id} className="bg-muted/20">
-                      <TableCell><Button size="icon-sm" variant="ghost" aria-label={`${song.title} 가창 펼치기`} onClick={() => setExpanded((current) => { const next = new Set(current); if (next.has(song.id)) next.delete(song.id); else next.add(song.id); return next; })}>{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button></TableCell>
+                      <TableCell><Button size="icon-sm" variant="ghost" aria-label={`${song.title} 가창 펼치기`} onClick={() => updateConsole({selected: open ? undefined : song.id}, false)}>{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button></TableCell>
                       <TableCell><div className="font-semibold">{song.title}</div><Badge variant="outline" className="mt-1">{song.isOtwOriginal ? "오리지널" : "커버 원곡"}</Badge></TableCell>
                       <TableCell>{song.originalArtists.map((artist) => artist.displayName).join(", ")}</TableCell>
                       <TableCell>{performances.length}개</TableCell>
                       <TableCell><div className="flex flex-wrap gap-1">{(song.tags?.length ?? 0) > 0 ? song.tags.map((tag) => <Badge key={tag}>{tag}</Badge>) : <span className="text-muted-foreground">미분류</span>}</div></TableCell>
-                      <TableCell><div className="flex justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
+                      <TableCell><div className="flex flex-wrap justify-end gap-1"><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}><Pencil className="h-3.5 w-3.5" /> 곡 정보 수정</Button><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 다른 가창 추가</Button>{songDeleteAction(song, performances)}</div></TableCell>
                     </TableRow>,
                   ];
                   if (open) rows.push(...performances.map((performance) => (
@@ -326,7 +346,7 @@ export function WorkflowCatalog({
           </div>
 
           <div className="space-y-3 md:hidden">
-            {activeSongs.map((song) => {
+            {visibleSongs.map((song) => {
               const performances = catalog.performances.filter((item) => item.songId === song.id);
               return <Card key={song.id}><CardContent className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-2 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}<PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
             })}
@@ -395,8 +415,17 @@ function SongEditDialog({ catalog, song, onOpenChange, run }: { catalog: OtwPlay
         : artist;
     }));
   }, [membersQuery.data]);
+  const canDiscard = useUnsavedChanges(Boolean(song && (
+    title !== song.title || original !== song.isOtwOriginal ||
+    JSON.stringify(tags) !== JSON.stringify(song.tags ?? []) ||
+    JSON.stringify(artists.map((artist) => artist.subject)) !== JSON.stringify(song.originalArtists.map((artist) => {
+      const memberUid = catalog.entities.find((entity) => entity.id === artist.entityId)?.memberUid;
+      return memberUid != null ? {kind: "member", memberUid} : {kind: "entity", entityId: artist.entityId};
+    }))
+  )));
+  const close = async (open: boolean) => { if (open || await canDiscard()) onOpenChange(open); };
   const open = song !== null;
-  return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 identity를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })), tags })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
+  return <Dialog open={open} onOpenChange={(open) => void close(open)}><DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>곡 정보 수정</DialogTitle></DialogHeader>{song && <div className="space-y-5"><div className="space-y-1.5"><Label htmlFor="edit-song-title">곡명</Label><Input id="edit-song-title" value={title} onChange={(event) => setTitle(event.target.value)} /></div><SongTagPicker tags={tags} onChange={setTags} /><SubjectPicker label="원곡 가수" placeholder="멤버 또는 기존 원곡 가수 검색" helpText="기존 가수를 선택하거나 새 외부 인물·그룹을 칩으로 추가할 수 있습니다. 첫 번째 가수를 대표 원곡 가수로 저장합니다." members={members} entities={catalog.entities} selected={artists} onChange={setArtists} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={original} onChange={(event) => setOriginal(event.target.checked)} /> OTW 오리지널곡</label></div>}<DialogFooter><Button variant="outline" onClick={() => void close(false)}>취소</Button><Button disabled={!title.trim() || artists.length === 0} onClick={() => { if (!song) return; void run("곡 정보 수정", () => updateOtwPlaySong({ id: song.id, expectedVersion: song.version, slug: song.slug, title: title.trim(), isOtwOriginal: original, originalReleaseDate: song.originalReleaseDate, originalReleasePrecision: song.originalReleasePrecision, aliases: song.aliases.map((alias) => ({ alias: alias.alias, locale: alias.locale, aliasKind: alias.aliasKind })), originalArtists: artists.map((artist, index) => ({ subject: artist.subject, creditOrder: index, isPrimary: index === 0 })), tags })).then((ok) => ok && onOpenChange(false)); }}>저장</Button></DialogFooter></DialogContent></Dialog>;
 }
 
 type EditableParticipant = SelectedSubject & {
@@ -591,13 +620,31 @@ function PerformanceEditDialog({
     return next;
   });
 
+  const canDiscard = useUnsavedChanges(Boolean(performance && (
+    songId !== performance.songId || relation !== performance.relationType ||
+    releaseType !== performance.releaseType || participation !== performance.participationType ||
+    quality !== performance.qualityStatus || releasedAt !== toDateTimeLocal(performance.releasedAt) ||
+    note !== (performance.internalNote ?? "") || JSON.stringify(tags) !== JSON.stringify(performance.tags ?? []) ||
+    JSON.stringify(participants.map((item) => [item.subject, item.participantRole, item.creditNameSnapshot])) !==
+      JSON.stringify(performance.participants.map((item) => {
+        const memberUid = catalog.entities.find((entity) => entity.id === item.entityId)?.memberUid;
+        return [memberUid != null ? {kind: "member", memberUid} : {kind: "entity", entityId: item.entityId}, item.participantRole, item.creditNameSnapshot];
+      })) ||
+    JSON.stringify(parsedSources) !== JSON.stringify([...performance.sources].sort((a, b) => a.priority - b.priority).map((source, priority) => ({
+      youtubeUrl: `https://www.youtube.com/watch?v=${source.source.externalId}`,
+      channelId: source.source.channelId, startSeconds: source.startSeconds, endSeconds: source.endSeconds,
+      sourceRole: source.sourceRole === "kirinuki" ? "kirinuki" : source.sourceRole === "alternate" ? "alternate" : "official",
+      priority, isPrimary: source.isPrimary,
+    })))
+  )));
+  const close = async (open: boolean) => { if (open || await canDiscard()) onOpenChange(open); };
   return (
-    <Dialog open={performance !== null} onOpenChange={onOpenChange}>
+    <Dialog open={performance !== null} onOpenChange={(open) => void close(open)}>
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>가창 정보 수정</DialogTitle>
           <DialogDescription>
-              연결된 곡, 참여자, 분류와 영상 source를 한 번에 수정합니다.
+              연결된 곡, 참여자, 분류와 원본 영상을 한 번에 수정합니다.
           </DialogDescription>
         </DialogHeader>
         {performance && (
@@ -907,7 +954,7 @@ function PerformanceEditDialog({
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => void close(false)}>
             취소
           </Button>
           <Button

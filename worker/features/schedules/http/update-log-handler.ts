@@ -1,3 +1,4 @@
+import { parseLogFilters } from "@contracts/audit";
 import type { UpdateLogQuery } from "@contracts/audit";
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
@@ -67,7 +68,10 @@ export const createUpdateLogHandler =
   const pageParam = url.searchParams.get("page");
   const pageSizeParam = url.searchParams.get("pageSize");
   const isPaged = pageParam !== null || pageSizeParam !== null;
+  let filters;
+  try { filters = parseLogFilters(url.searchParams); } catch { return badRequest("Invalid log filters"); }
   const result = await service.read({
+    ...filters,
     limit: parsePositiveInt(url.searchParams.get("limit"), 50, 1000),
     page: isPaged ? parsePositiveInt(pageParam, 1, Number.MAX_SAFE_INTEGER) : null,
     pageSize: isPaged ? parsePositiveInt(pageSizeParam, 50, 200) : null,

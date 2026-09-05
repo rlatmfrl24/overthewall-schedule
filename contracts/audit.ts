@@ -16,7 +16,29 @@ export interface UpdateLogDto {
   created_at: string | null;
 }
 
-export interface UpdateLogQuery {
+export interface LogFilters {
+  q?: string;
+  action?: string;
+  target?: string;
+  status?: string;
+  from?: string;
+  until?: string;
+}
+
+export function parseLogFilters(params: URLSearchParams): LogFilters {
+  const filters: LogFilters = {};
+  for (const key of ["q", "action", "target", "status", "from", "until"] as const) {
+    const value = params.get(key)?.trim();
+    if (!value) continue;
+    if (value.length > 200) throw new Error("검색 조건은 200자 이하로 입력해 주세요.");
+    if ((key === "from" || key === "until") && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value)) throw new Error("유효한 날짜를 입력해 주세요.");
+    filters[key] = value;
+  }
+  if (filters.from && filters.until && filters.from > filters.until) throw new Error("종료일이 시작일보다 빠릅니다.");
+  return filters;
+}
+
+export interface UpdateLogQuery extends LogFilters {
   page?: number;
   pageSize?: number;
   sort?:

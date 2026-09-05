@@ -1,3 +1,4 @@
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -526,9 +527,11 @@ export function AutoUpdateSettingsManager({
     setUncontrolledActiveTab(tab);
     onActiveTabChange?.(tab);
   };
-  const [pendingSort, setPendingSort] = useState<PendingSortKey>("date_asc");
-  const [pendingActionFilter, setPendingActionFilter] =
-    useState<PendingActionFilter>("all");
+  const [search, updateSearch] = useConsoleSearch();
+  const pendingSort = PENDING_SORT_OPTIONS.find((item) => item.value === search.sort)?.value ?? "created_asc";
+  const setPendingSort = (sort: PendingSortKey) => updateSearch({sort});
+  const pendingActionFilter: PendingActionFilter = search.state === "create" || search.state === "update" ? search.state : "all";
+  const setPendingActionFilter = (state: PendingActionFilter) => updateSearch({state});
   const [pendingApprovalOptions, setPendingApprovalOptions] = useState<
     Record<number, Partial<PendingApprovalOptionState>>
   >({});
@@ -1127,7 +1130,7 @@ export function AutoUpdateSettingsManager({
   return (
     <section className="space-y-6">
       <AdminSectionHeader
-        title="스케줄 자동 업데이트"
+        title={controlledActiveTab === "review" ? "자동 수집 스케쥴 검토" : controlledActiveTab === "rejections" ? "거부 제외 관리" : "일정 자동 수집"}
         description={`치지직 VOD 기반 수집/승인 워크플로우를 관리합니다. 마지막 실행: ${formatLastRun(
           settings?.auto_update_last_run ?? null,
         )}`}
@@ -1140,7 +1143,7 @@ export function AutoUpdateSettingsManager({
               ) : (
                 <Play className="w-4 h-4" />
               )}
-              <span className="ml-1">{isRunning ? "수집 중" : "수집"}</span>
+              <span className="ml-1">{isRunning ? "수집 중" : "지금 수집"}</span>
             </Button>
             <Button
               variant="outline"
@@ -1156,7 +1159,7 @@ export function AutoUpdateSettingsManager({
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              <span className="ml-1">새로고침</span>
+              <span className="ml-1">상태 새로고침</span>
             </Button>
           </div>
         }
@@ -1165,9 +1168,9 @@ export function AutoUpdateSettingsManager({
       <div
         role="tablist"
         aria-label="자동 일정 업데이트 관리"
-        className="flex overflow-x-auto rounded-lg border bg-muted/25 p-1"
+        className={controlledActiveTab ? "hidden" : "flex overflow-x-auto rounded-lg border bg-muted/25 p-1"}
       >
-        {AUTO_UPDATE_TABS.map((tab) => (
+        {!controlledActiveTab && AUTO_UPDATE_TABS.map((tab) => (
           <Button
             key={tab.value}
             id={`auto-update-tab-${tab.value}`}
@@ -1208,7 +1211,7 @@ export function AutoUpdateSettingsManager({
             icon={Clock}
             label="마지막 실행"
             value={formatOperationTime(autoUpdateStatus?.lastRun)}
-            detail={`다음 ${formatOperationTime(autoUpdateStatus?.nextEligibleAt)}`}
+            detail={`다음 가능 ${formatOperationTime(autoUpdateStatus?.nextEligibleAt)}`}
           />
         </CardContent>
       </Card>

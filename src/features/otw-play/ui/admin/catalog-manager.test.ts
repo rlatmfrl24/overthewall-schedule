@@ -301,6 +301,28 @@ describe("OtwPlayCatalogManager", () => {
     deletePerformanceMock.mockResolvedValue({ data: { id: "performance-draft" }, catalogRevision: 8 });
   });
 
+  it("keeps all active categories across pages, category changes and empty searches", async () => {
+    const songs = Array.from({length: 26}, (_, index) => ({
+      id: `song-${index}`, title: `Song ${index}`, isOtwOriginal: false,
+      archivedAt: null, version: 0, tags: [index < 25 ? "POP" : "J-POP"], aliases: [], originalArtists: [],
+    }));
+    fetchCatalogMock.mockResolvedValue({...catalog, songs: [...songs, {...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"]}]});
+    render(createElement(OtwPlayCatalogManager), {wrapper: createQueryWrapper()});
+    const category = await screen.findByRole("combobox", {name: "곡 분류"});
+    const options = () => within(category).getAllByRole("option").map((option) => option.textContent);
+    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    fireEvent.click(screen.getByRole("button", {name: "다음"}));
+    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    fireEvent.change(category, {target: {value: "POP"}});
+    expect(options()).toContain("J-POP");
+    fireEvent.change(category, {target: {value: "J-POP"}});
+    expect(screen.getByText("1곡 · 1/1")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", {name: "곡명·원곡 가수 검색"}), {target: {value: "no matching song"}});
+    expect(screen.getByText("조건에 맞는 곡이 없습니다.")).toBeTruthy();
+    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    expect((category as HTMLSelectElement).value).toBe("J-POP");
+  });
+
   it("loads source health only after section entry and distinguishes retryable outages", async () => {
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
     await screen.findByText("OTW Play 카탈로그");
@@ -1341,7 +1363,7 @@ describe("OtwPlayCatalogManager", () => {
     });
 
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "관리자 쓰기를 중단했습니다",
+      "편집할 수 없습니다",
     );
     fireEvent.click(screen.getByRole("button", { name: "승인 채널" }));
     expect(
@@ -2051,9 +2073,7 @@ describe("OtwPlayCatalogManager", () => {
 
     expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
     expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain(
-      "검수·등록만 일시 중단",
-    );
+    expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("검수·등록만 일시 중단"))).toBe(true);
   });
 
   it("shows the actionable preflight API error and request id", async () => {

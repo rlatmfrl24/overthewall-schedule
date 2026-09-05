@@ -115,3 +115,5 @@ export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
 export { ReleaseService } from "./application/release-service";
 export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
 export { createReleaseHandler } from "./http/release-handler";
+
+export { readAdminReviewSummary } from "./infrastructure/admin-review-summary";

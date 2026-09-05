@@ -314,6 +314,22 @@ describe("MemberPostSettingsManager", () => {
     vi.clearAllMocks();
   });
 
+  it("opens and focuses the linked settings after the X tab mounts", async () => {
+    window.history.replaceState(null, "", "#x-collection-settings");
+    try {
+      render(createElement(MemberPostSettingsManager, {activeSource: "x"}), {wrapper: createQueryWrapper()});
+      await waitFor(() => {
+        const section = document.getElementById("x-collection-settings") as HTMLDetailsElement | null;
+        expect(section?.open).toBe(true);
+        expect(document.activeElement).toBe(section?.querySelector("summary"));
+      });
+      expect(updateSettingsMock).not.toHaveBeenCalled();
+      expect(runXCollectionNowMock).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  });
+
   it("X 탭에서 핵심 운영 정보와 설정을 한 작업 공간에 밀집해 표시한다", async () => {
     render(createElement(MemberPostSettingsManager), {
       wrapper: createQueryWrapper(),

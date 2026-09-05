@@ -1,3 +1,7 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { fetchActiveMembers } from "@/features/members";
+import { fetchKirinukiChannels } from "../../api/kirinuki";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -87,8 +91,8 @@ const formatRate = (value: number | null | undefined) =>
     : `${(value * 100).toFixed(1)}%`;
 
 const getCacheStatusLabel = (status: YouTubeCacheStatus) => {
-  if (status === "fresh") return "Fresh";
-  if (status === "stale") return "Stale";
+  if (status === "fresh") return "최신";
+  if (status === "stale") return "기존 캐시 제공 가능";
   return "Expired";
 };
 
@@ -163,8 +167,8 @@ function SourceStateCard({
     missing: 0,
   };
   const items = [
-    ["Fresh", values.fresh],
-    ["Stale", values.stale],
+    ["최신", values.fresh],
+    ["제공 가능", values.stale],
     ["Expired", values.expired],
     ["Missing", values.missing],
   ] as const;
@@ -253,6 +257,10 @@ export function YouTubeCacheManager() {
   const { toast } = useToast();
   const [windowHours, setWindowHours] =
     useState<(typeof WINDOW_OPTIONS)[number]>(168);
+  const [quotaDirty, setQuotaDirty] = useState(false);
+  useUnsavedChanges(quotaDirty);
+  const membersQuery = useQuery({queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers, staleTime: 60_000});
+  const channelsQuery = useQuery({queryKey: ["youtube", "kirinuki-channels"], queryFn: fetchKirinukiChannels, staleTime: 60_000});
   const [quotaDraft, setQuotaDraft] = useState("1000");
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
 
@@ -269,10 +277,10 @@ export function YouTubeCacheManager() {
   const isLoading = settingsQuery.isFetching || statusQuery.isFetching;
 
   useEffect(() => {
-    if (settings) {
+    if (settings && !quotaDirty) {
       setQuotaDraft(settings.youtube_api_daily_quota_units ?? "1000");
     }
-  }, [settings]);
+  }, [settings, quotaDirty]);
 
   useEffect(() => {
     const error = settingsQuery.error ?? statusQuery.error;
@@ -311,7 +319,9 @@ export function YouTubeCacheManager() {
     mutationFn: ({ patch }: { patch: YouTubeSettingsPatch }) =>
       updateSettings(patch),
     onSuccess: async () => {
+      setQuotaDirty(false);
       await Promise.all([
+        queryClient.invalidateQueries({queryKey: queryKeys.operations.all}),
         queryClient.invalidateQueries({
           queryKey: queryKeys.settings.detail(),
         }),
@@ -469,12 +479,14 @@ export function YouTubeCacheManager() {
               ) : (
                 <Play className="size-4" />
               )}
-              전체 새로고침
+              전체 채널 갱신 실행
             </Button>
           </div>
         }
       />
 
+      <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={isLoading} error={statusQuery.isError || settingsQuery.isError}/>
+      <p className="text-sm"><a className="underline" href="/admin/history?tab=runs&source=youtube_feed_collection">신규 피드 수집 실행 확인 →</a> · 아래는 요청 시 사용하는 캐시 상태입니다.</p>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard
           icon={DatabaseZap}
@@ -550,7 +562,7 @@ export function YouTubeCacheManager() {
                   inputMode="numeric"
                   value={quotaDraft}
                   disabled={isSaving}
-                  onChange={(event) => setQuotaDraft(event.target.value)}
+                  onChange={(event) => { setQuotaDirty(true); setQuotaDraft(event.target.value); }}
                 />
                 <Button
                   type="button"
@@ -600,7 +612,7 @@ export function YouTubeCacheManager() {
               </div>
             ) : (
               <div className="flex h-full min-h-20 items-center text-muted-foreground">
-                이 화면에서 실행한 수동 전체 새로고침 결과가 없습니다.
+                이번 화면에서 시작한 실행이 없습니다. 저장된 실행은 아래 이력에서 확인할 수 있습니다.
               </div>
             )}
           </div>
@@ -665,9 +677,9 @@ export function YouTubeCacheManager() {
                   <TableRow>
                     <TableHead>상태</TableHead>
                     <TableHead>채널</TableHead>
-                    <TableHead>maxResults</TableHead>
+                    <TableHead>저장 상한</TableHead>
                     <TableHead>갱신</TableHead>
-                    <TableHead>Fresh 만료</TableHead>
+                    <TableHead>최신 유지 기한</TableHead>
                     <TableHead>최근 오류</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -687,7 +699,7 @@ export function YouTubeCacheManager() {
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[220px] truncate font-mono text-xs">
-                          {row.channelId}
+                          {membersQuery.data?.find((member) => member.youtube_channel_id === row.channelId)?.name ?? channelsQuery.data?.find((channel) => channel.youtube_channel_id === row.channelId)?.channel_name ?? "채널 이름 미확인"}<details className="text-xs font-normal text-muted-foreground"><summary>채널 ID</summary>{row.channelId}</details>
                         </TableCell>
                         <TableCell>{row.maxResults ?? "-"}</TableCell>
                         <TableCell>{formatTimestamp(row.fetchedAt)}</TableCell>

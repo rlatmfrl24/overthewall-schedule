@@ -90,7 +90,7 @@ describe("NoticeManager", () => {
   });
 
   it("미사용 R2 썸네일 정리는 확인 전까지 삭제 API를 호출하지 않는다", async () => {
-    render(createElement(NoticeManager), {
+    render(createElement(NoticeManager, {view: "resources" as const}), {
       wrapper: createQueryWrapper(),
     });
 
@@ -151,8 +151,8 @@ describe("NoticeManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    const selectButton = await screen.findByRole("button", { name: "선택" });
-    expect(screen.getByRole("button", { name: "선택됨" })).toBeTruthy();
+    const selectButton = await screen.findByRole("button", { name: "대표로 선택" });
+    expect(screen.getByRole("button", { name: "대표 공지" })).toBeTruthy();
 
     fireEvent.click(selectButton);
 
@@ -196,10 +196,10 @@ describe("NoticeManager", () => {
 
     expect(await screen.findByText("게시 종료")).toBeTruthy();
     expect(screen.getAllByText("게시중")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "선택됨" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "대표 공지" })).toBeNull();
 
-    const expiredRow = screen.getByText("기간 종료 공지").closest("tr");
-    const featuredButton = expiredRow?.querySelector("button");
+    const expiredRow = screen.getByText("기간 종료 공지").closest("article");
+    const featuredButton = expiredRow?.querySelector<HTMLButtonElement>("button[aria-pressed]");
     expect(featuredButton?.disabled).toBe(true);
   });
 
@@ -235,7 +235,9 @@ describe("NoticeManager", () => {
 
     expect(await screen.findByText("🌙 하나, 둘")).toBeTruthy();
     expect(screen.getByText("외부 · 2장")).toBeTruthy();
-    expect(screen.getByText("첫 링크 외 1개")).toBeTruthy();
+    expect(screen.getByText("링크 2개")).toBeTruthy();
+    expect(screen.queryByRole("complementary", {name: "공개 화면 미리보기"})).toBeNull();
+    expect(screen.queryByRole("link", {name: /공개 공지 확인|이미지 상태/})).toBeNull();
   });
 
   it("관리자 목록에서 두 번째 이후 이미지의 R2 누락도 표시한다", async () => {

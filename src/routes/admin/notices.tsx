@@ -1,10 +1,2 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { NoticeManager } from "@/features/notices";
-
-export const Route = createFileRoute("/admin/notices")({
-  component: RouteComponent,
-});
-
-function RouteComponent() {
-  return <NoticeManager />;
-}
+import { createFileRoute, redirect } from "@tanstack/react-router";
+export const Route = createFileRoute("/admin/notices")({ beforeLoad: () => { throw redirect({ to: "/admin/content", search: { tab: "notices" }, replace: true }); } });

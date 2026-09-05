@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayAdminCatalogSubjectInput,
@@ -452,6 +454,16 @@ const candidateStatusPresentations: Record<
   },
 };
 
+const importStatusLabels: Record<string, string> = {
+  queued: "접수 대기", running: "처리 중", completed: "수집 완료", partial: "일부 실패", failed: "실패", cancelled: "취소됨",
+};
+const importCountLabels: Record<string, string> = {
+  discovered: "발견", metadataChecked: "영상 확인", eligible: "검토 가능", existingCatalog: "기존 카탈로그",
+  existingProposal: "기존 제안", existingCandidate: "기존 후보", channelReview: "채널 승인 필요",
+  unavailable: "접근 불가", policyBlocked: "정책 확인", scopeReview: "영상 분류 확인",
+  playlistDuplicate: "목록 중복", retryPending: "재시도 대기", permanentError: "재시도 불가",
+};
+
 const candidateClassificationLabels: Record<
   OtwPlayIngestionClassification,
   string
@@ -506,11 +518,11 @@ function CandidateStateSummary({ item }: { item: OtwPlayIngestionCandidateItemDt
         <span className="font-medium text-foreground">현재 판단</span>
         <span className="text-muted-foreground"> · {classification}</span>
       </p>
-      <p className="text-xs leading-relaxed text-muted-foreground">{status.description}</p>
       <p className="text-xs leading-relaxed">
         <span className="font-medium text-foreground">다음 조치</span>
         <span className="text-muted-foreground"> · {candidateNextAction(item)}</span>
       </p>
+      <details className="text-xs text-muted-foreground"><summary>판단 근거</summary><p className="mt-1">{status.description}</p>
       {item.classification !== currentClassification ? (
         <p className="border-t pt-1 text-[11px] leading-relaxed text-muted-foreground">
           가져오기 기록 · {importedAs}
@@ -521,6 +533,7 @@ function CandidateStateSummary({ item }: { item: OtwPlayIngestionCandidateItemDt
           제외 사유 · {item.exclusionReason}
         </p>
       ) : null}
+      </details>
     </div>
   );
 }
@@ -574,6 +587,7 @@ function ReviewApplicationPreview({
       className="space-y-3 rounded-lg border bg-muted/20 p-3"
       aria-label={`${item.title ?? item.videoId} 변경 예정 항목`}
     >
+      <details><summary className="text-xs font-medium">변경할 내용 · {missingFields.length ? `필수값 ${missingFields.length}개 확인` : "입력 준비됨"}</summary><div className="mt-3 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <h4 className="text-xs font-semibold">변경 예정</h4>
         <Badge className="shrink-0" variant={missingFields.length === 0 ? "secondary" : "outline"}>
@@ -644,6 +658,7 @@ function ReviewApplicationPreview({
           저장 전 확인: {missingFields.join(", ")}
         </p>
       ) : null}
+      </div></details>
     </section>
   );
 }
@@ -706,18 +721,21 @@ export function IngestionSection({
   const [rangeStart, setRangeStart] = useState("1");
   const [rangeLimit, setRangeLimit] = useState("5000");
   const [preflight, setPreflight] = useState<OtwPlayPlaylistPreflightDto | null>(null);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [search, updateSearch] = useConsoleSearch();
+  const activeJobId = search.category ?? null;
+  const setActiveJobId = (category: string | null) => updateSearch({category: category ?? undefined, selected: undefined}, false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [classification, setClassification] = useState<
-    OtwPlayIngestionClassification | "all"
-  >("all");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const classification = (Object.keys(candidateClassificationLabels).includes(search.state ?? "") ? search.state : "all") as OtwPlayIngestionClassification | "all";
+  const setClassification = (state: OtwPlayIngestionClassification | "all") => updateSearch({state, selected: undefined});
+  const editingId = search.selected ?? null;
+  const setEditingId = useCallback((next: string | null | ((current: string | null) => string | null)) => updateSearch({selected: (typeof next === "function" ? next(editingId) : next) ?? undefined}, false), [editingId, updateSearch]);
   const editorReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [bulkIgnoreConfirmOpen, setBulkIgnoreConfirmOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, RowDraft>>({});
   const [songSearchQueries, setSongSearchQueries] = useState<Record<string, string>>({});
   const [extraItems, setExtraItems] = useState<OtwPlayIngestionCandidateItemDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  useUnsavedChanges(Object.values(drafts).some((draft) => draft.isDirty));
   const jobsQuery = useOtwPlayImportJobs();
   const jobQuery = useOtwPlayImportJob(activeJobId);
   const serverClassification = classification === "all"
@@ -748,11 +766,10 @@ export function IngestionSection({
   );
 
   useEffect(() => {
-    if (!activeJobId && jobsQuery.data?.[0]) setActiveJobId(jobsQuery.data[0].id);
-  }, [activeJobId, jobsQuery.data]);
+    if (!activeJobId && jobsQuery.data?.[0]) updateSearch({category: jobsQuery.data[0].id});
+  }, [activeJobId, jobsQuery.data, updateSearch]);
 
   useEffect(() => {
-    setEditingId(null);
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
@@ -760,7 +777,6 @@ export function IngestionSection({
   }, [activeJobId]);
 
   useEffect(() => {
-    setEditingId(null);
     setExtraItems([]);
     setNextCursor(null);
     setDrafts({});
@@ -794,10 +810,10 @@ export function IngestionSection({
   }, [catalog, editingId, items]);
 
   useEffect(() => {
-    if (editingId && !filtered.some((item) => item.candidateId === editingId)) {
+    if (itemsQuery.isSuccess && !itemsQuery.data?.nextCursor && editingId && !filtered.some((item) => item.candidateId === editingId)) {
       setEditingId(null);
     }
-  }, [editingId, filtered]);
+  }, [editingId, filtered, itemsQuery.isSuccess, itemsQuery.data?.nextCursor, setEditingId]);
 
   const openCandidateEditor = (
     item: OtwPlayIngestionCandidateItemDto,
@@ -820,6 +836,7 @@ export function IngestionSection({
   };
 
   const refresh = async () => {
+    await queryClient.invalidateQueries({queryKey: queryKeys.operations.all});
     if (!activeJobId) return;
     await Promise.all([
       queryClient.invalidateQueries({
@@ -918,7 +935,7 @@ export function IngestionSection({
       } catch {
         toast({
           variant: "info",
-          description: "검수 입력은 저장되었지만 최신 목록을 불러오지 못했습니다. 권위 상태 새로고침을 다시 실행해 주세요.",
+          description: "검수 입력은 저장되었지만 최신 목록을 불러오지 못했습니다. 상태 새로고침을 다시 실행해 주세요.",
         });
         return;
       }
@@ -989,7 +1006,7 @@ export function IngestionSection({
         } catch {
           toast({
             variant: "error",
-            description: "후보 상태가 먼저 변경되었고 최신 목록도 불러오지 못했습니다. 권위 상태 새로고침을 다시 실행해 주세요.",
+            description: "후보 상태가 먼저 변경되었고 최신 목록도 불러오지 못했습니다. 상태 새로고침을 다시 실행해 주세요.",
           });
         }
         return;
@@ -1297,118 +1314,7 @@ export function IngestionSection({
 
   return (
     <div className="space-y-5">
-      <Card>
-        <CardHeader className="border-b">
-          <div className="flex items-start gap-3">
-            <Badge variant="outline" className="mt-0.5 shrink-0">1단계</Badge>
-            <div className="space-y-1">
-              <CardTitle className="text-base">YouTube 플레이리스트 가져오기</CardTitle>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                주소와 수집 범위를 확인한 뒤에만 가져오기 작업을 시작합니다.
-              </p>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6 pt-6">
-          <Field>
-            <FieldLabel htmlFor="playlist-url">YouTube 플레이리스트 URL 또는 ID</FieldLabel>
-            <FieldDescription>
-              playlist URL과 목록이 포함된 watch URL을 모두 사용할 수 있습니다.
-            </FieldDescription>
-            <Input
-              id="playlist-url"
-              className="h-11"
-              placeholder="https://www.youtube.com/playlist?list=..."
-              value={playlistUrl}
-              onChange={(event) => {
-                setPlaylistUrl(event.target.value);
-                setPreflight(null);
-              }}
-            />
-          </Field>
-
-          <ChoiceGroup
-            label="가져오기 범위"
-            description="필요한 방식 하나를 선택하면 관련 설정만 표시됩니다."
-            value={mode}
-            onValueChange={(value) => {
-              setMode(value);
-              setPreflight(null);
-            }}
-            options={importModeOptions}
-            presentation="cards"
-          />
-
-          {mode === "recent" ? (
-            <div className="rounded-lg border bg-muted/20 p-4">
-              <Field className="max-w-sm">
-                <FieldLabel htmlFor="recent-limit">최근 가져올 개수</FieldLabel>
-                <FieldDescription>플레이리스트 끝에서부터 최대 5,000개입니다.</FieldDescription>
-                <Input
-                  id="recent-limit"
-                  type="number"
-                  min={1}
-                  max={5000}
-                  value={recentLimit}
-                  onChange={(event) => setRecentLimit(event.target.value)}
-                />
-              </Field>
-            </div>
-          ) : null}
-
-          {mode === "range" ? (
-            <div className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="range-start">시작 위치</FieldLabel>
-                <FieldDescription>첫 번째 영상은 1입니다.</FieldDescription>
-                <Input
-                  id="range-start"
-                  type="number"
-                  min={1}
-                  value={rangeStart}
-                  onChange={(event) => setRangeStart(event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="range-limit">가져올 개수</FieldLabel>
-                <FieldDescription>한 작업에서 최대 5,000개입니다.</FieldDescription>
-                <Input
-                  id="range-limit"
-                  type="number"
-                  min={1}
-                  max={5000}
-                  value={rangeLimit}
-                  onChange={(event) => setRangeLimit(event.target.value)}
-                />
-              </Field>
-            </div>
-          ) : null}
-
-          <div className="flex justify-end border-t pt-4">
-            <Button
-              size="lg"
-              disabled={!playlistUrl.trim() || busy !== null}
-              onClick={() => void runPreflight()}
-            >
-              {busy === "preflight" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              가져오기 전 확인
-            </Button>
-          </div>
-          {preflight && (
-            <div className="space-y-3 rounded-xl border bg-muted/20 p-4 text-sm">
-              <div className="font-semibold">{preflight.title}</div>
-              <div className="flex flex-wrap gap-2"><Badge variant="secondary">{preflight.privacyStatus}</Badge><Badge variant="outline">전체 {preflight.itemCount.toLocaleString()}개</Badge><Badge variant="outline">요청 {preflight.requestedItemCount.toLocaleString()}개</Badge><Badge variant="outline">위치 {preflight.rangeStartPosition + 1}–{preflight.rangeEndExclusive}</Badge><Badge variant="outline">page {preflight.estimatedPageCount}</Badge><Badge variant="outline">video batch {preflight.estimatedVideoBatchCount}</Badge></div>
-              {preflight.requiresSplit && <p role="alert" className="text-destructive">5,000개 상한을 초과했습니다. 잘린 성공으로 처리하지 않으며 범위를 나눠야 합니다.</p>}
-              <div className="flex flex-wrap gap-2">
-                <Button disabled={preflight.requiresSplit || busy !== null} onClick={() => void startImport()}><Upload /> 수집 시작</Button>
-                {preflight.requiresSplit && <Button variant="outline" onClick={() => { setMode("range"); setRangeStart("1"); setRangeLimit("5000"); setPreflight(null); }}>첫 5,000개 범위로 전환</Button>}
-                {!preflight.requiresSplit && preflight.nextRangeStart !== null && mode === "range" && <Button variant="outline" onClick={() => { setRangeStart(String(preflight.nextRangeStart! + 1)); setPreflight(null); }}>다음 범위 준비</Button>}
-                {preflight.previousImport && <Button variant="outline" onClick={() => setActiveJobId(preflight.previousImport!.jobId)}>이전 job 이어보기</Button>}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <a className="inline-flex items-center rounded border px-3 py-2 text-sm hover:bg-muted" href="#playlist-import">새 플레이리스트 가져오기 ↓</a>
 
       <Card>
         <CardHeader className="border-b">
@@ -1448,7 +1354,7 @@ export function IngestionSection({
                   <div className="flex items-start justify-between gap-3">
                     <span className="line-clamp-2 font-semibold">{historyJob.playlistTitle ?? historyJob.playlistId}</span>
                     <Badge variant={historyJob.status === "completed" ? "secondary" : "outline"}>
-                      {historyJob.status}
+                      {importStatusLabels[historyJob.status] ?? historyJob.status}
                     </Badge>
                   </div>
                   <p className="mt-2 truncate text-xs text-muted-foreground">
@@ -1478,22 +1384,22 @@ export function IngestionSection({
 
       {job && (
         <Card>
-          <CardHeader><CardTitle className="text-base">2. 수집 진행률 · {job.playlistTitle ?? job.playlistId}</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">가져오기 결과 · {job.playlistTitle ?? job.playlistId}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2"><Badge>{job.status}</Badge>{Object.entries(job.counts).map(([key, value]) => <Badge key={key} variant="outline">{key} {value}</Badge>)}</div>
-            <p className="text-xs text-muted-foreground">source metadata {retentionLabel(job.retentionExpiresAt)}</p>
+            <div className="flex flex-wrap gap-2"><Badge>{importStatusLabels[job.status] ?? job.status}</Badge>{Object.entries(job.counts).map(([key, value]) => <Badge key={key} variant="outline">{importCountLabels[key] ?? key} {value}</Badge>)}</div>
+            <p className="text-xs text-muted-foreground">원본 정보 보존 · {retentionLabel(job.retentionExpiresAt)}</p>
             {job.lastErrorCode && <p className="text-sm text-destructive">최근 오류: {job.lastErrorCode}</p>}
-            <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 권위 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 message 재시도</Button>}</div>
+            <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 항목 재시도</Button>}</div>
           </CardContent>
         </Card>
       )}
 
       {activeJobId && (
         <Card>
-          <CardHeader><CardTitle className="text-base">3. 후보 검수 · 4. draft 변환</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">후보 검토 · 카탈로그 임시 저장</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">eligible</SelectItem><SelectItem value="existing_candidate">existing candidate</SelectItem><SelectItem value="channel_review">channel review</SelectItem><SelectItem value="existing_catalog">existing catalog</SelectItem><SelectItem value="existing_proposal">existing proposal</SelectItem><SelectItem value="unavailable">unavailable</SelectItem><SelectItem value="policy_blocked">policy blocked</SelectItem><SelectItem value="scope_review">scope review</SelectItem><SelectItem value="playlist_duplicate">playlist duplicate</SelectItem></SelectContent></Select>
+              <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">검토 가능</SelectItem><SelectItem value="existing_candidate">기존 후보</SelectItem><SelectItem value="channel_review">채널 승인 필요</SelectItem><SelectItem value="existing_catalog">기존 카탈로그</SelectItem><SelectItem value="existing_proposal">기존 제안</SelectItem><SelectItem value="unavailable">재생 불가</SelectItem><SelectItem value="policy_blocked">정책 확인</SelectItem><SelectItem value="scope_review">노래 영상 확인</SelectItem><SelectItem value="playlist_duplicate">목록 중복</SelectItem></SelectContent></Select>
               <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setBulkIgnoreConfirmOpen(true)}>
                 {busy === "ignore-unavailable" ? <Loader2 className="animate-spin" /> : <EyeOff />}
                 숨김·삭제 영상 일괄 제외
@@ -1533,7 +1439,7 @@ export function IngestionSection({
                     </Button>
                   </div>
                 ) : null}
-                <div className="hidden overflow-hidden rounded-xl border md:block">
+                <div className="hidden overflow-hidden rounded-xl border lg:block">
                   <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
@@ -1565,7 +1471,7 @@ export function IngestionSection({
                                   <a className="text-xs text-primary underline" href={sourceUrl(item.videoId)} target="_blank" rel="noreferrer">
                                     YouTube 원문 <ExternalLink className="inline size-3" />
                                   </a>
-                                  <div className="mt-1 text-[11px] text-muted-foreground">metadata {retentionLabel(item.retentionExpiresAt)}</div>
+                                  <div className="mt-1 text-[11px] text-muted-foreground">영상 정보 보존 · {retentionLabel(item.retentionExpiresAt)}</div>
                                 </div>
                               </div>
                             </TableCell>
@@ -1601,7 +1507,7 @@ export function IngestionSection({
                   </Table>
                 </div>
 
-                <div className="space-y-3 md:hidden">
+                <div className="space-y-3 lg:hidden">
                   {filtered.map((item) => {
                     const previewDraft = drafts[item.candidateId] ??
                       draftFromItem(item, catalog);
@@ -1618,7 +1524,7 @@ export function IngestionSection({
                           <div className="min-w-0">
                             <div className="line-clamp-2 font-medium">{item.title ?? item.videoId}</div>
                             <div className="text-xs text-muted-foreground">#{item.playlistPosition + 1} · {formatDuration(item.durationSeconds)}</div>
-                            <div className="text-[11px] text-muted-foreground">metadata {retentionLabel(item.retentionExpiresAt)}</div>
+                            <div className="text-[11px] text-muted-foreground">영상 정보 보존 · {retentionLabel(item.retentionExpiresAt)}</div>
                           </div>
                         </div>
                         <ReviewApplicationPreview item={item} draft={previewDraft} catalog={catalog} />
@@ -2249,6 +2155,118 @@ export function IngestionSection({
           </CardContent>
         </Card>
       )}
+      <Card id="playlist-import">
+        <CardHeader className="border-b">
+          <div className="flex items-start gap-3">
+            <Badge variant="outline" className="mt-0.5 shrink-0">1단계</Badge>
+            <div className="space-y-1">
+              <CardTitle className="text-base">YouTube 플레이리스트 가져오기</CardTitle>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                주소와 수집 범위를 확인한 뒤에만 가져오기 작업을 시작합니다.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6 pt-6">
+          <Field>
+            <FieldLabel htmlFor="playlist-url">YouTube 플레이리스트 URL 또는 ID</FieldLabel>
+            <FieldDescription>
+              playlist URL과 목록이 포함된 watch URL을 모두 사용할 수 있습니다.
+            </FieldDescription>
+            <Input
+              id="playlist-url"
+              className="h-11"
+              placeholder="https://www.youtube.com/playlist?list=..."
+              value={playlistUrl}
+              onChange={(event) => {
+                setPlaylistUrl(event.target.value);
+                setPreflight(null);
+              }}
+            />
+          </Field>
+
+          <ChoiceGroup
+            label="가져오기 범위"
+            description="필요한 방식 하나를 선택하면 관련 설정만 표시됩니다."
+            value={mode}
+            onValueChange={(value) => {
+              setMode(value);
+              setPreflight(null);
+            }}
+            options={importModeOptions}
+            presentation="cards"
+          />
+
+          {mode === "recent" ? (
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <Field className="max-w-sm">
+                <FieldLabel htmlFor="recent-limit">최근 가져올 개수</FieldLabel>
+                <FieldDescription>플레이리스트 끝에서부터 최대 5,000개입니다.</FieldDescription>
+                <Input
+                  id="recent-limit"
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={recentLimit}
+                  onChange={(event) => setRecentLimit(event.target.value)}
+                />
+              </Field>
+            </div>
+          ) : null}
+
+          {mode === "range" ? (
+            <div className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="range-start">시작 위치</FieldLabel>
+                <FieldDescription>첫 번째 영상은 1입니다.</FieldDescription>
+                <Input
+                  id="range-start"
+                  type="number"
+                  min={1}
+                  value={rangeStart}
+                  onChange={(event) => setRangeStart(event.target.value)}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="range-limit">가져올 개수</FieldLabel>
+                <FieldDescription>한 작업에서 최대 5,000개입니다.</FieldDescription>
+                <Input
+                  id="range-limit"
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={rangeLimit}
+                  onChange={(event) => setRangeLimit(event.target.value)}
+                />
+              </Field>
+            </div>
+          ) : null}
+
+          <div className="flex justify-end border-t pt-4">
+            <Button
+              size="lg"
+              disabled={!playlistUrl.trim() || busy !== null}
+              onClick={() => void runPreflight()}
+            >
+              {busy === "preflight" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              가져오기 전 확인
+            </Button>
+          </div>
+          {preflight && (
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-4 text-sm">
+              <div className="font-semibold">{preflight.title}</div>
+              <div className="flex flex-wrap gap-2"><Badge variant="secondary">{preflight.privacyStatus}</Badge><Badge variant="outline">전체 {preflight.itemCount.toLocaleString()}개</Badge><Badge variant="outline">요청 {preflight.requestedItemCount.toLocaleString()}개</Badge><Badge variant="outline">위치 {preflight.rangeStartPosition + 1}–{preflight.rangeEndExclusive}</Badge><Badge variant="outline">page {preflight.estimatedPageCount}</Badge><Badge variant="outline">video batch {preflight.estimatedVideoBatchCount}</Badge></div>
+              {preflight.requiresSplit && <p role="alert" className="text-destructive">5,000개 상한을 초과했습니다. 잘린 성공으로 처리하지 않으며 범위를 나눠야 합니다.</p>}
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={preflight.requiresSplit || busy !== null} onClick={() => void startImport()}><Upload /> 수집 시작</Button>
+                {preflight.requiresSplit && <Button variant="outline" onClick={() => { setMode("range"); setRangeStart("1"); setRangeLimit("5000"); setPreflight(null); }}>첫 5,000개 범위로 전환</Button>}
+                {!preflight.requiresSplit && preflight.nextRangeStart !== null && mode === "range" && <Button variant="outline" onClick={() => { setRangeStart(String(preflight.nextRangeStart! + 1)); setPreflight(null); }}>다음 범위 준비</Button>}
+                {preflight.previousImport && <Button variant="outline" onClick={() => setActiveJobId(preflight.previousImport!.jobId)}>이전 가져오기 이어보기</Button>}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

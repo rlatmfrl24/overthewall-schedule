@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import type { MemberDto } from "@contracts/members";
@@ -67,7 +68,7 @@ export function NaverCafeSourceFormDialog({
     getValues,
     clearErrors,
     setError,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<NaverCafeSourceFormValues>({
     defaultValues: {
       name: "",
@@ -85,6 +86,7 @@ export function NaverCafeSourceFormDialog({
   const watchedMemberUid = watch("member_uid");
   const watchedEnabled = watch("enabled");
 
+  const canDiscard = useUnsavedChanges(open && isDirty);
   useEffect(() => {
     if (!open) return;
 
@@ -178,7 +180,7 @@ export function NaverCafeSourceFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={async (next) => { if (next || (!isSaving && await canDiscard())) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -297,7 +299,7 @@ export function NaverCafeSourceFormDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={async () => { if (await canDiscard()) onOpenChange(false); }}
             >
               취소
             </Button>

@@ -414,7 +414,7 @@ export function MemberPostFeedMonitor({
           </div>
         ) : null}
 
-        {!isX && children ? <section className="border-t pt-4">{children}</section> : null}
+
 
         {isX ? <XCollectionRuns
           runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
@@ -424,7 +424,7 @@ export function MemberPostFeedMonitor({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
             <p className="text-xs text-muted-foreground">
-              실제 작업 진행률과 오류를 기준으로 표시합니다.
+              작업 묶음 진행률과 오류를 기준으로 표시합니다.
             </p>
           </div>
           <div className="max-h-72 overflow-auto rounded-md border">
@@ -448,6 +448,7 @@ export function MemberPostFeedMonitor({
           </div>
         </section>
         )}
+        {!isX && children ? <details className="rounded border p-3"><summary className="font-semibold">수집·공개 설정 및 게시판 관리</summary><div className="pt-3">{children}</div></details> : null}
         {isX && children ? <section className="border-t pt-4">{children}</section> : null}
 
         {isX ? (

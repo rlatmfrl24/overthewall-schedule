@@ -1,3 +1,5 @@
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -93,10 +95,11 @@ const subscriptionErrorLabel = (errorCode: string) => ({
   : "구독 상태를 확인하고 다시 시도해 주세요."));
 
 export function ChannelMonitorSection({
+  mode,
   catalog,
   catalogLoading = false,
-  onOpenCatalog,
 }: {
+  mode?: "review" | "sources";
   catalog: OtwPlayAdminCatalogDto | null;
   catalogLoading?: boolean;
   onOpenCatalog: () => void;
@@ -104,18 +107,20 @@ export function ChannelMonitorSection({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const monitorsQuery = useOtwPlayChannelMonitors();
-  const [selectedMonitorId, setSelectedMonitorId] = useState<string | null>(null);
+  const [search, updateSearch] = useConsoleSearch();
+  const selectedMonitorId = search.category ?? null;
+  const setSelectedMonitorId = (id: string | null) => updateSearch({category: id ?? undefined, selected: undefined}, false);
   const [newChannelId, setNewChannelId] = useState("");
   const [backfillCount, setBackfillCount] = useState("1");
   const [editChannelId, setEditChannelId] = useState("");
   const [editChannelDirty, setEditChannelDirty] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [reviewCandidate, setReviewCandidate] =
-    useState<OtwPlayChannelMonitorCandidateDto | null>(null);
+  const setReviewCandidate = (candidate: OtwPlayChannelMonitorCandidateDto | null) => updateSearch({selected: candidate?.candidateId}, false);
   const [busy, setBusy] = useState<string | null>(null);
-  const candidatesQuery = useOtwPlayChannelMonitorCandidates(selectedMonitorId);
+  useUnsavedChanges(editChannelDirty || newChannelId.length > 0);
+  const candidatesQuery = useOtwPlayChannelMonitorCandidates(mode === "sources" ? null : selectedMonitorId);
   const previousCandidatesQuery = useOtwPlayPreviousGenerationCandidates(
-    selectedMonitorId,
+    mode === "sources" ? null : selectedMonitorId,
   );
   const monitors = useMemo(() => monitorsQuery.data ?? [], [monitorsQuery.data]);
   const normalizedNewChannelId = newChannelId.trim();
@@ -145,22 +150,15 @@ export function ChannelMonitorSection({
     [previousCandidatesQuery.data],
   );
 
-  useEffect(() => {
-    if (!reviewCandidate) return;
-    const latest = candidates.find(
-      (candidate) => candidate.candidateId === reviewCandidate.candidateId,
-    );
-    if (latest && latest.candidateVersion !== reviewCandidate.candidateVersion) {
-      setReviewCandidate(latest);
-    }
-  }, [candidates, reviewCandidate]);
+  const reviewCandidate = [...candidates, ...previousCandidates].find((item) => item.candidateId === search.selected) ?? null;
 
   useEffect(() => {
-    if (!selectedMonitorId && monitors[0]) setSelectedMonitorId(monitors[0].id);
+    if (!monitorsQuery.data) return;
+    if (!selectedMonitorId && monitors[0]) updateSearch({category: monitors[0].id});
     if (selectedMonitorId && !monitors.some((monitor) => monitor.id === selectedMonitorId)) {
-      setSelectedMonitorId(monitors[0]?.id ?? null);
+      updateSearch({category: monitors[0]?.id});
     }
-  }, [monitors, selectedMonitorId]);
+  }, [monitors, monitorsQuery.data, selectedMonitorId, updateSearch]);
 
   useEffect(() => {
     if (!editChannelDirty) {
@@ -169,6 +167,7 @@ export function ChannelMonitorSection({
   }, [editChannelDirty, selectedMonitor?.externalChannelId, selectedMonitor?.id]);
 
   const refresh = async (monitorId = selectedMonitorId) => {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.operations.all });
     await queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.channelMonitors() });
     if (monitorId) {
       await queryClient.invalidateQueries({
@@ -402,6 +401,7 @@ export function ChannelMonitorSection({
               : "카탈로그를 불러오지 못해 검수·등록만 일시 중단했습니다. 채널 감시, WebSub, 대조와 제외 작업은 계속 사용할 수 있습니다."}
           </div>
         ) : null}
+        {mode !== "review" && (<>
         <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
@@ -434,6 +434,7 @@ export function ChannelMonitorSection({
           </Button>
         </div>
 
+        </>)}
         {monitorsQuery.isLoading ? (
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm text-muted-foreground">
             <Loader2 className="animate-spin" /> 수집 대상 채널을 불러오는 중입니다.
@@ -496,6 +497,7 @@ export function ChannelMonitorSection({
             <div className="min-w-0 rounded-xl border">
               {selectedMonitor ? (
                 <>
+                  {mode !== "review" ? (<>
                   <div className="space-y-4 border-b p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="mr-auto min-w-0">
@@ -588,7 +590,7 @@ export function ChannelMonitorSection({
                       ) : null}
                       {selectedMonitor.subscription?.lastErrorCode ? (
                         <p className="text-destructive sm:col-span-2">
-                          구독 오류: {subscriptionErrorLabel(selectedMonitor.subscription.lastErrorCode)}
+                          최근 기록된 구독 오류: {subscriptionErrorLabel(selectedMonitor.subscription.lastErrorCode)}
                         </p>
                       ) : null}
                     </div>
@@ -660,6 +662,8 @@ export function ChannelMonitorSection({
                       ) : null}
                     </Field>
                   </div>
+                  </>) : <a className="block border-b p-3 text-sm underline" href="/admin/otw-play?tab=play-monitor">채널 감시·구독 설정 확인 →</a>}
+                  {mode !== "sources" ? (<>
                   <div className="divide-y">
                     {candidatesQuery.isLoading ? (
                       <p className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
@@ -803,7 +807,8 @@ export function ChannelMonitorSection({
                         )}
                       </section>
                     ) : null}
-                  </div>
+                  </div>                  </>) : <a className="block p-3 text-sm underline" href="/admin/otw-play?tab=automatic-review">자동 영상 후보 검토 →</a>}
+
                 </>
               ) : null}
             </div>
@@ -830,7 +835,7 @@ export function ChannelMonitorSection({
               refresh(),
               queryClient.invalidateQueries({ queryKey: queryKeys.otwPlay.adminCatalog() }),
             ]);
-            onOpenCatalog();
+            setReviewCandidate(candidates[candidates.findIndex((item) => item.candidateId === reviewCandidate?.candidateId) + 1] ?? null);
           }}
           onReviewStateChanged={() => refresh()}
         />

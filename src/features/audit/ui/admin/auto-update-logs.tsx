@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { readRecordedChanges } from "../../model/recorded-changes";
+import { fetchActiveMembers } from "@/features/members";
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { QueryReadback } from "@/shared/ui/query-readback";
+import { Input } from "@/shared/ui/input";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -89,6 +94,15 @@ const ACTION_BADGE_VARIANTS: Record<
 
 const AUDIT_EVENT_LABELS: Record<string, string> = {
   "settings.update": "설정 변경",
+  "live_schedule.auto_fill": "라이브 일정 반영",
+  "manual_auto_update.run": "일정 수집 실행",
+  "x.post_redacted": "X 게시물 공개 제외",
+  "naver_cafe.post_redacted": "카페 게시물 공개 제외",
+  "otw_play.catalog_entry.created": "Play 곡·가창 등록",
+  "otw_play.song.created": "Play 곡 등록",
+  "otw_play.song.updated": "Play 곡 수정",
+  "otw_play.performance.created": "Play 가창 등록",
+  "otw_play.performance.updated": "Play 가창 수정",
   "manual_collection.auto_update": "수동 자동 업데이트",
   "manual_collection.x": "수동 X 수집",
   "manual_collection.youtube_warmup": "수동 YouTube 캐시 새로고침",
@@ -96,6 +110,13 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   "manual_collection.naver_cafe_check": "수동 카페 점검",
   "pending.bulk_approve": "일괄 승인",
   "pending.bulk_reject": "일괄 거부",
+};
+
+const AUDIT_RESOURCE_LABELS: Record<string, string> = {
+  settings: "설정", schedule: "일정", auto_update: "일정 수집", x_collection: "X 수집", x_post: "X 게시물",
+  youtube_cache: "YouTube 캐시", naver_cafe: "네이버 카페", naver_cafe_post: "카페 게시물",
+  data_retention: "보존·정리", pending_schedules: "일정 후보", music_song: "Play 곡",
+  music_performance: "Play 가창", music_entity: "Play 가수·주체", music_channel: "Play 채널",
 };
 
 const AUDIT_STATUS_LABELS: Record<AdminAuditLog["status"], string> = {
@@ -128,38 +149,33 @@ const LOG_SORT_OPTIONS = [
 
 type LogSortKey = (typeof LOG_SORT_OPTIONS)[number]["value"];
 
-export function AutoUpdateLogsManager() {
+export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedule" | "audit" } = {}) {
   const { toast } = useToast();
-  const [pageSize, setPageSize] = useState<number>(50);
-  const [sortKey, setSortKey] = useState<LogSortKey>("created_desc");
-  const [page, setPage] = useState(1);
-  const [selectedLog, setSelectedLog] = useState<UpdateLog | null>(null);
-  const [auditPage, setAuditPage] = useState(1);
-  const [selectedAuditLog, setSelectedAuditLog] =
-    useState<AdminAuditLog | null>(null);
+  const [search, updateSearch] = useConsoleSearch();
+  const filters = {q: search.q, action: search.category, status: search.state, target: search.source, from: search.from, until: search.until};
+  const membersQuery = useQuery({queryKey: queryKeys.members.active(), queryFn: fetchActiveMembers, enabled: view !== "audit", staleTime: 60_000});
+  const pageSize = search.pageSize ?? 50;
+  const setPageSize = (pageSize: number) => updateSearch({pageSize, page: 1});
+  const sortKey = LOG_SORT_OPTIONS.find((item) => item.value === search.sort)?.value ?? "created_desc";
+  const setSortKey = (sort: LogSortKey) => updateSearch({sort});
+  const page = search.page ?? 1;
+  const setPage = (next: number | ((previous: number) => number)) => updateSearch({page: typeof next === "function" ? next(page) : next}, false);
+  const setSelectedLog = (log: UpdateLog | null) => updateSearch({selected: log ? `schedule:${log.id}` : undefined}, false);
+  const auditPage = page;
+  const setAuditPage = setPage;
+  const setSelectedAuditLog = (log: AdminAuditLog | null) => updateSearch({selected: log ? `audit:${log.id}` : undefined}, false);
 
-  const logQueryOptions = useMemo(
-    () => ({
-      page,
-      pageSize,
-      sort: sortKey,
-    }),
-    [page, pageSize, sortKey],
-  );
+  const logQueryOptions = { ...filters, page, pageSize, sort: sortKey };
   const logsQuery = useQuery({
     queryKey: queryKeys.settings.logs(logQueryOptions),
     queryFn: () => fetchUpdateLogs(logQueryOptions),
+    enabled: view !== "audit",
   });
-  const auditLogQueryOptions = useMemo(
-    () => ({
-      page: auditPage,
-      pageSize: AUDIT_LOG_PAGE_SIZE,
-    }),
-    [auditPage],
-  );
+  const auditLogQueryOptions = {...filters, page: auditPage, pageSize: AUDIT_LOG_PAGE_SIZE};
   const auditLogsQuery = useQuery({
     queryKey: queryKeys.settings.auditLogs(auditLogQueryOptions),
     queryFn: () => fetchAdminAuditLogs(auditLogQueryOptions),
+    enabled: view !== "schedule",
   });
   const logs = Array.isArray(logsQuery.data?.items)
     ? logsQuery.data.items
@@ -167,6 +183,9 @@ export function AutoUpdateLogsManager() {
   const auditLogs = Array.isArray(auditLogsQuery.data?.items)
     ? auditLogsQuery.data.items
     : [];
+  const selectedLog = logs.find((log) => `schedule:${log.id}` === search.selected) ?? null;
+  const selectedAuditLog = auditLogs.find((log) => `audit:${log.id}` === search.selected) ?? null;
+  const recordedChanges = readRecordedChanges(selectedAuditLog?.detail ?? null);
   const totalCount = logsQuery.data?.total ?? 0;
   const totalPages = logsQuery.data?.totalPages ?? 1;
   const auditTotalCount = auditLogsQuery.data?.total ?? 0;
@@ -179,18 +198,6 @@ export function AutoUpdateLogsManager() {
   const auditErrorMessage = auditLogsQuery.error
     ? "감사 로그를 불러오지 못했습니다. 잠시 후 다시 시도해주세요."
     : null;
-
-  useEffect(() => {
-    if (totalPages < page) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
-
-  useEffect(() => {
-    if (auditTotalPages < auditPage) {
-      setAuditPage(auditTotalPages);
-    }
-  }, [auditPage, auditTotalPages]);
 
   useEffect(() => {
     if (!logsQuery.error) return;
@@ -225,15 +232,15 @@ export function AutoUpdateLogsManager() {
 
   const getActorLabel = (log: UpdateLog) => {
     if (log.actor_name) return log.actor_name;
-    if (log.actor_id) return log.actor_id;
-    if (log.actor_ip) return `비회원 (${log.actor_ip})`;
+    if (log.actor_id) return "등록 사용자";
+    if (log.actor_ip) return "비회원";
     return "-";
   };
 
   const getAuditActorLabel = (log: AdminAuditLog) => {
     if (log.actor_name) return log.actor_name;
-    if (log.actor_id) return log.actor_id;
-    if (log.actor_ip) return `관리자 (${log.actor_ip})`;
+    if (log.actor_id) return "관리자";
+    if (log.actor_ip) return "관리자";
     return "-";
   };
 
@@ -267,18 +274,26 @@ export function AutoUpdateLogsManager() {
     void auditLogsQuery.refetch();
   };
 
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, sortKey]);
+
 
   return (
     <section className="space-y-4">
       <AdminSectionHeader
-        title="스케줄 업데이트 로그"
+        title={view === "audit" ? "관리자 감사 기록" : "일정 변경 기록"}
         description="스케줄 변경 이력과 자동 수집 처리 결과를 확인합니다."
-        count={totalCount}
+        count={view === "audit" ? auditLogsQuery.data?.total : logsQuery.data?.total}
       />
 
+      <div className="flex flex-wrap gap-2 rounded border p-2">
+        <Input className="w-60" aria-label="기록 검색" placeholder="내용·이름 검색" value={search.q ?? ""} onChange={(e) => updateSearch({q: e.target.value, page: 1})} />
+        <select aria-label="행동 필터" className="rounded border bg-background p-2" value={search.category ?? ""} onChange={(e) => updateSearch({category: e.target.value, page: 1})}><option value="">모든 행동</option>{Object.entries(view === "audit" ? {update: "설정 변경", run_now: "수집 실행", refresh_all: "전체 채널 갱신", check_now: "카페 점검", redact: "공개 제외", dry_run: "정리 사전 확인", prune: "보존 기간 정리", approve: "승인", reject: "거부"} : ACTION_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
+        {view === "audit" && <select aria-label="결과 필터" className="rounded border bg-background p-2" value={search.state ?? ""} onChange={(e) => updateSearch({state: e.target.value, page: 1})}><option value="">모든 결과</option>{Object.entries(AUDIT_STATUS_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>}
+        <select aria-label="대상 필터" className="rounded border bg-background p-2" value={search.source ?? ""} onChange={(e) => updateSearch({source: e.target.value, page: 1})}><option value="">모든 대상</option>{view === "audit" ? Object.entries(AUDIT_RESOURCE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>) : (membersQuery.data ?? []).map((member) => <option key={member.uid} value={String(member.uid)}>{member.name}</option>)}</select>
+        <label className="text-xs">시작일 UTC<Input type="date" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label><label className="text-xs">종료일 UTC<Input type="date" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
+        <Button variant="outline" onClick={() => updateSearch({q: undefined, category: undefined, state: undefined, source: undefined, from: undefined, until: undefined, page: 1})}>조건 초기화</Button>
+      </div>
+      <QueryReadback updatedAt={view === "audit" ? auditLogsQuery.dataUpdatedAt : logsQuery.dataUpdatedAt} fetching={view === "audit" ? isAuditLoading : isLoading} error={view === "audit" ? auditLogsQuery.isError : logsQuery.isError} />
+      {view !== "audit" && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -293,7 +308,7 @@ export function AutoUpdateLogsManager() {
                 <Label htmlFor="log-sort">정렬</Label>
                 <Select
                   value={sortKey}
-                  onValueChange={(value) => setSortKey(value as LogSortKey)}
+                  onValueChange={(value) => { setSortKey(value as LogSortKey); setPage(1); }}
                 >
                   <SelectTrigger id="log-sort">
                     <SelectValue />
@@ -356,7 +371,7 @@ export function AutoUpdateLogsManager() {
           ) : (
             <div className="space-y-3">
               <div className="rounded-md border overflow-hidden">
-                <Table className="min-w-[940px]">
+                <Table className="w-full console-history-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[160px]">생성일</TableHead>
@@ -372,6 +387,8 @@ export function AutoUpdateLogsManager() {
                       <TableRow
                         key={log.id}
                         className="cursor-pointer hover:bg-muted/40"
+                        tabIndex={0}
+                        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedLog(log); } }}
                         onClick={() => setSelectedLog(log)}
                       >
                         <TableCell className="text-xs text-muted-foreground">
@@ -393,7 +410,7 @@ export function AutoUpdateLogsManager() {
                           </Badge>
                         </TableCell>
                         <TableCell
-                          className="max-w-[280px] truncate text-sm"
+                          className="max-w-[280px] whitespace-normal text-sm"
                           title={log.title || ""}
                         >
                           {log.title || "-"}
@@ -455,6 +472,8 @@ export function AutoUpdateLogsManager() {
         </CardContent>
       </Card>
 
+      )}
+      {view !== "schedule" && (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -497,7 +516,7 @@ export function AutoUpdateLogsManager() {
           ) : (
             <div className="space-y-3">
               <div className="overflow-hidden rounded-md border">
-                <Table className="min-w-[980px]">
+                <Table className="w-full console-history-table">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[160px]">발생 시각</TableHead>
@@ -514,13 +533,15 @@ export function AutoUpdateLogsManager() {
                       <TableRow
                         key={log.id}
                         className="cursor-pointer hover:bg-muted/40"
+                        tabIndex={0}
+                        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedAuditLog(log); } }}
                         onClick={() => setSelectedAuditLog(log)}
                       >
                         <TableCell className="text-xs text-muted-foreground">
                           {formatAuditDate(log.created_at)}
                         </TableCell>
                         <TableCell className="font-medium">
-                          {AUDIT_EVENT_LABELS[log.event_type] ?? log.event_type}
+                          {AUDIT_EVENT_LABELS[log.event_type] ?? "기타 관리자 작업"}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -531,8 +552,8 @@ export function AutoUpdateLogsManager() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm">
-                          {log.resource_type}
-                          {log.resource_id ? `:${log.resource_id}` : ""}
+                          {AUDIT_RESOURCE_LABELS[log.resource_type] ?? "기타 대상"}
+
                         </TableCell>
                         <TableCell className="text-sm">
                           {getAuditActorLabel(log)}
@@ -608,12 +629,13 @@ export function AutoUpdateLogsManager() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Dialog
         open={Boolean(selectedLog)}
         onOpenChange={(open) => !open && setSelectedLog(null)}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>로그 상세</DialogTitle>
             <DialogDescription>선택한 로그의 상세 정보입니다.</DialogDescription>
@@ -655,7 +677,7 @@ export function AutoUpdateLogsManager() {
               </div>
               <div className="flex items-start justify-between gap-2">
                 <span className="text-muted-foreground">이전 상태</span>
-                <span>{selectedLog.previous_status || "-"}</span>
+                <span>{selectedLog.previous_status || "기록 없음"}</span>
               </div>
               {selectedLog.vod_id ? (
                 <div className="flex items-start justify-between gap-2">
@@ -685,7 +707,7 @@ export function AutoUpdateLogsManager() {
         open={Boolean(selectedAuditLog)}
         onOpenChange={(open) => !open && setSelectedAuditLog(null)}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>감사 로그 상세</DialogTitle>
             <DialogDescription>
@@ -740,8 +762,10 @@ export function AutoUpdateLogsManager() {
                   {selectedAuditLog.error}
                 </div>
               ) : null}
+              {recordedChanges.length > 0 && <section aria-label="기록된 변경 전후" className="rounded border p-3"><h3 className="mb-2 font-semibold">변경 전후</h3>{recordedChanges.map((change, index) => <div key={`${change.key}-${index}`} className="space-y-1 border-t py-2 first:border-t-0"><p className="break-all font-medium">{({x_collection_daily_budget_cents: "X 전체 일일 예산 (센트)", x_reference_preview_daily_budget_cents: "원문 보강 일일 한도 (센트)", x_collection_interval_hours: "X 수집 주기 (시간)", x_reference_preview_mode: "원문 보강 모드", youtube_daily_quota_limit: "YouTube 일일 쿼터"} as Record<string,string>)[change.key] ?? change.key}</p><dl className="grid grid-cols-2 gap-3"><div><dt className="text-xs text-muted-foreground">변경 전</dt><dd className="break-all">{change.before}</dd></div><div><dt className="text-xs text-muted-foreground">변경 후</dt><dd className="break-all">{change.after}</dd></div></dl></div>)}</section>}
+              <details className="rounded border p-2"><summary>실행 주체·기술 정보</summary><dl className="mt-2 space-y-1 break-all"><dt>사용자 ID</dt><dd>{selectedAuditLog.actor_id ?? "기록 없음"}</dd><dt>IP</dt><dd>{selectedAuditLog.actor_ip ?? "기록 없음"}</dd><dt>이벤트</dt><dd>{selectedAuditLog.event_type}</dd></dl></details>
               <div className="space-y-1">
-                <span className="text-muted-foreground">상세</span>
+                <span className="text-muted-foreground">기록된 상세</span>
                 <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
                   {formatAuditDetail(selectedAuditLog.detail)}
                 </pre>

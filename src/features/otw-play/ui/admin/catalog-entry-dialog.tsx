@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -431,6 +432,8 @@ export function CatalogEntryDialog({
   const members = membersQuery.data ?? [];
   const [step, setStep] = useState(0);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const canDiscard = useUnsavedChanges(open && youtubeUrl.trim().length > 0);
+  const close = async (next: boolean) => { if (next || await canDiscard()) onOpenChange(next); };
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
   const [preflight, setPreflight] = useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
@@ -667,7 +670,7 @@ export function CatalogEntryDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <Dialog open={open} onOpenChange={(next) => { if (!saving) void close(next); }}>
         <DialogContent className="h-[100dvh] max-h-[100dvh] max-w-none overflow-y-auto rounded-none sm:h-auto sm:max-h-[92vh] sm:max-w-5xl sm:rounded-xl">
           <DialogHeader>
             <DialogTitle>새 YouTube 영상 등록</DialogTitle>

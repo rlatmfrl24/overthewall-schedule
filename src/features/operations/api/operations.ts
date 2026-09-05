@@ -62,11 +62,17 @@ export async function fetchOperationRuns(options: {
   jobType?: ScheduledJobType;
   status?: ScheduledJobStatus;
   limit?: number;
+  offset?: number;
+  from?: string;
+  until?: string;
 } = {}): Promise<OperationRunList> {
   const params = new URLSearchParams();
   if (options.jobType) params.set("jobType", options.jobType);
   if (options.status) params.set("status", options.status);
   if (options.limit) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  if (options.from) params.set("from", options.from);
+  if (options.until) params.set("until", options.until);
   const path = params.size > 0
     ? withRouteSearch(apiRoutes.operations.runs.build(), params)
     : apiRoutes.operations.runs.build();
