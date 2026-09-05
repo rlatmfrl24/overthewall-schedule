@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import { MemberPostSettingsManager } from "./member-post-settings";
 
+const fetchOperationRunsMock = vi.hoisted(() => vi.fn());
+const fetchXHistoryHealthMock = vi.hoisted(() => vi.fn());
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
 const updateSettingsMock = vi.hoisted(() => vi.fn());
 const runXCollectionNowMock = vi.hoisted(() => vi.fn());
@@ -33,9 +35,15 @@ vi.mock("@/features/configuration", async (importOriginal) => {
 
 vi.mock("@/features/operations", () => ({
   fetchOperationsStatus: fetchOperationsStatusMock,
+  fetchOperationRuns: fetchOperationRunsMock,
   runNaverCafeCheckNow: runNaverCafeCheckNowMock,
   runXCollectionNow: runXCollectionNowMock,
   useOperationRun: () => ({ data: null, isLoading: false }),
+}));
+
+vi.mock("../../api/x-history-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../api/x-history-api")>(),
+  fetchXHistoryHealth: fetchXHistoryHealthMock,
 }));
 
 vi.mock("@/shared/ui/toast", () => ({
@@ -81,6 +89,18 @@ const makeSettings = () => ({
 
 describe("MemberPostSettingsManager", () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    fetchOperationRunsMock.mockResolvedValue({ runs: [] });
+    fetchXHistoryHealthMock.mockResolvedValue({
+      referenceHydration: {
+        pendingPosts: 40, pendingAuthors: 0, terminal: 0, errors: 0,
+        oldestPendingAt: 1, nextAttemptAt: 2, budgetDay: "2026-09-05",
+        budgetUsedMicros: 0, budgetReservedMicros: 0, budgetLimitMicros: 100_000,
+        globalBudget: { usedMicros: 0, reservedMicros: 0, limitMicros: 1_000_000 },
+        byRelation: [{ relation: "reply", pendingPosts: 40, pendingAuthors: 0, terminal: 0 }],
+        pendingReasons: [{ stage: "post", code: "preview_budget_exceeded", count: 40, nextAttemptAt: 2 }],
+      },
+    });
     useScheduleDataMock.mockReturnValue({
       members: [
         {
@@ -304,15 +324,28 @@ describe("MemberPostSettingsManager", () => {
       screen.getByRole("tab", { name: /X 수집/ }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByText("2시간마다")).toBeTruthy();
-    expect(screen.getByText("X 수집 및 링크 설정")).toBeTruthy();
+    expect(screen.getByText("게시물 수집 설정")).toBeTruthy();
     expect(screen.queryByText("수집 실행")).toBeNull();
-    expect(screen.getByText("X 게시글 운영")).toBeTruthy();
+    expect(screen.getByText("X 수집 운영")).toBeTruthy();
     expect(screen.getByText("수집 설정")).toBeTruthy();
-    expect(screen.getByText("오늘 예산 사용")).toBeTruthy();
-    expect(screen.getByRole("progressbar", { name: "오늘 X API 예산 사용률" })).toBeTruthy();
-    await waitFor(() =>
-      expect(screen.getByText(/수동 · 성공 · 저장 4건/)).toBeTruthy(),
-    );
+    await screen.findByRole("progressbar", { name: "전체 X 예산" });
+    expect(screen.getByText("보강 대기")).toBeTruthy();
+    const settingGroup = document.getElementById("x-collection-settings") as HTMLDetailsElement;
+    expect(settingGroup.open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "게시물 수집 설정 열기" }));
+    expect(settingGroup.open).toBe(true);
+    expect(document.activeElement).toBe(settingGroup.querySelector("summary"));
+    const referenceGroup = document.getElementById("x-reference-settings") as HTMLDetailsElement;
+    fireEvent.click(screen.getByRole("button", { name: "원문 보강 설정 열기" }));
+    expect(referenceGroup.open).toBe(true);
+    expect(document.activeElement).toBe(referenceGroup.querySelector("summary"));
+    const healthCalls = fetchXHistoryHealthMock.mock.calls.length;
+    const runCalls = fetchOperationRunsMock.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "멤버 게시글 운영 정보 새로고침" }));
+    await waitFor(() => {
+      expect(fetchXHistoryHealthMock.mock.calls.length).toBeGreaterThan(healthCalls);
+      expect(fetchOperationRunsMock.mock.calls.length).toBeGreaterThan(runCalls);
+    });
     expect(screen.getByText("X 계정별 관리자 피드 응답")).toBeTruthy();
     expect(screen.getByText("테스트 멤버 · @otw_member")).toBeTruthy();
     const xDiagnostics = screen.getByText("X 계정별 관리자 피드 응답").closest("details");

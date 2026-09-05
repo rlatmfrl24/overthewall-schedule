@@ -10,6 +10,7 @@ import {
   isScheduledJobType,
   scheduledJobTypes,
 } from "@contracts/scheduled-operations";
+import { toXCollectionOperationItem, type XCollectionItemEvidence } from "./x-collection-run-read-model";
 import {
   SCHEDULED_D1_READ_DAILY_TARGET,
   SCHEDULED_D1_WRITE_DAILY_TARGET,
@@ -936,7 +937,19 @@ export class D1ScheduledJobRepository {
          WHERE i.run_id = ? AND i.status = 'partial'`,
       ).bind(runId).all<PartialItemEvidenceRow>()
       : Promise.resolve({ results: [] as PartialItemEvidenceRow[] });
-    const [progressRows, failuresResult, partialResult] = await Promise.all([
+    const xEvidence = run.job_type === "x_collection"
+      ? this.db.prepare(
+        `SELECT i.id, i.target_key, i.status, i.attempts, i.updated_at,
+                i.last_error_code, i.last_error, i.result_json,
+                EXISTS(SELECT 1 FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
+                  AND o.status IN ('pending', 'failed', 'dispatching')) AS retry_pending,
+                (SELECT MIN(o.available_at) FROM scheduled_outbox o WHERE o.item_id = i.id AND i.attempts > 0
+                  AND o.status IN ('pending', 'failed', 'dispatching')) AS next_retry_at
+         FROM scheduled_job_items i WHERE i.run_id = ? AND i.phase = 'collect'
+         ORDER BY i.target_key, i.id`,
+      ).bind(runId).all<XCollectionItemEvidence>()
+      : Promise.resolve({ results: [] as XCollectionItemEvidence[] });
+    const [progressRows, failuresResult, partialResult, xResult] = await Promise.all([
       this.db.prepare(
         `SELECT status, COUNT(*) AS count
          FROM scheduled_job_items WHERE run_id = ? GROUP BY status`,
@@ -955,6 +968,7 @@ export class D1ScheduledJobRepository {
          LIMIT 20`,
       ).bind(runId).all<FailedItemEvidenceRow>(),
       partialEvidence,
+      xEvidence,
     ]);
     // The YouTube planner creates one wrapper item per run. Read that wrapper
     // separately so the operator-visible failure list remains bounded.
@@ -984,11 +998,15 @@ export class D1ScheduledJobRepository {
         .filter((item) => !isResolvedYouTubePartial(item))
         .map(toYouTubePartialFailure),
     ].slice(0, 20);
-    return toRunDto(
+    const dto = toRunDto(
       normalizeYouTubePartial ? { ...run, status: "succeeded" } : run,
       progress,
       failures,
     );
+    if (run.job_type === "x_collection") {
+      dto.xCollection = { items: xResult.results.map(toXCollectionOperationItem) };
+    }
+    return dto;
   }
 
   async listRunDtos(input: {

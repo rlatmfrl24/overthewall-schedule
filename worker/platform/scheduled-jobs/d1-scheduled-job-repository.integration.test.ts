@@ -36,6 +36,38 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("reads every X shard result without normalizing partials or inventing missing hydration", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "x-observability" });
+    await repository.addItems(run.id, ["succeeded", "partial", "failed", "skipped"].map((status) => ({
+      targetKey: status, phase: "collect", lane: "x" as const,
+    })));
+    const hydration = { status: "deferred", scanned: 1, hydrated: 0, authorsResolved: 0, deferred: 1, failed: 0, terminal: 0, coalesced: 0, retryAt: timestamp + 1000, errorCode: "preview_budget_exceeded" };
+    for (const status of ["succeeded", "partial", "failed", "skipped"]) {
+      const result = status === "failed" ? "invalid-json" : JSON.stringify({
+        status: status === "skipped" ? "skipped" : "success", checkedHandles: 4, refreshedHandles: status === "skipped" ? 0 : 4,
+        postsReturned: 3, postsStored: 3,
+        ...(status === "succeeded" ? {} : { referenceHydration: status === "partial" ? { ...hydration, status: "failed", failed: 1, errorCode: "x_api_503" } : hydration }),
+      });
+      await db.prepare("UPDATE scheduled_job_items SET status=?,result_json=? WHERE run_id=? AND target_key=?").bind(status, result, run.id, status).run();
+    }
+    await db.prepare("UPDATE scheduled_job_runs SET status='partial' WHERE id=?").bind(run.id).run();
+    const before = await db.prepare("SELECT * FROM scheduled_job_items ORDER BY id").all();
+    const readOnly = new D1ScheduledJobRepository({ prepare(sql: string) {
+      expect(sql.trim()).toMatch(/^SELECT\b/i);
+      return db.prepare(sql);
+    } } as D1Database);
+    const result = await readOnly.readRunDto(run.id);
+    expect(result?.status).toBe("partial");
+    expect(result?.xCollection?.items).toHaveLength(4);
+    expect(result?.xCollection?.items.find((item) => item.status === "partial")).toMatchObject({ collection: { status: "success", postsStored: 3 }, referenceHydration: { status: "failed", failed: 1 } });
+    expect(result?.xCollection?.items.find((item) => item.status === "skipped")).toMatchObject({ collection: { status: "skipped" }, referenceHydration: { status: "deferred" } });
+    expect(result?.xCollection?.items.find((item) => item.status === "succeeded")?.referenceHydration).toBeNull();
+    expect(result?.xCollection?.items.find((item) => item.status === "failed")?.collection).toBeNull();
+    expect((await readOnly.listRunDtos({ jobType: "x_collection", limit: 10 }))[0]?.xCollection).toEqual(result?.xCollection);
+    expect((await db.prepare("SELECT * FROM scheduled_job_items ORDER BY id").all()).results).toEqual(before.results);
+  });
+
   it("중복 coordinator 실행을 전역 idempotency key 하나로 합친다", async () => {
     const repository = createRepository();
     const first = await repository.createRun({
