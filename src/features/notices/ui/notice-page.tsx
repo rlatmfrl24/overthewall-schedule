@@ -212,7 +212,7 @@ function FeaturedNoticeCard({ notice, memberMap, focused }: { notice: Notice; me
   );
 }
 
-function NoticeListItem({ notice, memberMap }: { notice: Notice; memberMap: NoticeMemberMap }) {
+export function NoticeListItem({ notice, memberMap }: { notice: Notice; memberMap: NoticeMemberMap }) {
   return (
     <article className="grid gap-5 border-b border-border/70 p-5 last:border-b-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:p-6">
       <NoticeCarousel notice={notice} compact />

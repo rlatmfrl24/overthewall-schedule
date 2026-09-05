@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import type { DDayItem as DDay } from "../../model/types";
@@ -56,6 +57,7 @@ export function DDayFormDialog({
   initialValues,
   isSaving = false,
 }: DDayFormDialogProps) {
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showAdvancedColors, setShowAdvancedColors] = useState(false);
   const {
     register,
@@ -64,7 +66,7 @@ export function DDayFormDialog({
     control,
     setValue,
     watch,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<DDayFormValues>({
     defaultValues: {
       title: "",
@@ -80,6 +82,7 @@ export function DDayFormDialog({
     setValue("colors", [...colors, fallback], { shouldDirty: true });
   };
 
+  const canDiscard = useUnsavedChanges(open && isDirty);
   useEffect(() => {
     if (open) {
       if (initialValues) {
@@ -107,7 +110,7 @@ export function DDayFormDialog({
   }, [open, initialValues, reset]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={async (next) => { if (next || (!isSaving && await canDiscard())) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -118,7 +121,9 @@ export function DDayFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 py-4">
+        <form onSubmit={handleSubmit(async (values) => { setSaveError(null); try { await onSubmit(values); } catch { setSaveError("저장하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요."); } })} className="space-y-6 py-4">
+          {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
+          {isSaving && <p role="status" className="text-sm text-muted-foreground">저장 후 서버 응답을 확인하고 있습니다.</p>}
           <div className="space-y-2">
             <FieldLabel htmlFor="title">제목</FieldLabel>
             <Input
@@ -132,11 +137,7 @@ export function DDayFormDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <FieldLabel htmlFor="date">기준 날짜</FieldLabel>
-              <Input
-                id="date"
-                type="date"
-                {...register("date", { required: "날짜를 입력해주세요" })}
-              />
+              {watch("type") === "birthday" ? <Input id="date" aria-label="생일 월-일" placeholder="09-06" value={watch("date").slice(5)} onChange={(event) => setValue("date", `${watch("date").slice(0,4) || "9999"}-${event.target.value}`, {shouldDirty: true})} pattern="[0-9]{2}-[0-9]{2}" required /> : <Input id="date" type="date" {...register("date", { required: "날짜를 입력해주세요" })}/>}
               <p className="text-xs text-muted-foreground">
                 연간 반복 시에도 월/일 정보를 기준으로 사용합니다.
               </p>
@@ -308,7 +309,7 @@ export function DDayFormDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={async () => { if (await canDiscard()) onOpenChange(false); }}
             >
               취소
             </Button>

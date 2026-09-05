@@ -1,4 +1,4 @@
-export function openXSettings(id: "x-collection-settings" | "x-reference-settings") {
+export function openXSettings(id: "x-collection-settings" | "x-reference-settings" | "x-feed-settings") {
   const element = document.getElementById(id);
   if (!(element instanceof HTMLDetailsElement)) return;
   element.open = true;

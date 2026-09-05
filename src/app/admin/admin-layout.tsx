@@ -1,8 +1,11 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/shared/ui/alert-dialog";
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
+import { ModeToggle } from "@/app/layout/mode-toggle";
+import { ConsoleSearchContext, validateConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
+import { Link, useBlocker, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/shared/lib/utils";
 import {
   Activity,
-  Megaphone,
   Calendar,
   Settings,
   Image,
@@ -10,10 +13,7 @@ import {
   History,
   LogOut,
   Menu,
-  MessageSquareText,
   Music2,
-  Scissors,
-  Youtube,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
@@ -24,7 +24,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/shared/ui/sheet";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -42,71 +42,29 @@ interface SidebarSection {
 }
 
 const SIDEBAR_SECTIONS: SidebarSection[] = [
-  {
-    title: "운영 대시보드",
-    items: [
-      {
-        label: "운영 상태",
-        icon: Activity,
-        href: "/admin/operations",
-      },
-      {
-        label: "YouTube 캐시",
-        icon: Youtube,
-        href: "/admin/youtube-cache",
-      },
-      {
-        label: "자동 업데이트",
-        icon: Settings,
-        href: "/admin/settings",
-      },
-      {
-        label: "멤버 게시글",
-        icon: MessageSquareText,
-        href: "/admin/member-posts",
-      },
-      {
-        label: "업데이트 로그",
-        icon: History,
-        href: "/admin/logs",
-      },
-    ],
-  },
-  {
-    title: "콘텐츠 관리",
-    items: [
-      {
-        label: "OTW Play",
-        icon: Music2,
-        href: "/admin/otw-play",
-      },
-      {
-        label: "공지사항",
-        icon: Megaphone,
-        href: "/admin/notices",
-      },
-      {
-        label: "D-Day",
-        icon: Calendar,
-        href: "/admin/ddays",
-      },
-      {
-        label: "키리누키 채널",
-        icon: Scissors,
-        href: "/admin/kirinuki",
-      },
-      {
-        label: "스냅샷 프리뷰",
-        icon: Image,
-        href: "/admin/snapshot",
-      },
-    ],
-  },
+  { title: "관리 업무", items: [
+    { label: "대시보드", icon: Activity, href: "/admin/operations" },
+    { label: "자동 수집 스케쥴 검토", icon: Calendar, href: "/admin/review" },
+    { label: "수집·소스", icon: Settings, href: "/admin/collection" },
+    { label: "OTW Play", icon: Music2, href: "/admin/otw-play" },
+    { label: "콘텐츠", icon: LayoutDashboard, href: "/admin/content" },
+    { label: "자원·보존", icon: Image, href: "/admin/resources" },
+    { label: "실행·변경 이력", icon: History, href: "/admin/history" },
+  ] },
 ];
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const dirtyForms = useRef(new Set<string>());
+  const registerDirty = useCallback((id: string, dirty: boolean) => { if (dirty) dirtyForms.current.add(id); else dirtyForms.current.delete(id); }, []);
+  const [discardRequest, setDiscardRequest] = useState<((discard: boolean) => void) | null>(null);
+  const confirmDiscard = useCallback(() => new Promise<boolean>((resolve) => setDiscardRequest(() => resolve)), []);
+  const resolveDiscard = (discard: boolean) => { discardRequest?.(discard); setDiscardRequest(null); };
+  useBlocker({shouldBlockFn: async () => dirtyForms.current.size > 0 && !await confirmDiscard(), enableBeforeUnload: false});
+  const search = validateConsoleSearch(Object.fromEntries(new URLSearchParams(location.searchStr)));
+  const updateSearch = useCallback((patch: ConsoleSearch, replace = true) => { void navigate({to: ".", search: (previous: ConsoleSearch) => ({...previous, ...patch}), replace, resetScroll: false}); }, [navigate]);
 
   const isActive = (href: string) => {
     if (href === "/admin/operations") {
@@ -124,7 +82,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <span className="font-bold text-base">Admin Center</span>
       </div>
 
-      <nav className="flex-1 p-3 space-y-4">
+      <nav aria-label="관리 업무" className="flex-1 p-3 space-y-4">
         {SIDEBAR_SECTIONS.map((section) => (
           <div key={section.title} className="space-y-1">
             <div className="px-2.5 py-1 text-xs font-semibold text-muted-foreground">
@@ -137,16 +95,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                   key={item.label}
                   variant={active ? "secondary" : "ghost"}
                   className={cn(
-                    "w-full justify-start gap-2.5 px-2.5 h-8 text-sm",
+                    "w-full justify-start gap-2.5 px-2.5 py-2 h-auto min-h-9 text-sm text-left",
                     active &&
                       "bg-primary/10 text-primary font-semibold hover:bg-primary/20",
                     !active && "text-muted-foreground",
                   )}
                   asChild
                 >
-                  <Link to={item.href} onClick={() => setIsMobileOpen(false)}>
-                    <item.icon className="w-4 h-4" />
-                    {item.label}
+                  <Link aria-current={active ? "page" : undefined} to={item.href} onClick={() => setIsMobileOpen(false)}>
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    <span className="min-w-0 whitespace-normal leading-tight">{item.label}</span>
                   </Link>
                 </Button>
               );
@@ -155,19 +113,21 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         ))}
       </nav>
 
-      <div className="p-4 border-t">
-        <Link to="/">
-          <Button variant="outline" className="w-full gap-2 justify-start h-9">
+      <div className="p-4 border-t space-y-3">
+        <div className="flex items-center justify-between"><span className="text-xs text-muted-foreground">화면 테마</span><ModeToggle /></div>
+        <Button asChild variant="outline" className="w-full gap-2 justify-start h-9">
+          <Link to="/">
             <LogOut className="w-4 h-4" />
             사이트로 돌아가기
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
     </div>
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-muted/20 md:flex-row">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden admin-console bg-muted/20 md:flex-row">
+      <AlertDialog open={discardRequest !== null} onOpenChange={(open) => { if (!open) resolveDiscard(false); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>저장하지 않은 변경 사항</AlertDialogTitle><AlertDialogDescription>입력 내용을 버리고 이동할까요? 계속 편집하면 입력값을 유지합니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => resolveDiscard(false)}>계속 편집</AlertDialogCancel><AlertDialogAction onClick={() => resolveDiscard(true)}>변경 버리고 이동</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       {/* Mobile Header */}
       <div className="md:hidden border-b bg-background p-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -176,7 +136,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </div>
         <Sheet open={isMobileOpen} onOpenChange={setIsMobileOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="관리자 메뉴 열기">
               <Menu className="w-5 h-5" />
             </Button>
           </SheetTrigger>
@@ -191,14 +151,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden h-full w-64 shrink-0 overflow-y-auto border-r bg-card md:block">
+      <div className="hidden h-full w-[216px] shrink-0 overflow-y-auto border-r bg-card md:block">
         <SidebarContent />
       </div>
 
       {/* Main Content */}
       <main className="relative min-h-0 flex-1 overflow-y-auto bg-muted/10">
         <div className="w-full min-h-full animate-in fade-in slide-in-from-bottom-4 p-3 pb-8 duration-500 md:p-5 md:pb-10">
-          {children}
+          <UnsavedChangesContext value={{register: registerDirty, confirm: confirmDiscard}}><ConsoleSearchContext value={[search, updateSearch]}>{children}</ConsoleSearchContext></UnsavedChangesContext>
         </div>
       </main>
     </div>

@@ -1,3 +1,5 @@
+import { openXSettings } from "./x-settings-navigation";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -486,7 +488,7 @@ export function MemberPostSettingsManager({
 }: {
   activeSource?: MemberPostSource;
   onActiveSourceChange?: (source: MemberPostSource) => void;
-} = {}) {
+}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [uncontrolledActiveSource, setUncontrolledActiveSource] = useState<MemberPostSource>("x");
@@ -499,6 +501,8 @@ export function MemberPostSettingsManager({
   const [isRunningCollection, setIsRunningCollection] = useState(false);
   const [isRunningNaverCafeCheck, setIsRunningNaverCafeCheck] =
     useState(false);
+  const [budgetEdited, setBudgetEdited] = useState(false);
+  const [previewBudgetEdited, setPreviewBudgetEdited] = useState(false);
   const [budgetDraft, setBudgetDraft] = useState("100");
   const [previewBudgetDraft, setPreviewBudgetDraft] = useState("10");
   const [collectionRun, setCollectionRun] =
@@ -515,16 +519,41 @@ export function MemberPostSettingsManager({
     staleTime: 30_000,
   });
   const settings = settingsQuery.data ?? null;
+  useUnsavedChanges(Boolean(settings && (
+    (budgetEdited && budgetDraft !== settings.x_collection_daily_budget_cents) ||
+    (previewBudgetEdited && previewBudgetDraft !== settings.x_reference_preview_daily_budget_cents)
+  )));
+  useEffect(() => {
+    if (activeSource !== "x") return;
+    let observer: MutationObserver | undefined;
+    const openHash = () => {
+      observer?.disconnect();
+      const id = window.location.hash.slice(1);
+      if (id !== "x-collection-settings" && id !== "x-reference-settings" && id !== "x-feed-settings") return;
+      const openWhenMounted = () => {
+        if (!document.getElementById(id)) return;
+        observer?.disconnect();
+        openXSettings(id);
+      };
+      // The tab panel can mount after its parent's effect (or after loading).
+      observer = new MutationObserver(openWhenMounted);
+      observer.observe(document.body, {childList: true, subtree: true});
+      openWhenMounted();
+    };
+    openHash();
+    window.addEventListener("hashchange", openHash);
+    return () => { observer?.disconnect(); window.removeEventListener("hashchange", openHash); };
+  }, [activeSource]);
   const isFetching = settingsQuery.isFetching;
 
   const patchSettings = useCallback(
-    (patch: Partial<AutoUpdateSettings>) => {
+    async (patch: Partial<AutoUpdateSettings>) => {
       queryClient.setQueryData<AutoUpdateSettings>(
         queryKeys.settings.detail(),
         (current: AutoUpdateSettings | undefined) =>
           current ? { ...current, ...patch } : current,
       );
-      void Promise.all([
+      await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
         queryClient.invalidateQueries({ queryKey: xReferenceHealthQueryKey }),
@@ -551,12 +580,12 @@ export function MemberPostSettingsManager({
   }, [operationsQuery, settingsQuery, queryClient, toast]);
 
   useEffect(() => {
-    setBudgetDraft(settings?.x_collection_daily_budget_cents ?? "100");
-  }, [settings?.x_collection_daily_budget_cents]);
+    if (!budgetEdited) setBudgetDraft(settings?.x_collection_daily_budget_cents ?? "100");
+  }, [settings?.x_collection_daily_budget_cents, budgetEdited]);
 
   useEffect(() => {
-    setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "10");
-  }, [settings?.x_reference_preview_daily_budget_cents]);
+    if (!previewBudgetEdited) setPreviewBudgetDraft(settings?.x_reference_preview_daily_budget_cents ?? "10");
+  }, [settings?.x_reference_preview_daily_budget_cents, previewBudgetEdited]);
 
   useEffect(() => {
     const run = collectionRunQuery.data;
@@ -596,7 +625,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({ x_posts_visibility: visibility });
+      await patchSettings({ x_posts_visibility: visibility });
       queryClient.setQueryData(queryKeys.memberPosts.xConfig(), {
         visibility,
       });
@@ -625,7 +654,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         x_collection_enabled: enabled ? "true" : "false",
       });
       toast({
@@ -651,7 +680,7 @@ export function MemberPostSettingsManager({
     try {
       const value = enabled ? "true" : "false";
       await updateSettings({ x_cost_optimizer_enabled: value });
-      patchSettings({ x_cost_optimizer_enabled: value });
+      await patchSettings({ x_cost_optimizer_enabled: value });
       toast({
         variant: "success",
         description: enabled
@@ -668,7 +697,7 @@ export function MemberPostSettingsManager({
     setIsSaving(true);
     try {
       await updateSettings({ x_reference_preview_mode: mode });
-      patchSettings({ x_reference_preview_mode: mode });
+      await patchSettings({ x_reference_preview_mode: mode });
       toast({ variant: "success", description: "X 참조 미리보기 비용 모드를 저장했습니다." });
     } finally {
       setIsSaving(false);
@@ -681,8 +710,9 @@ export function MemberPostSettingsManager({
     setIsSaving(true);
     try {
       await updateSettings({ x_reference_preview_daily_budget_cents: value });
-      patchSettings({ x_reference_preview_daily_budget_cents: value });
+      await patchSettings({ x_reference_preview_daily_budget_cents: value });
       setPreviewBudgetDraft(value);
+      setPreviewBudgetEdited(false);
       toast({ variant: "success", description: "X 미리보기 일일 예산을 저장했습니다." });
     } finally {
       setIsSaving(false);
@@ -702,10 +732,11 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         x_collection_daily_budget_cents: normalized,
       });
       setBudgetDraft(normalized);
+      setBudgetEdited(false);
       toast({
         variant: "success",
         description: "X API 일일 예산을 저장했습니다.",
@@ -737,7 +768,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         x_collection_interval_hours: interval,
       });
       toast({
@@ -809,7 +840,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         x_rich_link_preview_enabled: enabled ? "true" : "false",
       });
       toast({
@@ -839,7 +870,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         x_history_analytics_enabled: enabled ? "true" : "false",
       });
       await queryClient.invalidateQueries({
@@ -872,7 +903,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         naver_cafe_posts_enabled: enabled ? "true" : "false",
       });
       queryClient.setQueryData(
@@ -906,7 +937,7 @@ export function MemberPostSettingsManager({
       await updateSettings({
         naver_cafe_collection_enabled: enabled ? "true" : "false",
       });
-      patchSettings({
+      await patchSettings({
         naver_cafe_collection_enabled: enabled ? "true" : "false",
       });
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() });
@@ -934,7 +965,7 @@ export function MemberPostSettingsManager({
       await queryClient.invalidateQueries({
         queryKey: queryKeys.settings.detail(),
       });
-      patchSettings({
+      await patchSettings({
         naver_cafe_posts_visibility: visibility,
       });
       queryClient.setQueryData(
@@ -985,9 +1016,9 @@ export function MemberPostSettingsManager({
       <div
         role="tablist"
         aria-label="멤버 게시글 수집 소스"
-        className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/25 p-1"
+        className={controlledActiveSource ? "hidden" : "grid grid-cols-2 gap-1 rounded-lg border bg-muted/25 p-1"}
       >
-        {SOURCE_TABS.map((tab) => {
+        {!controlledActiveSource && SOURCE_TABS.map((tab) => {
           const active = activeSource === tab.value;
           return (
             <Button
@@ -1191,7 +1222,7 @@ export function MemberPostSettingsManager({
                     id="x-daily-budget"
                     inputMode="numeric"
                     value={budgetDraft}
-                    onChange={(event) => setBudgetDraft(event.target.value)}
+                    onChange={(event) => { setBudgetEdited(true); setBudgetDraft(event.target.value); }}
                     disabled={!settings || isSaving}
                   />
                   <Button
@@ -1305,7 +1336,7 @@ export function MemberPostSettingsManager({
                     id="x-preview-budget"
                     inputMode="numeric"
                     value={previewBudgetDraft}
-                    onChange={(event) => setPreviewBudgetDraft(event.target.value)}
+                    onChange={(event) => { setPreviewBudgetEdited(true); setPreviewBudgetDraft(event.target.value); }}
                     disabled={!settings || isSaving}
                   />
                   <Button

@@ -1,10 +1,2 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { DDayManager } from "@/features/ddays";
-
-export const Route = createFileRoute("/admin/ddays")({
-  component: RouteComponent,
-});
-
-function RouteComponent() {
-  return <DDayManager />;
-}
+import { createFileRoute, redirect } from "@tanstack/react-router";
+export const Route = createFileRoute("/admin/ddays")({ beforeLoad: () => { throw redirect({ to: "/admin/content", search: { tab: "ddays" }, replace: true }); } });

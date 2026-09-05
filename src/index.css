@@ -144,3 +144,32 @@
   opacity: 0.25;
   pointer-events: none;
 }
+
+/* Admin console: scoped density; public surfaces keep their own rhythm. */
+.admin-console { font-size: 14px; }
+.admin-console main { scroll-padding-top: 64px; }
+.admin-console [data-slot="card"] { gap: 12px; padding-block: 12px; border-radius: 8px; box-shadow: none; }
+.admin-console [data-slot="card-header"], .admin-console [data-slot="card-content"] { padding-inline: 14px; }
+.admin-console td, .admin-console th { padding: 8px; }
+.admin-console td:last-child:not([colspan]), .admin-console th:last-child { position: sticky; right: 0; background: var(--card); }
+.admin-console summary { cursor: pointer; }
+.admin-console :is(button,a,input,select,summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.admin-console .console-tabs { position: sticky; top: -1px; z-index: 20; background: var(--background); }
+@media (max-width: 767px) {
+  .admin-console button, .admin-console summary { min-height: 44px; }
+  .admin-console td, .admin-console th { padding: 8px 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .admin-console * { animation: none !important; transition: none !important; } }
+
+@media (max-width: 767px) {
+  .admin-console .console-history-table thead { display: none; }
+  .admin-console .console-history-table tbody, .admin-console .console-history-table tr { display: block; }
+  .admin-console .console-history-table td { display: inline-block; white-space: normal; max-width: 100%; }
+  .admin-console .console-history-table td:last-child { position: static; display: block; }
+  .admin-console :is(input,select,a[data-slot="button"]) { min-height: 44px; }
+}
+
+/* Dialogs render in portals outside the shell; keep admin touch targets there too. */
+@media (max-width: 767px) {
+  body:has(.admin-console) :is([role="dialog"], [role="alertdialog"]) :is(button,input,select,[role="combobox"]) { min-height: 44px; }
+}

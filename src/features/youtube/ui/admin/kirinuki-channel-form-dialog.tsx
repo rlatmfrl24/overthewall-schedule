@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import type { KirinukiChannelDto } from "@contracts/youtube";
@@ -83,7 +84,7 @@ export function KirinukiChannelFormDialog({
     getValues,
     clearErrors,
     setError,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<KirinukiChannelFormValues>({
     defaultValues: {
       channel_name: "",
@@ -97,6 +98,7 @@ export function KirinukiChannelFormDialog({
 
   const watchedUrl = watch("channel_url");
 
+  const canDiscard = useUnsavedChanges(open && isDirty);
   useEffect(() => {
     if (open) {
       if (initialValues) {
@@ -166,7 +168,7 @@ export function KirinukiChannelFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={async (next) => { if (next || (!isSaving && await canDiscard())) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -231,7 +233,7 @@ export function KirinukiChannelFormDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={async () => { if (await canDiscard()) onOpenChange(false); }}
             >
               취소
             </Button>

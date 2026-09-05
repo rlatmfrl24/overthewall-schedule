@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { OtwPlayCatalogManager } from "@/features/otw-play";
-
+import { ConsoleScreen } from "@/app/admin/console-screen";
+import { validateConsoleSearch } from "@/shared/lib/admin-console-search";
 export const Route = createFileRoute("/admin/otw-play")({
-  component: OtwPlayCatalogManager,
+  validateSearch: validateConsoleSearch,
+  component: () => <ConsoleScreen area="otw-play" />,
 });

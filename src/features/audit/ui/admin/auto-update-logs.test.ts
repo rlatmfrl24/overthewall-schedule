@@ -55,7 +55,7 @@ describe("AutoUpdateLogsManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    expect(screen.getByText("스케줄 업데이트 로그")).toBeTruthy();
+    expect(screen.getByText("일정 변경 기록")).toBeTruthy();
     expect(screen.getByText("로그 목록")).toBeTruthy();
     expect(screen.getByLabelText("정렬")).toBeTruthy();
     expect(screen.getByLabelText("표시 개수")).toBeTruthy();

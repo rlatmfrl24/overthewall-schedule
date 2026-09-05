@@ -1,19 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { AutoUpdateSettingsManager, type AutoUpdateTab } from "@/features/configuration";
-
+import { createFileRoute, redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/admin/settings")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    tab: (search.tab === "review" || search.tab === "rejections" ||
-        search.tab === "runs" || search.tab === "settings"
-      ? search.tab
-      : "review") as AutoUpdateTab,
-  }),
-  component: RouteComponent,
+ validateSearch: (search: Record<string, unknown>) => ({tab: typeof search.tab === "string" ? search.tab : "review"}),
+ beforeLoad: ({search}) => {
+ if(search.tab === "settings") throw redirect({to: "/admin/collection", search: {source: "schedule"}, replace: true});
+ if(search.tab === "runs") throw redirect({to: "/admin/history", search: {tab: "runs", source: "schedule_auto_update"}, replace: true});
+ throw redirect({to: "/admin/review", search: {tab: search.tab === "rejections" ? "rejections" : "schedule"}, replace: true});
+ },
 });
-
-function RouteComponent() {
-  const { tab } = Route.useSearch();
-  const navigate = Route.useNavigate();
-  return <AutoUpdateSettingsManager activeTab={tab} onActiveTabChange={(nextTab) =>
-    navigate({ search: { tab: nextTab } })} />;
-}

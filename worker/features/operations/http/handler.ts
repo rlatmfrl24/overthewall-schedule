@@ -1,3 +1,4 @@
+import { parseLogFilters } from "@contracts/audit";
 import { requireAdminUser } from "../../../platform/auth";
 import {
   badRequest,
@@ -141,7 +142,15 @@ export const createOperationsHandler =
         if (statusValue !== null && !isScheduledJobStatus(statusValue)) {
           return badRequest("status is invalid");
         }
+        let dates;
+        try { dates = parseLogFilters(url.searchParams); } catch { return badRequest("Invalid date range"); }
+        const offsetText = url.searchParams.get("offset");
+        const offset = offsetText === null ? undefined : Number(offsetText);
+        if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0 || offset > 100000)) return badRequest("Invalid offset");
         const runs = await application.listRuns({
+          ...(offset !== undefined ? {offset} : {}),
+          ...(dates.from ? {from: Date.parse(dates.from)} : {}),
+          ...(dates.until ? {until: Date.parse(dates.until) + 86400000} : {}),
           ...(jobTypeValue ? { jobType: jobTypeValue } : {}),
           ...(statusValue ? { status: statusValue } : {}),
           limit,

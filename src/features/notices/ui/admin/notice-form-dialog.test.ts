@@ -209,7 +209,8 @@ describe("NoticeFormDialog", () => {
     expect(screen.getByRole("status").textContent).toContain("2MB 이하");
   });
 
-  it("cleans up every newly uploaded image when cancelled", async () => {
+  it("cleans up every newly uploaded image only after confirming cancellation", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     uploadNoticeThumbnailMock
       .mockResolvedValueOnce({ thumbnail_url: "/one.webp" })
       .mockResolvedValueOnce({ thumbnail_url: "/two.webp" });
@@ -223,7 +224,12 @@ describe("NoticeFormDialog", () => {
     await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(2));
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(deleteNoticeThumbnailMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: "취소"}));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    confirm.mockRestore();
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
     expect(deleteNoticeThumbnailMock).toHaveBeenCalledWith("/one.webp");
     expect(deleteNoticeThumbnailMock).toHaveBeenCalledWith("/two.webp");
   });

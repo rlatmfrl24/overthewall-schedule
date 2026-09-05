@@ -112,7 +112,12 @@ export interface NaverCafeOperationSourceDto {
   failing: boolean;
 }
 
+export interface AdminReviewSummaryDto {
+  entries: Array<{ kind: "proposals" | "automatic" | "imports"; status: "available" | "unavailable"; count: number | null; checkedAt: number }>;
+}
+
 export interface OperationsStatusResponseDto {
+  review?: AdminReviewSummaryDto;
   updatedAt: string;
   window: { hours: number; since: number };
   summary: {

@@ -101,6 +101,9 @@ export class ScheduledRunClient {
     jobType?: ScheduledJobType;
     status?: ScheduledJobStatus;
     limit: number;
+    offset?: number;
+    from?: number;
+    until?: number;
   }) {
     return this.repository.listRunDtos(input);
   }

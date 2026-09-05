@@ -1,3 +1,5 @@
+import { getAdminDDayOccurrence } from "../../model/admin-dday";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DDayItem as DDay } from "../../model/types";
@@ -62,6 +64,7 @@ const DDAY_TYPE_META = {
 } as const;
 
 const DDAY_SORT_OPTIONS = [
+  { value: "next", label: "다가오는 순" },
   { value: "date_asc", label: "날짜 빠른순" },
   { value: "date_desc", label: "날짜 늦은순" },
   { value: "type_then_date", label: "유형별 정렬" },
@@ -77,7 +80,7 @@ export function DDayManager() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDDay, setEditingDDay] = useState<DDay | null>(null);
   const [deletingDDay, setDeletingDDay] = useState<DDay | null>(null);
-  const [ddaySort, setDDaySort] = useState<DDaySortKey>("date_asc");
+  const [ddaySort, setDDaySort] = useState<DDaySortKey>("next");
 
   const ddaysQuery = useQuery<DDay[]>({
     queryKey: queryKeys.ddays.admin(),
@@ -98,6 +101,7 @@ export function DDayManager() {
 
   const sortedDDays = useMemo(() => {
     const list = [...ddays];
+    if (ddaySort === "next") return list.sort((a, b) => getAdminDDayOccurrence(a).sort - getAdminDDayOccurrence(b).sort);
     if (ddaySort === "title_asc") {
       return list.sort((a, b) => a.title.localeCompare(b.title));
     }
@@ -153,7 +157,7 @@ export function DDayManager() {
       const payload = {
         title: data.title,
         date: data.date,
-        description: data.description || undefined,
+        description: data.description || null,
         color: colors.join(","),
         type: data.type,
       };
@@ -178,6 +182,7 @@ export function DDayManager() {
         variant: "error",
         description: "D-Day 저장에 실패했습니다.",
       });
+      throw error;
     } finally {
       setIsSaving(false);
     }
@@ -188,7 +193,7 @@ export function DDayManager() {
       <AdminSectionHeader
         title="D-Day 관리"
         description="매년 반복되는 기념일과 이벤트성 D-Day를 등록/수정합니다."
-        count={sortedDDays.length}
+        count={ddaysQuery.data ? sortedDDays.length : undefined}
         actions={
           <>
             <Select
@@ -209,6 +214,7 @@ export function DDayManager() {
             <Button
               variant="outline"
               size="sm"
+              aria-label="D-Day 상태 새로고침"
               onClick={() => void ddaysQuery.refetch()}
               disabled={isFetching}
             >
@@ -226,7 +232,8 @@ export function DDayManager() {
         }
       />
 
-      {isFetching && sortedDDays.length === 0 ? (
+      <QueryReadback updatedAt={ddaysQuery.dataUpdatedAt} fetching={isFetching} error={ddaysQuery.isError} />
+      {ddaysQuery.isError && !ddaysQuery.data ? <p role="alert">D-Day 목록을 확인할 수 없습니다.</p> : isFetching && sortedDDays.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
         </div>
@@ -236,14 +243,14 @@ export function DDayManager() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[900px]">
+          <Table className="w-full">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[110px]">유형</TableHead>
                 <TableHead className="w-[90px]">색상</TableHead>
                 <TableHead>제목</TableHead>
                 <TableHead className="w-[130px]">날짜</TableHead>
-                <TableHead>설명</TableHead>
+                <TableHead>다음 도래</TableHead>
                 <TableHead className="w-[90px] text-right">작업</TableHead>
               </TableRow>
             </TableHeader>
@@ -284,14 +291,14 @@ export function DDayManager() {
                     <TableCell className="text-sm text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3.5 w-3.5" />
-                        {dday.date?.replace(/-/g, ".") ?? "-"}
+                        {getAdminDDayOccurrence(dday).label}
                       </span>
                     </TableCell>
                     <TableCell
                       className="max-w-[320px] truncate text-sm text-muted-foreground"
                       title={dday.description ?? ""}
                     >
-                      {dday.description || "-"}
+                      {getAdminDDayOccurrence(dday).nextLabel}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex items-center gap-1">

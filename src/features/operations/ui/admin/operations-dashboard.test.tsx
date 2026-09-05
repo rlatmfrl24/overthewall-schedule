@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React, { createElement } from "react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "@/test/query-client";
 import type {
@@ -206,6 +206,36 @@ describe("OperationsDashboard", () => {
     vi.clearAllMocks();
   });
 
+  it("shows a failed YouTube lookup independently of a successful dashboard lookup and can retry", async () => {
+    fetchOperationJobSummariesMock.mockRejectedValue(new Error("unavailable"));
+    render(<OperationsDashboard view="home" />, {wrapper: createQueryWrapper()});
+    const card = (await screen.findByRole("heading", {name: "YouTube 신규 피드"})).closest("article")!;
+    expect(await within(card).findByText("조회 실패", {exact: true})).toBeTruthy();
+    expect(within(card).getByRole("alert")).toBeTruthy();
+    expect(within(card).queryByText("확인 중", {exact: true})).toBeNull();
+    expect(card.querySelector("time")).toBeNull();
+    fetchOperationJobSummariesMock.mockResolvedValue({summaries: []});
+    fireEvent.click(screen.getByRole("button", {name: "상태 새로고침"}));
+    expect(await within(card).findByText("기록 없음", {exact: true})).toBeTruthy();
+    expect(within(card).queryByRole("alert")).toBeNull();
+    expect(card.querySelector("time")).toBeTruthy();
+  });
+
+  it("labels a cached YouTube result as previous information after a refresh failure", async () => {
+    fetchOperationJobSummariesMock.mockResolvedValue({summaries: [{...jobSummaries.summaries[0], jobType: "youtube_feed_collection"}]});
+    render(<OperationsDashboard view="home" />, {wrapper: createQueryWrapper()});
+    const card = (await screen.findByRole("heading", {name: "YouTube 신규 피드"})).closest("article")!;
+    await within(card).findByText("정상", {exact: true});
+    const checkedAt = card.querySelector("time")?.getAttribute("datetime");
+    expect(checkedAt).toBeTruthy();
+    fetchOperationJobSummariesMock.mockRejectedValue(new Error("refresh failed"));
+    fireEvent.click(screen.getByRole("button", {name: "상태 새로고침"}));
+    expect(await within(card).findByText("조회 실패", {exact: true})).toBeTruthy();
+    expect(within(card).getByText(/이전 판정: 정상/)).toBeTruthy();
+    expect(card.querySelector("time")?.getAttribute("datetime")).toBe(checkedAt);
+    expect(within(card).getByRole("alert").textContent).toContain("이전 정보");
+  });
+
   it("puts issues and queue first while keeping the queue usage bar accessible", async () => {
     render(createElement(OperationsDashboard), { wrapper: createQueryWrapper() });
 
@@ -214,7 +244,7 @@ describe("OperationsDashboard", () => {
     expect(screen.getByRole("heading", { name: "지금 확인할 것" })).toBeTruthy();
     expect(screen.getByText("지금 확인할 운영 이슈가 없습니다")).toBeTruthy();
     expect(screen.getByLabelText("자동 업데이트 상세 보기").getAttribute("href")).toBe(
-      "/admin/settings?tab=runs",
+      "/admin/collection?source=schedule",
     );
 
     const progress = screen.getByRole("progressbar", {
@@ -303,6 +333,7 @@ describe("OperationsDashboard", () => {
     fireEvent.click(screen.getByRole("tab", { name: "전체 이력" }));
     await waitFor(() => expect(fetchOperationRunsMock).toHaveBeenCalledTimes(1));
     expect((await screen.findAllByText("대상 없음")).length).toBeGreaterThan(0);
+    fireEvent.click((await screen.findAllByText("상세"))[0]!);
     expect((await screen.findAllByText("사유: no_eligible_targets")).length).toBeGreaterThan(0);
   });
 
@@ -346,8 +377,9 @@ describe("OperationsDashboard", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "전체 이력" }));
     expect((await screen.findAllByText("YouTube 신규 피드 수집")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("일부 실패").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("5/5").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("성공 4 · 실패 1 · 진행 0 · 대기 0").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("5/5 작업 묶음")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/성공 4 · 실패 1 · 진행 0 · 대기 0/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByText("상세")[0]!);
     expect(
       screen.getAllByText(/YouTube feed collection failed for 1 of 5 sources/).length,
     ).toBeGreaterThan(0);

@@ -247,12 +247,12 @@ export function SnapshotPreviewManager({
 
   return (
     <section className="min-h-full">
-      <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-start 2xl:grid-cols-[232px_minmax(0,1fr)]">
-        <Card className="gap-0 overflow-hidden py-0 lg:sticky lg:top-5">
+      <div className="grid gap-3">
+        <Card className="gap-0 overflow-hidden py-0">
           <header className="border-b px-3 py-2">
             <h2 className="text-sm font-semibold leading-none">옵션</h2>
           </header>
-          <CardContent className="space-y-2.5 p-3">
+          <CardContent className="grid items-end gap-3 p-3 sm:grid-cols-[minmax(200px,1fr)_1fr_1fr]">
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="snapshot-preview-date">
                 날짜
@@ -329,7 +329,7 @@ export function SnapshotPreviewManager({
                   />
                   <SnapshotPreviewMetaItem
                     icon={<Monitor className="h-3.5 w-3.5" />}
-                    label="보기"
+                    label="화면 축척"
                     value={previewScaleLabel}
                   />
                 </dl>

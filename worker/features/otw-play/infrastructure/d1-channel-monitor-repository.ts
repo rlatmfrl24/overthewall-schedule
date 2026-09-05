@@ -332,8 +332,8 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
   ) {
     const monitor = await this.get(id);
     const cursorSql = cursor
-      ? `AND (origin.discovered_at < ?
-        OR (origin.discovered_at = ? AND candidate.id < ?))`
+      ? `AND (origin.discovered_at > ?
+        OR (origin.discovered_at = ? AND candidate.id > ?))`
       : "";
     const generationSql = generationScope === "current"
       ? "origin.monitor_generation = ?"
@@ -364,7 +364,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
        WHERE origin.monitor_id = ? AND ${generationSql}
          AND candidate.status NOT IN ('ignored', 'converted')
          ${cursorSql}
-       ORDER BY origin.discovered_at DESC, candidate.id DESC LIMIT ?`,
+       ORDER BY origin.discovered_at ASC, candidate.id ASC LIMIT ?`,
     );
     const bindings: unknown[] = [id, monitor.generation];
     if (generationScope === "previous") bindings.push(monitor.generation);

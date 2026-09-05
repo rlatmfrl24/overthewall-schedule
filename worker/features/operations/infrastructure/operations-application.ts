@@ -1,3 +1,4 @@
+import { readAdminReviewSummary } from "../../otw-play";
 import { asc, eq } from "drizzle-orm";
 import { naverCafeSources } from "@db/schema";
 import {
@@ -716,7 +717,8 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
     naverChecks,
     now,
   );
-  const [pending, rejectionCount] = await Promise.all([
+  const [review, pending, rejectionCount] = await Promise.all([
+    readAdminReviewSummary(env.otw_db, now),
     getVisiblePendingSummary(env.otw_db),
     getRejectionCount(env.otw_db),
   ]);
@@ -879,6 +881,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
       : "ok";
 
   return {
+    review,
     updatedAt: new Date(now).toISOString(),
     window: { hours: windowHours, since },
     summary: {
@@ -1243,6 +1246,9 @@ export class D1OperationsApplication implements OperationsApplication {
     jobType?: ScheduledJobType;
     status?: ScheduledJobStatus;
     limit: number;
+    offset?: number;
+    from?: number;
+    until?: number;
   }) {
     return new ScheduledRunClient(this.env).listRuns(input);
   }

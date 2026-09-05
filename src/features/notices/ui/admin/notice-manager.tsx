@@ -1,3 +1,6 @@
+import { useConsoleSearch } from "@/shared/lib/admin-console-search";
+import { Input } from "@/shared/ui/input";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchActiveMembers, type Member } from "@/features/members";
@@ -7,8 +10,6 @@ import {
   PlusCircle,
   Pencil,
   Trash2,
-  ExternalLink,
-  Calendar,
   RefreshCw,
   HardDrive,
   ImageOff,
@@ -24,16 +25,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/shared/ui/table";
+
 import { NoticeFormDialog, type NoticeFormValues } from "./notice-form-dialog";
-import { cn } from "@/shared/lib/utils";
 import {
   cleanupUnusedNoticeThumbnails,
   createNotice,
@@ -132,7 +125,8 @@ const getRelatedMemberLabel = (
   return names.length > 0 ? names.join(", ") : "OTW 단독";
 };
 
-export function NoticeManager() {
+export function NoticeManager({ view = "content" }: { view?: "content" | "resources" }) {
+  const [search, updateSearch] = useConsoleSearch();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
@@ -235,6 +229,8 @@ export function NoticeManager() {
       return noticeSort === "created_desc" ? bTime - aTime : aTime - bTime;
     });
   }, [notices, noticeSort]);
+
+  const filteredNotices = sortedNotices.filter((notice) => (!search.q || notice.content.toLocaleLowerCase().includes(search.q.toLocaleLowerCase())) && (!search.state || getNoticePublicationStatus(notice) === search.state));
 
   const featuredNoticeId = useMemo(
     () =>
@@ -445,10 +441,10 @@ export function NoticeManager() {
   return (
     <div className="space-y-4">
       <AdminSectionHeader
-        title="공지사항 관리"
+        title={view === "resources" ? "이미지 정리" : "공지사항 관리"}
         description="메인 페이지 상단에 노출될 공지사항과 이벤트를 관리합니다."
-        count={sortedNotices.length}
-        actions={
+        count={noticesQuery.data ? sortedNotices.length : undefined}
+        actions={view === "content" &&
           <>
             <Select
               value={noticeSort}
@@ -468,6 +464,7 @@ export function NoticeManager() {
             <Button
               variant="outline"
               size="sm"
+              aria-label="공지 상태 새로고침"
               onClick={() => void noticesQuery.refetch()}
               disabled={isFetching}
             >
@@ -485,6 +482,9 @@ export function NoticeManager() {
         }
       />
 
+      <QueryReadback updatedAt={view === "resources" ? thumbnailStatusQuery.dataUpdatedAt : noticesQuery.dataUpdatedAt} fetching={isFetching} error={view === "resources" ? thumbnailStatusQuery.isError : noticesQuery.isError}/>
+      {view === "content" && <p className="text-sm text-muted-foreground">대표 공지를 선택하면 즉시 반영됩니다.</p>}
+      {view === "resources" && (<>
       <div className="rounded-xl border bg-card p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 space-y-1">
@@ -505,7 +505,7 @@ export function NoticeManager() {
               ) : null}
             </div>
             <p className="text-xs text-muted-foreground">
-              업로드 제한 {formatBytes(thumbnailStatus?.maxBytes ?? 0)} ·{" "}
+              업로드 제한 {thumbnailStatus ? formatBytes(thumbnailStatus.maxBytes) : "미확인"} ·{" "}
               {thumbnailStatus?.prefix ?? "notices/thumbnails/"}
             </p>
           </div>
@@ -551,31 +551,31 @@ export function NoticeManager() {
           <div className="rounded-md border bg-background px-3 py-2">
             <div className="text-xs text-muted-foreground">전체</div>
             <div className="text-lg font-semibold">
-              {thumbnailStatus?.stats.totalObjects ?? 0}개
+              {thumbnailStatus ? `${thumbnailStatus.stats.totalObjects}개` : "미확인"}
             </div>
           </div>
           <div className="rounded-md border bg-background px-3 py-2">
             <div className="text-xs text-muted-foreground">사용중</div>
             <div className="text-lg font-semibold">
-              {thumbnailStatus?.stats.referencedObjects ?? 0}개
+              {thumbnailStatus ? `${thumbnailStatus.stats.referencedObjects}개` : "미확인"}
             </div>
           </div>
           <div className="rounded-md border bg-background px-3 py-2">
             <div className="text-xs text-muted-foreground">미사용</div>
             <div className="text-lg font-semibold">
-              {thumbnailStatus?.stats.unusedObjects ?? 0}개
+              {thumbnailStatus ? `${thumbnailStatus.stats.unusedObjects}개` : "미확인"}
             </div>
           </div>
           <div className="rounded-md border bg-background px-3 py-2">
             <div className="text-xs text-muted-foreground">누락</div>
             <div className="text-lg font-semibold">
-              {thumbnailStatus?.stats.missingReferencedObjects ?? 0}개
+              {thumbnailStatus ? `${thumbnailStatus.stats.missingReferencedObjects}개` : "미확인"}
             </div>
           </div>
           <div className="rounded-md border bg-background px-3 py-2">
             <div className="text-xs text-muted-foreground">정리 가능</div>
             <div className="text-lg font-semibold">
-              {thumbnailStatus?.stats.cleanupEligibleObjects ?? 0}개
+              {thumbnailStatus ? `${thumbnailStatus.stats.cleanupEligibleObjects}개` : "미확인"}
             </div>
           </div>
         </div>
@@ -621,7 +621,10 @@ export function NoticeManager() {
         ) : null}
       </div>
 
-      {isFetching && sortedNotices.length === 0 ? (
+      </>)}
+
+      {view === "content" && <div className="flex flex-wrap gap-2"><Input aria-label="공지 내용 검색" placeholder="공지 내용 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value || undefined})}/><select aria-label="공지 노출 상태" className="rounded border bg-background px-3 py-2" value={search.state ?? ""} onChange={(event) => updateSearch({state: event.target.value || undefined})}><option value="">모든 노출 상태</option><option value="published">노출 중</option><option value="scheduled">예정</option><option value="expired">종료</option><option value="inactive">비활성</option></select></div>}
+      {view === "content" && (noticesQuery.isError && !noticesQuery.data ? <p role="alert">공지 목록을 확인할 수 없습니다.</p> : isFetching && sortedNotices.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
         </div>
@@ -630,131 +633,28 @@ export function NoticeManager() {
           등록된 공지사항이 없습니다.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border bg-card">
-          <Table className="min-w-[1260px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[96px]">상태</TableHead>
-                <TableHead className="w-[130px]">대표 공지</TableHead>
-                <TableHead className="w-[110px]">유형</TableHead>
-                <TableHead className="w-[180px]">관련 멤버</TableHead>
-                <TableHead className="w-[130px]">이미지</TableHead>
-                <TableHead>내용</TableHead>
-                <TableHead className="w-[190px]">기간</TableHead>
-                <TableHead className="w-[220px]">링크</TableHead>
-                <TableHead className="w-[90px] text-right">작업</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedNotices.map((notice) => (
-                <TableRow key={notice.id}>
-                  <TableCell>
-                    {renderNoticePublicationStatus(notice)}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      type="button"
-                      variant={notice.id === featuredNoticeId ? "default" : "outline"}
-                      size="sm"
-                      className="w-[104px]"
-                      disabled={
-                        featuringNoticeId !== null ||
-                        getNoticePublicationStatus(notice) !== "published"
-                      }
-                      onClick={() => void handleSetFeaturedNotice(notice)}
-                      aria-pressed={notice.id === featuredNoticeId}
-                    >
-                      {featuringNoticeId === notice.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Star
-                          className={cn(
-                            "h-3.5 w-3.5",
-                            notice.id === featuredNoticeId && "fill-current",
-                          )}
-                        />
-                      )}
-                      {notice.id === featuredNoticeId ? "선택됨" : "선택"}
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className={cn(
-                        "font-medium border shadow-xs",
-                        noticeTypeConfigs[notice.type as NoticeTypeKey]?.badgeClass,
-                      )}
-                    >
-                      {noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ??
-                        notice.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    <span className="inline-flex max-w-[130px] truncate rounded-md border bg-background px-2 py-1 font-medium text-muted-foreground">
-                      <span className="truncate">
-                        {getRelatedMemberLabel(notice, memberMap)}
-                      </span>
-                    </span>
-                  </TableCell>
-                  <TableCell>{renderThumbnailBadge(notice)}</TableCell>
-                  <TableCell
-                    className="max-w-[420px] truncate text-sm"
-                    title={notice.content}
-                  >
-                    {notice.content}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {formatPeriod(notice)}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    {getNoticeLinks(notice).length > 0 ? (
-                      <a
-                        href={getNoticeLinks(notice)[0].url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex max-w-[200px] items-center gap-1 truncate text-xs text-primary hover:underline"
-                        title={getNoticeLinks(notice)[0].url}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                        {getNoticeLinks(notice)[0].label}
-                        {getNoticeLinks(notice).length > 1
-                          ? ` 외 ${getNoticeLinks(notice).length - 1}개`
-                          : ""}
-                      </a>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => handleOpenEdit(notice)}
-                        title="수정"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => setDeletingNotice(notice)}
-                        title="삭제"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+          <div className="min-w-0 divide-y rounded-lg border bg-card">
+            {filteredNotices.length === 0 && <p className="p-4 text-sm text-muted-foreground">검색 조건에 맞는 공지사항이 없습니다.</p>}
+            {filteredNotices.map((notice) => (
+              <article key={notice.id} className="grid min-w-0 items-start gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_14rem_16rem]">
+                <div className="min-w-0 space-y-1">
+                  <h3 className="whitespace-pre-wrap break-words font-semibold leading-relaxed [overflow-wrap:anywhere]">{notice.content}</h3>
+                  <p className="break-words text-xs leading-5 text-muted-foreground">{getRelatedMemberLabel(notice, memberMap)}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span className="inline-flex items-center gap-1">이미지 {renderThumbnailBadge(notice)}</span><span>링크 {getNoticeLinks(notice).length}개</span></div>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">{renderNoticePublicationStatus(notice)}<span>{noticeTypeConfigs[notice.type as NoticeTypeKey]?.label ?? notice.type}</span></div>
+                  <p className="text-xs leading-5 text-muted-foreground tabular-nums">{formatPeriod(notice)}</p>
+                </div>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-1 lg:w-64">
+                  <Button size="sm" variant={notice.id === featuredNoticeId ? "default" : "outline"} aria-pressed={notice.id === featuredNoticeId} disabled={featuringNoticeId !== null || getNoticePublicationStatus(notice) !== "published"} onClick={() => void handleSetFeaturedNotice(notice)}><Star className="size-3.5"/>{notice.id === featuredNoticeId ? "대표 공지" : "대표로 선택"}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => handleOpenEdit(notice)} aria-label={`${notice.content} 수정`}><Pencil className="size-3.5"/>수정</Button>
+                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeletingNotice(notice)} aria-label={`${notice.content} 삭제`}><Trash2 className="size-3.5"/>삭제</Button>
+                </div>
+              </article>
+            ))}
+          </div>
+      ))}
 
       <NoticeFormDialog
         open={isDialogOpen}
@@ -787,7 +687,7 @@ export function NoticeManager() {
           <div className="space-y-2">
             <p>
               R2에서 사용 중이지 않은 썸네일{" "}
-              {thumbnailStatus?.stats.cleanupEligibleObjects ?? 0}개 (
+              {thumbnailStatus ? `${thumbnailStatus.stats.cleanupEligibleObjects}개` : "미확인"} (
               {formatBytes(thumbnailStatus?.stats.cleanupEligibleBytes ?? 0)})
               를 삭제합니다.
             </p>

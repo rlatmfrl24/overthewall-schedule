@@ -1,3 +1,4 @@
+import { readAdminReviewSummary } from "./admin-review-summary";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -310,6 +311,15 @@ describe("D1ChannelMonitorRepository", () => {
         observation("CCCCCCCCCCC"),
       ],
     });
+    for (const [index, videoId] of ["AAAAAAAAAAA", "BBBBBBBBBBB", "CCCCCCCCCCC"].entries()) {
+      await db.prepare(`UPDATE music_channel_upload_candidate_origins SET discovered_at = ? WHERE candidate_id IN (SELECT id FROM music_ingestion_candidates WHERE external_video_id = ?)`)
+        .bind(NOW + index, videoId).run();
+    }
+    const first = await repository.listCandidates(created.id, 1, null);
+    expect(first.items[0]?.videoId).toBe("AAAAAAAAAAA");
+    const second = await repository.listCandidates(created.id, 1, {discoveredAt: first.items[0]!.discoveredAt, candidateId: first.items[0]!.candidateId});
+    expect(second.items[0]?.videoId).toBe("BBBBBBBBBBB");
+    expect((await readAdminReviewSummary(db, NOW)).entries.find((item) => item.kind === "automatic")).toMatchObject({status: "available", count: 3});
     await db.prepare(
       `UPDATE music_ingestion_candidates SET status = 'ignored'
        WHERE external_video_id IN ('BBBBBBBBBBB', 'CCCCCCCCCCC')`,

@@ -34,6 +34,9 @@ export interface OperationsApplication {
     jobType?: ScheduledJobType;
     status?: ScheduledJobStatus;
     limit: number;
+    offset?: number;
+    from?: number;
+    until?: number;
   }): Promise<unknown>;
   retryRun(runId: string): Promise<OperationRunRetryResult>;
 }

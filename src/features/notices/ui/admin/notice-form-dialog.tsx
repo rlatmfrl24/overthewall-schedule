@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import {
   useEffect,
   useRef,
@@ -164,7 +165,7 @@ export function NoticeFormDialog({
     setValue,
     setError,
     clearErrors,
-    formState: { errors },
+    formState: { errors, isDirty },
   } = useForm<NoticeFormValues>({ defaultValues: emptyValues });
   const { fields: linkFields, append, remove, move } = useFieldArray({
     control,
@@ -184,6 +185,7 @@ export function NoticeFormDialog({
     }
   };
 
+  const canDiscard = useUnsavedChanges(open && isDirty);
   useEffect(() => {
     if (!open) return;
     pendingImageUrlsRef.current.clear();
@@ -206,9 +208,9 @@ export function NoticeFormDialog({
     });
   }, [initialValues, open, reset]);
 
-  const handleDialogOpenChange = (nextOpen: boolean) => {
+  const handleDialogOpenChange = async (nextOpen: boolean) => {
     if (!nextOpen) {
-      if (isSaving || isUploading) return;
+      if (isSaving || isUploading || !await canDiscard()) return;
       cleanupPendingImages();
     }
     onOpenChange(nextOpen);
@@ -345,7 +347,7 @@ export function NoticeFormDialog({
     clearErrors("ended_at");
     setMessage(null);
     const normalized = { ...values, links, image_urls: values.image_urls.map((url) => url.trim()) };
-    await onSubmit(normalized);
+    try { await onSubmit(normalized); } catch { setMessage("공지 저장에 실패했습니다. 입력값을 유지했습니다. 다시 저장해 주세요."); return; }
     cleanupPendingImages(normalized.image_urls);
     for (const url of normalized.image_urls) pendingImageUrlsRef.current.delete(url);
   };

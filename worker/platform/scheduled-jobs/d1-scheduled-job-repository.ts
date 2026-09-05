@@ -1013,6 +1013,9 @@ export class D1ScheduledJobRepository {
     jobType?: ScheduledJobType;
     status?: ScheduledJobStatus;
     limit: number;
+    offset?: number;
+    from?: number;
+    until?: number;
   }) {
     const conditions: string[] = [
       `r.job_type IN (${scheduledJobTypes.map(() => "?").join(", ")})`,
@@ -1031,12 +1034,15 @@ export class D1ScheduledJobRepository {
       conditions.push("r.status = ?");
       bindings.push(input.status);
     }
+    if (input.from !== undefined) { conditions.push("r.accepted_at >= ?"); bindings.push(input.from); }
+    if (input.until !== undefined) { conditions.push("r.accepted_at < ?"); bindings.push(input.until); }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const readsNeedNormalization = input.status === "succeeded" ||
       input.status === "partial";
     const pageSize = readsNeedNormalization ? Math.max(input.limit, 50) : input.limit;
     const runs: OperationRunDto[] = [];
-    let offset = 0;
+    const skip = input.offset ?? 0;
+    let offset = readsNeedNormalization ? 0 : skip;
     do {
       const rows = await this.db.prepare(
         `SELECT r.id FROM scheduled_job_runs r ${where}
@@ -1051,8 +1057,8 @@ export class D1ScheduledJobRepository {
       ));
       offset += rows.results.length;
       if (!readsNeedNormalization || rows.results.length < pageSize) break;
-    } while (runs.length < input.limit);
-    return runs.slice(0, input.limit);
+    } while (runs.length < input.limit + skip);
+    return readsNeedNormalization ? runs.slice(skip, skip + input.limit) : runs.slice(0, input.limit);
   }
 
   async listLatestRunDtosByJobType() {

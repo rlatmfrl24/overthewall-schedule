@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "@/test/query-client";
@@ -68,4 +68,17 @@ describe("DDayManager", () => {
       makeDDay(2, "관리자 최신 D-Day"),
     ]);
   });
+  it("기존 설명을 비우면 null로 저장하고 목록을 다시 조회한다", async () => {
+    fetchDDaysMock.mockResolvedValue([{...makeDDay(2, "설명 제거"), description: "기존 설명"}]);
+    updateDDayMock.mockResolvedValue(undefined);
+    const queryClient = createTestQueryClient();
+    const wrapper = ({children}: {children: ReactNode}) => createElement(QueryClientProvider, {client: queryClient}, children);
+    render(createElement(DDayManager), {wrapper});
+    fireEvent.click(await screen.findByTitle("수정"));
+    fireEvent.change(screen.getByLabelText("설명 (선택)"), {target: {value: ""}});
+    fireEvent.click(screen.getByRole("button", {name: "수정 완료"}));
+    await waitFor(() => expect(updateDDayMock).toHaveBeenCalledWith(expect.objectContaining({id: 2, description: null})));
+    await waitFor(() => expect(fetchDDaysMock).toHaveBeenCalledTimes(2));
+  });
+
 });

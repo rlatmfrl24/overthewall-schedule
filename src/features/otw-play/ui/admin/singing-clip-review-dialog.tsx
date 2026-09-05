@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -109,6 +110,9 @@ export function SingingClipReviewDialog({
   const [endSeconds, setEndSeconds] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const canDiscard = useUnsavedChanges(candidate !== null && dirty);
   const [reviewBaseline, setReviewBaseline] = useState<{
     version: number;
     status: OtwPlayChannelMonitorCandidateDto["status"];
@@ -125,6 +129,8 @@ export function SingingClipReviewDialog({
       setReviewBaseline(null);
       return;
     }
+    setDirty(false);
+    setSaveMessage(null);
     const input = candidate.reviewInput;
     setReviewBaseline({
       version: candidate.candidateVersion,
@@ -196,6 +202,7 @@ export function SingingClipReviewDialog({
   const save = async () => {
     if (!candidate || !canSave || !reviewBaseline) return;
     setSaving(true);
+    setSaveMessage("저장 중…");
     let reviewSaved = false;
     try {
       const reviewInput = {
@@ -254,9 +261,12 @@ export function SingingClipReviewDialog({
           ? "검수한 영상을 방송 가창 draft로 저장했습니다."
           : "이미 등록된 영상과 연결했습니다.",
       });
+      setDirty(false);
+      setSaveMessage("저장 완료 · 서버 결과 확인 중");
       onOpenChange(false);
       await onConverted(converted.performanceId);
     } catch {
+      setSaveMessage("저장 실패 · 입력값과 최신 후보를 확인하고 다시 저장해 주세요.");
       if (reviewSaved) {
         await onReviewStateChanged().catch(() => undefined);
       }
@@ -270,7 +280,7 @@ export function SingingClipReviewDialog({
   };
 
   return (
-    <Dialog open={candidate !== null} onOpenChange={onOpenChange}>
+    <Dialog open={candidate !== null} onOpenChange={async (next) => { if (next || (!saving && await canDiscard())) onOpenChange(next); }}>
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>노래 클립 검수 · draft 생성</DialogTitle>
@@ -280,7 +290,7 @@ export function SingingClipReviewDialog({
           </DialogDescription>
         </DialogHeader>
         {candidate ? (
-          <div className="space-y-6">
+          <div className="space-y-6" onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("[role=combobox],button")) setDirty(true); }}>
             <div className="flex gap-4 rounded-xl border bg-muted/20 p-4">
               {candidate.thumbnailUrl ? (
                 <img
@@ -455,8 +465,9 @@ export function SingingClipReviewDialog({
             </section>
           </div>
         ) : null}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
+        {saveMessage && <p role="status" className="text-sm">{saveMessage}</p>}
+        <DialogFooter className="sticky bottom-0 border-t bg-background py-3">
+          <Button variant="outline" onClick={async () => { if (await canDiscard()) onOpenChange(false); }}>취소</Button>
           <Button disabled={!canSave} onClick={() => void save()}>
             {saving ? <Loader2 className="animate-spin" /> : null}
             검수 완료 후 draft 생성

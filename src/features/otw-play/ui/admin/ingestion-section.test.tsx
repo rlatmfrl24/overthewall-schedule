@@ -1095,7 +1095,7 @@ describe("IngestionSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "가져오기 전 확인" }));
     await screen.findByText("Official Covers");
     fireEvent.click(screen.getByRole("button", { name: /수집 시작/ }));
-    const retryButton = await screen.findByRole("button", { name: "실패 message 재시도" });
+    const retryButton = await screen.findByRole("button", { name: "실패 항목 재시도" });
 
     fireEvent.click(retryButton);
 

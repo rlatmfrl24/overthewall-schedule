@@ -281,7 +281,7 @@ describe("YouTubeCacheManager", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "전체 새로고침" }));
+    fireEvent.click(screen.getByRole("button", { name: "전체 채널 갱신 실행" }));
     expect(refreshCacheMock).not.toHaveBeenCalled();
     expect(
       await screen.findByText("전체 YouTube 캐시를 새로고침할까요?"),
