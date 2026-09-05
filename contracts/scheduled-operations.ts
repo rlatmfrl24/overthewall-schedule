@@ -1,3 +1,5 @@
+import type { XReferenceHydrationResultDto } from "./x-posts";
+
 export const scheduledJobTypes = [
   "x_collection",
   "naver_cafe_collection",
@@ -55,6 +57,27 @@ export type OperationRunFailureDto = {
   lastAttemptAt: number;
 };
 
+export type XCollectionOperationItemDto = {
+  itemId: string;
+  targetKey: string;
+  status: ScheduledJobStatus;
+  attempts: number;
+  updatedAt: number;
+  errorCode: string | null;
+  error: string | null;
+  retryPending: boolean;
+  nextRetryAt: number | null;
+  collection: {
+    status: "success" | "skipped" | "failed";
+    checkedHandles: number;
+    refreshedHandles: number;
+    postsReturned: number;
+    postsStored: number;
+    error: string | null;
+  } | null;
+  referenceHydration: XReferenceHydrationResultDto | null;
+};
+
 export type OperationRunDto = {
   runId: string;
   jobType: ScheduledJobType;
@@ -69,6 +92,8 @@ export type OperationRunDto = {
   failures: OperationRunFailureDto[];
   summary: Record<string, unknown> | null;
   lastError: string | null;
+  /** Stored results of each account shard, separate from wrapper progress. */
+  xCollection?: { items: XCollectionOperationItemDto[] };
 };
 
 export type OperationRunListDto = {

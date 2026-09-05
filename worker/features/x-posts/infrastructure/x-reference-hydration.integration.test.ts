@@ -1055,6 +1055,38 @@ describe("X preview dual budget", () => {
     );
   });
 
+  it("reports current reply/quote and body/author reasons without writes or provider calls", async () => {
+    for (const id of ["101", "102", "103", "104", "105"]) await seed(id, id + "0");
+    await db.batch([
+      db.prepare("UPDATE x_post_references SET last_error_code='preview_budget_exceeded',next_attempt_at=900,author_state='pending',author_last_error_code='x_api_503',author_next_attempt_at=700 WHERE source_post_id='101'"),
+      db.prepare("UPDATE x_post_references SET relation_type='quote',resolution_state='hydrated',hydrated_at=1,last_error_code='old_body_error',next_attempt_at=1,author_state='pending',author_last_error_code='preview_disabled',author_next_attempt_at=800 WHERE source_post_id='102'"),
+      db.prepare("UPDATE x_post_references SET resolution_state='terminal',last_error_code='old_error',next_attempt_at=1 WHERE source_post_id='103'"),
+      db.prepare("UPDATE x_posts SET hidden_at=1 WHERE id='104'"),
+      db.prepare("UPDATE x_post_references SET resolution_state='local',hydrated_at=1,last_error_code='old_error',next_attempt_at=2 WHERE source_post_id='105'"),
+    ]);
+    const readOnly = { prepare(sql: string) {
+      expect(sql.trim()).toMatch(/^(SELECT|WITH)\b/i);
+      return db.prepare(sql);
+    } };
+    const before = await db.prepare("SELECT * FROM x_post_references ORDER BY source_post_id").all();
+    const health = await readXHistoryHealth(readOnly);
+    expect(health.referenceHydration).toMatchObject({
+      pendingPosts: 1, pendingAuthors: 2, terminal: 1, errors: 1, nextAttemptAt: 700,
+      byRelation: [
+        { relation: "reply", pendingPosts: 1, pendingAuthors: 1, terminal: 1 },
+        { relation: "quote", pendingPosts: 0, pendingAuthors: 1, terminal: 0 },
+      ],
+      globalBudget: { limitMicros: 1_000_000, usedMicros: 0, reservedMicros: 0 },
+    });
+    expect(health.referenceHydration?.pendingReasons).toEqual(expect.arrayContaining([
+      { stage: "post", code: "preview_budget_exceeded", count: 1, nextAttemptAt: 900 },
+      { stage: "author", code: "x_api_503", count: 1, nextAttemptAt: 700 },
+      { stage: "author", code: "preview_disabled", count: 1, nextAttemptAt: 800 },
+    ]));
+    expect((await db.prepare("SELECT * FROM x_post_references ORDER BY source_post_id").all()).results).toEqual(before.results);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("health reads do not initialize or write budget ledgers", async () => {
     const before = await db
       .prepare("SELECT COUNT(*) AS count FROM scheduled_usage_daily")

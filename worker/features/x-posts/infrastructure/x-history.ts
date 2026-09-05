@@ -7,6 +7,7 @@ import type {
 } from "@contracts/x-posts";
 import type { XPostItem } from "../../../platform/types";
 import { readXReferenceBudget } from "./x-reference-budget";
+import { readXReferenceHealthCounts } from "./x-reference-health-read-model";
 
 type D1 = Pick<D1Database, "prepare">;
 
@@ -298,17 +299,7 @@ export const readXHistoryHealth = async (
       cacheHits: number | string;
       cacheMisses: number | string;
     }>(),
-    db.prepare(
-      `SELECT SUM(CASE WHEN r.resolution_state IN ('pending','local','link_only') AND r.hydrated_at IS NULL THEN 1 ELSE 0 END) AS count,
-       SUM(CASE WHEN r.author_state='pending' THEN 1 ELSE 0 END) AS authors,
-       SUM(CASE WHEN r.resolution_state='terminal' THEN 1 ELSE 0 END) AS terminal,
-       MIN(CASE WHEN (r.resolution_state IN ('pending','local','link_only') AND r.hydrated_at IS NULL) OR r.author_state='pending' THEN r.created_at END) AS oldest,
-       MIN(COALESCE(r.next_attempt_at,r.author_next_attempt_at)) AS next,
-       SUM(CASE WHEN COALESCE(r.last_error_code,r.author_last_error_code,'') NOT IN
-         ('','budget_exceeded','preview_budget_exceeded','preview_disabled','not_found_or_unavailable') THEN 1 ELSE 0 END) AS errors
-       FROM x_post_references r JOIN x_posts p ON p.id=r.source_post_id
-       WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL`,
-    ).first<{ count: number; authors: number; terminal: number; oldest: number | null; next: number | null; errors: number }>(),
+    readXReferenceHealthCounts(db),
     db.prepare(
       `SELECT COALESCE(SUM(coalesced_handles), 0) AS count
        FROM x_collection_runs WHERE started_at >= ?`,
@@ -344,16 +335,16 @@ export const readXHistoryHealth = async (
   const resourceCounts = new Map(resources.results.map((row) => [row.resource_type, asNumber(row.count)]));
   const previewMode = settingMap.get("x_reference_preview_mode");
   return {
+    observedAt: timestamp,
     lastCollectionSuccessAt: latest?.lastSuccessAt === null
       ? null
       : asNumber(latest?.lastSuccessAt),
     budgetUsedMicros: asNumber(budget?.used),
     referenceHydration: {
-      pendingPosts: asNumber(references?.count), pendingAuthors: asNumber(references?.authors),
-      terminal: asNumber(references?.terminal), oldestPendingAt: references?.oldest ?? null,
-      nextAttemptAt: references?.next ?? null, errors: asNumber(references?.errors),
+      ...references,
       budgetDay: referenceBudget.day, budgetLimitMicros: referenceBudget.previewLimit,
       budgetUsedMicros: referenceBudget.previewUsed, budgetReservedMicros: referenceBudget.previewReserved,
+      globalBudget: { limitMicros: referenceBudget.globalLimit, usedMicros: referenceBudget.globalUsed, reservedMicros: referenceBudget.globalReserved },
     },
     optimizer: {
       enabled: optimizerEnabled,
@@ -365,7 +356,7 @@ export const readXHistoryHealth = async (
       referencePreviewMode: previewMode === "post_only" || previewMode === "link_only"
         ? previewMode
         : "cached_author",
-      previewBacklog: asNumber(references?.count),
+      previewBacklog: references.pendingPosts,
       authorCacheHitsToday: asNumber(dailyCost?.cacheHits),
       authorCacheMissesToday: asNumber(dailyCost?.cacheMisses),
       coalescedHandlesToday: asNumber(coalesced?.count),

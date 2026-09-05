@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
-  DatabaseZap,
   EyeOff,
   Globe2,
   Coffee,
@@ -65,7 +64,7 @@ import { NaverCafeSourceManager } from "@/features/naver-cafe";
 import { queryKeys } from "@/shared/query/query-keys";
 import { cn } from "@/shared/lib/utils";
 import { XPostHistoryManager } from "./x-post-history-manager";
-import { XReferenceHealth } from "./x-reference-health";
+import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -525,14 +524,23 @@ export function MemberPostSettingsManager({
         (current: AutoUpdateSettings | undefined) =>
           current ? { ...current, ...patch } : current,
       );
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.operations.all }),
+        queryClient.invalidateQueries({ queryKey: xReferenceHealthQueryKey }),
+      ]);
     },
     [queryClient],
   );
 
   const loadSettings = useCallback(async () => {
     try {
-      await Promise.all([settingsQuery.refetch(), operationsQuery.refetch()]);
-      setCollectionRun(null);
+      await Promise.all([
+        settingsQuery.refetch(), operationsQuery.refetch(),
+        queryClient.refetchQueries({ queryKey: queryKeys.operations.runs(), type: "active" }),
+        queryClient.refetchQueries({ queryKey: xReferenceHealthQueryKey, type: "active" }),
+      ]);
+
     } catch (error) {
       console.error("Failed to load member post settings:", error);
       toast({
@@ -540,7 +548,7 @@ export function MemberPostSettingsManager({
         description: "멤버 게시글 관리 설정을 불러오지 못했습니다.",
       });
     }
-  }, [operationsQuery, settingsQuery, toast]);
+  }, [operationsQuery, settingsQuery, queryClient, toast]);
 
   useEffect(() => {
     setBudgetDraft(settings?.x_collection_daily_budget_cents ?? "100");
@@ -753,6 +761,7 @@ export function MemberPostSettingsManager({
     try {
       const accepted = await runXCollectionNow();
       setCollectionRun(accepted);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() });
       toast({
         variant: "success",
         description: "X 게시글 수집이 대기열에 등록되었습니다.",
@@ -957,6 +966,7 @@ export function MemberPostSettingsManager({
         description="수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다."
         actions={
           <Button
+            aria-label="멤버 게시글 운영 정보 새로고침"
             variant="outline"
             size="sm"
             onClick={() => void loadSettings()}
@@ -1024,17 +1034,20 @@ export function MemberPostSettingsManager({
               naverCafeEnabled={isNaverCafePostsEnabled}
               naverCafeVisibility={naverCafePostsVisibility}
               operationsStatus={operationsQuery.data ?? null}
-              operationsLoading={operationsQuery.isLoading}
-              operationsError={operationsQuery.isError}
-              onReloadOperations={() => operationsQuery.refetch()}
-              onRunXCollection={() => void handleRunXCollectionNow()}
-              isRunningXCollection={isRunningCollection}
+              operationsLoading={operationsQuery.isLoading || settingsQuery.isLoading}
+              operationsError={operationsQuery.isError || settingsQuery.isError}
+              onReloadOperations={loadSettings}
+              onRunXCollection={settings ? () => void handleRunXCollectionNow() : undefined}
+              isRunningXCollection={isRunningCollection || (
+                collectionRun?.jobType === "x_collection" &&
+                (!collectionRunQuery.data || ["queued", "running"].includes(collectionRunQuery.data.status))
+              )}
             >
             <div className="space-y-3">
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-sm font-semibold">수집 설정</h3>
-                <p className="text-xs text-muted-foreground">공개 범위, 자동 수집과 비용 영향 옵션을 관리합니다.</p>
-              </div>
+              <h3 className="text-sm font-semibold">수집 설정</h3>
+              <details id="x-feed-settings" className="rounded-lg border">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">공개·피드 설정<span className="ml-2 text-xs font-normal text-muted-foreground">접근 범위와 피드 미리보기</span></summary>
+                <div className="space-y-3 border-t p-3">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">X 게시글 공개 범위</CardTitle>
@@ -1072,24 +1085,67 @@ export function MemberPostSettingsManager({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <DatabaseZap className="h-4 w-4 text-muted-foreground" />
-                    X 수집 및 링크 설정
-                  </CardTitle>
-                  <CardDescription>
-                    자동 수집과 링크 미리보기의 X API 비용 영향 옵션을 함께 관리합니다.
-                  </CardDescription>
+
+              <div className="border-t pt-3">
+              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <Label
+                    htmlFor="x-rich-link-preview-enabled"
+                    className="text-sm font-semibold"
+                  >
+                    링크된 X 게시글 내용 표시
+                  </Label>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    게시글 안의 X 링크를 카드형 미리보기로 표시합니다. 켜면
+                    tweet lookup 호출과 API 비용이 늘 수 있습니다.
+                  </p>
                 </div>
-                <Badge variant="outline" className="w-fit">
-                  비용 제한
-                </Badge>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge
+                    variant={isRichXLinkPreviewEnabled ? "default" : "secondary"}
+                    className={isRichXLinkPreviewEnabled ? "bg-emerald-600" : undefined}
+                  >
+                    {isRichXLinkPreviewEnabled ? "활성화" : "비활성"}
+                  </Badge>
+                  <Switch
+                    id="x-rich-link-preview-enabled"
+                    checked={isRichXLinkPreviewEnabled}
+                    onCheckedChange={handleToggleRichXLinkPreview}
+                    disabled={!settings || isSaving}
+                  />
+                </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
+              </div>
+              <div className="border-t pt-3">
+                <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 space-y-1">
+                    <Label htmlFor="x-history-analytics-enabled" className="text-sm font-semibold">
+                      관리자 영구 아카이브 색인
+                    </Label>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      꺼도 신규 게시물 원본 수집과 영구 보존은 계속됩니다. 다시 켜면 공급자 호출 없이 D1 원문에서 누락 색인을 보충합니다.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <Badge variant={isXHistoryAnalyticsEnabled ? "default" : "secondary"}>
+                      {isXHistoryAnalyticsEnabled ? "활성화" : "비활성"}
+                    </Badge>
+                    <Switch
+                      id="x-history-analytics-enabled"
+                      checked={isXHistoryAnalyticsEnabled}
+                      onCheckedChange={handleToggleXHistoryAnalytics}
+                      disabled={!settings || isSaving}
+                    />
+                  </div>
+                </div>
+              </div>
+
+                </div>
+              </details>
+              <details id="x-collection-settings" className="rounded-lg border">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">게시물 수집 설정<span className="ml-2 text-xs font-normal text-muted-foreground">자동 수집·주기·전체 예산</span></summary>
+                <div className="space-y-3 border-t p-3">
+
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label
@@ -1124,10 +1180,10 @@ export function MemberPostSettingsManager({
                     htmlFor="x-daily-budget"
                     className="text-sm font-semibold"
                   >
-                    일일 예산 센트
+                    전체 X 일일 예산 센트
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    UTC 하루 기준 추정 사용액이 예산에 도달하면 추가 수집을 멈춥니다.
+                    게시물 수집과 원문 보강이 공유하는 전체 예산입니다. UTC 하루 기준으로 적용합니다.
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 gap-2 sm:w-48">
@@ -1190,7 +1246,7 @@ export function MemberPostSettingsManager({
                     X API 비용 최적화
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    첫 페이지를 5건으로 제한하고 신규행만 저장합니다. 사용량 70% 또는 공급자 backoff에서는 1시간으로 자동 완화합니다.
+                    첫 페이지를 5건으로 제한하고 신규행만 저장합니다. 사용량 70% 또는 공급자 backoff에서는 설정 주기와 최소 1시간 중 긴 주기를 적용합니다.
                   </p>
                 </div>
                 <div className="flex items-center justify-end gap-3">
@@ -1205,6 +1261,12 @@ export function MemberPostSettingsManager({
                   />
                 </div>
               </div>
+
+                </div>
+              </details>
+              <details id="x-reference-settings" className="rounded-lg border">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">원문 보강 설정<span className="ml-2 text-xs font-normal text-muted-foreground">미리보기 모드·보강 예산</span></summary>
+                <div className="space-y-3 border-t p-3">
               <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor="x-reference-preview-mode" className="text-sm font-semibold">
@@ -1256,65 +1318,10 @@ export function MemberPostSettingsManager({
                   </Button>
                 </div>
               </div>
-              <XReferenceHealth />
-              <div className="border-t pt-3">
-              <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <Label
-                    htmlFor="x-rich-link-preview-enabled"
-                    className="text-sm font-semibold"
-                  >
-                    링크된 X 게시글 내용 표시
-                  </Label>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    게시글 안의 X 링크를 카드형 미리보기로 표시합니다. 켜면
-                    tweet lookup 호출과 API 비용이 늘 수 있습니다.
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <Badge
-                    variant={isRichXLinkPreviewEnabled ? "default" : "secondary"}
-                    className={isRichXLinkPreviewEnabled ? "bg-emerald-600" : undefined}
-                  >
-                    {isRichXLinkPreviewEnabled ? "활성화" : "비활성"}
-                  </Badge>
-                  <Switch
-                    id="x-rich-link-preview-enabled"
-                    checked={isRichXLinkPreviewEnabled}
-                    onCheckedChange={handleToggleRichXLinkPreview}
-                    disabled={!settings || isSaving}
-                  />
-                </div>
-              </div>
-              </div>
-              <div className="border-t pt-3">
-                <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 space-y-1">
-                    <Label htmlFor="x-history-analytics-enabled" className="text-sm font-semibold">
-                      관리자 영구 아카이브 색인
-                    </Label>
-                    <p className="text-sm leading-6 text-muted-foreground">
-                      꺼도 신규 게시물 원본 수집과 영구 보존은 계속됩니다. 다시 켜면 공급자 호출 없이 D1 원문에서 누락 색인을 보충합니다.
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <Badge variant={isXHistoryAnalyticsEnabled ? "default" : "secondary"}>
-                      {isXHistoryAnalyticsEnabled ? "활성화" : "비활성"}
-                    </Badge>
-                    <Switch
-                      id="x-history-analytics-enabled"
-                      checked={isXHistoryAnalyticsEnabled}
-                      onCheckedChange={handleToggleXHistoryAnalytics}
-                      disabled={!settings || isSaving}
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
-
+                </div>
+              </details>
+              <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
             </div>
             </MemberPostFeedMonitor>
           ) : (

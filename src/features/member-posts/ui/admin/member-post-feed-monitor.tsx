@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { XCollectionOverview, XCollectionRuns } from "./x-collection-monitoring";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -54,9 +55,6 @@ const formatMonitorUpdatedAt = (
     minute: "2-digit",
   });
 };
-
-const formatCost = (micros: number) =>
-  `$${(Math.max(0, micros) / 1_000_000).toFixed(4)}`;
 
 const getNaverCafeSourceStatusLabel = (
   status: NaverCafeSourceStatusDto["status"],
@@ -225,12 +223,7 @@ export function MemberPostFeedMonitor({
   );
   const xErrorCount = xHandleRows.filter((row) => row.status === "오류").length;
   const xStaleCount = xHandleRows.filter((row) => row.status === "캐시").length;
-  const xLatestRun = operationsStatus?.xCollection.latestRun ?? null;
   const xUsage = operationsStatus?.xCollection.usage;
-  const budgetPercent = Math.max(
-    0,
-    Math.min(100, xUsage?.quota.todayBudgetUsedPercent ?? 0),
-  );
 
   const naverCafeStatus = operationsStatus?.naverCafe;
   const operationalCafeSources = naverCafeStatus?.sources ?? [];
@@ -323,9 +316,9 @@ export function MemberPostFeedMonitor({
                   <Coffee className="h-3.5 w-3.5 text-emerald-600" />
                 )}
               </span>
-              {isX ? "X 게시글 운영" : "네이버 카페 운영"}
+              {isX ? "X 수집 운영" : "네이버 카페 운영"}
             </CardTitle>
-            {statusBadge}
+            {!isX ? statusBadge : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isX && onRunXCollection ? (
@@ -377,56 +370,12 @@ export function MemberPostFeedMonitor({
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {isX ? (
-          <div className="grid divide-y overflow-hidden rounded-lg border bg-muted/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
-            <MetricTile
-              label="최근 실제 수집"
-              value={formatMonitorUpdatedAt(
-                operationsStatus?.xCollection.lastRun,
-              )}
-              detail={
-                xLatestRun
-                  ? `${xLatestRun.source === "manual" ? "수동" : "예약"} · ${getRunStatusLabel(xLatestRun.status)} · 저장 ${xLatestRun.postsStored}건`
-                  : "저장된 수집 실행 이력이 없습니다."
-              }
-            />
-            <MetricTile
-              label="다음 수집 가능"
-              value={formatMonitorUpdatedAt(
-                operationsStatus?.xCollection.nextEligibleAt,
-              )}
-              detail={`${operationsStatus?.xCollection.intervalHours ?? "-"}시간 주기 · ${sourceEnabled ? "자동 수집 활성" : "자동 수집 중지"}`}
-            />
-            <MetricTile
-              label="최근 24시간 API"
-              value={`${xUsage?.apiCalls ?? 0}회`}
-              detail={`실패 ${xUsage?.failureCount ?? 0}회 · rate-limit ${xUsage?.rateLimitCount ?? 0}회 · 응답 ${xState.posts.length}건`}
-            />
-            <MetricTile
-              label="오늘 예산 사용"
-              value={`${budgetPercent}%`}
-              detail={`${formatCost(xUsage?.quota.todayUsedMicros ?? 0)} 사용 · ${formatCost(xUsage?.quota.todayRemainingMicros ?? 0)} 남음`}
-            >
-              <div
-                className="mt-3 h-2 overflow-hidden rounded-full bg-muted"
-                role="progressbar"
-                aria-label="오늘 X API 예산 사용률"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={budgetPercent}
-              >
-                <div
-                  className={`h-full rounded-full ${
-                    budgetPercent >= 100
-                      ? "bg-destructive"
-                      : budgetPercent >= 80
-                        ? "bg-amber-500"
-                        : "bg-emerald-500"
-                  }`}
-                  style={{ width: `${budgetPercent}%` }}
-                />
-              </div>
-            </MetricTile>
-          </div>
+          <XCollectionOverview
+            operations={operationsStatus} loading={operationsLoading} error={operationsError}
+            latestRun={operationRunsQuery.data?.runs[0]} runsLoading={operationRunsQuery.isLoading}
+            runsError={operationRunsQuery.isError} runsUpdatedAt={operationRunsQuery.dataUpdatedAt}
+            enabled={xCollectionEnabled}
+          />
         ) : (
           <div className="grid divide-y overflow-hidden rounded-lg border bg-muted/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
             <MetricTile
@@ -465,8 +414,12 @@ export function MemberPostFeedMonitor({
           </div>
         ) : null}
 
-        {children ? <section className="border-t pt-4">{children}</section> : null}
+        {!isX && children ? <section className="border-t pt-4">{children}</section> : null}
 
+        {isX ? <XCollectionRuns
+          runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
+          error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
+        /> : (
         <section className="space-y-2 border-t pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
@@ -494,18 +447,21 @@ export function MemberPostFeedMonitor({
           </Table>
           </div>
         </section>
+        )}
+        {isX && children ? <section className="border-t pt-4">{children}</section> : null}
 
         {isX ? (
           <details className="rounded-lg border bg-muted/10">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-3 text-sm font-medium marker:hidden">
               <span>X API 사용량</span>
-              <Badge variant="outline">최근 24시간 {xUsage?.apiCalls ?? 0}회</Badge>
+              <Badge variant="outline">최근 24시간 {xUsage?.apiCalls ?? "확인 불가"}회</Badge>
             </summary>
-            <div className="grid border-t lg:grid-cols-3">
+            {!xUsage || operationsError ? <p className="border-t p-3 text-sm text-muted-foreground">{xUsage ? "최신 사용량 조회 실패 · 이전에 조회한 값입니다." : "사용량을 확인할 수 없습니다."}</p> : null}
+            {xUsage ? <div className="grid border-t lg:grid-cols-3">
               <MetricTile label="일별 API 사용" value={`${xUsage?.daily.reduce((total, day) => total + day.apiCalls, 0) ?? 0}회`} detail={(xUsage?.daily ?? []).slice(0, 3).map((day) => `${day.day} ${day.apiCalls}회`).join(" · ") || "기록 없음"} />
               <MetricTile label="작업별 API 사용" value={`${xUsage?.byOperation.length ?? 0}개 작업`} detail={(xUsage?.byOperation ?? []).slice(0, 3).map((item) => `${item.operation} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
               <MetricTile label="강제 새로고침 경로" value={`${xUsage?.forceRefreshPaths.length ?? 0}개`} detail={(xUsage?.forceRefreshPaths ?? []).slice(0, 2).map((item) => `${item.label} ${item.apiCalls}회`).join(" · ") || "기록 없음"} />
-            </div>
+            </div> : null}
           </details>
         ) : null}
 

@@ -128,12 +128,26 @@ export interface XHistoryPostsResponseDto {
   nextCursor: string | null;
 }
 
-export interface XHistoryHealthResponseDto {
-  referenceHydration?: {
+export interface XReferencePendingReasonDto {
+  stage: "post" | "author";
+  code: string | null;
+  count: number;
+  nextAttemptAt: number | null;
+}
+
+export interface XReferenceHydrationHealthDto {
     pendingPosts: number; pendingAuthors: number; terminal: number; oldestPendingAt: number | null;
     nextAttemptAt: number | null; errors: number; budgetDay: string;
     budgetLimitMicros: number; budgetUsedMicros: number; budgetReservedMicros: number;
-  };
+    /** Optional for compatibility with older health responses. Counts are relations, not unique targets. */
+    byRelation?: Array<{ relation: "reply" | "quote"; pendingPosts: number; pendingAuthors: number; terminal: number }>;
+    pendingReasons?: XReferencePendingReasonDto[];
+    globalBudget?: { limitMicros: number; usedMicros: number; reservedMicros: number };
+}
+
+export interface XHistoryHealthResponseDto {
+  observedAt?: number;
+  referenceHydration?: XReferenceHydrationHealthDto;
   lastCollectionSuccessAt: number | null;
   budgetUsedMicros: number;
   optimizer: {
