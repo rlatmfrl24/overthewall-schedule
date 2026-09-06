@@ -185,7 +185,7 @@ export function KirinukiChannelManager() {
               value={channelSort}
               onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}
             >
-              <SelectTrigger className="h-8 w-[170px]">
+              <SelectTrigger size="sm" className="w-[170px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

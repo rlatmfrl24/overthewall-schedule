@@ -296,7 +296,7 @@ export function SourceOperationalSummary({
     );
     return (
       <Card className="overflow-hidden border-primary/20">
-        <CardHeader className="border-b bg-gradient-to-r from-muted/60 to-background pb-4">
+        <CardHeader className="border-b bg-gradient-to-r from-muted/60 to-background pb-2">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -310,7 +310,7 @@ export function SourceOperationalSummary({
             <HealthBadge health={health} />
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 pt-4">
+        <CardContent className="space-y-3 pt-2">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryValue
               label="자동 수집"
@@ -387,7 +387,7 @@ export function SourceOperationalSummary({
 
   return (
     <Card className="overflow-hidden border-emerald-500/20">
-      <CardHeader className="border-b bg-gradient-to-r from-emerald-500/5 to-background pb-4">
+      <CardHeader className="border-b bg-gradient-to-r from-emerald-500/5 to-background pb-2">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -401,7 +401,7 @@ export function SourceOperationalSummary({
           <HealthBadge health={health} />
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 pt-4">
+      <CardContent className="space-y-3 pt-2">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryValue
             label="피드 표시"
@@ -991,7 +991,7 @@ export function MemberPostSettingsManager({
   };
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-3">
       <AdminSectionHeader
         title="멤버 게시글 관리"
         description="수집 소스별 설정, 비용과 실제 운영 상태를 한 화면에서 관리합니다."
@@ -1055,7 +1055,7 @@ export function MemberPostSettingsManager({
           id={`member-post-panel-${activeSource}`}
           role="tabpanel"
           aria-labelledby={`member-post-tab-${activeSource}`}
-          className="space-y-5"
+          className="space-y-3"
         >
           {activeSource === "x" ? (
             <MemberPostFeedMonitor
@@ -1077,7 +1077,7 @@ export function MemberPostSettingsManager({
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">수집 설정</h3>
               <details id="x-feed-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">공개·피드 설정<span className="ml-2 text-xs font-normal text-muted-foreground">접근 범위와 피드 미리보기</span></summary>
+                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">공개·피드 설정<span className="ml-2 text-xs font-normal text-muted-foreground">접근 범위와 피드 미리보기</span></summary>
                 <div className="space-y-3 border-t p-3">
           <Card>
             <CardHeader className="pb-3">
@@ -1096,7 +1096,7 @@ export function MemberPostSettingsManager({
                       key={option.value}
                       type="button"
                       variant={active ? "default" : "outline"}
-                      className="h-auto flex-1 justify-start gap-3 px-4 py-3 text-left"
+                      className="h-auto flex-1 justify-start gap-3 px-3 py-2 text-left"
                       onClick={() => void handleVisibilityChange(option.value)}
                       disabled={!settings || isSaving}
                     >
@@ -1174,7 +1174,7 @@ export function MemberPostSettingsManager({
                 </div>
               </details>
               <details id="x-collection-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">게시물 수집 설정<span className="ml-2 text-xs font-normal text-muted-foreground">자동 수집·주기·전체 예산</span></summary>
+                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">게시물 수집 설정<span className="ml-2 text-xs font-normal text-muted-foreground">자동 수집·주기·전체 예산</span></summary>
                 <div className="space-y-3 border-t p-3">
 
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1296,7 +1296,7 @@ export function MemberPostSettingsManager({
                 </div>
               </details>
               <details id="x-reference-settings" className="rounded-lg border">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">원문 보강 설정<span className="ml-2 text-xs font-normal text-muted-foreground">미리보기 모드·보강 예산</span></summary>
+                <summary className="cursor-pointer px-3 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">원문 보강 설정<span className="ml-2 text-xs font-normal text-muted-foreground">미리보기 모드·보강 예산</span></summary>
                 <div className="space-y-3 border-t p-3">
               <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
                 <div className="min-w-0 space-y-1">
@@ -1391,7 +1391,7 @@ export function MemberPostSettingsManager({
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor="naver-cafe-collection-enabled" className="text-sm font-semibold">
@@ -1452,7 +1452,7 @@ export function MemberPostSettingsManager({
                       key={option.value}
                       type="button"
                       variant={active ? "default" : "outline"}
-                      className="h-auto flex-1 justify-start gap-3 px-4 py-3 text-left"
+                      className="h-auto flex-1 justify-start gap-3 px-3 py-2 text-left"
                       onClick={() =>
                         void handleNaverCafeVisibilityChange(
                           option.value as NaverCafePostsVisibility,

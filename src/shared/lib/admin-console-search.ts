@@ -10,6 +10,7 @@ export interface ConsoleSearch {
   category?: string;
   page?: number;
   selected?: string;
+  proposal?: string;
   from?: string;
   until?: string;
   date?: string;
@@ -19,7 +20,7 @@ export interface ConsoleSearch {
 
 export function validateConsoleSearch(search: Record<string, unknown>): ConsoleSearch {
   const result: ConsoleSearch = {};
-  for (const key of ["sort", "tab", "source", "q", "state", "category", "selected", "from", "until", "date"] as const) {
+  for (const key of ["sort", "tab", "source", "q", "state", "category", "selected", "proposal", "from", "until", "date"] as const) {
     if (typeof search[key] === "string" && search[key]) result[key] = search[key].slice(0, 200);
   }
   const pageSize = Number(search.pageSize);

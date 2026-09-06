@@ -290,8 +290,8 @@ export function SingingClipReviewDialog({
           </DialogDescription>
         </DialogHeader>
         {candidate ? (
-          <div className="space-y-6" onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("[role=combobox],button")) setDirty(true); }}>
-            <div className="flex gap-4 rounded-xl border bg-muted/20 p-4">
+          <div className="space-y-3" onChangeCapture={() => setDirty(true)} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("[role=combobox],button")) setDirty(true); }}>
+            <div className="flex gap-3 rounded-xl border bg-muted/20 p-3">
               {candidate.thumbnailUrl ? (
                 <img
                   className="h-24 w-40 shrink-0 rounded-lg object-cover"
@@ -319,7 +319,7 @@ export function SingingClipReviewDialog({
               </div>
             </div>
 
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>연결할 곡</Label>
                 <Select value={songId} onValueChange={setSongId}>
@@ -449,7 +449,7 @@ export function SingingClipReviewDialog({
               ))}
             </section>
 
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="clip-start-seconds">시작 위치(초)</Label>
                 <Input id="clip-start-seconds" type="number" min={0} value={startSeconds} onChange={(event) => setStartSeconds(event.target.value)} />

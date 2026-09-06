@@ -155,7 +155,7 @@ export function ScheduleRejectionsPanel() {
       id="auto-update-panel-rejections"
       role="tabpanel"
       aria-labelledby="auto-update-tab-rejections"
-      className="space-y-4"
+      className="space-y-3"
     >
       <div>
         <h2 className="text-base font-semibold">거부 제외</h2>
@@ -166,7 +166,7 @@ export function ScheduleRejectionsPanel() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-3 pt-6 lg:grid-cols-[minmax(220px,1fr)_180px_160px_160px]">
+        <CardContent className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px_160px_160px]">
           <div className="space-y-1.5">
             <Label htmlFor="rejection-search">멤버·제목·VOD ID 검색</Label>
             <div className="relative">
@@ -257,7 +257,7 @@ export function ScheduleRejectionsPanel() {
           </div>
           {data.items.map((item) => (
             <Card key={item.id}>
-              <CardContent className="flex flex-col gap-4 pt-6 lg:flex-row lg:items-start lg:justify-between">
+              <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <RejectionSnapshot item={item} />
                 <div className="flex shrink-0 items-center gap-2">
                   <Badge variant="outline">

@@ -233,7 +233,7 @@ export function SourceHealthSection({
         <CardContent className="p-0">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div>
-              <h2 id="source-health-title" className="text-lg font-semibold">소스 상태</h2>
+              <h2 id="source-health-title" className="text-base font-semibold">소스 상태</h2>
               <p className="text-sm text-muted-foreground">KR 재생·임베드 가능 여부와 다음 YouTube 재검사 시각입니다.</p>
             </div>
             <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>

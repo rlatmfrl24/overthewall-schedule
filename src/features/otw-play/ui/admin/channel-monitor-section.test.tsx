@@ -160,7 +160,7 @@ describe("ChannelMonitorSection", () => {
     });
 
     expect(await screen.findByText("New Singing Clip")).toBeTruthy();
-    expect(screen.getByText("노래 클립 검수")).toBeTruthy();
+    expect(screen.getByLabelText("수집 출처: 자동 수집")).toBeTruthy();
     expect(screen.getByText("정보 입력 필요")).toBeTruthy();
     expect(screen.getByText("노래 영상 여부 확인")).toBeTruthy();
     expect(screen.getByText("재생 가능")).toBeTruthy();

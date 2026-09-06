@@ -1,3 +1,4 @@
+import { SelectField } from "@/shared/ui/select-field"
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { Input } from "@/shared/ui/input";
 import { QueryReadback } from "@/shared/ui/query-readback";
@@ -450,7 +451,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
               value={noticeSort}
               onValueChange={(value) => setNoticeSort(value as NoticeSortKey)}
             >
-              <SelectTrigger className="h-8 w-[150px]">
+              <SelectTrigger size="sm" className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -623,7 +624,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
 
       </>)}
 
-      {view === "content" && <div className="flex flex-wrap gap-2"><Input aria-label="공지 내용 검색" placeholder="공지 내용 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value || undefined})}/><select aria-label="공지 노출 상태" className="rounded border bg-background px-3 py-2" value={search.state ?? ""} onChange={(event) => updateSearch({state: event.target.value || undefined})}><option value="">모든 노출 상태</option><option value="published">노출 중</option><option value="scheduled">예정</option><option value="expired">종료</option><option value="inactive">비활성</option></select></div>}
+      {view === "content" && <div className="flex flex-wrap gap-2"><Input aria-label="공지 내용 검색" placeholder="공지 내용 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value || undefined})}/><SelectField aria-label="공지 노출 상태" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value || undefined})} options={[{ value: "", label: "모든 노출 상태" }, { value: "published", label: "노출 중" }, { value: "scheduled", label: "예정" }, { value: "expired", label: "종료" }, { value: "inactive", label: "비활성" }]} /></div>}
       {view === "content" && (noticesQuery.isError && !noticesQuery.data ? <p role="alert">공지 목록을 확인할 수 없습니다.</p> : isFetching && sortedNotices.length === 0 ? (
         <div className="flex h-44 items-center justify-center rounded-xl border border-dashed">
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />

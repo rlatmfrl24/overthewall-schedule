@@ -490,18 +490,16 @@ function AutoUpdateKpi({
   detail: string;
 }) {
   return (
-    <div className="flex min-h-[84px] items-start gap-3 p-3.5 sm:p-4">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="mt-1 text-xl font-semibold leading-none tabular-nums">
+    <div className="min-w-0 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        {label}
+      </p>
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <p className={cn("font-semibold tabular-nums", typeof value === "number" ? "text-lg leading-6" : "text-sm leading-6")}>
           {value}
         </p>
-        <p className="mt-1 truncate text-xs text-muted-foreground" title={detail}>
-          {detail}
-        </p>
+        <p className="text-xs text-muted-foreground">{detail}</p>
       </div>
     </div>
   );
@@ -1128,7 +1126,7 @@ export function AutoUpdateSettingsManager({
       : "-";
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-3">
       <AdminSectionHeader
         title={controlledActiveTab === "review" ? "자동 수집 스케쥴 검토" : controlledActiveTab === "rejections" ? "거부 제외 관리" : "일정 자동 수집"}
         description={`치지직 VOD 기반 수집/승인 워크플로우를 관리합니다. 마지막 실행: ${formatLastRun(
@@ -1187,8 +1185,8 @@ export function AutoUpdateSettingsManager({
         ))}
       </div>
 
-      <Card className="gap-0 overflow-hidden py-0 shadow-sm">
-        <CardContent className="grid divide-y p-0 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+      <Card className="gap-0 overflow-hidden py-0! shadow-sm">
+        <CardContent className="grid grid-cols-2 gap-px bg-border p-0! [&>div]:bg-card lg:grid-cols-4">
           <AutoUpdateKpi
             icon={CheckCircle}
             label="처리 전 후보"
@@ -1290,7 +1288,7 @@ export function AutoUpdateSettingsManager({
                 onValueChange={handleIntervalChange}
                 disabled={isSaving}
               >
-                <SelectTrigger className="h-8 flex-1">
+                <SelectTrigger size="sm" className="flex-1">
                   <SelectValue placeholder="주기 선택" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1313,7 +1311,7 @@ export function AutoUpdateSettingsManager({
                 onValueChange={handleRangeChange}
                 disabled={isSaving}
               >
-                <SelectTrigger className="h-8 flex-1">
+                <SelectTrigger size="sm" className="flex-1">
                   <SelectValue placeholder="범위 선택" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1474,7 +1472,7 @@ export function AutoUpdateSettingsManager({
                       value={pendingSort}
                       onValueChange={(value) => setPendingSort(value as PendingSortKey)}
                     >
-                      <SelectTrigger id="pending-sort" className="h-8 w-[170px]">
+                      <SelectTrigger size="sm" id="pending-sort" className="w-[170px]">
                         <SelectValue placeholder="정렬 선택" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1909,7 +1907,7 @@ export function AutoUpdateSettingsManager({
                                       pending.same_day_schedules.length === 0
                                     }
                                   >
-                                    <SelectTrigger className="h-8 w-full">
+                                    <SelectTrigger size="sm" className="w-full">
                                       <SelectValue placeholder="수정 대상" />
                                     </SelectTrigger>
                                     <SelectContent>

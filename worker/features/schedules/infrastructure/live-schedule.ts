@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { type DbInstance } from "../../../platform/db";
 import { members, schedules, settings } from "@db/schema";
 import { LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY } from "@contracts/configuration";
@@ -45,6 +45,8 @@ export type LiveScheduleFillPlan =
       action: "update";
       scheduleId: number;
       previousStatus: string;
+      previousStartTime: string | null;
+      previousTitle: string | null;
     })
   | (LiveScheduleFillPlanBase & {
       action: "create";
@@ -95,11 +97,11 @@ export const resolveLiveOpenedAt = (
 };
 
 const resolveLiveTitle = (content: LiveStatusContent) =>
-  content.liveTitle?.trim() || "방송 중";
+  content.liveTitle?.trim() || "";
 
-const isUndecidedSchedule = (schedule: LiveScheduleRow) =>
+const needsLiveScheduleFill = (schedule: LiveScheduleRow) =>
   schedule.status === "미정" ||
-  (schedule.status === "방송" && !schedule.start_time?.trim());
+  (schedule.status === "방송" && (!schedule.start_time?.trim() || !schedule.title?.trim()));
 
 export const buildLiveScheduleFillPlans = ({
   members: memberRows,
@@ -138,9 +140,10 @@ export const buildLiveScheduleFillPlans = ({
       (schedule) =>
         schedule.member_uid === member.uid && schedule.date === scheduleDate,
     );
-    const targetSchedule = memberSchedulesForDate.find((schedule) =>
-      isUndecidedSchedule(schedule),
-    );
+    const candidates = memberSchedulesForDate.filter(needsLiveScheduleFill);
+    // Multiple incomplete broadcasts cannot be matched to a single live session safely.
+    if (candidates.length > 1) continue;
+    const targetSchedule = candidates[0];
 
     const basePlan = {
       memberUid: member.uid,
@@ -151,11 +154,18 @@ export const buildLiveScheduleFillPlans = ({
     };
 
     if (targetSchedule) {
+      const startTime = targetSchedule.start_time?.trim() ? targetSchedule.start_time : basePlan.startTime;
+      const title = targetSchedule.title?.trim() ? targetSchedule.title : basePlan.title || targetSchedule.title || "";
+      if (targetSchedule.status === "방송" && startTime === targetSchedule.start_time && title === (targetSchedule.title ?? "")) continue;
       plans.push({
         ...basePlan,
         action: "update",
         scheduleId: targetSchedule.id,
         previousStatus: targetSchedule.status,
+        previousStartTime: targetSchedule.start_time ?? null,
+        previousTitle: targetSchedule.title ?? null,
+        startTime,
+        title,
       });
       continue;
     }
@@ -250,35 +260,22 @@ export const autoFillUndecidedLiveSchedules = async (
 
   for (const plan of plans) {
     if (plan.action === "create") {
-      const existingRows = await db
-        .select({ id: schedules.id })
-        .from(schedules)
-        .where(
-          and(
-            eq(schedules.member_uid, plan.memberUid),
-            eq(schedules.date, plan.scheduleDate),
-          ),
+      // Check absence and insert in one statement so overlapping admin requests cannot duplicate it.
+      const result = await db.run(sql`
+        INSERT INTO schedules (member_uid, date, start_time, title, status)
+        SELECT ${plan.memberUid}, ${plan.scheduleDate}, ${plan.startTime}, ${plan.title}, '방송'
+        WHERE NOT EXISTS (
+          SELECT 1 FROM schedules
+          WHERE member_uid = ${plan.memberUid} AND date = ${plan.scheduleDate}
         )
-        .limit(1);
-
-      if (existingRows.length > 0) {
-        continue;
-      }
-
-      const result = await db.insert(schedules).values({
-        member_uid: plan.memberUid,
-        date: plan.scheduleDate,
-        start_time: plan.startTime,
-        title: plan.title,
-        status: "방송",
-      });
+      `);
 
       if (result.meta.changes !== 1) {
         continue;
       }
 
       await insertUpdateLog(db, {
-        scheduleId: null,
+        scheduleId: result.meta.last_row_id,
         memberUid: plan.memberUid,
         memberName: plan.memberName,
         scheduleDate: plan.scheduleDate,
@@ -302,13 +299,11 @@ export const autoFillUndecidedLiveSchedules = async (
       .where(
         and(
           eq(schedules.id, plan.scheduleId),
-          or(
-            eq(schedules.status, "미정"),
-            and(
-              eq(schedules.status, "방송"),
-              sql`(${schedules.start_time} IS NULL OR trim(${schedules.start_time}) = '')`,
-            ),
-          ),
+          eq(schedules.member_uid, plan.memberUid),
+          eq(schedules.date, plan.scheduleDate),
+          eq(schedules.status, plan.previousStatus),
+          sql`${schedules.start_time} IS ${plan.previousStartTime}`,
+          sql`${schedules.title} IS ${plan.previousTitle}`,
         ),
       );
 

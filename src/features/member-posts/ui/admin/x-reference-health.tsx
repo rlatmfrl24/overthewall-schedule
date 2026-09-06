@@ -13,7 +13,7 @@ export function XReferenceHealth() {
     : stale ? "이전 조회 결과" : health.errors > 0 ? "재시도 확인 필요"
       : health.pendingPosts > 0 || health.pendingAuthors > 0 ? "보강 대기" : "대기 없음";
   return (
-    <section className="min-w-0 space-y-4 rounded-lg border bg-background p-4" aria-label="X 원문 보강 상태">
+    <section className="min-w-0 space-y-3 rounded-lg border bg-background p-3" aria-label="X 원문 보강 상태">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex items-center gap-2 text-sm font-semibold"><MessageSquareQuote className="size-4" />답글·인용 원문 보강</h3>
         <Button variant="ghost" size="sm" onClick={() => openXSettings("x-reference-settings")} aria-label="원문 보강 설정 열기">설정</Button>
@@ -21,7 +21,7 @@ export function XReferenceHealth() {
       <Badge variant={health && health.errors > 0 && !stale ? "destructive" : "secondary"}>{label}</Badge>
       {!health ? <p role="status" className="text-sm text-muted-foreground">{query.isError ? "원문 보강 상태를 확인할 수 없습니다." : "원문 보강 상태 확인 중"}</p> : <>
         {stale && <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">최신 상태를 확인하지 못했습니다. 마지막 조회 {formatXTime(query.dataUpdatedAt)}</p>}
-        <dl className="grid grid-cols-2 gap-4 text-sm">
+        <dl className="grid grid-cols-2 gap-3 text-sm">
           <div><dt className="text-muted-foreground">원문 대기</dt><dd className="mt-1 text-2xl font-semibold tabular-nums">{health.pendingPosts}<span className="ml-1 text-xs font-normal">건</span></dd></div>
           <div><dt className="text-muted-foreground">작성자 대기</dt><dd className="mt-1 text-2xl font-semibold tabular-nums">{health.pendingAuthors}<span className="ml-1 text-xs font-normal">건</span></dd></div>
           <div><dt className="text-muted-foreground">가장 오래된 대기</dt><dd className="mt-1">{formatXTime(health.oldestPendingAt)}</dd></div>

@@ -6,6 +6,7 @@ interface AdminSectionHeaderProps {
   description?: string;
   count?: number;
   actions?: ReactNode;
+  metadata?: ReactNode;
   headingLevel?: 1 | 2;
 }
 
@@ -14,6 +15,7 @@ export function AdminSectionHeader({
   description,
   count,
   actions,
+  metadata,
   headingLevel = 2,
 }: AdminSectionHeaderProps) {
   const Heading = headingLevel === 1 ? "h1" : "h2";
@@ -31,6 +33,7 @@ export function AdminSectionHeader({
         {description ? (
           <p className="text-sm text-muted-foreground">{description}</p>
         ) : null}
+        {metadata ? <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{metadata}</div> : null}
       </div>
       {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>

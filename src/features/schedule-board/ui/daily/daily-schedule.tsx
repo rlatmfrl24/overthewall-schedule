@@ -160,8 +160,9 @@ export const DailySchedule = ({
     refetchInterval: liveStatusEnabled && isLiveDebug ? 60_000 : false,
   });
   useAdminLiveScheduleAutoFill({
-    enabled: enableAdminLiveScheduleAutoFill,
-    sourceReady: Boolean(liveStatusQuery.data),
+    enabled: enableAdminLiveScheduleAutoFill && isToday,
+    sourceReady: Boolean(liveStatusQuery.data) && !liveStatusQuery.isFetching,
+    snapshotReceivedAt: liveStatusQuery.dataUpdatedAt,
     snapshotVersion: liveStatusQuery.data?.snapshotVersion ?? null,
     members,
     schedules,

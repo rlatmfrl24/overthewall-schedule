@@ -781,3 +781,10 @@ flowchart LR
   별도 port method와 query key를 사용한다.
 - `0065`는 WebSub 권위와 30일 source metadata retention을, `0066`은 D1 FK·CHECK drift를
   보정한다. 두 migration, Worker 배포와 공개 flag 변경은 서로 독립된 운영 승인 대상이다.
+
+### Live schedule fill guarantees
+
+- An authenticated administrator viewing today can fill missing titles and start times independently; existing nonblank values are preserved.
+- A live broadcast creates a schedule only when that member has no schedule on the broadcast date. The absence check and insertion are atomic.
+- Multiple incomplete schedules on the same date are left for manual matching. Updates compare the original date, member, status, title and time to avoid overwriting concurrent edits.
+- Schedule changes re-enable filling even for an unchanged live snapshot; unsuccessful attempts can retry after the next completed live-status refresh.

@@ -689,7 +689,7 @@ export function CatalogEntryDialog({
           {!completedMedleySegment && errorMessage && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{errorMessage}</div>}
 
           {completedMedleySegment ? (
-            <div className="flex min-h-[300px] flex-col items-center justify-center gap-4 py-8 text-center" role="status">
+            <div className="flex min-h-[300px] flex-col items-center justify-center gap-3 py-8 text-center" role="status">
               <div>
                 <h3 className="text-lg font-semibold">메들리 커버 구간을 임시 저장했습니다.</h3>
                 <p className="mt-2 text-sm text-muted-foreground">
@@ -701,7 +701,7 @@ export function CatalogEntryDialog({
               </Badge>
             </div>
           ) : (
-          <div className="min-h-[360px] space-y-5 py-2">
+          <div className="min-h-[360px] space-y-3 py-2">
             {step === 0 && (
               <>
                 <div className="grid gap-3 sm:grid-cols-[1fr_120px_120px_auto] sm:items-end">
@@ -711,7 +711,7 @@ export function CatalogEntryDialog({
                   <Button onClick={() => void runPreflight()} disabled={checking || !youtubeUrl.trim()}>{checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} 영상 확인</Button>
                 </div>
                 {preflight && (
-                  <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[240px_1fr]">
+                  <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 md:grid-cols-[240px_1fr]">
                     <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="확인한 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
                     <div className="space-y-3">
                       <div><div className="font-semibold">{preflight.video.title}</div><div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div></div>
@@ -725,7 +725,7 @@ export function CatalogEntryDialog({
             )}
 
             {step === 1 && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div>
                   <h3 className="font-semibold">이 영상은 어떤 유형인가요?</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -742,7 +742,7 @@ export function CatalogEntryDialog({
                       key={kind}
                       type="button"
                       aria-pressed={videoKind === kind}
-                      className={`min-h-32 rounded-xl border p-4 text-left transition-colors ${
+                      className={`min-h-32 rounded-xl border p-3 text-left transition-colors ${
                         videoKind === kind
                           ? "border-primary bg-primary/5"
                           : "hover:bg-muted"
@@ -763,7 +763,7 @@ export function CatalogEntryDialog({
                   ))}
                 </div>
                 {videoKind === "cover" && (
-                  <label className="flex items-start gap-3 rounded-xl border bg-card p-4">
+                  <label className="flex items-start gap-3 rounded-xl border bg-card p-3">
                     <Checkbox
                       checked={registrationMode === "medley_segment"}
                       onCheckedChange={(checked) => {
@@ -800,7 +800,7 @@ export function CatalogEntryDialog({
                   </div>
                 )}
                 {videoKind === "cover" && registrationMode === "medley_segment" && (
-                  <div className="rounded-xl border bg-card p-4">
+                  <div className="rounded-xl border bg-card p-3">
                     <SongConnectionPicker
                       inputKey="catalog-medley"
                       catalog={catalog}
@@ -827,7 +827,7 @@ export function CatalogEntryDialog({
                 {videoKind === "cover" &&
                   ((registrationMode === "standard" && !songId) ||
                     (registrationMode === "medley_segment" && songId === "__new")) && (
-                  <div className="space-y-4 rounded-xl border bg-card p-4">
+                  <div className="space-y-3 rounded-xl border bg-card p-3">
                     <div>
                       <h4 className="font-semibold">원곡 정보</h4>
                       <p className="mt-1 text-sm text-muted-foreground">
@@ -860,12 +860,12 @@ export function CatalogEntryDialog({
                 (videoKind === "cover" &&
                   ((registrationMode === "standard" && !songId) ||
                     songId === "__new")) ? (
-                  <div className="rounded-xl border bg-card p-4">
+                  <div className="rounded-xl border bg-card p-3">
                     <SongTagPicker tags={songTags} onChange={setSongTags} />
                   </div>
                 ) : null}
                 {videoKind === "karaoke" && (
-                  <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm">
+                  <div role="status" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
                     노래방송 등록은 이번 흐름에서 지원하지 않습니다. 다곡·타임스탬프 연결 기능이 준비될 때까지 이 영상은 저장되지 않습니다.
                   </div>
                 )}
@@ -900,7 +900,7 @@ export function CatalogEntryDialog({
                   <div className="space-y-1.5"><Label>공개 형태</Label><Select value={releaseType} onValueChange={(value) => setReleaseType(value as typeof releaseType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></SelectContent></Select></div>
                   <div className="space-y-1.5"><Label>참여 형태</Label><Select value={participationType} onValueChange={(value) => setParticipationType(value as OtwPlayParticipationType)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(participationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
                 </div>
-                <div className="rounded-xl border bg-card p-4">
+                <div className="rounded-xl border bg-card p-3">
                   <SongTagPicker
                     tags={performanceTags}
                     onChange={setPerformanceTags}
@@ -916,8 +916,8 @@ export function CatalogEntryDialog({
             )}
 
             {step === 3 && preflight && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-xl border p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border p-3">
                   <div className="mb-3 text-sm font-semibold">영상과 채널</div>
                   <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="등록 영상" className="mb-3 aspect-video w-full rounded-md object-cover" />
                   <div className="font-medium">{preflight.video.title}</div>
@@ -925,7 +925,7 @@ export function CatalogEntryDialog({
                   <div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{channelChoice === "approved" || preflight.channel.state === "approved" || preflight.channel.state === "recognized_member" ? "승인 채널" : "채널 검수 대기"}</Badge><Badge variant="outline">{startSeconds}초–{endSeconds}초</Badge>{registrationMode === "medley_segment" ? <Badge>메들리 구간</Badge> : null}</div>
                   {needsChannelOwnerChoice && <div className="mt-3 text-sm"><span className="font-medium">연결 주체:</span> {channelOwners.map((owner) => owner.label).join(", ")}</div>}
                 </div>
-                <div className="space-y-4 rounded-xl border p-4">
+                <div className="space-y-3 rounded-xl border p-3">
                   <div>
                     <div className="text-sm font-semibold">곡</div>
                     <div>

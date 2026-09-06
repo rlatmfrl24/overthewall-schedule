@@ -8,6 +8,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 type AdminLiveScheduleAutoFillOptions = {
   enabled: boolean;
   sourceReady: boolean;
+  snapshotReceivedAt?: number;
   snapshotVersion: string | null;
   members: MemberDto[];
   schedules: ScheduleDto[];
@@ -17,32 +18,38 @@ export function useAdminLiveScheduleAutoFill({
   enabled,
   sourceReady,
   snapshotVersion,
+  snapshotReceivedAt,
   members,
   schedules,
 }: AdminLiveScheduleAutoFillOptions) {
   const queryClient = useQueryClient();
-  const lastSnapshotVersionRef = useRef<string | null>(null);
-  const inFlightSnapshotVersionRef = useRef<string | null>(null);
+  const lastRequestKeyRef = useRef<string | null>(null);
+  const inFlightRequestKeyRef = useRef<string | null>(null);
+
+  const requestKey = JSON.stringify([snapshotVersion,
+    members.map((member) => [member.uid, member.url_chzzk]),
+    schedules.map((schedule) => [schedule.id, schedule.member_uid, schedule.date, schedule.status, schedule.start_time, schedule.title]),
+  ]);
 
   useEffect(() => {
     if (
       !enabled ||
       !sourceReady ||
       !snapshotVersion ||
-      lastSnapshotVersionRef.current === snapshotVersion ||
-      inFlightSnapshotVersionRef.current === snapshotVersion
+      lastRequestKeyRef.current === requestKey ||
+      inFlightRequestKeyRef.current === requestKey
     ) {
       return;
     }
-    inFlightSnapshotVersionRef.current = snapshotVersion;
+    inFlightRequestKeyRef.current = requestKey;
 
     void autoFillLiveSchedulesForMembers(members, {
       schedules,
       snapshotVersion,
     })
       .then(async (result) => {
-        if (inFlightSnapshotVersionRef.current === snapshotVersion) {
-          lastSnapshotVersionRef.current = snapshotVersion;
+        if (inFlightRequestKeyRef.current === requestKey) {
+          lastRequestKeyRef.current = requestKey;
         }
         if (result.scheduleAutoFill.updated === 0) return;
         await queryClient.invalidateQueries({
@@ -53,8 +60,8 @@ export function useAdminLiveScheduleAutoFill({
         console.error("Failed to auto-fill live schedules:", error);
       })
       .finally(() => {
-        if (inFlightSnapshotVersionRef.current === snapshotVersion) {
-          inFlightSnapshotVersionRef.current = null;
+        if (inFlightRequestKeyRef.current === requestKey) {
+          inFlightRequestKeyRef.current = null;
         }
       });
   }, [
@@ -64,5 +71,7 @@ export function useAdminLiveScheduleAutoFill({
     schedules,
     sourceReady,
     snapshotVersion,
+    snapshotReceivedAt,
+    requestKey,
   ]);
 }

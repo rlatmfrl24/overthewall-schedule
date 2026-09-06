@@ -32,9 +32,9 @@ function BudgetRow({ title, used, reserved, limit }: { title: string; used: numb
 
 export function XCollectionBudget({ health }: { health: XReferenceHydrationHealthDto | undefined }) {
   const global = health?.globalBudget;
-  return <section aria-label="X 예산" className="space-y-3 rounded-lg border bg-muted/10 p-4">
+  return <section aria-label="X 예산" className="space-y-3 rounded-lg border bg-muted/10 p-3">
     <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold"><Wallet className="size-4" />X API 예산 <span className="text-xs font-normal text-muted-foreground">{health ? health.budgetDay + " UTC" : "확인 중"}</span></h3>
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-3 lg:grid-cols-2">
       {global ? <BudgetRow title="전체 X 예산" used={global.usedMicros} reserved={global.reservedMicros} limit={global.limitMicros} /> : <p className="text-sm text-muted-foreground">전체 예산 정보 확인 불가</p>}
       {health ? <BudgetRow title="원문 보강 한도 · 전체 예산에 포함" used={health.budgetUsedMicros} reserved={health.budgetReservedMicros} limit={health.budgetLimitMicros} /> : <p className="text-sm text-muted-foreground">원문 보강 예산 정보 확인 불가</p>}
     </div>
@@ -57,10 +57,10 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
     : !latestRun ? "실행 이력 없음"
       : latestRun.status === "queued" || latestRun.status === "running" ? statusLabel(latestRun.status)
         : xCollectionStatusText(latestRun);
-  return <div className="space-y-4">
+  return <div className="space-y-3">
     <p className="text-sm leading-6 text-muted-foreground">게시물 수집 후 원문·작성자 보강을 처리하며, 남은 보강은 이후 실행에서 이어집니다.</p>
-    <div className="grid items-stretch gap-4 xl:grid-cols-2">
-      <section aria-label="X 게시물 수집 상태" className="min-w-0 space-y-4 rounded-lg border bg-background p-4">
+    <div className="grid items-stretch gap-3 xl:grid-cols-2">
+      <section aria-label="X 게시물 수집 상태" className="min-w-0 space-y-3 rounded-lg border bg-background p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" />게시물 수집</h3>
           <Button variant="ghost" size="sm" onClick={() => openXSettings("x-collection-settings")} aria-label="게시물 수집 설정 열기">설정</Button>
@@ -69,7 +69,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
         <p className="text-lg font-semibold">{xCollectionResultText(latestRun)}</p>
         {Array.from(new Set(known.flatMap((item) => item.collection?.error ? [item.collection.error] : []))).map((reason) => <p key={reason} className="text-xs text-muted-foreground">최근 실행 사유: {xReasonLabel(reason)}</p>)}
         {stale && <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">이전 조회 결과입니다. 마지막 조회 {formatXTime(runsUpdatedAt)}</p>}
-        <dl className="grid grid-cols-2 gap-4 text-sm">
+        <dl className="grid grid-cols-2 gap-3 text-sm">
           <div><dt className="text-muted-foreground">최근 실행</dt><dd className="mt-1">{formatXTime(latestRun?.startedAt ?? latestRun?.acceptedAt)}</dd></div>
           <div><dt className="text-muted-foreground">실행 유형</dt><dd className="mt-1">{latestRun ? latestRun.source === "manual" ? "수동" : "정기" : "기록 없음"}</dd></div>
           <div><dt className="text-muted-foreground">자동 수집</dt><dd className="mt-1">{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</dd></div>
@@ -113,7 +113,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
 
 export function XCollectionRuns({ runs, loading, error, updatedAt }: { runs: OperationRunDto[]; loading: boolean; error: boolean; updatedAt: number }) {
   const [expanded, setExpanded] = useState<string[]>([]);
-  return <section aria-label="X 실행 이력" className="space-y-3 border-t pt-4">
+  return <section aria-label="X 실행 이력" className="space-y-3 border-t pt-3">
     <div className="flex flex-wrap items-baseline justify-between gap-2"><h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3><p className="text-xs text-muted-foreground">최근 10개 실행 · 행을 펼쳐 처리 결과 확인</p></div>
     {error && <p role="alert" className="text-sm text-destructive">작업 이력을 갱신하지 못했습니다.{runs.length > 0 ? " 이전 조회: " + formatXTime(updatedAt) : ""}</p>}
     {!error && runs.length > 0 && Date.now() - updatedAt > 120_000 && <p role="status" className="text-sm text-muted-foreground">이전 조회 결과 · {formatXTime(updatedAt)}</p>}

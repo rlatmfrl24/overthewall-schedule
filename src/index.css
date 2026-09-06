@@ -146,7 +146,8 @@
 }
 
 /* Admin console: scoped density; public surfaces keep their own rhythm. */
-.admin-console { font-size: 14px; }
+.admin-console { font-size: 14px; --admin-header-height: 56px; --admin-content-padding: 12px; }
+@media (min-width: 768px) { .admin-console { --admin-content-padding: 20px; } }
 .admin-console main { scroll-padding-top: 64px; }
 .admin-console [data-slot="card"] { gap: 12px; padding-block: 12px; border-radius: 8px; box-shadow: none; }
 .admin-console [data-slot="card-header"], .admin-console [data-slot="card-content"] { padding-inline: 14px; }
@@ -154,7 +155,23 @@
 .admin-console td:last-child:not([colspan]), .admin-console th:last-child { position: sticky; right: 0; background: var(--card); }
 .admin-console summary { cursor: pointer; }
 .admin-console :is(button,a,input,select,summary):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-.admin-console .console-tabs { position: sticky; top: -1px; z-index: 20; background: var(--background); }
+.admin-console .console-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--admin-header-height);
+  margin-top: calc(-1 * var(--admin-content-padding));
+  margin-inline: calc(-1 * var(--admin-content-padding));
+  padding-inline: var(--admin-content-padding);
+  background: var(--card);
+  scrollbar-width: thin;
+}
+/* OTW Play uses one compact rhythm for section cards; editors share source-level spacing. */
+.otw-play-admin [data-slot="card"] { gap: 8px; padding-block: 10px; }
+.otw-play-admin [data-slot="card-header"] { padding-block: 0; }
+.otw-play-admin [data-slot="card-header"].border-b { padding-bottom: 8px; }
+.otw-play-admin [data-slot="card-header"] + [data-slot="card-content"] { padding-top: 0; }
+.otw-play-admin [data-slot="card-content"].p-0 { padding: 0; }
 @media (max-width: 767px) {
   .admin-console button, .admin-console summary { min-height: 44px; }
   .admin-console td, .admin-console th { padding: 8px 6px; }

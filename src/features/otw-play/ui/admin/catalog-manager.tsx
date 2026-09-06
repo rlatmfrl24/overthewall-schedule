@@ -89,11 +89,9 @@ export type Section =
 const SECTIONS: Array<{ value: Section; label: string }> = [
   { value: "catalog", label: "카탈로그" },
   { value: "import", label: "가져오기" },
-  { value: "channels", label: "승인 채널" },
-  { value: "automatic-review", label: "자동 검수" },
-  { value: "review", label: "제안 검수" },
-  { value: "source-health", label: "소스 상태" },
-  { value: "operations", label: "운영·공개" },
+  { value: "channels", label: "채널 관리" },
+  { value: "review", label: "영상 검토" },
+  { value: "operations", label: "재생·공개 관리" },
 ];
 
 const channelRoleLabels: Record<OtwPlayChannelRole, string> = {
@@ -177,10 +175,18 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [localSection, setLocalSection] = useState<Section>("catalog");
-  const section = activeSection ?? localSection;
+  const requestedSection = activeSection ?? localSection;
+  const section = requestedSection === "source-health" ? "operations"
+    : requestedSection === "automatic-review" ? monitorMode === "review" ? "review" : "channels"
+    : requestedSection;
+  const [reviewSearch, updateReviewSearch] = useConsoleSearch();
+  const isReview = section === "review";
+  const reviewSource = reviewSearch.source === "all" || reviewSearch.source === "automatic" || reviewSearch.source === "user"
+    ? reviewSearch.source
+    : reviewSearch.tab === "automatic-review" ? "automatic" : "all";
   const setSection = onSectionChange ?? setLocalSection;
   const sourceHealthQuery = useOtwPlayAdminSourceHealth(
-    section === "source-health" || section === "operations",
+    section === "operations",
   );
   const observabilityQuery = useOtwPlayAdminObservability(
     section === "operations",
@@ -316,11 +322,11 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const effectiveSaving = readModelReady ? saving : "read-model-unavailable";
 
   return (
-    <div className="space-y-5">
+    <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
-        title={monitorMode === "sources" && section === "automatic-review" ? "Play 채널 감시" : activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "automatic-review" ? monitorMode === "sources" ? "감시 채널의 수집 상태와 승인 연결을 확인합니다." : "새 업로드 후보를 오래된 순서로 검토합니다. 검토 저장과 게시는 별도 동작입니다." : section === "review" ? "사용자 제안의 영상·곡·참여자를 확인한 뒤 승인하거나 거절합니다." : "곡, 가창, 참여자와 공식 채널을 연결하고 공개 상태를 관리합니다."}
-        count={section === "catalog" ? catalog?.songs.length : undefined}
+        title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
+        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "review" ? "자동 수집과 사용자 제안을 출처별로 확인하고 검토합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
+        metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
             {catalog && section === "catalog" && (
@@ -346,39 +352,24 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           </div>
         }
       />
-      <QueryReadback updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />
-      {catalog && section === "catalog" && (
-        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-          <Badge variant="secondary">곡 {catalog.songs.length}</Badge>
-          <Badge variant="secondary">가창 {catalog.performances.length}</Badge>
+      {!activeSection && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
+          {SECTIONS.map((item) => (
+            <Button
+              key={item.value}
+              size="sm"
+              variant={section === item.value ? "default" : "ghost"}
+              onClick={() => setSection(item.value)}
+            >
+              {item.label}
+            </Button>
+          ))}
         </div>
       )}
-      <div className={activeSection && section !== "catalog" ? "hidden" : "flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2"}>
-        {!activeSection && SECTIONS.map((item) => (
-          <Button
-            key={item.value}
-            size="sm"
-            variant={section === item.value ? "default" : "ghost"}
-            onClick={() => setSection(item.value)}
-          >
-            {item.label}
-          </Button>
-        ))}
-        {catalog && (
-          <details className="ml-auto text-xs text-muted-foreground"><summary className="cursor-pointer">공개 데이터 {readModelReady ? "반영됨" : "불일치 확인 필요"}</summary><div className="mt-2 flex gap-2">
-            <Badge variant="outline">카탈로그 r{catalog.revision}</Badge>
-            <Badge
-              variant={readModelReady ? "secondary" : "destructive"}
-            >
-              공개 데이터 r{catalog.readModelRevision}
-            </Badge>
-          </div></details>
-        )}
-      </div>
       {catalog && !readModelReady && (
         <div
           role="alert"
-          className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm"
+          className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"
         >
           저장된 카탈로그와 공개용 데이터가 일치하지 않습니다. 데이터 반영 상태를 복구하고
           검증할 때까지 편집할 수 없습니다.
@@ -393,7 +384,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       {catalogSection && !catalogQuery.isLoading && !catalog && (
         <div
           role="alert"
-          className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-sm"
+          className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"
         >
           OTW Play 관리자 카탈로그를 불러오지 못했습니다. 카탈로그 작업은
           복구 후 다시 시도해 주세요. 운영·공개와 소스 상태는 위 메뉴에서
@@ -401,17 +392,36 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         </div>
       )}
 
-      {section === "review" && catalog && (
-        <ProposalSection
-          catalog={catalog}
-          proposals={proposalsQuery.data ?? []}
-          loading={proposalsQuery.isLoading}
-          fetching={proposalsQuery.isFetching}
-          error={proposalsQuery.error}
-          refetch={proposalsQuery.refetch}
-          saving={effectiveSaving}
-          run={run}
-        />
+      {isReview && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="수집 출처 필터">
+            <span className="text-xs font-medium text-muted-foreground">수집 출처</span>
+            {([{ value: "all", label: "전체" }, { value: "automatic", label: "자동 수집" }, { value: "user", label: "사용자 제안" }] as const).map((item) => (
+              <Button key={item.value} size="sm" variant={reviewSource === item.value ? "secondary" : "ghost"} aria-pressed={reviewSource === item.value} onClick={() => updateReviewSearch({ source: item.value }, false)}>{item.label}</Button>
+            ))}
+          </div>
+          {reviewSource !== "user" && (
+            <section aria-label="자동 수집 후보" className="space-y-2">
+              <h3 className="text-sm font-semibold">자동 수집</h3>
+              <ChannelMonitorSection mode="review" catalog={catalog ?? null} catalogLoading={catalogQuery.isLoading} onOpenCatalog={() => setSection("catalog")} />
+            </section>
+          )}
+          {reviewSource !== "automatic" && catalog && (
+            <section aria-label="사용자 제안 검토" className="space-y-2">
+              <h3 className="text-sm font-semibold">사용자 제안</h3>
+              <ProposalSection
+                catalog={catalog}
+                proposals={proposalsQuery.data ?? []}
+                loading={proposalsQuery.isLoading}
+                fetching={proposalsQuery.isFetching}
+                error={proposalsQuery.error}
+                refetch={proposalsQuery.refetch}
+                saving={effectiveSaving}
+                run={run}
+              />
+            </section>
+          )}
+        </div>
       )}
       {section === "import" && catalog && (
         <IngestionSection
@@ -419,13 +429,16 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           onOpenCatalog={() => setSection("catalog")}
         />
       )}
-      {section === "automatic-review" && (
-        <ChannelMonitorSection
-          mode={monitorMode}
-          catalog={catalog ?? null}
-          catalogLoading={catalogQuery.isLoading}
-          onOpenCatalog={() => setSection("catalog")}
-        />
+      {section === "channels" && (
+        <section aria-label="채널 감시" className="space-y-2">
+          <h2 className="text-base font-semibold">채널 감시</h2>
+          <ChannelMonitorSection
+            mode="sources"
+            catalog={catalog ?? null}
+            catalogLoading={catalogQuery.isLoading}
+            onOpenCatalog={() => setSection("catalog")}
+          />
+        </section>
       )}
       {section === "channels" && catalog && (
         <ChannelSection
@@ -464,17 +477,6 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           }}
         />
       )}
-      {section === "source-health" && (
-        <SourceHealthSection
-          data={sourceHealthQuery.data}
-          loading={sourceHealthQuery.isLoading}
-          fetching={sourceHealthQuery.isFetching}
-          error={sourceHealthQuery.error}
-          saving={saving}
-          run={run}
-          refetch={sourceHealthQuery.refetch}
-        />
-      )}
       {section === "operations" && (
         <OperationsSection
           observability={observabilityQuery.data}
@@ -485,9 +487,18 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
           release={releaseQuery.data}
           releaseLoading={releaseQuery.isLoading}
           releaseError={releaseQuery.error}
-          sourceHealth={sourceHealthQuery.data}
+          sourceHealthPanel={
+            <SourceHealthSection
+              data={sourceHealthQuery.data}
+              loading={sourceHealthQuery.isLoading}
+              fetching={sourceHealthQuery.isFetching}
+              error={sourceHealthQuery.error}
+              saving={saving}
+              run={run}
+              refetch={sourceHealthQuery.refetch}
+            />
+          }
           onReleaseChanged={refreshRelease}
-          onOpenSourceHealth={() => setSection("source-health")}
         />
       )}
 
@@ -529,8 +540,8 @@ function ProposalSection({
   useUnsavedChanges(proposalDirty);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [search, updateSearch] = useConsoleSearch();
-  const selectedId = search.selected ?? null;
-  const setSelectedId = (selected: string | null) => updateSearch({selected: selected ?? undefined}, false);
+  const selectedId = search.proposal ?? (!search.category && search.tab !== "automatic-review" ? search.selected : undefined) ?? null;
+  const setSelectedId = (selected: string | null) => updateSearch({proposal: selected ?? undefined}, false);
   const [approvalPreflight, setApprovalPreflight] =
     useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
   const approvalPreflightRequestId = useRef(0);
@@ -737,15 +748,12 @@ function ProposalSection({
   if (loading) return <Loader2 className="mx-auto h-7 w-7 animate-spin" />;
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">공식 커버 제안 검수</CardTitle>
-      </CardHeader>
       <CardContent className="space-y-3" onChangeCapture={() => setProposalDirty(true)}>
         <p className="text-sm text-muted-foreground">
           최신 YouTube metadata, 승인·활성 공식 채널과 실제 가창 credit을 모두 확인한 뒤 게시합니다.
         </p>
         {error ? (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
             <span>제안 목록을 불러오지 못했습니다. 빈 목록으로 간주하지 않습니다: {error.message}</span>
             <Button size="sm" variant="outline" disabled={fetching} onClick={() => void refetch()}>
               {fetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -754,7 +762,7 @@ function ProposalSection({
           </div>
         ) : null}
         {!error && proposals.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
             대기 중인 제안이 없습니다.
           </div>
         ) : !error ? (
@@ -787,6 +795,7 @@ function ProposalSection({
                       >
                         {proposal.submittedTitle}
                       </button>
+                      <div className="mt-1"><Badge variant="outline" aria-label="수집 출처: 사용자 제안">사용자 제안</Badge></div>
 
                     </TableCell>
                     <TableCell>
@@ -852,7 +861,7 @@ function ProposalSection({
           </div>
         ) : null}
         {!error && selected && (
-          <div className="grid gap-4 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
+          <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 lg:grid-cols-[minmax(280px,420px)_1fr]">
             <div className="aspect-video overflow-hidden rounded-lg bg-black">
               <iframe
                 className="h-full w-full"
@@ -1077,7 +1086,7 @@ function ProposalSection({
                   ))}
                 </div>
               ) : null}
-              <div className="space-y-4 rounded-lg border bg-background p-3">
+              <div className="space-y-3 rounded-lg border bg-background p-3">
                 <div>
                   <p className="font-semibold">승인 내용 편집</p>
                   <p className="text-xs text-muted-foreground">
@@ -1413,16 +1422,16 @@ function EntitySection({
   };
 
   return (
-    <section aria-labelledby="external-entities-title" className="space-y-4 border-t pt-4">
+    <section aria-labelledby="external-entities-title" className="space-y-3 border-t pt-4">
       <div>
         <h3 id="external-entities-title" className="text-sm font-semibold">외부 인물·그룹</h3>
         <p className="text-sm leading-relaxed text-muted-foreground">
           영상 등록에서 만든 외부 가수·참여자·그룹의 표시명과 보관 상태를 관리합니다.
         </p>
       </div>
-      <div className="space-y-5">
+      <div className="space-y-3">
         {editing && (
-          <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+          <div className="space-y-3 rounded-xl border bg-muted/20 p-3">
             <div>
               <div className="font-medium">{editing.displayName} 수정</div>
               <div className="mt-1 text-xs text-muted-foreground">
@@ -1473,7 +1482,7 @@ function EntitySection({
           </div>
         )}
         {items.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          <div className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
             저장된 외부 인물·그룹이 없습니다.
           </div>
         ) : (
@@ -1700,9 +1709,6 @@ function ChannelSection({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base"><h2 id="approved-channels-title">승인 채널·외부 주체 관리</h2></CardTitle>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-              승인 채널과 영상 등록에서 생성된 외부 인물·그룹을 한 화면에서 관리합니다.
-            </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <Badge variant="outline">전체 {items.length}</Badge>
@@ -1715,7 +1721,7 @@ function ChannelSection({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-3 p-3">
         <div className="flex flex-wrap items-center gap-2"><Input aria-label="Play 승인 채널 검색" placeholder="채널명·연결 주체 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a href="#play-channel-editor" className="text-sm underline">채널 등록·수정 ↓</a></div>
         <div className="space-y-2">
           <div className="text-sm font-medium">등록된 채널</div>
@@ -1789,7 +1795,7 @@ function ChannelSection({
           </div>
         </div>
 
-        <div id="play-channel-editor" className="space-y-4 rounded-xl border bg-muted/20 p-4">
+        <div id="play-channel-editor" className="space-y-3 rounded-xl border bg-muted/20 p-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 등록"}</div>
@@ -1799,7 +1805,7 @@ function ChannelSection({
             </div>
             {editing && <Badge variant="outline">version {editing.version}</Badge>}
           </div>
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-3">
           <Field
             label="YouTube 채널 ID"
             htmlFor="advanced-channel-id"
@@ -1879,8 +1885,8 @@ function ChannelSection({
           </Field>
           </div>
         {editing && (
-          <div className="space-y-4 border-t pt-4">
-            <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-3 border-t pt-4">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label="검수 상태" description="승인됨 상태에서만 채널을 활성화할 수 있습니다.">
                 <Select
                   value={form.verificationStatus}

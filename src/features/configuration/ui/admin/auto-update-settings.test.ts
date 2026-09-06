@@ -209,10 +209,7 @@ describe("AutoUpdateSettingsManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    const pendingLabel = await screen.findByText("처리 전 후보");
-    expect(pendingLabel.parentElement?.parentElement?.parentElement?.className).toContain(
-      "divide-y",
-    );
+    expect(await screen.findByText("처리 전 후보")).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByText("신규 1 · 수정 1")).toBeTruthy(),
     );

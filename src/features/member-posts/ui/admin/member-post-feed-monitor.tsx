@@ -304,8 +304,8 @@ export function MemberPostFeedMonitor({
     : loading || isRunningNaverCafeCheck;
 
   return (
-    <Card id={`${source}-monitoring`} className="gap-0 overflow-hidden py-0">
-      <CardHeader className="border-b px-4 py-2.5 [.border-b]:pb-2.5">
+    <Card id={`${source}-monitoring`} className="gap-0! overflow-hidden py-0!">
+      <CardHeader className="gap-0 border-b px-3 py-2 [.border-b]:pb-2">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -368,7 +368,7 @@ export function MemberPostFeedMonitor({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-3 p-3">
         {isX ? (
           <XCollectionOverview
             operations={operationsStatus} loading={operationsLoading} error={operationsError}
@@ -420,7 +420,7 @@ export function MemberPostFeedMonitor({
           runs={operationRunsQuery.data?.runs ?? []} loading={operationRunsQuery.isLoading}
           error={operationRunsQuery.isError} updatedAt={operationRunsQuery.dataUpdatedAt}
         /> : (
-        <section className="space-y-2 border-t pt-4">
+        <section className="space-y-2 border-t pt-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold">최근 정기·수동 작업 로그</h3>
             <p className="text-xs text-muted-foreground">
@@ -449,7 +449,7 @@ export function MemberPostFeedMonitor({
         </section>
         )}
         {!isX && children ? <details className="rounded border p-3"><summary className="font-semibold">수집·공개 설정 및 게시판 관리</summary><div className="pt-3">{children}</div></details> : null}
-        {isX && children ? <section className="border-t pt-4">{children}</section> : null}
+        {isX && children ? <section className="border-t pt-3">{children}</section> : null}
 
         {isX ? (
           <details className="rounded-lg border bg-muted/10">

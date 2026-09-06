@@ -227,7 +227,7 @@ export function NaverCafeSourceManager() {
               value={sourceSort}
               onValueChange={(value) => setSourceSort(value as SourceSortKey)}
             >
-              <SelectTrigger className="h-8 w-[170px]">
+              <SelectTrigger size="sm" className="w-[170px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -77,7 +77,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-card border-r">
-      <div className="p-4 border-b flex items-center gap-2">
+      <div className="flex h-[var(--admin-header-height,56px)] shrink-0 items-center gap-2 border-b px-4">
         <LayoutDashboard className="w-6 h-6 text-primary" />
         <span className="font-bold text-base">Admin Center</span>
       </div>
@@ -129,7 +129,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden admin-console bg-muted/20 md:flex-row">
       <AlertDialog open={discardRequest !== null} onOpenChange={(open) => { if (!open) resolveDiscard(false); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>저장하지 않은 변경 사항</AlertDialogTitle><AlertDialogDescription>입력 내용을 버리고 이동할까요? 계속 편집하면 입력값을 유지합니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => resolveDiscard(false)}>계속 편집</AlertDialogCancel><AlertDialogAction onClick={() => resolveDiscard(true)}>변경 버리고 이동</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       {/* Mobile Header */}
-      <div className="md:hidden border-b bg-background p-4 flex items-center justify-between shrink-0">
+      <div className="md:hidden h-(--admin-header-height) border-b bg-background px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <LayoutDashboard className="w-5 h-5 text-primary" />
           <span className="font-semibold">Admin Center</span>
@@ -156,8 +156,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </div>
 
       {/* Main Content */}
-      <main className="relative min-h-0 flex-1 overflow-y-auto bg-muted/10">
-        <div className="w-full min-h-full animate-in fade-in slide-in-from-bottom-4 p-3 pb-8 duration-500 md:p-5 md:pb-10">
+      <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-muted/10">
+        <div className="w-full min-h-full p-(--admin-content-padding) pb-8 md:pb-10">
           <UnsavedChangesContext value={{register: registerDirty, confirm: confirmDiscard}}><ConsoleSearchContext value={[search, updateSearch]}>{children}</ConsoleSearchContext></UnsavedChangesContext>
         </div>
       </main>

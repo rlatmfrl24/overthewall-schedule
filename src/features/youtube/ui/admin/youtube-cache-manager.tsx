@@ -648,7 +648,7 @@ export function YouTubeCacheManager() {
                   )
                 }
               >
-                <SelectTrigger className="h-9 w-[116px]" aria-label="조회 기간">
+                <SelectTrigger className="w-[116px]" aria-label="조회 기간">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

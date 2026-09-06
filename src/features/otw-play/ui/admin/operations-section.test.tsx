@@ -65,17 +65,8 @@ const props = () => ({
   release,
   releaseLoading: false,
   releaseError: null,
-  sourceHealth: {
-    generatedAt: 1,
-    recentRecoveryWindowDays: 7 as const,
-    listLimit: 50 as const,
-    counts: { due: 2, unplayable: 1, recentlyRecovered: 3 },
-    due: [],
-    unplayable: [],
-    recentlyRecovered: [],
-  },
+  sourceHealthPanel: null,
   onReleaseChanged: vi.fn(async () => undefined),
-  onOpenSourceHealth: vi.fn(),
 });
 
 describe("OTW Play operations section", () => {
@@ -96,13 +87,12 @@ describe("OTW Play operations section", () => {
   afterEach(() => cleanup());
 
   it("renders 24-hour metrics for desktop table and mobile cards", () => {
-    const { container } = render(createElement(OperationsSection, props()));
-    expect(container.querySelectorAll('[data-slot="card"]')).toHaveLength(3);
+    render(createElement(OperationsSection, props()));
     expect(screen.getByText("최근 24시간 관측")).toBeTruthy();
     expect(screen.getByText("2.0%")).toBeTruthy();
     expect(screen.getByText("125ms")).toBeTruthy();
     expect(screen.getAllByText("otw-play.public.catalog")).toHaveLength(2);
-    expect(screen.getByText("재확인 필요 2")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "소스 상태 열기" })).toBeNull();
   });
 
   it("keeps release controls available when Analytics is unconfigured", () => {

@@ -2,6 +2,7 @@
 import { createElement } from "react";
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -62,7 +63,7 @@ describe("AutoUpdateLogsManager", () => {
     expect(
       screen.getByRole("button", { name: "업데이트 로그 새로고침" }),
     ).toBeTruthy();
-    expect(screen.getByText("관리자 감사 로그")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "관리자 감사 로그" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "감사 로그 새로고침" }),
     ).toBeTruthy();
@@ -76,4 +77,18 @@ describe("AutoUpdateLogsManager", () => {
     await waitFor(() => expect(fetchUpdateLogsMock).toHaveBeenCalled());
     await waitFor(() => expect(fetchAdminAuditLogsMock).toHaveBeenCalled());
   });
+  it("감사 기록에서 원본 이벤트와 대상 ID, 미기록 건수를 보존하고 상세를 연다", async () => {
+    fetchAdminAuditLogsMock.mockResolvedValue({items: [{id: 42, event_type: "future.operation", resource_type: "custom_resource", resource_id: "target-42", action: "run", status: "partial", actor_name: null, actor_id: null, actor_ip: null, target_count: null, success_count: null, failure_count: null, detail: null, error: "재시도 필요", created_at: 1756706400000}], total: 1, page: 1, pageSize: 50, totalPages: 1});
+    render(createElement<{view: "audit"}>(AutoUpdateLogsManager, {view: "audit"}), {wrapper: createQueryWrapper()});
+    const event = await screen.findByText("future.operation");
+    expect(screen.getByText("target-42")).toBeTruthy();
+    expect(screen.getByText("처리 건수 미기록")).toBeTruthy();
+    expect(screen.getByText("이름 미기록")).toBeTruthy();
+    expect(screen.getByText("재시도 필요")).toBeTruthy();
+    fireEvent.click(event);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("기록 ID")).toBeTruthy();
+    expect(screen.getByText("42")).toBeTruthy();
+  });
+
 });

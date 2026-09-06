@@ -1313,21 +1313,19 @@ export function IngestionSection({
   const job = jobQuery.data;
 
   return (
-    <div className="space-y-5">
-      <a className="inline-flex items-center rounded border px-3 py-2 text-sm hover:bg-muted" href="#playlist-import">새 플레이리스트 가져오기 ↓</a>
-
+    <div className="space-y-3">
       <Card>
         <CardHeader className="border-b">
-          <CardTitle className="text-base">가져오기 이력</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            이전에 가져온 플레이리스트 작업을 계속 열어 검수할 수 있습니다.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-base">가져오기 이력</CardTitle>
+            <a className="text-sm underline underline-offset-4" href="#playlist-import">새 플레이리스트 가져오기 ↓</a>
+          </div>
         </CardHeader>
         <CardContent className="pt-4">
           {jobsQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">가져오기 이력을 불러오는 중입니다.</p>
           ) : jobsQuery.isError ? (
-            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
               <span>가져오기 이력을 불러오지 못했습니다. 저장된 작업이 없는 것으로 간주하지 않습니다.</span>
               <Button size="sm" variant="outline" disabled={jobsQuery.isFetching} onClick={() => void jobsQuery.refetch()}>
                 {jobsQuery.isFetching ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -1335,7 +1333,7 @@ export function IngestionSection({
               </Button>
             </div>
           ) : (jobsQuery.data?.length ?? 0) === 0 ? (
-            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            <p className="rounded-lg border border-dashed p-3 text-center text-sm text-muted-foreground">
               저장된 가져오기 작업이 없습니다.
             </p>
           ) : (
@@ -1345,7 +1343,7 @@ export function IngestionSection({
                   type="button"
                   key={historyJob.id}
                   onClick={() => setActiveJobId(historyJob.id)}
-                  className={`rounded-xl border p-4 text-left transition-colors ${
+                  className={`rounded-xl border p-3 text-left transition-colors ${
                     historyJob.id === activeJobId
                       ? "border-primary bg-primary/5"
                       : "hover:bg-muted/40"
@@ -1382,22 +1380,20 @@ export function IngestionSection({
         </div>
       ) : null}
 
-      {job && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">가져오기 결과 · {job.playlistTitle ?? job.playlistId}</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-2"><Badge>{importStatusLabels[job.status] ?? job.status}</Badge>{Object.entries(job.counts).map(([key, value]) => <Badge key={key} variant="outline">{importCountLabels[key] ?? key} {value}</Badge>)}</div>
-            <p className="text-xs text-muted-foreground">원본 정보 보존 · {retentionLabel(job.retentionExpiresAt)}</p>
-            {job.lastErrorCode && <p className="text-sm text-destructive">최근 오류: {job.lastErrorCode}</p>}
-            <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 항목 재시도</Button>}</div>
-          </CardContent>
-        </Card>
-      )}
-
       {activeJobId && (
         <Card>
-          <CardHeader><CardTitle className="text-base">후보 검토 · 카탈로그 임시 저장</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
+          <CardHeader>
+            <CardTitle className="text-base">후보 검토 · {job?.playlistTitle ?? job?.playlistId ?? "카탈로그 임시 저장"}</CardTitle>
+            {job && (
+              <div className="space-y-2 text-xs">
+                <div className="flex flex-wrap gap-2"><Badge>{importStatusLabels[job.status] ?? job.status}</Badge>{Object.entries(job.counts).filter(([key, value]) => value > 0 || key === "discovered").map(([key, value]) => <Badge key={key} variant="outline">{importCountLabels[key] ?? key} {value}</Badge>)}</div>
+                <p className="text-xs text-muted-foreground">원본 정보 보존 · {retentionLabel(job.retentionExpiresAt)}</p>
+                {job.lastErrorCode && <p className="text-sm text-destructive">최근 오류: {job.lastErrorCode}</p>}
+                <div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void refreshAuthority()}><RefreshCw /> 상태 새로고침</Button>{job.status === "partial" && <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void retryFailedMessages(job.id)}>실패 항목 재시도</Button>}</div>
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">검토 가능</SelectItem><SelectItem value="existing_candidate">기존 후보</SelectItem><SelectItem value="channel_review">채널 승인 필요</SelectItem><SelectItem value="existing_catalog">기존 카탈로그</SelectItem><SelectItem value="existing_proposal">기존 제안</SelectItem><SelectItem value="unavailable">재생 불가</SelectItem><SelectItem value="policy_blocked">정책 확인</SelectItem><SelectItem value="scope_review">노래 영상 확인</SelectItem><SelectItem value="playlist_duplicate">목록 중복</SelectItem></SelectContent></Select>
               <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setBulkIgnoreConfirmOpen(true)}>
@@ -1429,10 +1425,10 @@ export function IngestionSection({
               </AlertDialogContent>
             </AlertDialog>
 
-            <div className="grid items-start gap-4">
+            <div className="grid items-start gap-3">
               <div className="min-w-0 space-y-3">
                 {itemsQuery.isError ? (
-                  <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+                  <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
                     <span>후보 목록을 불러오지 못했습니다. 빈 검수함으로 간주하지 않습니다.</span>
                     <Button size="sm" variant="outline" disabled={itemsQuery.isFetching} onClick={() => void itemsQuery.refetch()}>
                       다시 시도
@@ -1601,8 +1597,8 @@ export function IngestionSection({
                     if (returnFocusTarget?.isConnected) returnFocusTarget.focus();
                   }}
                 >
-                  <DialogHeader className="gap-3 border-b bg-muted/20 p-4 text-left sm:p-6">
-                    <div className="flex items-start justify-between gap-4">
+                  <DialogHeader className="gap-3 border-b bg-muted/20 p-3 text-left sm:p-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1.5">
                         <DialogTitle>후보 행별 보완</DialogTitle>
                         <p className="line-clamp-2 font-medium" title={item.title ?? item.videoId}>
@@ -1659,9 +1655,9 @@ export function IngestionSection({
                     </div>
                   </DialogHeader>
 
-                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 sm:p-6">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3 sm:p-3">
                     {!item.catalogChannelId ? (
-                      <fieldset className="space-y-4 rounded-lg border border-amber-300/70 bg-amber-50/40 p-4 dark:border-amber-800 dark:bg-amber-950/10">
+                      <fieldset className="space-y-3 rounded-lg border border-amber-300/70 bg-amber-50/40 p-3 dark:border-amber-800 dark:bg-amber-950/10">
                         <legend className="px-1 text-sm font-semibold">공식 채널 승인</legend>
                         <div className="space-y-1">
                           <div className="font-medium">{item.channelTitle ?? "채널 이름 확인 필요"}</div>
@@ -1833,9 +1829,9 @@ export function IngestionSection({
                       </fieldset>
                     ) : null}
 
-                    <fieldset className="space-y-4 rounded-lg border bg-muted/10 p-4">
+                    <fieldset className="space-y-3 rounded-lg border bg-muted/10 p-3">
                       <legend className="px-1 text-sm font-semibold">곡 정보</legend>
-                      <div className="grid gap-4">
+                      <div className="grid gap-3">
                         <SongConnectionPicker
                           inputKey={item.candidateId}
                           catalog={catalog}
@@ -1925,7 +1921,7 @@ export function IngestionSection({
                       )}
                     </fieldset>
 
-                    <fieldset className="space-y-3 rounded-lg border bg-muted/10 p-4">
+                    <fieldset className="space-y-3 rounded-lg border bg-muted/10 p-3">
                       <legend className="px-1 text-sm font-semibold">가창 참여자와 역할</legend>
                       <p className="text-xs leading-relaxed text-muted-foreground">
                         기본 목록에는 OTW 멤버만 표시됩니다. 외부 가창자는 아래 옵션을 켠 뒤 별도로 추가합니다.
@@ -2073,14 +2069,14 @@ export function IngestionSection({
                       ) : null}
                     </fieldset>
 
-                    <section className="space-y-5 rounded-lg border bg-muted/10 p-4" aria-labelledby={`classification-${item.candidateId}`}>
+                    <section className="space-y-3 rounded-lg border bg-muted/10 p-3" aria-labelledby={`classification-${item.candidateId}`}>
                       <div>
                         <h4 id={`classification-${item.candidateId}`} className="text-sm font-semibold">공개 분류</h4>
                         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                           카탈로그 검색과 표시에 사용되는 값을 확인합니다.
                         </p>
                       </div>
-                      <div className="grid gap-5">
+                      <div className="grid gap-3">
                         <ChoiceGroup
                           label="곡 관계"
                           value={draft.relationType}
@@ -2124,7 +2120,7 @@ export function IngestionSection({
                     </section>
                   </div>
 
-                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/20 p-4 sm:px-6">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-muted/20 p-3 sm:px-6">
                     <Button
                       disabled={busy !== null || reviewBlockedReason !== null}
                       onClick={() => void saveCandidate(item)}
@@ -2167,7 +2163,7 @@ export function IngestionSection({
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-6 pt-6">
+        <CardContent className="space-y-3 pt-3">
           <Field>
             <FieldLabel htmlFor="playlist-url">YouTube 플레이리스트 URL 또는 ID</FieldLabel>
             <FieldDescription>
@@ -2198,7 +2194,7 @@ export function IngestionSection({
           />
 
           {mode === "recent" ? (
-            <div className="rounded-lg border bg-muted/20 p-4">
+            <div className="rounded-lg border bg-muted/20 p-3">
               <Field className="max-w-sm">
                 <FieldLabel htmlFor="recent-limit">최근 가져올 개수</FieldLabel>
                 <FieldDescription>플레이리스트 끝에서부터 최대 5,000개입니다.</FieldDescription>
@@ -2215,7 +2211,7 @@ export function IngestionSection({
           ) : null}
 
           {mode === "range" ? (
-            <div className="grid gap-4 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="range-start">시작 위치</FieldLabel>
                 <FieldDescription>첫 번째 영상은 1입니다.</FieldDescription>
@@ -2253,7 +2249,7 @@ export function IngestionSection({
             </Button>
           </div>
           {preflight && (
-            <div className="space-y-3 rounded-xl border bg-muted/20 p-4 text-sm">
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-3 text-sm">
               <div className="font-semibold">{preflight.title}</div>
               <div className="flex flex-wrap gap-2"><Badge variant="secondary">{preflight.privacyStatus}</Badge><Badge variant="outline">전체 {preflight.itemCount.toLocaleString()}개</Badge><Badge variant="outline">요청 {preflight.requestedItemCount.toLocaleString()}개</Badge><Badge variant="outline">위치 {preflight.rangeStartPosition + 1}–{preflight.rangeEndExclusive}</Badge><Badge variant="outline">page {preflight.estimatedPageCount}</Badge><Badge variant="outline">video batch {preflight.estimatedVideoBatchCount}</Badge></div>
               {preflight.requiresSplit && <p role="alert" className="text-destructive">5,000개 상한을 초과했습니다. 잘린 성공으로 처리하지 않으며 범위를 나눠야 합니다.</p>}

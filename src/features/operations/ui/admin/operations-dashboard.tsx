@@ -1,3 +1,4 @@
+import { SelectField } from "@/shared/ui/select-field"
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { scheduledJobTypes, scheduledJobStatuses } from "@contracts/scheduled-operations";
 import { QueryReadback } from "@/shared/ui/query-readback";
@@ -752,8 +753,8 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
 
       {view === "all" || view === "history" ? <section id="scheduled-jobs" className="space-y-3" aria-labelledby="jobs-heading">
         {runView === "history" && <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs">작업 종류<select className="block h-9 rounded border bg-background px-2" value={search.source ?? ""} onChange={(e) => updateSearch({source: e.target.value, page: 1})}><option value="">모든 작업</option>{scheduledJobTypes.map((type) => <option key={type} value={type}>{runLabel(type)}</option>)}</select></label>
-          <label className="text-xs">결과<select className="block h-9 rounded border bg-background px-2" value={search.state ?? ""} onChange={(e) => updateSearch({state: e.target.value, page: 1})}><option value="">모든 결과</option>{scheduledJobStatuses.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label>
+          <label className="text-xs">작업 종류<SelectField aria-label="작업 종류" value={search.source ?? ""} onValueChange={(value) => updateSearch({source: value, page: 1})} options={[{ value: "", label: "모든 작업" }, ...scheduledJobTypes.map((type) => ({ value: type, label: runLabel(type) }))]} /></label>
+          <label className="text-xs">결과<SelectField aria-label="결과" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value, page: 1})} options={[{ value: "", label: "모든 결과" }, ...scheduledJobStatuses.map((status) => ({ value: status, label: statusLabel(status) }))]} /></label>
           <label className="text-xs">시작일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label>
           <label className="text-xs">종료일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
           <Button variant="outline" disabled={page === 1} onClick={() => updateSearch({page: page - 1}, false)}>이전</Button><span>{page}페이지</span><Button variant="outline" disabled={(runsQuery.data?.runs.length ?? 0) <= 25} onClick={() => updateSearch({page: page + 1}, false)}>다음</Button>

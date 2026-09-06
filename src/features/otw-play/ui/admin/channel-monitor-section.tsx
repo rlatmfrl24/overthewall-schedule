@@ -12,7 +12,7 @@ import { queryKeys } from "@/shared/query/query-keys";
 import { ApiError } from "@/shared/api/client";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { Card, CardContent } from "@/shared/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import { useToast } from "@/shared/ui/toast";
@@ -377,20 +377,7 @@ export function ChannelMonitorSection({
 
   return (
     <Card>
-      <CardHeader className="border-b">
-        <div className="flex items-start gap-3">
-          <Radar className="mt-0.5 size-5 text-primary" />
-          <div className="space-y-1">
-            <CardTitle className="text-base">신규 업로드 자동 검수 제안</CardTitle>
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              등록한 노래 클립 YouTube 채널은 WebSub 알림을 우선 사용하고 6시간 polling을 fallback으로 유지합니다.
-              등록 이전 영상은 자동 소급하지 않습니다. 새 영상은 singing clip 후보로 보관하고,
-              관리자 검수·등록 뒤 비공개 draft로 만들 수 있으며 자동 공개하지 않습니다.
-            </p>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5 pt-6">
+      <CardContent className="space-y-3 pt-3">
         {!catalog ? (
           <div
             role="status"
@@ -402,7 +389,7 @@ export function ChannelMonitorSection({
           </div>
         ) : null}
         {mode !== "review" && (<>
-        <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
             <FieldDescription>
@@ -410,7 +397,7 @@ export function ChannelMonitorSection({
             </FieldDescription>
             <Input
               id="new-monitor-channel-id"
-              className="h-11 font-mono"
+              className="font-mono"
               value={newChannelId}
               onChange={(event) => setNewChannelId(event.target.value)}
               placeholder="UCxxxxxxxxxxxxxxxxxxxxxx"
@@ -421,7 +408,7 @@ export function ChannelMonitorSection({
             ) : null}
           </Field>
           <Button
-            className="h-11 sm:justify-self-end"
+            className="sm:justify-self-end"
             disabled={
               !YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedNewChannelId) ||
               newChannelAlreadyMonitored ||
@@ -436,22 +423,22 @@ export function ChannelMonitorSection({
 
         </>)}
         {monitorsQuery.isLoading ? (
-          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-8 text-sm text-muted-foreground">
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
             <Loader2 className="animate-spin" /> 수집 대상 채널을 불러오는 중입니다.
           </div>
         ) : monitorsQuery.isError ? (
-          <div className="space-y-3 rounded-xl border border-destructive/40 p-6 text-center">
+          <div className="space-y-3 rounded-xl border border-destructive/40 p-3 text-center">
             <p className="text-sm text-destructive">수집 대상 채널을 불러오지 못했습니다.</p>
             <Button variant="outline" size="sm" onClick={() => void monitorsQuery.refetch()}>
               <RefreshCw /> 다시 불러오기
             </Button>
           </div>
         ) : monitors.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed p-3 text-center text-sm text-muted-foreground">
             등록된 채널 감시가 없습니다.
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2.2fr)]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,2.2fr)]">
             <div className="space-y-2">
               {monitors.map((monitor) => (
                 <button
@@ -461,7 +448,7 @@ export function ChannelMonitorSection({
                     setEditChannelDirty(false);
                     setSelectedMonitorId(monitor.id);
                   }}
-                  className={`w-full rounded-xl border p-4 text-left transition-colors ${
+                  className={`w-full rounded-xl border p-3 text-left transition-colors ${
                     monitor.id === selectedMonitorId ? "border-primary bg-primary/5" : "hover:bg-muted/40"
                   }`}
                 >
@@ -498,7 +485,7 @@ export function ChannelMonitorSection({
               {selectedMonitor ? (
                 <>
                   {mode !== "review" ? (<>
-                  <div className="space-y-4 border-b p-4">
+                  <div className="space-y-3 border-b p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="mr-auto min-w-0">
                         <p className="truncate font-semibold">{selectedMonitor.channelDisplayName}</p>
@@ -666,20 +653,20 @@ export function ChannelMonitorSection({
                   {mode !== "sources" ? (<>
                   <div className="divide-y">
                     {candidatesQuery.isLoading ? (
-                      <p className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                      <p className="flex items-center justify-center gap-2 p-3 text-sm text-muted-foreground">
                         <Loader2 className="animate-spin" /> 신규 영상을 불러오는 중입니다.
                       </p>
                     ) : candidatesQuery.isError ? (
-                      <div className="space-y-3 p-8 text-center">
+                      <div className="space-y-3 p-3 text-center">
                         <p className="text-sm text-destructive">신규 영상 목록을 불러오지 못했습니다.</p>
                         <Button variant="outline" size="sm" onClick={() => void candidatesQuery.refetch()}>
                           <RefreshCw /> 다시 불러오기
                         </Button>
                       </div>
                     ) : candidates.length === 0 ? (
-                      <p className="p-8 text-center text-sm text-muted-foreground">대기 중인 신규 영상이 없습니다.</p>
+                      <p className="p-3 text-center text-sm text-muted-foreground">대기 중인 신규 영상이 없습니다.</p>
                     ) : candidates.map((candidate) => (
-                      <div key={candidate.candidateId} className="flex min-w-0 gap-4 p-4">
+                      <div key={candidate.candidateId} className="flex min-w-0 gap-3 p-3">
                         {candidate.thumbnailUrl ? (
                           <img className="h-20 w-36 shrink-0 rounded-lg object-cover" src={candidate.thumbnailUrl} alt="" />
                         ) : null}
@@ -693,7 +680,7 @@ export function ChannelMonitorSection({
                             {candidate.title ?? candidate.videoId}
                           </a>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Badge variant="outline">노래 클립 검수</Badge>
+                            <Badge variant="outline" aria-label="수집 출처: 자동 수집">자동 수집</Badge>
                             <Badge variant="secondary">{candidateStatusLabels[candidate.status]}</Badge>
                             <Badge variant="outline">{classificationLabels[candidate.classification]}</Badge>
                             <Badge variant="outline">{availabilityLabels[candidate.availabilityStatus]}</Badge>
@@ -747,7 +734,7 @@ export function ChannelMonitorSection({
                       </div>
                     ))}
                     {candidatesQuery.hasNextPage ? (
-                      <div className="p-4 text-center">
+                      <div className="p-3 text-center">
                         <Button
                           variant="outline"
                           disabled={candidatesQuery.isFetchingNextPage || busy !== null}
@@ -763,7 +750,7 @@ export function ChannelMonitorSection({
                     previousCandidatesQuery.isError ? (
                       <section
                         aria-label="이전 generation 미처리 후보"
-                        className="space-y-3 border-t bg-amber-50/40 p-4 dark:bg-amber-950/10"
+                        className="space-y-3 border-t bg-amber-50/40 p-3 dark:bg-amber-950/10"
                       >
                         <div>
                           <h3 className="font-semibold">
@@ -790,6 +777,7 @@ export function ChannelMonitorSection({
                                   <a className="line-clamp-1 font-medium hover:underline" href={`https://www.youtube.com/watch?v=${candidate.videoId}`} target="_blank" rel="noreferrer">
                                     {candidate.title ?? candidate.videoId}
                                   </a>
+                                  <Badge variant="outline" aria-label="수집 출처: 자동 수집">자동 수집</Badge>
                                   <p className="text-xs text-muted-foreground">generation {candidate.monitorGeneration} · 발견 {formatAt(candidate.discoveredAt)}</p>
                                   <p className="text-xs text-muted-foreground">API metadata 보존 {formatRetention(candidate.retentionExpiresAt)}</p>
                                 </div>

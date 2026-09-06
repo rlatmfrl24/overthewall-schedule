@@ -156,4 +156,26 @@ describe("useAdminLiveScheduleAutoFill", () => {
     );
     consoleError.mockRestore();
   });
+  it("같은 라이브라도 빈 일정이 새로 생기면 다시 보완한다", async () => {
+    autoFillLiveSchedulesForMembersMock.mockResolvedValue({scheduleAutoFill: {updated: 0}});
+    const { useAdminLiveScheduleAutoFill } = await import("./use-admin-live-schedule-auto-fill");
+    const { rerender } = renderHook((props) => useAdminLiveScheduleAutoFill(props), {initialProps: {enabled: true, sourceReady: true, snapshotVersion: "same", members, schedules}, wrapper: createQueryWrapper()});
+    await waitFor(() => expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledTimes(1));
+    rerender({enabled: true, sourceReady: true, snapshotVersion: "same", members, schedules: [{...schedules[0], title: "", start_time: "13:00"}]});
+    await waitFor(() => expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("동일 데이터의 다음 조회 완료 시 실패한 요청을 재시도한다", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    autoFillLiveSchedulesForMembersMock.mockRejectedValueOnce(new Error("expired")).mockResolvedValue({scheduleAutoFill: {updated: 0}});
+    const { useAdminLiveScheduleAutoFill } = await import("./use-admin-live-schedule-auto-fill");
+    const props = {enabled: true, sourceReady: true, snapshotVersion: "same", snapshotReceivedAt: 1, members, schedules};
+    const { rerender } = renderHook((options) => useAdminLiveScheduleAutoFill(options), {initialProps: props, wrapper: createQueryWrapper()});
+    await waitFor(() => expect(errorSpy).toHaveBeenCalledOnce());
+    await act(async () => { await Promise.resolve(); });
+    rerender({...props, snapshotReceivedAt: 2});
+    await waitFor(() => expect(autoFillLiveSchedulesForMembersMock).toHaveBeenCalledTimes(2));
+    errorSpy.mockRestore();
+  });
+
 });

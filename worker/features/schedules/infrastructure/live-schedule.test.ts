@@ -67,6 +67,8 @@ describe("live schedule fill", () => {
         startTime: "20:30",
         title: "라이브 방송 제목",
         previousStatus: "방송",
+        previousStartTime: null,
+        previousTitle: "",
       },
     ]);
   });
@@ -157,6 +159,28 @@ describe("live schedule fill", () => {
     });
 
     expect(plans).toEqual([]);
+  });
+
+  it("시각과 제목을 독립적으로 보완하고 입력된 값은 보존한다", () => {
+    for (const [start_time, title, expectedTime, expectedTitle] of [
+      ["19:00", "  ", "19:00", "라이브 방송 제목"],
+      [null, "직접 입력한 제목", "20:30", "직접 입력한 제목"],
+    ]) {
+      const plans = buildLiveScheduleFillPlans({members, schedules: [{id: 20, member_uid: 1, date: "2026-06-30", status: "방송", start_time, title}], liveItems: [makeLiveItem()]});
+      expect(plans[0]).toMatchObject({startTime: expectedTime, title: expectedTitle});
+    }
+  });
+
+  it("휴방은 보존하고 여러 미완성 일정 중 하나를 임의 선택하지 않는다", () => {
+    const base = {id: 20, member_uid: 1, date: "2026-06-30", start_time: null, title: ""};
+    expect(buildLiveScheduleFillPlans({members, schedules: [{...base, status: "휴방"}], liveItems: [makeLiveItem()]})).toEqual([]);
+    expect(buildLiveScheduleFillPlans({members, schedules: [{...base, status: "방송"}, {...base, id: 21, status: "미정"}], liveItems: [makeLiveItem()]})).toEqual([]);
+  });
+
+  it("라이브 제목이 없으면 임시 문구로 채우지 않고 실제 제목을 기다린다", () => {
+    const schedule = {id: 20, member_uid: 1, date: "2026-06-30", start_time: "20:00", title: "", status: "방송"};
+    expect(buildLiveScheduleFillPlans({members, schedules: [schedule], liveItems: [makeLiveItem({liveTitle: ""})]})).toEqual([]);
+    expect(buildLiveScheduleFillPlans({members, schedules: [], liveItems: [makeLiveItem({liveTitle: ""})]})[0]).toMatchObject({action: "create", title: ""});
   });
 
   it("타임존이 없는 CHZZK 시작 시각은 KST로 해석한다", () => {

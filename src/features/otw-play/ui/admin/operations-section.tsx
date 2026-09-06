@@ -1,11 +1,11 @@
-import { useRef, useState } from "react";
+import { PlayAdminHelp } from "./play-admin-help";
+import { useRef, useState, type ReactNode } from "react";
 import type {
   OtwPlayAdminObservabilityDto,
   OtwPlayAdminReleaseConfirmation,
   OtwPlayAdminReleaseFlagsDto,
   OtwPlayAdminReleaseReadResponse,
   OtwPlayAdminReleaseTransition,
-  OtwPlayAdminSourceHealthDto,
 } from "@contracts/otw-play";
 import { ApiError } from "@/shared/api/client";
 import {
@@ -189,7 +189,7 @@ function ObservabilityPanel({
         <MetricCard label="D1 rows written" value={formatCount(data.summary.d1RowsWritten)} />
       </div>
       {data.status === "available" && data.routes.length === 0 ? (
-        <p className="m-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">최근 24시간 route 집계가 없습니다.</p>
+        <p className="m-3 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">최근 24시간 route 집계가 없습니다.</p>
       ) : data.routes.length > 0 ? (
         <div className="p-3">
           <div className="hidden overflow-x-auto md:block">
@@ -304,11 +304,12 @@ function ReleasePanel({
       <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 id="release-title" className="flex items-center gap-2 text-base font-semibold"><ShieldCheck className="h-4 w-4" /> 운영·공개 권위</h2>
-          <p className="text-xs text-muted-foreground">감사 command만 flag를 변경하며 optimistic 상태는 표시하지 않습니다.</p>
+
         </div>
         <div className="flex flex-wrap gap-2">
-        <Badge variant="outline">catalog r{state.catalogRevision}</Badge>
-        <Badge variant={state.readyForPublicRead ? "secondary" : "destructive"}>read model {state.readModelRevision === null ? "없음" : `r${state.readModelRevision}`}</Badge>
+        <PlayAdminHelp title="데이터 반영 상세">
+          <span>카탈로그 r{state.catalogRevision} · 공개 데이터 {state.readModelRevision === null ? "없음" : `r${state.readModelRevision}`}</span>
+        </PlayAdminHelp>
         <Badge variant="outline">갱신 {formatAt(state.updatedAt)}</Badge>
         </div>
       </div>
@@ -376,9 +377,8 @@ export function OperationsSection({
   release,
   releaseLoading,
   releaseError,
-  sourceHealth,
+  sourceHealthPanel,
   onReleaseChanged,
-  onOpenSourceHealth,
 }: {
   observability: OtwPlayAdminObservabilityDto | undefined;
   observabilityLoading: boolean;
@@ -388,25 +388,15 @@ export function OperationsSection({
   release: OtwPlayAdminReleaseReadResponse | undefined;
   releaseLoading: boolean;
   releaseError: Error | null;
-  sourceHealth: OtwPlayAdminSourceHealthDto | undefined;
+  sourceHealthPanel: ReactNode;
   onReleaseChanged: () => Promise<unknown>;
-  onOpenSourceHealth: () => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <ReleasePanel release={release} loading={releaseLoading} error={releaseError} onChanged={onReleaseChanged} />
+      {sourceHealthPanel}
       <ObservabilityPanel data={observability} loading={observabilityLoading} error={observabilityError} fetching={observabilityFetching} refetch={refetchObservability} />
-      <Card className="gap-0 py-0">
-        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="mr-1 font-semibold">소스 상태</span>
-            <Badge variant="outline">재확인 필요 {sourceHealth?.counts.due ?? "-"}</Badge>
-            <Badge variant="outline">재생 불가 {sourceHealth?.counts.unplayable ?? "-"}</Badge>
-            <Badge variant="outline">최근 복구 {sourceHealth?.counts.recentlyRecovered ?? "-"}</Badge>
-          </div>
-          <Button size="sm" variant="outline" onClick={onOpenSourceHealth}>소스 상태 열기 <ArrowRight className="h-4 w-4" /></Button>
-        </CardContent>
-      </Card>
+
     </div>
   );
 }

@@ -19,7 +19,7 @@ const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
   review: [["schedule", "일정 승인"], ["rejections", "거부 제외"]],
   collection: [["x", "X"], ["naver-cafe", "네이버 카페"], ["schedule", "일정 수집"], ["youtube", "YouTube 피드·캐시"], ["kirinuki", "키리누키 채널"]],
   content: [["notices", "공지"], ["ddays", "D-Day"], ["snapshot", "스냅샷"]],
-  "otw-play": [["catalog", "카탈로그"], ["automatic-review", "자동 영상 후보"], ["review", "사용자 제안"], ["import", "가져오기 검토"], ["play-monitor", "채널 감시"], ["channels", "승인 채널"], ["source-health", "재생 상태"], ["operations", "공개 관리"]],
+  "otw-play": [["catalog", "카탈로그"], ["review", "영상 검토"], ["import", "가져오기 검토"], ["channels", "채널 관리"], ["operations", "재생·공개 관리"]],
   resources: [["usage", "사용량·한도"], ["media", "이미지 정리"]],
   history: [["runs", "작업 실행"], ["schedule", "일정 변경"], ["audit", "관리자 감사"]],
 };
@@ -27,9 +27,13 @@ const tabs: Record<ConsoleArea, readonly (readonly [string, string])[]> = {
 export function ConsoleScreen({ area }: { area: ConsoleArea }) {
   const queryClient = useQueryClient();
   const [search, update] = useConsoleSearch();
-  const wanted = area === "collection" ? search.source : search.tab;
+  const wanted = area === "collection" ? search.source
+    : area === "otw-play" && search.tab === "automatic-review" ? "review"
+    : area === "otw-play" && search.tab === "play-monitor" ? "channels"
+    : area === "otw-play" && search.tab === "source-health" ? "operations"
+    : search.tab;
   const tab = tabs[area].some(([key]) => key === wanted) ? wanted! : tabs[area][0][0];
-  const select = (next: string) => update({ ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, from: undefined, until: undefined }, false);
+  const select = (next: string) => update({ ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, proposal: undefined, from: undefined, until: undefined }, false);
   let content;
   if (area === "review") {
     content = <AutoUpdateSettingsManager activeTab={tab === "schedule" ? "review" : "rejections"} />;
@@ -39,11 +43,11 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     const date = search.date && /^\d{4}-\d{2}-\d{2}$/.test(search.date) && isValid(parseISO(search.date)) && format(parseISO(search.date), "yyyy-MM-dd") === search.date ? search.date : format(new Date(), "yyyy-MM-dd");
     content = tab === "notices" ? <NoticeManager /> : tab === "ddays" ? <DDayManager /> : <SnapshotPreviewManager date={date} mode={search.mode ?? "grid"} theme={search.theme ?? "light"} onDateChange={(date) => update({ date })} onModeChange={(mode) => update({ mode })} onThemeChange={(theme) => update({ theme })} />;
   } else if (area === "otw-play") {
-    content = <OtwPlayCatalogManager activeSection={tab === "play-monitor" ? "automatic-review" : tab as "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} monitorMode={tab === "play-monitor" ? "sources" : "review"} />;
+    content = <OtwPlayCatalogManager activeSection={tab as "catalog" | "automatic-review" | "review" | "import" | "channels" | "source-health" | "operations"} onSectionChange={select} />;
   } else if (area === "history") {
     content = tab === "runs" ? <OperationsDashboard view="history" /> : <AutoUpdateLogsManager view={tab === "audit" ? "audit" : "schedule"} />;
   } else {
     content = tab === "media" ? <NoticeManager view="resources" /> : <><ResourceBudgets /><OperationsDashboard view="resources" onRefresh={() => { void queryClient.refetchQueries({queryKey: xReferenceHealthQueryKey, type: "active"}); void queryClient.refetchQueries({queryKey: queryKeys.youtubeCache.all, type: "active"}); }} /></>;
   }
-  return <div className="space-y-3"><nav aria-label="업무 선택" className="console-tabs flex flex-wrap gap-1 border-b pb-2">{tabs[area].map(([key, label]) => <button key={key} aria-current={tab === key ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm ${tab === key ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-muted text-muted-foreground"}`} onClick={() => select(key)}>{label}</button>)}</nav><div key={tab}>{content}</div></div>;
+  return <div className={area === "otw-play" ? "otw-play-console min-w-0 space-y-3" : "space-y-3"}><nav aria-label="업무 선택" className="console-tabs flex items-center gap-1 overflow-x-auto border-b">{tabs[area].map(([key, label]) => <button key={key} aria-current={tab === key ? "page" : undefined} className={`shrink-0 rounded-md px-3 py-2 text-sm ${tab === key ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-muted text-muted-foreground"}`} onClick={() => select(key)}>{label}</button>)}</nav><div key={tab}>{content}</div></div>;
 }

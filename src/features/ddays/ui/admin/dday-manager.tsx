@@ -200,7 +200,7 @@ export function DDayManager() {
               value={ddaySort}
               onValueChange={(value) => setDDaySort(value as DDaySortKey)}
             >
-              <SelectTrigger className="h-8 w-[150px]">
+              <SelectTrigger size="sm" className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

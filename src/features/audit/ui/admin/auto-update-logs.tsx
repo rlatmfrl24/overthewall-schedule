@@ -1,3 +1,5 @@
+import { getAuditResultSummary } from "../../model/audit-result";
+import { SelectField } from "@/shared/ui/select-field"
 import { readRecordedChanges } from "../../model/recorded-changes";
 import { fetchActiveMembers } from "@/features/members";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
@@ -99,6 +101,18 @@ const AUDIT_EVENT_LABELS: Record<string, string> = {
   "x.post_redacted": "X 게시물 공개 제외",
   "naver_cafe.post_redacted": "카페 게시물 공개 제외",
   "otw_play.catalog_entry.created": "Play 곡·가창 등록",
+  "otw_play.entity.created": "Play 가수·주체 등록",
+  "otw_play.entity.updated": "Play 가수·주체 수정",
+  "otw_play.entity.deleted": "Play 가수·주체 삭제",
+  "otw_play.channel.created": "Play 채널 등록",
+  "otw_play.channel.updated": "Play 채널 수정",
+  "otw_play.channel.deleted": "Play 채널 삭제",
+  "otw_play.song.deleted": "Play 곡 삭제",
+  "otw_play.performance.deleted": "Play 가창 삭제",
+  "otw_play.performance.published": "Play 가창 공개",
+  "otw_play.performance.withdrawn": "Play 가창 공개 철회",
+  "otw_play.proposal.approved": "Play 제안 승인",
+  "data_retention.prune": "보존 기간 정리",
   "otw_play.song.created": "Play 곡 등록",
   "otw_play.song.updated": "Play 곡 수정",
   "otw_play.performance.created": "Play 가창 등록",
@@ -116,7 +130,16 @@ const AUDIT_RESOURCE_LABELS: Record<string, string> = {
   settings: "설정", schedule: "일정", auto_update: "일정 수집", x_collection: "X 수집", x_post: "X 게시물",
   youtube_cache: "YouTube 캐시", naver_cafe: "네이버 카페", naver_cafe_post: "카페 게시물",
   data_retention: "보존·정리", pending_schedules: "일정 후보", music_song: "Play 곡",
-  music_performance: "Play 가창", music_entity: "Play 가수·주체", music_channel: "Play 채널",
+  music_cover_proposal: "Play 사용자 제안", music_performance: "Play 가창", music_entity: "Play 가수·주체", music_channel: "Play 채널",
+};
+
+const AUDIT_CHANGE_LABELS: Record<string, string> = {
+  x_collection_daily_budget_cents: "X 전체 일일 예산 (센트)",
+  x_reference_preview_daily_budget_cents: "원문 보강 일일 한도 (센트)",
+  x_collection_interval_hours: "X 수집 주기 (시간)",
+  x_reference_preview_mode: "원문 보강 모드",
+  youtube_daily_quota_limit: "YouTube 일일 쿼터",
+  youtube_warmup_interval_hours: "YouTube 캐시 갱신 주기 (시간)",
 };
 
 const AUDIT_STATUS_LABELS: Record<AdminAuditLog["status"], string> = {
@@ -221,6 +244,7 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
     if (!timestamp) return "-";
     const date = new Date(timestamp);
     return date.toLocaleString("ko-KR", {
+      timeZone: "Asia/Seoul",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -240,16 +264,7 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
   const getAuditActorLabel = (log: AdminAuditLog) => {
     if (log.actor_name) return log.actor_name;
     if (log.actor_id) return "관리자";
-    if (log.actor_ip) return "관리자";
-    return "-";
-  };
-
-  const getAuditResultSummary = (log: AdminAuditLog) => {
-    const total = log.target_count ?? 0;
-    const success = log.success_count ?? 0;
-    const failure = log.failure_count ?? 0;
-    if (total > 0) return `${success}/${total} 성공 · 실패 ${failure}`;
-    return failure > 0 ? `실패 ${failure}` : "-";
+    return "이름 미기록";
   };
 
   const formatAuditDate = (timestamp: number): string => {
@@ -280,19 +295,21 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
     <section className="space-y-4">
       <AdminSectionHeader
         title={view === "audit" ? "관리자 감사 기록" : "일정 변경 기록"}
-        description="스케줄 변경 이력과 자동 수집 처리 결과를 확인합니다."
+        description={view === "audit" ? "누가 어떤 대상에 작업했는지, 실행 결과와 기록된 변경 내용을 확인합니다." : "스케줄 변경 이력과 자동 수집 처리 결과를 확인합니다."}
+        metadata={<QueryReadback className="m-0" updatedAt={view === "audit" ? auditLogsQuery.dataUpdatedAt : logsQuery.dataUpdatedAt} fetching={view === "audit" ? isAuditLoading : isLoading} error={view === "audit" ? auditLogsQuery.isError : logsQuery.isError} />}
+        actions={view === "audit" ? <Button size="sm" variant="outline" aria-label="감사 로그 새로고침" onClick={handleAuditRefresh} disabled={isAuditLoading}><RefreshCw className={isAuditLoading ? "size-4 animate-spin" : "size-4"} />새로고침</Button> : undefined}
         count={view === "audit" ? auditLogsQuery.data?.total : logsQuery.data?.total}
       />
 
-      <div className="flex flex-wrap gap-2 rounded border p-2">
-        <Input className="w-60" aria-label="기록 검색" placeholder="내용·이름 검색" value={search.q ?? ""} onChange={(e) => updateSearch({q: e.target.value, page: 1})} />
-        <select aria-label="행동 필터" className="rounded border bg-background p-2" value={search.category ?? ""} onChange={(e) => updateSearch({category: e.target.value, page: 1})}><option value="">모든 행동</option>{Object.entries(view === "audit" ? {update: "설정 변경", run_now: "수집 실행", refresh_all: "전체 채널 갱신", check_now: "카페 점검", redact: "공개 제외", dry_run: "정리 사전 확인", prune: "보존 기간 정리", approve: "승인", reject: "거부"} : ACTION_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
-        {view === "audit" && <select aria-label="결과 필터" className="rounded border bg-background p-2" value={search.state ?? ""} onChange={(e) => updateSearch({state: e.target.value, page: 1})}><option value="">모든 결과</option>{Object.entries(AUDIT_STATUS_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>}
-        <select aria-label="대상 필터" className="rounded border bg-background p-2" value={search.source ?? ""} onChange={(e) => updateSearch({source: e.target.value, page: 1})}><option value="">모든 대상</option>{view === "audit" ? Object.entries(AUDIT_RESOURCE_LABELS).map(([value,label]) => <option key={value} value={value}>{label}</option>) : (membersQuery.data ?? []).map((member) => <option key={member.uid} value={String(member.uid)}>{member.name}</option>)}</select>
-        <label className="text-xs">시작일 UTC<Input type="date" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label><label className="text-xs">종료일 UTC<Input type="date" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
-        <Button variant="outline" onClick={() => updateSearch({q: undefined, category: undefined, state: undefined, source: undefined, from: undefined, until: undefined, page: 1})}>조건 초기화</Button>
+      <div role="search" aria-label="기록 필터" className="grid grid-cols-2 items-end gap-3 border-b pb-3 lg:grid-cols-4">
+        <div className="col-span-2 min-w-0 space-y-1 lg:col-span-1"><Label htmlFor="history-search">내용·실행자 검색</Label><Input id="history-search" aria-label="기록 검색" placeholder="내용·이름·이벤트 코드" value={search.q ?? ""} onChange={(e) => updateSearch({q: e.target.value, page: 1})} /></div>
+        <div className="min-w-0 space-y-1"><Label htmlFor="history-action">행동</Label><SelectField id="history-action" className="w-full" aria-label="행동 필터" value={search.category ?? ""} onValueChange={(value) => updateSearch({category: value, page: 1})} options={[{ value: "", label: "모든 행동" }, ...Object.entries(view === "audit" ? {update: "설정 변경", auto_fill: "라이브 일정 반영", run_now: "수집 실행", refresh_all: "전체 채널 갱신", check_now: "카페 점검", redact: "공개 제외", dry_run: "정리 사전 확인", prune: "보존 기간 정리", approve: "일괄 승인", reject: "일괄 거부", created: "Play 등록", updated: "Play 수정", deleted: "Play 삭제", approved: "Play 제안 승인", published: "Play 공개", withdrawn: "Play 공개 철회"} : ACTION_LABELS).map(([value, label]) => ({ value, label }))]} /></div>
+        {view === "audit" && <div className="min-w-0 space-y-1"><Label htmlFor="history-status">결과</Label><SelectField id="history-status" className="w-full" aria-label="결과 필터" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value, page: 1})} options={[{ value: "", label: "모든 결과" }, ...Object.entries(AUDIT_STATUS_LABELS).map(([value, label]) => ({ value, label }))]} /></div>}
+        <div className="col-span-2 min-w-0 space-y-1 lg:col-span-1"><Label htmlFor="history-target">대상</Label><SelectField id="history-target" className="w-full" aria-label="대상 필터" value={search.source ?? ""} onValueChange={(value) => updateSearch({source: value, page: 1})} options={[{ value: "", label: "모든 대상" }, ...(view === "audit" ? Object.entries(AUDIT_RESOURCE_LABELS).map(([value, label]) => ({ value, label })) : (membersQuery.data ?? []).map((member) => ({ value: String(member.uid), label: member.name })))]} /></div>
+        <div className="min-w-0 space-y-1"><Label htmlFor="history-from">시작일 (UTC)</Label><Input id="history-from" className="min-w-0" type="date" max={search.until || undefined} value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></div>
+        <div className="min-w-0 space-y-1"><Label htmlFor="history-until">종료일 (UTC)</Label><Input id="history-until" className="min-w-0" type="date" min={search.from || undefined} value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></div>
+        <Button className="justify-self-start" variant="outline" onClick={() => updateSearch({q: undefined, category: undefined, state: undefined, source: undefined, from: undefined, until: undefined, page: 1})}>조건 초기화</Button>
       </div>
-      <QueryReadback updatedAt={view === "audit" ? auditLogsQuery.dataUpdatedAt : logsQuery.dataUpdatedAt} fetching={view === "audit" ? isAuditLoading : isLoading} error={view === "audit" ? auditLogsQuery.isError : logsQuery.isError} />
       {view !== "audit" && (
       <Card>
         <CardHeader className="pb-3">
@@ -474,32 +491,11 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
 
       )}
       {view !== "schedule" && (
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <CardTitle className="text-base">관리자 감사 로그</CardTitle>
-              <CardDescription className="mt-1">
-                설정 변경, 수동 수집, 일괄 승인/거부 실행 주체를 확인합니다.
-              </CardDescription>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              aria-label="감사 로그 새로고침"
-              onClick={handleAuditRefresh}
-              disabled={isAuditLoading}
-            >
-              {isAuditLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              새로고침
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
+      <section aria-label="관리자 감사 로그" className="min-w-0 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <p>최신순 · 발생 시각 KST · 행을 선택하면 상세 확인</p>
+          {view === "all" && <Button size="sm" variant="outline" aria-label="감사 로그 새로고침" onClick={handleAuditRefresh} disabled={isAuditLoading}>새로고침</Button>}
+        </div>
           {isAuditLoading ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -524,8 +520,7 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
                       <TableHead className="w-[110px]">상태</TableHead>
                       <TableHead className="w-[150px]">대상</TableHead>
                       <TableHead className="w-[180px]">실행 주체</TableHead>
-                      <TableHead>결과</TableHead>
-                      <TableHead>오류</TableHead>
+                      <TableHead>처리 내용·오류</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -540,8 +535,8 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
                         <TableCell className="text-xs text-muted-foreground">
                           {formatAuditDate(log.created_at)}
                         </TableCell>
-                        <TableCell className="font-medium">
-                          {AUDIT_EVENT_LABELS[log.event_type] ?? "기타 관리자 작업"}
+                        <TableCell className="max-w-64 whitespace-normal break-words font-medium">
+                          {AUDIT_EVENT_LABELS[log.event_type] ?? log.event_type}
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -552,20 +547,17 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm">
-                          {AUDIT_RESOURCE_LABELS[log.resource_type] ?? "기타 대상"}
+                          {AUDIT_RESOURCE_LABELS[log.resource_type] ?? log.resource_type}
+                          {log.resource_id && <code className="mt-1 block max-w-48 break-all whitespace-normal text-xs text-muted-foreground">{log.resource_id}</code>}
 
                         </TableCell>
                         <TableCell className="text-sm">
                           {getAuditActorLabel(log)}
                         </TableCell>
-                        <TableCell className="text-sm">
-                          {getAuditResultSummary(log)}
-                        </TableCell>
-                        <TableCell
-                          className="max-w-[220px] truncate text-sm text-destructive"
-                          title={log.error ?? ""}
-                        >
-                          {log.error ?? "-"}
+                        <TableCell className="max-w-[300px] whitespace-normal text-sm">
+                          <p>{getAuditResultSummary(log)}</p>
+                          {readRecordedChanges(log.detail).length > 0 && <p className="mt-1 break-all text-xs text-muted-foreground">변경: {readRecordedChanges(log.detail).map((change) => AUDIT_CHANGE_LABELS[change.key] ?? change.key).join(", ")}</p>}
+                          {log.error && <p className="mt-1 break-words text-xs text-destructive">{log.error}</p>}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -627,8 +619,7 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
+      </section>
       )}
 
       <Dialog
@@ -757,19 +748,20 @@ export function AutoUpdateLogsManager({ view = "all" }: { view?: "all" | "schedu
                 <span className="text-muted-foreground">결과</span>
                 <span>{getAuditResultSummary(selectedAuditLog)}</span>
               </div>
+              {(selectedAuditLog.event_type === "live_schedule.auto_fill" || selectedAuditLog.event_type === "manual_collection.auto_update") && <p className="text-xs text-muted-foreground">확인은 수집 대상 수, 반영은 변경한 일정 수입니다. 반영 0건은 실행 실패를 뜻하지 않습니다.</p>}
               {selectedAuditLog.error ? (
                 <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive">
                   {selectedAuditLog.error}
                 </div>
               ) : null}
-              {recordedChanges.length > 0 && <section aria-label="기록된 변경 전후" className="rounded border p-3"><h3 className="mb-2 font-semibold">변경 전후</h3>{recordedChanges.map((change, index) => <div key={`${change.key}-${index}`} className="space-y-1 border-t py-2 first:border-t-0"><p className="break-all font-medium">{({x_collection_daily_budget_cents: "X 전체 일일 예산 (센트)", x_reference_preview_daily_budget_cents: "원문 보강 일일 한도 (센트)", x_collection_interval_hours: "X 수집 주기 (시간)", x_reference_preview_mode: "원문 보강 모드", youtube_daily_quota_limit: "YouTube 일일 쿼터"} as Record<string,string>)[change.key] ?? change.key}</p><dl className="grid grid-cols-2 gap-3"><div><dt className="text-xs text-muted-foreground">변경 전</dt><dd className="break-all">{change.before}</dd></div><div><dt className="text-xs text-muted-foreground">변경 후</dt><dd className="break-all">{change.after}</dd></div></dl></div>)}</section>}
-              <details className="rounded border p-2"><summary>실행 주체·기술 정보</summary><dl className="mt-2 space-y-1 break-all"><dt>사용자 ID</dt><dd>{selectedAuditLog.actor_id ?? "기록 없음"}</dd><dt>IP</dt><dd>{selectedAuditLog.actor_ip ?? "기록 없음"}</dd><dt>이벤트</dt><dd>{selectedAuditLog.event_type}</dd></dl></details>
-              <div className="space-y-1">
-                <span className="text-muted-foreground">기록된 상세</span>
+              {recordedChanges.length > 0 && <section aria-label="기록된 변경 전후" className="rounded border p-3"><h3 className="mb-2 font-semibold">변경 전후</h3>{recordedChanges.map((change, index) => <div key={`${change.key}-${index}`} className="space-y-1 border-t py-2 first:border-t-0"><p className="break-all font-medium">{AUDIT_CHANGE_LABELS[change.key] ?? change.key}</p><dl className="grid grid-cols-2 gap-3"><div><dt className="text-xs text-muted-foreground">변경 전</dt><dd className="break-all">{change.before}</dd></div><div><dt className="text-xs text-muted-foreground">변경 후</dt><dd className="break-all">{change.after}</dd></div></dl></div>)}</section>}
+              <details className="rounded border p-2"><summary>실행 주체·기술 정보</summary><dl className="mt-2 space-y-1 break-all"><dt>사용자 ID</dt><dd>{selectedAuditLog.actor_id ?? "기록 없음"}</dd><dt>IP</dt><dd>{selectedAuditLog.actor_ip ?? "기록 없음"}</dd><dt>기록 ID</dt><dd>{selectedAuditLog.id}</dd><dt>이벤트</dt><dd>{selectedAuditLog.event_type}</dd><dt>행동</dt><dd>{selectedAuditLog.action}</dd></dl></details>
+              <details className="space-y-1">
+                <summary className="text-muted-foreground">기록된 상세 원문</summary>
                 <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
                   {formatAuditDetail(selectedAuditLog.detail)}
                 </pre>
-              </div>
+              </details>
             </div>
           )}
         </DialogContent>

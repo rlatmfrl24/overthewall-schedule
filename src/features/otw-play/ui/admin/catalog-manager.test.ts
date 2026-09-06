@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
+import { createElement, useState } from "react";
+import { ConsoleSearchContext, type ConsoleSearch } from "@/shared/lib/admin-console-search";
 import {
   act,
   cleanup,
@@ -309,18 +310,30 @@ describe("OtwPlayCatalogManager", () => {
     fetchCatalogMock.mockResolvedValue({...catalog, songs: [...songs, {...songs[0], id: "archived", archivedAt: 1, tags: ["ARCHIVED"]}]});
     render(createElement(OtwPlayCatalogManager), {wrapper: createQueryWrapper()});
     const category = await screen.findByRole("combobox", {name: "곡 분류"});
-    const options = () => within(category).getAllByRole("option").map((option) => option.textContent);
-    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    const options = async () => {
+      fireEvent.keyDown(category, { key: "ArrowDown" });
+      const list = await screen.findByRole("listbox");
+      const labels = within(list).getAllByRole("option").map((option) => option.textContent);
+      fireEvent.keyDown(list, { key: "Escape" });
+      return labels;
+    };
+    const selectCategory = async (name: string) => {
+      fireEvent.keyDown(category, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name }));
+    };
+    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
     fireEvent.click(screen.getByRole("button", {name: "다음"}));
-    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    fireEvent.change(category, {target: {value: "POP"}});
-    expect(options()).toContain("J-POP");
-    fireEvent.change(category, {target: {value: "J-POP"}});
+    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    await selectCategory("POP");
+    expect(await options()).toContain("J-POP");
+    await selectCategory("J-POP");
     expect(screen.getByText("1곡 · 1/1")).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", {name: "곡명·원곡 가수 검색"}), {target: {value: "no matching song"}});
     expect(screen.getByText("조건에 맞는 곡이 없습니다.")).toBeTruthy();
-    expect(options()).toEqual(["모든 분류", "J-POP", "POP"]);
-    expect((category as HTMLSelectElement).value).toBe("J-POP");
+    expect(await options()).toEqual(["모든 분류", "J-POP", "POP"]);
+    expect(category.textContent).toBe("J-POP");
+    await selectCategory("모든 분류");
+    expect(category.textContent).toBe("모든 분류");
   });
 
   it("loads source health only after section entry and distinguishes retryable outages", async () => {
@@ -328,7 +341,7 @@ describe("OtwPlayCatalogManager", () => {
     await screen.findByText("OTW Play 카탈로그");
     expect(fetchSourceHealthMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "소스 상태" }));
+    fireEvent.click(screen.getByRole("button", { name: "재생·공개 관리" }));
     expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
     expect(fetchSourceHealthMock).toHaveBeenCalledOnce();
     expect(screen.getAllByText("외부 API 재시도 대기 (timeout)").length).toBeGreaterThan(0);
@@ -360,8 +373,11 @@ describe("OtwPlayCatalogManager", () => {
     expect(fetchReleaseMock).not.toHaveBeenCalled();
     expect(fetchSourceHealthMock).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+    fireEvent.click(screen.getByRole("button", { name: "재생·공개 관리" }));
     expect(await screen.findByRole("heading", { name: "운영·공개 권위" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "소스 상태" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "수동 재검사" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "소스 상태 열기" })).toBeNull();
     await waitFor(() => expect(fetchObservabilityMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(fetchReleaseMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(fetchSourceHealthMock).toHaveBeenCalledOnce());
@@ -376,7 +392,7 @@ describe("OtwPlayCatalogManager", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "관리자 카탈로그를 불러오지 못했습니다",
     );
-    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+    fireEvent.click(screen.getByRole("button", { name: "재생·공개 관리" }));
 
     expect(
       await screen.findByRole("heading", { name: "운영·공개 권위" }),
@@ -391,19 +407,20 @@ describe("OtwPlayCatalogManager", () => {
       .mockResolvedValueOnce([proposal]);
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
 
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     expect(await screen.findByText(/제안 목록을 불러오지 못했습니다\. 빈 목록으로 간주하지 않습니다/)).toBeTruthy();
     expect(screen.queryByText("대기 중인 제안이 없습니다.")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
     expect((await screen.findAllByText("검수할 공식 커버")).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("수집 출처: 사용자 제안")).toBeTruthy();
     expect(fetchProposalsMock).toHaveBeenCalledTimes(2);
   });
 
   it("refreshes release, observability, and source health after an audited switch", async () => {
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
     await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("button", { name: "운영·공개" }));
+    fireEvent.click(screen.getByRole("button", { name: "재생·공개 관리" }));
     const trigger = await screen.findByRole("button", { name: /공개 API canary 시작/ });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole("checkbox"));
@@ -431,7 +448,7 @@ describe("OtwPlayCatalogManager", () => {
     );
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
     await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("button", { name: "소스 상태" }));
+    fireEvent.click(screen.getByRole("button", { name: "재생·공개 관리" }));
     await screen.findByRole("heading", { name: "소스 상태" });
     fireEvent.click(screen.getAllByRole("button", { name: "수동 재검사" })[0]!);
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith({
@@ -452,7 +469,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     const player = await screen.findByTitle("검수할 공식 커버 검수 영상");
     expect(player.getAttribute("src")).toBe(
       "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
@@ -542,7 +559,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText("channel unknown");
     const approveButton = screen.getByRole("button", { name: "확인 후 승인·게시" }) as HTMLButtonElement;
@@ -599,7 +616,7 @@ describe("OtwPlayCatalogManager", () => {
       { ...proposal, id: "proposal-2", submittedTitle: "두 번째 제안" },
     ]);
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     fireEvent.click(screen.getByRole("button", { name: "두 번째 제안" }));
     await act(async () => resolvePreflight({
@@ -642,7 +659,7 @@ describe("OtwPlayCatalogManager", () => {
       duplicate: null,
     });
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     await screen.findByText("channel unknown");
     fireEvent.click(screen.getByRole("button", { name: "소유자 추가" }));
@@ -693,7 +710,7 @@ describe("OtwPlayCatalogManager", () => {
       ],
     });
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     fireEvent.click(screen.getByLabelText("승인할 곡 선택"));
     expect(await screen.findByRole("option", { name: "활성 곡" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "보관 곡" })).toBeNull();
@@ -714,7 +731,7 @@ describe("OtwPlayCatalogManager", () => {
       }],
     }]);
     render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     fireEvent.click(screen.getByRole("button", { name: "영상·채널 확인" }));
     await waitFor(() => expect(preflightEntryMock).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("checkbox"));
@@ -735,7 +752,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "제안 검수" }));
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
     const rejectButton = await screen.findByRole("button", { name: "거절" });
     expect((rejectButton as HTMLButtonElement).disabled).toBe(true);
 
@@ -784,8 +801,10 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
     expect(screen.getByRole("heading", { name: "승인 채널·외부 주체 관리" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "채널 감시" })).toBeTruthy();
+    expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "외부 인물 수정" }));
     const nameInput = screen.getByLabelText(
       "외부 identity 표시명",
@@ -845,7 +864,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
     const linkedDelete = screen.getByRole("button", {
       name: "연결된 외부 그룹 삭제",
     }) as HTMLButtonElement;
@@ -901,7 +920,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
     fireEvent.click(screen.getByRole("button", { name: "숨은 참조 인물 삭제" }));
     fireEvent.click(await screen.findByRole("button", { name: "영구 삭제" }));
 
@@ -917,7 +936,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
 
     expect(screen.getByRole("heading", { name: "승인 채널·외부 주체 관리" })).toBeTruthy();
     expect(screen.getByText(/검수 대기로 생성/)).toBeTruthy();
@@ -969,7 +988,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
     fireEvent.click(screen.getByRole("button", { name: "동의 완료 키리누키 수정" }));
     fireEvent.click(screen.getByLabelText("채널 검수 상태"));
     fireEvent.click(await screen.findByRole("option", { name: "승인됨" }));
@@ -1030,7 +1049,7 @@ describe("OtwPlayCatalogManager", () => {
       wrapper: createQueryWrapper(),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "승인 채널" }));
+    fireEvent.click(await screen.findByRole("button", { name: "채널 관리" }));
     expect(screen.getAllByText("잘못 연결된 그룹").length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("연결 주체")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "연결 교정 채널 수정" }));
@@ -1365,7 +1384,7 @@ describe("OtwPlayCatalogManager", () => {
     expect((await screen.findByRole("alert")).textContent).toContain(
       "편집할 수 없습니다",
     );
-    fireEvent.click(screen.getByRole("button", { name: "승인 채널" }));
+    fireEvent.click(screen.getByRole("button", { name: "채널 관리" }));
     expect(
       (screen.getByRole("button", { name: "채널 등록" }) as HTMLButtonElement)
         .disabled,
@@ -1653,9 +1672,9 @@ describe("OtwPlayCatalogManager", () => {
     });
     await screen.findByRole("button", { name: "새 영상 등록" });
     expect(screen.getByRole("button", { name: "카탈로그" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "승인 채널" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "제안 검수" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "자동 검수" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "채널 관리" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "영상 검토" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "채널 감시" })).toBeNull();
     expect(screen.queryByRole("button", { name: "곡" })).toBeNull();
     expect(screen.queryByRole("button", { name: "가창" })).toBeNull();
     expect(screen.queryByRole("button", { name: "공식 채널" })).toBeNull();
@@ -2049,31 +2068,43 @@ describe("OtwPlayCatalogManager", () => {
       .toBeTruthy();
   });
 
-  it("opens automatic upload review in its own workflow tab", async () => {
-    render(createElement(OtwPlayCatalogManager), {
-      wrapper: createQueryWrapper(),
-    });
-    await screen.findByRole("button", { name: "새 영상 등록" });
-    expect(screen.queryByText("신규 업로드 자동 검수 제안")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "자동 검수" }));
-
-    expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
-    expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
+  it("combines automatic and user submissions with a source filter", async () => {
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
+    expect(await screen.findByRole("region", { name: "자동 수집 후보" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "사용자 제안 검토" })).toBeTruthy();
+    expect(screen.queryByText("수집 방식 안내")).toBeNull();
+    expect(screen.queryByLabelText("수집 대상 채널 ID")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "사용자 제안" }));
+    expect(screen.queryByRole("region", { name: "자동 수집 후보" })).toBeNull();
+    expect(screen.getByRole("region", { name: "사용자 제안 검토" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "자동 수집" }));
+    expect(screen.queryByRole("region", { name: "사용자 제안 검토" })).toBeNull();
+    expect(screen.getByRole("region", { name: "자동 수집 후보" })).toBeTruthy();
   });
 
-  it("keeps automatic upload monitoring mounted when the catalog request fails", async () => {
+  it("can show all sources after entering through the legacy automatic-review link", async () => {
+    function LegacyReview() {
+      const [search, setSearch] = useState<ConsoleSearch>({ tab: "automatic-review" });
+      return createElement(ConsoleSearchContext.Provider, {
+        value: [search, (patch) => setSearch((previous) => ({ ...previous, ...patch }))],
+      }, createElement<{ activeSection: "review" }>(OtwPlayCatalogManager, { activeSection: "review" }));
+    }
+    render(createElement(LegacyReview), { wrapper: createQueryWrapper() });
+    expect(await screen.findByRole("region", { name: "자동 수집 후보" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "사용자 제안 검토" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "전체" }));
+    expect(await screen.findByRole("region", { name: "사용자 제안 검토" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "전체" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps automatic review reachable when the catalog request fails", async () => {
     fetchCatalogMock.mockRejectedValueOnce(new Error("catalog unavailable"));
-    render(createElement(OtwPlayCatalogManager), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await screen.findByText("OTW Play 카탈로그");
-    fireEvent.click(screen.getByRole("button", { name: "자동 검수" }));
-
-    expect(await screen.findByText("신규 업로드 자동 검수 제안")).toBeTruthy();
-    expect(screen.getByLabelText("수집 대상 채널 ID")).toBeTruthy();
-    expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("검수·등록만 일시 중단"))).toBe(true);
+    render(createElement(OtwPlayCatalogManager), { wrapper: createQueryWrapper() });
+    fireEvent.click(await screen.findByRole("button", { name: "영상 검토" }));
+    expect(await screen.findByRole("region", { name: "자동 수집 후보" })).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("검수·등록만 일시 중단"))).toBe(true));
+    expect(screen.queryByText("수집 방식 안내")).toBeNull();
   });
 
   it("shows the actionable preflight API error and request id", async () => {

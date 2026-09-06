@@ -6,6 +6,11 @@
 
 상위 문서: `otw-play-product-requirements.md`
 
+2026-09-05 차기 UI 보충: DEC-077의 3개 화면은 기존 공개 카탈로그·facets·곡 상세·session player를
+재사용한다. [시안의 재사용 계약](./otw-play-three-screen-design.md)을 따르며 새 추천 API·편집 모음 모델·DB·
+사용자 저장을 추가하지 않는다. 멤버 화면도 기존 `member`·`participantRole=vocal` 필터를 사용하는
+클라이언트 탐색이며 P1 노래책 read model의 구현이 아니다. 기존 공개 권한·cache·SEO·큐 의미를 유지한다.
+
 관련 문서:
 
 - `otw-play-ui-ux-design.md`
