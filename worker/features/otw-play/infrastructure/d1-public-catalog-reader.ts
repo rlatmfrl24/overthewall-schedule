@@ -316,6 +316,30 @@ const buildPerformanceFilters = (
   const predicates: string[] = [];
   const binds: SqlBind[] = [];
 
+  if (query.normalizedQuery !== null) {
+    // Term/gram indexes include all credits; verify the selected performance.
+    predicates.push(`(
+      instr(song.normalized_title, ?) > 0
+      OR EXISTS (
+        SELECT 1 FROM music_search_terms AS matching_term
+        WHERE matching_term.song_id = song.id
+          AND matching_term.term_kind <> 'participant'
+          AND instr(matching_term.normalized_term, ?) > 0
+      )
+      OR EXISTS (
+        SELECT 1 FROM music_performance_participants AS matching_participant
+        JOIN music_entities AS matching_entity ON matching_entity.id = matching_participant.entity_id
+        WHERE matching_participant.performance_id = performance.id
+          AND matching_entity.archived_at IS NULL
+          AND instr(matching_entity.normalized_name, ?) > 0
+          ${query.participantRole === null
+            ? "AND matching_participant.participant_role IN ('vocal', 'featured_vocal')"
+            : "AND matching_participant.participant_role = ?"}
+      )
+    )`);
+    binds.push(query.normalizedQuery, query.normalizedQuery, query.normalizedQuery);
+    if (query.participantRole !== null) binds.push(query.participantRole);
+  }
   if (query.relation !== null) {
     predicates.push("performance.relation_type = ?");
     binds.push(query.relation);
@@ -352,7 +376,7 @@ const buildPerformanceFilters = (
         ON exact_participant_entity.id = exact_participant.entity_id
       WHERE exact_participant.performance_id = performance.id
         AND exact_participant_entity.slug = ?
-        ${query.participantRole === null ? "" : "AND exact_participant.participant_role = ?"}
+        ${query.participantRole === null ? "AND exact_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND exact_participant.participant_role = ?"}
         AND exact_participant_entity.archived_at IS NULL
     )`);
     binds.push(query.participantSlug);
@@ -370,7 +394,7 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
-          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
+          ${query.participantRole === null ? "AND member_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       ) = ?`);
       binds.push(...query.memberUids);
@@ -386,7 +410,7 @@ const buildPerformanceFilters = (
           ON selected_member.uid = member_entity.member_uid
         WHERE member_participant.performance_id = performance.id
           AND member_entity.member_uid IN (${memberPlaceholders})
-          ${query.participantRole === null ? "" : "AND member_participant.participant_role = ?"}
+          ${query.participantRole === null ? "AND member_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND member_participant.participant_role = ?"}
           AND (selected_member.is_deprecated IS NULL OR selected_member.is_deprecated = 0)
       )`);
       binds.push(...query.memberUids);
@@ -401,7 +425,7 @@ const buildPerformanceFilters = (
         ON group_entity.id = group_participant.entity_id
       WHERE group_participant.performance_id = performance.id
         AND group_entity.id = ?
-        ${query.participantRole === null ? "" : "AND group_participant.participant_role = ?"}
+        ${query.participantRole === null ? "AND group_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND group_participant.participant_role = ?"}
         AND group_entity.entity_kind = 'group'
         AND group_entity.archived_at IS NULL
     )`);
@@ -417,7 +441,7 @@ const buildPerformanceFilters = (
         ON unit_member.uid = unit_entity.member_uid
       WHERE unit_participant.performance_id = performance.id
         AND unit_member.unit_name = ?
-        ${query.participantRole === null ? "" : "AND unit_participant.participant_role = ?"}
+        ${query.participantRole === null ? "AND unit_participant.participant_role IN ('vocal', 'featured_vocal')" : "AND unit_participant.participant_role = ?"}
         AND (unit_member.is_deprecated IS NULL OR unit_member.is_deprecated = 0)
     )`);
     binds.push(query.group.unitName);

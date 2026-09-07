@@ -164,7 +164,8 @@ describe("OtwPlayShell config gate", () => {
       to: "/play/songs",
       search: { q: "공식 커버" },
     });
-    expect(screen.getByTestId("otw-play-app-frame").className).toContain("overflow-hidden");
+    // Focus must scroll the content, without scrolling the header out of the frame.
+    expect(screen.getByTestId("otw-play-app-frame").className).toContain("overflow-clip");
     expect(screen.getByTestId("otw-play-content-scroll").className).toContain("overflow-y-auto");
   });
 

@@ -6,7 +6,7 @@ import type {
 } from "../application/ports/public-catalog-cache";
 
 const PUBLIC_CATALOG_CACHE_ORIGIN = "https://otw.internal";
-const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v1";
+const PUBLIC_CATALOG_CACHE_PREFIX = "/cache/play/v2";
 const PUBLIC_CATALOG_BROWSER_MAX_AGE_SECONDS = 60;
 
 const PUBLIC_CATALOG_CACHE_RESOURCES = new Set<PublicCatalogCacheResource>([

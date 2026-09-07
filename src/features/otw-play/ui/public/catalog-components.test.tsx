@@ -16,8 +16,8 @@ vi.mock("../../player/play-player-context", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, search }: { children: React.ReactNode; search?: unknown }) => (
-    <a href="/play/songs" data-search={JSON.stringify(search)}>{children}</a>
+  Link: ({ children, search, params }: { children: React.ReactNode; search?: unknown; params?: { songSlug: string } }) => (
+    <a href={params ? `/play/songs/${params.songSlug}` : "/play/songs"} data-search={JSON.stringify(search)}>{children}</a>
   ),
 }));
 
@@ -53,7 +53,7 @@ describe("OtwPlayParticipantChip", () => {
   it.each([
     [
       { ...base, kind: "current_member", uid: 7, code: "singer", oshiMark: "🎵", unitName: null },
-      { member: "7", participantRole: "vocal" },
+      { member: "7" },
     ],
     [
       { ...base, kind: "external" },
@@ -70,7 +70,7 @@ describe("OtwPlayParticipantChip", () => {
     );
   });
 
-  it("presents catalog metadata as separate top chips without a visible artist label", () => {
+  it("presents title and artist before catalog metadata and playback actions", () => {
     const song: OtwPlayPublicSongSummaryDto = {
       id: "song-1",
       slug: "song-1",
@@ -140,12 +140,15 @@ describe("OtwPlayParticipantChip", () => {
 
     const metadata = screen.getByLabelText("가창 및 공개 정보");
     const title = screen.getByRole("link", { name: "검색 결과 노래" });
-    expect(metadata.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(metadata).getByText("공식 커버").className).toContain("rounded-full");
-    expect(within(metadata).getByText("공식 영상").className).toContain("rounded-full");
-    expect(within(metadata).getByText("솔로").className).toContain("rounded-full");
-    expect(within(metadata).getByLabelText(/^게시일 /).className).toContain("rounded-full");
-    expect(screen.getByText("요루시카")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "곡 상세" }).getAttribute("href")).toBe("/play/songs/song-1");
+    const artist = screen.getByText("요루시카");
+    expect(title.compareDocumentPosition(artist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(artist.compareDocumentPosition(metadata) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(metadata.compareDocumentPosition(screen.getByRole("button", { name: "재생" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(metadata).getByText("공식 커버")).toBeTruthy();
+    expect(within(metadata).getByText("공식 영상")).toBeTruthy();
+    expect(within(metadata).getByText("솔로")).toBeTruthy();
+    expect(within(metadata).getByLabelText(/^게시일 /)).toBeTruthy();
     expect(screen.queryByText(/^원곡 가수/)).toBeNull();
   });
 

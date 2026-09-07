@@ -763,7 +763,7 @@ describe("D1PublicCatalogReader", () => {
     const all = await reader.readCatalog(
       toReaderQuery("member=1&member=3&memberMode=all"),
     );
-    expect(all.items.map(({ id }) => id)).toEqual(["song-together"]);
+    expect(all.items).toEqual([]);
 
     const crossed = await reader.readCatalog(
       toReaderQuery("member=1&relation=original"),
@@ -773,9 +773,7 @@ describe("D1PublicCatalogReader", () => {
     const exactParticipant = await reader.readCatalog(
       toReaderQuery("member=1&participant=current-c"),
     );
-    expect(exactParticipant.items.map(({ id }) => id)).toEqual([
-      "song-together",
-    ]);
+    expect(exactParticipant.items).toEqual([]);
     const standaloneRole = await reader.readCatalog(
       toReaderQuery("participantRole=chorus"),
     );
@@ -860,6 +858,28 @@ describe("D1PublicCatalogReader", () => {
     expect(Object.keys(facets.members[0])).not.toContain("count");
   });
 
+  it("defaults participant names and member filters to lead and featured vocals", async () => {
+    await seedIdentityAndChannels();
+    for (const role of ["vocal", "featured_vocal", "chorus", "other"] as const) {
+      await db.batch([
+        ...insertSong(`role-${role}`, `Track ${role}`),
+        insertPerformance(`perf-${role}`, `role-${role}`),
+        insertParticipant(`perf-${role}`, "entity-current-a", 0, role),
+        db.prepare("INSERT INTO music_search_terms (song_id, term_kind, display_value, normalized_term) VALUES (?, 'participant', 'Current A', 'current a')").bind(`role-${role}`),
+      ]);
+    }
+    await rebuildReadModel();
+    const reader = new D1PublicCatalogReader(db);
+    for (const search of ["q=current a", "q=rr", "q=urrent", "member=1", "participant=current-a"]) {
+      const page = await reader.readCatalog(toReaderQuery(search));
+      expect(page.items.map(({ id }) => id).sort(), search).toEqual(["role-featured_vocal", "role-vocal"]);
+    }
+    const chorus = await reader.readCatalog(toReaderQuery("q=current a&participantRole=chorus"));
+    expect(chorus.items.map(({ id }) => id)).toEqual(["role-chorus"]);
+    const title = await reader.readCatalog(toReaderQuery("q=Track chorus"));
+    expect(title.items.map(({ id }) => id)).toEqual(["role-chorus"]);
+  });
+
   it("orders indexed search ranks before the bounded contains phase", async () => {
     await seedIdentityAndChannels();
     const searchSongs = [
@@ -875,6 +895,8 @@ describe("D1PublicCatalogReader", () => {
       insertPerformance(`performance-${songId}`, songId, { releasedAt }),
     ]);
     statements.push(
+      db.prepare("UPDATE music_entities SET normalized_name = 'hello' WHERE id = 'entity-current-a'"),
+      insertParticipant("performance-song-participant-exact", "entity-current-a", 0),
       db.prepare(
         `INSERT INTO music_search_terms (
            song_id, term_kind, display_value, normalized_term
@@ -1169,7 +1191,7 @@ describe("D1PublicCatalogReader", () => {
              song_id, term_kind, display_value, normalized_term
            )
            SELECT 'scale-song-' || (((value - 1) % 3000) + 1),
-                  'participant',
+                  'title_alias',
                   CASE WHEN value <= 100 THEN 'scale exact'
                        ELSE 'scale term ' || value END,
                   CASE WHEN value <= 100 THEN 'scale exact'

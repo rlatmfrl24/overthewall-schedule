@@ -218,7 +218,7 @@ function OtwPlayExperience({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main
             data-testid="otw-play-content-scroll"
-            className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            className="play-content min-w-0 flex-1 overflow-y-auto overscroll-contain"
           >
             {children}
           </main>
@@ -244,7 +244,7 @@ function PlayHeaderSearch() {
       role="search"
       aria-label="OTW Play 빠른 검색"
       onSubmit={submit}
-      className="mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
+      className="play-header-search mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
     >
       <Search className="size-4 shrink-0 text-muted-foreground" />
       <label htmlFor="otw-play-header-search" className="sr-only">

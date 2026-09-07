@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
@@ -180,7 +180,7 @@ export function OtwPlayParticipantChip({
     return (
       <Link
         to="/play/songs"
-        search={{ member: String(participant.uid), participantRole: "vocal" }}
+        search={{ member: String(participant.uid) }}
         aria-label={`현재 OTW 멤버, ${participant.displayName}`}
         className="inline-flex min-h-8 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent"
       >
@@ -297,6 +297,7 @@ export function OtwPlayPerformanceActions({
       <Button
         type="button"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
+        className="play-primary"
         disabled={!track}
         onClick={() => track && player.play(track)}
         aria-label={iconOnly ? `${song.title} 재생` : undefined}
@@ -307,6 +308,7 @@ export function OtwPlayPerformanceActions({
         type="button"
         variant="outline"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
+        className={alreadyQueued ? "play-queued" : undefined}
         disabled={!track || alreadyQueued}
         onClick={() => track && player.enqueue(track)}
         aria-label={
@@ -353,20 +355,31 @@ export function OtwPlaySongRow({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/40 focus-within:shadow-md hover:border-primary/25 hover:shadow-md",
+        "play-song-card overflow-hidden",
         hero
           ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
-          : "grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-4 sm:p-4",
+          : "play-song-row grid",
       )}
     >
       <div
         className={cn(
-          "relative shrink-0 overflow-hidden bg-muted",
+          "relative min-w-0 shrink-0 overflow-hidden bg-muted",
           hero
             ? "aspect-video min-h-[220px]"
-            : "aspect-video w-full self-start rounded-xl ring-1 ring-border/50",
+            : "play-song-artwork grid w-full self-stretch items-center",
         )}
       >
+        {!hero && source ? (
+          <div className="play-song-artwork-backdrop" aria-hidden="true">
+            <OtwPlayThumbnail
+              source={source}
+              alt=""
+              width={480}
+              height={270}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </div>
+        ) : null}
         {source ? (
           <OtwPlayThumbnail
             source={source}
@@ -374,60 +387,36 @@ export function OtwPlaySongRow({
             width={480}
             height={270}
             loading={hero ? "eager" : "lazy"}
-            className="h-full w-full object-cover"
+            className={hero ? "absolute inset-0 h-full w-full object-contain" : "play-song-artwork-original relative block h-auto w-full object-contain"}
             fallback={
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>
                 썸네일 없음
               </div>
             }
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
+          <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>썸네일 없음</div>
         )}
       </div>
       <div
         className={cn(
-          "min-w-0 flex-1",
+          "play-song-copy min-w-0 flex-1",
           hero
             ? "flex flex-col justify-center gap-4 p-5 sm:p-7"
-            : "flex flex-col gap-2.5",
+            : "flex flex-col gap-2.5 p-4",
         )}
       >
-        {!hero ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <OtwPlaySongTags tags={song.tags} />
-            <OtwPlayPerformanceBadges performance={performance} />
-            <OtwPlayPerformanceTags tags={performance.tags} />
-            <Badge
-              variant="outline"
-              className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
-            >
-              공식 버전 {song.performanceCount}개
-            </Badge>
-            {!song.playable ? (
-              <Badge
-                variant="outline"
-                className="h-6 border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 dark:text-amber-300"
-              >
-                현재 재생 불가
-              </Badge>
-            ) : null}
-          </div>
-        ) : null}
         <div>
           {hero ? (
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <OtwPlaySongTags tags={song.tags} />
-              <span className="text-xs text-muted-foreground">
-                공식 버전 {song.performanceCount}개
-              </span>
             </div>
           ) : null}
           <Link
             to="/play/songs/$songSlug"
             params={{ songSlug: song.slug }}
             search={{ performance: undefined }}
-            className={cn("font-semibold hover:underline", hero ? "text-2xl sm:text-4xl" : "line-clamp-1 text-base")}
+            className={cn("play-song-title font-bold hover:underline", hero ? "text-2xl sm:text-4xl" : "line-clamp-2 text-base")}
           >
             {song.title}
           </Link>
@@ -442,12 +431,29 @@ export function OtwPlaySongRow({
           </p>
         </div>
         <OtwPlayParticipantSummary participants={performance.participants} />
-        <OtwPlayPerformanceActions
-          song={song}
-          performance={performance}
-          compact={!hero}
-          className={cn(!hero && "mt-auto border-t pt-2.5")}
-        />
+        {!hero ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <OtwPlaySongTags tags={song.tags} />
+            <OtwPlayPerformanceBadges performance={performance} />
+            <OtwPlayPerformanceTags tags={performance.tags} />
+            {!song.playable ? (
+              <Badge
+                variant="outline"
+                className="h-6 border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+              >
+                현재 재생 불가
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
+        <div className={cn("play-song-actions flex flex-wrap items-center gap-2", !hero && "mt-auto pt-2.5")}>
+          <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
+          <Button asChild variant="outline" size={hero ? "default" : "sm"}>
+            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}>
+              곡 상세 <ArrowRight />
+            </Link>
+          </Button>
+        </div>
       </div>
     </article>
   );

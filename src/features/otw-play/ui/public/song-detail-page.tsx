@@ -8,7 +8,9 @@ import { useOtwPlaySong } from "../../queries/use-public-catalog";
 import { useOtwPlayPlayer } from "../../player/play-player-context";
 import {
   OtwPlayParticipantCreditGroups,
+  OtwPlayParticipantSummary,
   OtwPlayPerformanceActions,
+  OtwPlayPerformanceBadges,
   OtwPlayPerformanceMetadata,
   OtwPlayPerformanceTags,
   OtwPlaySongTags,
@@ -37,7 +39,7 @@ export function OtwPlaySongDetailPage({
     if (query.error instanceof ApiError && query.error.status === 404) {
       return (
         <div className="mx-auto max-w-xl p-8 text-center">
-          <h1 className="text-xl font-semibold">공개된 곡을 찾지 못했습니다</h1>
+          <h1 className="play-section-title">공개된 곡을 찾지 못했습니다</h1>
           <Button asChild variant="outline" className="mt-4"><Link to="/play/songs">곡 검색으로</Link></Button>
         </div>
       );
@@ -52,12 +54,18 @@ export function OtwPlaySongDetailPage({
     song.performances[0];
 
   return (
-    <div className="mx-auto w-full max-w-screen-xl space-y-7 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
-      <Button asChild variant="ghost" size="sm">
-        <Link to="/play/songs"><ArrowLeft /> 곡 검색</Link>
-      </Button>
+    <div className="play-page">
+      <div className="grid gap-3">
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="-ml-2 min-h-11 justify-self-start px-2 text-muted-foreground hover:text-foreground"
+        >
+          <Link to="/play/songs"><ArrowLeft aria-hidden="true" /> 곡 검색</Link>
+        </Button>
 
-      <section className="grid gap-5 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[minmax(16rem,28rem)_1fr] md:p-6">
+      <section className="play-detail-hero gap-5 border bg-card p-4 md:p-6">
         <div className="aspect-video overflow-hidden rounded-xl bg-muted">
           {heroPerformance?.selectedSource ? (
             <OtwPlayThumbnail
@@ -65,7 +73,7 @@ export function OtwPlaySongDetailPage({
               alt=""
               width={640}
               height={360}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-contain"
               fallback={
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   썸네일 없음
@@ -76,22 +84,24 @@ export function OtwPlaySongDetailPage({
         </div>
         <div className="flex flex-col justify-center gap-4">
           <div>
-            <div className="mb-2 flex flex-wrap gap-2">
-              <OtwPlaySongTags tags={song.tags} />
-              <Badge variant="outline">공식 버전 {song.performanceCount}개</Badge>
-            </div>
-            <h1 className="text-2xl font-semibold sm:text-3xl">{song.title}</h1>
+            <h1 className="play-detail-title text-2xl sm:text-3xl">{song.title}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               원곡 가수 {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}
             </p>
           </div>
+          {heroPerformance ? <OtwPlayParticipantSummary participants={heroPerformance.participants} /> : null}
+          <div className="flex flex-wrap gap-2">
+            <OtwPlaySongTags tags={song.tags} />
+            {heroPerformance ? <OtwPlayPerformanceBadges performance={heroPerformance} /> : null}
+          </div>
           {heroPerformance ? <OtwPlayPerformanceActions song={song} performance={heroPerformance} /> : null}
         </div>
       </section>
+      </div>
 
       <section className="space-y-3">
         <div>
-          <h2 className="text-xl font-semibold">공식 버전</h2>
+          <h2 className="play-section-title">공식 버전</h2>
           <p className="text-sm text-muted-foreground">모든 공개 공식 가창과 검수된 source를 비교합니다.</p>
         </div>
         {song.performances.map((performance) => {
@@ -100,7 +110,7 @@ export function OtwPlaySongDetailPage({
             <article
               key={performance.id}
               id={`performance-${performance.id}`}
-              className={cn("scroll-mt-24 rounded-xl border bg-card p-4 shadow-sm", highlighted && "border-primary ring-2 ring-primary/20")}
+              className={cn("play-detail-version scroll-mt-24 border bg-card p-4", highlighted && "border-primary ring-2 ring-primary/20")}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>

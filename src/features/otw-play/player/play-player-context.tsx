@@ -649,10 +649,16 @@ export function OtwPlayPlayerProvider({
       : queueItemForTrack(track);
     register(track, { type: "play", item });
     requestPlayback();
+    if (
+      existingIndex === queue.currentIndex &&
+      loadedKeyRef.current === `${item.id}:${track.source.sourceId}`
+    ) {
+      playerRef.current?.play();
+    }
     if (existingItem) {
       setAnnouncement(
         existingIndex === queue.currentIndex
-          ? `${track.song.title}은(는) 현재 재생 중입니다.`
+          ? `${track.song.title} 재생을 요청했습니다.`
           : `${track.song.title}은(는) 이미 플레이큐에 있어 해당 항목을 재생합니다.`,
       );
     }

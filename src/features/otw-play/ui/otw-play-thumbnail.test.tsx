@@ -45,4 +45,20 @@ describe("OtwPlayThumbnail", () => {
       screen.getByRole("img", { name: "곡 썸네일" }).getAttribute("src"),
     ).toBe(source.thumbnailUrl);
   });
+
+  it("keeps the supplied empty state when every image candidate fails", () => {
+    render(
+      <OtwPlayThumbnail
+        source={source}
+        alt="곡 썸네일"
+        width={960}
+        height={540}
+        fallback={<span>썸네일 없음</span>}
+      />,
+    );
+    fireEvent.error(screen.getByRole("img", { name: "곡 썸네일" }));
+    fireEvent.error(screen.getByRole("img", { name: "곡 썸네일" }));
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("썸네일 없음")).toBeTruthy();
+  });
 });

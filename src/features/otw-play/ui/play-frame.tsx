@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ListPlus, ListTodo, Music2 } from "lucide-react";
 import type { ReactNode } from "react";
+import "./play-glass.css";
+import { useButtonFeedback } from "./use-button-feedback";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -27,10 +29,12 @@ export function OtwPlayFrame({
   showCatalogTabs?: boolean;
   submissionActive?: boolean;
 }) {
+  const feedback = useButtonFeedback();
   return (
     <div
+      {...feedback}
       data-testid="otw-play-app-frame"
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="otw-play-glass relative flex min-h-0 flex-1 flex-col overflow-clip bg-background"
     >
       <OtwPlayHeader
         search={search}
@@ -55,11 +59,11 @@ function OtwPlayHeader({
   submissionActive: boolean;
 }) {
   return (
-    <header className="z-20 h-16 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className="play-header z-20 h-16 shrink-0 border-b">
       <div className="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 lg:gap-5 lg:px-6">
         <Link
           to="/play"
-          className="flex shrink-0 items-center gap-2 font-semibold"
+          className="play-wordmark flex shrink-0 items-center gap-2 font-bold"
         >
           <Music2 className="size-5" />
           <span className="hidden sm:inline">OTW Play</span>
@@ -68,7 +72,7 @@ function OtwPlayHeader({
         <div className="flex min-w-0 items-center justify-end gap-2">
           {status}
           {showCatalogTabs ? (
-            <nav aria-label="OTW Play 탐색" className="flex min-w-0 gap-1 overflow-x-auto">
+            <nav aria-label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
               {catalogTabs.map((tab) => (
                 <Link
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
@@ -77,7 +81,7 @@ function OtwPlayHeader({
                   activeOptions={{ exact: true, includeSearch: false }}
                   activeProps={{
                     "aria-current": "page",
-                    className: "bg-foreground text-background",
+                    className: "play-tab-active",
                   }}
                   inactiveProps={{
                     className:

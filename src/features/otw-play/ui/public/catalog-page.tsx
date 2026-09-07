@@ -101,15 +101,17 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-screen-2xl space-y-5 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
+    <div className="play-page">
       <div>
-        <h1 className="text-2xl font-semibold">곡 검색</h1>
+        <p className="play-kicker mb-2">Find your music</p>
+        <h1 className="play-page-title mb-2">곡 검색</h1>
         <p className="text-sm text-muted-foreground">
           곡명, 별칭, 원곡 가수, 참여자와 가창 역할로 공식 버전을 찾습니다.
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="play-search-controls space-y-3">
+      <div className="play-search-row">
         <form
           role="search"
           className="flex min-w-0 flex-1 gap-2"
@@ -158,7 +160,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
       {filtersOpen ? (
         <section
           id="otw-play-catalog-filters"
-          className="space-y-4 rounded-xl border bg-card p-3 shadow-sm sm:p-4"
+          className="play-filter-panel space-y-4 border-t pt-4"
           aria-label="카탈로그 필터"
         >
           <div className="space-y-3">
@@ -205,6 +207,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
               />
               <FilterSelect
                 label="가창 역할"
+                allLabel="메인 보컬·피처링 (기본)"
                 value={search.participantRole ?? ""}
                 onChange={(value) => setField("participantRole", value as Props["search"]["participantRole"] || undefined)}
                 options={[
@@ -291,7 +294,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
               {label}
               <button
                 type="button"
-                className="rounded-full p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="play-filter-remove rounded-full p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`${label} 필터 제거`}
                 onClick={() => clearFilter(key)}
               >
@@ -304,6 +307,8 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
           </Button>
         </div>
       ) : null}
+
+      </div>
 
       {catalog.isPending || facets.isPending ? (
         <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground" aria-busy="true">
@@ -359,6 +364,7 @@ function FilterSelect({
   options,
   onChange,
   allowAll = true,
+  allLabel = "전체",
   disabled = false,
 }: {
   label: string;
@@ -366,6 +372,7 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
   allowAll?: boolean;
+  allLabel?: string;
   disabled?: boolean;
 }) {
   const selectedValue = allowAll && !value ? ALL_FILTER_VALUE : value;
@@ -381,7 +388,7 @@ function FilterSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {allowAll ? <SelectItem value={ALL_FILTER_VALUE}>전체</SelectItem> : null}
+          {allowAll ? <SelectItem value={ALL_FILTER_VALUE}>{allLabel}</SelectItem> : null}
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}

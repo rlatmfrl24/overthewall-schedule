@@ -200,12 +200,33 @@ describe("OTW Play player and queue rail", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the desktop player placeholder above an explicit empty queue", () => {
-    render(<OtwPlayPlayerQueuePanel />);
+  it("hides an empty rail, opens for queued tracks before hydration, and hides after the last removal", () => {
+    createMatchMediaController({ [DESKTOP_PLAYER_QUERY]: true });
+    const { rerender } = render(<OtwPlayPlayerQueuePanel />);
+    const rail = screen.getByRole("complementary", { hidden: true });
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(rail.hasAttribute("inert")).toBe(true);
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(false);
 
-    expect(screen.getByText("플레이큐가 비어 있습니다")).toBeTruthy();
-    expect(screen.getByText("재생할 곡을 선택하세요")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "재생 컨트롤" })).toBeNull();
+    const item = { id: "item-1", performanceId: "performance-1", sourceId: "source-1" };
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: { ...emptyPlayer.queue, items: [item], currentIndex: 0 },
+      currentItem: item,
+    });
+    rerender(<OtwPlayPlayerQueuePanel />);
+    expect(screen.getByRole("complementary")).toBe(rail);
+    expect(rail.hasAttribute("inert")).toBe(false);
+    expect(screen.getByRole("region", { name: "플레이큐" })).toBeTruthy();
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(true);
+
+    mocks.usePlayer.mockReturnValue({ ...emptyPlayer, announcement: "플레이큐에서 제거했습니다" });
+    rerender(<OtwPlayPlayerQueuePanel />);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(rail.hasAttribute("inert")).toBe(true);
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(false);
+    const announcement = screen.getByText("플레이큐에서 제거했습니다");
+    expect(announcement.closest('[aria-hidden="true"]')).toBeNull();
   });
 
   it("renders one player above the desktop queue and a mobile-first player", () => {
@@ -234,8 +255,6 @@ describe("OTW Play player and queue rail", () => {
     expect(combinedRail.className).toContain("xl:h-full");
     expect(combinedRail.className).toContain("xl:min-h-0");
     expect(combinedRail.className).toContain("xl:overflow-hidden");
-    const playbackRegion = screen.getByLabelText("OTW Play 재생 플레이어");
-    expect(playbackRegion.className).toContain("xl:border-b");
 
     expect(screen.getAllByLabelText("YouTube 영상 플레이어")).toHaveLength(1);
     expect(
@@ -271,15 +290,9 @@ describe("OTW Play player and queue rail", () => {
     expect(within(metadata).getByText("J-POP")).toBeTruthy();
     expect(within(metadata).getByText("어쿠스틱")).toBeTruthy();
     expect(within(metadata).getByText("공식 커버")).toBeTruthy();
-    expect(metadata.className).toContain("flex-nowrap");
-    expect(metadata.className).toContain("overflow-x-auto");
-    expect(metadata.className).not.toContain("overflow-hidden");
-    expect(
-      within(metadata).getByLabelText("음악 분류").className,
-    ).toContain("flex-nowrap");
-    expect(
-      within(metadata).getByLabelText("가창 및 공개 정보").className,
-    ).toContain("flex-nowrap");
+    expect(within(metadata).getByLabelText("음악 분류")).toBeTruthy();
+    expect(within(metadata).getByLabelText("가창 및 공개 정보")).toBeTruthy();
+    expect(metadata.hasAttribute("tabindex")).toBe(false);
     expect(within(metadata).getByText("공식 커버").className).toContain("rounded-full");
     expect(within(metadata).getByText("공식 영상").className).toContain("rounded-full");
     expect(within(metadata).getByLabelText(/^게시일 /).className).toContain("rounded-full");
@@ -349,6 +362,32 @@ describe("OTW Play player and queue rail", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "다음 항목" })[0]);
     expect(actions.next).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["off", "반복 꺼짐", "all", "전체 반복"],
+    ["all", "전체 반복", "one", "한 곡 반복"],
+    ["one", "한 곡 반복", "off", "반복 꺼짐"],
+  ] as const)("labels the %s repeat state and requests the next mode", (repeat, label, next, nextLabel) => {
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: {
+        ...emptyPlayer.queue,
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat,
+      },
+      currentTrack: track,
+    });
+    render(<OtwPlayPlayerQueuePanel />);
+
+    const button = screen.getByRole("button", {
+      name: `${label}; ${nextLabel}으로 변경`,
+    });
+    expect(button.textContent).toBe(label);
+    expect(button.getAttribute("aria-pressed")).toBe(String(repeat !== "off"));
+    fireEvent.click(button);
+    expect(actions.setRepeat).toHaveBeenCalledWith(next);
   });
 
   it("keeps the iframe mounted while a short desktop rail switches between player details and queue", () => {

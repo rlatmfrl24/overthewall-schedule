@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OtwPlayPublicSongSummaryDto } from "@contracts/otw-play";
@@ -182,6 +182,7 @@ describe("OTW Play discover layout", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("uses discovery as a compact featured entry point", () => {
@@ -190,17 +191,17 @@ describe("OTW Play discover layout", () => {
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     expect(screen.getAllByLabelText("커버 영상 라벨").length).toBeGreaterThan(0);
     expect(screen.getAllByText("라이브").length).toBeGreaterThan(0);
-    const heroImageFrame = screen
-      .getByRole("heading", { name: "첫 번째 노래" })
-      .closest("article")
-      ?.querySelector("img")
-      ?.parentElement;
-    expect(heroImageFrame?.className).toContain("w-full");
-    expect(heroImageFrame?.className).toContain("aspect-video");
-    expect(heroImageFrame?.className).not.toContain("h-[clamp(");
+    expect(screen.getByRole("heading", { name: "오버더월 NOW PLAY ON OTW PLAY" })).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
+    const heroMedia = screen.getByTestId("otw-play-hero-media");
+    const loadedArtwork = Array.from(heroMedia.querySelectorAll("img"));
+    expect(loadedArtwork).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    // Keep decoded images mounted when changing songs instead of restarting image loading.
+    Array.from(heroMedia.querySelectorAll("img")).forEach((image, index) => {
+      expect(image).toBe(loadedArtwork[index]);
+    });
     fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
 
@@ -218,17 +219,52 @@ describe("OTW Play discover layout", () => {
     ).toBeTruthy();
     expect(screen.getByText("멤버 9")).toBeTruthy();
     const memberLink = screen.getByRole("link", {
-      name: "멤버 1 메인 보컬 곡 보기",
+      name: "멤버 1 메인 보컬·피처링 곡 보기",
     });
     expect(JSON.parse(memberLink.dataset.search ?? "{}")).toEqual({
       member: "1",
-      participantRole: "vocal",
     });
-    expect(screen.getByRole("table")).toBeTruthy();
+    const recent = screen.getByRole("region", { name: "최근 공개된 곡" });
+    expect(within(recent).getAllByRole("article")).toHaveLength(2);
+    expect(within(recent).getByRole("link", { name: "첫 번째 노래 곡 상세" })).toBeTruthy();
+    expect(within(recent).getByRole("button", { name: "첫 번째 노래 재생" })).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "첫 번째 노래" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("columnheader", { name: "곡" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "작업" })).toBeTruthy();
+  });
+
+  it("rotates after seven seconds and resumes only after hover and focus leave", () => {
+    vi.useFakeTimers();
+    render(<OtwPlayHomePage />);
+    const banner = screen.getByRole("region", { name: "추천 배너" });
+    act(() => vi.advanceTimersByTime(6999));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    fireEvent.mouseEnter(banner);
+    act(() => vi.advanceTimersByTime(12000));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    fireEvent.mouseLeave(banner);
+    act(() => vi.advanceTimersByTime(7000));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    fireEvent.focus(screen.getByRole("button", { name: "다음 추천곡" }));
+    act(() => vi.advanceTimersByTime(12000));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    fireEvent.blur(screen.getByRole("button", { name: "다음 추천곡" }), { relatedTarget: document.body });
+    act(() => vi.advanceTimersByTime(7000));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /추천곡 자동 전환/ })).toBeNull();
+  });
+
+  it("keeps reduced-motion rotation manual and clears the timer on unmount", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    const view = render(<OtwPlayHomePage />);
+    act(() => vi.advanceTimersByTime(12000));
+    expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
+    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("loads the next latest-song page without extending the featured carousel", () => {
