@@ -45,7 +45,6 @@ import { Route as PlayCatalogIndexRouteImport } from './routes/play/_catalog/ind
 import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
 import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
 import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/songs'
-import { Route as PlayCatalogMembersRouteImport } from './routes/play/_catalog/members'
 import { Route as PlayCatalogSongsIndexRouteImport } from './routes/play/_catalog/songs/index'
 import { Route as PlayCatalogSongsSongSlugRouteImport } from './routes/play/_catalog/songs/$songSlug'
 
@@ -227,11 +226,6 @@ const PlayCatalogSongsRoute = PlayCatalogSongsRouteImport.update({
   path: '/songs',
   getParentRoute: () => PlayCatalogRoute,
 } as any)
-const PlayCatalogMembersRoute = PlayCatalogMembersRouteImport.update({
-  id: '/members',
-  path: '/members',
-  getParentRoute: () => PlayCatalogRoute,
-} as any)
 const PlayCatalogSongsIndexRoute = PlayCatalogSongsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -275,7 +269,6 @@ export interface FileRoutesByFullPath {
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
-  '/play/members': typeof PlayCatalogMembersRoute
   '/play/songs': typeof PlayCatalogSongsRouteWithChildren
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
@@ -312,7 +305,6 @@ export interface FileRoutesByTo {
   '/profile/$code': typeof ProfileCodeRoute
   '/admin': typeof AdminIndexRoute
   '/vods': typeof VodsIndexRoute
-  '/play/members': typeof PlayCatalogMembersRoute
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
@@ -352,7 +344,6 @@ export interface FileRoutesById {
   '/profile/$code': typeof ProfileCodeRoute
   '/admin/': typeof AdminIndexRoute
   '/vods/': typeof VodsIndexRoute
-  '/play/_catalog/members': typeof PlayCatalogMembersRoute
   '/play/_catalog/songs': typeof PlayCatalogSongsRouteWithChildren
   '/play/_member/submissions': typeof PlayMemberSubmissionsRoute
   '/play/_member/submit': typeof PlayMemberSubmitRoute
@@ -393,7 +384,6 @@ export interface FileRouteTypes {
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
-    | '/play/members'
     | '/play/songs'
     | '/play/submissions'
     | '/play/submit'
@@ -430,7 +420,6 @@ export interface FileRouteTypes {
     | '/profile/$code'
     | '/admin'
     | '/vods'
-    | '/play/members'
     | '/play/submissions'
     | '/play/submit'
     | '/play/songs/$songSlug'
@@ -469,7 +458,6 @@ export interface FileRouteTypes {
     | '/profile/$code'
     | '/admin/'
     | '/vods/'
-    | '/play/_catalog/members'
     | '/play/_catalog/songs'
     | '/play/_member/submissions'
     | '/play/_member/submit'
@@ -747,13 +735,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayCatalogSongsRouteImport
       parentRoute: typeof PlayCatalogRoute
     }
-    '/play/_catalog/members': {
-      id: '/play/_catalog/members'
-      path: '/members'
-      fullPath: '/play/members'
-      preLoaderRoute: typeof PlayCatalogMembersRouteImport
-      parentRoute: typeof PlayCatalogRoute
-    }
     '/play/_catalog/songs/': {
       id: '/play/_catalog/songs/'
       path: '/'
@@ -825,13 +806,11 @@ const PlayCatalogSongsRouteWithChildren =
   PlayCatalogSongsRoute._addFileChildren(PlayCatalogSongsRouteChildren)
 
 interface PlayCatalogRouteChildren {
-  PlayCatalogMembersRoute: typeof PlayCatalogMembersRoute
   PlayCatalogSongsRoute: typeof PlayCatalogSongsRouteWithChildren
   PlayCatalogIndexRoute: typeof PlayCatalogIndexRoute
 }
 
 const PlayCatalogRouteChildren: PlayCatalogRouteChildren = {
-  PlayCatalogMembersRoute: PlayCatalogMembersRoute,
   PlayCatalogSongsRoute: PlayCatalogSongsRouteWithChildren,
   PlayCatalogIndexRoute: PlayCatalogIndexRoute,
 }

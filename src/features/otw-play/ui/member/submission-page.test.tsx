@@ -213,7 +213,7 @@ describe("OtwPlaySubmissionPage", () => {
     renderPage("proposal-one");
 
     await waitFor(() => {
-      expect(screen.getAllByText("저장하지 않은 제목")[0]).toBeTruthy();
+      expect(screen.getByText("저장하지 않은 제목")).toBeTruthy();
     });
     expect(screen.getByDisplayValue("저장하지 않은 메모")).toBeTruthy();
     expect(sessionStorage.getItem(
@@ -255,7 +255,7 @@ describe("OtwPlaySubmissionPage", () => {
     fireEvent.blur(artistInput);
     expect(screen.queryByText("가수 A")).toBeNull();
     fireEvent.keyDown(artistInput, { key: "Enter" });
-    expect(screen.getAllByText("가수 A")[0]).toBeTruthy();
+    expect(screen.getByText("가수 A")).toBeTruthy();
 
     fireEvent.change(artistInput, { target: { value: "  가수 A  " } });
     fireEvent.keyDown(artistInput, { key: "Enter" });

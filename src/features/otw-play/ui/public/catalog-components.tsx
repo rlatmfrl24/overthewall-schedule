@@ -297,7 +297,6 @@ export function OtwPlayPerformanceActions({
       <Button
         type="button"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
-        className="play-primary"
         disabled={!track}
         onClick={() => track && player.play(track)}
         aria-label={iconOnly ? `${song.title} 재생` : undefined}
@@ -328,7 +327,7 @@ export function OtwPlayPerformanceActions({
           "마지막에 추가"
         )}
       </Button>
-      {!iconOnly && (
+      {!compact && (
         <Button
           type="button"
           variant="outline"
@@ -357,7 +356,7 @@ export function OtwPlaySongRow({
         "overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/40 focus-within:shadow-md hover:border-primary/25 hover:shadow-md",
         hero
           ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
-          : "grid grid-cols-1 gap-3 p-3 sm:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)] sm:gap-4 sm:p-4",
+          : "grid sm:grid-cols-[minmax(12rem,30%)_minmax(0,1fr)]",
       )}
     >
       <div
@@ -365,7 +364,7 @@ export function OtwPlaySongRow({
           "relative shrink-0 overflow-hidden bg-muted",
           hero
             ? "aspect-video min-h-[220px]"
-            : "aspect-video w-full self-center rounded-xl ring-1 ring-border/50",
+            : "aspect-video w-full sm:aspect-auto sm:self-stretch",
         )}
       >
         {source ? (
@@ -377,13 +376,13 @@ export function OtwPlaySongRow({
             loading={hero ? "eager" : "lazy"}
             className="absolute inset-0 h-full w-full object-contain"
             fallback={
-              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                 썸네일 없음
               </div>
             }
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
         )}
       </div>
       <div
@@ -391,7 +390,7 @@ export function OtwPlaySongRow({
           "min-w-0 flex-1",
           hero
             ? "flex flex-col justify-center gap-4 p-5 sm:p-7"
-            : "flex flex-col gap-2.5",
+            : "flex flex-col gap-2.5 p-4",
         )}
       >
         {!hero ? (

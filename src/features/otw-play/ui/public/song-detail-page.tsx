@@ -52,12 +52,12 @@ export function OtwPlaySongDetailPage({
     song.performances[0];
 
   return (
-    <div className="play-page play-reveal space-y-7">
+    <div className="mx-auto w-full max-w-screen-xl space-y-7 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
       <Button asChild variant="ghost" size="sm">
-        <Link to="/play/songs"><ArrowLeft /> 곡 탐색</Link>
+        <Link to="/play/songs"><ArrowLeft /> 곡 검색</Link>
       </Button>
 
-      <section className="play-detail-hero grid gap-6 p-5 md:grid-cols-[minmax(16rem,.9fr)_minmax(0,1.1fr)] md:p-8">
+      <section className="grid gap-5 rounded-2xl border bg-card p-4 shadow-sm md:grid-cols-[minmax(16rem,28rem)_1fr] md:p-6">
         <div className="aspect-video overflow-hidden rounded-xl bg-muted">
           {heroPerformance?.selectedSource ? (
             <OtwPlayThumbnail
@@ -65,7 +65,7 @@ export function OtwPlaySongDetailPage({
               alt=""
               width={640}
               height={360}
-              className="h-full w-full object-contain"
+              className="h-full w-full object-cover"
               fallback={
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                   썸네일 없음
@@ -79,7 +79,7 @@ export function OtwPlaySongDetailPage({
             <div className="mb-2 flex flex-wrap gap-2">
               <OtwPlaySongTags tags={song.tags} />
             </div>
-            <p className="play-eyebrow mb-3">SONG / VERSIONS</p><h1 className="play-title">{song.title}</h1>
+            <h1 className="text-2xl font-semibold sm:text-3xl">{song.title}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               원곡 가수 {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}
             </p>
@@ -90,8 +90,8 @@ export function OtwPlaySongDetailPage({
 
       <section className="space-y-3">
         <div>
-          <h2 className="play-section-title">공식 버전</h2>
-          <p className="text-sm text-muted-foreground">같은 곡의 다른 목소리. 참여자와 공개일을 살펴보고 원하는 버전을 재생하세요.</p>
+          <h2 className="text-xl font-semibold">공식 버전</h2>
+          <p className="text-sm text-muted-foreground">모든 공개 공식 가창과 검수된 source를 비교합니다.</p>
         </div>
         {song.performances.map((performance) => {
           const highlighted = performance.id === highlightedPerformanceId;
@@ -99,8 +99,7 @@ export function OtwPlaySongDetailPage({
             <article
               key={performance.id}
               id={`performance-${performance.id}`}
-              data-selected={highlighted}
-              className={cn("play-detail-version scroll-mt-24", highlighted && "ring-1 ring-ring")}
+              className={cn("scroll-mt-24 rounded-xl border bg-card p-4 shadow-sm", highlighted && "border-primary ring-2 ring-primary/20")}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -123,9 +122,9 @@ export function OtwPlaySongDetailPage({
               </div>
 
               <div className="mt-4 space-y-2 border-t pt-4">
-                <h3 className="text-sm font-semibold">공식 영상 출처</h3>
+                <h3 className="text-sm font-semibold">공식 source</h3>
                 {performance.sources.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">공개 가능한 영상이 없습니다.</p>
+                  <p className="text-sm text-muted-foreground">공개 가능한 source가 없습니다.</p>
                 ) : performance.sources.map((source) => (
                   <div key={source.sourceId} className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs">
                     <span className="font-medium">{source.channel.displayName}</span>
@@ -144,7 +143,7 @@ export function OtwPlaySongDetailPage({
                         disabled={!source.playable}
                         onClick={() => player.play({ song, performance, source })}
                       >
-                        <Play /> 이 영상 재생
+                        <Play /> 이 source 재생
                       </Button>
                       <Button asChild variant="ghost" size="sm">
                         <a href={`https://www.youtube.com/watch?v=${encodeURIComponent(source.externalId)}`} target="_blank" rel="noopener noreferrer">

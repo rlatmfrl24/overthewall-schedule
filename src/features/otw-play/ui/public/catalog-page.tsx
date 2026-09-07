@@ -2,10 +2,11 @@ import {
   ChevronDown,
   FilterX,
   LoaderCircle,
+  Search,
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { OtwPlayCatalogRouteSearch } from "../../model/catalog-route-search";
 import {
   catalogQueryFromRouteSearch,
@@ -24,7 +25,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Separator } from "@/shared/ui/separator";
-import { OtwPlaySongEntry } from "./song-version-list";
+import { OtwPlaySongRow } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 
 type Props = {
@@ -33,13 +34,31 @@ type Props = {
 };
 
 export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
+  const [searchInput, setSearchInput] = useState(search.q ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const query = useMemo(() => catalogQueryFromRouteSearch(search), [search]);
   const catalog = useOtwPlayCatalog(query);
   const facets = useOtwPlayFacets();
   const memberUids = query.member ?? [];
 
+  useEffect(() => setSearchInput(search.q ?? ""), [search.q]);
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
+  const submitSearch = (value: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    onSearchChange({ ...search, q: value.trim() || undefined }, true);
+  };
+  const scheduleSearch = (value: string) => {
+    setSearchInput(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => submitSearch(value), 250);
+  };
   const setField = <Key extends keyof OtwPlayCatalogRouteSearch>(
     key: Key,
     value: OtwPlayCatalogRouteSearch[Key],
@@ -75,22 +94,45 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
     setField(key, undefined);
   };
   const resetSearch = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = null;
+    setSearchInput("");
     onSearchChange({}, true);
   };
 
   return (
-    <div className="play-page play-reveal space-y-5">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-5 px-3 py-5 sm:px-5 lg:px-7 xl:px-8">
       <div>
-        <p className="play-eyebrow mb-3">OTW PLAY / EXPLORE</p><h1 className="play-title">나의 다음 곡.</h1>
-        <p className="mt-4 text-sm text-muted-foreground">
+        <h1 className="text-2xl font-semibold">곡 검색</h1>
+        <p className="text-sm text-muted-foreground">
           곡명, 별칭, 원곡 가수, 참여자와 가창 역할로 공식 버전을 찾습니다.
         </p>
       </div>
 
       <div className="flex gap-2">
-        <div className="flex flex-1 flex-wrap gap-2" aria-label="곡 관계 빠른 선택">
-          {([undefined, "original", "cover"] as const).map(relation => <Button key={relation ?? "all"} variant="outline" aria-pressed={search.relation === relation} onClick={() => setField("relation", relation)}>{relation === "original" ? "오리지널" : relation === "cover" ? "공식 커버" : "전체"}</Button>)}
-        </div>
+        <form
+          role="search"
+          className="flex min-w-0 flex-1 gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitSearch(searchInput);
+          }}
+        >
+          <Label htmlFor="otw-play-search" className="sr-only">곡 검색</Label>
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="otw-play-search"
+              value={searchInput}
+              maxLength={80}
+              placeholder="곡명, 원곡 가수, 참여자 검색"
+              className="pl-9"
+              onChange={(event) => scheduleSearch(event.target.value)}
+            />
+          </div>
+          <Button type="submit">검색</Button>
+        </form>
+
         <Button
           type="button"
           variant="outline"
@@ -237,8 +279,6 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
         </section>
       ) : null}
 
-      {facets.isError && <OtwPlayQueryError error={facets.error} retry={() => void facets.refetch()} />}
-      {catalog.isError && catalog.data && !catalog.isFetchNextPageError && <OtwPlayQueryError error={catalog.error} retry={retryCatalog} />}
       {hasFilters ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">적용 중:</span>
@@ -265,11 +305,11 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
         </div>
       ) : null}
 
-      {catalog.isPending || facets.isPending || catalog.isPlaceholderData ? (
+      {catalog.isPending || facets.isPending ? (
         <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground" aria-busy="true">
           <LoaderCircle className="mr-2 size-4 animate-spin" /> 곡 목록 불러오는 중
         </div>
-      ) : catalog.isError && !catalog.data ? (
+      ) : catalog.isError ? (
         <OtwPlayQueryError error={catalogError} retry={retryCatalog} />
       ) : songs.length === 0 ? (
         <div className="rounded-xl border border-dashed p-10 text-center">
@@ -284,7 +324,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
             현재 {songs.length}곡을 불러왔습니다{catalog.hasNextPage ? " · 다음 페이지 있음" : " · 마지막 페이지"}
           </p>
           <div className="space-y-3">
-            {songs.map((song) => <OtwPlaySongEntry key={song.id} song={song} expanded={expandedId === song.id} onToggle={() => setExpandedId(expandedId === song.id ? null : song.id)} />)}
+            {songs.map((song) => <OtwPlaySongRow key={song.id} song={song} />)}
           </div>
           {catalog.hasNextPage ? (
             <div className="flex justify-center">
@@ -302,7 +342,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
           {catalog.isFetchNextPageError ? (
             <OtwPlayQueryError
               error={catalogError}
-              retry={() => void catalog.fetchNextPage()}
+              retry={retryCatalog}
             />
           ) : null}
         </>
@@ -340,7 +380,7 @@ function FilterSelect({
         <SelectTrigger size="sm" className="w-full" aria-label={label}>
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="otw-play-theme">
+        <SelectContent>
           {allowAll ? <SelectItem value={ALL_FILTER_VALUE}>전체</SelectItem> : null}
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>

@@ -2,7 +2,7 @@ import { useUser } from "@clerk/clerk-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ListPlus, LoaderCircle, Pencil, Undo2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type {
   OtwPlayMemberSubmissionStatus,
   OtwPlayParticipantRole,
@@ -56,10 +56,7 @@ export function OtwPlaySubmissionsPage() {
   const isAdmin = adminStatusQuery.data?.isAdmin === true;
   const list = useMyOtwPlaySubmissions();
   const items = list.data?.pages.flatMap((page) => page.items) ?? [];
-  const detailRef = useRef<HTMLElement>(null);
-  const selectionRef = useRef<HTMLElement | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  useEffect(() => { if (selectedId) detailRef.current?.focus(); }, [selectedId]);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [commandMessage, setCommandMessage] = useState<string | null>(null);
   const detail = useMyOtwPlaySubmission(selectedId);
@@ -129,13 +126,13 @@ export function OtwPlaySubmissionsPage() {
   }
 
   return (
-    <div className="play-page play-reveal grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(280px,.85fr)]">
+    <div className="mx-auto grid w-full max-w-5xl gap-5 p-4 py-8 md:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)] md:p-8">
       <div className="md:col-span-2">
         <BackToPlayLink />
       </div>
-      <section className={selectedId ? "hidden space-y-4 md:block" : "space-y-4"}>
+      <section className="space-y-4">
         <div>
-          <p className="play-eyebrow mb-3">MY CONTRIBUTIONS</p><h1 className="play-title">내 곡 제안</h1>
+          <h1 className="text-2xl font-bold">내 곡 제안</h1>
           <p className="mt-1 text-sm text-muted-foreground">검토 대기 중인 제안은 수정하거나 철회할 수 있습니다.</p>
         </div>
         <div className="space-y-2">
@@ -143,9 +140,8 @@ export function OtwPlaySubmissionsPage() {
             <button
               type="button"
               key={item.id}
-              onClick={event => { selectionRef.current = event.currentTarget; setSelectedId(item.id); }}
-              aria-current={selectedId === item.id ? "true" : undefined}
-              className="play-submission-choice flex w-full items-center justify-between gap-3 rounded-xl border bg-card p-4 text-left hover:bg-muted/60"
+              onClick={() => setSelectedId(item.id)}
+              className="flex w-full items-center justify-between gap-3 rounded-xl border bg-card p-4 text-left hover:bg-muted/60"
             >
               <span className="min-w-0">
                 <span className="block truncate font-medium">{item.title}</span>
@@ -160,9 +156,7 @@ export function OtwPlaySubmissionsPage() {
         ) : null}
       </section>
 
-      <aside ref={detailRef} tabIndex={-1} aria-label="선택한 제안 상세" className={(selectedId ? "" : "hidden md:block ") + "rounded-2xl border bg-card p-6 md:sticky md:top-6 md:self-start"}>
-        <Button variant="ghost" className="mb-4 md:hidden" onClick={() => { setSelectedId(null); requestAnimationFrame(() => selectionRef.current?.focus()); }}><ChevronLeft /> 목록으로</Button>
-        {detail.isError && <div role="alert"><p>제안 상세를 불러오지 못했습니다.</p><Button variant="outline" onClick={() => void detail.refetch()}>다시 시도</Button></div>}
+      <aside className="rounded-2xl border bg-card p-5 md:sticky md:top-6 md:self-start">
         {!selectedId ? <p className="text-sm text-muted-foreground">목록에서 제안을 선택하세요.</p> : null}
         {selectedId && detail.isPending ? <LoaderCircle className="animate-spin" /> : null}
         {detail.data ? (
@@ -238,7 +232,7 @@ export function OtwPlaySubmissionsPage() {
         ) : null}
       </aside>
       <AlertDialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
-        <AlertDialogContent className="otw-play-theme">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>이 제안을 철회할까요?</AlertDialogTitle>
             <AlertDialogDescription asChild>
