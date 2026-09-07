@@ -395,7 +395,7 @@ export function OtwPlaySongRow({
             : "flex flex-col gap-2.5 p-4",
         )}
       >
-        <div>
+        <div className="play-song-identity">
           {hero ? (
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <OtwPlaySongTags tags={song.tags} />
@@ -419,22 +419,24 @@ export function OtwPlaySongRow({
             </span>
           </p>
         </div>
-        <OtwPlayParticipantSummary participants={performance.participants} />
-        {!hero ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <OtwPlaySongTags tags={song.tags} />
-            <OtwPlayPerformanceBadges performance={performance} />
-            <OtwPlayPerformanceTags tags={performance.tags} />
-            {!song.playable ? (
-              <Badge
-                variant="outline"
-                className="h-6 border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 dark:text-amber-300"
-              >
-                현재 재생 불가
-              </Badge>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="play-song-metadata flex flex-col gap-2">
+          <OtwPlayParticipantSummary participants={performance.participants} />
+          {!hero ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <OtwPlaySongTags tags={song.tags} />
+              <OtwPlayPerformanceBadges performance={performance} />
+              <OtwPlayPerformanceTags tags={performance.tags} />
+              {!song.playable ? (
+                <Badge
+                  variant="outline"
+                  className="h-6 border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-medium text-amber-700 dark:text-amber-300"
+                >
+                  현재 재생 불가
+                </Badge>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <div className={cn("play-song-actions flex flex-wrap items-center gap-2", !hero && "mt-auto pt-2.5")}>
           <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
           <Button asChild variant="outline" size={hero ? "default" : "sm"}>
