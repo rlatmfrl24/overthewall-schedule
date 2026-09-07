@@ -243,7 +243,12 @@
   표시하지 않는다. 썸네일 영역은 데스크톱에서 카드 높이에 맞추고 이미지는 `object-contain`으로
   원본 전체를 보존한다. 640px 미만에서는 카드 상단에 16:9 영역으로 배치한다.
   저장 playlist처럼 보이는 library affordance는 만들지 않는다.
-- 데스크톱은 우측 380px `PlayerQueuePanel` 하나를 사용한다. 단일 iframe은 panel
+- 데스크톱은 플레이큐가 있을 때만 우측 380px `PlayerQueuePanel` 하나를 표시한다.
+  첫 곡 추가 시 320ms, 마지막 곡 제거 시 280ms의 너비 전환과 짧은 fade로 펼치고 접으며,
+  빈 큐에서는 목록이 남은 전체 폭을 사용한다. 로딩·재시도 상태도 큐가 있으면 표시한다.
+  내부 영상·조작부 너비는 전환 중 고정하며 패널을 애니메이션 때문에 재마운트하지 않는다.
+  숨긴 패널은 `inert`와 `aria-hidden`으로 조작·탐색 대상에서 제외하고, 큐 알림은 별도로 유지한다.
+  동작 줄이기에서는 즉시 전환하며 모바일 전체·미니·열기 버튼 흐름은 유지한다. 단일 iframe은 panel
   상단에 356×200px로 항상 보인다. iframe 아래에는 곡명과 현재 멤버 profile·외부 person·group
   icon 및 참여자 이름을 먼저 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 음악/가창
   분류는 그 아래 보조 metadata로 내린다. 실제 IFrame 위치를 반영하는 seekable progress와

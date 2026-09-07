@@ -200,12 +200,33 @@ describe("OTW Play player and queue rail", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the desktop player placeholder above an explicit empty queue", () => {
-    render(<OtwPlayPlayerQueuePanel />);
+  it("hides an empty rail, opens for queued tracks before hydration, and hides after the last removal", () => {
+    createMatchMediaController({ [DESKTOP_PLAYER_QUERY]: true });
+    const { rerender } = render(<OtwPlayPlayerQueuePanel />);
+    const rail = screen.getByRole("complementary", { hidden: true });
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(rail.hasAttribute("inert")).toBe(true);
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(false);
 
-    expect(screen.getByText("플레이큐가 비어 있습니다")).toBeTruthy();
-    expect(screen.getByText("재생할 곡을 선택하세요")).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "재생 컨트롤" })).toBeNull();
+    const item = { id: "item-1", performanceId: "performance-1", sourceId: "source-1" };
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: { ...emptyPlayer.queue, items: [item], currentIndex: 0 },
+      currentItem: item,
+    });
+    rerender(<OtwPlayPlayerQueuePanel />);
+    expect(screen.getByRole("complementary")).toBe(rail);
+    expect(rail.hasAttribute("inert")).toBe(false);
+    expect(screen.getByRole("region", { name: "플레이큐" })).toBeTruthy();
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(true);
+
+    mocks.usePlayer.mockReturnValue({ ...emptyPlayer, announcement: "플레이큐에서 제거했습니다" });
+    rerender(<OtwPlayPlayerQueuePanel />);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(rail.hasAttribute("inert")).toBe(true);
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(false);
+    const announcement = screen.getByText("플레이큐에서 제거했습니다");
+    expect(announcement.closest('[aria-hidden="true"]')).toBeNull();
   });
 
   it("renders one player above the desktop queue and a mobile-first player", () => {
@@ -356,7 +377,12 @@ describe("OTW Play player and queue rail", () => {
   ] as const)("labels the %s repeat state and requests the next mode", (repeat, label, next, nextLabel) => {
     mocks.usePlayer.mockReturnValue({
       ...emptyPlayer,
-      queue: { ...emptyPlayer.queue, repeat },
+      queue: {
+        ...emptyPlayer.queue,
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0,
+        repeat,
+      },
       currentTrack: track,
     });
     render(<OtwPlayPlayerQueuePanel />);
