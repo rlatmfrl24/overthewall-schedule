@@ -55,9 +55,15 @@ export function OtwPlaySongDetailPage({
 
   return (
     <div className="play-page">
-      <Button asChild variant="ghost" size="sm">
-        <Link to="/play/songs"><ArrowLeft /> 곡 검색</Link>
-      </Button>
+      <div className="grid gap-3">
+        <Button
+          asChild
+          variant="ghost"
+          size="sm"
+          className="-ml-2 min-h-11 justify-self-start px-2 text-muted-foreground hover:text-foreground"
+        >
+          <Link to="/play/songs"><ArrowLeft aria-hidden="true" /> 곡 검색</Link>
+        </Button>
 
       <section className="play-detail-hero gap-5 border bg-card p-4 md:p-6">
         <div className="aspect-video overflow-hidden rounded-xl bg-muted">
@@ -91,6 +97,7 @@ export function OtwPlaySongDetailPage({
           {heroPerformance ? <OtwPlayPerformanceActions song={song} performance={heroPerformance} /> : null}
         </div>
       </section>
+      </div>
 
       <section className="space-y-3">
         <div>
