@@ -251,7 +251,8 @@
   동작 줄이기에서는 즉시 전환하며 모바일 전체·미니·열기 버튼 흐름은 유지한다. 단일 iframe은 panel
   상단에 356×200px로 항상 보인다. iframe 아래에는 곡명과 현재 멤버 profile·외부 person·group
   icon 및 참여자 이름을 먼저 두고 YouTube·곡 상세 action을 같은 row에 배치한다. 음악/가창
-  분류는 그 아래 보조 metadata로 내린다. 실제 IFrame 위치를 반영하는 seekable progress와
+  분류는 그 아래 보조 metadata로 내린다. 태그는 각 칩 단위로 남은 너비에 맞춰 다음 줄로
+  흐르게 하고 가로 스크롤과 스크롤용 탭 포커스는 사용하지 않는다. 실제 IFrame 위치를 반영하는 seekable progress와
   진행/남은 시간 다음에 상태 문구 없는 previous/play/next와 반복·셔플 control row를
   둔다. 볼륨 버튼은 세로 슬라이더와 음소거 버튼을 담은 접근 가능한 popover를 연다.
   반복 버튼은 `반복 꺼짐 → 전체 반복 → 한 곡 반복` 순서로 전환하며 현재 상태를 아이콘과

@@ -1,3 +1,9 @@
+# 2026-09-08 플레이어 태그 줄바꿈
+
+플레이어 분류 영역의 가로 스크롤과 singleLine 옵션을 제거하고 개별 태그 칩을 너비에 맞춰 다음 줄로 배치했다. 스크롤용 tabIndex도 제거했다. 실제 Chrome 1366×768에서 347px 태그 영역의 clientWidth와 scrollWidth가 같고, `Have Yourself A Merry Little Christmas`의 공개일 칩이 두 번째 줄에 표시됐다. 재생 조작과 193.5px 높이의 큐 영역이 정상 표시됨을 확인했다. 태그가 적은 `팬서비스`는 한 줄을 유지한다. 검증용 큐를 비우고 viewport를 복원했다. 플레이어 UI 회귀 테스트 13개, 린트 통과.
+
+---
+
 # 2026-09-08 플레이큐에 따른 우측 플레이어 표시
 
 큐 길이를 기준으로 데스크톱 rail을 표시하고, 빈 큐에서는 너비를 0으로 접는다. 등장 320ms·퇴장 280ms의 너비 전환과 opacity를 적용했다. 내부 section 너비를 고정해 iframe에 확대·축소 효과를 주지 않는다. 빈 패널은 inert/aria-hidden 처리하고 마지막 삭제 안내는 패널 밖의 live region에서 유지한다. 기존 reduced-motion 규칙은 전환을 제거한다.

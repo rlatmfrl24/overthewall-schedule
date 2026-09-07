@@ -290,15 +290,9 @@ describe("OTW Play player and queue rail", () => {
     expect(within(metadata).getByText("J-POP")).toBeTruthy();
     expect(within(metadata).getByText("어쿠스틱")).toBeTruthy();
     expect(within(metadata).getByText("공식 커버")).toBeTruthy();
-    expect(metadata.className).toContain("flex-nowrap");
-    expect(metadata.className).toContain("overflow-x-auto");
-    expect(metadata.className).not.toContain("overflow-hidden");
-    expect(
-      within(metadata).getByLabelText("음악 분류").className,
-    ).toContain("flex-nowrap");
-    expect(
-      within(metadata).getByLabelText("가창 및 공개 정보").className,
-    ).toContain("flex-nowrap");
+    expect(within(metadata).getByLabelText("음악 분류")).toBeTruthy();
+    expect(within(metadata).getByLabelText("가창 및 공개 정보")).toBeTruthy();
+    expect(metadata.hasAttribute("tabindex")).toBe(false);
     expect(within(metadata).getByText("공식 커버").className).toContain("rounded-full");
     expect(within(metadata).getByText("공식 영상").className).toContain("rounded-full");
     expect(within(metadata).getByLabelText(/^게시일 /).className).toContain("rounded-full");

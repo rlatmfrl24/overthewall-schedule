@@ -388,19 +388,16 @@ export function OtwPlayPlayerQueuePanel() {
 
                 <div
                   data-testid="otw-play-track-metadata"
-                  className="mt-3 flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto border-t pt-2 [scrollbar-width:thin] [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
-                  tabIndex={0}
+                  className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2 [&>div]:contents [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
                   role="region"
                   aria-label="곡 및 가창 분류"
                 >
-                  <OtwPlaySongTags tags={current.song.tags} singleLine />
+                  <OtwPlaySongTags tags={current.song.tags} />
                   <OtwPlayPerformanceTags
                     tags={current.performance.tags}
-                    singleLine
                   />
                   <OtwPlayPerformanceBadges
                     performance={current.performance}
-                    singleLine
                   />
                 </div>
 
