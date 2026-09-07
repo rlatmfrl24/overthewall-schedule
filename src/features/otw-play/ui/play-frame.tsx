@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ChevronDown, ListPlus, ListTodo, Music2 } from "lucide-react";
 import type { ReactNode } from "react";
 import "./play-glass.css";
+import { useButtonFeedback } from "./use-button-feedback";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -28,8 +29,10 @@ export function OtwPlayFrame({
   showCatalogTabs?: boolean;
   submissionActive?: boolean;
 }) {
+  const feedback = useButtonFeedback();
   return (
     <div
+      {...feedback}
       data-testid="otw-play-app-frame"
       className="otw-play-glass relative flex min-h-0 flex-1 flex-col overflow-clip bg-background"
     >

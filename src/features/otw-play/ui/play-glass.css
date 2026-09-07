@@ -40,6 +40,19 @@
 .otw-play-glass :where(button, a, input, select, textarea) {
   transition-duration: 150ms;
 }
+.otw-play-glass :where(button, a[data-slot=button], .play-tabs a) {
+  isolation: isolate; overflow: hidden;
+  transition: background-color 180ms ease-out, color 180ms ease-out, border-color 180ms ease-out, box-shadow 180ms ease-out, scale 140ms ease-out;
+}
+.otw-play-glass :where(button, a[data-slot=button], .play-tabs a):not(:is(.fixed, .absolute, .sticky)) { position: relative; }
+.otw-play-glass :where(button, a[data-slot=button], .play-tabs a)::before {
+  content: ""; position: absolute; pointer-events: none; border-radius: 50%;
+  width: var(--play-ripple-size, 0px); height: var(--play-ripple-size, 0px);
+  left: var(--play-ripple-x, 50%); top: var(--play-ripple-y, 50%);
+  background: currentColor; opacity: 0; transform: translate(-50%, -50%) scale(0);
+}
+.otw-play-glass :where(button, a[data-slot=button], .play-tabs a):active:not(:disabled):not([aria-disabled=true]) { scale: 0.97; }
+.otw-play-glass [data-slot=button][data-size^=icon] { padding: 0; aspect-ratio: 1; }
 .otw-play-glass :where(button, a, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
@@ -116,18 +129,25 @@
 .otw-play-glass .play-spotlight-media { align-self: center; background: var(--muted); }
 .otw-play-glass .play-spotlight-copy {
   display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
-  min-width: 0; min-height: 320px; padding: 24px; gap: 16px;
+  min-width: 0; padding: 24px 28px 8px; gap: 18px;
 }
+.otw-play-glass .play-spotlight-body { display: grid; gap: 18px; width: 100%; margin-block: auto; }
 .otw-play-glass .play-spotlight-copy h2 {
   font-size: clamp(24px, 3cqi, 36px); font-weight: 700; line-height: 1.25;
   letter-spacing: -0.035em; overflow-wrap: anywhere;
 }
-.otw-play-glass .play-spotlight-media > *,
-.otw-play-glass .play-spotlight-content { animation: play-slide-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.otw-play-glass .play-spotlight-artwork {
+  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  transition: opacity 600ms ease-out;
+}
+.otw-play-glass .play-spotlight-artwork[data-active=true] { position: relative; opacity: 1; }
+.otw-play-glass .play-spotlight-content { animation: play-slide-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .otw-play-glass .play-spotlight-content { display: grid; gap: 12px; width: 100%; }
-.otw-play-glass .play-carousel-controls { display: flex; align-items: center; gap: 8px; margin-top: auto; width: 100%; }
+.otw-play-glass .play-carousel-controls { display: flex; align-items: center; gap: 4px; width: 100%; }
 .otw-play-glass .play-carousel-dots { display: flex; flex-wrap: wrap; gap: 0; margin-right: auto; }
-.otw-play-glass .play-carousel-dot { width: 24px; height: 32px; display: grid; place-items: center; border-radius: 8px; }
+.otw-play-glass .play-carousel-dot { width: 24px; height: 36px; display: grid; place-items: center; border-radius: 8px; }
+.otw-play-glass .play-carousel-controls > [data-slot=button] { width: 36px; height: 36px; padding: 0; }
+.otw-play-glass .play-carousel-count { margin-inline: 8px; }
 .otw-play-glass .play-carousel-dot::after { content: ""; height: 5px; width: 5px; border-radius: 9px; background: var(--muted-foreground); transition: width 200ms, background-color 200ms; }
 .otw-play-glass .play-carousel-dot[aria-current=true]::after { width: 18px; background: var(--otw-1); }
 .otw-play-glass .play-primary {
@@ -188,10 +208,11 @@
 @media (max-width: 1279px) {
   .otw-play-glass [data-slot=button] { min-height: 44px; }
   .otw-play-glass :where([role=combobox], input:not([type=range]):not([type=checkbox])) { min-height: 44px; }
-  .otw-play-glass button[data-slot=button]:has(> svg:only-child) { min-width: 44px; }
+  .otw-play-glass [data-slot=button][data-size^=icon] { min-width: 44px; }
   .otw-play-glass .play-tabs a { min-height: 44px; }
   .otw-play-glass .play-filter-remove { min-width: 44px; min-height: 44px; display: grid; place-items: center; }
-  .otw-play-glass .play-carousel-dot { width: 32px; height: 44px; }
+  .otw-play-glass .play-carousel-dot { width: 24px; height: 44px; }
+  .otw-play-glass .play-carousel-controls > [data-slot=button] { width: 44px; height: 44px; }
   .otw-play-glass .play-transport { grid-template-columns: 4rem minmax(0,1fr) auto; gap: 0; }
 }
 @media (max-width: 639px) {
@@ -202,9 +223,9 @@
   .otw-play-glass .play-brand-note { height: 88px; }
   .otw-play-glass .play-page-title { font-size: 28px; }
   .otw-play-glass .play-member-page h1 { font-size: 28px; }
-  .otw-play-glass .play-spotlight-copy { padding: 20px; }
+  .otw-play-glass .play-spotlight-copy { padding: 20px 16px 6px; gap: 12px; }
   .otw-play-glass .play-carousel-controls { flex-wrap: wrap; }
-  .otw-play-glass .play-carousel-dots { flex: 1 1 100%; }
+  .otw-play-glass .play-carousel-count { display: none; }
   .otw-play-glass .play-search-row { flex-wrap: wrap; }
   .otw-play-glass .play-search-row form { flex-basis: 100%; }
   .otw-play-glass .play-song-copy { padding: 16px; }
@@ -212,12 +233,13 @@
 @media (min-width: 1280px) and (max-height: 719px) {
   .otw-play-glass .play-transport { padding: 4px; margin-top: 4px; }
 }
-@keyframes play-slide-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes play-slide-in { from { opacity: 0.65; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes play-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes play-reveal { from { opacity: 0.35; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .otw-play-glass *, .otw-play-glass *::before, .otw-play-glass *::after {
     animation: none !important; transition: none !important; scroll-behavior: auto !important;
   }
+  .otw-play-glass :where(button, a[data-slot=button], .play-tabs a):active { scale: 1; }
   .otw-play-glass .play-song-card:hover, .otw-play-glass .play-member-link:hover, .otw-play-glass .play-recent-card:hover { transform: none; }
 }

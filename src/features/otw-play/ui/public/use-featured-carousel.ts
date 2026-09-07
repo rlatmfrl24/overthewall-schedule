@@ -4,8 +4,7 @@ const ROTATION_DELAY = 6_000;
 
 export function useFeaturedCarousel(count: number) {
   const [index, setIndex] = useState(0);
-  const [userPaused, setUserPaused] = useState(false);
-  const [motionOverride, setMotionOverride] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [hidden, setHidden] = useState(() => typeof document !== "undefined" && document.hidden);
   const [reducedMotion, setReducedMotion] = useState(() =>
@@ -16,7 +15,6 @@ export function useFeaturedCarousel(count: number) {
     const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     const onMotion = () => {
       setReducedMotion(media?.matches ?? false);
-      setMotionOverride(false);
     };
     const onVisibility = () => setHidden(document.hidden);
     media?.addEventListener("change", onMotion);
@@ -27,8 +25,7 @@ export function useFeaturedCarousel(count: number) {
     };
   }, []);
 
-  const paused = userPaused || (reducedMotion && !motionOverride);
-  const rotating = count > 1 && !paused && !hovered && !hidden;
+  const rotating = count > 1 && !focused && !hovered && !hidden && !reducedMotion;
   useEffect(() => {
     if (!rotating) return;
     const timer = window.setTimeout(() => setIndex((current) => (current + 1) % count), ROTATION_DELAY);
@@ -41,13 +38,8 @@ export function useFeaturedCarousel(count: number) {
     move: (direction: -1 | 1) => {
       if (count > 1) setIndex((current) => (current + direction + count) % count);
     },
-    paused,
-    setPaused: (next: boolean) => {
-      setUserPaused(next);
-      if (!next) setMotionOverride(true);
-    },
+    setFocused,
     setHovered,
-    reducedMotion,
     rotating,
   };
 }

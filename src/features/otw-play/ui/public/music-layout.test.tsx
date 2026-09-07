@@ -193,8 +193,15 @@ describe("OTW Play discover layout", () => {
     expect(screen.getAllByText("라이브").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "오버더월 NOW PLAY ON OTW PLAY" })).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
+    const heroMedia = screen.getByTestId("otw-play-hero-media");
+    const loadedArtwork = Array.from(heroMedia.querySelectorAll("img"));
+    expect(loadedArtwork).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    // Keep decoded images mounted when changing songs instead of restarting image loading.
+    Array.from(heroMedia.querySelectorAll("img")).forEach((image, index) => {
+      expect(image).toBe(loadedArtwork[index]);
+    });
     fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
 
@@ -226,7 +233,7 @@ describe("OTW Play discover layout", () => {
     expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
   });
 
-  it("rotates after six seconds, pauses on hover and requires restart after keyboard focus", () => {
+  it("rotates after six seconds and resumes only after hover and focus leave", () => {
     vi.useFakeTimers();
     render(<OtwPlayHomePage />);
     const banner = screen.getByRole("region", { name: "추천 배너" });
@@ -243,22 +250,19 @@ describe("OTW Play discover layout", () => {
     fireEvent.focus(screen.getByRole("button", { name: "다음 추천곡" }));
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "추천곡 자동 전환 시작" }));
+    fireEvent.blur(screen.getByRole("button", { name: "다음 추천곡" }), { relatedTarget: document.body });
     act(() => vi.advanceTimersByTime(6000));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "추천곡 자동 전환 일시정지" }));
-    act(() => vi.advanceTimersByTime(12000));
-    expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /추천곡 자동 전환/ })).toBeNull();
   });
 
-  it("starts reduced-motion users paused but supports explicit rotation without motion", () => {
+  it("keeps reduced-motion rotation manual and clears the timer on unmount", () => {
     vi.useFakeTimers();
     vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
     const view = render(<OtwPlayHomePage />);
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "추천곡 자동 전환 시작" }));
-    act(() => vi.advanceTimersByTime(6000));
+    fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     view.unmount();
     expect(vi.getTimerCount()).toBe(0);

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, LoaderCircle, Pause, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -167,8 +167,9 @@ export function OtwPlayHomePage() {
           className="play-spotlight relative w-full touch-pan-y outline-none"
           onMouseEnter={() => carousel.setHovered(true)}
           onMouseLeave={() => carousel.setHovered(false)}
-          onFocusCapture={(event) => {
-            if (!(event.target as Element).closest("[data-carousel-rotation]")) carousel.setPaused(true);
+          onFocusCapture={() => carousel.setFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) carousel.setFocused(false);
           }}
           onPointerDown={handleHeroPointerDown}
           onPointerUp={handleHeroPointerUp}
@@ -178,28 +179,39 @@ export function OtwPlayHomePage() {
         >
           <article className="play-spotlight-layout">
             <div data-testid="otw-play-hero-media" className="play-spotlight-media relative w-full overflow-hidden">
-              <SongImage key={featured.id} song={featured} eager natural />
+              {featuredSongs.map((song) => (
+                <div
+                  key={song.id}
+                  className="play-spotlight-artwork"
+                  data-active={song.id === featured.id}
+                  aria-hidden={song.id !== featured.id}
+                >
+                  <SongImage song={song} eager natural />
+                </div>
+              ))}
             </div>
             <div className="play-spotlight-copy">
-              <div key={featured.id} className="play-spotlight-content" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
-                <p className="play-kicker">New on OTW Play</p>
-                <h2 id="play-home-featured">{featured.title}</h2>
-                <p className="text-sm text-muted-foreground">
-                  {featuredParticipants?.primaryNames || "참여자 정보 없음"}
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <OtwPlaySongTags tags={featured.tags} />
-                  <OtwPlayPerformanceTags tags={featured.representativePerformance.tags} />
+              <div className="play-spotlight-body">
+                <div key={featured.id} className="play-spotlight-content" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
+                  <p className="play-kicker">New on OTW Play</p>
+                  <h2 id="play-home-featured">{featured.title}</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {featuredParticipants?.primaryNames || "참여자 정보 없음"}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <OtwPlaySongTags tags={featured.tags} />
+                    <OtwPlayPerformanceTags tags={featured.representativePerformance.tags} />
+                  </div>
+                  <OtwPlayPerformanceMetadata performance={featured.representativePerformance} />
                 </div>
-                <OtwPlayPerformanceMetadata performance={featured.representativePerformance} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/play/songs/$songSlug" params={{ songSlug: featured.slug }} search={{ performance: undefined }}>
-                    곡 상세 <ArrowRight />
-                  </Link>
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/play/songs/$songSlug" params={{ songSlug: featured.slug }} search={{ performance: undefined }}>
+                      곡 상세 <ArrowRight />
+                    </Link>
+                  </Button>
+                </div>
               </div>
               {featuredSongs.length > 1 ? (
                 <div className="play-carousel-controls">
@@ -215,17 +227,9 @@ export function OtwPlayHomePage() {
                       />
                     ))}
                   </div>
-                  <span className="text-xs tabular-nums text-muted-foreground" aria-hidden="true">
+                  <span className="play-carousel-count text-xs tabular-nums text-muted-foreground" aria-hidden="true">
                     {String(activeIndex + 1).padStart(2, "0")} / {String(featuredSongs.length).padStart(2, "0")}
                   </span>
-                  <Button
-                    type="button" variant="ghost" size="icon-sm" data-carousel-rotation
-                    title={carousel.reducedMotion ? "동작 줄이기 설정: 이동 효과 없이 자동 전환" : "6초마다 추천곡 자동 전환"}
-                    aria-label={carousel.paused ? "추천곡 자동 전환 시작" : "추천곡 자동 전환 일시정지"}
-                    onClick={() => carousel.setPaused(!carousel.paused)}
-                  >
-                    {carousel.paused ? <Play /> : <Pause />}
-                  </Button>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={() => moveFeatured(-1)}>
                     <ArrowLeft />
                   </Button>
