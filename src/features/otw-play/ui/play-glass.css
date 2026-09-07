@@ -255,7 +255,8 @@
 @container play-content (min-width: 960px) {
   .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }
 }
-.otw-play-glass .play-song-row .play-song-actions { margin-top: 0; }
+.otw-play-glass .play-song-row .play-song-copy { justify-content: flex-start; }
+.otw-play-glass .play-song-row .play-song-actions { margin-top: auto; }
 .otw-play-glass, .otw-play-glass * {
   scrollbar-width: thin;
   scrollbar-color: var(--play-scroll-thumb) transparent;
