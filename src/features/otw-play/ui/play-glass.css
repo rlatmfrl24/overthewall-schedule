@@ -252,6 +252,11 @@
 
 /* Preserve left artwork/right information until mobile controls no longer fit. */
 .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 1fr); }
+.otw-play-glass .play-song-artwork { isolation: isolate; }
+.otw-play-glass .play-song-artwork-backdrop {
+  position: absolute; inset: -16px; z-index: -1;
+  filter: blur(12px); opacity: 0.6; pointer-events: none;
+}
 @container play-content (min-width: 480px) {
   .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }
 }

@@ -366,9 +366,20 @@ export function OtwPlaySongRow({
           "relative min-w-0 shrink-0 overflow-hidden bg-muted",
           hero
             ? "aspect-video min-h-[220px]"
-            : "w-full self-start",
+            : "play-song-artwork grid w-full self-stretch items-center",
         )}
       >
+        {!hero && source ? (
+          <div className="play-song-artwork-backdrop" aria-hidden="true">
+            <OtwPlayThumbnail
+              source={source}
+              alt=""
+              width={480}
+              height={270}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          </div>
+        ) : null}
         {source ? (
           <OtwPlayThumbnail
             source={source}
@@ -376,7 +387,7 @@ export function OtwPlaySongRow({
             width={480}
             height={270}
             loading={hero ? "eager" : "lazy"}
-            className={hero ? "absolute inset-0 h-full w-full object-contain" : "block h-auto w-full object-contain"}
+            className={hero ? "absolute inset-0 h-full w-full object-contain" : "play-song-artwork-original relative block h-auto w-full object-contain"}
             fallback={
               <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>
                 썸네일 없음
