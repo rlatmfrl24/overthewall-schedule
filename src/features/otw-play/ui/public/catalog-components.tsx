@@ -180,7 +180,7 @@ export function OtwPlayParticipantChip({
     return (
       <Link
         to="/play/songs"
-        search={{ member: String(participant.uid), participantRole: "vocal" }}
+        search={{ member: String(participant.uid) }}
         aria-label={`현재 OTW 멤버, ${participant.displayName}`}
         className="inline-flex min-h-8 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent"
       >

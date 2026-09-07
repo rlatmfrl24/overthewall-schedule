@@ -145,7 +145,6 @@
 .otw-play-glass .play-carousel-dots { display: flex; flex-wrap: wrap; gap: 0; margin-right: auto; }
 .otw-play-glass .play-carousel-dot { width: 24px; height: 36px; display: grid; place-items: center; border-radius: 8px; }
 .otw-play-glass .play-carousel-controls > [data-slot=button] { width: 36px; height: 36px; padding: 0; }
-.otw-play-glass .play-carousel-count { margin-inline: 8px; }
 .otw-play-glass .play-carousel-dot::after { content: ""; height: 5px; width: 5px; border-radius: 9px; background: var(--muted-foreground); transition: width 200ms, background-color 200ms; }
 .otw-play-glass .play-carousel-dot[aria-current=true]::after { width: 18px; background: var(--otw-1); }
 .otw-play-glass .play-primary {
@@ -223,7 +222,6 @@
   .otw-play-glass .play-member-page h1 { font-size: 28px; }
   .otw-play-glass .play-spotlight-copy { padding: 20px 16px 6px; gap: 12px; }
   .otw-play-glass .play-carousel-controls { flex-wrap: wrap; }
-  .otw-play-glass .play-carousel-count { display: none; }
   .otw-play-glass .play-search-row { flex-wrap: wrap; }
   .otw-play-glass .play-search-row form { flex-basis: 100%; }
   .otw-play-glass .play-song-copy { padding: 16px; }
@@ -241,3 +239,7 @@
   .otw-play-glass :where(button, a[data-slot=button], .play-tabs a):active { scale: 1; }
   .otw-play-glass .play-song-card:hover, .otw-play-glass .play-member-link:hover, .otw-play-glass .play-recent-card:hover { transform: none; }
 }
+
+.otw-play-glass .play-header-search:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+.otw-play-glass .play-header-search input { min-height: 0; height: 100%; border-radius: 0; background: transparent; }
+.otw-play-glass .play-header-search input:focus-visible { outline: none; }

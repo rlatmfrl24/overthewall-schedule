@@ -207,6 +207,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
               />
               <FilterSelect
                 label="가창 역할"
+                allLabel="메인 보컬·피처링 (기본)"
                 value={search.participantRole ?? ""}
                 onChange={(value) => setField("participantRole", value as Props["search"]["participantRole"] || undefined)}
                 options={[
@@ -363,6 +364,7 @@ function FilterSelect({
   options,
   onChange,
   allowAll = true,
+  allLabel = "전체",
   disabled = false,
 }: {
   label: string;
@@ -370,6 +372,7 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
   allowAll?: boolean;
+  allLabel?: string;
   disabled?: boolean;
 }) {
   const selectedValue = allowAll && !value ? ALL_FILTER_VALUE : value;
@@ -385,7 +388,7 @@ function FilterSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {allowAll ? <SelectItem value={ALL_FILTER_VALUE}>전체</SelectItem> : null}
+          {allowAll ? <SelectItem value={ALL_FILTER_VALUE}>{allLabel}</SelectItem> : null}
           {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}

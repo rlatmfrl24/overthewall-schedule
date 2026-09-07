@@ -232,9 +232,6 @@ export function OtwPlayHomePage() {
                       />
                     ))}
                   </div>
-                  <span className="play-carousel-count text-xs tabular-nums text-muted-foreground" aria-hidden="true">
-                    {String(activeIndex + 1).padStart(2, "0")} / {String(featuredSongs.length).padStart(2, "0")}
-                  </span>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={() => moveFeatured(-1)}>
                     <ArrowLeft />
                   </Button>
@@ -283,10 +280,9 @@ export function OtwPlayHomePage() {
                   to="/play/songs"
                   search={{
                     member: String(member.memberUid),
-                    participantRole: "vocal",
                   }}
                   className="play-member-link group flex w-20 shrink-0 flex-col items-center gap-2 text-center sm:w-24"
-                  aria-label={`${member.displayName} 메인 보컬 곡 보기`}
+                  aria-label={`${member.displayName} 메인 보컬·피처링 곡 보기`}
                 >
                   <img
                     src={`/profile/${member.code}.webp`}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const ROTATION_DELAY = 6_000;
+const ROTATION_DELAY = 7_000;
 
 export function useFeaturedCarousel(count: number) {
   const [index, setIndex] = useState(0);

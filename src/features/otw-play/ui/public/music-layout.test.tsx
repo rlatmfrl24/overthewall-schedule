@@ -219,11 +219,10 @@ describe("OTW Play discover layout", () => {
     ).toBeTruthy();
     expect(screen.getByText("멤버 9")).toBeTruthy();
     const memberLink = screen.getByRole("link", {
-      name: "멤버 1 메인 보컬 곡 보기",
+      name: "멤버 1 메인 보컬·피처링 곡 보기",
     });
     expect(JSON.parse(memberLink.dataset.search ?? "{}")).toEqual({
       member: "1",
-      participantRole: "vocal",
     });
     const recent = screen.getByRole("region", { name: "최근 공개된 곡" });
     expect(within(recent).getAllByRole("article")).toHaveLength(2);
@@ -233,11 +232,11 @@ describe("OTW Play discover layout", () => {
     expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
   });
 
-  it("rotates after six seconds and resumes only after hover and focus leave", () => {
+  it("rotates after seven seconds and resumes only after hover and focus leave", () => {
     vi.useFakeTimers();
     render(<OtwPlayHomePage />);
     const banner = screen.getByRole("region", { name: "추천 배너" });
-    act(() => vi.advanceTimersByTime(5999));
+    act(() => vi.advanceTimersByTime(6999));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
@@ -245,13 +244,13 @@ describe("OTW Play discover layout", () => {
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     fireEvent.mouseLeave(banner);
-    act(() => vi.advanceTimersByTime(6000));
+    act(() => vi.advanceTimersByTime(7000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     fireEvent.focus(screen.getByRole("button", { name: "다음 추천곡" }));
     act(() => vi.advanceTimersByTime(12000));
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
     fireEvent.blur(screen.getByRole("button", { name: "다음 추천곡" }), { relatedTarget: document.body });
-    act(() => vi.advanceTimersByTime(6000));
+    act(() => vi.advanceTimersByTime(7000));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /추천곡 자동 전환/ })).toBeNull();
   });

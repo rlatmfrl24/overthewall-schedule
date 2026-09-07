@@ -53,7 +53,7 @@ describe("OtwPlayParticipantChip", () => {
   it.each([
     [
       { ...base, kind: "current_member", uid: 7, code: "singer", oshiMark: "🎵", unitName: null },
-      { member: "7", participantRole: "vocal" },
+      { member: "7" },
     ],
     [
       { ...base, kind: "external" },
