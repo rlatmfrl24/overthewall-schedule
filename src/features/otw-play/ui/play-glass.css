@@ -250,9 +250,9 @@
 .otw-play-glass .play-header-search input { min-height: 0; height: 100%; border-radius: 0; background: transparent; }
 .otw-play-glass .play-header-search input:focus-visible { outline: none; }
 
-/* Keep complete artwork flush with the card; stack before text crowds it. */
+/* Preserve left artwork/right information until mobile controls no longer fit. */
 .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 1fr); }
-@container play-content (min-width: 1152px) {
+@container play-content (min-width: 480px) {
   .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }
 }
 .otw-play-glass .play-song-row .play-song-copy { container: play-song-copy / inline-size; justify-content: flex-start; }
@@ -262,25 +262,10 @@
   overflow-wrap: anywhere;
 }
 .otw-play-glass .play-song-row .play-song-actions { margin-top: auto; }
-/* Intermediate cards keep artwork and title side by side without squeezing controls. */
-@container play-content (min-width: 600px) and (max-width: 1151.98px) {
-  .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 40%) minmax(0, 1fr); }
-  .otw-play-glass .play-song-row .play-song-copy { display: contents; }
-  .otw-play-glass .play-song-row > :first-child { grid-column: 1; grid-row: 1; }
-  .otw-play-glass .play-song-row .play-song-identity {
-    container: play-song-identity / inline-size;
-    grid-column: 2; grid-row: 1; min-width: 0; padding: 16px;
-  }
-  .otw-play-glass .play-song-row .play-song-title {
-    font-size: clamp(1.25rem, calc(0.875rem + 2.5cqi), 1.625rem);
-  }
-  .otw-play-glass .play-song-row .play-song-metadata {
-    grid-column: 1 / -1; padding: 12px 16px 0; min-width: 0;
-    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px;
-  }
-  .otw-play-glass .play-song-row .play-song-actions {
-    grid-column: 1 / -1; margin-top: 0; padding: 12px 16px 16px;
-  }
+@container play-content (min-width: 480px) and (max-width: 719.98px) {
+  .otw-play-glass .play-song-row { grid-template-columns: minmax(0, 34%) minmax(0, 1fr); }
+  .otw-play-glass .play-song-row .play-song-copy { padding: 12px; }
+  .otw-play-glass .play-song-row .play-song-actions > div { display: contents; }
 }
 
 .otw-play-glass, .otw-play-glass * {
