@@ -358,7 +358,7 @@ export function OtwPlaySongRow({
         "play-song-card overflow-hidden",
         hero
           ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
-          : "grid sm:grid-cols-[minmax(12rem,30%)_minmax(0,1fr)]",
+          : "play-song-row grid",
       )}
     >
       <div
