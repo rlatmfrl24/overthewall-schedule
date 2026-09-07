@@ -1,3 +1,25 @@
+# 2026-09-07 후속 UI 개선 검증
+
+사용자의 5개 후속 요청을 같은 `codex/otw-play-glass-refresh` 브랜치에 반영했다. 아래 초기 검증 기록은 `4256d90` 당시의 상태다.
+
+- 제목: `오버더월 NOW PLAY ON OTW PLAY`.
+- 추천 이미지는 실제 원본 1280×720에 대해 가로 652.02px / 높이 366.75px를 확인했다. 영역과 이미지의 가로폭이 같고 원본 비율 전체를 유지한다. 모바일은 349px, 태블릿은 703px로 양쪽 폭이 일치한다.
+- 추천곡은 6초 자동 전환, 360ms 페이드·슬라이드. hover·숨겨진 탭에서 멈추고 키보드 진입 후에는 시작 버튼으로 재개한다. 조작부와 실제 재생 iframe은 교체하지 않는다.
+- 이번 Chrome에서는 `prefers-reduced-motion: reduce`가 실제 활성화돼 있었다. 기본 정지·명시적 시작 후 자동 전환을 확인했으며, 계산된 이미지 animationName은 `none`이었다. 일반 모드의 이동 애니메이션 렌더링은 이번 환경에서 별도 재현하지 않았고 CSS 및 회귀 테스트로 검증했다.
+- 실제 시작 후 팬서비스→모시모시→Christmas 등 선택 곡과 상세 링크가 자동 갱신되고 일시정지 버튼으로 멈추는 것을 확인했다.
+- 최근곡은 큰 16:9 이미지, 곡 상세 링크, 참여자·분류·공개일, 항상 보이는 재생·큐 추가 버튼이 있는 음악 카드로 변경했다. 데스크톱 4열, 768px 태블릿 2열(각 342.5px), 390px 모바일 1열을 확인했다.
+- 최근곡 QWER 카드에서 추가됨·큐 1곡을 확인하고 재생 버튼으로 실제 영상·자막·0:23 진행·재생 중 상태까지 확인했다. 검증 후 일시정지하고 테스트 큐 항목을 제거했다.
+- 모바일 최근곡 썸네일에서 팬서비스 상세로 진입했다. 검색의 바깥 카드와 필터 내부 카드를 제거한 상태에서 필터 열기·빙하유 조건 3곡·모두 초기화 8곡 복귀를 확인했다.
+- 390×844와 768×1024에서 document 가로 넘침 없음. 1920×1080 발견·검색 최종 캡처를 저장했다. 임시 viewport는 복원했다. 테마·OS 설정은 변경하지 않았다.
+- `pnpm typecheck:test`, `pnpm lint`, `pnpm architecture:check`, `pnpm test`, `pnpm build` 통과. 단위 232파일/1,592개 + Worker 23파일/220개 = 1,812개.
+- 기존 table/CSS 클래스 기대는 승인된 음악 카드와 실제 상세·재생 작업의 존재를 확인하도록 갱신했다. 자동 전환 시간, hover, 키보드 정지, 명시적 재개, 동작 줄이기 기본 정지, unmount 타이머 정리 회귀 테스트를 추가했다.
+
+현재 비교: [.tmp/otw-play-glass-review/comparison.html](.tmp/otw-play-glass-review/comparison.html).
+최신 증거 파일은 `refined-discover-desktop.png`, `refined-catalog-desktop.png`, `refined-discover-mobile.png`, `refined-recent-mobile.png`, `refined-catalog-mobile.png`, `refined-discover-tablet.png`다.
+운영 배포·API·DB·재생 모델·패키지 변경은 없다.
+
+---
+
 # OTW Play 3색 글래스 UI 검토
 
 검토일: 2026-09-07. 로컬 검토 범위의 시각적 P0/P1/P2 결함은 수정했다.
@@ -13,7 +35,7 @@
 - `public/images/otw-play/glass-note.png`: 원본 1024×1536 RGBA, 사용자 첨부 파일과 SHA-256 동일
   (`35A74CD6170B53CBE89DA8EBD1681E7AB2A6FC9C1107F1CC4396D7CEF2B0D60D`).
 - 증거 폴더: `.tmp/otw-play-glass-review/`. 이미지 편집·데이터 조작 없이 Chrome 브라우저에서 캡처했다.
-- 전후 비교: [comparison.html](.tmp/otw-play-glass-review/comparison.html).
+- 전후 비교: [초기 비교](.tmp/otw-play-glass-review/comparison-initial.html).
 
 ## 전체 화면과 세부 비교
 

@@ -110,7 +110,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
         </p>
       </div>
 
-      <div className="play-search-toolbar space-y-3">
+      <div className="play-search-controls space-y-3">
       <div className="play-search-row">
         <form
           role="search"
@@ -160,7 +160,7 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
       {filtersOpen ? (
         <section
           id="otw-play-catalog-filters"
-          className="play-filter-panel space-y-4 border p-3 sm:p-4"
+          className="play-filter-panel space-y-4 border-t pt-4"
           aria-label="카탈로그 필터"
         >
           <div className="space-y-3">

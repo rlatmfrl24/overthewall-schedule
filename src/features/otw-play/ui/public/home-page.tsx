@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, LoaderCircle, Pause, Play } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -23,16 +23,18 @@ import {
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "./participant-presentation";
+import { useFeaturedCarousel } from "./use-featured-carousel";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
   query.data?.pages.flatMap((page) => page.data.items) ?? [];
 
 export function OtwPlayHomePage() {
-  const [featuredIndex, setFeaturedIndex] = useState(0);
   const dragStartX = useRef<number | null>(null);
   const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
   const latest = useOtwPlayCatalog({ limit: 24 });
   const facets = useOtwPlayFacets();
+  const featuredSongs = latest.data?.pages[0]?.data.items.slice(0, 8) ?? [];
+  const carousel = useFeaturedCarousel(featuredSongs.length);
   const {
     fetchNextPage,
     hasNextPage,
@@ -110,9 +112,7 @@ export function OtwPlayHomePage() {
   }
 
   const songs = pageItems(latest);
-  const featuredSongs = latest.data?.pages[0]?.data.items.slice(0, 8) ?? [];
-  const activeIndex =
-    featuredSongs.length === 0 ? 0 : featuredIndex % featuredSongs.length;
+  const { activeIndex } = carousel;
   const featured = featuredSongs[activeIndex] ?? null;
   const featuredParticipants = featured
     ? presentOtwPlayParticipants(
@@ -120,12 +120,7 @@ export function OtwPlayHomePage() {
       )
     : null;
 
-  const moveFeatured = (direction: -1 | 1) => {
-    if (featuredSongs.length < 2) return;
-    setFeaturedIndex((current) =>
-      (current + direction + featuredSongs.length) % featuredSongs.length,
-    );
-  };
+  const moveFeatured = carousel.move;
 
   const handleHeroPointerDown = (event: PointerEvent<HTMLElement>) => {
     if ((event.target as Element).closest("a, button, input")) return;
@@ -159,8 +154,7 @@ export function OtwPlayHomePage() {
     <div className="play-page">
       <header className="play-intro">
         <div className="min-w-0">
-          <p className="play-kicker">Over the Wall · Music</p>
-          <h1>오늘의 목소리를 발견하세요</h1>
+          <h1><span className="play-intro-brand">오버더월</span> NOW PLAY ON OTW PLAY</h1>
           <p>오버더월의 오리지널과 공식 커버를 한곳에서.</p>
         </div>
         <img src="/images/otw-play/glass-note.png" alt="" width={1024} height={1536} className="play-brand-note" decoding="async" />
@@ -171,6 +165,11 @@ export function OtwPlayHomePage() {
           aria-label="추천 배너"
           tabIndex={0}
           className="play-spotlight relative w-full touch-pan-y outline-none"
+          onMouseEnter={() => carousel.setHovered(true)}
+          onMouseLeave={() => carousel.setHovered(false)}
+          onFocusCapture={(event) => {
+            if (!(event.target as Element).closest("[data-carousel-rotation]")) carousel.setPaused(true);
+          }}
           onPointerDown={handleHeroPointerDown}
           onPointerUp={handleHeroPointerUp}
           onPointerCancel={() => { dragStartX.current = null; }}
@@ -178,11 +177,11 @@ export function OtwPlayHomePage() {
           onKeyDown={handleHeroKeyDown}
         >
           <article className="play-spotlight-layout">
-            <div data-testid="otw-play-hero-media" className="play-spotlight-media relative aspect-video w-full overflow-hidden">
-              <SongImage key={featured.id} song={featured} eager />
+            <div data-testid="otw-play-hero-media" className="play-spotlight-media relative w-full overflow-hidden">
+              <SongImage key={featured.id} song={featured} eager natural />
             </div>
             <div className="play-spotlight-copy">
-              <div key={featured.id} className="play-spotlight-content" aria-live="polite" aria-atomic="true">
+              <div key={featured.id} className="play-spotlight-content" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
                 <p className="play-kicker">New on OTW Play</p>
                 <h2 id="play-home-featured">{featured.title}</h2>
                 <p className="text-sm text-muted-foreground">
@@ -211,7 +210,7 @@ export function OtwPlayHomePage() {
                         key={song.id}
                         aria-label={(index + 1) + "번째 추천곡 보기"}
                         aria-current={index === activeIndex ? "true" : undefined}
-                        onClick={() => setFeaturedIndex(index)}
+                        onClick={() => carousel.select(index)}
                         className="play-carousel-dot"
                       />
                     ))}
@@ -219,6 +218,14 @@ export function OtwPlayHomePage() {
                   <span className="text-xs tabular-nums text-muted-foreground" aria-hidden="true">
                     {String(activeIndex + 1).padStart(2, "0")} / {String(featuredSongs.length).padStart(2, "0")}
                   </span>
+                  <Button
+                    type="button" variant="ghost" size="icon-sm" data-carousel-rotation
+                    title={carousel.reducedMotion ? "동작 줄이기 설정: 이동 효과 없이 자동 전환" : "6초마다 추천곡 자동 전환"}
+                    aria-label={carousel.paused ? "추천곡 자동 전환 시작" : "추천곡 자동 전환 일시정지"}
+                    onClick={() => carousel.setPaused(!carousel.paused)}
+                  >
+                    {carousel.paused ? <Play /> : <Pause />}
+                  </Button>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={() => moveFeatured(-1)}>
                     <ArrowLeft />
                   </Button>
@@ -308,7 +315,7 @@ export function OtwPlayHomePage() {
                 </Link>
               </Button>
             </div>
-            <RecentSongTable songs={songs} />
+            <RecentSongCards songs={songs} />
             <div
               ref={setLoadMoreTarget}
               className="flex min-h-14 items-center justify-center pt-3"
@@ -355,9 +362,11 @@ export function OtwPlayHomePage() {
 function SongImage({
   song,
   eager = false,
+  natural = false,
 }: {
   song: OtwPlayPublicSongSummaryDto;
   eager?: boolean;
+  natural?: boolean;
 }) {
   const source = song.representativePerformance.selectedSource;
   return source ? (
@@ -367,89 +376,52 @@ function SongImage({
       width={960}
       height={540}
       loading={eager ? "eager" : "lazy"}
-      className="absolute inset-0 h-full w-full object-contain"
+      className={natural ? "block h-auto w-full" : "absolute inset-0 h-full w-full object-contain"}
       fallback={
-        <div className="absolute inset-0 flex h-full w-full items-center justify-center bg-muted text-sm text-muted-foreground">
+        <div className="flex aspect-video w-full items-center justify-center bg-muted text-sm text-muted-foreground">
           썸네일 없음
         </div>
       }
     />
   ) : (
-    <div className="absolute inset-0 flex h-full w-full items-center justify-center bg-muted text-sm text-muted-foreground">
+    <div className="flex aspect-video w-full items-center justify-center bg-muted text-sm text-muted-foreground">
       썸네일 없음
     </div>
   );
 }
 
-function RecentSongTable({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
+function RecentSongCards({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
   return (
-    <div className="play-recent">
-      <table className="w-full table-fixed text-left text-xs">
-        <thead className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          <tr className="h-8 border-b">
-            <th scope="col" className="w-[34%] px-2 font-medium">곡</th>
-            <th scope="col" className="hidden w-[20%] px-2 font-medium sm:table-cell">참여자</th>
-            <th scope="col" className="hidden w-[18%] px-2 font-medium md:table-cell">음악 분류</th>
-            <th scope="col" className="w-[14%] px-2 font-medium">공개일</th>
-            <th scope="col" className="w-[18%] px-1 text-right font-medium">작업</th>
-          </tr>
-        </thead>
-        <tbody>
-          {songs.map((song) => {
-            const performance = song.representativePerformance;
-            const participants = presentOtwPlayParticipants(
-              performance.participants,
-            );
-            return (
-              <tr key={song.id} className="h-12 border-b last:border-b-0 hover:bg-muted/45">
-                <td className="px-2">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="relative aspect-video w-12 shrink-0 overflow-hidden rounded-md bg-muted">
-                      <SongImage song={song} />
-                    </div>
-                    <div className="min-w-0">
-                      <Link
-                        to="/play/songs/$songSlug"
-                        params={{ songSlug: song.slug }}
-                        search={{ performance: undefined }}
-                        className="block truncate text-sm font-semibold hover:underline"
-                      >
-                        {song.title}
-                      </Link>
-                      <OtwPlayPerformanceTags tags={performance.tags} singleLine />
-                    </div>
-                  </div>
-                </td>
-                <td className="hidden px-2 text-muted-foreground sm:table-cell">
-                  <span className="block truncate">
-                    {participants.primaryNames || "정보 없음"}
-                  </span>
-                </td>
-                <td className="hidden px-2 text-muted-foreground md:table-cell">
-                  <span className="block truncate">{song.tags.join(" · ") || "미분류"}</span>
-                </td>
-                <td className="px-2 tabular-nums text-muted-foreground">
-                  {performance.releasedAt
-                    ? new Date(performance.releasedAt).toLocaleDateString("ko-KR", {
-                        month: "2-digit",
-                        day: "2-digit",
-                      })
-                    : "—"}
-                </td>
-                <td className="px-1">
-                  <OtwPlayPerformanceActions
-                    song={song}
-                    performance={performance}
-                    compact
-                    iconOnly
-                    className="justify-end gap-1"
-                  />
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="play-recent-grid">
+      {songs.map((song) => {
+        const performance = song.representativePerformance;
+        const participants = presentOtwPlayParticipants(performance.participants);
+        return (
+          <article key={song.id} className="play-recent-card" aria-label={song.title}>
+            <Link
+              to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}
+              className="play-recent-artwork relative block aspect-video overflow-hidden bg-muted"
+              aria-label={`${song.title} 곡 상세`}
+            >
+              <SongImage song={song} />
+            </Link>
+            <div className="play-recent-copy">
+              <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }} className="play-song-title line-clamp-2 font-bold hover:underline">
+                {song.title}
+              </Link>
+              <p className="text-sm text-muted-foreground">{participants.primaryNames || "참여자 정보 없음"}</p>
+              <div className="flex flex-wrap gap-1.5">
+                <OtwPlaySongTags tags={song.tags} />
+                <OtwPlayPerformanceTags tags={performance.tags} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {performance.releasedAt ? `${new Date(performance.releasedAt).toLocaleDateString("ko-KR")} 공개` : "공개일 미상"}
+              </p>
+              <OtwPlayPerformanceActions song={song} performance={performance} compact className="mt-auto pt-2" />
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
