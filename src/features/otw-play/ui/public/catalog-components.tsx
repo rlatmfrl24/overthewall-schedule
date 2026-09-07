@@ -363,10 +363,10 @@ export function OtwPlaySongRow({
     >
       <div
         className={cn(
-          "relative shrink-0 overflow-hidden bg-muted",
+          "relative min-w-0 shrink-0 overflow-hidden bg-muted",
           hero
             ? "aspect-video min-h-[220px]"
-            : "aspect-video w-full sm:aspect-auto sm:self-stretch",
+            : "w-full self-center",
         )}
       >
         {source ? (
@@ -376,15 +376,15 @@ export function OtwPlaySongRow({
             width={480}
             height={270}
             loading={hero ? "eager" : "lazy"}
-            className="absolute inset-0 h-full w-full object-contain"
+            className={hero ? "absolute inset-0 h-full w-full object-contain" : "block h-auto w-full object-contain"}
             fallback={
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>
                 썸네일 없음
               </div>
             }
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
+          <div className={cn("flex items-center justify-center text-xs text-muted-foreground", hero ? "h-full" : "aspect-video")}>썸네일 없음</div>
         )}
       </div>
       <div
