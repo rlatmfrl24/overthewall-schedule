@@ -297,6 +297,7 @@ export function OtwPlayPerformanceActions({
       <Button
         type="button"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
+        className="play-primary"
         disabled={!track}
         onClick={() => track && player.play(track)}
         aria-label={iconOnly ? `${song.title} 재생` : undefined}
@@ -307,6 +308,7 @@ export function OtwPlayPerformanceActions({
         type="button"
         variant="outline"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
+        className={alreadyQueued ? "play-queued" : undefined}
         disabled={!track || alreadyQueued}
         onClick={() => track && player.enqueue(track)}
         aria-label={
@@ -353,7 +355,7 @@ export function OtwPlaySongRow({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/40 focus-within:shadow-md hover:border-primary/25 hover:shadow-md",
+        "play-song-card overflow-hidden",
         hero
           ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
           : "grid sm:grid-cols-[minmax(12rem,30%)_minmax(0,1fr)]",
@@ -387,12 +389,37 @@ export function OtwPlaySongRow({
       </div>
       <div
         className={cn(
-          "min-w-0 flex-1",
+          "play-song-copy min-w-0 flex-1",
           hero
             ? "flex flex-col justify-center gap-4 p-5 sm:p-7"
             : "flex flex-col gap-2.5 p-4",
         )}
       >
+        <div>
+          {hero ? (
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <OtwPlaySongTags tags={song.tags} />
+            </div>
+          ) : null}
+          <Link
+            to="/play/songs/$songSlug"
+            params={{ songSlug: song.slug }}
+            search={{ performance: undefined }}
+            className={cn("play-song-title font-bold hover:underline", hero ? "text-2xl sm:text-4xl" : "line-clamp-2 text-base")}
+          >
+            {song.title}
+          </Link>
+          <p
+            className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+            aria-label={`원곡 가수 ${song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}`}
+          >
+            <Disc3 className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "아티스트 정보 없음"}
+            </span>
+          </p>
+        </div>
+        <OtwPlayParticipantSummary participants={performance.participants} />
         {!hero ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <OtwPlaySongTags tags={song.tags} />
@@ -408,36 +435,11 @@ export function OtwPlaySongRow({
             ) : null}
           </div>
         ) : null}
-        <div>
-          {hero ? (
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <OtwPlaySongTags tags={song.tags} />
-            </div>
-          ) : null}
-          <Link
-            to="/play/songs/$songSlug"
-            params={{ songSlug: song.slug }}
-            search={{ performance: undefined }}
-            className={cn("font-semibold hover:underline", hero ? "text-2xl sm:text-4xl" : "line-clamp-1 text-base")}
-          >
-            {song.title}
-          </Link>
-          <p
-            className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-            aria-label={`원곡 가수 ${song.originalArtists.map(({ displayName }) => displayName).join(", ") || "정보 없음"}`}
-          >
-            <Disc3 className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">
-              {song.originalArtists.map(({ displayName }) => displayName).join(", ") || "아티스트 정보 없음"}
-            </span>
-          </p>
-        </div>
-        <OtwPlayParticipantSummary participants={performance.participants} />
         <OtwPlayPerformanceActions
           song={song}
           performance={performance}
           compact={!hero}
-          className={cn(!hero && "mt-auto border-t pt-2.5")}
+          className={cn("play-song-actions", !hero && "mt-auto pt-2.5")}
         />
       </div>
     </article>

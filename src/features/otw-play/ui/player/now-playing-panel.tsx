@@ -217,7 +217,7 @@ export function OtwPlayPlayerQueuePanel() {
   return (
     <aside
       aria-label="OTW Play 재생 및 플레이큐"
-      className="pointer-events-none fixed inset-0 z-[70] xl:pointer-events-auto xl:static xl:flex xl:h-full xl:min-h-0 xl:w-[380px] xl:shrink-0 xl:flex-col xl:overflow-hidden xl:border-l xl:bg-card xl:text-card-foreground"
+      className="play-player-rail pointer-events-none fixed inset-0 z-[70] xl:pointer-events-auto xl:static xl:flex xl:h-full xl:min-h-0 xl:w-[380px] xl:shrink-0 xl:flex-col xl:overflow-hidden xl:border-l xl:bg-card xl:text-card-foreground"
     >
       <section
         ref={playerSectionRef}
@@ -230,7 +230,7 @@ export function OtwPlayPlayerQueuePanel() {
         onKeyDown={handleDialogKeyDown}
         data-player-presentation={mobilePresentation}
         className={cn(
-          "pointer-events-auto bg-background text-foreground",
+          "play-player-surface pointer-events-auto bg-background text-foreground",
           currentItem && mobilePlayerOpen ? "fixed inset-0 flex flex-col" : "hidden",
           miniPlayerActive &&
             "sm:fixed sm:bottom-3 sm:right-3 sm:flex sm:w-[216px] sm:flex-col sm:overflow-hidden sm:rounded-xl sm:border sm:bg-card sm:shadow-2xl xl:static xl:bottom-auto xl:right-auto xl:w-auto xl:rounded-none xl:border-0 xl:shadow-none",
@@ -435,7 +435,7 @@ export function OtwPlayPlayerQueuePanel() {
 
               <div
                 data-testid="otw-play-transport-controls"
-                className="mt-2 grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2"
+                className="play-transport mt-2 grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2"
                 role="group"
                 aria-label="재생 컨트롤"
               >
@@ -469,7 +469,7 @@ export function OtwPlayPlayerQueuePanel() {
                     <Button
                       type="button"
                       size="icon-lg"
-                      className="rounded-full shadow-sm"
+                      className="play-primary rounded-full shadow-sm"
                       aria-label="일시정지"
                       onClick={player.pause}
                     >
@@ -479,7 +479,7 @@ export function OtwPlayPlayerQueuePanel() {
                     <Button
                       type="button"
                       size="icon-lg"
-                      className="rounded-full shadow-sm"
+                      className="play-primary rounded-full shadow-sm"
                       aria-label="재생"
                       onClick={player.resume}
                     >
@@ -815,7 +815,7 @@ function DesktopQueue({
                 key={item.id}
                 className={cn(
                   "group flex items-center gap-2 rounded-xl border border-transparent px-2 py-2",
-                  current && "border-primary/30 bg-primary/10",
+                  current && "play-queue-current",
                   unavailable && "opacity-60",
                 )}
               >
@@ -849,6 +849,7 @@ function DesktopQueue({
                             ? "다시 불러오기 필요"
                             : "불러오는 중")}
                     </span>
+                    {current ? <span className="play-queue-state block">{player.status === "playing" ? "재생 중" : "현재 선택"}</span> : null}
                     <span className="block truncate text-xs text-muted-foreground">
                       {track
                         ? participantSummaryText(track.performance.participants)
@@ -957,7 +958,7 @@ function MobilePlayerQueue({
               key={item.id}
               className={cn(
                 "flex items-center gap-2 rounded-lg px-2 py-2",
-                current && "bg-primary/10",
+                current && "play-queue-current",
               )}
             >
               <button
@@ -980,6 +981,7 @@ function MobilePlayerQueue({
                     ? participantSummaryText(track.performance.participants)
                     : item.performanceId}
                 </span>
+                {current ? <span className="play-queue-state block">{player.status === "playing" ? "재생 중" : "현재 선택"}</span> : null}
               </button>
               {retryable ? (
                 <Button

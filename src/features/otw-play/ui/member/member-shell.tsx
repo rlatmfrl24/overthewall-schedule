@@ -37,7 +37,7 @@ export function OtwPlayMemberShell({ children }: { children: ReactNode }) {
 
   return (
     <OtwPlayFrame submissionActive>
-      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+      <main className="play-member-page min-h-0 flex-1 overflow-y-auto">{children}</main>
     </OtwPlayFrame>
   );
 }

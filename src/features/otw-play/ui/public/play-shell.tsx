@@ -218,7 +218,7 @@ function OtwPlayExperience({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main
             data-testid="otw-play-content-scroll"
-            className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            className="play-content min-w-0 flex-1 overflow-y-auto overscroll-contain"
           >
             {children}
           </main>
