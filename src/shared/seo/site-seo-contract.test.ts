@@ -91,6 +91,13 @@ describe("site SEO contract", () => {
     );
   });
 
+  it("keeps member discovery out of search indexing and the sitemap", () => {
+    expect(resolveSiteSeo("/play/members?member=7")).toMatchObject({
+      title: "멤버의 음악 | OTW Play", robots: "noindex,follow", sitemap: false,
+    });
+    expect(STATIC_SHELL_PATHS).not.toContain("/play/members");
+  });
+
   it("labels the admin-only OTW Play preview without indexing it", () => {
     expect(resolveSiteSeo("/play")).toMatchObject({
       title: "OTW Play | 오버더월",

@@ -158,7 +158,7 @@ export const buildPlayHomeSiteSeo = (robots: SiteRobots): SiteSeoMetadata =>
 export const buildPlaySongsSiteSeo = (robots: SiteRobots): SiteSeoMetadata =>
   define({
     path: "/play/songs",
-    title: "곡 검색 | OTW Play",
+    title: "곡 탐색 | OTW Play",
     description: PLAY_DESCRIPTION,
     robots,
     sitemap: false,
@@ -284,6 +284,10 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
     if (path === "/play/songs") {
       return buildPlaySongsSiteSeo("noindex,nofollow");
     }
+    if (path === "/play/members") return define({
+      path, title: "멤버의 음악 | OTW Play", description: "OTW 멤버가 메인 보컬로 참여한 공개 음악을 탐색합니다.",
+      robots: "noindex,follow", sitemap: false, ogType: "website",
+    });
     if (path === "/play/submit" || path === "/play/submissions") {
       return buildPlayPrivateSiteSeo(path);
     }

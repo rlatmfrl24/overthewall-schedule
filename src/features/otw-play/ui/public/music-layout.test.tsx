@@ -195,10 +195,8 @@ describe("OTW Play discover layout", () => {
       .closest("article")
       ?.querySelector("img")
       ?.parentElement;
-    expect(heroImageFrame?.className).toContain("w-full");
-    expect(heroImageFrame?.className).toContain("aspect-video");
-    expect(heroImageFrame?.className).not.toContain("h-[clamp(");
-    expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
+    expect(heroImageFrame?.className).toContain("play-feature-art");
+    expect(screen.getByRole("link", { name: "곡 탐색" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "이전 추천곡" }));
@@ -210,25 +208,11 @@ describe("OTW Play discover layout", () => {
     fireEvent.keyDown(carousel, { key: "ArrowLeft" });
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
 
-    const membersHeading = screen.getByRole("heading", { name: "멤버로 찾기" });
-    const latestHeading = screen.getByRole("heading", { name: "최근 공개된 곡" });
-    expect(
-      membersHeading.compareDocumentPosition(latestHeading) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.getByText("멤버 9")).toBeTruthy();
-    const memberLink = screen.getByRole("link", {
-      name: "멤버 1 메인 보컬 곡 보기",
-    });
-    expect(JSON.parse(memberLink.dataset.search ?? "{}")).toEqual({
-      member: "1",
-      participantRole: "vocal",
-    });
-    expect(screen.getByRole("table")).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "첫 번째 노래" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("columnheader", { name: "곡" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "작업" })).toBeTruthy();
+    const memberLink = screen.getByRole("link", { name: "멤버로 찾기" });
+    expect(memberLink.getAttribute("href")).toBe("/play/members");
+    expect(screen.getByRole("heading", { name: "최근 공개된 곡" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "두 번째 노래" })).toBeTruthy();
+
   });
 
   it("loads the next latest-song page without extending the featured carousel", () => {
@@ -288,7 +272,7 @@ describe("OTW Play discover layout", () => {
   });
 
   it.each(["pending", "error"])(
-    "starts observing when facets recover from %s after the catalog has loaded",
+    "loads discovery independently when member facets are %s",
     (state) => {
       const fetchNextPage = vi.fn();
       mocks.useCatalog.mockReturnValue({ ...catalogResult, hasNextPage: true, fetchNextPage });
@@ -299,7 +283,7 @@ describe("OTW Play discover layout", () => {
         error: state === "error" ? new Error("facets unavailable") : null,
       });
       const view = render(<OtwPlayHomePage />);
-      expect(observedTarget).toBeNull();
+      expect(observedTarget).not.toBeNull();
       mocks.useFacets.mockReturnValue(loadedFacets);
       view.rerender(<OtwPlayHomePage />);
       expect(observedTarget).not.toBeNull();

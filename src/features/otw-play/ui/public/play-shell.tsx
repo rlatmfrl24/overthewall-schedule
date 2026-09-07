@@ -1,14 +1,15 @@
 import { SignInButton, useUser } from "@clerk/clerk-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Eye,
   LoaderCircle,
   RefreshCw,
   Search,
+  ListMusic,
   ShieldAlert,
 } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAdminStatus } from "@/features/auth";
 import { Button } from "@/shared/ui/button";
 import {
@@ -22,6 +23,8 @@ import {
   OtwPlayCatalogRequestProvider,
   useOtwPlayConfig,
 } from "../../queries/use-public-catalog";
+import { validateOtwPlayCatalogRouteSearch } from "../../model/catalog-route-search";
+import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
 import { OtwPlayFrame } from "../play-frame";
 import { OtwPlayPlayerQueuePanel } from "../player/now-playing-panel";
@@ -206,6 +209,7 @@ function OtwPlayExperience({
     <OtwPlayPlayerProvider adminPreview={adminPreview}>
       <OtwPlayFrame
         search={<PlayHeaderSearch />}
+        actions={<PlayQueueButton />}
         status={
           adminPreview ? (
             <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
@@ -215,7 +219,7 @@ function OtwPlayExperience({
         }
         showCatalogTabs
       >
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <main
             data-testid="otw-play-content-scroll"
             className="min-w-0 flex-1 overflow-y-auto overscroll-contain"
@@ -229,37 +233,40 @@ function OtwPlayExperience({
   );
 }
 
+function PlayQueueButton() {
+  const player = useOtwPlayPlayer();
+  return <Button variant="ghost" aria-label="플레이큐 열기" onClick={player.openQueue}><ListMusic /><span className="hidden xl:inline">플레이큐</span><span className="text-xs tabular-nums">{player.queue.items.length}</span></Button>;
+}
+
 function PlayHeaderSearch() {
-  const [query, setQuery] = useState("");
+  const location = useLocation();
+  const search = validateOtwPlayCatalogRouteSearch(location.search as Record<string, unknown>);
+  const [query, setQuery] = useState(search.q ?? "");
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const q = query.trim();
-    void navigate({ to: "/play/songs", search: q ? { q } : {} });
+  useEffect(() => { setQuery(search.q ?? ""); }, [location.search, search.q]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, [location.pathname, location.search]);
+  const runSearch = (value: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    void navigate({ to: "/play/songs", search: { ...search, q: value.trim() || undefined } });
   };
-
-  return (
-    <form
-      role="search"
-      aria-label="OTW Play 빠른 검색"
-      onSubmit={submit}
-      className="mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
-    >
-      <Search className="size-4 shrink-0 text-muted-foreground" />
-      <label htmlFor="otw-play-header-search" className="sr-only">
-        곡, 원곡 가수, 참여자 검색
-      </label>
-      <input
-        id="otw-play-header-search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="곡, 원곡 가수, 참여자 검색"
-        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-      />
-      <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행">
-        <Search />
-      </Button>
+  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); runSearch(query); };
+  return <>
+    <Button variant="ghost" className="md:hidden" aria-label="음악 검색 열기" aria-expanded={mobileOpen} onClick={() => setMobileOpen(!mobileOpen)}><Search /></Button>
+    <form role="search" aria-label="OTW Play 빠른 검색" onSubmit={submit}
+      className={(mobileOpen ? "flex " : "hidden ") + "order-last h-11 w-full items-center gap-2 rounded-xl border bg-muted/40 px-3 md:order-none md:flex md:w-auto md:min-w-0 md:max-w-xl md:flex-1"}>
+      <Search className="size-4 shrink-0" />
+      <label htmlFor="otw-play-header-search" className="sr-only">곡, 원곡 가수, 참여자 검색</label>
+      <input id="otw-play-header-search" value={query} maxLength={80}
+        onChange={event => {
+          const value = event.target.value;
+          setQuery(value);
+          if (timer.current) clearTimeout(timer.current);
+          if (location.pathname === "/play/songs") timer.current = setTimeout(() => runSearch(value), 250);
+        }}
+        placeholder="곡, 원곡 가수, 참여자 검색" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+      <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행"><Search /></Button>
     </form>
-  );
+  </>;
 }

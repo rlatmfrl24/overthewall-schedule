@@ -21,10 +21,11 @@ import {
   Volume2,
   VolumeX,
   Youtube,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/shared/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -105,12 +106,20 @@ export function OtwPlayPlayerQueuePanel() {
   const focusReturnRef = useRef<HTMLElement | null>(null);
   const [mobilePresentation, setMobilePresentation] =
     useState<MobilePlayerPresentation>("launcher");
-  const [shortRailView, setShortRailView] = useState<"player" | "queue">("player");
+
   const isMiniPlayerViewport = useMediaQuery(
     "(min-width: 640px) and (max-width: 1279px)",
   );
   const isPhonePlayerViewport = useMediaQuery("(max-width: 639px)");
   const isDesktopPlayerViewport = useMediaQuery("(min-width: 1280px)");
+  const queueRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!player.panelExpanded) return;
+    if (!isDesktopPlayerViewport) { setMobilePresentation("full"); return; }
+    const previousFocus = document.activeElement;
+    queueRef.current?.focus();
+    return () => { if (previousFocus instanceof HTMLElement) previousFocus.focus(); };
+  }, [player.panelExpanded, isDesktopPlayerViewport]);
   const mobilePlayerOpen = mobilePresentation === "full";
   const miniPlayerActive = current !== null && mobilePresentation === "mini";
   const RepeatIcon = player.queue.repeat === "one" ? Repeat1 : Repeat;
@@ -162,7 +171,8 @@ export function OtwPlayPlayerQueuePanel() {
   }, [isDesktopPlayerViewport, mobilePlayerOpen]);
 
   const closeMobilePlayer = () => {
-    if (current) player.pause();
+    player.closeQueue();
+    if (!isMiniPlayerViewport && current) player.pause();
     if (isMiniPlayerViewport && current) {
       setMobilePresentation("mini");
       return;
@@ -218,7 +228,8 @@ export function OtwPlayPlayerQueuePanel() {
   return (
     <aside
       aria-label="OTW Play 재생 및 플레이큐"
-      className="pointer-events-none fixed inset-0 z-[70] xl:pointer-events-auto xl:static xl:flex xl:h-full xl:min-h-0 xl:w-[380px] xl:shrink-0 xl:flex-col xl:overflow-hidden xl:border-l xl:bg-card xl:text-card-foreground"
+      data-current={Boolean(currentItem)}
+      className="play-console pointer-events-none fixed inset-0 z-[70] xl:pointer-events-auto xl:relative xl:shrink-0"
     >
       <section
         ref={playerSectionRef}
@@ -310,40 +321,11 @@ export function OtwPlayPlayerQueuePanel() {
             ) : null}
 
             <div
-              role="group"
-              aria-label="낮은 화면 재생 영역 전환"
-              className="hidden h-10 shrink-0 items-center gap-1 border-b px-2 [@media_(min-width:1280px)_and_(max-height:639px)]:flex"
-            >
-              <Button
-                type="button"
-                variant={shortRailView === "player" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 flex-1"
-                aria-pressed={shortRailView === "player"}
-                onClick={() => setShortRailView("player")}
-              >
-                현재 재생
-              </Button>
-              <Button
-                type="button"
-                variant={shortRailView === "queue" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 flex-1"
-                aria-pressed={shortRailView === "queue"}
-                onClick={() => setShortRailView("queue")}
-              >
-                플레이큐 {player.queue.items.length}
-              </Button>
-            </div>
-
-            <div
               data-testid="otw-play-player-details"
               className={cn(
-                "min-h-0 flex-1 overflow-y-auto px-4 py-5 xl:flex-none xl:overflow-visible xl:px-4 xl:pb-4 xl:pt-3 [@media_(min-width:1280px)_and_(max-height:719px)]:px-3 [@media_(min-width:1280px)_and_(max-height:719px)]:py-2",
+                "min-h-0 flex-1 overflow-y-auto px-4 py-5 xl:flex-none xl:overflow-visible xl:px-4 xl:pb-2 xl:pt-3 [@media_(min-width:1280px)_and_(max-height:719px)]:px-3 [@media_(min-width:1280px)_and_(max-height:719px)]:py-2",
                 miniPlayerActive &&
                   "[@media_(min-width:640px)_and_(max-width:1279px)]:hidden",
-                shortRailView === "queue" &&
-                  "[@media_(min-width:1280px)_and_(max-height:639px)]:!hidden",
               )}
             >
               <h2
@@ -379,6 +361,8 @@ export function OtwPlayPlayerQueuePanel() {
                   </Button>
                 </div>
               </div>
+
+              <PublisherIdentity track={current} />
 
               <div
                 data-testid="otw-play-track-metadata"
@@ -434,19 +418,27 @@ export function OtwPlayPlayerQueuePanel() {
 
               <div
                 data-testid="otw-play-transport-controls"
-                className="mt-2 grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2"
+                className="mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
                 role="group"
                 aria-label="재생 컨트롤"
               >
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`${repeatLabel[player.queue.repeat]}; 다음 모드로 변경`}
+                  variant={player.queue.repeat === "off" ? "ghost" : "secondary"}
+                  size="sm"
+                  className={cn(
+                    "h-9 gap-1 px-2 text-xs",
+                    player.queue.repeat === "off"
+                      ? "text-muted-foreground"
+                      : "font-semibold ring-1 ring-inset ring-primary/30",
+                  )}
+                  aria-label={`${repeatLabel[player.queue.repeat]}; 클릭하면 ${repeatLabel[nextRepeat]}`}
+                  title={`${repeatLabel[player.queue.repeat]} · 클릭하면 ${repeatLabel[nextRepeat]}`}
                   aria-pressed={player.queue.repeat !== "off"}
                   onClick={() => player.setRepeat(nextRepeat)}
                 >
-                  <RepeatIcon />
+                  <RepeatIcon aria-hidden="true" />
+                  <span>{player.queue.repeat === "off" ? "꺼짐" : player.queue.repeat === "all" ? "전체" : "한 곡"}</span>
                 </Button>
                 <div className="flex items-center justify-center gap-1">
                   <Button
@@ -516,7 +508,7 @@ export function OtwPlayPlayerQueuePanel() {
                       side="top"
                       align="center"
                       sideOffset={8}
-                      className="!z-[80] w-16 rounded-xl p-2"
+                      className="otw-play-theme !z-[80] w-16 rounded-xl p-2"
                       aria-label="볼륨 컨트롤"
                       onEscapeKeyDown={(event) => event.stopPropagation()}
                     >
@@ -557,8 +549,6 @@ export function OtwPlayPlayerQueuePanel() {
                   </Popover>
                 </div>
               </div>
-
-              <PublisherIdentity track={current} />
 
               <MobilePlayerQueue player={player} />
             </div>
@@ -644,10 +634,15 @@ export function OtwPlayPlayerQueuePanel() {
         </button>
       ) : null}
 
-      <DesktopQueue
-        player={player}
-        hiddenForShortPlayer={current !== null && shortRailView === "player"}
-      />
+      {player.panelExpanded && isDesktopPlayerViewport && <div ref={queueRef} tabIndex={-1} role="region" aria-label="재생 대기열 패널" className="play-console-queue pointer-events-auto" onKeyDown={event => { if (event.key === "Escape") player.closeQueue(); }}>
+        <div className="flex justify-end border-b px-3 py-1"><Button variant="ghost" aria-label="플레이큐 닫기" onClick={player.closeQueue}><X /> 닫기</Button></div>
+        <DesktopQueue player={player} />
+      </div>}
+      {player.panelExpanded && !isDesktopPlayerViewport && !currentItem && <Dialog open onOpenChange={open => { if (!open) player.closeQueue(); }}><DialogContent className="otw-play-theme !z-[80] flex max-h-[85dvh] flex-col" showCloseButton={false}>
+        <DialogTitle className="sr-only">재생 대기열</DialogTitle>
+        <Button variant="ghost" className="self-end" onClick={player.closeQueue}>플레이큐 닫기</Button>
+        <div className="min-h-0 flex-1 overflow-y-auto"><MobilePlayerQueue player={player} /></div>
+      </DialogContent></Dialog>}
       {player.announcement ? (
         <p className="sr-only" aria-live="polite">
           {player.announcement}
@@ -726,15 +721,14 @@ function PublisherIdentity({
   return (
     <div
       data-testid="otw-play-publisher-identity"
-      className="mt-3 flex min-w-0 items-center gap-1.5 border-t pt-2 text-xs text-muted-foreground [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
+      className="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground [@media_(min-width:1280px)_and_(max-height:719px)]:hidden"
     >
-      <Badge
-        variant="outline"
-        className="h-6 shrink-0 gap-1 px-2 text-[10px] font-medium text-muted-foreground"
+      <Youtube className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="shrink-0">게시 채널</span>
+      <span
+        className="min-w-0 truncate text-foreground/75"
+        title={track.source.channel.displayName}
       >
-        <Youtube className="size-3" aria-hidden="true" /> 게시 채널
-      </Badge>
-      <span className="min-w-0 truncate font-medium text-foreground/75">
         {track.source.channel.displayName}
       </span>
     </div>
@@ -774,10 +768,8 @@ function PlaybackProgress({ player }: { player: OtwPlayPlayerContext }) {
 
 function DesktopQueue({
   player,
-  hiddenForShortPlayer,
 }: {
   player: OtwPlayPlayerContext;
-  hiddenForShortPlayer: boolean;
 }) {
   const hasQueue = player.queue.items.length > 0;
 
@@ -785,11 +777,7 @@ function DesktopQueue({
     <section
       aria-label="플레이큐"
       data-testid="otw-play-desktop-queue"
-      className={cn(
-        "hidden min-h-0 flex-1 flex-col xl:flex [@media_(min-width:1280px)_and_(max-height:719px)]:min-h-36",
-        hiddenForShortPlayer &&
-          "[@media_(min-width:1280px)_and_(max-height:639px)]:!hidden",
-      )}
+      className="flex min-h-0 flex-1 flex-col"
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b px-4 [@media_(min-width:1280px)_and_(max-height:719px)]:h-11">
         <div className="flex items-center gap-2">
@@ -921,7 +909,10 @@ function QueueItemActions({
         variant="ghost"
         size="icon-sm"
         aria-label="대기열에서 삭제"
-        onClick={() => player.remove(itemId)}
+        onClick={event => {
+          event.currentTarget.closest<HTMLElement>(".play-console-queue, [role=dialog]")?.focus();
+          player.remove(itemId);
+        }}
       >
         <Trash2 />
       </Button>
@@ -1029,6 +1020,7 @@ function YouTubePlayerHost({
         "relative aspect-video min-h-[200px] w-full overflow-hidden rounded-xl bg-black",
         className,
       )}
+      data-testid="otw-play-youtube-host"
       aria-label="YouTube 영상 플레이어"
     >
       <OtwPlayThumbnail

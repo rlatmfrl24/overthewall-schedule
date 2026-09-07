@@ -326,7 +326,7 @@ function MemberAutocomplete({
 function VideoSummary({ preflight }: { preflight: OtwPlaySubmissionPreflightDto }) {
   return (
     <div className="grid gap-4 rounded-xl border bg-muted/30 p-3 sm:grid-cols-[160px_minmax(0,1fr)] sm:p-4">
-      <img src={preflight.thumbnailUrl} alt="확인한 YouTube 영상 썸네일" className="aspect-video w-full rounded-lg object-cover" />
+      <img src={preflight.thumbnailUrl} alt="확인한 YouTube 영상 썸네일" className="aspect-video w-full rounded-lg bg-muted object-contain" />
       <div className="min-w-0 self-center text-sm">
         <p className="font-medium text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mr-1 inline size-4" /> 영상 확인 완료</p>
         <a href={preflight.canonicalUrl} target="_blank" rel="noreferrer" className="mt-2 block truncate text-primary underline-offset-4 hover:underline">{preflight.canonicalUrl}</a>
@@ -365,7 +365,7 @@ function ParticipantRoleEditor({
               <SelectTrigger aria-label={`${item.label} 가창 역할`}>
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="otw-play-theme">
                 {Object.entries(participantRoleLabel).map(([value, label]) => (
                   <SelectItem key={value} value={value}>{label}</SelectItem>
                 ))}
@@ -673,7 +673,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
           <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
         </Button>
         <section className="w-full rounded-2xl border bg-card p-6 text-center shadow-sm sm:p-10">
-          <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
+          <img className="play-graphic mx-auto" src="/images/otw-play/music-sculpture.webp" width={128} height={128} alt="" /><CheckCircle2 className="mx-auto mt-4 size-8 text-emerald-600" />
           <p className="mt-4 text-sm font-medium text-primary">{editId ? "곡 제안 수정 완료" : "곡 제안 접수 완료"}</p>
           <h1 className="mt-1 text-2xl font-bold">{success.data.title}</h1>
           <p className="mt-3 text-sm text-muted-foreground">관리자 검수 전까지 공개되지 않습니다. 내 제안에서 현재 상태를 확인할 수 있어요.</p>
@@ -707,25 +707,26 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-4 py-7 sm:p-8">
+    <div className="play-page play-reveal space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link to="/play"><ChevronLeft /> OTW Play로 돌아가기</Link>
       </Button>
       <div>
         <p className="text-sm font-medium text-primary">{editId ? "노래 영상 제안 수정" : "노래 영상 추가 제안"}</p>
-        <h1 ref={headingRef} tabIndex={-1} className="mt-1 text-2xl font-bold outline-none">{steps[step]}</h1>
+        <h1 ref={headingRef} tabIndex={-1} className="play-title mt-3 outline-none">{steps[step]}</h1>
         <p className="mt-2 text-sm text-muted-foreground">공식 커버 영상만 접수하며, 제출 내용은 관리자 승인 전까지 비공개입니다.</p>
       </div>
       <ol className="grid grid-cols-3 gap-2" aria-label="제안 단계">
         {steps.map((label, index) => {
           const complete = index < step;
           return (
-            <li key={label} aria-current={step === index ? "step" : undefined} className={`rounded-lg border px-2 py-2 text-center text-xs font-medium sm:px-3 sm:text-sm ${step === index ? "border-foreground bg-foreground text-background" : complete ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200" : "bg-card"}`}>
+            <li key={label} aria-current={step === index ? "step" : undefined} className={`play-step rounded-xl border px-2 py-2 text-center text-xs font-medium sm:px-3 sm:text-sm ${step === index ? "border-foreground bg-foreground text-background" : complete ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200" : "bg-card"}`}>
               {complete ? <Check className="mr-1 inline size-3.5" /> : `${index + 1}. `}{label}
             </li>
           );
         })}
       </ol>
+      <div className="play-form-layout">
       <section className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
         {step === 0 ? (
           <div className="space-y-5">
@@ -749,7 +750,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
               <legend className="px-1 font-semibold">곡 정보</legend>
               <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="곡 연결 방식">
                 <button type="button" role="radio" aria-checked={songMode === "new"} onClick={useNewSong} className={`rounded-lg border p-3 text-left ${songMode === "new" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
-                  <span className="block font-medium">새 곡으로 제안</span><span className="mt-1 block text-xs text-muted-foreground">새 곡명과 원곡 가수 snapshot을 제출합니다.</span>
+                  <span className="block font-medium">새 곡으로 제안</span><span className="mt-1 block text-xs text-muted-foreground">새로운 곡명과 원곡 가수를 입력합니다.</span>
                 </button>
                 <button type="button" role="radio" aria-checked={songMode === "existing"} onClick={() => setSongMode("existing")} className={`rounded-lg border p-3 text-left ${songMode === "existing" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
                   <span className="block font-medium">기존 곡 연결</span><span className="mt-1 block text-xs text-muted-foreground">검색한 카탈로그 곡에 새 가창을 연결합니다.</span>
@@ -846,6 +847,18 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
           </div>
         ) : null}
       </section>
+      <aside className="play-form-summary" aria-label="작성 중인 제안 요약">
+        <p className="play-eyebrow">YOUR CONTRIBUTION</p>
+        <h2 className="mt-3 text-xl font-bold">{title || "함께 채우는 음악 기록"}</h2>
+        <dl className="mt-5 space-y-4 text-sm">
+          <div><dt className="text-muted-foreground">곡 연결</dt><dd className="mt-1 font-medium">{songMode === "existing" ? "기존 곡에 가창 추가" : "새 곡으로 제안"}</dd></div>
+          <div><dt className="text-muted-foreground">원곡 가수</dt><dd className="mt-1">{originalArtists.join(", ") || "입력 전"}</dd></div>
+          <div><dt className="text-muted-foreground">참여자</dt><dd className="mt-1">{[...selectedMembers.map(member => member.name), ...externalParticipants].join(", ") || "선택 전"}</dd></div>
+          <div><dt className="text-muted-foreground">영상 확인</dt><dd className="mt-1">{preflight && !preflight.duplicate ? "확인 완료" : "확인 필요"}</dd></div>
+        </dl>
+        <p className="mt-6 border-t pt-4 text-xs leading-relaxed">공식 커버 영상만 제안할 수 있어요. 관리자 검수 전까지 제안과 메모는 공개되지 않습니다.</p>
+      </aside>
+      </div>
       {message ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{message}</p> : null}
     </div>
   );

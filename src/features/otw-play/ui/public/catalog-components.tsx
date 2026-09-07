@@ -297,6 +297,7 @@ export function OtwPlayPerformanceActions({
       <Button
         type="button"
         size={iconOnly ? "icon-sm" : compact ? "sm" : "default"}
+        className="play-primary"
         disabled={!track}
         onClick={() => track && player.play(track)}
         aria-label={iconOnly ? `${song.title} 재생` : undefined}
@@ -327,7 +328,7 @@ export function OtwPlayPerformanceActions({
           "마지막에 추가"
         )}
       </Button>
-      {!compact && (
+      {!iconOnly && (
         <Button
           type="button"
           variant="outline"
@@ -356,7 +357,7 @@ export function OtwPlaySongRow({
         "overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 focus-within:border-primary/40 focus-within:shadow-md hover:border-primary/25 hover:shadow-md",
         hero
           ? "grid lg:grid-cols-[minmax(0,1.45fr)_minmax(20rem,1fr)]"
-          : "grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-4 sm:p-4",
+          : "grid grid-cols-1 gap-3 p-3 sm:grid-cols-[minmax(12rem,16rem)_minmax(0,1fr)] sm:gap-4 sm:p-4",
       )}
     >
       <div
@@ -364,7 +365,7 @@ export function OtwPlaySongRow({
           "relative shrink-0 overflow-hidden bg-muted",
           hero
             ? "aspect-video min-h-[220px]"
-            : "aspect-video w-full self-start rounded-xl ring-1 ring-border/50",
+            : "aspect-video w-full self-center rounded-xl ring-1 ring-border/50",
         )}
       >
         {source ? (
@@ -374,15 +375,15 @@ export function OtwPlaySongRow({
             width={480}
             height={270}
             loading={hero ? "eager" : "lazy"}
-            className="h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-contain"
             fallback={
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
                 썸네일 없음
               </div>
             }
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
+          <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">썸네일 없음</div>
         )}
       </div>
       <div
@@ -398,12 +399,6 @@ export function OtwPlaySongRow({
             <OtwPlaySongTags tags={song.tags} />
             <OtwPlayPerformanceBadges performance={performance} />
             <OtwPlayPerformanceTags tags={performance.tags} />
-            <Badge
-              variant="outline"
-              className="h-6 px-2 text-[11px] font-medium text-muted-foreground"
-            >
-              공식 버전 {song.performanceCount}개
-            </Badge>
             {!song.playable ? (
               <Badge
                 variant="outline"
@@ -418,9 +413,6 @@ export function OtwPlaySongRow({
           {hero ? (
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <OtwPlaySongTags tags={song.tags} />
-              <span className="text-xs text-muted-foreground">
-                공식 버전 {song.performanceCount}개
-              </span>
             </div>
           ) : null}
           <Link

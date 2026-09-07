@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   useAdminStatus: vi.fn(),
   childMounted: vi.fn(),
   navigate: vi.fn(),
+  location: { pathname: "/play", search: {} as Record<string, unknown> },
   providerModes: [] as boolean[],
   playerModes: [] as boolean[],
 }));
@@ -18,6 +19,7 @@ vi.mock("@tanstack/react-router", () => ({
     ({ children, to, ...props }, ref) => <a ref={ref} href={to} {...props}>{children}</a>,
   ),
   useNavigate: () => mocks.navigate,
+  useLocation: () => mocks.location,
 }));
 vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -40,6 +42,7 @@ vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayConfig: mocks.useConfig,
 }));
 vi.mock("../../player/play-player-context", () => ({
+  useOtwPlayPlayer: () => ({ openQueue: vi.fn(), queue: { items: [] } }),
   OtwPlayPlayerProvider: ({
     children,
     adminPreview = false,
@@ -65,6 +68,7 @@ function ChildCatalogRequest() {
 describe("OtwPlayShell config gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.location = { pathname: "/play", search: {} };
     mocks.providerModes.length = 0;
     mocks.playerModes.length = 0;
     mocks.useUser.mockReturnValue({
@@ -148,7 +152,7 @@ describe("OtwPlayShell config gate", () => {
     expect(mocks.providerModes).toEqual([true]);
     expect(mocks.playerModes).toEqual([true]);
     expect(screen.getByRole("link", { name: "발견" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "곡 검색" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "곡 탐색" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "곡 제안 메뉴" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "홈" })).toBeNull();
     expect(screen.queryByRole("link", { name: "전체 곡" })).toBeNull();
@@ -231,5 +235,38 @@ describe("OtwPlayShell config gate", () => {
     expect(mocks.useConfig).toHaveBeenCalledWith();
     expect(mocks.providerModes).toEqual([false]);
     expect(mocks.playerModes).toEqual([false]);
+  });
+});
+
+describe("Play shared search", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    mocks.location = { pathname: "/play/songs", search: { relation: "cover" } };
+    mocks.useUser.mockReturnValue({ isLoaded: true, isSignedIn: false });
+    mocks.useConfig.mockReturnValue({ data: { data: { publicReadEnabled: true } } });
+  });
+  afterEach(() => { cleanup(); vi.useRealTimers(); });
+  it("debounces one input, preserves filters and submits immediately", () => {
+    render(<OtwPlayShell>catalog</OtwPlayShell>);
+    const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+    fireEvent.change(input, { target: { value: "  노래  " } });
+    act(() => vi.advanceTimersByTime(249));
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(mocks.navigate).toHaveBeenLastCalledWith({ to: "/play/songs", search: { relation: "cover", q: "노래" } });
+    fireEvent.change(input, { target: { value: "cover" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(mocks.navigate).toHaveBeenLastCalledWith({ to: "/play/songs", search: { relation: "cover", q: "cover" } });
+  });
+  it("cancels pending input on URL reset and restores history text", () => {
+    const view = render(<OtwPlayShell>catalog</OtwPlayShell>);
+    const input = screen.getByRole("textbox", { name: "곡, 원곡 가수, 참여자 검색" });
+    fireEvent.change(input, { target: { value: "pending" } });
+    mocks.location = { pathname: "/play/songs", search: { q: "restored" } };
+    view.rerender(<OtwPlayShell>catalog</OtwPlayShell>);
+    act(() => vi.advanceTimersByTime(250));
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect((input as HTMLInputElement).value).toBe("restored");
   });
 });
