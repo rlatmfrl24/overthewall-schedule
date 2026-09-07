@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Disc3, ListPlus, Play, StepForward } from "lucide-react";
 import type {
   OtwPlayPublicParticipantDto,
   OtwPlayPublicPerformanceDetailDto,
@@ -435,12 +435,14 @@ export function OtwPlaySongRow({
             ) : null}
           </div>
         ) : null}
-        <OtwPlayPerformanceActions
-          song={song}
-          performance={performance}
-          compact={!hero}
-          className={cn("play-song-actions", !hero && "mt-auto pt-2.5")}
-        />
+        <div className={cn("play-song-actions flex flex-wrap items-center gap-2", !hero && "mt-auto pt-2.5")}>
+          <OtwPlayPerformanceActions song={song} performance={performance} compact={!hero} />
+          <Button asChild variant="outline" size={hero ? "default" : "sm"}>
+            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}>
+              곡 상세 <ArrowRight />
+            </Link>
+          </Button>
+        </div>
       </div>
     </article>
   );

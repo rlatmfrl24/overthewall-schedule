@@ -6,7 +6,7 @@ import { useButtonFeedback } from "./use-button-feedback";
 
 function Example({ onClick = () => undefined, disabled = false }) {
   const feedback = useButtonFeedback();
-  return <div {...feedback}><button disabled={disabled} onClick={onClick}>재생</button></div>;
+  return <div {...feedback}><button disabled={disabled} onClick={onClick}><svg aria-hidden="true"><path d="M0 0L1 1" /></svg>재생</button></div>;
 }
 
 const cancel = vi.fn();
@@ -15,36 +15,32 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal("PointerEvent", MouseEvent);
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ x: 20, y: 30, left: 20, top: 30, width: 100, height: 40, right: 120, bottom: 70, toJSON: () => ({}) });
-  Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+  Object.defineProperty(SVGElement.prototype, "animate", { configurable: true, value: animate });
 });
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  Reflect.deleteProperty(HTMLElement.prototype, "animate");
+  Reflect.deleteProperty(SVGElement.prototype, "animate");
 });
 
-it("starts feedback at the pressed point without consuming the button action", () => {
+it("animates the SVG without consuming the button action and cancels on unmount", () => {
   const onClick = vi.fn();
   const view = render(<Example onClick={onClick} />);
   const button = screen.getByRole("button", { name: "재생" });
   fireEvent.pointerDown(button, { clientX: 45, clientY: 40, button: 0 });
-  expect(button.style.getPropertyValue("--play-ripple-x")).toBe("25px");
-  expect(button.style.getPropertyValue("--play-ripple-y")).toBe("10px");
   expect(animate).toHaveBeenCalledTimes(1);
+  expect(animate.mock.contexts[0]).toBe(button.querySelector("svg"));
   fireEvent.click(button);
   expect(onClick).toHaveBeenCalledTimes(1);
   view.unmount();
   expect(cancel).toHaveBeenCalledTimes(1);
 });
 
-it("centers keyboard feedback and ignores held-key repeat", () => {
+it("animates keyboard activation and ignores held-key repeat", () => {
   render(<Example />);
   const button = screen.getByRole("button");
   fireEvent.keyDown(button, { key: "Enter" });
-  expect(button.style.getPropertyValue("--play-ripple-x")).toBe("50px");
-  expect(button.style.getPropertyValue("--play-ripple-y")).toBe("20px");
   fireEvent.keyDown(button, { key: "Enter", repeat: true });
   expect(animate).toHaveBeenCalledTimes(1);
 });

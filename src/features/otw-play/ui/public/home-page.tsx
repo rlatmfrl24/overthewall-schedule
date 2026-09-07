@@ -114,11 +114,6 @@ export function OtwPlayHomePage() {
   const songs = pageItems(latest);
   const { activeIndex } = carousel;
   const featured = featuredSongs[activeIndex] ?? null;
-  const featuredParticipants = featured
-    ? presentOtwPlayParticipants(
-        featured.representativePerformance.participants,
-      )
-    : null;
 
   const moveFeatured = carousel.move;
 
@@ -192,17 +187,21 @@ export function OtwPlayHomePage() {
             </div>
             <div className="play-spotlight-copy">
               <div className="play-spotlight-body">
-                <div key={featured.id} className="play-spotlight-content" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
+                <div className="play-spotlight-content-stack" aria-live={carousel.rotating ? "off" : "polite"} aria-atomic="true">
+                  {featuredSongs.map((song) => (
+                  <div key={song.id} className="play-spotlight-content" data-active={song.id === featured.id} aria-hidden={song.id !== featured.id}>
                   <p className="play-kicker">New on OTW Play</p>
-                  <h2 id="play-home-featured">{featured.title}</h2>
+                  <h2 id={song.id === featured.id ? "play-home-featured" : undefined}>{song.title}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {featuredParticipants?.primaryNames || "참여자 정보 없음"}
+                    {presentOtwPlayParticipants(song.representativePerformance.participants).primaryNames || "참여자 정보 없음"}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
-                    <OtwPlaySongTags tags={featured.tags} />
-                    <OtwPlayPerformanceTags tags={featured.representativePerformance.tags} />
+                    <OtwPlaySongTags tags={song.tags} />
+                    <OtwPlayPerformanceTags tags={song.representativePerformance.tags} />
                   </div>
-                  <OtwPlayPerformanceMetadata performance={featured.representativePerformance} />
+                  <OtwPlayPerformanceMetadata performance={song.representativePerformance} />
+                  </div>
+                  ))}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />

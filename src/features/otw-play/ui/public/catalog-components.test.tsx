@@ -16,8 +16,8 @@ vi.mock("../../player/play-player-context", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, search }: { children: React.ReactNode; search?: unknown }) => (
-    <a href="/play/songs" data-search={JSON.stringify(search)}>{children}</a>
+  Link: ({ children, search, params }: { children: React.ReactNode; search?: unknown; params?: { songSlug: string } }) => (
+    <a href={params ? `/play/songs/${params.songSlug}` : "/play/songs"} data-search={JSON.stringify(search)}>{children}</a>
   ),
 }));
 
@@ -140,6 +140,7 @@ describe("OtwPlayParticipantChip", () => {
 
     const metadata = screen.getByLabelText("가창 및 공개 정보");
     const title = screen.getByRole("link", { name: "검색 결과 노래" });
+    expect(screen.getByRole("link", { name: "곡 상세" }).getAttribute("href")).toBe("/play/songs/song-1");
     const artist = screen.getByText("요루시카");
     expect(title.compareDocumentPosition(artist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(artist.compareDocumentPosition(metadata) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

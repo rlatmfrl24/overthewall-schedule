@@ -126,6 +126,8 @@ function Consumer() {
       <div ref={player.setHostElement} data-testid="host" />
       <button type="button" onClick={() => player.play(track)}>play</button>
       <button type="button" onClick={() => player.play(detailTrack)}>play detail</button>
+      <button type="button" onClick={() => player.play({ ...track, source: alternateSource })}>play alternate</button>
+      <button type="button" onClick={player.pause}>pause</button>
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
       <button type="button" onClick={() => player.playNext(track)}>play next</button>
       <button
@@ -200,6 +202,32 @@ describe("OtwPlayPlayerProvider", () => {
     expect(mocks.controller.pause).toHaveBeenCalled();
     expect(mocks.controller.stop).toHaveBeenCalled();
     expect(mocks.controller.destroy).toHaveBeenCalledOnce();
+  });
+
+  it("resumes the paused current song from a catalog play action without reloading or duplicating it", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "pause" }));
+    expect(screen.getByTestId("status").textContent).toBe("paused");
+    mocks.controller.play.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    expect(mocks.controller.play).toHaveBeenCalledOnce();
+    expect(mocks.controller.load).toHaveBeenCalledOnce();
+    expect(mocks.controller.seekTo).not.toHaveBeenCalled();
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
+  });
+
+  it("loads a newly selected source instead of resuming the previous video", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "play" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "pause" }));
+    mocks.controller.play.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "play alternate" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenLastCalledWith({ videoId: alternateSource.externalId, startSeconds: 0 }));
+    expect(mocks.controller.play).not.toHaveBeenCalled();
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
   });
 
   it("pauses before a hidden playback surface and requires a new gesture to resume", async () => {

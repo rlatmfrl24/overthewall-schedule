@@ -41,16 +41,9 @@
   transition-duration: 150ms;
 }
 .otw-play-glass :where(button, a[data-slot=button], .play-tabs a) {
-  isolation: isolate; overflow: hidden;
   transition: background-color 180ms ease-out, color 180ms ease-out, border-color 180ms ease-out, box-shadow 180ms ease-out, scale 140ms ease-out;
 }
-.otw-play-glass :where(button, a[data-slot=button], .play-tabs a):not(:is(.fixed, .absolute, .sticky)) { position: relative; }
-.otw-play-glass :where(button, a[data-slot=button], .play-tabs a)::before {
-  content: ""; position: absolute; pointer-events: none; border-radius: 50%;
-  width: var(--play-ripple-size, 0px); height: var(--play-ripple-size, 0px);
-  left: var(--play-ripple-x, 50%); top: var(--play-ripple-y, 50%);
-  background: currentColor; opacity: 0; transform: translate(-50%, -50%) scale(0);
-}
+.otw-play-glass :where(button, a[data-slot=button]) svg { transform-box: fill-box; transform-origin: center; }
 .otw-play-glass :where(button, a[data-slot=button], .play-tabs a):active:not(:disabled):not([aria-disabled=true]) { scale: 0.97; }
 .otw-play-glass [data-slot=button][data-size^=icon] { padding: 0; aspect-ratio: 1; }
 .otw-play-glass :where(button, a, input, select, textarea, [tabindex]):focus-visible {
@@ -126,7 +119,7 @@
   background: var(--card); box-shadow: var(--play-shadow);
 }
 .otw-play-glass .play-spotlight-layout { display: grid; min-width: 0; }
-.otw-play-glass .play-spotlight-media { align-self: center; background: var(--muted); }
+.otw-play-glass .play-spotlight-media { display: grid; align-self: center; background: var(--muted); }
 .otw-play-glass .play-spotlight-copy {
   display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
   min-width: 0; padding: 24px 28px 8px; gap: 18px;
@@ -137,12 +130,13 @@
   letter-spacing: -0.035em; overflow-wrap: anywhere;
 }
 .otw-play-glass .play-spotlight-artwork {
-  position: absolute; inset: 0; opacity: 0; pointer-events: none;
+  grid-area: 1 / 1; min-width: 0; opacity: 0; pointer-events: none;
   transition: opacity 600ms ease-out;
 }
-.otw-play-glass .play-spotlight-artwork[data-active=true] { position: relative; opacity: 1; }
-.otw-play-glass .play-spotlight-content { animation: play-slide-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-.otw-play-glass .play-spotlight-content { display: grid; gap: 12px; width: 100%; }
+.otw-play-glass .play-spotlight-artwork[data-active=true] { opacity: 1; }
+.otw-play-glass .play-spotlight-content-stack { display: grid; grid-template-rows: repeat(5, auto); gap: 12px; }
+.otw-play-glass .play-spotlight-content { display: grid; grid-area: 1 / 1 / span 5; grid-template-rows: subgrid; gap: 12px; width: 100%; visibility: hidden; }
+.otw-play-glass .play-spotlight-content[data-active=true] { visibility: visible; animation: play-slide-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .otw-play-glass .play-carousel-controls { display: flex; align-items: center; gap: 4px; width: 100%; }
 .otw-play-glass .play-carousel-dots { display: flex; flex-wrap: wrap; gap: 0; margin-right: auto; }
 .otw-play-glass .play-carousel-dot { width: 24px; height: 36px; display: grid; place-items: center; border-radius: 8px; }
