@@ -39,6 +39,7 @@ import type {
   OperationsApplication,
 } from "../application/operations-application";
 import { CloudflareD1ObservabilityReader } from "./cloudflare-d1-observability-reader";
+import { SCHEDULED_QUEUE_STATE_SQL } from "./scheduled-queue-state-sql";
 
 const MEMBER_POSTS_PUBLIC_PATH = "/feed";
 const MEMBER_POSTS_MONITOR_PATH = "/admin/member-posts";
@@ -534,32 +535,7 @@ const readScheduledOperationsStatus = async (db: D1Database, now: number) => {
   try {
     const day = new Date(now).toISOString().slice(0, 10);
     const [stateResult, usageResult, d1WriteGuardResult] = await db.batch([
-      db.prepare(
-        `SELECT
-           (SELECT COUNT(*) FROM scheduled_job_runs
-             WHERE status IN ('queued', 'running')) AS activeRunCount,
-           (SELECT COUNT(*) FROM scheduled_job_items
-             WHERE status = 'running' AND lease_until < ?) AS staleLeaseCount,
-           (SELECT COUNT(*) FROM scheduled_outbox o
-             INNER JOIN scheduled_job_items i ON i.id = o.item_id
-             INNER JOIN scheduled_job_runs r ON r.id = o.run_id
-             WHERE (o.status IN ('pending', 'failed')
-                OR (o.status = 'dispatching' AND o.lease_until < ?))
-               AND r.status IN ('queued', 'running')
-               AND ((o.event_type = 'execute' AND i.status = 'queued')
-                 OR (o.event_type = 'reconcile' AND i.status IN
-                   ('succeeded', 'partial', 'failed', 'skipped', 'throttled')))) AS outboxBacklog,
-           (SELECT MIN(o.available_at) FROM scheduled_outbox o
-             INNER JOIN scheduled_job_items i ON i.id = o.item_id
-             INNER JOIN scheduled_job_runs r ON r.id = o.run_id
-             WHERE (o.status IN ('pending', 'failed')
-                OR (o.status = 'dispatching' AND o.lease_until < ?))
-               AND r.status IN ('queued', 'running')
-               AND ((o.event_type = 'execute' AND i.status = 'queued')
-                 OR (o.event_type = 'reconcile' AND i.status IN
-                   ('succeeded', 'partial', 'failed', 'skipped', 'throttled'))))
-             AS oldestOutboxAvailableAt`,
-      ).bind(now, now, now),
+      db.prepare(SCHEDULED_QUEUE_STATE_SQL).bind(now, now),
       db.prepare(
         `SELECT resource, COALESCE(SUM(used), 0) AS used,
                 COALESCE(SUM(reserved), 0) AS reserved,

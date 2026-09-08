@@ -111,6 +111,16 @@ Cloudflare Worker·D1·Queue·Workflow·R2 구조와 물리 Queue 격리를 유�
 
 22:04 UTC에 이틀 이상 지난 동일한 성공 완료 run을 대상으로 기존·수정 SQL의 실제 UPDATE 전체를 비교했다. 두 쿼리 모두 대상 없음·쓰기 0·`changed_db=false`였고 완료 run 상태도 유지됐다. 기존 바깥 UPDATE는 2,092행, 수정된 바깥 PK UPDATE는 **5행**을 읽었다. 임의 SELECT로 대신하지 않고 `claimPendingOutbox`가 만든 SQL과 실제 운영 D1의 실행 결과를 사용했다. 비교 쿼리에는 `outbox-pk-verification-*` 주석을 붙였으므로 정기 dispatcher의 자연 발생 사용량과 구분한다. 이 검증은 빈 결과의 비용 확인이며 활성 Queue 전달 자체의 성공 증거로 확장하지 않는다.
 
+## Outbox 전체 조치 후속 검증 (2026-09-09 KST)
+
+Operations의 전송 대기 COUNT와 가장 오래된 시각 MIN을 기존 상태·시간 인덱스를 사용하는 단일 집계로 통합했다. 미래 재시도도 대기열에 포함하고, 유효한 dispatch lease·종료된 run·실행 불가능한 item은 제외하는 기존 표시 계약을 유지한다. API·UI 응답, 사용량 원장, 40,000행 dispatch 추정 guard는 변경하지 않았다.
+
+2026-09-08 22:19:20 UTC 운영 D1에서 동일 시각을 바인딩한 기존·신규 조회는 모두 `activeRunCount=0`, `staleLeaseCount=0`, `outboxBacklog=0`, `oldestOutboxAvailableAt=null`을 반환했다. 읽기는 **4,183→6행**, 쓰기는 모두 **0행**, SQL 시간은 0.7597→0.1882ms였다. 단회 SQL 측정이며 전체 API p95나 월 청구액 추정으로 확장하지 않는다. 실행 계획은 outbox 상태 인덱스와 item/run PK, 기존 상태·lease 인덱스 조회를 확인했다.
+
+실제 예약 흐름도 확인했다. PK 수정 배포 이후 22:14 UTC의 Naver run `21c2d342-3b87-41a2-bb3a-18acfbe27d92`는 `source=scheduled`, item 시도 1회, outbox `dispatched`·전송 시도 1회, run/item `succeeded`였다. 내부 결과의 4개 소스는 모두 `ok`, 오류는 없었다. 강제 수집 없이 Cron→Workflow→Outbox→Queue→수집 결과 저장이 완료된 이력이다. 같은 시각 WebSub의 outbox도 전송됐지만 작업 자체는 `ok:false`로 실패했다. 이는 기존 hub 해제 실패이며 Outbox 전달 성공과 구분한다.
+
+관리자 `/admin/operations`의 실제 인증된 진입점에서도 07:19 KST에 실행 중·전송 대기·만료 lease 각각 0, Naver 최근 점검 07:14, Play 자동화 일시 중지를 확인했다. 추가 D1 통합검사는 완료 이력 2,130개·오래된 통계에서 빈 집계를 10행 이하로 제한하며, 미래 재시도·lease 경계와 NULL·모든 terminal item의 reconcile·terminal run 제외를 검증한다.
+
 7일 관측에서는 22:03 UTC 이전·이후의 UPDATE 쿼리를 구분하고, 기존 비싼 바깥 UPDATE가 다시 등장하는지 확인한다. Operations의 COUNT·MIN 조회 및 WebSub 수동 해제 지원은 이번 변경에 포함하지 않는다.
 
 ## 도구 버전과 잔여 항목
