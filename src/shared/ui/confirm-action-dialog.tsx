@@ -8,7 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/ui/alert-dialog";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 interface ConfirmActionDialogProps {
   open: boolean;
@@ -37,12 +37,20 @@ export function ConfirmActionDialog({
   destructive = false,
   restoreFocusTo,
 }: ConfirmActionDialogProps) {
+  const invokingElement = useRef<HTMLElement | null>(null);
   return (
     <AlertDialog open={open} onOpenChange={(next) => { if (!isProcessing) onOpenChange(next); }}>
-      <AlertDialogContent onCloseAutoFocus={restoreFocusTo ? (event) => {
-        event.preventDefault();
-        if (restoreFocusTo.isConnected) restoreFocusTo.focus();
-      } : undefined}>
+      <AlertDialogContent onOpenAutoFocus={() => {
+        // Controlled dialogs do not have a Radix Trigger to restore automatically.
+        invokingElement.current = document.activeElement instanceof HTMLElement
+          ? document.activeElement : null;
+      }} onCloseAutoFocus={(event) => {
+        const target = restoreFocusTo ?? invokingElement.current;
+        if (target?.isConnected) {
+          event.preventDefault();
+          target.focus();
+        }
+      }}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {typeof description === "string" ? (
