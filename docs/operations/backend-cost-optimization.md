@@ -47,11 +47,55 @@ Cloudflare Worker·D1·Queue·Workflow·R2 구조와 물리 Queue 격리를 유�
 ## 구현 검증 결과
 
 - 전체 unit·Worker integration 259개 파일, 1,874개 테스트 통과. 마지막 구독 해제 UI 변경은 관련 10개 테스트와 타입·lint를 추가 확인했다.
+- 전체 preflight는 구현 커밋 `2320f5d` 기준으로 통과했다. 후속 WebSub 해제 intent 수정 `b43e73b`는 D1 integration 14개와 service·HTTP·hub 30개 테스트, 타입·lint·배포 빌드로 추가 확인했다.
+- 실제 화면 점검에서 발견한 관리자 직접 진입 수정 `8b2e300`은 자산 생성·Cloudflare assets HTTP 회귀 8개 테스트, 타입·lint·배포 빌드로 확인했다. 후속 소규모 수정마다 전체 coverage를 다시 실행하지는 않았다.
 - Coverage: statements 81.89%, branches 68.89%, functions 85.53%, lines 83.45%. 기존 70/60/70/70 기준 유지.
 - 운영 의존성 `pnpm audit --prod`: 알려진 취약점 0건.
 - 배포 전 같은 지역에서 URL별 5회 요청의 중앙값: `/` 174ms, `/api/members` 309ms, `/api/member-posts` 1,706ms. 모두 HTTP 200. 전체 사용자 p95가 아니다.
 - 운영 pause 조작 이후 monitor `paused`, version 106을 D1에서 확인했다. 당시 만료 lease를 보존한 구독 요청이 DB 제약에 막혀 있었으며, 만료 lease 처리와 해제 재시도 UI를 수정했다.
 - 기존 X `binghayu`의 `budget_exceeded`는 배포 전부터 존재했다. 신규 장애나 이번 변경으로 해결한 항목으로 집계하지 않는다.
+
+## 운영 반영 및 실제 흐름 검증
+
+구현은 별도 worktree `C:\Develop\overthewall-schedule-cost-optimization`, 브랜치 `codex/backend-cost-optimization`에서 진행했다. 기존 `C:\Develop\overthewall-schedule`의 프런트엔드 작업은 수정하지 않았다.
+
+첫 구현 `2320f5d`를 2026-09-08 00:19:32 UTC에 Worker `faaef8ad-641f-48e1-8b85-ed7e7dae7466`으로 배포했다. 실제 구독 해제에서 드러난 늦은 callback 처리 문제를 `b43e73b`로 수정하고 00:27:13 UTC에 `f038cac6-ed01-44e2-9a78-b39109a015b4`를 100% 배포한 것을 Cloudflare deployments에서 재조회했다. 기존 DB 스키마를 유지했다.
+
+관리자 실제 링크 점검에서 `/admin/review`, `/admin/collection`, `/admin/content`, `/admin/resources`, `/admin/history`의 직접 요청이 모두 HTTP 404인 것을 확인했다. 기존 페이지 코드와 라우터 등록은 있었지만 정적 HTML 생성 목록에 누락된 상태였다. `8b2e300`은 이 5개 진입점을 생성 목록에 추가하며 인증·noindex·미등록 URL의 404 계약을 유지한다.
+
+**최종 운영 코드: `8b2e300`, Worker `e67bcc69-5e83-4113-9558-9899c787efae`, 2026-09-08 00:39:10 UTC 100% 배포.** 새 5개 관리자 경로 모두 HTTP 200·noindex를 재조회했다.
+대시보드의 실제 `자동 업데이트 상세 보기` 링크로 다시 진입해 일정 수집 설정과 Play 일시 중지 표시까지 확인했다.
+
+| 실제 진입·관측 | 확인 결과 |
+| --- | --- |
+| 관리자 → Play → 채널 관리 → 전체 일시 중지 | 설정 `true`, monitor `paused` version 106을 DB에서 확인. 감시 재개·추가·대조·가져오기 비활성화 |
+| 관리자 → Play → 자동 후보 → 검수·등록 | 기존 후보의 검수 dialog 열림. 저장하지 않고 닫았으며 승인 채널 12개와 자동 후보 2개 유지 |
+| 관리자 → 대시보드 | Play 중지 안내와 관리 링크 표시. X·Naver·YouTube 상태 및 전송 대기 0 확인 |
+| 관리자 → 자원·보존 | Cloudflare Metrics 실측 쓰기 1,270행과 dispatch 사용 예상 1,310행을 별도로 표시. 내부 한도 40,000과 보강 예산 $0.30 유지 |
+| 공개 → 멤버 게시글 | X·Naver 게시글, 계정 필터, 저장된 미리보기 표시 |
+| 공개 → VOD & 클립 → Shorts 더 보기 | 최초 20개에서 서로 다른 다음 20개를 추가해 40개 표시 |
+| 정상 Cron → YouTube 수집 | 00:24 UTC run succeeded 1/1. 레거시 이관 성공 checkpoint `1788827043746` 저장 |
+| 정상 Cron → X 수집 | 00:26 UTC run succeeded 2/2. 8개 소스 모두 최근 성공 시각 갱신, 소스 오류 0 |
+
+9/8 배포 후 readback에서 Naver 8개·YouTube 14개 소스의 오류는 각각 0이었다. YouTube run 성공은 해당 실행의 완료를 뜻하며, 이번에 모든 채널의 새 영상을 가져왔다는 뜻은 아니다. 소스별 기존 `next_check_at`을 따르며 최신성은 7일 동안 계속 확인한다.
+
+동일 기기·공개 URL별 순차 5회 측정 결과는 아래와 같다. 표본 요청에서 오류는 없었으며 전체 사용자 p95 또는 장기 오류율로 해석하지 않는다.
+
+| 경로 | 배포 전 중앙값 | 배포 후 중앙값 |
+| --- | ---: | ---: |
+| `/` | 174ms | 170ms |
+| `/api/members` | 309ms | 325ms |
+| `/api/member-posts` | 1,706ms | 839ms |
+
+### WebSub 종료 미확인
+
+실제 관리자 구독 해제 요청 00:29:01 UTC는 약 20초 후 `hub_timeout`을 반환했다. DB에는 `unsubscribing`, `pending_mode=unsubscribe`, 만료 lease 제거 상태가 유지되는 것을 읽기 전용 조회로 확인했다. 늦은 확인 callback을 수용하며 타임아웃을 성공으로 표시하지 않는다. 00:29:37 UTC까지 tail에서 해당 POST 503은 확인했지만 허브 callback은 관측되지 않았다. **구독 종료 자체는 아직 미확인**이다.
+
+15분 stale intent 조건을 충족하는 00:44:01 UTC 이후 기존 예약 유지보수의 재시도 대상이다. Play 중지 중에도 이 해제 복구와 callback은 유지한다. 허브 POST 타임아웃의 외부 원인은 아직 확정하지 않았다.
+
+### 7일 관측
+
+이 작업에 연결된 자동화 `백엔드 비용 최적화 7일 검증`(ID `7`)을 생성했다. 9/8부터 9/15까지 매일 한국시간 오전 10시에 읽기 전용 관측을 수행하며, 의미 있는 장애·비용 증가·작업 생성 이상과 마지막 결과를 알린다. 9/15 최종 비교 전까지 outbox 읽기 80% 감소와 불필요한 유지보수 생성 0의 장기 기준은 검증 대기다.
 
 ## 도구 버전과 잔여 항목
 
