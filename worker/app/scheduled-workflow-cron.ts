@@ -1,4 +1,5 @@
-import type { ScheduledJobType } from "@contracts/scheduled-operations";
+import { OTW_PLAY_CHANNEL_POLL_CRON_MINUTE } from "@contracts/otw-play";
+import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 
@@ -10,10 +11,9 @@ const MINUTE_JOBS: Readonly<Partial<Record<number, readonly ScheduledJobType[]>>
     "schedule_auto_update",
   ],
   13: [
-    "websub_maintenance",
     "naver_cafe_collection",
   ],
-  23: ["channel_reconcile", "youtube_feed_collection"],
+  [OTW_PLAY_CHANNEL_POLL_CRON_MINUTE]: ["channel_reconcile", "youtube_feed_collection"],
   33: ["source_health"],
 };
 
@@ -33,7 +33,7 @@ export function selectScheduledWorkflowJobs(
   }
 
   if (scheduledMinute === 3 && scheduledHour === 18) {
-    jobs.push("recent_reconcile", "retention_prune");
+    jobs.push("retention_prune");
   }
 
   return jobs;
@@ -81,7 +81,7 @@ export async function filterRunnableScheduledWorkflowJobs(
       .map((row) => row.key),
   );
   return jobs.filter((jobType) =>
-    enabledKeys.has(`scheduled_v2_${jobType}_enabled`)
+    !isRetiredScheduledJob(jobType) && enabledKeys.has(`scheduled_v2_${jobType}_enabled`)
   );
 }
 

@@ -3,7 +3,6 @@ import type {
   OtwPlayChannelMonitorDto,
   OtwPlayChannelMonitorStatus,
   OtwPlayIngestionReviewInput,
-  OtwPlayWebsubSubscriptionStatus,
 } from "@contracts/otw-play";
 import {
   IngestionRepositoryError,
@@ -14,7 +13,8 @@ import type {
 } from "../application/ports/channel-monitor-repository";
 import { OTW_PLAY_AUTOMATION_RUNNING_SQL as automationRunning } from "./play-automation-settings";
 
-const CHECK_INTERVAL_MINUTES = 360;
+import { OTW_PLAY_CHANNEL_POLL_INTERVAL_MINUTES as CHECK_INTERVAL_MINUTES } from "@contracts/otw-play";
+import { nextChannelPollAt } from "../domain/channel-poll-schedule";
 const LEASE_MS = 5 * 60_000;
 const RETENTION_MS = 180 * 86_400_000;
 
@@ -56,13 +56,6 @@ type MonitorRow = {
   candidate_count: number;
   pending_candidate_count: number;
   previous_generation_pending_count: number;
-  delivery_pending_count: number;
-  delivery_failed_count: number;
-  delivery_dead_letter_count: number;
-  delivery_last_received_at: number | null;
-  delivery_last_processed_at: number | null;
-  delivery_last_failed_at: number | null;
-  delivery_last_error_code: string | null;
   generation: number;
   version: number;
   created_at: number;
@@ -77,16 +70,6 @@ type MonitorRow = {
   revoked_by_user_id: string | null;
   revoked_at: number | null;
   approval_version: number | null;
-  subscription_id: string | null;
-  subscription_status: OtwPlayWebsubSubscriptionStatus | null;
-  subscription_pending_mode: "subscribe" | "unsubscribe" | null;
-  subscription_secret_version: number | null;
-  subscription_requested_at: number | null;
-  subscription_verified_at: number | null;
-  subscription_lease_expires_at: number | null;
-  subscription_last_notification_at: number | null;
-  subscription_last_error_code: string | null;
-  subscription_version: number | null;
 };
 
 const monitorSelect = `SELECT monitor.*,
@@ -102,16 +85,6 @@ const monitorSelect = `SELECT monitor.*,
   approval.revoked_by_user_id,
   approval.revoked_at,
   approval.version AS approval_version,
-  subscription.id AS subscription_id,
-  subscription.status AS subscription_status,
-  subscription.pending_mode AS subscription_pending_mode,
-  subscription.secret_version AS subscription_secret_version,
-  subscription.requested_at AS subscription_requested_at,
-  subscription.verified_at AS subscription_verified_at,
-  subscription.lease_expires_at AS subscription_lease_expires_at,
-  subscription.last_notification_at AS subscription_last_notification_at,
-  subscription.last_error_code AS subscription_last_error_code,
-  subscription.version AS subscription_version,
   (SELECT COUNT(*) FROM music_channel_upload_candidate_origins AS origin
     WHERE origin.monitor_id = monitor.id
       AND origin.monitor_generation = monitor.generation) AS candidate_count,
@@ -130,31 +103,11 @@ const monitorSelect = `SELECT monitor.*,
           AND current_origin.monitor_generation = monitor.generation
           AND current_origin.candidate_id = origin.candidate_id
       )
-      AND candidate.status NOT IN ('ignored', 'converted')) AS previous_generation_pending_count,
-  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id
-      AND delivery.status IN ('pending', 'enqueued', 'processing')) AS delivery_pending_count,
-  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id AND delivery.status = 'failed') AS delivery_failed_count,
-  (SELECT COUNT(*) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id AND delivery.status = 'dead_letter') AS delivery_dead_letter_count,
-  (SELECT MAX(delivery.received_at) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id) AS delivery_last_received_at,
-  (SELECT MAX(delivery.processed_at) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id) AS delivery_last_processed_at,
-  (SELECT MAX(delivery.updated_at) FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id
-      AND delivery.status IN ('failed', 'dead_letter')) AS delivery_last_failed_at,
-  (SELECT delivery.last_error_code FROM music_channel_websub_deliveries AS delivery
-    WHERE delivery.monitor_id = monitor.id AND delivery.last_error_code IS NOT NULL
-    ORDER BY delivery.updated_at DESC, delivery.id DESC LIMIT 1) AS delivery_last_error_code
+      AND candidate.status NOT IN ('ignored', 'converted')) AS previous_generation_pending_count
  FROM music_channel_upload_monitors AS monitor
  JOIN music_channels AS channel ON channel.id = monitor.channel_id
  LEFT JOIN music_channel_automation_approvals AS approval
-   ON approval.channel_id = monitor.channel_id
- LEFT JOIN music_channel_websub_subscriptions AS subscription
-   ON subscription.monitor_id = monitor.id
-  AND subscription.monitor_generation = monitor.generation`;
+   ON approval.channel_id = monitor.channel_id`;
 
 const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
   id: row.id,
@@ -196,55 +149,9 @@ const toDto = (row: MonitorRow): OtwPlayChannelMonitorDto => ({
         version: Number(row.approval_version),
       }
     : null,
-  subscription: row.subscription_id && row.subscription_status &&
-      row.subscription_secret_version !== null &&
-      row.subscription_requested_at !== null && row.subscription_version !== null
-    ? {
-        id: row.subscription_id,
-        status: row.subscription_status,
-        pendingMode: row.subscription_pending_mode,
-        secretVersion: Number(row.subscription_secret_version),
-        requestedAt: Number(row.subscription_requested_at),
-        verifiedAt: row.subscription_verified_at === null
-          ? null
-          : Number(row.subscription_verified_at),
-        leaseExpiresAt: row.subscription_lease_expires_at === null
-          ? null
-          : Number(row.subscription_lease_expires_at),
-        lastNotificationAt: row.subscription_last_notification_at === null
-          ? null
-          : Number(row.subscription_last_notification_at),
-        lastErrorCode: row.subscription_last_error_code,
-        effectiveActive:
-          row.subscription_status === "active" &&
-          row.subscription_verified_at !== null &&
-          row.subscription_lease_expires_at !== null &&
-          Number(row.subscription_lease_expires_at) > Date.now(),
-        recoveryReason:
-          row.subscription_status !== "active"
-            ? `status_${row.subscription_status}`
-            : row.subscription_verified_at === null
-              ? "unverified"
-              : row.subscription_lease_expires_at === null
-                ? "lease_missing"
-                : Number(row.subscription_lease_expires_at) <= Date.now()
-                  ? "lease_expired"
-                  : null,
-        version: Number(row.subscription_version),
-      }
-    : null,
   candidateCount: Number(row.candidate_count),
   pendingCandidateCount: Number(row.pending_candidate_count),
   previousGenerationPendingCount: Number(row.previous_generation_pending_count),
-  deliveryHealth: {
-    pendingCount: Number(row.delivery_pending_count),
-    failedCount: Number(row.delivery_failed_count),
-    deadLetterCount: Number(row.delivery_dead_letter_count),
-    lastReceivedAt: row.delivery_last_received_at === null ? null : Number(row.delivery_last_received_at),
-    lastProcessedAt: row.delivery_last_processed_at === null ? null : Number(row.delivery_last_processed_at),
-    lastFailedAt: row.delivery_last_failed_at === null ? null : Number(row.delivery_last_failed_at),
-    lastErrorCode: row.delivery_last_error_code,
-  },
   generation: Number(row.generation),
   version: Number(row.version),
   createdAt: Number(row.created_at),
@@ -458,7 +365,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         input.channel.id,
         input.uploadsPlaylistId,
         CHECK_INTERVAL_MINUTES,
-        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        nextChannelPollAt(input.now),
         input.lastSeenVideoId,
         input.actorUserId,
         input.now,
@@ -519,7 +426,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         input.status,
         input.status === "active"
           ? input.now
-          : input.now + CHECK_INTERVAL_MINUTES * 60_000,
+          : nextChannelPollAt(input.now),
         input.now,
         input.id,
         input.expectedVersion,
@@ -564,12 +471,14 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          SET channel_id = ?, uploads_playlist_id = ?, last_checked_at = NULL,
             next_check_at = ?, last_seen_video_id = ?, last_seen_published_at = NULL,
             last_error_code = NULL, lease_until = NULL,
+            sync_page_token = NULL, sync_base_video_id = NULL,
+            sync_newest_video_id = NULL, sync_started_at = NULL,
             generation = generation + 1, version = version + 1, updated_at = ?
           WHERE id = ? AND version = ? AND deleted_at IS NULL`,
       ).bind(
         input.channel.id,
         input.uploadsPlaylistId,
-        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        nextChannelPollAt(input.now),
         input.lastSeenVideoId,
         input.now,
         input.id,
@@ -607,11 +516,21 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          SET status = 'active', last_checked_at = NULL, next_check_at = ?,
            last_seen_video_id = ?, last_seen_published_at = NULL,
            last_error_code = NULL, lease_until = NULL,
+           sync_page_token = NULL, sync_base_video_id = NULL,
+           sync_newest_video_id = NULL, sync_started_at = NULL,
            version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND deleted_at IS NULL
-           AND ${automationRunning}`,
+           AND ${automationRunning}
+           AND EXISTS (
+             SELECT 1 FROM music_channels AS channel
+             JOIN music_channel_automation_approvals AS approval ON approval.channel_id = channel.id
+             WHERE channel.id = music_channel_upload_monitors.channel_id
+               AND channel.provider = 'youtube' AND channel.channel_role = 'approved_kirinuki'
+               AND channel.verification_status = 'approved' AND channel.active = 1
+               AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
+           )`,
       ).bind(
-        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        nextChannelPollAt(input.now),
         input.lastSeenVideoId,
         input.now,
         input.id,
@@ -671,7 +590,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                AND approval.revoked_by_user_id = ? AND approval.revoked_at = ?
            )`,
       ).bind(
-        input.now + CHECK_INTERVAL_MINUTES * 60_000,
+        nextChannelPollAt(input.now),
         input.now,
         input.id,
         input.expectedVersion,
@@ -758,6 +677,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
     const result = await this.database.prepare(
        `SELECT id FROM music_channel_upload_monitors
        WHERE status = 'active' AND next_check_at <= ?
+          AND ${automationRunning}
           AND deleted_at IS NULL
           AND (lease_until IS NULL OR lease_until <= ?)
          AND EXISTS (
@@ -776,27 +696,6 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
        ORDER BY next_check_at ASC, id ASC LIMIT ?`,
     ).bind(now, now, limit).all<{ id: string }>();
     return resultsOf(result).map((row) => row.id);
-  }
-
-  async listRecentDueIds(now: number, limit: number) {
-    const result = await this.database.prepare(
-      `SELECT monitor.id
-       FROM music_channel_upload_monitors AS monitor
-       JOIN music_channels AS channel ON channel.id = monitor.channel_id
-       JOIN music_channel_automation_approvals AS approval
-         ON approval.channel_id = monitor.channel_id
-       WHERE monitor.status = 'active' AND monitor.deleted_at IS NULL
-         AND (monitor.lease_until IS NULL OR monitor.lease_until <= ?)
-         AND (monitor.last_recent_reconciled_at IS NULL
-           OR monitor.last_recent_reconciled_at <= ?)
-         AND channel.provider = 'youtube'
-         AND channel.channel_role = 'approved_kirinuki'
-         AND channel.verification_status = 'approved' AND channel.active = 1
-         AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
-       ORDER BY COALESCE(monitor.last_recent_reconciled_at, 0) ASC, monitor.id ASC
-       LIMIT ?`,
-    ).bind(now, now - 24 * 60 * 60_000, limit).all<{ id: string }>();
-    return (result.results ?? []).map((row) => row.id);
   }
 
   async claim(id: string, now: number) {
@@ -1036,7 +935,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           )`,
     ).bind(
       input.now,
-      input.now + CHECK_INTERVAL_MINUTES * 60_000,
+      nextChannelPollAt(input.now),
       input.lastSeenVideoId,
       input.lastSeenPublishedAt,
       input.now,
@@ -1127,7 +1026,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          AND status = 'active' AND deleted_at IS NULL`,
     ).bind(
       input.now,
-      input.now + CHECK_INTERVAL_MINUTES * 60_000,
+      nextChannelPollAt(input.now),
       input.now,
       input.id,
       input.expectedVersion,

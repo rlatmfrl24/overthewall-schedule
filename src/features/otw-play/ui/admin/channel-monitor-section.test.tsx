@@ -11,9 +11,6 @@ const createMonitorMock = vi.hoisted(() => vi.fn());
 const updateMonitorMock = vi.hoisted(() => vi.fn());
 const deleteMonitorMock = vi.hoisted(() => vi.fn());
 const updateCandidateMock = vi.hoisted(() => vi.fn());
-const subscribeMock = vi.hoisted(() => vi.fn());
-const renewMock = vi.hoisted(() => vi.fn());
-const unsubscribeMock = vi.hoisted(() => vi.fn());
 const backfillMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
@@ -29,9 +26,6 @@ vi.mock("../../api/admin", () => ({
   updateOtwPlayChannelMonitor: updateMonitorMock,
   deleteOtwPlayChannelMonitor: deleteMonitorMock,
   reconcileOtwPlayChannelMonitor: reconcileMock,
-  subscribeOtwPlayChannelMonitor: subscribeMock,
-  renewOtwPlayChannelMonitor: renewMock,
-  unsubscribeOtwPlayChannelMonitor: unsubscribeMock,
   backfillOtwPlayChannelMonitor: backfillMock,
   updateOtwPlayImportCandidate: updateCandidateMock,
 }));
@@ -49,7 +43,7 @@ const monitor = {
     externalChannelId: "UCmmmmmmmmmmmmmmmmmmmmmm",
     uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm",
     status: "active",
-    checkIntervalMinutes: 360,
+    checkIntervalMinutes: 60,
     lastCheckedAt: 100,
     nextCheckAt: 200,
     lastSeenVideoId: "AAAAAAAAAAA",
@@ -68,19 +62,11 @@ const monitor = {
       revokedAt: null,
       version: 0,
     },
-    subscription: null,
+
     candidateCount: 1,
     pendingCandidateCount: 1,
     previousGenerationPendingCount: 0,
-    deliveryHealth: {
-      pendingCount: 0,
-      failedCount: 0,
-      deadLetterCount: 0,
-      lastReceivedAt: null,
-      lastProcessedAt: null,
-      lastFailedAt: null,
-      lastErrorCode: null,
-    },
+
     generation: 0,
     version: 2,
     createdAt: 100,
@@ -370,133 +356,25 @@ describe("ChannelMonitorSection", () => {
     expect(input.value).toBe("UC2222222222222222222222");
   });
 
-  it("shows subscription state and runs explicit WebSub and bounded backfill actions", async () => {
-    monitorsQueryMock.mockReturnValue({
-      data: [{
-        ...monitor,
-        lastRecentReconciledAt: 1756101600000,
-        subscription: {
-          id: "subscription-1",
-          status: "active",
-          pendingMode: null,
-          secretVersion: 1,
-          requestedAt: 1756099000000,
-          verifiedAt: 1756100000000,
-          leaseExpiresAt: 1756274400000,
-          lastNotificationAt: 1756105200000,
-          lastErrorCode: null,
-          effectiveActive: true,
-          recoveryReason: null,
-          version: 1,
-        },
-      }],
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    });
-    subscribeMock.mockResolvedValue({ id: "monitor-1" });
-    renewMock.mockResolvedValue({ id: "monitor-1" });
-    unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
+  it("shows hourly upload polling and preserves bounded manual backfill", async () => {
     backfillMock.mockResolvedValue({ discoveredCount: 0, checkedVideoCount: 20, capped: false });
-
-    render(createElement(ChannelMonitorSection, sectionProps), {
-      wrapper: createQueryWrapper(),
-    });
-
-    expect(await screen.findByText("구독 활성")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /권리 승인 철회/ })).toBeNull();
-    expect(screen.getByText((_, element) =>
-      element?.tagName === "P" && element.textContent?.includes("마지막 알림") === true,
-    )).toBeTruthy();
-    expect(screen.getByText((_, element) =>
-      element?.tagName === "P" && element.textContent?.includes("최근 50개 대조") === true,
-    )).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "갱신" }));
-    await waitFor(() => expect(renewMock).toHaveBeenCalledWith("monitor-1"));
-    fireEvent.click(screen.getByRole("button", { name: "구독 해제" }));
-    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
-
-    fireEvent.change(screen.getByLabelText("명시적 최근 영상 가져오기"), {
-      target: { value: "20" },
-    });
+    render(createElement(ChannelMonitorSection, sectionProps), { wrapper: createQueryWrapper() });
+    expect(await screen.findByText("YouTube 업로드 목록 조회")).toBeTruthy();
+    expect(screen.getByText("60분")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "구독" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("명시적 최근 영상 가져오기"), { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "가져오기" }));
-    await waitFor(() => expect(backfillMock).toHaveBeenCalledWith(
-      "monitor-1",
-      { count: 20 },
-    ));
+    await waitFor(() => expect(backfillMock).toHaveBeenCalledWith("monitor-1", { count: 20 }));
   });
 
-  it("retries unsubscribe for a failed expired subscription while globally paused and waits for confirmation before release", async () => {
+  it("allows deleting a paused monitor without awaiting retired subscriptions", async () => {
     settingsMock.mockResolvedValue({ otw_play_automation_paused: "true" });
-    const refetch = vi.fn();
-    const failedMonitor = {
-      ...monitor, status: "paused",
-      subscription: { status: "failed", verifiedAt: 100, leaseExpiresAt: 200,
-        effectiveActive: false, lastNotificationAt: null, lastErrorCode: "hub_timeout" },
-    };
-    monitorsQueryMock.mockReturnValue({
-      data: [failedMonitor],
-      isLoading: false,
-      isError: false,
-      refetch,
-    });
-    unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
-
-    const view = render(createElement(ChannelMonitorSection, sectionProps), {
-      wrapper: createQueryWrapper(),
-    });
-
-    expect(await screen.findByText("구독 요청 실패")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "구독" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
-    const unsubscribe = screen.getByRole("button", { name: "구독 해제" });
-    expect(unsubscribe.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(unsubscribe);
-    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
-    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
-      variant: "success", description: "구독 해제 요청을 보냈습니다. hub 확인 상태를 기다립니다.",
-    })));
-    monitorsQueryMock.mockReturnValue({ data: [{ ...failedMonitor,
-      subscription: { ...failedMonitor.subscription, status: "unsubscribing" } }],
-      isLoading: false, isError: false, refetch });
-    view.rerender(createElement(ChannelMonitorSection, sectionProps));
-    expect(screen.getByRole("button", { name: "구독 해제" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
-    monitorsQueryMock.mockReturnValue({ data: [{ ...failedMonitor,
-      subscription: { ...failedMonitor.subscription, status: "unsubscribed" } }],
-      isLoading: false, isError: false, refetch });
-    view.rerender(createElement(ChannelMonitorSection, sectionProps));
-    await waitFor(() => expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(false));
+    monitorsQueryMock.mockReturnValue({ data: [{ ...monitor, status: "paused" }], isLoading: false, isError: false, refetch: vi.fn() });
+    render(createElement(ChannelMonitorSection, sectionProps), { wrapper: createQueryWrapper() });
+    expect(await screen.findByText("자동 확인 중지됨")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "감시 재개" }).hasAttribute("disabled")).toBe(true));
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(false);
     expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
   });
-
-  it("treats an unverified active row as recoverable instead of renewable", async () => {
-    monitorsQueryMock.mockReturnValue({
-      data: [{
-        ...monitor,
-        subscription: {
-          status: "active",
-          verifiedAt: null,
-          leaseExpiresAt: null,
-          lastNotificationAt: null,
-          lastErrorCode: "hub_request_failed",
-        },
-      }],
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    });
-
-    render(createElement(ChannelMonitorSection, sectionProps), {
-      wrapper: createQueryWrapper(),
-    });
-
-    expect(await screen.findByText("구독 상태 복구 필요")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "갱신" })).toBeNull();
-    expect(screen.getByRole("button", { name: "구독 해제" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
-  });
-
 });

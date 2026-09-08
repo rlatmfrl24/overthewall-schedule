@@ -187,6 +187,9 @@ export interface OtwPlayIngestionJobDto {
   updatedAt: number;
 }
 
+export const OTW_PLAY_CHANNEL_POLL_INTERVAL_MINUTES = 60;
+export const OTW_PLAY_CHANNEL_POLL_CRON_MINUTE = 23;
+
 export const OTW_PLAY_CHANNEL_MONITOR_STATUSES = ["active", "paused"] as const;
 export type OtwPlayChannelMonitorStatus =
   (typeof OTW_PLAY_CHANNEL_MONITOR_STATUSES)[number];
@@ -202,43 +205,6 @@ export interface OtwPlayChannelAutomationApprovalDto {
   revokedByUserId: string | null;
   revokedAt: number | null;
   version: number;
-}
-
-export const OTW_PLAY_WEBSUB_SUBSCRIPTION_STATUSES = [
-  "pending",
-  "active",
-  "renewing",
-  "unsubscribing",
-  "unsubscribed",
-  "denied",
-  "failed",
-] as const;
-export type OtwPlayWebsubSubscriptionStatus =
-  (typeof OTW_PLAY_WEBSUB_SUBSCRIPTION_STATUSES)[number];
-
-export interface OtwPlayWebsubSubscriptionDto {
-  id: string;
-  status: OtwPlayWebsubSubscriptionStatus;
-  pendingMode: "subscribe" | "unsubscribe" | null;
-  secretVersion: number;
-  requestedAt: number;
-  verifiedAt: number | null;
-  leaseExpiresAt: number | null;
-  lastNotificationAt: number | null;
-  lastErrorCode: string | null;
-  effectiveActive: boolean;
-  recoveryReason: string | null;
-  version: number;
-}
-
-export interface OtwPlayDeliveryHealthDto {
-  pendingCount: number;
-  failedCount: number;
-  deadLetterCount: number;
-  lastReceivedAt: number | null;
-  lastProcessedAt: number | null;
-  lastFailedAt: number | null;
-  lastErrorCode: string | null;
 }
 
 export interface OtwPlayChannelMonitorDto {
@@ -262,11 +228,9 @@ export interface OtwPlayChannelMonitorDto {
   lastSuccessAt?: number | null;
   consecutiveFailures?: number;
   automationApproval: OtwPlayChannelAutomationApprovalDto | null;
-  subscription: OtwPlayWebsubSubscriptionDto | null;
   candidateCount: number;
   pendingCandidateCount: number;
   previousGenerationPendingCount: number;
-  deliveryHealth: OtwPlayDeliveryHealthDto;
   generation: number;
   version: number;
   createdAt: number;

@@ -10,11 +10,6 @@ const mocks = vi.hoisted(() => ({
   clearExpiredApiData: vi.fn(),
   requeuePending: vi.fn(),
   runDue: vi.fn(),
-  runRecentDue: vi.fn(),
-  recoverPending: vi.fn(),
-  cleanupInvalidSubscriptions: vi.fn(),
-  recoverStaleIntents: vi.fn(),
-  renewDue: vi.fn(),
 }));
 
 vi.mock("../features/otw-play", () => ({
@@ -52,30 +47,6 @@ vi.mock("./channel-monitors", () => ({
     runDue: () => {
       mocks.order.push("channel-polling");
       return mocks.runDue();
-    },
-    runRecentDue: () => {
-      mocks.order.push("channel-recent");
-      return mocks.runRecentDue();
-    },
-  }),
-}));
-vi.mock("./websub", () => ({
-  createOtwPlayWebsubService: () => ({
-    recoverPending: () => {
-      mocks.order.push("websub-recovery");
-      return mocks.recoverPending();
-    },
-    cleanupInvalidSubscriptions: () => {
-      mocks.order.push("websub-cleanup");
-      return mocks.cleanupInvalidSubscriptions();
-    },
-    recoverStaleIntents: () => {
-      mocks.order.push("websub-intent-recovery");
-      return mocks.recoverStaleIntents();
-    },
-    renewDue: () => {
-      mocks.order.push("websub-renewal");
-      return mocks.renewDue();
     },
   }),
 }));
@@ -121,11 +92,6 @@ describe("scheduled OTW Play source health", () => {
     mocks.clearExpiredApiData.mockReset().mockResolvedValue(0);
     mocks.requeuePending.mockReset().mockResolvedValue(0);
     mocks.runDue.mockReset().mockResolvedValue([]);
-    mocks.runRecentDue.mockReset().mockResolvedValue([]);
-    mocks.recoverPending.mockReset().mockResolvedValue(0);
-    mocks.cleanupInvalidSubscriptions.mockReset().mockResolvedValue([]);
-    mocks.recoverStaleIntents.mockReset().mockResolvedValue([]);
-    mocks.renewDue.mockReset().mockResolvedValue([]);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
   });
@@ -201,24 +167,14 @@ describe("scheduled OTW Play source health", () => {
     );
   });
 
-  it("runs polling fallback, daily recent reconciliation, recovery, and renewal independently", async () => {
+  it("keeps polling failures independent from common recovery and source health", async () => {
     mocks.runDue.mockRejectedValueOnce(new Error("polling failed"));
 
     await runIndependentScheduledTasks({} as Env);
 
     expect(mocks.runDue).toHaveBeenCalledOnce();
-    expect(mocks.runRecentDue).toHaveBeenCalledOnce();
-    expect(mocks.recoverPending).toHaveBeenCalledOnce();
-    expect(mocks.cleanupInvalidSubscriptions).toHaveBeenCalledOnce();
-    expect(mocks.recoverStaleIntents).toHaveBeenCalledOnce();
-    expect(mocks.renewDue).toHaveBeenCalledOnce();
     expect(mocks.order).toEqual(expect.arrayContaining([
       "channel-polling",
-      "channel-recent",
-      "websub-recovery",
-      "websub-cleanup",
-      "websub-intent-recovery",
-      "websub-renewal",
     ]));
     expect(console.error).toHaveBeenCalledWith(
       "[scheduled] OTW Play channel reconciliation failed",

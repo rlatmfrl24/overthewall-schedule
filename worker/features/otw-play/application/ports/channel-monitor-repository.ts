@@ -86,7 +86,6 @@ export interface ChannelMonitorRepository {
     now: number;
   }): Promise<{ id: string }>;
   listDueIds(now: number, limit: number): Promise<string[]>;
-  listRecentDueIds(now: number, limit: number): Promise<string[]>;
   claim(id: string, now: number): Promise<OtwPlayChannelMonitorDto | null>;
   recordCandidates(input: {
     monitorId: string;

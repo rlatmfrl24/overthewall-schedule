@@ -18,15 +18,11 @@ import {
 } from "../domain/channel-monitor-cursor";
 
 const MAX_RECONCILIATION_VIDEOS = 250;
-// A failed or denied subscribe/renew/unsubscribe request can still leave the
-// previous Hub lease alive. Only an acknowledged unsubscribe is safe for
-// target replacement or deletion.
-const TERMINAL_SUBSCRIPTION_STATUSES = new Set(["unsubscribed"]);
 const PREAPPROVED_COLLECTION_AUTHORITY = {
   scope: "candidate_collection",
   operatorReference: "approved_kirinuki channel registration",
   approvalReference: "written email consent confirmed before monitor creation",
-  revocationProcedure: "pause collection, unsubscribe WebSub, then remove the monitor",
+  revocationProcedure: "pause collection, then remove the monitor",
   confirmed: true,
 } as const satisfies ChannelMonitorAutomationApprovalInput;
 
@@ -36,20 +32,12 @@ export class ChannelMonitorService {
   private readonly createId: () => string;
   private readonly clock: () => number;
   private readonly isAutomationPaused: () => Promise<boolean>;
-  private readonly unsubscribeTransport?: (
-    monitorId: string,
-    actorUserId: string,
-  ) => Promise<unknown>;
 
   constructor(
     repository: ChannelMonitorRepository,
     youtube: OtwPlayYouTubeIngestionReader,
     createId: () => string = () => crypto.randomUUID(),
     clock: () => number = Date.now,
-    unsubscribeTransport?: (
-      monitorId: string,
-      actorUserId: string,
-    ) => Promise<unknown>,
     isAutomationPaused: () => Promise<boolean> = async () => false,
   ) {
     this.repository = repository;
@@ -57,44 +45,12 @@ export class ChannelMonitorService {
     this.createId = createId;
     this.clock = clock;
     this.isAutomationPaused = isAutomationPaused;
-    this.unsubscribeTransport = unsubscribeTransport;
   }
 
   private async assertAutomationRunning() {
     if (await this.isAutomationPaused()) {
       throw new IngestionRepositoryError("validation_failed", "OTW Play automation is paused");
     }
-  }
-
-  private assertTransportReleased(
-    monitor: Awaited<ReturnType<ChannelMonitorRepository["get"]>>,
-  ) {
-    if (
-      monitor.subscription &&
-      !TERMINAL_SUBSCRIPTION_STATUSES.has(monitor.subscription.status)
-    ) {
-      throw new IngestionRepositoryError(
-        "validation_failed",
-        "Unsubscribe the current WebSub lease before deleting or changing the monitor target",
-      );
-    }
-  }
-
-  private async requestTransportStop(monitorId: string, actorUserId: string) {
-    const monitor = await this.repository.get(monitorId);
-    if (
-      !this.unsubscribeTransport ||
-      !monitor.subscription ||
-      TERMINAL_SUBSCRIPTION_STATUSES.has(monitor.subscription.status) ||
-      monitor.subscription.status === "unsubscribing"
-    ) return monitor;
-    try {
-      await this.unsubscribeTransport(monitorId, actorUserId);
-    } catch {
-      // The authority/status mutation already blocks collection. The persisted
-      // transport error and scheduled cleanup keep unsubscribe retryable.
-    }
-    return this.repository.get(monitorId);
   }
 
   private async requireVersion(id: string, expectedVersion: number) {
@@ -192,6 +148,20 @@ export class ChannelMonitorService {
   ) {
     if (status === "active") await this.assertAutomationRunning();
     const current = await this.requireVersion(id, expectedVersion);
+    if (status === "active" && current.status === "paused") {
+      if (current.lastErrorCode === "gap_suspected") {
+        throw new IngestionRepositoryError("validation_failed", "Reset the channel monitor watermark before resuming");
+      }
+      if (!await this.repository.findEligibleChannel(current.externalChannelId)) {
+        throw new IngestionRepositoryError("validation_failed", "Channel collection approval is not active");
+      }
+      const page = await this.youtube.readPlaylistPage(current.uploadsPlaylistId, null);
+      await this.assertAutomationRunning();
+      return this.repository.resetWatermark({
+        id, expectedVersion, lastSeenVideoId: page.items[0]?.videoId ?? null,
+        actorUserId, eventId: this.createId(), now: this.clock(),
+      });
+    }
     const monitor = await this.repository.updateStatus({
       id,
       expectedVersion,
@@ -200,23 +170,6 @@ export class ChannelMonitorService {
       eventId: this.createId(),
       now: this.clock(),
     });
-    if (status === "paused") {
-      return this.requestTransportStop(monitor.id, actorUserId);
-    }
-    if (current.status === "paused") {
-      const page = await this.youtube.readPlaylistPage(
-        current.uploadsPlaylistId,
-        null,
-      );
-      return this.repository.resetWatermark({
-        id: monitor.id,
-        expectedVersion: monitor.version,
-        lastSeenVideoId: page.items[0]?.videoId ?? null,
-        actorUserId,
-        eventId: this.createId(),
-        now: this.clock(),
-      });
-    }
     return monitor;
   }
 
@@ -228,7 +181,6 @@ export class ChannelMonitorService {
   ) {
     const current = await this.requireVersion(id, expectedVersion);
     if (current.externalChannelId === externalChannelId) return current;
-    this.assertTransportReleased(current);
     const duplicate = await this.repository.findByExternalChannel(externalChannelId);
     if (duplicate && duplicate.id !== id) {
       throw new IngestionRepositoryError(
@@ -311,12 +263,11 @@ export class ChannelMonitorService {
       monitorEventId: this.createId(),
       now: this.clock(),
     });
-    return this.requestTransportStop(monitor.id, actorUserId);
+    return monitor;
   }
 
   async remove(id: string, expectedVersion: number, actorUserId: string) {
-    const current = await this.requireVersion(id, expectedVersion);
-    this.assertTransportReleased(current);
+    await this.requireVersion(id, expectedVersion);
     return this.repository.remove({
       id,
       expectedVersion,
@@ -472,6 +423,10 @@ export class ChannelMonitorService {
     for (const id of ids) {
       try {
         const result = await this.reconcile(id);
+        if (result.gapSuspected) {
+          results.push({ id, ok: false, discoveredCount: 0, errorCode: "gap_suspected" });
+          continue;
+        }
         results.push({
           id,
           ok: true,
@@ -499,18 +454,6 @@ export class ChannelMonitorService {
         "Backfill count must be between 1 and 20",
       );
     }
-    return this.reconcileSupplemental(id, count, true);
-  }
-
-  async reconcileRecent(id: string): Promise<OtwPlayChannelMonitorReconcileDto> {
-    return this.reconcileSupplemental(id, 50, false);
-  }
-
-  private async reconcileSupplemental(
-    id: string,
-    count: number,
-    includeBeforeWatermark: boolean,
-  ): Promise<OtwPlayChannelMonitorReconcileDto> {
     await this.assertAutomationRunning();
     const monitor = await this.repository.claim(id, this.clock());
     if (!monitor) {
@@ -522,15 +465,7 @@ export class ChannelMonitorService {
     try {
       const page = await this.youtube.readPlaylistPage(monitor.uploadsPlaylistId, null);
       const recentItems = page.items.slice(0, count);
-      const watermarkIndex = monitor.lastSeenVideoId === null
-        ? -1
-        : recentItems.findIndex((item) => item.videoId === monitor.lastSeenVideoId);
-      const selected = includeBeforeWatermark || monitor.lastSeenVideoId === null
-        ? recentItems
-        : watermarkIndex >= 0
-          ? recentItems.slice(0, watermarkIndex)
-          : [];
-      const ids = [...new Set(selected.map((item) => item.videoId))];
+      const ids = [...new Set(recentItems.map((item) => item.videoId))];
       await this.assertAutomationRunning();
       const observations = await this.youtube.readVideos(ids);
       const authoritative = observations.filter((item) =>
@@ -570,17 +505,4 @@ export class ChannelMonitorService {
     }
   }
 
-  async runRecentDue(limit = 10) {
-    const ids = await this.repository.listRecentDueIds(this.clock(), limit);
-    const results: Array<{ id: string; ok: boolean; discoveredCount: number }> = [];
-    for (const id of ids) {
-      try {
-        const result = await this.reconcileRecent(id);
-        results.push({ id, ok: true, discoveredCount: result.discoveredCount });
-      } catch {
-        results.push({ id, ok: false, discoveredCount: 0 });
-      }
-    }
-    return results;
-  }
 }

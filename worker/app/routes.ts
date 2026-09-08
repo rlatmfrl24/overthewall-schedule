@@ -53,7 +53,6 @@ import {
 } from "../features/otw-play";
 import { createOtwPlayIngestionService } from "./ingestion";
 import { createOtwPlayChannelMonitorService } from "./channel-monitors";
-import { createOtwPlayWebsubService } from "./websub";
 import { createOtwPlayAdminCatalogService } from "./admin-catalog";
 import {
   collectNaverCafePostsForSources,
@@ -256,11 +255,11 @@ const handleOtwPlayChannelMonitors = withPlayOperationsTelemetry(
   resolvePlayTelemetry,
 );
 const handleOtwPlayWebsubCallback = withPlayOperationsTelemetry(
-  createWebsubCallbackHandler(createOtwPlayWebsubService),
+  createWebsubCallbackHandler(),
   resolvePlayTelemetry,
 );
 const handleOtwPlayWebsubAdmin = withPlayOperationsTelemetry(
-  createWebsubAdminHandler(createOtwPlayWebsubService),
+  createWebsubAdminHandler(),
   resolvePlayTelemetry,
 );
 const handleNotices = createHandleNotices(

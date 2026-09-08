@@ -1,4 +1,5 @@
 import type {
+  OperationRunDto,
   ScheduledJobStatus,
   ScheduledJobType,
 } from "@contracts/scheduled-operations";
@@ -29,7 +30,7 @@ export interface OperationsApplication {
     actor: OperationsActor,
     idempotencyKey?: string | null,
   ): Promise<unknown>;
-  getRun(runId: string): Promise<unknown>;
+  getRun(runId: string): Promise<OperationRunDto | null>;
   listRuns(input: {
     jobType?: ScheduledJobType;
     status?: ScheduledJobStatus;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { D1IngestionRepository, D1WebsubRepository } from "../../otw-play";
+import { D1IngestionRepository } from "../../otw-play";
 import type {
   NewScheduledItem,
   ScheduledJobRunRecord,
@@ -90,7 +90,6 @@ describe("ScheduledJobPlanner interval eligibility", () => {
   it("plans no empty recovery, WebSub, YouTube, or retention work", async () => {
     const { env } = makeEnv({});
     const repository = { addItems: vi.fn(), hasRecoveryWork: vi.fn(async () => false) };
-    vi.spyOn(D1WebsubRepository.prototype, "listScheduledMaintenancePhases").mockResolvedValue([]);
     vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
     vi.spyOn(D1IngestionRepository.prototype, "listPendingMessages").mockResolvedValue([]);
     const planner = new ScheduledJobPlanner(env, repository as never);
@@ -119,18 +118,10 @@ describe("ScheduledJobPlanner interval eligibility", () => {
     }
   });
 
-  it("uses WebSub teardown eligibility while automation is paused", async () => {
-    const { env } = makeEnv({});
-    mocks.readOtwPlayAutomationPaused.mockResolvedValue(true);
-    const phases = vi.spyOn(D1WebsubRepository.prototype, "listScheduledMaintenancePhases")
-      .mockResolvedValue(["cleanup", "recover-intent"]);
-
-    expect(await new ScheduledJobPlanner(env, {} as never).planScheduled("websub_maintenance", 100))
-      .toEqual([
-        { targetKey: "cleanup", phase: "cleanup", lane: "websub" },
-        { targetKey: "recover-intent", phase: "recover-intent", lane: "websub" },
-      ]);
-    expect(phases).toHaveBeenCalledWith(100, true);
+  it.each(["websub_maintenance", "recent_reconcile"] as const)("never plans retired %s work", async (jobType) => {
+    const { env, prepare } = makeEnv({});
+    expect(await new ScheduledJobPlanner(env, {} as never).planScheduled(jobType, 100)).toEqual([]);
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it("plans only retention policies and YouTube feeds with actual work", async () => {

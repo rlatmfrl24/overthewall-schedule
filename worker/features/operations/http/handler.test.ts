@@ -1045,13 +1045,29 @@ describe("operations worker route", () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
+  it.each(["websub_maintenance", "recent_reconcile"])("rejects new and retried %s work without creating a run", async (jobType) => {
+    const createRun = vi.fn();
+    const retryRun = vi.fn();
+    const retiredHandler = createOperationsHandler({
+      getApplication: () => ({ createRun, retryRun, getRun: vi.fn(async () => ({ jobType })) }) as never,
+    });
+    const response = await retiredHandler(new Request("https://example.com/api/operations/runs", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobType }),
+    }), makeEnv());
+    expect(response.status).toBe(410);
+    const retry = await retiredHandler(new Request("https://example.com/api/operations/runs/old-run/retry", { method: "POST" }), makeEnv());
+    expect(retry.status).toBe(410);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(retryRun).not.toHaveBeenCalled();
+  });
+
   it("terminal operation retry는 현재 상태와 함께 409를 반환한다", async () => {
     const retryRun = vi.fn(async () => ({
       kind: "not_retryable" as const,
       status: "succeeded" as const,
     }));
     const retryHandler = createOperationsHandler({
-      getApplication: () => ({ retryRun }) as never,
+      getApplication: () => ({ retryRun, getRun: vi.fn(async () => ({ jobType: "x_collection" })) }) as never,
     });
 
     const response = await retryHandler(

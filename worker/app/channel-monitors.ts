@@ -5,7 +5,6 @@ import {
   readOtwPlayAutomationPaused,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
-import { createOtwPlayWebsubService } from "./websub";
 
 export const createOtwPlayChannelMonitorService = (env: Env) =>
   new ChannelMonitorService(
@@ -17,7 +16,5 @@ export const createOtwPlayChannelMonitorService = (env: Env) =>
     }),
     undefined,
     undefined,
-    (monitorId, actorUserId) =>
-      createOtwPlayWebsubService(env).unsubscribe(monitorId, actorUserId),
     () => readOtwPlayAutomationPaused(env.otw_db),
   );

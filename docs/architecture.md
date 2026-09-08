@@ -11,6 +11,10 @@
 `archive/architecture-refactoring-plan.md`에 보존하며, 구현 결과와 검증
 근거는 `architecture-refactoring-verification.md`에서 확인한다.
 
+## 채널 업로드 수집 (2026-09-09)
+
+OTW Play 승인 clip 채널은 시간당 uploads playlist polling을 사용한다. WebSub 구독·callback 수집·갱신·해제 재시도와 중복 일일 recent 대조는 종료한다. 기존 Workflow → Queue → ChannelMonitorService → D1 경로에서 승인·중지·lease·generation·watermark와 후보 검수를 유지한다. 과거 WebSub 테이블과 실행 이력은 보존하며 새 작업은 생성하지 않는다. 상세 계약과 검증은 [채널 업로드 조회 운영 문서](operations/channel-upload-polling.md)에 있다.
+
 ## 1. 설계 목표
 
 현재 구조는 다음 세 가지 목표를 우선한다.

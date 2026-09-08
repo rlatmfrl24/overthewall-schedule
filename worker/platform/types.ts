@@ -26,9 +26,7 @@ export interface Env {
   OTW_OPS_CONTROL_QUEUE?: Queue<unknown>;
   OTW_OPS_CRITICAL_QUEUE?: Queue<unknown>;
   OTW_OPS_BACKGROUND_QUEUE?: Queue<unknown>;
-  OTW_WEBSUB_QUEUE?: Queue<unknown>;
   SCHEDULED_OPERATIONS_WORKFLOW?: Workflow<ScheduledOperationsWorkflowParams>;
-  OTW_PLAY_WEBSUB_SECRET_V1?: string;
   OTW_PLAY_PUBLIC_ORIGIN?: string;
   otw_db: D1Database;
   ASSET_BUCKET?: R2Bucket;

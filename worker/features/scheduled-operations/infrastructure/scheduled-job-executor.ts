@@ -26,7 +26,6 @@ import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { createOtwPlayChannelMonitorService } from "../../../app/channel-monitors";
 import { createOtwPlayIngestionService } from "../../../app/ingestion";
-import { createOtwPlayWebsubService } from "../../../app/websub";
 import type {
   D1ScheduledJobRepository,
   ScheduledJobItemRecord,
@@ -291,14 +290,16 @@ export class ScheduledJobExecutor {
   ): Promise<ScheduledJobExecutionOutcome> {
     const run = await this.repository.readRun(item.run_id);
     if (!run) throw new Error("scheduled_run_not_found");
+    if (run.job_type === "websub_maintenance" || run.job_type === "recent_reconcile") {
+      return { status: "skipped", result: { reason: "channel_polling_replaced_websub" } };
+    }
     const continuation = parseContinuation(item);
     const isPlayWork = [
       "websub_maintenance", "source_health", "channel_reconcile", "recent_reconcile",
     ].includes(run.job_type) || run.job_type === "ingestion_recovery" && item.phase === "requeue";
     const automationPaused = run.source === "scheduled" && isPlayWork &&
       await readOtwPlayAutomationPaused(this.env.otw_db);
-    if (automationPaused && !(run.job_type === "websub_maintenance" &&
-      ["cleanup", "recover-intent"].includes(item.phase))) {
+    if (automationPaused) {
       return { status: "skipped", result: { reason: "otw_play_automation_paused" } };
     }
     switch (run.job_type) {
@@ -397,50 +398,6 @@ export class ScheduledJobExecutor {
         return toScheduledBatchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runDue(1),
         );
-      case "recent_reconcile":
-        return toScheduledBatchOutcome(
-          await createOtwPlayChannelMonitorService(this.env).runRecentDue(1),
-        );
-      case "websub_maintenance": {
-        const service = createOtwPlayWebsubService(this.env);
-        switch (item.phase) {
-          case "recover-delivery": {
-            const result = await service.recoverPendingWithOutcome(1);
-            return {
-              status: result.failed > 0
-                ? result.enqueued > 0 ? "partial" : "failed"
-                : result.attempted > 0 ? "succeeded" : "skipped",
-              result,
-              attempted: result.attempted,
-              succeeded: result.enqueued,
-              failed: result.failed,
-              errorCode: result.failed > 0 ? "websub_delivery_dispatch_failed" : null,
-              error: result.failed > 0 ? "WebSub delivery queue dispatch failed" : null,
-            };
-          }
-          case "cleanup":
-            return toScheduledBatchOutcome(await service.cleanupInvalidSubscriptions(
-              "system:websub-cleanup",
-              1,
-            ));
-          case "recover-intent":
-            return toScheduledBatchOutcome(await service.recoverStaleIntents(
-              "system:websub-intent-recovery",
-              1,
-              automationPaused,
-            ));
-          case "renew":
-            return toScheduledBatchOutcome(
-              await service.renewDue("system:websub-renewal", 1),
-            );
-          case "retry-subscription":
-            return toScheduledBatchOutcome(
-              await service.retryFailedSubscriptions("system:websub-retry", 1),
-            );
-          default:
-            throw new Error("invalid_websub_phase");
-        }
-      }
       case "ingestion_recovery": {
         if (item.phase === "recover-scheduled") {
           const recovered = await this.repository.recoverStaleItems(10);

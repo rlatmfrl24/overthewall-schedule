@@ -25,6 +25,7 @@ import {
 import type { Env } from "../../../platform/types";
 import {
   scheduledJobTypes,
+  isRetiredScheduledJob,
   type OperationJobHealth,
   type OperationRunDto,
   type ScheduledJobStatus,
@@ -62,6 +63,7 @@ const skipReasonLabels: Record<string, string> = {
   coalesced: "동일 작업과 병합됨",
   not_due: "아직 실행 시각이 아님",
   v2_rollout_disabled: "예약 작업 비활성",
+  channel_polling_replaced_websub: "운영 종료 · 시간당 채널 업로드 조회로 통합",
   budget_exceeded: "일일 예산 초과",
   daily_background_budget_exhausted: "정기 작업 일일 예산 초과",
 };
@@ -721,7 +723,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
   );
   if (scheduledOperations.d1WriteGuard.status === "blocked") {
     scheduledOperations.d1WriteGuard.blockedJobTypes = scheduledJobTypes.filter(
-      (jobType) => settings.get(`scheduled_v2_${jobType}_enabled`) === "true",
+      (jobType) => !isRetiredScheduledJob(jobType) && settings.get(`scheduled_v2_${jobType}_enabled`) === "true",
     );
   }
   const issues: Issue[] = [];
@@ -992,7 +994,7 @@ const getJobExpectedIntervalMs = (
   return ({
     ingestion_recovery: 60 * 60_000,
     websub_maintenance: 60 * 60_000,
-    channel_reconcile: 6 * 60 * 60_000,
+    channel_reconcile: 60 * 60_000,
     source_health: 24 * 60 * 60_000,
     naver_cafe_collection: 6 * 60 * 60_000,
     youtube_feed_collection: 6 * 60 * 60_000,
@@ -1036,16 +1038,17 @@ const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
         successByJobType.get(jobType) ?? 0,
         normalizedSuccessAt ?? 0,
       ) || null;
-      const enabled = settings.get(`scheduled_v2_${jobType}_enabled`) === "true";
+      const retired = isRetiredScheduledJob(jobType);
+      const enabled = !retired && settings.get(`scheduled_v2_${jobType}_enabled`) === "true";
       const automationPaused = settings.get("otw_play_automation_paused") === "true" &&
         ["source_health", "channel_reconcile", "recent_reconcile"].includes(jobType);
       const intervalMs = getJobExpectedIntervalMs(jobType, settings);
-      const nextExpectedAt = latestCheckAt === null || automationPaused
+      const nextExpectedAt = latestCheckAt === null || automationPaused || !enabled
         ? null
         : latestCheckAt + intervalMs;
       const stale = enabled && nextExpectedAt !== null &&
         now > nextExpectedAt + intervalMs;
-      const reasonCode = automationPaused ? "automation_paused" : stale ? "stale_check" : runReasonCode;
+      const reasonCode = retired ? "channel_polling_replaced_websub" : automationPaused ? "automation_paused" : stale ? "stale_check" : runReasonCode;
       return {
         jobType,
         latestRun,
@@ -1057,6 +1060,8 @@ const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
         reasonCode,
         reasonLabel: reasonCode === null
           ? null
+          : reasonCode === "channel_polling_replaced_websub"
+            ? "운영 종료 · 시간당 채널 업로드 조회로 통합"
           : reasonCode === "automation_paused"
             ? "Play 자동화 일시 중지"
           : reasonCode === "stale_check"

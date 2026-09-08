@@ -121,7 +121,7 @@ const runLabel = (jobType: OperationRun["jobType"]) =>
     ingestion_recovery: "수집 복구",
     channel_reconcile: "채널 동기화",
     recent_reconcile: "최근 영상 동기화",
-    websub_maintenance: "WebSub 정비",
+    websub_maintenance: "WebSub 정비 (종료)",
     source_health: "소스 상태 점검",
   })[jobType] ?? jobType;
 
@@ -693,8 +693,8 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
       <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />
       {data?.playAutomationPaused && <section role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">
         <p className="font-medium">Play 자동화가 일시 중지되어 있습니다.</p>
-        <p className="mt-1 text-muted-foreground">채널 자동 수집·소스 점검·구독 갱신을 중지하고, 구독 해제 확인과 데이터 보존 정리만 계속합니다. 기존 곡과 후보 검수는 이용할 수 있습니다.</p>
-        <a href="/admin/otw-play?tab=channels" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
+        <p className="mt-1 text-muted-foreground">채널 업로드 조회와 자동 수집·소스 점검을 중지합니다. 기존 곡과 후보 검수, 데이터 보존 정리는 계속 이용할 수 있습니다.</p>
+        <a href="/admin/otw-play?tab=play-monitor" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
       </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <SectionHeading id="attention-heading" title="지금 확인할 것" description="문제와 대기열 상태를 다른 이력보다 먼저 확인합니다." />

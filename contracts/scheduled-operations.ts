@@ -15,6 +15,10 @@ export const scheduledJobTypes = [
 
 export type ScheduledJobType = (typeof scheduledJobTypes)[number];
 
+// Retained in historical run DTOs; these jobs can no longer dispatch work.
+export const isRetiredScheduledJob = (jobType: ScheduledJobType) =>
+  jobType === "websub_maintenance" || jobType === "recent_reconcile";
+
 export const scheduledJobStatuses = [
   "queued",
   "running",
