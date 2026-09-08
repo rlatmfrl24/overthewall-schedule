@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DATA_RETENTION_POLICIES,
   getDataRetentionStatus,
+  readDueDataRetentionPolicyIds,
   runDataRetentionPrune,
   runScheduledDataRetentionPrune,
 } from "./data-retention";
@@ -27,19 +28,21 @@ const getPolicyForSql = (sql: string) =>
 const isPrunableRow = (
   row: TableRow,
   policy: (typeof DATA_RETENTION_POLICIES)[number],
-  cutoff: number,
+  cutoff: number | string,
 ) => {
   const value = row[policy.timestampColumn];
   if (policy.timestampKind === "sqlite_datetime") {
-    const timestamp = Date.parse(String(value));
-    return Number.isFinite(timestamp) && Math.floor(timestamp / 1000) < cutoff;
+    const timestamp = Date.parse(String(value).replace(" ", "T") + "Z");
+    return Number.isFinite(timestamp) && timestamp < Date.parse(String(cutoff).replace(" ", "T") + "Z");
   }
-  return Number(value) < cutoff;
+  return Number(value) < Number(cutoff);
 };
 
 const makeEnv = (state: FakeD1State): Env =>
   ({
     otw_db: {
+      batch: async (statements: Array<{ all: () => Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.all())),
       prepare: (sql: string) => {
         let params: unknown[] = [];
         const statement = {
@@ -55,13 +58,24 @@ const makeEnv = (state: FakeD1State): Env =>
             }
             const policy = getPolicyForSql(sql);
             if (!policy) return null as T;
-            const cutoff = Number(params[0]);
+            const cutoff = params[0] as number | string;
             const count = (state.tables[policy.table] ?? []).filter((row) =>
               isPrunableRow(row, policy, cutoff),
             ).length;
             return { count } as T;
           },
           all: async <T,>() => {
+            if (sql.includes("SELECT COUNT(*)") || sql.includes("SELECT 1 AS has_work")) {
+              const policy = getPolicyForSql(sql);
+              const count = policy ? (state.tables[policy.table] ?? []).filter((row) =>
+                isPrunableRow(row, policy, params[0] as number | string)
+              ).length : 0;
+              return {
+                results: (sql.includes("has_work")
+                  ? count > 0 ? [{ has_work: 1 }] : []
+                  : [{ count }]) as T[],
+              };
+            }
             if (sql.includes("capacity_probe")) {
               return {
                 results: [{ capacity_probe: 1 }] as T[],
@@ -87,7 +101,7 @@ const makeEnv = (state: FakeD1State): Env =>
             }
             const policy = getPolicyForSql(sql);
             if (!policy) return { meta: { changes: 0 } };
-            const cutoff = Number(params[0]);
+            const cutoff = params[0] as number | string;
             const rows = state.tables[policy.table] ?? [];
             const kept = rows.filter(
               (row) => !isPrunableRow(row, policy, cutoff),
@@ -99,9 +113,38 @@ const makeEnv = (state: FakeD1State): Env =>
         return statement;
       },
     },
-  }) as Env;
+  }) as unknown as Env;
 
 describe("data retention service", () => {
+  it("selects only due policies in one read-only batch and preserves the cutoff boundary", async () => {
+    const now = Date.UTC(2026, 8, 8, 12);
+    const state: FakeD1State = {
+      settings: new Map(),
+      tables: {
+        x_api_cache: [{ expires_at: now - 1 }, { expires_at: now }],
+        update_logs: [
+          { created_at: "2025-09-08 11:59:59" },
+          { created_at: "2025-09-08 12:00:00" },
+        ],
+        x_api_usage_events: [{ created_at: now - 30 * 24 * 60 * 60_000 }],
+      },
+    };
+    const before = structuredClone(state);
+    const env = makeEnv(state);
+    const batch = vi.spyOn(env.otw_db, "batch");
+    const prepare = vi.spyOn(env.otw_db, "prepare");
+
+    expect(await readDueDataRetentionPolicyIds(env, now)).toEqual([
+      "x-api-cache", "update-logs",
+    ]);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls.every(([sql]) => /^SELECT\b/.test(sql))).toBe(true);
+    expect(state).toEqual(before);
+    state.tables.x_api_cache = [{ expires_at: now }];
+    state.tables.update_logs = [{ created_at: "2025-09-08 12:00:00" }];
+    expect(await readDueDataRetentionPolicyIds(env, now)).toEqual([]);
+  });
+
   it("YouTube feed metadata retention is based on fetched_at", () => {
     expect(
       DATA_RETENTION_POLICIES.find(

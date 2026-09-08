@@ -6,6 +6,7 @@ import type {
 
 export type XPostViewModel = XPostDto & {
   memberUid?: number;
+  replyTargetMemberName?: string;
 };
 
 export type XPostsByHandleViewModel = Omit<XPostsByHandleDto, "posts"> & {

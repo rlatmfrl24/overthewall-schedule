@@ -11,7 +11,6 @@ import type {
   XPostLinkDto,
 } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
-import { useXPostContext } from "../queries/use-x-post-context";
 import IconX from "@/assets/icon_x.svg";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
@@ -19,7 +18,6 @@ import {
   ExternalLink,
   Heart,
   ImageOff,
-  Loader2,
   MessageCircle,
   Repeat2,
   Share2,
@@ -369,7 +367,7 @@ const XReplyPreviewCard = ({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`${post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`} 답글 원문 열기`}
+      aria-label={`${post.username === "i" ? "작성자 정보 없음" : post.name ?? `@${post.username}`} 답글 원문 열기`}
       className="flex min-w-0 items-start gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {post.profileImageUrl ? (
@@ -387,7 +385,7 @@ const XReplyPreviewCard = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex min-w-0 items-center gap-1.5 text-xs">
           <span className="truncate font-semibold text-foreground">
-            {post.username === "i" ? "작성자 정보 확인 중" : post.name ?? `@${post.username}`}
+            {post.username === "i" ? "작성자 정보 없음" : post.name ?? `@${post.username}`}
           </span>
           <span className="truncate text-muted-foreground">
             {post.username === "i" ? "" : `@${post.username}`}
@@ -427,40 +425,22 @@ const XReplyPreviewCard = ({
   );
 };
 
-const XMissingReplyContextCard = ({
-  sourcePostId,
+const XReplyRelationCard = ({
+  memberName,
   reply,
 }: {
-  sourcePostId: string;
+  memberName?: string;
   reply: NonNullable<XPostViewModel["reply"]>;
 }) => {
-  const replyContext = useXPostContext(sourcePostId);
-  if (replyContext.context) {
-    return <XReplyPreviewCard post={replyContext.context.replyTo} />;
-  }
-
   const href = `https://x.com/i/web/status/${reply.postId}`;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-xs text-muted-foreground">
       <MessageCircle className="h-4 w-4 shrink-0" />
       <span className="min-w-32 flex-1">
-        {replyContext.error ?? "원문이 아직 준비되지 않았거나 확인할 수 없습니다"}
+        {memberName ? `${memberName}님의 트윗에 대한 답글`
+          : reply.targetUsername && reply.targetUsername !== "i" ? `@${reply.targetUsername}의 트윗에 대한 답글`
+          : "다른 트윗에 대한 답글"}
       </span>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 rounded-full px-2.5 text-xs"
-        onClick={() => void replyContext.load()}
-        disabled={replyContext.loading}
-      >
-        {replyContext.loading ? (
-          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-        ) : null}
-        {replyContext.loading
-          ? "불러오는 중"
-          : "저장된 원문 다시 확인"}
-      </Button>
       <a
         href={href}
         target="_blank"
@@ -476,16 +456,16 @@ const XMissingReplyContextCard = ({
 };
 
 const XReplyContextCard = ({
-  sourcePostId,
+  memberName,
   reply,
 }: {
-  sourcePostId: string;
+  memberName?: string;
   reply: NonNullable<XPostViewModel["reply"]>;
 }) =>
   reply.post ? (
     <XReplyPreviewCard post={reply.post} />
   ) : (
-    <XMissingReplyContextCard sourcePostId={sourcePostId} reply={reply} />
+    <XReplyRelationCard memberName={memberName} reply={reply} />
   );
 
 const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
@@ -819,7 +799,7 @@ export const XPostCard = ({
       ) : null}
 
       {post.reply ? (
-        <XReplyContextCard sourcePostId={post.id} reply={post.reply} />
+        <XReplyContextCard memberName={post.replyTargetMemberName} reply={post.reply} />
       ) : null}
 
       <div className="grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3">

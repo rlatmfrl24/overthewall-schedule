@@ -62,6 +62,8 @@ export interface XPostDto {
   reply?: {
     postId: string;
     conversationId: string | null;
+    inReplyToUserId?: string | null;
+    targetUsername?: string | null;
     post: XLinkedPostPreviewDto | null;
   } | null;
 }
@@ -72,6 +74,7 @@ export interface XPostContextResponseDto {
 }
 
 export interface XReferenceHydrationResultDto {
+  scope?: "quotes";
   status: "complete" | "deferred" | "failed";
   scanned: number;
   hydrated: number;
@@ -136,6 +139,8 @@ export interface XReferencePendingReasonDto {
 }
 
 export interface XReferenceHydrationHealthDto {
+    replyPolicy?: "stored_or_link";
+    replyDisplay?: { withPreview: number; linkOnly: number; terminal: number };
     pendingPosts: number; pendingAuthors: number; terminal: number; oldestPendingAt: number | null;
     nextAttemptAt: number | null; errors: number; budgetDay: string;
     budgetLimitMicros: number; budgetUsedMicros: number; budgetReservedMicros: number;

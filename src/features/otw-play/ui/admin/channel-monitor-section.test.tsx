@@ -19,6 +19,10 @@ const toastMock = vi.hoisted(() => vi.fn());
 const monitorsQueryMock = vi.hoisted(() => vi.fn());
 const candidatesQueryMock = vi.hoisted(() => vi.fn());
 const previousCandidatesQueryMock = vi.hoisted(() => vi.fn());
+const settingsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./play-automation-control", () => ({ PlayAutomationControl: () => null }));
+vi.mock("@/features/configuration", () => ({ fetchSettings: settingsMock }));
 
 vi.mock("../../api/admin", () => ({
   createOtwPlayChannelMonitor: createMonitorMock,
@@ -89,6 +93,7 @@ const sectionProps = {
 };
 
 beforeEach(() => {
+  settingsMock.mockResolvedValue({ otw_play_automation_paused: "false" });
   monitorsQueryMock.mockReturnValue({
     data: [monitor],
     isLoading: false,
@@ -422,31 +427,48 @@ describe("ChannelMonitorSection", () => {
     ));
   });
 
-  it("offers retry instead of unsubscribe for a failed WebSub intent", async () => {
+  it("retries unsubscribe for a failed expired subscription while globally paused and waits for confirmation before release", async () => {
+    settingsMock.mockResolvedValue({ otw_play_automation_paused: "true" });
+    const refetch = vi.fn();
+    const failedMonitor = {
+      ...monitor, status: "paused",
+      subscription: { status: "failed", verifiedAt: 100, leaseExpiresAt: 200,
+        effectiveActive: false, lastNotificationAt: null, lastErrorCode: "hub_timeout" },
+    };
     monitorsQueryMock.mockReturnValue({
-      data: [{
-        ...monitor,
-        subscription: {
-          status: "failed",
-          leaseExpiresAt: null,
-          lastNotificationAt: null,
-          lastErrorCode: "hub_request_failed",
-        },
-      }],
+      data: [failedMonitor],
       isLoading: false,
       isError: false,
-      refetch: vi.fn(),
+      refetch,
     });
     unsubscribeMock.mockResolvedValue({ id: "monitor-1" });
 
-    render(createElement(ChannelMonitorSection, sectionProps), {
+    const view = render(createElement(ChannelMonitorSection, sectionProps), {
       wrapper: createQueryWrapper(),
     });
 
     expect(await screen.findByText("구독 요청 실패")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "구독" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
+    const unsubscribe = screen.getByRole("button", { name: "구독 해제" });
+    expect(unsubscribe.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(unsubscribe);
+    await waitFor(() => expect(unsubscribeMock).toHaveBeenCalledWith("monitor-1"));
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({
+      variant: "success", description: "구독 해제 요청을 보냈습니다. hub 확인 상태를 기다립니다.",
+    })));
+    monitorsQueryMock.mockReturnValue({ data: [{ ...failedMonitor,
+      subscription: { ...failedMonitor.subscription, status: "unsubscribing" } }],
+      isLoading: false, isError: false, refetch });
+    view.rerender(createElement(ChannelMonitorSection, sectionProps));
+    expect(screen.getByRole("button", { name: "구독 해제" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
+    monitorsQueryMock.mockReturnValue({ data: [{ ...failedMonitor,
+      subscription: { ...failedMonitor.subscription, status: "unsubscribed" } }],
+      isLoading: false, isError: false, refetch });
+    view.rerender(createElement(ChannelMonitorSection, sectionProps));
+    await waitFor(() => expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(false));
     expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
-    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("treats an unverified active row as recoverable instead of renewable", async () => {
@@ -473,7 +495,8 @@ describe("ChannelMonitorSection", () => {
     expect(await screen.findByText("구독 상태 복구 필요")).toBeTruthy();
     expect(screen.getByRole("button", { name: "구독" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "갱신" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "구독 해제" })).toBeNull();
+    expect(screen.getByRole("button", { name: "구독 해제" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(true);
   });
 
 });

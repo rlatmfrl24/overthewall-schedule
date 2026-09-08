@@ -47,6 +47,7 @@ beforeEach(async () => {
     ]);
   }
   await db.batch([
+    db.prepare("DELETE FROM settings WHERE key = 'otw_play_automation_paused'"),
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_monitor'"),
     db.prepare("DELETE FROM music_catalog_events WHERE aggregate_type = 'channel_automation_approval'"),
     db.prepare("DELETE FROM music_channel_websub_deliveries"),
@@ -102,6 +103,24 @@ beforeEach(async () => {
 });
 
 describe("D1ChannelMonitorRepository", () => {
+  it("rejects candidate persistence and continuation when automation pauses after a claim", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({ id: "monitor-pause", eventId: "event-pause", approvalEventId: "event-pause-approval",
+      channel: channel!, uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm", lastSeenVideoId: "AAAAAAAAAAA", approval,
+      actorUserId: "admin-1", now: NOW });
+    const claimed = await repository.claim(created.id, NOW + 1);
+    await db.prepare("INSERT INTO settings (key,value) VALUES ('otw_play_automation_paused','true')").run();
+    await expect(repository.recordCandidates({ monitorId: created.id, expectedVersion: claimed!.version,
+      monitorGeneration: claimed!.generation, observations: [observation("ZZZZZZZZZZZ")], now: NOW + 2,
+    })).rejects.toMatchObject({ code: "stale_message" });
+    await expect(repository.saveContinuation({ id: created.id, expectedVersion: claimed!.version,
+      monitorGeneration: claimed!.generation, pageToken: "next", baseVideoId: "AAAAAAAAAAA", newestVideoId: "ZZZZZZZZZZZ", now: NOW + 2,
+    })).rejects.toMatchObject({ code: "stale_message" });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_ingestion_candidates WHERE external_video_id='ZZZZZZZZZZZ'").first()).toEqual({ count: 0 });
+    expect((await repository.get(created.id)).version).toBe(claimed!.version);
+  });
+
   it("promotes a nonterminal playlist candidate to singing clip authority", async () => {
     const repository = new D1ChannelMonitorRepository(db);
     const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");

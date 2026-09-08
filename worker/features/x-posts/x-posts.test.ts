@@ -196,6 +196,12 @@ const makeCacheDb = (
               return null as T | null;
             },
             async all<T>() {
+              if (sql.includes("FROM x_post_sources")) {
+                return { results: args.flatMap((handle) => {
+                  const source = sources.get(String(handle));
+                  return source ? [source] : [];
+                }) as T[] };
+              }
               if (sql.includes("FROM members")) {
                 return {
                   results: [
@@ -204,9 +210,12 @@ const makeCacheDb = (
                 };
               }
               if (sql.includes("FROM x_posts")) {
-                const handle = String(args[0]);
-                const limit = Number(args[1]);
-                const results = Array.from(posts.values())
+                const requested: string[] = sql.includes("WITH requested(handle)")
+                  ? JSON.parse(String(args[0])) as string[]
+                  : [String(args[0])];
+                const results = requested.flatMap((handle) => {
+                  const limit = Number(args[1]);
+                  return Array.from(posts.values())
                   .filter(
                     (post) =>
                       post.handle === handle && post.hidden_at === null,
@@ -217,7 +226,8 @@ const makeCacheDb = (
                       new Date(a.created_at).getTime();
                     return dateDiff || b.id.localeCompare(a.id);
                   })
-                  .slice(0, limit) as T[];
+                  .slice(0, limit);
+                }) as T[];
                 return { results };
               }
               return { results: [] as T[] };
@@ -739,7 +749,7 @@ describe("x worker service", () => {
               created_at: "2026-02-13T00:01:00Z",
               conversation_id: "2059529979700846200",
               referenced_tweets: [
-                { type: "replied_to", id: "2059529979700846200" },
+                { type: "quoted", id: "2059529979700846200" },
               ],
               public_metrics: {},
             },
@@ -752,7 +762,7 @@ describe("x worker service", () => {
             {
               id: "2059529979700846200",
               author_id: "u0",
-              text: "reply parent",
+              text: "quote parent",
               created_at: "2026-02-12T23:00:00Z",
               public_metrics: {},
             },
@@ -776,12 +786,11 @@ describe("x worker service", () => {
     );
     expect(first.posts[0]).toMatchObject({
       id: "2059529979700846400",
-      reply: {
+      quote: {
         postId: "2059529979700846200",
-        conversationId: "2059529979700846200",
         post: {
           id: "2059529979700846200",
-          text: "reply parent",
+          text: "quote parent",
           username: "parent",
         },
       },
@@ -859,7 +868,7 @@ describe("x worker service", () => {
             conversation_id: "2059529979700846000",
             referenced_tweets: [
               {
-                type: "replied_to",
+                type: "quoted",
                 id: `2059529979700846${String(index).padStart(3, "0")}`,
               },
             ],
@@ -872,7 +881,7 @@ describe("x worker service", () => {
           data: postIds.map((_, index) => ({
             id: `2059529979700846${String(index).padStart(3, "0")}`,
             author_id: "u0",
-            text: `reply parent ${index}`,
+            text: `quote parent ${index}`,
             created_at: "2026-02-12T23:00:00Z",
             public_metrics: {},
           })),
@@ -899,10 +908,10 @@ describe("x worker service", () => {
       const storedPost = JSON.parse(
         target.posts.get(postId)?.value ?? "null",
       ) as XPostItem | null;
-      expect(storedPost?.reply).toMatchObject({
+      expect(storedPost?.quote).toMatchObject({
         postId: `2059529979700846${String(index).padStart(3, "0")}`,
         post: {
-          text: `reply parent ${index}`,
+          text: `quote parent ${index}`,
           username: "parent",
         },
       });
@@ -2064,6 +2073,18 @@ describe("x worker service", () => {
     expect(result.posts[0]?.links?.[0]?.linkedPost).toBeUndefined();
   });
 
+  it("답글 대상 URL은 인용으로 추론하거나 유료 링크 미리보기로 조회하지 않는다", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: [{ id: "u1", username: "otw_member" }] }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ id: "p1", text: "reply https://t.co/status", created_at: "2026-02-13T00:00:00Z",
+        in_reply_to_user_id: "u2", referenced_tweets: [{ type: "replied_to", id: "9876543210" }],
+        entities: { urls: [{ url: "https://t.co/status", expanded_url: "https://x.com/parent/status/9876543210" }] } }] }));
+    const result = await fetchXPostsForHandles(["otw_member"], { bearerToken: "token", cacheDb: makeCacheDb().db, maxResults: 5, richXLinkPreviewEnabled: true });
+    expect(result.posts[0]?.reply).toMatchObject({ postId: "9876543210", inReplyToUserId: "u2", post: null });
+    expect(result.posts[0]?.quote).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("캐시된 추론 인용 프리뷰는 추가 lookup 없이 사용한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
@@ -2194,7 +2215,7 @@ describe("x worker service", () => {
     expect(store.has("x:posts:v4:otw_member:5:plain")).toBe(true);
   });
 
-  it("인용 표식이 누락된 status 링크와 답글 대상을 한 번의 배치 lookup으로 보강하고 저장한다", async () => {
+  it("인용 표식이 누락된 status 링크만 유료 보강하고 답글은 관계로 저장한다", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockResolvedValueOnce(
@@ -2244,13 +2265,6 @@ describe("x worker service", () => {
               created_at: "2026-02-12T23:00:00Z",
               public_metrics: {},
             },
-            {
-              id: "2059529979700846400",
-              author_id: "u3",
-              text: "reply parent body",
-              created_at: "2026-02-12T22:00:00Z",
-              public_metrics: {},
-            },
           ],
           includes: {
             users: [
@@ -2258,11 +2272,6 @@ describe("x worker service", () => {
                 id: "u2",
                 username: "linked_member",
                 name: "Linked Member",
-              },
-              {
-                id: "u3",
-                username: "parent_member",
-                name: "Parent Member",
               },
             ],
           },
@@ -2286,7 +2295,7 @@ describe("x worker service", () => {
     const lookupUrl = new URL(String(lookupCalls[0]?.[0]));
     expect(lookupUrl.pathname).toBe("/2/tweets");
     expect(lookupUrl.searchParams.get("ids")).toBe(
-      "2059529979700846500,2059529979700846400",
+      "2059529979700846500",
     );
     expect(result.posts.find((post) => post.id === "2059529979700846592"))
       .toMatchObject({
@@ -2304,11 +2313,7 @@ describe("x worker service", () => {
         reply: {
           postId: "2059529979700846400",
           conversationId: "2059529979700846400",
-          post: {
-            id: "2059529979700846400",
-            text: "reply parent body",
-            username: "parent_member",
-          },
+          post: null,
         },
       });
     expect(
@@ -2322,10 +2327,10 @@ describe("x worker service", () => {
       posts.get("2059529979700846492")?.value ?? "null",
     ) as XPostItem | null;
     expect(storedQuote?.quote?.post?.id).toBe("2059529979700846500");
-    expect(storedReply?.reply?.post?.id).toBe("2059529979700846400");
+    expect(storedReply?.reply?.post).toBeNull();
     expect(usageEvents.at(-1)).toMatchObject({
       operation: "tweet_lookup",
-      resource_count: 4,
+      resource_count: 2,
     });
   });
 
@@ -2393,7 +2398,7 @@ describe("x worker service", () => {
     });
   });
 
-  it("누락되거나 보호·삭제된 답글 대상은 null fallback과 7일 캐시를 남긴다", async () => {
+  it("누락되거나 보호·삭제된 인용 대상은 null fallback과 7일 캐시를 남긴다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
     const parentIds = [
@@ -2415,7 +2420,7 @@ describe("x worker service", () => {
             text: `@parent reply ${index}`,
             created_at: `2026-02-13T00:0${index}:00Z`,
             conversation_id: parentId,
-            referenced_tweets: [{ type: "replied_to", id: parentId }],
+            referenced_tweets: [{ type: "quoted", id: parentId }],
             public_metrics: {},
           })),
         }),
@@ -2465,7 +2470,7 @@ describe("x worker service", () => {
       ),
     ).toEqual(new Set(parentIds));
     expect(result.posts).toHaveLength(3);
-    expect(result.posts.every((post) => post.reply?.post === null)).toBe(true);
+    expect(result.posts.every((post) => post.quote?.post === null)).toBe(true);
     for (const parentId of parentIds) {
       const cache = store.get(`x:linked-post:v1:${parentId}`);
       expect(JSON.parse(cache?.value ?? "null")).toEqual({ post: null });
@@ -2516,7 +2521,7 @@ describe("x worker service", () => {
     );
   });
 
-  it("증분 수집에서 일시적으로 실패한 기존 답글 대상 lookup을 다시 시도한다", async () => {
+  it("증분 수집에서 일시적으로 실패한 기존 인용 대상 lookup을 다시 시도한다", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-13T00:00:00Z"));
     const fetchMock = vi.mocked(fetch);
@@ -2536,7 +2541,7 @@ describe("x worker service", () => {
               created_at: "2026-02-13T00:00:00Z",
               conversation_id: "2059529979700846500",
               referenced_tweets: [
-                { type: "replied_to", id: "2059529979700846500" },
+                { type: "quoted", id: "2059529979700846500" },
               ],
               public_metrics: {},
             },
@@ -2553,9 +2558,8 @@ describe("x worker service", () => {
       richXLinkPreviewEnabled: false,
     });
 
-    expect(first.posts[0]?.reply).toEqual({
+    expect(first.posts[0]?.quote).toEqual({
       postId: "2059529979700846500",
-      conversationId: "2059529979700846500",
       post: null,
     });
     expect(target.sources.get("otw_member")?.last_seen_post_id).toBe(
@@ -2583,7 +2587,7 @@ describe("x worker service", () => {
             {
               id: "2059529979700846500",
               author_id: "u2",
-              text: "recovered reply parent",
+              text: "recovered quote parent",
               created_at: "2026-02-12T23:00:00Z",
               public_metrics: {},
             },
@@ -2615,19 +2619,19 @@ describe("x worker service", () => {
       "/tweets?ids=2059529979700846500",
     );
     expect(
-      second.posts.find((post) => post.id === "2059529979700846592")?.reply
+      second.posts.find((post) => post.id === "2059529979700846592")?.quote
         ?.post,
     ).toMatchObject({
       id: "2059529979700846500",
-      text: "recovered reply parent",
+      text: "recovered quote parent",
       username: "linked_member",
     });
     const storedPost = JSON.parse(
       target.posts.get("2059529979700846592")?.value ?? "null",
     ) as XPostItem | null;
-    expect(storedPost?.reply?.post).toMatchObject({
+    expect(storedPost?.quote?.post).toMatchObject({
       id: "2059529979700846500",
-      text: "recovered reply parent",
+      text: "recovered quote parent",
     });
   });
 

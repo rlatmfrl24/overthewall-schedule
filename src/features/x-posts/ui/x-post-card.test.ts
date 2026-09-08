@@ -314,66 +314,28 @@ describe("XPostCard", () => {
     expect(screen.queryByRole("button", { name: /관련 트윗/ })).toBeNull();
   });
 
-  it("작성자 조회 대기 중에도 확보된 답글 원문과 직접 링크를 표시한다", () => {
+  it("작성자 정보가 없어도 확보된 답글 원문과 직접 링크를 표시한다", () => {
     const parent = makeLinkedPost({ username: "i", name: null, text: "확보된 원문", url: "https://x.com/i/web/status/9876543210" });
     renderCard(makePost({ reply: { postId: parent.id, conversationId: null, post: parent } }));
-    expect(screen.getByText("작성자 정보 확인 중")).toBeTruthy();
+    expect(screen.getByText("작성자 정보 없음")).toBeTruthy();
     expect(screen.getByText("확보된 원문")).toBeTruthy();
     expect(screen.queryByText("@i")).toBeNull();
-    expect(screen.getByRole("link", { name: "작성자 정보 확인 중 답글 원문 열기" }).getAttribute("href")).toBe(parent.url);
+    expect(screen.getByRole("link", { name: "작성자 정보 없음 답글 원문 열기" }).getAttribute("href")).toBe(parent.url);
   });
 
-  it("답글 프리뷰가 없으면 저장된 원문 확인과 직접 링크를 제공한다", () => {
-    const replyToPostId = "2059529979700846500";
-    const load = vi.fn();
-    useXPostContextMock.mockReturnValue({
-      context: null,
-      loading: false,
-      error: null,
-      load,
-    });
-    renderCard(
-      makePost({
-        reply: {
-          postId: replyToPostId,
-          conversationId: null,
-          post: null,
-        },
-      }),
-    );
-
-    expect(
-      screen.getByText("원문이 아직 준비되지 않았거나 확인할 수 없습니다"),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "저장된 원문 다시 확인" }));
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"),
-    ).toBe(`https://x.com/i/web/status/${replyToPostId}`);
-  });
-
-  it("관련 트윗 재조회가 성공하면 답글 원문 프리뷰를 표시한다", () => {
-    const replyTo = makeLinkedPost({ text: "recovered reply context" });
-    useXPostContextMock.mockReturnValue({
-      context: { sourcePostId: "p1", replyTo },
-      loading: false,
-      error: null,
-      load: vi.fn(),
-    });
-    renderCard(
-      makePost({
-        reply: {
-          postId: replyTo.id,
-          conversationId: null,
-          post: null,
-        },
-      }),
-    );
-
-    expect(screen.getByText("recovered reply context")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "Linked Member 답글 원문 열기" }),
-    ).toBeTruthy();
+  it.each([
+    [undefined, undefined, "다른 트윗에 대한 답글"],
+    ["external", undefined, "@external의 트윗에 대한 답글"],
+    ["parent_member", "멤버 이름", "멤버 이름님의 트윗에 대한 답글"],
+  ])("미확보 답글은 관계와 직접 대상 링크로 정상 표시한다 (%s)", (targetUsername, replyTargetMemberName, label) => {
+    renderCard(makePost({ replyTargetMemberName,
+      reply: { postId: "parent", conversationId: "thread-root", targetUsername, post: null } }));
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"))
+      .toBe("https://x.com/i/web/status/parent");
+    expect(screen.queryByRole("button", { name: "저장된 원문 다시 확인" })).toBeNull();
+    expect(screen.queryByText(/준비되지/)).toBeNull();
+    expect(useXPostContextMock).not.toHaveBeenCalled();
   });
 
   it("멘션과 해시태그를 X 링크로 만들고 헤더에 정확한 작성 시각을 노출한다", () => {

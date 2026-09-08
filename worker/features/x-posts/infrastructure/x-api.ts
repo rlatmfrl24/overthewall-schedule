@@ -11,6 +11,7 @@ import {
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { readStoredXPreview } from "./x-reference-store";
+import { connectStoredReplyReferences } from "./x-reply-reference";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
 import {
@@ -1204,6 +1205,44 @@ const shouldUseFreshStoredPosts = (entry: StoredXPostsEntry) =>
   entry.lastCheckedAt !== null &&
   now() - entry.lastCheckedAt < X_POSTS_CACHE_POLICY.freshTtlMs;
 
+const storedPostsEntry = (
+  source: XPostSourceRow | null,
+  rows: XStoredPostRow[],
+  richXLinkPreviewEnabled: boolean,
+): StoredXPostsEntry | null => {
+  const posts = rows
+    .map(parseStoredXPost)
+    .filter((post): post is XPostItem => post !== null);
+  if (!source && posts.length === 0) return null;
+
+  const latestFetchedAt = rows.reduce((latest, row) => {
+    const value = Number(row.fetched_at);
+    return Number.isFinite(value) ? Math.max(latest, value) : latest;
+  }, 0);
+  const lastCheckedAt = source ? Number(source.last_checked_at) : latestFetchedAt;
+  const safeLastCheckedAt = Number.isFinite(lastCheckedAt) ? lastCheckedAt : null;
+  const fetchedAt = safeLastCheckedAt ?? latestFetchedAt;
+  return {
+    fetchedAt,
+    expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
+    userId: source?.user_id ?? rows[0]?.user_id ?? null,
+    posts: richXLinkPreviewEnabled ? posts : stripStoredXLinkedPostPreviews(posts),
+    lastCheckedAt: safeLastCheckedAt,
+    lastSeenPostId:
+      source?.collection_started_at != null
+        ? source.last_seen_post_id ?? null
+        : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+    lastError: source?.last_error ?? null,
+    collectionStartedAt: source?.collection_started_at == null
+      ? null : Number(source.collection_started_at),
+    initializationCompletedAt: source?.initialization_completed_at == null
+      ? null : Number(source.initialization_completed_at),
+    syncPaginationToken: source?.sync_pagination_token ?? null,
+    syncBasePostId: source?.sync_base_post_id ?? null,
+    syncNewestPostId: source?.sync_newest_post_id ?? null,
+  };
+};
+
 const readStoredPosts = async (
   handle: string,
   maxResults: number,
@@ -1228,50 +1267,66 @@ const readStoredPosts = async (
         .all<XStoredPostRow>(),
     ]);
 
-    const rows = getD1Results<XStoredPostRow>(rowsResult);
-    const posts = rows
-      .map(parseStoredXPost)
-      .filter((post): post is XPostItem => post !== null);
-    if (!source && posts.length === 0) return null;
-
-    const latestFetchedAt = rows.reduce((latest, row) => {
-      const value = Number(row.fetched_at);
-      return Number.isFinite(value) ? Math.max(latest, value) : latest;
-    }, 0);
-    const lastCheckedAt = source ? Number(source.last_checked_at) : latestFetchedAt;
-    const safeLastCheckedAt = Number.isFinite(lastCheckedAt)
-      ? lastCheckedAt
-      : null;
-    const fetchedAt = safeLastCheckedAt ?? latestFetchedAt;
-    const responsePosts = richXLinkPreviewEnabled
-      ? posts
-      : stripStoredXLinkedPostPreviews(posts);
-
-    return {
-      fetchedAt,
-      expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
-      userId: source?.user_id ?? rows[0]?.user_id ?? null,
-      posts: responsePosts,
-      lastCheckedAt: safeLastCheckedAt,
-      lastSeenPostId:
-        source?.collection_started_at != null
-          ? source.last_seen_post_id ?? null
-          : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
-      lastError: source?.last_error ?? null,
-      collectionStartedAt: source?.collection_started_at == null
-        ? null
-        : Number(source.collection_started_at),
-      initializationCompletedAt: source?.initialization_completed_at == null
-        ? null
-        : Number(source.initialization_completed_at),
-      syncPaginationToken: source?.sync_pagination_token ?? null,
-      syncBasePostId: source?.sync_base_post_id ?? null,
-      syncNewestPostId: source?.sync_newest_post_id ?? null,
-    };
+    return storedPostsEntry(source, getD1Results<XStoredPostRow>(rowsResult), richXLinkPreviewEnabled);
   } catch (error) {
     console.warn("Failed to read stored X posts", error);
     return null;
   }
+};
+
+const readStoredPostsForHandles = async (
+  handles: readonly string[],
+  maxResults: number,
+  richXLinkPreviewEnabled: boolean,
+  cacheDb: XCacheDb,
+) => {
+  const entries = new Map<string, StoredXPostsEntry | null>();
+  // Keep each batch bounded, with indexed per-handle limits followed by ID
+  // lookups. A window query would scan the entire retained post history.
+  for (let offset = 0; offset < handles.length; offset += 50) {
+    const chunk = handles.slice(offset, offset + 50);
+    try {
+      const [sourceRows, postRows] = await Promise.all([
+        cacheDb.prepare(
+          `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
+             updated_at, last_error, collection_started_at,
+             initialization_completed_at, sync_pagination_token,
+             sync_base_post_id, sync_newest_post_id
+           FROM x_post_sources WHERE handle IN (${chunk.map(() => "?").join(",")})`,
+        ).bind(...chunk).all<XPostSourceRow>().catch((error) => {
+          console.warn("Failed to read stored X post sources", error);
+          return { results: [] as XPostSourceRow[] };
+        }),
+        cacheDb.prepare(
+          `WITH requested(handle) AS (SELECT value FROM json_each(?))
+           SELECT post.id, post.handle, post.user_id, post.username, post.value,
+             post.created_at, post.fetched_at, post.hidden_at
+           FROM requested CROSS JOIN x_posts AS post
+           WHERE post.id IN (
+             SELECT candidate.id FROM x_posts AS candidate
+             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL
+             ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT ?
+           )
+           ORDER BY post.handle, post.created_at DESC, post.id DESC`,
+        ).bind(JSON.stringify(chunk), maxResults).all<XStoredPostRow>(),
+      ]);
+      const sources = new Map(getD1Results<XPostSourceRow>(sourceRows).map((row) => [row.handle, row]));
+      const posts = new Map<string, XStoredPostRow[]>();
+      for (const row of getD1Results<XStoredPostRow>(postRows)) {
+        const group = posts.get(row.handle) ?? [];
+        group.push(row);
+        posts.set(row.handle, group);
+      }
+      for (const handle of chunk) {
+        entries.set(handle, storedPostsEntry(
+          sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled,
+        ));
+      }
+    } catch (error) {
+      console.warn("Failed to read stored X posts", error);
+    }
+  }
+  return entries;
 };
 
 const recordXPostReferences = async (
@@ -1291,10 +1346,10 @@ const recordXPostReferences = async (
       Boolean(reference?.id)
     );
     for (const reference of references) {
-      const local = await cacheDb.prepare(
+      const local = reference.type === "quote" ? await cacheDb.prepare(
         "SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1",
-      ).bind(reference.id).first<{ found: number }>();
-      const state = local
+      ).bind(reference.id).first<{ found: number }>() : null;
+      const state = reference.type === "reply" && !reference.hydrated ? "link_only" : local
         ? "local"
         : reference.hydrated
           ? "hydrated"
@@ -1309,6 +1364,7 @@ const recordXPostReferences = async (
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
               WHEN x_post_references.resolution_state = 'terminal'
+                AND x_post_references.referenced_post_id = excluded.referenced_post_id
                 THEN x_post_references.resolution_state
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND x_post_references.hydrated_at IS NOT NULL
@@ -1316,17 +1372,27 @@ const recordXPostReferences = async (
               ELSE excluded.resolution_state
             END,
             next_attempt_at = CASE
+              WHEN excluded.relation_type = 'reply' THEN NULL
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
               THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
-           hydrated_at = COALESCE(excluded.hydrated_at, x_post_references.hydrated_at),
+           hydrated_at = CASE WHEN x_post_references.referenced_post_id=excluded.referenced_post_id
+             THEN COALESCE(excluded.hydrated_at, x_post_references.hydrated_at) ELSE excluded.hydrated_at END,
+           author_state = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN 'not_required'
+             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
+             THEN 'not_required' ELSE x_post_references.author_state END,
+           author_next_attempt_at = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_next_attempt_at END,
+           author_last_error_code = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_last_error_code END,
+           last_error_code = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN NULL
+             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
+             THEN NULL ELSE x_post_references.last_error_code END,
            updated_at = excluded.updated_at`,
       ).bind(
         post.id,
         reference.type,
         reference.id,
         state,
-        !reference.hydrated ? recordedAt : null,
+        reference.type === "quote" && !reference.hydrated ? recordedAt : null,
         reference.hydrated ? recordedAt : null,
         recordedAt,
         recordedAt,
@@ -1398,8 +1464,9 @@ const writeStoredPosts = async (
     // Facts deliberately contain no raw content. They are gated separately so
     // the existing feed can stay enabled until the approved analytics use-case
     // is confirmed in the X Developer Console.
-    await recordXPostFacts(cacheDb, normalizedHandle, posts, fetchedAt);
-    await recordXPostReferences(cacheDb, posts, fetchedAt);
+    const connectedPosts = await connectStoredReplyReferences(cacheDb, posts);
+    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt);
+    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt);
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1887,6 +1954,7 @@ export const normalizeXTimelineResponse = (
         ? {
             postId: replyReference.id,
             conversationId: post.conversation_id ?? null,
+            inReplyToUserId: post.in_reply_to_user_id ?? null,
             post: null,
           }
         : null,
@@ -1944,7 +2012,7 @@ const inferMissingXQuoteReferences = (posts: XPostItem[]) =>
 
     const quotePostId = (post.links ?? [])
       .map((link) => extractLinkedXStatusId(link, post.id))
-      .find((id): id is string => Boolean(id));
+      .find((id): id is string => Boolean(id) && id !== post.reply?.postId);
     return quotePostId
       ? {
           ...post,
@@ -1963,6 +2031,7 @@ const collectLinkedXStatusIds = (posts: XPostItem[]) => {
 
       const id = extractLinkedXStatusId(link, post.id);
       if (id && id === post.quote?.postId) continue;
+      if (id && id === post.reply?.postId) continue;
       if (!id || seen.has(id)) continue;
 
       seen.add(id);
@@ -2312,7 +2381,6 @@ const enrichXPostsWithReferencedPosts = async (
     new Set(
       postsWithInferredQuotes.flatMap((post) => [
         post.quote && !post.quote.post ? post.quote.postId : null,
-        post.reply && !post.reply.post ? post.reply.postId : null,
       ]),
     ),
   )
@@ -2779,16 +2847,20 @@ export const fetchXPostsForHandles = async (
       : null;
   }
 
-  for (const handle of normalizedHandles) {
-    // Public readers must not serve an isolate-local cache after another isolate
-    // redacts an original or hydrates its references. D1 is the feed authority.
-    if (!refresh && cacheDb) {
-      const stored = await readStoredPosts(handle, maxResults, richXLinkPreviewEnabled, cacheDb);
-      resultByHandle.set(handle, stored
+  if (!refresh && cacheDb) {
+    // D1 remains authoritative across isolates for redaction/reference updates.
+    const entries = await readStoredPostsForHandles(
+      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb,
+    );
+    return buildResult(normalizedHandles.map((handle) => {
+      const stored = entries.get(handle);
+      return stored
         ? makeCachedPostsResult(handle, stored, !shouldUseFreshStoredPosts(stored))
-        : { handle, userId: null, posts: [], error: null, stale: false });
-      continue;
-    }
+        : { handle, userId: null, posts: [], error: null, stale: false };
+    }));
+  }
+
+  for (const handle of normalizedHandles) {
     const hasRelationMarker = await hasCurrentRelationCollectionMarker(
       cacheDb,
       handle,

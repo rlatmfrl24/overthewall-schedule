@@ -158,6 +158,21 @@ const youtube = () => ({
 }) satisfies OtwPlayYouTubeIngestionReader;
 
 describe("ChannelMonitorService", () => {
+  it("blocks new monitoring and reactivation while preserving pause and candidate readback", async () => {
+    const repo = repository();
+    const reader = youtube();
+    const service = new ChannelMonitorService(repo, reader, () => "id", () => 100, undefined, async () => true);
+    await expect(service.create("UC1234567890123456789012", "admin"))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.updateStatus("monitor-1", 0, "active", "admin"))
+      .rejects.toMatchObject({ code: "validation_failed" });
+    await expect(service.reconcile("monitor-1")).rejects.toMatchObject({ code: "validation_failed" });
+    expect(reader.readPlaylistPage).not.toHaveBeenCalled();
+    await service.updateStatus("monitor-1", 0, "paused", "admin");
+    await service.listCandidates("monitor-1");
+    expect(repo.updateStatus).toHaveBeenCalledWith(expect.objectContaining({ status: "paused" }));
+    expect(repo.listCandidates).toHaveBeenCalled();
+  });
   it("returns an opaque cursor and restores it for the next candidate page", async () => {
     const repo = repository();
     repo.listCandidates

@@ -7,6 +7,8 @@ trigger: always_on
 ## Technology Stack
 
 - Package manager: `pnpm@11.7.0` from `package.json`.
+- Development/build runtime: Node.js 24 LTS, pinned in `.node-version` and
+  constrained by `package.json#engines`. Match Cloudflare Builds `NODE_VERSION`.
 
 ### Frontend
 - React 19 with Vite 7.

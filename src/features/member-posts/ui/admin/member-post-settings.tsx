@@ -1277,10 +1277,10 @@ export function MemberPostSettingsManager({
               <div className="grid gap-3 rounded-md border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-end">
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor="x-reference-preview-mode" className="text-sm font-semibold">
-                    인용·답글 미리보기 모드
+                    인용 원문 미리보기 모드
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    작성자 캐시는 30일 재사용합니다. 비용 비상 시 게시글만 또는 링크만 표시할 수 있습니다.
+                    인용 작성자 캐시는 30일 재사용합니다. 비용 비상 시 인용 게시글만 또는 링크만 표시할 수 있습니다.
                   </p>
                 </div>
                 <Select
@@ -1301,10 +1301,10 @@ export function MemberPostSettingsManager({
               <div className="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-end sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <Label htmlFor="x-preview-budget" className="text-sm font-semibold">
-                    미리보기 일일 예산 센트
+                    인용 보강 일일 예산 센트
                   </Label>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    기본 10센트입니다. 신규 수집을 우선하며, 소진된 원문 보강은 다음 UTC 일로 이월합니다. 저장된 원문 연결에는 X 비용이 들지 않습니다.
+                    기본 10센트입니다. 신규 수집을 우선하며, 예산이 소진된 인용 보강은 다음 UTC 일로 이월합니다. 저장된 원문 연결에는 X 비용이 들지 않습니다.
                   </p>
                 </div>
                 <div className="flex w-full shrink-0 gap-2 sm:w-48">
@@ -1328,6 +1328,10 @@ export function MemberPostSettingsManager({
 
                 </div>
               </details>
+              <p className="rounded-md border bg-muted/20 p-3 text-sm leading-6">
+                <strong>답글 표시 정책</strong><br />
+                저장된 미리보기 유지 · 미확보 원문은 관계와 링크 표시 · 추가 X 조회 없음
+              </p>
               <XPostHistoryManager enabled={isXHistoryAnalyticsEnabled} />
             </div>
             </MemberPostFeedMonitor>

@@ -15,6 +15,7 @@ export {
 export {
   DATA_RETENTION_POLICIES,
   getDataRetentionStatus,
+  readDueDataRetentionPolicyIds,
   runDataRetentionPolicyPrune,
   runDataRetentionPrune,
   runScheduledDataRetentionPrune,

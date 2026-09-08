@@ -80,12 +80,16 @@ export async function fetchMembersXPosts<TMember extends MemberDto>(
     ]),
   );
   const handles = membersWithHandles.map(({ handle }) => handle);
+  const memberNames = new Map(membersWithHandles.map(({ member, handle }) =>
+    [normalizeXHandle(handle), member.name]));
   const response = await fetchXPosts(handles, options);
   if (!response) return null;
 
   const mapPost = (post: XPostDto): XPostViewModel => ({
     ...post,
     memberUid: handleToMemberUid.get(normalizeXHandle(post.username)),
+    replyTargetMemberName: post.reply?.targetUsername
+      ? memberNames.get(normalizeXHandle(post.reply.targetUsername)) : undefined,
   });
 
   return {

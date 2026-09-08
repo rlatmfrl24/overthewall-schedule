@@ -287,6 +287,10 @@ export const MemberPostsOverview = ({
     () => new Map(members.map((member) => [member.uid, member])),
     [members],
   );
+  const xMemberNames = useMemo(
+    () => new Map(membersWithXHandles.map(({ member, handle }) => [handle.toLowerCase(), member.name])),
+    [membersWithXHandles],
+  );
 
   const memberPostsState = useMemberPosts({
     includeX: loadX,
@@ -492,7 +496,7 @@ export const MemberPostsOverview = ({
                     return item.kind === "x" ? (
                       <XPostCard
                         key={item.id}
-                        post={item.post}
+                        post={{ ...item.post, replyTargetMemberName: xMemberNames.get(item.post.reply?.targetUsername?.toLowerCase() ?? "") }}
                         compactTime={formatPostTime(item.createdAt)}
                         member={member}
                         openPostOnCardClick

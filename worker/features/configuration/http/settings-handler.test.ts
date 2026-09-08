@@ -124,6 +124,7 @@ describe("settings worker route", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(body.auto_update_enabled).toBeNull();
+    expect(body.otw_play_automation_paused).toBe("false");
     expect(body.auto_update_interval_hours).toBe("6");
     expect(body.auto_update_last_run).toBeNull();
     expect(body.live_schedule_auto_fill_enabled).toBe("true");

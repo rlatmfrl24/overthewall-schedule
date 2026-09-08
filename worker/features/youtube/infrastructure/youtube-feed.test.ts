@@ -87,6 +87,8 @@ describe("YouTube Shorts frontier completeness", () => {
 describe("YouTube Shorts storage", () => {
   it("imports valid legacy cache rows idempotently", async () => {
     const inserted = new Set<string>();
+    let checkpoint: string | null = null;
+    let cacheReads = 0;
     const channelId = `UC${"A".repeat(22)}`;
     const db = {
       prepare(sql: string) {
@@ -96,8 +98,12 @@ describe("YouTube Shorts storage", () => {
             bindings = values;
             return statement;
           },
+          async first<T>() {
+            return (checkpoint ? { value: checkpoint } : null) as T | null;
+          },
           async all<T>() {
             if (sql.includes("FROM youtube_api_cache")) {
+              cacheReads += 1;
               return {
                 results: [{
                   fetched_at: initialized,
@@ -126,6 +132,7 @@ describe("YouTube Shorts storage", () => {
             return { results: [] as T[] };
           },
           async run() {
+            if (sql.includes("INSERT INTO settings")) checkpoint = String(bindings[1]);
             if (sql.includes("INSERT INTO youtube_feed_videos")) {
               const videoId = String(bindings[0]);
               const changes = inserted.has(videoId) ? 0 : 1;
@@ -143,6 +150,8 @@ describe("YouTube Shorts storage", () => {
     expect(await importLegacyOfficialShorts(testEnv, initialized)).toBe(1);
     expect(await importLegacyOfficialShorts(testEnv, initialized)).toBe(0);
     expect(inserted).toEqual(new Set(["short-1"]));
+    expect(cacheReads).toBe(1);
+    expect(checkpoint).toBe(String(initialized));
   });
 
   it("queries normal videos and Shorts independently before applying limits", async () => {

@@ -235,6 +235,16 @@ describe("MemberPostsOverview", () => {
     useMemberPostsMock.mockReset();
   });
 
+  it("aggregate 피드에서도 기존 멤버 정보로 답글 대상 이름과 직접 링크를 표시한다", () => {
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState({ xPosts: [{ ...xPost,
+      reply: { postId: "10", conversationId: "9", targetUsername: "OTW_MEMBER", post: null } }], cafePosts: [] }));
+    renderWithQueryClient(createElement(MemberPostsOverview, { loadX: true, loadCafe: false }));
+    expect(screen.getByText("테스트 멤버님의 트윗에 대한 답글")).toBeTruthy();
+    expect(screen.queryByText(/원문 준비 중/)).toBeNull();
+    expect(screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"))
+      .toBe("https://x.com/i/web/status/10");
+  });
+
   it("X 게시글과 네이버 카페 게시글을 한 타임라인에 최신순으로 표시한다", () => {
     useMemberPostsMock.mockReturnValue(makeMemberPostsState());
 

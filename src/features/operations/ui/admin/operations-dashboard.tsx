@@ -587,7 +587,7 @@ function RunDetails({ run }: { run: OperationRun }) {
         <p className="font-semibold break-words">{item.targetKey.replace(/^handles:\d+:/, "@").replaceAll(",", " · @")} · {statusLabel(item.status)}</p>
         <p>게시물 수집: {item.collection ? `응답 ${item.collection.postsReturned}건 · 저장 ${item.collection.postsStored}건` : "수집 결과 기록 없음"}</p>
         {item.collection?.error && <p>{item.collection.error}</p>}
-        {item.referenceHydration ? <><p>보강: 원문 {item.referenceHydration.hydrated}건 · 작성자 {item.referenceHydration.authorsResolved}건</p><p>이월 {item.referenceHydration.deferred} · 실패 {item.referenceHydration.failed} · 접근 불가 {item.referenceHydration.terminal}</p><p>{item.referenceHydration.errorCode} · 재시도 가능 {formatDateTime(item.referenceHydration.retryAt)}</p></> : <p>보강 결과 기록 없음</p>}
+        {item.referenceHydration ? <><p>{item.referenceHydration.scope === "quotes" ? "인용 보강" : "답글·인용 보강"}: 원문 {item.referenceHydration.hydrated}건 · 작성자 {item.referenceHydration.authorsResolved}건</p><p>이월 {item.referenceHydration.deferred} · 실패 {item.referenceHydration.failed} · 접근 불가 {item.referenceHydration.terminal}</p><p>{item.referenceHydration.errorCode} · 재시도 가능 {formatDateTime(item.referenceHydration.retryAt)}</p></> : <p>보강 결과 기록 없음</p>}
         <p>시도 {item.attempts}회 · 결과 갱신 {formatDateTime(item.updatedAt)}{item.retryPending ? ` · 재시도 대기 ${formatDateTime(item.nextRetryAt)}` : ""}</p>
       </article>)}
       {recorded.failures.map((failure) => <p key={failure.itemId} className="break-words text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (시도 {failure.attempts}회)</p>)}
@@ -691,6 +691,11 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
       {view !== "resources" && <AdminSectionHeader headingLevel={1} title={view === "home" ? "대시보드" : view === "history" ? "작업 실행 이력" : "운영 대시보드"} description={`운영 상태 ${data?.window.hours ?? WINDOW_HOURS}시간 · D1 실계측 UTC 일자 기준`} actions={<Button variant="outline" onClick={refreshAll} disabled={statusQuery.isFetching}><RefreshCw className={cn(statusQuery.isFetching && "animate-spin")} /> 상태 새로고침</Button>} />}
 
       <QueryReadback updatedAt={statusQuery.dataUpdatedAt} fetching={statusQuery.isFetching} error={statusQuery.isError} />
+      {data?.playAutomationPaused && <section role="status" className="rounded-lg border bg-muted/30 p-4 text-sm">
+        <p className="font-medium">Play 자동화가 일시 중지되어 있습니다.</p>
+        <p className="mt-1 text-muted-foreground">채널 자동 수집·소스 점검·구독 갱신을 중지하고, 구독 해제 확인과 데이터 보존 정리만 계속합니다. 기존 곡과 후보 검수는 이용할 수 있습니다.</p>
+        <a href="/admin/otw-play?tab=channels" className="mt-2 inline-block underline underline-offset-4">Play 채널 감시 설정 열기</a>
+      </section>}
       {data && (view === "all" || view === "home") ? <section className="space-y-3" aria-labelledby="attention-heading">
         <SectionHeading id="attention-heading" title="지금 확인할 것" description="문제와 대기열 상태를 다른 이력보다 먼저 확인합니다." />
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]" data-testid="operations-attention-grid"><IssuePanel issues={data.summary.issues} updatedAt={data.updatedAt} /><QueueHealthCard activeRunCount={data.scheduledOperations.activeRunCount} outboxBacklog={data.scheduledOperations.outboxBacklog} staleLeaseCount={data.scheduledOperations.staleLeaseCount} used={queue!.used} limit={queue!.limit} usedPercent={Math.max(0, Math.min(100, queue!.usedPercent))} /></div>

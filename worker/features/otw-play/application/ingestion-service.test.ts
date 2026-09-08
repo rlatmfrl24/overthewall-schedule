@@ -84,7 +84,7 @@ const repository = () => ({
   recordVideoBatch: vi.fn(async () => undefined),
   recordMessageFailure: vi.fn(async () => undefined),
   markMessageDeadLetter: vi.fn(async () => undefined),
-  listPendingMessages: vi.fn(async () => []),
+  listPendingMessages: vi.fn<IngestionRepository["listPendingMessages"]>(async () => []),
   clearExpiredApiData: vi.fn(async () => 0),
   readReviewCandidate: vi.fn(async (
     _jobId: string | null,
@@ -164,6 +164,40 @@ const adminActor = {
 };
 
 describe("IngestionService", () => {
+  it("stops automatic recovery before the next queue send when automation pauses", async () => {
+    const repo = repository();
+    const messages = ["message-1", "message-2"].map((idempotencyKey) => ({
+      schemaVersion: 1 as const, jobId: "job-1", idempotencyKey,
+    }));
+    repo.listPendingMessages.mockResolvedValue(messages);
+    let running = true;
+    const queue = { send: vi.fn(async () => { running = false; }) };
+    const service = new IngestionService(repo, youtube(), queue, () => "event-1", () => 100);
+
+    await expect(service.requeuePendingWithOutcome(20, async () => running))
+      .resolves.toEqual({ attempted: 1, enqueued: 1, failed: 0 });
+    expect(queue.send).toHaveBeenCalledExactlyOnceWith(messages[0]);
+    queue.send.mockClear();
+    await expect(service.requeuePendingWithOutcome(20, async () => running))
+      .resolves.toEqual({ attempted: 0, enqueued: 0, failed: 0 });
+    expect(queue.send).not.toHaveBeenCalled();
+    await expect(service.requeuePending(20)).resolves.toBe(2);
+  });
+
+  it("reports queue recovery failures and leaves remaining messages pending", async () => {
+    const repo = repository();
+    repo.listPendingMessages.mockResolvedValue([
+      { schemaVersion: 1, jobId: "job-1", idempotencyKey: "message-1" },
+      { schemaVersion: 1, jobId: "job-1", idempotencyKey: "message-2" },
+    ]);
+    const queue = { send: vi.fn(async () => { throw new Error("queue unavailable"); }) };
+    const service = new IngestionService(repo, youtube(), queue, () => "event-1", () => 100);
+    await expect(service.requeuePendingWithOutcome(20))
+      .resolves.toEqual({ attempted: 1, enqueued: 0, failed: 1 });
+    expect(queue.send).toHaveBeenCalledTimes(1);
+    expect(repo.recordMessageFailure).not.toHaveBeenCalled();
+  });
+
   it("allocates catalog identities and a song for atomic ready materialization", async () => {
     const repo = repository();
     const generatedIds = [

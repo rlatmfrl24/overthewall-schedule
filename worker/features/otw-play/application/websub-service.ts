@@ -56,6 +56,7 @@ export class WebsubService {
   private readonly publicOrigin: string | undefined;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly isAutomationPaused: () => Promise<boolean>;
 
   constructor(
     repository: WebsubRepository,
@@ -66,6 +67,7 @@ export class WebsubService {
     publicOrigin: string | undefined,
     createId: () => string = () => crypto.randomUUID(),
     clock: () => number = Date.now,
+    isAutomationPaused: () => Promise<boolean> = async () => false,
   ) {
     this.repository = repository;
     this.youtube = youtube;
@@ -75,6 +77,7 @@ export class WebsubService {
     this.publicOrigin = publicOrigin;
     this.createId = createId;
     this.clock = clock;
+    this.isAutomationPaused = isAutomationPaused;
   }
 
   private getSecret(version: number) {
@@ -141,7 +144,11 @@ export class WebsubService {
     renewal: boolean,
     actorUserId: string,
     retryRenewal = false,
+    retryFailedBefore?: number,
   ) {
+    if (mode === "subscribe" && await this.isAutomationPaused()) {
+      throw new WebsubError("authority_denied", "OTW Play automation is paused");
+    }
     let monitor: OtwPlayChannelMonitorDto;
     try {
       monitor = await this.repository.getMonitor(monitorId);
@@ -212,6 +219,7 @@ export class WebsubService {
         actorUserId,
         eventId: this.createId(),
         now,
+        ...(retryFailedBefore === undefined ? {} : { retryFailedBefore }),
       });
     } catch (error) {
       if (error instanceof IngestionRepositoryError) {
@@ -237,6 +245,7 @@ export class WebsubService {
         error instanceof WebsubHubRequestError ? error.code : "hub_request_failed",
         currentIsVerifiedActive ? "active" : "failed",
         this.clock(),
+        now,
       );
       throw new WebsubError("hub_failed", "WebSub hub request failed", true);
     }
@@ -282,6 +291,9 @@ export class WebsubService {
     }
     let leaseExpiresAt: number | null = null;
     if (input.mode === "subscribe") {
+      if (await this.isAutomationPaused()) {
+        throw new WebsubError("authority_denied", "OTW Play automation is paused");
+      }
       const leaseSeconds = Number(input.leaseSeconds);
       if (
         !Number.isSafeInteger(leaseSeconds) ||
@@ -313,6 +325,9 @@ export class WebsubService {
     signature: string | null;
     payload: Uint8Array;
   }) {
+    if (await this.isAutomationPaused()) {
+      throw new WebsubError("authority_denied", "OTW Play automation is paused");
+    }
     const subscription = await this.repository.findSubscriptionByTokenHash(
       await sha256Hex(input.token),
     );
@@ -352,6 +367,7 @@ export class WebsubService {
       throw new WebsubError("invalid_feed", "WebSub channel does not match subscription");
     }
     for (const entry of feed.entries) {
+      if (await this.isAutomationPaused()) return;
       let delivery: { id: string; shouldEnqueue: boolean };
       try {
         delivery = await this.repository.recordDelivery({
@@ -369,6 +385,7 @@ export class WebsubService {
         throw error;
       }
       if (!delivery.shouldEnqueue) continue;
+      if (await this.isAutomationPaused()) return;
       try {
         await this.queue.send({
           schemaVersion: 1,
@@ -388,6 +405,7 @@ export class WebsubService {
   }
 
   async process(message: OtwPlayWebsubQueueMessage) {
+    if (await this.isAutomationPaused()) return;
     const delivery = await this.repository.claimDelivery(message.deliveryId, this.clock());
     if (!delivery) return;
     if (
@@ -404,6 +422,7 @@ export class WebsubService {
     }
     try {
       const [observation] = await this.youtube.readVideos([delivery.externalVideoId]);
+      if (await this.isAutomationPaused()) return;
       if (!observation) throw new WebsubError("invalid_feed", "Video metadata is missing");
       if (
         observation.video !== null &&
@@ -427,6 +446,7 @@ export class WebsubService {
         return;
       }
       if (error instanceof IngestionRepositoryError && error.code === "stale_message") {
+        if (await this.isAutomationPaused()) return;
         await this.repository.rejectDelivery(
           delivery.id,
           "authority_revoked",
@@ -452,9 +472,17 @@ export class WebsubService {
   }
 
   async recoverPending(limit = 50) {
+    return (await this.recoverPendingWithOutcome(limit)).enqueued;
+  }
+
+  async recoverPendingWithOutcome(limit = 50) {
+    if (await this.isAutomationPaused()) return { attempted: 0, enqueued: 0, failed: 0 };
     const ids = await this.repository.listRecoverableDeliveryIds(this.clock(), limit);
+    let attempted = 0;
     let enqueued = 0;
     for (const id of ids) {
+      if (await this.isAutomationPaused()) break;
+      attempted += 1;
       try {
         await this.queue.send({
           schemaVersion: 1,
@@ -467,7 +495,7 @@ export class WebsubService {
         await this.repository.markDeliveryFailed(id, "queue_send_failed", this.clock());
       }
     }
-    return enqueued;
+    return { attempted, enqueued, failed: attempted - enqueued };
   }
 
   async cleanupInvalidSubscriptions(
@@ -490,10 +518,13 @@ export class WebsubService {
   async recoverStaleIntents(
     actorUserId = "system:websub-intent-recovery",
     limit = 10,
+    teardownOnly = false,
   ) {
-    const intents = await this.repository.listStaleIntents(this.clock(), limit);
+    const onlyTeardown = teardownOnly || await this.isAutomationPaused();
+    const intents = await this.repository.listStaleIntents(this.clock(), limit, onlyTeardown);
     const results: Array<{ id: string; ok: boolean }> = [];
     for (const intent of intents) {
+      if (onlyTeardown && intent.status !== "unsubscribing") continue;
       try {
         if (intent.status === "pending") {
           await this.subscribe(intent.monitorId, actorUserId);
@@ -517,11 +548,28 @@ export class WebsubService {
   }
 
   async renewDue(actorUserId = "system:websub-renewal", limit = 10) {
+    if (await this.isAutomationPaused()) return [];
     const ids = await this.repository.listRenewalMonitorIds(this.clock(), limit);
     const results: Array<{ id: string; ok: boolean }> = [];
     for (const id of ids) {
       try {
         await this.renew(id, actorUserId);
+        results.push({ id, ok: true });
+      } catch {
+        results.push({ id, ok: false });
+      }
+    }
+    return results;
+  }
+
+  async retryFailedSubscriptions(actorUserId = "system:websub-retry", limit = 10) {
+    if (await this.isAutomationPaused()) return [];
+    const now = this.clock();
+    const ids = await this.repository.listRetryableSubscriptionMonitorIds(now, limit);
+    const results: Array<{ id: string; ok: boolean }> = [];
+    for (const id of ids) {
+      try {
+        await this.requestSubscription(id, "subscribe", false, actorUserId, false, now - 60 * 60_000);
         results.push({ id, ok: true });
       } catch {
         results.push({ id, ok: false });

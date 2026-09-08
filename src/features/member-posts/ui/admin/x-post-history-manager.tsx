@@ -40,10 +40,11 @@ const postKindLabel: Record<XHistoryPostDto["postType"], string> = {
 };
 
 const getReferencedPost = (item: XHistoryPostDto) => {
-  if (!item.post) return null;
-  if (item.post.reply) return { kind: "답글 대상", ...item.post.reply };
-  if (item.post.quote) return { kind: "인용 원문", ...item.post.quote };
-  return null;
+  if (!item.post) return [];
+  return [
+    ...(item.post.reply ? [{ kind: "답글 대상", ...item.post.reply }] : []),
+    ...(item.post.quote ? [{ kind: "인용 원문", ...item.post.quote }] : []),
+  ];
 };
 
 export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
@@ -159,25 +160,25 @@ export function XPostHistoryManager({ enabled }: { enabled: boolean }) {
                     {item.post ? (
                       <>
                         <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{item.post.text}</p>
-                        {referenced && (
-                          <div className="mt-3 rounded-md border bg-muted/20 p-3 text-sm">
-                            <p className="mb-1 font-medium">{referenced.kind}</p>
-                            {referenced.post ? (
+                        {referenced.map((reference) => (
+                          <div key={reference.kind} className="mt-3 rounded-md border bg-muted/20 p-3 text-sm">
+                            <p className="mb-1 font-medium">{reference.kind}{reference.kind === "답글 대상" && !reference.post ? " · 관계 표시" : ""}</p>
+                            {reference.post ? (
                               <>
                                 <p className="whitespace-pre-wrap break-words text-muted-foreground">
-                                  {referenced.post.text}
+                                  {reference.post.text}
                                 </p>
-                                <a href={referenced.post.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs underline">
+                                <a href={reference.post.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs underline">
                                   참조 게시물 열기 <ExternalLink className="h-3 w-3" />
                                 </a>
                               </>
                             ) : (
-                              <a href={`https://x.com/i/web/status/${referenced.postId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline">
+                              <a href={`https://x.com/i/web/status/${reference.postId}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs underline">
                                 참조 ID로 X에서 열기 <ExternalLink className="h-3 w-3" />
                               </a>
                             )}
                           </div>
-                        )}
+                        ))}
                         {item.post.media.length > 0 && <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">{item.post.media.map((media) => media.previewImageUrl || media.url ? <img key={media.mediaKey} src={media.previewImageUrl ?? media.url ?? ""} alt={media.altText ?? "X 게시물 미디어"} className="aspect-video w-full rounded-md border object-cover" loading="lazy" /> : null)}</div>}
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>미디어 {item.mediaCount}</span><span>링크 {item.linkCount}</span><a href={item.post.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">X 원문 <ExternalLink className="h-3 w-3" /></a></div>
                         <details className="mt-3 rounded-md border border-dashed bg-muted/10">

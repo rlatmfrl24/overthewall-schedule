@@ -238,6 +238,49 @@ const toRunDto = (
   lastError: run.last_error,
 });
 
+// D1 otherwise chooses a scan of retained dispatched rows for this OR predicate.
+// Keep the read-only eligibility probe and the atomic claim on the same index
+// and predicates; adding a new index would amplify every outbox write.
+const pendingOutboxSelection = (scopedToRun: boolean) => `
+  SELECT o.id
+  FROM scheduled_outbox AS o INDEXED BY idx_scheduled_outbox_status_available
+  INNER JOIN scheduled_job_items i ON i.id = o.item_id
+  INNER JOIN scheduled_job_runs r ON r.id = o.run_id
+  WHERE ${scopedToRun ? "o.run_id = ? AND" : ""}
+    o.status IN ('pending', 'failed', 'dispatching')
+    AND (o.status <> 'dispatching' OR o.lease_until < ?)
+    AND o.available_at <= ?
+    AND r.status IN ('queued', 'running')
+    AND (
+      (o.event_type = 'execute' AND i.status = 'queued')
+      OR (o.event_type = 'reconcile'
+        AND i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled'))
+    )
+  ORDER BY o.available_at, o.id LIMIT ?`;
+
+// Start with queued items, which are normally absent, instead of walking every
+// completed delivery still inside the seven-day outbox retention window.
+const expiredDeliverySelection = `
+  SELECT o.id
+  FROM scheduled_job_items AS i INDEXED BY idx_scheduled_job_items_lease
+  CROSS JOIN scheduled_outbox AS o
+  WHERE i.status = 'queued' AND i.available_at <= ?
+    AND o.item_id = i.id AND o.event_type = 'execute'
+    AND o.status = 'dispatched' AND o.dispatched_at IS NOT NULL
+    AND o.dispatched_at <= ?
+  ORDER BY o.dispatched_at, o.id LIMIT ?`;
+
+const missingDeliveryConditions = `
+  FROM scheduled_job_items AS i INDEXED BY idx_scheduled_job_items_lease
+  LEFT JOIN scheduled_outbox o ON o.item_id = i.id AND o.event_type = 'execute'
+  WHERE i.status = 'queued' AND i.available_at <= ?
+    AND i.updated_at <= ? AND o.id IS NULL`;
+
+const expiredLeaseSelection = `
+  SELECT id FROM scheduled_job_items
+  WHERE status = 'running' AND lease_until < ?
+  ORDER BY lease_until, id LIMIT ?`;
+
 export class D1ScheduledJobRepository {
   private readonly db: D1Database;
   private readonly clock: () => number;
@@ -389,34 +432,12 @@ export class D1ScheduledJobRepository {
   }
 
   async claimPendingOutbox(runId?: string, limit = 25) {
-    const where = runId
-      ? "o.run_id = ? AND"
-      : "";
     const leaseToken = this.createId();
     const statement = this.db.prepare(
       `UPDATE scheduled_outbox
        SET status = 'dispatching', attempts = attempts + 1,
            lease_token = ?, lease_until = ?, updated_at = ?
-       WHERE id IN (
-         SELECT o.id
-         FROM scheduled_outbox o
-         INNER JOIN scheduled_job_items i ON i.id = o.item_id
-         INNER JOIN scheduled_job_runs r ON r.id = o.run_id
-         WHERE ${where}
-           (o.status IN ('pending', 'failed')
-             OR (o.status = 'dispatching' AND o.lease_until < ?))
-           AND o.available_at <= ?
-           AND r.status IN ('queued', 'running')
-           AND (
-             (o.event_type = 'execute' AND i.status = 'queued')
-             OR (
-               o.event_type = 'reconcile'
-               AND i.status IN ('succeeded', 'partial', 'failed', 'skipped', 'throttled')
-             )
-           )
-         ORDER BY o.available_at, o.id
-         LIMIT ?
-       )
+       WHERE id IN (${pendingOutboxSelection(Boolean(runId))})
        RETURNING id, run_id, item_id, lane,
          (SELECT phase FROM scheduled_job_items WHERE id = item_id) AS phase,
          (SELECT job_type FROM scheduled_job_runs WHERE id = run_id) AS job_type`,
@@ -457,6 +478,19 @@ export class D1ScheduledJobRepository {
     return result.results;
   }
 
+  async hasRecoveryWork(now = this.clock()) {
+    const cutoff = now - SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS;
+    const results = await this.db.batch([
+      this.db.prepare(pendingOutboxSelection(false)).bind(now, now, 1),
+      this.db.prepare(expiredDeliverySelection).bind(now, cutoff, 1),
+      this.db.prepare(
+        `SELECT i.id ${missingDeliveryConditions} LIMIT 1`,
+      ).bind(now, cutoff),
+      this.db.prepare(expiredLeaseSelection).bind(now, 1),
+    ]);
+    return results.some((result) => result.results.length > 0);
+  }
+
   async recoverStaleItems(limit = 10) {
     const now = this.clock();
     const queueDeliveryCutoff = now - SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS;
@@ -465,33 +499,15 @@ export class D1ScheduledJobRepository {
        SET status = 'pending', available_at = ?, dispatched_at = NULL,
            last_error = 'queue_delivery_retention_elapsed',
            lease_token = NULL, lease_until = NULL, updated_at = ?
-       WHERE id IN (
-         SELECT o.id
-         FROM scheduled_outbox o
-         INNER JOIN scheduled_job_items i ON i.id = o.item_id
-         WHERE o.event_type = 'execute'
-           AND o.status = 'dispatched'
-           AND o.dispatched_at IS NOT NULL
-           AND o.dispatched_at <= ?
-           AND i.status = 'queued'
-           AND i.available_at <= ?
-         ORDER BY o.dispatched_at, o.id
-         LIMIT ?
-       )`,
-    ).bind(now, now, queueDeliveryCutoff, now, limit);
+       WHERE id IN (${expiredDeliverySelection})`,
+    ).bind(now, now, now, queueDeliveryCutoff, limit);
     const rebuildMissingDeliveries = this.db.prepare(
       `INSERT INTO scheduled_outbox (
          id, run_id, item_id, lane, event_type, status, attempts,
          available_at, last_error, created_at, updated_at
        ) SELECT lower(hex(randomblob(16))), i.run_id, i.id, i.lane, 'execute',
                 'pending', 0, ?, 'queue_delivery_outbox_rebuilt', ?, ?
-         FROM scheduled_job_items i
-         LEFT JOIN scheduled_outbox o
-           ON o.item_id = i.id AND o.event_type = 'execute'
-         WHERE i.status = 'queued'
-           AND i.available_at <= ?
-           AND i.updated_at <= ?
-           AND o.id IS NULL
+         ${missingDeliveryConditions}
          ORDER BY i.updated_at, i.id
          LIMIT ?
        ON CONFLICT(item_id, event_type) DO NOTHING`,
@@ -509,11 +525,7 @@ export class D1ScheduledJobRepository {
            last_error_code = 'stale_lease_recovered',
            last_error = 'Execution lease expired before completion',
            lease_token = NULL, lease_until = NULL, updated_at = ?
-       WHERE id IN (
-         SELECT id FROM scheduled_job_items
-         WHERE status = 'running' AND lease_until < ?
-         ORDER BY lease_until, id LIMIT ?
-       )`,
+       WHERE id IN (${expiredLeaseSelection})`,
     ).bind(now, now, now, limit);
     const rebuildOutbox = this.db.prepare(
       `INSERT INTO scheduled_outbox (
@@ -924,7 +936,7 @@ export class D1ScheduledJobRepository {
   async readRunDto(runId: string) {
     const run = await this.readRun(runId);
     if (!run || !isScheduledJobType(run.job_type)) return null;
-    const partialEvidence = run.job_type === "youtube_feed_collection"
+    const partialEvidence = run.job_type === "youtube_feed_collection" || run.status === "partial"
       ? this.db.prepare(
         `SELECT i.id, i.target_key, i.phase, i.status, i.attempts,
                 i.result_json, i.last_error_code, i.last_error, i.updated_at,
@@ -995,8 +1007,18 @@ export class D1ScheduledJobRepository {
         lastAttemptAt: item.updated_at,
       })),
       ...partialItems
-        .filter((item) => !isResolvedYouTubePartial(item))
-        .map(toYouTubePartialFailure),
+        .filter((item) => run.job_type !== "youtube_feed_collection" || !isResolvedYouTubePartial(item))
+        .map((item) => run.job_type === "youtube_feed_collection"
+          ? toYouTubePartialFailure(item)
+          : {
+              itemId: item.id,
+              targetKey: item.target_key,
+              phase: item.phase,
+              code: item.last_error_code,
+              message: item.last_error ?? "Scheduled work is incomplete",
+              attempts: item.attempts,
+              lastAttemptAt: item.updated_at,
+            }),
     ].slice(0, 20);
     const dto = toRunDto(
       normalizeYouTubePartial ? { ...run, status: "succeeded" } : run,

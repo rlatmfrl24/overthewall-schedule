@@ -7,6 +7,17 @@ allowBuilds:
   sharp: false
   workerd: true
 
+minimumReleaseAgeExclude:
+  - '@cloudflare/vite-plugin@1.54.5'
+  - '@cloudflare/workerd-darwin-64@1.20260907.1'
+  - '@cloudflare/workerd-darwin-arm64@1.20260907.1'
+  - '@cloudflare/workerd-linux-64@1.20260907.1'
+  - '@cloudflare/workerd-linux-arm64@1.20260907.1'
+  - '@cloudflare/workerd-windows-64@1.20260907.1'
+  - miniflare@5.20260907.0-alpha
+  - workerd@1.20260907.1
+  - wrangler@4.129.1
+
 onlyBuiltDependencies:
   - "@clerk/shared"
   - esbuild
@@ -14,5 +25,5 @@ onlyBuiltDependencies:
 
 overrides:
   picomatch: 4.0.4
-  postcss: 8.5.15
+  postcss: 8.5.28
   rollup: 4.60.4
