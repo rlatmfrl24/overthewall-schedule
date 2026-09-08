@@ -234,6 +234,13 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
+            YOUTUBE_FEED_MIGRATIONS: migrations.filter(({ name }) =>
+              /^(0000_|0009_|0011_|0017_|0035_|0037_|0068_|0069_|0071_|0082_)/.test(name)
+            ).map(migration => migration.name.startsWith("0071_")
+              ? { ...migration, queries: migration.queries.filter(query =>
+                  /^\s*CREATE (?:TABLE|(?:UNIQUE )?INDEX) `(?:youtube_feed_|u?idx_youtube_feed_)/.test(query)
+                ) }
+              : migration),
             X_REFERENCE_MIGRATIONS: migrations.filter(({ name }) =>
               /^(0000_|0011_|0023_|0025_|0026_|0068_|0071_|0072_|0075_|0077_|0078_|0079_|0083_|0084_)/.test(name)
             ).map(migration => /^(0071_|0072_)/.test(migration.name)

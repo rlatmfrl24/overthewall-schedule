@@ -45,7 +45,11 @@ export default defineConfig(({ command, mode, isPreview }) => {
   }
 
   return {
-    server: getLocalDevServerConfig(),
+    server: {
+      ...getLocalDevServerConfig(),
+      // Reports and local tool downloads must not trigger application reloads.
+      watch: { ignored: ["**/coverage/**", "**/.tmp/**"] },
+    },
     plugins: [
       spaDevRewrite(),
       tanstackRouter({

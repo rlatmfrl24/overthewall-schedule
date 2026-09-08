@@ -2,6 +2,7 @@ import {
   ChannelMonitorService,
   D1ChannelMonitorRepository,
   YouTubeOtwPlayMetadataReader,
+  readOtwPlayAutomationPaused,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
 import { createOtwPlayWebsubService } from "./websub";
@@ -18,4 +19,5 @@ export const createOtwPlayChannelMonitorService = (env: Env) =>
     undefined,
     (monitorId, actorUserId) =>
       createOtwPlayWebsubService(env).unsubscribe(monitorId, actorUserId),
+    () => readOtwPlayAutomationPaused(env.otw_db),
   );

@@ -21,6 +21,8 @@ const SHORTS_SCAN_PAGES_IN_BACKGROUND = 2;
 const PAGE_SIZE = 50;
 const SHORTS_REVALIDATE_MS = 15_000 as const;
 const BACKFILL_LEASE_MS = 60_000;
+const VIDEO_WRITE_CHUNK_SIZE = Math.floor(100 / 11);
+const LEGACY_SHORTS_IMPORT_CHECKPOINT = "youtube_shorts_legacy_import_completed_at";
 
 type YouTubeRequestOrigin = "demand" | "scheduled";
 
@@ -227,6 +229,35 @@ const readSources = async (
   return rows.results ?? [];
 };
 
+const prepareMissingOfficialSources = async (
+  env: Env,
+  channelIds: readonly string[],
+  sources: FeedSource[],
+  timestamp: number,
+) => {
+  const knownChannels = new Set(sources.map((source) => source.youtube_channel_id));
+  const missing = channelIds.filter((channelId) => !knownChannels.has(channelId));
+  if (missing.length === 0) return sources;
+
+  // Preserve first-request backfill for newly configured members without
+  // reconciling unrelated official/Kirinuki sources on every public read.
+  await env.otw_db.prepare(
+    `INSERT INTO youtube_feed_sources
+      (source_kind, member_uid, youtube_channel_id, enabled,
+       collection_started_at, next_check_at, created_at, updated_at)
+     SELECT 'official', uid, youtube_channel_id, 1, ?, ?, ?, ? FROM members
+     WHERE youtube_channel_id IN (SELECT value FROM json_each(?))
+       AND (is_deprecated IS NULL OR is_deprecated != 1)
+     ON CONFLICT(youtube_channel_id, source_kind) DO UPDATE SET
+       member_uid = excluded.member_uid, enabled = 1, deactivated_at = NULL,
+       updated_at = excluded.updated_at
+     WHERE youtube_feed_sources.member_uid IS NOT excluded.member_uid
+        OR youtube_feed_sources.enabled != 1
+        OR youtube_feed_sources.deactivated_at IS NOT NULL`,
+  ).bind(timestamp, timestamp, timestamp, timestamp, JSON.stringify(missing)).run();
+  return readSources(env, channelIds);
+};
+
 const fetchPlaylistPage = async (
   env: Env,
   source: FeedSource,
@@ -276,6 +307,7 @@ const persistVideoDetails = async (
   timestamp: number,
 ) => {
   let shortsStored = 0;
+  const rows: Array<Array<string | number | null>> = [];
   for (const item of details) {
     const publishedAt = Date.parse(item.snippet?.publishedAt ?? "");
     if (!item.id || !Number.isFinite(publishedAt)) continue;
@@ -287,12 +319,31 @@ const persistVideoDetails = async (
       description: item.snippet?.description,
     });
     if (short) shortsStored += 1;
+    rows.push([
+      item.id,
+      sourceId,
+      item.snippet?.title ?? "",
+      item.snippet?.description ?? "",
+      item.snippet?.thumbnails?.high?.url ??
+        item.snippet?.thumbnails?.medium?.url ??
+        item.snippet?.thumbnails?.default?.url ??
+        null,
+      item.snippet?.channelTitle ?? "",
+      duration,
+      Number.parseInt(item.statistics?.viewCount ?? "0", 10) || 0,
+      short ? 1 : 0,
+      publishedAt,
+      timestamp,
+    ]);
+  }
+  for (let offset = 0; offset < rows.length; offset += VIDEO_WRITE_CHUNK_SIZE) {
+    const chunk = rows.slice(offset, offset + VIDEO_WRITE_CHUNK_SIZE);
     await env.otw_db
       .prepare(
         `INSERT INTO youtube_feed_videos
          (video_id, source_id, title, description, thumbnail_url, channel_title,
           duration_seconds, view_count, is_short, published_at, fetched_at, available)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)").join(", ")}
          ON CONFLICT(video_id) DO UPDATE SET source_id=excluded.source_id,
           title=excluded.title, description=excluded.description,
           thumbnail_url=excluded.thumbnail_url,
@@ -302,22 +353,7 @@ const persistVideoDetails = async (
           published_at=excluded.published_at, fetched_at=excluded.fetched_at,
           available=1`,
       )
-      .bind(
-        item.id,
-        sourceId,
-        item.snippet?.title ?? "",
-        item.snippet?.description ?? "",
-        item.snippet?.thumbnails?.high?.url ??
-          item.snippet?.thumbnails?.medium?.url ??
-          item.snippet?.thumbnails?.default?.url ??
-          null,
-        item.snippet?.channelTitle ?? "",
-        duration,
-        Number.parseInt(item.statistics?.viewCount ?? "0", 10) || 0,
-        short ? 1 : 0,
-        publishedAt,
-        timestamp,
-      )
+      .bind(...chunk.flat())
       .run();
   }
   return shortsStored;
@@ -499,6 +535,11 @@ export const importLegacyOfficialShorts = async (
   env: Env,
   timestamp: number,
 ) => {
+  const checkpoint = await env.otw_db.prepare(
+    "SELECT value FROM settings WHERE key = ?",
+  ).bind(LEGACY_SHORTS_IMPORT_CHECKPOINT).first<{ value: string }>();
+  if (checkpoint) return 0;
+
   const rows = await env.otw_db
     .prepare(
       `SELECT value, fetched_at FROM youtube_api_cache
@@ -559,6 +600,12 @@ export const importLegacyOfficialShorts = async (
       imported += Number(result.meta?.changes ?? 0) || 0;
     }
   }
+  // Only a completely successful import may suppress future attempts. Inserts
+  // remain idempotent if a failed run or concurrent maintenance is retried.
+  await env.otw_db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO NOTHING`,
+  ).bind(LEGACY_SHORTS_IMPORT_CHECKPOINT, String(timestamp), String(timestamp)).run();
   return imported;
 };
 
@@ -770,6 +817,58 @@ const refreshStaleMetadata = async (env: Env, timestamp: number) => {
       .run();
   }
   return { refreshed: returnedIds.size, unavailable: unavailable.length };
+};
+
+export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) => {
+  if (!env.YOUTUBE_API_KEY?.trim()) return false;
+  const row = await env.otw_db.prepare(
+    `SELECT
+       EXISTS (SELECT 1 FROM settings WHERE key = 'youtube_feed_enabled' AND value = 'true')
+       AND (
+         NOT EXISTS (SELECT 1 FROM settings WHERE key = ?)
+         OR EXISTS (
+           SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND (
+             next_check_at IS NULL OR next_check_at <= ?
+             OR (source_kind = 'official' AND backfill_page_token IS NULL
+                 AND backfill_exhausted_at IS NULL)
+             OR (source_kind = 'official' AND backfill_exhausted_at IS NULL
+                 AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
+                 AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?))
+           )
+         )
+         OR EXISTS (SELECT 1 FROM youtube_feed_videos WHERE available = 1 AND fetched_at <= ?)
+         OR EXISTS (
+           SELECT 1 FROM members member
+           LEFT JOIN youtube_feed_sources source
+             ON source.youtube_channel_id = member.youtube_channel_id AND source.source_kind = 'official'
+           WHERE member.youtube_channel_id IS NOT NULL AND length(trim(member.youtube_channel_id)) > 0
+             AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+             AND (source.id IS NULL OR source.member_uid IS NOT member.uid
+                  OR source.enabled != 1 OR source.deactivated_at IS NOT NULL)
+         )
+         OR EXISTS (
+           SELECT 1 FROM kirinuki_channels channel
+           LEFT JOIN youtube_feed_sources source
+             ON source.youtube_channel_id = channel.youtube_channel_id AND source.source_kind = 'kirinuki'
+           WHERE source.id IS NULL OR source.kirinuki_channel_id IS NOT channel.id
+         )
+         OR EXISTS (
+           SELECT 1 FROM youtube_feed_sources source WHERE
+             (source.source_kind = 'official' AND NOT EXISTS (
+               SELECT 1 FROM members member WHERE member.uid = source.member_uid
+                 AND member.youtube_channel_id = source.youtube_channel_id
+                 AND (member.is_deprecated IS NULL OR member.is_deprecated != 1)
+             )) OR (source.source_kind = 'kirinuki' AND NOT EXISTS (
+               SELECT 1 FROM kirinuki_channels channel WHERE channel.id = source.kirinuki_channel_id
+                 AND channel.youtube_channel_id = source.youtube_channel_id
+             ))
+         )
+       ) AS has_work`,
+  ).bind(
+    LEGACY_SHORTS_IMPORT_CHECKPOINT, timestamp, timestamp, timestamp,
+    timestamp - METADATA_REFRESH_AGE_MS,
+  ).first<{ has_work: number }>();
+  return Number(row?.has_work) === 1;
 };
 
 export const runScheduledYouTubeFeedCollection = async (env: Env) => {
@@ -1103,10 +1202,9 @@ export const readOfficialYouTubeShorts = async (
   if (enabled?.value !== "true") {
     throw new YouTubeShortsUnavailableError("YouTube feed storage is disabled");
   }
-  await syncSourceRegistry(env, timestamp);
-  await importLegacyOfficialShorts(env, timestamp);
-
-  let sources = await readSources(env, channelIds);
+  let sources = await prepareMissingOfficialSources(
+    env, channelIds, await readSources(env, channelIds), timestamp,
+  );
   let rows = await readShortsPageRows(env, channelIds, limit, cursor);
   let complete = isYouTubeShortsPageComplete(
     sources,

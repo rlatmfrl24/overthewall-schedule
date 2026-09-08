@@ -882,6 +882,7 @@ const getOperationsStatus = async (env: Env, windowHours: number) => {
 
   return {
     review,
+    playAutomationPaused: settings.get("otw_play_automation_paused") === "true",
     updatedAt: new Date(now).toISOString(),
     window: { hours: windowHours, since },
     summary: {
@@ -1029,7 +1030,7 @@ const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
   const client = new ScheduledRunClient(env);
   const settingKeys = [...scheduledJobTypes.map(
     (jobType) => `scheduled_v2_${jobType}_enabled`,
-  ), "x_collection_interval_hours", "auto_update_interval_hours"];
+  ), "x_collection_interval_hours", "auto_update_interval_hours", "otw_play_automation_paused"];
   const placeholders = settingKeys.map(() => "?").join(", ");
   const [latestRuns, latestSuccessRows, settingRows] = await Promise.all([
     client.listLatestRunsByJobType(),
@@ -1060,24 +1061,28 @@ const getOperationJobSummaries = async (env: Env, now = Date.now()) => {
         normalizedSuccessAt ?? 0,
       ) || null;
       const enabled = settings.get(`scheduled_v2_${jobType}_enabled`) === "true";
+      const automationPaused = settings.get("otw_play_automation_paused") === "true" &&
+        ["source_health", "channel_reconcile", "recent_reconcile"].includes(jobType);
       const intervalMs = getJobExpectedIntervalMs(jobType, settings);
-      const nextExpectedAt = latestCheckAt === null
+      const nextExpectedAt = latestCheckAt === null || automationPaused
         ? null
         : latestCheckAt + intervalMs;
       const stale = enabled && nextExpectedAt !== null &&
         now > nextExpectedAt + intervalMs;
-      const reasonCode = stale ? "stale_check" : runReasonCode;
+      const reasonCode = automationPaused ? "automation_paused" : stale ? "stale_check" : runReasonCode;
       return {
         jobType,
         latestRun,
         latestCheckAt,
         latestSuccessAt,
         nextExpectedAt,
-        health: classifyOperationJobHealth(enabled, latestRun, normalSkip, stale),
+        health: classifyOperationJobHealth(enabled && !automationPaused, latestRun, normalSkip, stale),
         normalSkip,
         reasonCode,
         reasonLabel: reasonCode === null
           ? null
+          : reasonCode === "automation_paused"
+            ? "Play 자동화 일시 중지"
           : reasonCode === "stale_check"
             ? "예상 주기보다 최근 점검이 늦습니다. 예약 작업 상태를 확인하세요."
             : skipReasonLabels[reasonCode] ?? "확인이 필요한 실행 결과",

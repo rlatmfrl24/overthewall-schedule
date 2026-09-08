@@ -3,6 +3,7 @@ import {
   GoogleWebsubHubClient,
   WebsubService,
   YouTubeOtwPlayMetadataReader,
+  readOtwPlayAutomationPaused,
   type OtwPlayWebsubQueueMessage,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
@@ -27,4 +28,7 @@ export const createOtwPlayWebsubService = (env: Env) =>
     },
     { 1: env.OTW_PLAY_WEBSUB_SECRET_V1 },
     env.OTW_PLAY_PUBLIC_ORIGIN,
+    undefined,
+    undefined,
+    () => readOtwPlayAutomationPaused(env.otw_db),
   );

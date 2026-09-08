@@ -1215,12 +1215,21 @@ describe("D1IngestionRepository", () => {
       NOW,
     );
     const thirtyDays = 30 * 86_400_000;
+    const readOnly = new D1IngestionRepository({
+      prepare(sql: string) {
+        expect(sql.trim()).toMatch(/^SELECT\b/i);
+        return db.prepare(sql);
+      },
+    } as D1Database);
+    expect(await readOnly.hasExpiredApiData(NOW + thirtyDays - 1)).toBe(false);
+    expect(await readOnly.hasExpiredApiData(NOW + thirtyDays)).toBe(true);
     await expect(
       repository.clearExpiredApiData(NOW + thirtyDays - 1, 100),
     ).resolves.toBe(0);
     await expect(
       repository.clearExpiredApiData(NOW + thirtyDays, 100),
     ).resolves.toBe(2);
+    expect(await readOnly.hasExpiredApiData(NOW + thirtyDays)).toBe(false);
     const candidate = await db.prepare(
       `SELECT title, channel_id, thumbnail_url, availability_status,
         metadata_checked_at, classification, status

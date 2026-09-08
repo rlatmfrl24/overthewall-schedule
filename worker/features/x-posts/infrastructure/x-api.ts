@@ -1205,6 +1205,44 @@ const shouldUseFreshStoredPosts = (entry: StoredXPostsEntry) =>
   entry.lastCheckedAt !== null &&
   now() - entry.lastCheckedAt < X_POSTS_CACHE_POLICY.freshTtlMs;
 
+const storedPostsEntry = (
+  source: XPostSourceRow | null,
+  rows: XStoredPostRow[],
+  richXLinkPreviewEnabled: boolean,
+): StoredXPostsEntry | null => {
+  const posts = rows
+    .map(parseStoredXPost)
+    .filter((post): post is XPostItem => post !== null);
+  if (!source && posts.length === 0) return null;
+
+  const latestFetchedAt = rows.reduce((latest, row) => {
+    const value = Number(row.fetched_at);
+    return Number.isFinite(value) ? Math.max(latest, value) : latest;
+  }, 0);
+  const lastCheckedAt = source ? Number(source.last_checked_at) : latestFetchedAt;
+  const safeLastCheckedAt = Number.isFinite(lastCheckedAt) ? lastCheckedAt : null;
+  const fetchedAt = safeLastCheckedAt ?? latestFetchedAt;
+  return {
+    fetchedAt,
+    expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
+    userId: source?.user_id ?? rows[0]?.user_id ?? null,
+    posts: richXLinkPreviewEnabled ? posts : stripStoredXLinkedPostPreviews(posts),
+    lastCheckedAt: safeLastCheckedAt,
+    lastSeenPostId:
+      source?.collection_started_at != null
+        ? source.last_seen_post_id ?? null
+        : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
+    lastError: source?.last_error ?? null,
+    collectionStartedAt: source?.collection_started_at == null
+      ? null : Number(source.collection_started_at),
+    initializationCompletedAt: source?.initialization_completed_at == null
+      ? null : Number(source.initialization_completed_at),
+    syncPaginationToken: source?.sync_pagination_token ?? null,
+    syncBasePostId: source?.sync_base_post_id ?? null,
+    syncNewestPostId: source?.sync_newest_post_id ?? null,
+  };
+};
+
 const readStoredPosts = async (
   handle: string,
   maxResults: number,
@@ -1229,50 +1267,66 @@ const readStoredPosts = async (
         .all<XStoredPostRow>(),
     ]);
 
-    const rows = getD1Results<XStoredPostRow>(rowsResult);
-    const posts = rows
-      .map(parseStoredXPost)
-      .filter((post): post is XPostItem => post !== null);
-    if (!source && posts.length === 0) return null;
-
-    const latestFetchedAt = rows.reduce((latest, row) => {
-      const value = Number(row.fetched_at);
-      return Number.isFinite(value) ? Math.max(latest, value) : latest;
-    }, 0);
-    const lastCheckedAt = source ? Number(source.last_checked_at) : latestFetchedAt;
-    const safeLastCheckedAt = Number.isFinite(lastCheckedAt)
-      ? lastCheckedAt
-      : null;
-    const fetchedAt = safeLastCheckedAt ?? latestFetchedAt;
-    const responsePosts = richXLinkPreviewEnabled
-      ? posts
-      : stripStoredXLinkedPostPreviews(posts);
-
-    return {
-      fetchedAt,
-      expiresAt: fetchedAt + X_POSTS_CACHE_POLICY.freshTtlMs,
-      userId: source?.user_id ?? rows[0]?.user_id ?? null,
-      posts: responsePosts,
-      lastCheckedAt: safeLastCheckedAt,
-      lastSeenPostId:
-        source?.collection_started_at != null
-          ? source.last_seen_post_id ?? null
-          : source?.last_seen_post_id ?? sortXPostsDesc(posts)[0]?.id ?? null,
-      lastError: source?.last_error ?? null,
-      collectionStartedAt: source?.collection_started_at == null
-        ? null
-        : Number(source.collection_started_at),
-      initializationCompletedAt: source?.initialization_completed_at == null
-        ? null
-        : Number(source.initialization_completed_at),
-      syncPaginationToken: source?.sync_pagination_token ?? null,
-      syncBasePostId: source?.sync_base_post_id ?? null,
-      syncNewestPostId: source?.sync_newest_post_id ?? null,
-    };
+    return storedPostsEntry(source, getD1Results<XStoredPostRow>(rowsResult), richXLinkPreviewEnabled);
   } catch (error) {
     console.warn("Failed to read stored X posts", error);
     return null;
   }
+};
+
+const readStoredPostsForHandles = async (
+  handles: readonly string[],
+  maxResults: number,
+  richXLinkPreviewEnabled: boolean,
+  cacheDb: XCacheDb,
+) => {
+  const entries = new Map<string, StoredXPostsEntry | null>();
+  // Keep each batch bounded, with indexed per-handle limits followed by ID
+  // lookups. A window query would scan the entire retained post history.
+  for (let offset = 0; offset < handles.length; offset += 50) {
+    const chunk = handles.slice(offset, offset + 50);
+    try {
+      const [sourceRows, postRows] = await Promise.all([
+        cacheDb.prepare(
+          `SELECT handle, user_id, username, last_seen_post_id, last_checked_at,
+             updated_at, last_error, collection_started_at,
+             initialization_completed_at, sync_pagination_token,
+             sync_base_post_id, sync_newest_post_id
+           FROM x_post_sources WHERE handle IN (${chunk.map(() => "?").join(",")})`,
+        ).bind(...chunk).all<XPostSourceRow>().catch((error) => {
+          console.warn("Failed to read stored X post sources", error);
+          return { results: [] as XPostSourceRow[] };
+        }),
+        cacheDb.prepare(
+          `WITH requested(handle) AS (SELECT value FROM json_each(?))
+           SELECT post.id, post.handle, post.user_id, post.username, post.value,
+             post.created_at, post.fetched_at, post.hidden_at
+           FROM requested CROSS JOIN x_posts AS post
+           WHERE post.id IN (
+             SELECT candidate.id FROM x_posts AS candidate
+             WHERE candidate.handle = requested.handle AND candidate.hidden_at IS NULL
+             ORDER BY candidate.created_at DESC, candidate.id DESC LIMIT ?
+           )
+           ORDER BY post.handle, post.created_at DESC, post.id DESC`,
+        ).bind(JSON.stringify(chunk), maxResults).all<XStoredPostRow>(),
+      ]);
+      const sources = new Map(getD1Results<XPostSourceRow>(sourceRows).map((row) => [row.handle, row]));
+      const posts = new Map<string, XStoredPostRow[]>();
+      for (const row of getD1Results<XStoredPostRow>(postRows)) {
+        const group = posts.get(row.handle) ?? [];
+        group.push(row);
+        posts.set(row.handle, group);
+      }
+      for (const handle of chunk) {
+        entries.set(handle, storedPostsEntry(
+          sources.get(handle) ?? null, posts.get(handle) ?? [], richXLinkPreviewEnabled,
+        ));
+      }
+    } catch (error) {
+      console.warn("Failed to read stored X posts", error);
+    }
+  }
+  return entries;
 };
 
 const recordXPostReferences = async (
@@ -2793,16 +2847,20 @@ export const fetchXPostsForHandles = async (
       : null;
   }
 
-  for (const handle of normalizedHandles) {
-    // Public readers must not serve an isolate-local cache after another isolate
-    // redacts an original or hydrates its references. D1 is the feed authority.
-    if (!refresh && cacheDb) {
-      const stored = await readStoredPosts(handle, maxResults, richXLinkPreviewEnabled, cacheDb);
-      resultByHandle.set(handle, stored
+  if (!refresh && cacheDb) {
+    // D1 remains authoritative across isolates for redaction/reference updates.
+    const entries = await readStoredPostsForHandles(
+      normalizedHandles, maxResults, richXLinkPreviewEnabled, cacheDb,
+    );
+    return buildResult(normalizedHandles.map((handle) => {
+      const stored = entries.get(handle);
+      return stored
         ? makeCachedPostsResult(handle, stored, !shouldUseFreshStoredPosts(stored))
-        : { handle, userId: null, posts: [], error: null, stale: false });
-      continue;
-    }
+        : { handle, userId: null, posts: [], error: null, stale: false };
+    }));
+  }
+
+  for (const handle of normalizedHandles) {
     const hasRelationMarker = await hasCurrentRelationCollectionMarker(
       cacheDb,
       handle,

@@ -50,6 +50,15 @@ export class ScheduledJobCoordinator {
     this.planner = new ScheduledJobPlanner(env, this.repository);
   }
 
+  async hasScheduledWork(jobType: ScheduledJobType, scheduledFor: number) {
+    const idempotencyKey = `scheduled:${jobType}:${getScheduledBucket(jobType, scheduledFor)}`;
+    const existing = await this.repository.readRunByIdempotencyKey(idempotencyKey);
+    // A queued run may have been interrupted between acceptance and planning.
+    // Let the coordinator resume or close it even if current targets disappeared.
+    if (existing) return existing.status === "queued";
+    return (await this.planner.planScheduled(jobType, scheduledFor)).length > 0;
+  }
+
   async runScheduled(jobType: ScheduledJobType, scheduledFor = Date.now()) {
     const scheduledBucket = getScheduledBucket(jobType, scheduledFor);
     const idempotencyKey = `scheduled:${jobType}:${scheduledBucket}`;

@@ -12,6 +12,7 @@ import type {
   ChannelMonitorRepository,
   EligibleChannelMonitorTarget,
 } from "../application/ports/channel-monitor-repository";
+import { OTW_PLAY_AUTOMATION_RUNNING_SQL as automationRunning } from "./play-automation-settings";
 
 const CHECK_INTERVAL_MINUTES = 360;
 const LEASE_MS = 5 * 60_000;
@@ -451,7 +452,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           id, channel_id, uploads_playlist_id, status, check_interval_minutes,
           next_check_at, last_seen_video_id, generation, created_by_user_id,
           version, created_at, updated_at
-        ) VALUES (?, ?, ?, 'active', ?, ?, ?, 0, ?, 0, ?, ?)`,
+        ) VALUES (?, ?, ?, CASE WHEN ${automationRunning} THEN 'active' ELSE 'paused' END, ?, ?, ?, 0, ?, 0, ?, ?)`,
       ).bind(
         input.id,
         input.channel.id,
@@ -512,7 +513,8 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          SET status = ?, next_check_at = ?, lease_until = NULL,
            last_error_code = NULL, version = version + 1, updated_at = ?
          WHERE id = ? AND version = ? AND deleted_at IS NULL
-           AND NOT (COALESCE(last_error_code, '') = 'gap_suspected' AND ? = 'active')`,
+           AND NOT (COALESCE(last_error_code, '') = 'gap_suspected' AND ? = 'active')
+           AND (? = 'paused' OR ${automationRunning})`,
       ).bind(
         input.status,
         input.status === "active"
@@ -521,6 +523,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
         input.now,
         input.id,
         input.expectedVersion,
+        input.status,
         input.status,
       ),
       this.database.prepare(
@@ -605,7 +608,8 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
            last_seen_video_id = ?, last_seen_published_at = NULL,
            last_error_code = NULL, lease_until = NULL,
            version = version + 1, updated_at = ?
-         WHERE id = ? AND version = ? AND deleted_at IS NULL`,
+         WHERE id = ? AND version = ? AND deleted_at IS NULL
+           AND ${automationRunning}`,
       ).bind(
         input.now + CHECK_INTERVAL_MINUTES * 60_000,
         input.lastSeenVideoId,
@@ -800,6 +804,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       `UPDATE music_channel_upload_monitors
         SET lease_until = ?, version = version + 1, updated_at = ?
        WHERE id = ? AND status = 'active' AND deleted_at IS NULL
+         AND ${automationRunning}
          AND (lease_until IS NULL OR lease_until <= ?)
          AND EXISTS (
            SELECT 1 FROM music_channels AS channel
@@ -851,6 +856,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                 SELECT 1 FROM music_channel_upload_monitors
                 WHERE id = ? AND version = ? AND generation = ?
                   AND status = 'active' AND deleted_at IS NULL
+                  AND ${automationRunning}
                   AND EXISTS (
                     SELECT 1 FROM music_channel_automation_approvals AS approval
                     WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -959,6 +965,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
                   SELECT 1 FROM music_channel_upload_monitors
                   WHERE id = ? AND version = ? AND generation = ?
                     AND status = 'active' AND deleted_at IS NULL
+                    AND ${automationRunning}
                     AND EXISTS (
                       SELECT 1 FROM music_channel_automation_approvals AS approval
                       WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -984,6 +991,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
       `SELECT 1 AS matched FROM music_channel_upload_monitors
        WHERE id = ? AND version = ? AND generation = ?
          AND status = 'active' AND deleted_at IS NULL
+         AND ${automationRunning}
          AND EXISTS (
            SELECT 1 FROM music_channel_automation_approvals AS approval
            WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -1019,6 +1027,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
           AND status = 'active' AND deleted_at IS NULL
+          AND ${automationRunning}
           AND EXISTS (
             SELECT 1 FROM music_channel_automation_approvals AS approval
             WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -1055,7 +1064,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          next_check_at = ?, last_error_code = NULL, lease_until = NULL,
          version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND generation = ?
-         AND status = 'active' AND deleted_at IS NULL`,
+         AND status = 'active' AND deleted_at IS NULL AND ${automationRunning}`,
     ).bind(
       input.pageToken,
       input.baseVideoId,
@@ -1083,6 +1092,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
          version = version + 1, updated_at = ?
        WHERE id = ? AND version = ? AND generation = ?
          AND status = 'active' AND deleted_at IS NULL
+         AND ${automationRunning}
          AND EXISTS (
            SELECT 1 FROM music_channel_automation_approvals AS approval
            WHERE approval.channel_id = music_channel_upload_monitors.channel_id
@@ -1139,7 +1149,7 @@ export class D1ChannelMonitorRepository implements ChannelMonitorRepository {
           consecutive_failures = consecutive_failures + 1,
           version = version + 1, updated_at = ?
         WHERE id = ? AND version = ? AND generation = ?
-          AND status = 'active' AND deleted_at IS NULL`,
+          AND status = 'active' AND deleted_at IS NULL AND ${automationRunning}`,
     ).bind(
       input.errorCode,
       input.now + 15 * 60_000,

@@ -1,6 +1,11 @@
 import type { ScheduledJobType } from "@contracts/scheduled-operations";
 import { parseAutoUpdateIntervalHours } from "@contracts/configuration";
-import { DATA_RETENTION_POLICIES } from "../../operations";
+import { readDueDataRetentionPolicyIds } from "../../operations";
+import {
+  D1IngestionRepository,
+  D1WebsubRepository,
+  readOtwPlayAutomationPaused,
+} from "../../otw-play";
 import {
   NAVER_CAFE_COLLECTION_SIZE,
   readEnabledNaverCafeSources,
@@ -9,6 +14,7 @@ import {
   getScheduledXCollectionDecision,
   readActiveXHandles,
 } from "../../x-posts";
+import { hasScheduledYouTubeFeedWork } from "../../youtube";
 import { getDb } from "../../../platform/db";
 import type { Env } from "../../../platform/types";
 import { extractChzzkChannelId } from "../../../platform/http-helpers";
@@ -156,35 +162,56 @@ const makeIndexedItems = (
 
 const planSimpleJob = async (
   env: Env,
+  repository: D1ScheduledJobRepository,
   jobType: ScheduledJobType,
+  source: ScheduledJobRunRecord["source"],
   timestamp: number,
 ): Promise<NewScheduledItem[]> => {
   const lane = getLaneForJob(jobType);
+  const isPlayJob = [
+    "websub_maintenance", "ingestion_recovery", "source_health",
+    "channel_reconcile", "recent_reconcile",
+  ].includes(jobType);
+  const paused = source === "scheduled" && isPlayJob &&
+    await readOtwPlayAutomationPaused(env.otw_db);
+  if (paused && ["source_health", "channel_reconcile", "recent_reconcile"].includes(jobType)) {
+    return [];
+  }
   switch (jobType) {
     case "youtube_feed_collection": {
-      const enabled = await env.otw_db.prepare(
-        `SELECT value FROM settings WHERE key = 'youtube_feed_enabled'`,
-      ).first<{ value: string | null }>();
-      return enabled?.value === "true"
+      return await hasScheduledYouTubeFeedWork(env, timestamp)
         ? [{ targetKey: "feed:0", phase: "collect", lane }]
         : [];
     }
     case "websub_maintenance":
-      return ["recover-delivery", "cleanup", "recover-intent", "renew"].map(
+      return (await new D1WebsubRepository(env.otw_db)
+        .listScheduledMaintenancePhases(timestamp, paused)).map(
         (phase) => ({ targetKey: phase, phase, lane }),
       );
-    case "ingestion_recovery":
-      return ["recover-scheduled", "cleanup", "requeue"].map((phase) => ({
+    case "ingestion_recovery": {
+      const ingestion = new D1IngestionRepository(env.otw_db);
+      const [recoverScheduled, cleanup, pending] = await Promise.all([
+        repository.hasRecoveryWork(timestamp),
+        ingestion.hasExpiredApiData(timestamp),
+        paused ? Promise.resolve([]) : ingestion.listPendingMessages(timestamp, 1),
+      ]);
+      const phases = [
+        ...(recoverScheduled ? ["recover-scheduled"] : []),
+        ...(cleanup ? ["cleanup"] : []),
+        ...(pending.length > 0 ? ["requeue"] : []),
+      ];
+      return phases.map((phase) => ({
         targetKey: phase,
         phase,
         lane,
       }));
+    }
     case "retention_prune":
-      return DATA_RETENTION_POLICIES.map((policy) => ({
-        targetKey: policy.id,
+      return (await readDueDataRetentionPolicyIds(env, timestamp)).map((policyId) => ({
+        targetKey: policyId,
         phase: "prune",
         lane,
-        continuation: { policyId: policy.id },
+        continuation: { policyId },
       }));
     case "source_health": {
       const row = await env.otw_db.prepare(
@@ -257,7 +284,7 @@ export class ScheduledJobPlanner {
       case "schedule_auto_update":
         return planAutoUpdate(this.env, source, timestamp);
       default:
-        return planSimpleJob(this.env, jobType, timestamp);
+        return planSimpleJob(this.env, this.repository, jobType, source, timestamp);
     }
   }
 

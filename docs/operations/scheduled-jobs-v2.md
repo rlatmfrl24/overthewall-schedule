@@ -1,5 +1,7 @@
 # Scheduled jobs v2 운영 전환
 
+2026-09-08 비용 최적화와 공개 전 Play 중지·재개 절차는 [무료 운영 우선 백엔드 최적화](./backend-cost-optimization.md)를 따른다. 아래 과거 Closeout은 당시 관측값이며 현재 운영 상태를 대신하지 않는다.
+
 정기 작업 v2는 D1 run/item/outbox를 권위 상태로 사용하고, 하나의 범용 Workflow는 전달받은 job type의 조정만 수행하며 Queue item 하나가 실제 Worker invocation 하나를 소유한다. Workers Free에서는 scheduled Workflow가 지원되지 않으므로 분 목록을 가진 Cron Trigger 하나가 범용 Workflow instance를 시작한다.
 
 ## 배포 전 확인

@@ -19,7 +19,7 @@ import { shouldBlockDestructiveLocalReset } from "./d1-reset-guard.mjs";
 const require = createRequire(import.meta.url);
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const wranglerEntry = require.resolve("wrangler/bin/wrangler.js");
+const wranglerEntry = join(dirname(require.resolve("wrangler/package.json")), "bin", "wrangler.js");
 const wranglerStateDir = resolve(rootDir, ".wrangler", "state");
 const drizzleDir = resolve(rootDir, "drizzle");
 const localD1Dir = resolve(wranglerStateDir, "v3", "d1");

@@ -1,9 +1,12 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { WebsubSubscriptionAuthority } from "../application/ports/websub-repository";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WebsubHubRequestError, type WebsubSubscriptionAuthority } from "../application/ports/websub-repository";
+import { WebsubService } from "../application/websub-service";
+import { deriveWebsubSecrets } from "../domain/websub-crypto";
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
 import { D1WebsubRepository } from "./d1-websub-repository";
+import { YouTubeOtwPlayMetadataReader } from "./youtube-metadata-reader";
 
 type TestEnv = Env & { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
@@ -21,6 +24,7 @@ const approval = {
 beforeEach(async () => {
   await applyD1Migrations(db, testEnv.OTW_PLAY_INGESTION_MIGRATIONS);
   await db.batch([
+    db.prepare("DELETE FROM settings WHERE key = 'otw_play_automation_paused'"),
     db.prepare("DELETE FROM music_channel_websub_deliveries"),
     db.prepare("DELETE FROM music_channel_websub_subscriptions"),
     db.prepare("DELETE FROM music_channel_upload_candidate_origins"),
@@ -81,6 +85,124 @@ const prepareActiveSubscription = async () => {
 };
 
 describe("D1WebsubRepository", () => {
+  it.each(["retry", "unsubscribe", "renew"] as const)("clears an expired lease when preparing %s without violating the time constraint", async (mode) => {
+    const { repository } = await prepareActiveSubscription();
+    const later = NOW + 172_800_000;
+    if (mode === "retry") await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "failed", NOW);
+    await repository.prepareSubscription({
+      id: "subscription-1", monitorId: "monitor-1", monitorGeneration: 0,
+      topicUrl: `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${CHANNEL_ID}`,
+      callbackTokenHash: "a".repeat(64), secretVersion: 1,
+      status: mode === "unsubscribe" ? "unsubscribing" : mode === "renew" ? "renewing" : "pending",
+      pendingMode: mode === "unsubscribe" ? "unsubscribe" : "subscribe",
+      actorUserId: "admin-1", eventId: "event-expired", now: later,
+      ...(mode === "retry" ? { retryFailedBefore: later - 3_600_000 } : {}),
+    });
+    expect((await repository.getCurrentSubscription("monitor-1", 0))?.leaseExpiresAt).toBeNull();
+    await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "active", later + 1, later);
+    expect((await repository.getCurrentSubscription("monitor-1", 0))?.status).toBe(mode === "unsubscribe" ? "unsubscribing" : "failed");
+  });
+
+  it("preserves timed-out unsubscribe intent for a late verified callback and stale-intent recovery", async () => {
+    const { repository } = await prepareActiveSubscription();
+    const startedAt = NOW + 172_800_000;
+    let clockNow = startedAt;
+    await db.prepare("INSERT INTO settings (key,value) VALUES ('otw_play_automation_paused','true')").run();
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new Error("YouTube must not be called"); });
+    const hub = { request: vi.fn(async () => { throw new WebsubHubRequestError("hub_timeout"); }) };
+    const service = new WebsubService(repository, new YouTubeOtwPlayMetadataReader("unused", fetcher), hub,
+      { send: vi.fn() }, { 1: "test-root-secret" }, "https://example.com",
+      () => "event-unsubscribe-timeout", () => clockNow, async () => true);
+    await expect(service.unsubscribe("monitor-1", "admin-1")).rejects.toMatchObject({ code: "hub_failed", retryable: true });
+    const stateSql = "SELECT status, pending_mode, last_error_code, version FROM music_channel_websub_subscriptions WHERE id='subscription-1'";
+    const timedOut = await db.prepare(stateSql).first();
+    expect(timedOut).toMatchObject({ status: "unsubscribing", pending_mode: "unsubscribe", last_error_code: "hub_timeout" });
+    expect(await repository.listStaleIntents(startedAt + 899_999, 1, true)).toEqual([]);
+    expect(await repository.listStaleIntents(startedAt + 900_000, 1, true)).toEqual([{ monitorId: "monitor-1", status: "unsubscribing" }]);
+    await repository.markSubscriptionFailed("subscription-1", "hub_http_500", "failed", startedAt + 1, startedAt - 1);
+    expect(await db.prepare(stateSql).first()).toEqual(timedOut);
+    const material = await deriveWebsubSecrets("test-root-secret", "subscription-1", 0);
+    clockNow = startedAt + 20_001;
+    await expect(service.verifyIntent(material.callbackToken, { mode: "unsubscribe",
+      topic: `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${CHANNEL_ID}`,
+      challenge: "late-confirmation", leaseSeconds: null, reason: null,
+    })).resolves.toEqual({ denied: false, challenge: "late-confirmation" });
+    expect(await repository.getCurrentSubscription("monitor-1", 0)).toMatchObject({ status: "unsubscribed", pendingMode: null });
+    expect(await repository.listScheduledMaintenancePhases(clockNow, true)).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("preserves a still-valid lease after a renewal timeout", async () => {
+    const { repository } = await prepareActiveSubscription();
+    await repository.prepareSubscription({
+      id: "subscription-1", monitorId: "monitor-1", monitorGeneration: 0,
+      topicUrl: `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${CHANNEL_ID}`,
+      callbackTokenHash: "a".repeat(64), secretVersion: 1, status: "renewing", pendingMode: "subscribe",
+      actorUserId: "admin-1", eventId: "event-renew", now: NOW + 10,
+    });
+    await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "active", NOW + 11, NOW + 10);
+    expect(await repository.getCurrentSubscription("monitor-1", 0)).toMatchObject({ status: "active", leaseExpiresAt: NOW + 86_400_000 });
+  });
+
+  it("does not persist an in-flight observation after a direct global pause", async () => {
+    const { repository, subscription } = await prepareActiveSubscription();
+    await repository.recordDelivery({ id: "inflight", subscription,
+      externalChannelId: CHANNEL_ID, externalVideoId: "BBBBBBBBBBB", providerUpdatedAt: NOW, now: NOW });
+    const delivery = await repository.claimDelivery("inflight", NOW + 1);
+    await db.prepare("INSERT INTO settings (key,value) VALUES ('otw_play_automation_paused','true')").run();
+    await expect(repository.recordDeliveryObservation({ delivery: delivery!,
+      observation: { videoId: "BBBBBBBBBBB", availabilityStatus: "unavailable", video: null }, now: NOW + 2,
+    })).rejects.toMatchObject({ code: "stale_message" });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_ingestion_candidates WHERE external_video_id='BBBBBBBBBBB'").first()).toEqual({ count: 0 });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_channel_upload_candidate_origins").first()).toEqual({ count: 0 });
+    expect(await db.prepare("SELECT status FROM music_channel_websub_deliveries WHERE id='inflight'").first()).toEqual({ status: "processing" });
+  });
+
+  it("preserves verified callback authority when a hub timeout arrives later", async () => {
+    const { repository } = await prepareActiveSubscription();
+    await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "failed", NOW + 2, NOW);
+    expect((await repository.getCurrentSubscription("monitor-1", 0))?.status).toBe("active");
+  });
+  it("retries failed hub timeouts hourly with a conditional claim and excludes explicit unsubscribe", async () => {
+    const { repository } = await prepareActiveSubscription();
+    await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "failed", NOW);
+    expect(await repository.listRetryableSubscriptionMonitorIds(NOW + 3_599_999, 1)).toEqual([]);
+    expect(await repository.listRetryableSubscriptionMonitorIds(NOW + 3_600_000, 1)).toEqual(["monitor-1"]);
+    const retry = {
+      id: "subscription-1", monitorId: "monitor-1", monitorGeneration: 0,
+      topicUrl: `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${CHANNEL_ID}`,
+      callbackTokenHash: "a".repeat(64), secretVersion: 1,
+      status: "pending" as const, pendingMode: "subscribe" as const,
+      actorUserId: "system:websub-retry", eventId: "event-retry", now: NOW + 3_600_000,
+      retryFailedBefore: NOW,
+    };
+    await repository.prepareSubscription(retry);
+    await expect(repository.prepareSubscription({ ...retry, eventId: "event-raced-retry" })).rejects.toMatchObject({ code: "validation_failed" });
+    expect(await repository.listRetryableSubscriptionMonitorIds(NOW + 7_200_000, 1)).toEqual([]);
+    await repository.prepareSubscription({ ...retry, retryFailedBefore: undefined,
+      status: "unsubscribing", pendingMode: "unsubscribe", eventId: "event-stop", now: NOW + 4_000_000 });
+    await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "failed", NOW + 4_000_000);
+    expect(await repository.listRetryableSubscriptionMonitorIds(NOW + 8_000_000, 1)).toEqual([]);
+  });
+
+  it("global pause blocks late subscribe confirmation and queue claims while retaining teardown", async () => {
+    const { repository, subscription } = await prepareActiveSubscription();
+    await repository.recordDelivery({ id: "pause-delivery", subscription,
+      externalChannelId: CHANNEL_ID, externalVideoId: "BBBBBBBBBBB", providerUpdatedAt: NOW, now: NOW });
+    await db.prepare("INSERT INTO settings (key,value) VALUES ('otw_play_automation_paused','true')").run();
+    expect(await repository.claimDelivery("pause-delivery", NOW + 1)).toBeNull();
+    expect(await db.prepare("SELECT status FROM music_channel_websub_deliveries WHERE id='pause-delivery'").first())
+      .toEqual({ status: "pending" });
+    expect(await repository.listScheduledMaintenancePhases(NOW, true)).toEqual(["cleanup"]);
+    await db.prepare("UPDATE music_channel_websub_subscriptions SET status='pending',pending_mode='subscribe'").run();
+    await expect(repository.markSubscriptionVerified({ id: "subscription-1", mode: "subscribe", leaseExpiresAt: NOW + 1000, now: NOW }))
+      .rejects.toMatchObject({ code: "stale_message" });
+    await db.prepare("UPDATE music_channel_websub_subscriptions SET status='unsubscribing',pending_mode='unsubscribe',requested_at=?").bind(NOW - 900_000).run();
+    expect(await repository.listScheduledMaintenancePhases(NOW, true)).toEqual(["recover-intent"]);
+    await repository.markSubscriptionVerified({ id: "subscription-1", mode: "unsubscribe", leaseExpiresAt: null, now: NOW });
+    expect((await repository.getCurrentSubscription("monitor-1", 0))?.status).toBe("unsubscribed");
+    expect(await repository.listScheduledMaintenancePhases(NOW, true)).toEqual([]);
+  });
   it("deduplicates deliveries and title updates without duplicating candidates or origins", async () => {
     const { repository, subscription } = await prepareActiveSubscription();
     await db.prepare(

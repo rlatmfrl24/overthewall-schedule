@@ -1,4 +1,5 @@
 import type { ScheduledJobType } from "@contracts/scheduled-operations";
+import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import type { Env } from "../platform/types";
 
 export const SCHEDULED_WORKFLOW_CRON = "3,13,23,33,53 * * * *";
@@ -103,7 +104,18 @@ export async function handleScheduledWorkflowCron(
     env,
   );
   if (runnableJobs.length === 0) return;
-  await Promise.all(runnableJobs.map((jobType) => workflow.create({
-    params: { jobType, scheduledFor: event.scheduledTime },
-  })));
+  const coordinator = new ScheduledJobCoordinator(env);
+  const results = await Promise.allSettled(runnableJobs.map(async (jobType) => {
+    if (await coordinator.hasScheduledWork(jobType, event.scheduledTime)) {
+      await workflow.create({
+        params: { jobType, scheduledFor: event.scheduledTime },
+      });
+    }
+  }));
+  const failures = results.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Scheduled Workflow dispatch failed");
+  }
 }

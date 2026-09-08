@@ -11,6 +11,9 @@ export default defineConfig({
   },
   test: {
     projects: ["vitest.config.ts", "vitest.worker.config.ts"],
+    // Istanbul plus workerd and DOM suites can oversubscribe a developer's
+    // machine. Bound concurrency without relaxing assertions or timeouts.
+    maxWorkers: 2,
     coverage: {
       // Workerd does not expose the V8 inspector coverage API. Istanbul lets
       // unit and Miniflare D1 integration tests contribute to one report.

@@ -1,8 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
+import type { Env } from "../../../platform/types";
+import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
+import { IngestionService, WebsubService } from "../../otw-play";
+import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
+  ScheduledJobExecutor,
   toXCollectionOutcome,
   toYouTubeFeedCollectionOutcome,
+  toScheduledBatchOutcome,
+  toSourceHealthOutcome,
 } from "./scheduled-job-executor";
 
 const result = (
@@ -22,6 +29,124 @@ const result = (
 });
 
 describe("scheduled job executor outcomes", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("rechecks paused automation when an already dispatched source-health item arrives", async () => {
+    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
+    statement.bind.mockReturnValue(statement);
+    const env = { otw_db: { prepare: vi.fn(() => statement) } } as unknown as Env;
+    const repository = { readRun: vi.fn(async () => ({ job_type: "source_health", source: "scheduled" })) };
+    const result = await new ScheduledJobExecutor(env, repository as never)
+      .execute({ run_id: "run", phase: "check" } as ScheduledJobItemRecord);
+    expect(result).toEqual({ status: "skipped", result: { reason: "otw_play_automation_paused" } });
+  });
+
+  it("continues common recovery and metadata cleanup while Play automation is paused", async () => {
+    const env = { otw_db: {}, YOUTUBE_API_KEY: "test-key" } as Env;
+    const repository = {
+      readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })),
+      recoverStaleItems: vi.fn(async () => 1),
+    };
+    vi.spyOn(ScheduledJobCoordinator.prototype, "dispatchPending")
+      .mockResolvedValue({ claimed: 1, dispatched: 1, failed: 0 });
+    const cleanup = vi.spyOn(IngestionService.prototype, "clearExpiredApiData").mockResolvedValue(2);
+    const executor = new ScheduledJobExecutor(env, repository as never);
+
+    expect(await executor.execute({ run_id: "run", phase: "recover-scheduled" } as ScheduledJobItemRecord))
+      .toMatchObject({ status: "succeeded", result: { recovered: 1, dispatched: 1 } });
+    expect(await executor.execute({ run_id: "run", phase: "cleanup" } as ScheduledJobItemRecord))
+      .toMatchObject({ status: "succeeded", result: { cleared: 2 } });
+    expect(cleanup).toHaveBeenCalledWith(20);
+  });
+
+  it("limits an already dispatched intent recovery to unsubscribe teardown after pause", async () => {
+    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
+    statement.bind.mockReturnValue(statement);
+    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test-key" } as unknown as Env;
+    const repository = { readRun: vi.fn(async () => ({ job_type: "websub_maintenance", source: "scheduled" })) };
+    const recover = vi.spyOn(WebsubService.prototype, "recoverStaleIntents").mockResolvedValue([]);
+
+    expect(await new ScheduledJobExecutor(env, repository as never)
+      .execute({ run_id: "run", phase: "recover-intent" } as ScheduledJobItemRecord))
+      .toMatchObject({ status: "skipped" });
+    expect(recover).toHaveBeenCalledWith("system:websub-intent-recovery", 1, true);
+  });
+
+  it("exposes common queue recovery failures rather than marking them successful", async () => {
+    const repository = {
+      readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })),
+      recoverStaleItems: vi.fn(async () => 0),
+    };
+    const dispatch = vi.spyOn(ScheduledJobCoordinator.prototype, "dispatchPending")
+      .mockResolvedValue({ claimed: 2, dispatched: 1, failed: 1 });
+    const executor = new ScheduledJobExecutor({ otw_db: {} } as Env, repository as never);
+    const item = { run_id: "run", phase: "recover-scheduled" } as ScheduledJobItemRecord;
+    await expect(executor.execute(item)).resolves.toMatchObject({
+      status: "partial", attempted: 2, succeeded: 1, failed: 1,
+      errorCode: "scheduled_dispatch_failed",
+    });
+    dispatch.mockResolvedValue({ claimed: 0, dispatched: 0, failed: 0 });
+    await expect(executor.execute(item)).resolves.toMatchObject({ status: "skipped" });
+    dispatch.mockResolvedValue({ claimed: 2, dispatched: 0, failed: 0 });
+    await expect(executor.execute(item)).resolves.toMatchObject({
+      status: "throttled", result: { deferred: 2 }, errorCode: "daily_background_budget_exhausted",
+    });
+    dispatch.mockResolvedValue({ claimed: 2, dispatched: 1, failed: 0 });
+    await expect(executor.execute(item)).resolves.toMatchObject({
+      status: "partial", result: { deferred: 1 }, errorCode: "daily_background_budget_exhausted",
+    });
+  });
+
+  it("checks the current pause flag for each ingestion requeue and exposes dispatch failure", async () => {
+    let paused = false;
+    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: String(paused) })) };
+    statement.bind.mockReturnValue(statement);
+    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test-key" } as unknown as Env;
+    const repository = { readRun: vi.fn(async () => ({ job_type: "ingestion_recovery", source: "scheduled" })) };
+    vi.spyOn(IngestionService.prototype, "requeuePendingWithOutcome")
+      .mockImplementation(async (_limit, canContinue) => {
+        await expect(canContinue!()).resolves.toBe(true);
+        paused = true;
+        await expect(canContinue!()).resolves.toBe(false);
+        return { attempted: 1, enqueued: 0, failed: 1 };
+      });
+    await expect(new ScheduledJobExecutor(env, repository as never)
+      .execute({ run_id: "run", phase: "requeue" } as ScheduledJobItemRecord))
+      .resolves.toMatchObject({ status: "failed", failed: 1, errorCode: "ingestion_dispatch_failed" });
+  });
+
+  it("does not mark a failed WebSub maintenance result as succeeded", () => {
+    expect(toScheduledBatchOutcome([{ id: "monitor-1", ok: false }]))
+      .toMatchObject({ status: "failed", attempted: 1, succeeded: 0, failed: 1,
+        errorCode: "scheduled_target_failed" });
+    expect(toScheduledBatchOutcome([{ id: "a", ok: true }, { id: "b", ok: false }]))
+      .toMatchObject({ status: "partial", attempted: 2, succeeded: 1, failed: 1 });
+    expect(toScheduledBatchOutcome([])).toMatchObject({ status: "skipped", attempted: 0 });
+  });
+
+  const health = {
+    claimed: 2, checked: 2, changed: 0, recovered: 0,
+    retryScheduled: 0, staleSkipped: 0, failed: 0,
+  };
+
+  it("preserves the actual source-health checks and failures", () => {
+    expect(toSourceHealthOutcome(health))
+      .toMatchObject({ status: "succeeded", attempted: 2, succeeded: 2, failed: 0 });
+    expect(toSourceHealthOutcome({ ...health, checked: 1, failed: 1 }))
+      .toMatchObject({ status: "partial", attempted: 2, succeeded: 1, failed: 1 });
+    expect(toSourceHealthOutcome({ ...health, checked: 0, failed: 2 }))
+      .toMatchObject({ status: "failed", errorCode: "source_health_check_failed" });
+  });
+
+  it("keeps source-health retries and lost CAS checks incomplete", () => {
+    expect(toSourceHealthOutcome({ ...health, checked: 0, retryScheduled: 2 }))
+      .toMatchObject({ status: "partial", retryScheduled: 2, errorCode: "source_health_retry_pending" });
+    expect(toSourceHealthOutcome({ ...health, checked: 1, staleSkipped: 1 }))
+      .toMatchObject({ status: "partial", errorCode: "source_health_check_incomplete" });
+    expect(toSourceHealthOutcome({ ...health, claimed: 0, checked: 0 }))
+      .toMatchObject({ status: "skipped", attempted: 0, succeeded: 0 });
+  });
+
   it("keeps preview budget deferral neutral but exposes actual hydration errors", () => {
     const referenceHydration: XReferenceHydrationResultDto = { status: "deferred", scanned: 1, hydrated: 0, authorsResolved: 0,
       deferred: 1, failed: 0, terminal: 0, coalesced: 0, retryAt: 1, errorCode: "preview_budget_exceeded" };

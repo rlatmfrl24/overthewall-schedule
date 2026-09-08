@@ -105,6 +105,7 @@ export const readOperationsStatusRows = async (
         `SELECT key, value
          FROM settings
          WHERE key IN (
+           'otw_play_automation_paused',
            'auto_update_enabled',
            'auto_update_interval_hours',
            'auto_update_last_run',

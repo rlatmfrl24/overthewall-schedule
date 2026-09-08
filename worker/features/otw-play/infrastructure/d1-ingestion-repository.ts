@@ -1114,13 +1114,34 @@ export class D1IngestionRepository implements IngestionRepository {
     );
   }
 
-  async clearExpiredApiData(now: number, limit: number) {
-    const candidates = resultsOf(await this.database.prepare(
+  private async listExpiredCandidateApiData(now: number, limit: number) {
+    return resultsOf(await this.database.prepare(
       `SELECT id FROM music_ingestion_candidates
        WHERE metadata_checked_at IS NOT NULL
          AND (metadata_checked_at <= ? OR retention_expires_at <= ?)
        ORDER BY metadata_checked_at, id LIMIT ?`,
     ).bind(now - API_DATA_RETENTION_MS, now, limit).all<{ id: string }>());
+  }
+
+  private async listExpiredJobApiData(now: number, limit: number) {
+    return resultsOf(await this.database.prepare(
+      `SELECT id FROM music_ingestion_jobs
+       WHERE source_metadata_checked_at IS NOT NULL
+         AND source_metadata_checked_at <= ?
+       ORDER BY source_metadata_checked_at, id LIMIT ?`,
+    ).bind(now - API_DATA_RETENTION_MS, limit).all<{ id: string }>());
+  }
+
+  async hasExpiredApiData(now: number) {
+    const [candidates, jobs] = await Promise.all([
+      this.listExpiredCandidateApiData(now, 1),
+      this.listExpiredJobApiData(now, 1),
+    ]);
+    return candidates.length > 0 || jobs.length > 0;
+  }
+
+  async clearExpiredApiData(now: number, limit: number) {
+    const candidates = await this.listExpiredCandidateApiData(now, limit);
     let cleared = 0;
     for (const chunk of chunksOf(candidates, 48)) {
       const statements = chunk.flatMap((candidate) => [
@@ -1156,12 +1177,7 @@ export class D1IngestionRepository implements IngestionRepository {
         cleared += Number(results[index]?.meta.changes ?? 0);
       }
     }
-    const jobs = resultsOf(await this.database.prepare(
-      `SELECT id FROM music_ingestion_jobs
-       WHERE source_metadata_checked_at IS NOT NULL
-         AND source_metadata_checked_at <= ?
-       ORDER BY source_metadata_checked_at, id LIMIT ?`,
-    ).bind(now - API_DATA_RETENTION_MS, limit).all<{ id: string }>());
+    const jobs = await this.listExpiredJobApiData(now, limit);
     for (const chunk of chunksOf(jobs, 50)) {
       const results = await this.database.batch(chunk.map((job) =>
         this.database.prepare(
