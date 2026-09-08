@@ -584,7 +584,7 @@ function RunDetails({ run }: { run: OperationRun }) {
         <p className="font-semibold break-words">{item.targetKey.replace(/^handles:\d+:/, "@").replaceAll(",", " · @")} · {statusLabel(item.status)}</p>
         <p>게시물 수집: {item.collection ? `응답 ${item.collection.postsReturned}건 · 저장 ${item.collection.postsStored}건` : "수집 결과 기록 없음"}</p>
         {item.collection?.error && <p>{item.collection.error}</p>}
-        {item.referenceHydration ? <><p>보강: 원문 {item.referenceHydration.hydrated}건 · 작성자 {item.referenceHydration.authorsResolved}건</p><p>이월 {item.referenceHydration.deferred} · 실패 {item.referenceHydration.failed} · 접근 불가 {item.referenceHydration.terminal}</p><p>{item.referenceHydration.errorCode} · 재시도 가능 {formatDateTime(item.referenceHydration.retryAt)}</p></> : <p>보강 결과 기록 없음</p>}
+        {item.referenceHydration ? <><p>{item.referenceHydration.scope === "quotes" ? "인용 보강" : "답글·인용 보강"}: 원문 {item.referenceHydration.hydrated}건 · 작성자 {item.referenceHydration.authorsResolved}건</p><p>이월 {item.referenceHydration.deferred} · 실패 {item.referenceHydration.failed} · 접근 불가 {item.referenceHydration.terminal}</p><p>{item.referenceHydration.errorCode} · 재시도 가능 {formatDateTime(item.referenceHydration.retryAt)}</p></> : <p>보강 결과 기록 없음</p>}
         <p>시도 {item.attempts}회 · 결과 갱신 {formatDateTime(item.updatedAt)}{item.retryPending ? ` · 재시도 대기 ${formatDateTime(item.nextRetryAt)}` : ""}</p>
       </article>)}
       {recorded.failures.map((failure) => <p key={failure.itemId} className="break-words text-destructive">{failure.phase} · {failure.code ?? "오류"}: {failure.message} (시도 {failure.attempts}회)</p>)}

@@ -43,6 +43,15 @@ const makePost = (id: string, username: string): XPostDto => ({
 });
 
 describe("x api", () => {
+  it("maps reply targets to known members without making another request", async () => {
+    const { fetchMembersXPosts } = await import("./x-posts-api");
+    const post: XPostDto = { ...makePost("201", "writer"),
+      reply: { postId: "100", conversationId: "root", inReplyToUserId: "2", targetUsername: "Parent", post: null } };
+    apiFetchMock.mockResolvedValueOnce({ posts: [post], byHandle: [], updatedAt: "now" });
+    const result = await fetchMembersXPosts([makeMember(1, "writer"), makeMember(2, "parent")]);
+    expect(result?.posts[0]).toMatchObject({ replyTargetMemberName: "멤버2", reply: post.reply });
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     apiFetchMock.mockReset();
     vi.resetModules();

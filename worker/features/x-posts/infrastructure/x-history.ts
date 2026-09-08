@@ -404,9 +404,10 @@ export const backfillXPostReferencesFromStoredPosts = async (
       Boolean(reference?.id)
     );
     for (const reference of references) {
-      const local = await db.prepare("SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1")
-        .bind(reference.id).first<{ found: number }>();
-      const state = local ? "local" : reference.hydrated ? "hydrated" : "pending";
+      const local = reference.type === "quote" ? await db.prepare("SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1")
+        .bind(reference.id).first<{ found: number }>() : null;
+      const state = reference.type === "reply" && !reference.hydrated
+        ? "link_only" : local ? "local" : reference.hydrated ? "hydrated" : "pending";
       await db.prepare(
         `INSERT OR IGNORE INTO x_post_references (
            source_post_id, relation_type, referenced_post_id,
@@ -418,7 +419,7 @@ export const backfillXPostReferencesFromStoredPosts = async (
         reference.type,
         reference.id,
         state,
-        !reference.hydrated ? timestamp : null,
+        reference.type === "quote" && !reference.hydrated ? timestamp : null,
         reference.hydrated ? timestamp : null,
         timestamp,
         timestamp,
