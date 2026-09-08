@@ -1,7 +1,8 @@
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchSettings } from "@/features/configuration";
 import type {
   OtwPlayAdminCatalogDto,
   OtwPlayChannelMonitorCandidateDto,
@@ -33,6 +34,7 @@ import {
   useOtwPlayPreviousGenerationCandidates,
 } from "../../queries/use-admin-catalog";
 import { SingingClipReviewDialog } from "./singing-clip-review-dialog";
+import { PlayAutomationControl } from "./play-automation-control";
 
 const formatAt = (value: number | null) =>
   value === null ? "아직 확인하지 않음" : new Date(value).toLocaleString("ko-KR");
@@ -107,6 +109,8 @@ export function ChannelMonitorSection({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const monitorsQuery = useOtwPlayChannelMonitors();
+  const settingsQuery = useQuery({ queryKey: queryKeys.settings.detail(), queryFn: fetchSettings, staleTime: 30_000, enabled: mode !== "review" });
+  const automationPaused = settingsQuery.data?.otw_play_automation_paused === "true";
   const [search, updateSearch] = useConsoleSearch();
   const selectedMonitorId = search.category ?? null;
   const setSelectedMonitorId = (id: string | null) => updateSearch({category: id ?? undefined, selected: undefined}, false);
@@ -131,15 +135,13 @@ export function ChannelMonitorSection({
   const verifiedSubscriptionActive =
     selectedMonitor?.subscription?.effectiveActive === true;
   const transportReleased = !selectedMonitor?.subscription ||
-    ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status) ||
-    (selectedMonitor.subscription.status === "active" && !verifiedSubscriptionActive);
+    selectedMonitor.subscription.status === "unsubscribed";
   const canRequestSubscription = !selectedMonitor?.subscription ||
     ["unsubscribed", "denied", "failed"].includes(selectedMonitor.subscription.status) ||
     (selectedMonitor.subscription.status === "active" && !verifiedSubscriptionActive);
   const canRequestUnsubscribe = Boolean(
     selectedMonitor?.subscription &&
-    (["pending", "renewing", "unsubscribing"].includes(selectedMonitor.subscription.status) ||
-      verifiedSubscriptionActive),
+    selectedMonitor.subscription.status !== "unsubscribed",
   );
   const candidates = useMemo(
     () => candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [],
@@ -389,6 +391,7 @@ export function ChannelMonitorSection({
           </div>
         ) : null}
         {mode !== "review" && (<>
+        <PlayAutomationControl monitors={monitors} />
         <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <Field>
             <FieldLabel htmlFor="new-monitor-channel-id">수집 대상 채널 ID</FieldLabel>
@@ -412,6 +415,7 @@ export function ChannelMonitorSection({
             disabled={
               !YOUTUBE_CHANNEL_ID_PATTERN.test(normalizedNewChannelId) ||
               newChannelAlreadyMonitored ||
+              automationPaused ||
               busy !== null
             }
             onClick={() => void createMonitor()}
@@ -496,20 +500,20 @@ export function ChannelMonitorSection({
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={busy !== null || selectedMonitor.lastErrorCode === "gap_suspected"}
+                        disabled={busy !== null || selectedMonitor.lastErrorCode === "gap_suspected" || (automationPaused && selectedMonitor.status !== "active")}
                         onClick={() => void toggleMonitor()}
                       >
                         {selectedMonitor.status === "active" ? <Pause /> : <Play />}
                         {selectedMonitor.status === "active" ? "일시 정지" : "감시 재개"}
                       </Button>
-                      <Button size="sm" disabled={busy !== null || selectedMonitor.status !== "active"} onClick={() => void reconcile()}>
+                      <Button size="sm" disabled={automationPaused || busy !== null || selectedMonitor.status !== "active"} onClick={() => void reconcile()}>
                         {busy === "reconcile" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                         지금 대조
                       </Button>
                       {canRequestSubscription ? (
                         <Button
                           size="sm"
-                          disabled={busy !== null || selectedMonitor.status !== "active" || selectedMonitor.automationApproval?.status !== "approved"}
+                          disabled={automationPaused || busy !== null || selectedMonitor.status !== "active" || selectedMonitor.automationApproval?.status !== "approved"}
                           onClick={() => void runTransportAction("subscribe")}
                         >
                           {busy === "subscribe" ? <Loader2 className="animate-spin" /> : <Bell />}
@@ -520,7 +524,7 @@ export function ChannelMonitorSection({
                         <Button
                           variant="outline"
                           size="sm"
-                          disabled={busy !== null}
+                          disabled={automationPaused || busy !== null}
                           onClick={() => void runTransportAction("renew")}
                         >
                           {busy === "renew" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -541,7 +545,7 @@ export function ChannelMonitorSection({
                       {selectedMonitor.lastErrorCode === "gap_suspected" ? (
                         <Button
                           size="sm"
-                          disabled={busy !== null}
+                          disabled={automationPaused || busy !== null}
                           onClick={() => void resetWatermark()}
                         >
                           {busy === "reset-watermark" ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -595,7 +599,7 @@ export function ChannelMonitorSection({
                         />
                         <Button
                           variant="outline"
-                          disabled={busy !== null || selectedMonitor.status !== "active" || Number(backfillCount) < 1 || Number(backfillCount) > 20}
+                          disabled={automationPaused || busy !== null || selectedMonitor.status !== "active" || Number(backfillCount) < 1 || Number(backfillCount) > 20}
                           onClick={() => void backfill()}
                         >
                           {busy === "backfill" ? <Loader2 className="animate-spin" /> : null}

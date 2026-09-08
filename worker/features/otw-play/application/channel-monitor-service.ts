@@ -35,6 +35,7 @@ export class ChannelMonitorService {
   private readonly youtube: OtwPlayYouTubeIngestionReader;
   private readonly createId: () => string;
   private readonly clock: () => number;
+  private readonly isAutomationPaused: () => Promise<boolean>;
   private readonly unsubscribeTransport?: (
     monitorId: string,
     actorUserId: string,
@@ -49,12 +50,20 @@ export class ChannelMonitorService {
       monitorId: string,
       actorUserId: string,
     ) => Promise<unknown>,
+    isAutomationPaused: () => Promise<boolean> = async () => false,
   ) {
     this.repository = repository;
     this.youtube = youtube;
     this.createId = createId;
     this.clock = clock;
+    this.isAutomationPaused = isAutomationPaused;
     this.unsubscribeTransport = unsubscribeTransport;
+  }
+
+  private async assertAutomationRunning() {
+    if (await this.isAutomationPaused()) {
+      throw new IngestionRepositoryError("validation_failed", "OTW Play automation is paused");
+    }
   }
 
   private assertTransportReleased(
@@ -138,6 +147,7 @@ export class ChannelMonitorService {
     externalChannelId: string,
     actorUserId: string,
   ) {
+    await this.assertAutomationRunning();
     const existing = await this.repository.findByExternalChannel(externalChannelId);
     if (existing) {
       if (existing.automationApproval?.status === "approved") return existing;
@@ -180,6 +190,7 @@ export class ChannelMonitorService {
     status: OtwPlayChannelMonitorStatus,
     actorUserId: string,
   ) {
+    if (status === "active") await this.assertAutomationRunning();
     const current = await this.requireVersion(id, expectedVersion);
     const monitor = await this.repository.updateStatus({
       id,
@@ -257,6 +268,7 @@ export class ChannelMonitorService {
     expectedVersion: number,
     actorUserId: string,
   ) {
+    await this.assertAutomationRunning();
     const current = await this.requireVersion(id, expectedVersion);
     const channel = await this.repository.findEligibleChannel(current.externalChannelId);
     if (!channel) {
@@ -315,6 +327,7 @@ export class ChannelMonitorService {
   }
 
   async reconcile(id: string): Promise<OtwPlayChannelMonitorReconcileDto> {
+    await this.assertAutomationRunning();
     const startedAt = this.clock();
     const monitor = await this.repository.claim(id, startedAt);
     if (!monitor) {
@@ -333,6 +346,7 @@ export class ChannelMonitorService {
       let firstPage = monitor.syncPageToken == null;
 
       do {
+        await this.assertAutomationRunning();
         const page = await this.youtube.readPlaylistPage(
           monitor.uploadsPlaylistId,
           pageToken,
@@ -359,6 +373,7 @@ export class ChannelMonitorService {
 
       const capped = !foundWatermark &&
         videoIds.length >= MAX_RECONCILIATION_VIDEOS && hasMore;
+      await this.assertAutomationRunning();
       if (baseVideoId && !foundWatermark && !capped) {
         const gapMonitor = await this.repository.markGapSuspected({
           id: monitor.id,
@@ -376,6 +391,7 @@ export class ChannelMonitorService {
       }
       const observations: OtwPlayYouTubeVideoObservation[] = [];
       for (let index = 0; index < videoIds.length; index += 50) {
+        await this.assertAutomationRunning();
         const batch = await this.youtube.readVideos(videoIds.slice(index, index + 50));
         observations.push(
           ...batch.filter((item) =>
@@ -495,6 +511,7 @@ export class ChannelMonitorService {
     count: number,
     includeBeforeWatermark: boolean,
   ): Promise<OtwPlayChannelMonitorReconcileDto> {
+    await this.assertAutomationRunning();
     const monitor = await this.repository.claim(id, this.clock());
     if (!monitor) {
       throw new IngestionRepositoryError(
@@ -514,6 +531,7 @@ export class ChannelMonitorService {
           ? recentItems.slice(0, watermarkIndex)
           : [];
       const ids = [...new Set(selected.map((item) => item.videoId))];
+      await this.assertAutomationRunning();
       const observations = await this.youtube.readVideos(ids);
       const authoritative = observations.filter((item) =>
         item.video === null || item.video.channelId === monitor.externalChannelId

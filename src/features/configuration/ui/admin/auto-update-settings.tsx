@@ -1350,6 +1350,11 @@ export function AutoUpdateSettingsManager({
                 className="h-8 w-24"
               />
             </div>
+            <div className="flex min-h-12 flex-wrap items-center gap-2 rounded-md bg-muted/35 px-3 py-2">
+              <span className="text-sm font-medium">Play 자동화</span>
+              <Badge variant="outline">{!settings ? "상태 확인 중" : settings.otw_play_automation_paused === "true" ? "일시 중지" : "자동화 허용"}</Badge>
+              <a className="text-sm underline underline-offset-4" href="/admin/otw-play?tab=channels">중지·재개 관리</a>
+            </div>
           </div>
           ) : null}
 

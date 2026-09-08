@@ -59,6 +59,15 @@ describe("auto update interval helpers", () => {
 });
 
 describe("settings policy", () => {
+  it("Play automation pause defaults to false without a read-time write and validates explicit booleans", () => {
+    const { settings, writes } = normalizeAdminSettings({});
+    expect(settings.otw_play_automation_paused).toBe("false");
+    expect(writes.some((write) => write.key === "otw_play_automation_paused")).toBe(false);
+    expect(parseSettingsUpdatePayload({ otw_play_automation_paused: "true" })).toEqual({
+      ok: true, updates: [{ key: "otw_play_automation_paused", value: "true" }],
+    });
+    expect(parseSettingsUpdatePayload({ otw_play_automation_paused: true }).ok).toBe(false);
+  });
   it("OTW Play 회원 제안 일일 제한을 1~100 범위로 검증한다", () => {
     expect(isOtwPlaySubmissionDailyLimitValue("1")).toBe(true);
     expect(isOtwPlaySubmissionDailyLimitValue("100")).toBe(true);

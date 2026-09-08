@@ -18,6 +18,7 @@ import {
   OTW_PLAY_SOURCE_HEALTH_LIMIT,
   OTW_PLAY_SOURCE_HEALTH_LINK_LIMIT,
 } from "../domain/source-health-policy";
+import { OTW_PLAY_AUTOMATION_RUNNING_SQL } from "./play-automation-settings";
 
 type RevisionRow = { revision: number; read_model_revision: number };
 type TargetRow = {
@@ -246,7 +247,7 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         SET next_check_at = ?, updated_at = ?
         WHERE id IN (
           SELECT id FROM music_media_sources
-          WHERE next_check_at <= ?
+          WHERE next_check_at <= ? AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}
           ORDER BY next_check_at, id
           LIMIT ?
         )
@@ -291,7 +292,8 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         .prepare(`UPDATE music_media_sources SET title = ?, thumbnail_url = ?,
           duration_seconds = ?, provider_published_at = ?, availability_status = ?,
           last_checked_at = ?, next_check_at = ?, version = version + 1, updated_at = ?
-          WHERE id = ? AND version = ?`)
+          WHERE id = ? AND version = ?
+            ${actor.kind === "system" ? `AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}` : ""}`)
         .bind(
           title,
           thumbnailUrl,
@@ -393,7 +395,8 @@ export class D1SourceHealthRepository implements SourceHealthRepository {
         this.database
           .prepare(`UPDATE music_media_sources
             SET next_check_at = ?, version = version + 1, updated_at = ?
-            WHERE id = ? AND version = ?`)
+            WHERE id = ? AND version = ?
+              ${actor.kind === "system" ? `AND ${OTW_PLAY_AUTOMATION_RUNNING_SQL}` : ""}`)
           .bind(nextCheckAt, now, target.id, target.version),
         versionGuard(this.database),
         this.database

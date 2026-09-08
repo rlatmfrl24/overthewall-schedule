@@ -196,6 +196,12 @@ const makeCacheDb = (
               return null as T | null;
             },
             async all<T>() {
+              if (sql.includes("FROM x_post_sources")) {
+                return { results: args.flatMap((handle) => {
+                  const source = sources.get(String(handle));
+                  return source ? [source] : [];
+                }) as T[] };
+              }
               if (sql.includes("FROM members")) {
                 return {
                   results: [
@@ -204,9 +210,12 @@ const makeCacheDb = (
                 };
               }
               if (sql.includes("FROM x_posts")) {
-                const handle = String(args[0]);
-                const limit = Number(args[1]);
-                const results = Array.from(posts.values())
+                const requested: string[] = sql.includes("WITH requested(handle)")
+                  ? JSON.parse(String(args[0])) as string[]
+                  : [String(args[0])];
+                const results = requested.flatMap((handle) => {
+                  const limit = Number(args[1]);
+                  return Array.from(posts.values())
                   .filter(
                     (post) =>
                       post.handle === handle && post.hidden_at === null,
@@ -217,7 +226,8 @@ const makeCacheDb = (
                       new Date(a.created_at).getTime();
                     return dateDiff || b.id.localeCompare(a.id);
                   })
-                  .slice(0, limit) as T[];
+                  .slice(0, limit);
+                }) as T[];
                 return { results };
               }
               return { results: [] as T[] };

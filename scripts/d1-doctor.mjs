@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   REQUIRED_D1_COLUMNS,
@@ -27,7 +27,7 @@ const execFileAsync = promisify(execFile);
 const require = createRequire(import.meta.url);
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const wranglerEntry = require.resolve("wrangler/bin/wrangler.js");
+const wranglerEntry = join(dirname(require.resolve("wrangler/package.json")), "bin", "wrangler.js");
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const hasArg = (name) => args.includes(name);

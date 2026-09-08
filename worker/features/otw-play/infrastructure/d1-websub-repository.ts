@@ -8,12 +8,24 @@ import type {
   WebsubSubscriptionAuthority,
 } from "../application/ports/websub-repository";
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
+import { OTW_PLAY_AUTOMATION_RUNNING_SQL as automationRunning } from "./play-automation-settings";
 
 const RETENTION_MS = 180 * 86_400_000;
 const DELIVERY_RECOVERY_MS = 60_000;
 const ENQUEUED_RECOVERY_MS = 15 * 60_000;
 const PROCESSING_RECOVERY_MS = 5 * 60_000;
 const INTENT_RECOVERY_MS = 15 * 60_000;
+const SUBSCRIPTION_RETRY_MS = 60 * 60_000;
+const retryableSubscription = `subscription.status = 'failed'
+  AND subscription.last_error_code = 'hub_timeout'
+  AND subscription.updated_at <= ?
+  AND NOT EXISTS (
+    SELECT 1 FROM music_catalog_events AS event
+    WHERE event.aggregate_type = 'websub_subscription'
+      AND event.aggregate_id = subscription.id
+      AND event.event_type = 'websub_subscription.unsubscribe_requested'
+      AND event.created_at >= subscription.requested_at
+  )`;
 
 const subscriptionSelect = `SELECT subscription.*,
   channel.external_channel_id,
@@ -114,6 +126,7 @@ export class D1WebsubRepository implements WebsubRepository {
                     AND current.status <> 'unsubscribed'
                 ))
                 OR (? = 'subscribe'
+                  AND ${automationRunning}
                   AND monitor.status = 'active'
                   AND channel.channel_role = 'approved_kirinuki'
                   AND channel.verification_status = 'approved' AND channel.active = 1
@@ -121,6 +134,10 @@ export class D1WebsubRepository implements WebsubRepository {
                   AND approval.status = 'approved')
               )
           )
+          AND (? IS NULL OR EXISTS (
+            SELECT 1 FROM music_channel_websub_subscriptions AS retry
+            WHERE retry.id = ? AND retry.monitor_id = ? AND retry.monitor_generation = ?
+          ))
         ON CONFLICT(monitor_id, monitor_generation) DO UPDATE SET
           topic_url = excluded.topic_url,
           callback_token_hash = excluded.callback_token_hash,
@@ -128,9 +145,26 @@ export class D1WebsubRepository implements WebsubRepository {
           status = excluded.status,
           pending_mode = excluded.pending_mode,
           requested_at = excluded.requested_at,
+          lease_expires_at = CASE
+            WHEN music_channel_websub_subscriptions.lease_expires_at >= excluded.requested_at
+              THEN music_channel_websub_subscriptions.lease_expires_at
+            ELSE NULL
+          END,
           last_error_code = NULL,
           version = music_channel_websub_subscriptions.version + 1,
-          updated_at = excluded.updated_at`,
+          updated_at = excluded.updated_at
+        WHERE ? IS NULL OR (
+          music_channel_websub_subscriptions.status = 'failed'
+          AND music_channel_websub_subscriptions.last_error_code = 'hub_timeout'
+          AND music_channel_websub_subscriptions.updated_at <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM music_catalog_events AS event
+            WHERE event.aggregate_type = 'websub_subscription'
+              AND event.aggregate_id = music_channel_websub_subscriptions.id
+              AND event.event_type = 'websub_subscription.unsubscribe_requested'
+              AND event.created_at >= music_channel_websub_subscriptions.requested_at
+          )
+        )`,
       ).bind(
         input.id,
         input.monitorId,
@@ -148,6 +182,12 @@ export class D1WebsubRepository implements WebsubRepository {
         input.pendingMode,
         input.id,
         input.pendingMode,
+        input.retryFailedBefore ?? null,
+        input.id,
+        input.monitorId,
+        input.monitorGeneration,
+        input.retryFailedBefore ?? null,
+        input.retryFailedBefore ?? null,
       ),
       this.database.prepare(
         `INSERT INTO music_catalog_events (
@@ -186,13 +226,23 @@ export class D1WebsubRepository implements WebsubRepository {
        SET status = ?, pending_mode = NULL, verified_at = ?, lease_expires_at = ?,
          last_error_code = NULL, version = version + 1, updated_at = ?
        WHERE id = ? AND pending_mode = ?
-         AND status IN ('pending', 'renewing', 'unsubscribing')`,
+         AND status IN ('pending', 'renewing', 'unsubscribing')
+         AND (? = 'unsubscribe' OR (${automationRunning} AND EXISTS (
+           SELECT 1 FROM music_channel_upload_monitors AS monitor
+           JOIN music_channel_automation_approvals AS approval
+             ON approval.channel_id = monitor.channel_id
+           WHERE monitor.id = music_channel_websub_subscriptions.monitor_id
+             AND monitor.generation = music_channel_websub_subscriptions.monitor_generation
+             AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+             AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
+         )))`,
     ).bind(
       input.mode === "subscribe" ? "active" : "unsubscribed",
       input.now,
       input.leaseExpiresAt,
       input.now,
       input.id,
+      input.mode,
       input.mode,
     ).run();
     if (Number(result.meta.changes ?? 0) !== 1) {
@@ -213,12 +263,18 @@ export class D1WebsubRepository implements WebsubRepository {
     errorCode: string,
     fallbackStatus: "active" | "failed",
     now: number,
+    requestStartedAt?: number,
   ) {
     await this.database.prepare(
       `UPDATE music_channel_websub_subscriptions
-       SET status = ?, pending_mode = NULL, last_error_code = ?,
-         version = version + 1, updated_at = ? WHERE id = ?`,
-    ).bind(fallbackStatus, errorCode, now, id).run();
+       SET status = CASE WHEN ? = 'active' AND verified_at IS NOT NULL AND lease_expires_at > ?
+           THEN 'active' ELSE 'failed' END,
+         pending_mode = NULL, last_error_code = ?,
+         version = version + 1, updated_at = ? WHERE id = ?
+         AND (? IS NULL OR (
+           requested_at = ? AND status IN ('pending', 'renewing', 'unsubscribing')
+         ))`,
+    ).bind(fallbackStatus, now, errorCode, now, id, requestStartedAt ?? null, requestStartedAt ?? null).run();
   }
 
   async recordDelivery(input: Parameters<WebsubRepository["recordDelivery"]>[0]) {
@@ -240,6 +296,7 @@ export class D1WebsubRepository implements WebsubRepository {
               AND subscription.verified_at IS NOT NULL
               AND subscription.lease_expires_at IS NOT NULL
               AND subscription.lease_expires_at > ?
+              AND ${automationRunning}
               AND subscription.monitor_id = ?
               AND subscription.monitor_generation = ?
               AND monitor.generation = subscription.monitor_generation
@@ -274,6 +331,7 @@ export class D1WebsubRepository implements WebsubRepository {
            AND verified_at IS NOT NULL
            AND lease_expires_at IS NOT NULL
            AND lease_expires_at > ?
+           AND ${automationRunning}
            AND EXISTS (
              SELECT 1 FROM music_channel_upload_monitors AS monitor
              JOIN music_channels AS channel ON channel.id = monitor.channel_id
@@ -333,7 +391,7 @@ export class D1WebsubRepository implements WebsubRepository {
     const result = await this.database.prepare(
       `UPDATE music_channel_websub_deliveries
        SET status = 'processing', attempt_count = attempt_count + 1, updated_at = ?
-       WHERE id = ? AND (
+       WHERE id = ? AND ${automationRunning} AND (
          status IN ('pending', 'enqueued', 'failed')
          OR (status = 'processing' AND updated_at <= ?)
        )`,
@@ -413,6 +471,7 @@ export class D1WebsubRepository implements WebsubRepository {
               ON approval.channel_id = monitor.channel_id
             WHERE monitor.id = ? AND monitor.generation = ?
               AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+              AND ${automationRunning}
               AND channel.provider = 'youtube'
               AND channel.channel_role = 'approved_kirinuki'
               AND channel.verification_status = 'approved' AND channel.active = 1
@@ -530,6 +589,7 @@ export class D1WebsubRepository implements WebsubRepository {
                 ON approval.channel_id = monitor.channel_id
               WHERE monitor.id = ? AND monitor.generation = ?
                 AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+                AND ${automationRunning}
                 AND channel.provider = 'youtube'
                 AND channel.channel_role = 'approved_kirinuki'
                 AND channel.verification_status = 'approved' AND channel.active = 1
@@ -549,6 +609,7 @@ export class D1WebsubRepository implements WebsubRepository {
         `UPDATE music_channel_websub_deliveries
          SET status = 'completed', processed_at = ?, last_error_code = NULL, updated_at = ?
          WHERE id = ? AND status = 'processing'
+           AND ${automationRunning}
            AND EXISTS (
              SELECT 1 FROM music_channel_upload_monitors AS monitor
              JOIN music_channels AS channel ON channel.id = monitor.channel_id
@@ -602,14 +663,15 @@ export class D1WebsubRepository implements WebsubRepository {
     return (result.results ?? []).map((row) => row.id);
   }
 
-  async listStaleIntents(now: number, limit: number) {
+  async listStaleIntents(now: number, limit: number, teardownOnly = false) {
     const result = await this.database.prepare(
       `SELECT monitor_id, status
        FROM music_channel_websub_subscriptions
        WHERE status IN ('pending', 'renewing', 'unsubscribing')
+         AND (? = 0 OR status = 'unsubscribing')
          AND requested_at <= ?
        ORDER BY requested_at ASC, id ASC LIMIT ?`,
-    ).bind(now - INTENT_RECOVERY_MS, limit).all<{
+    ).bind(teardownOnly ? 1 : 0, now - INTENT_RECOVERY_MS, limit).all<{
       monitor_id: string;
       status: "pending" | "renewing" | "unsubscribing";
     }>();
@@ -632,7 +694,8 @@ export class D1WebsubRepository implements WebsubRepository {
          AND subscription.monitor_generation = monitor.generation
          AND monitor.deleted_at IS NULL
          AND (
-           monitor.status <> 'active'
+           NOT (${automationRunning})
+           OR monitor.status <> 'active'
            OR channel.provider <> 'youtube'
            OR channel.channel_role <> 'approved_kirinuki'
            OR channel.verification_status <> 'approved'
@@ -664,5 +727,41 @@ export class D1WebsubRepository implements WebsubRepository {
        ORDER BY subscription.lease_expires_at ASC, subscription.id ASC LIMIT ?`,
     ).bind(now + 48 * 60 * 60_000, limit).all<{ id: string }>();
     return (result.results ?? []).map((row) => row.id);
+  }
+
+  async listRetryableSubscriptionMonitorIds(now: number, limit: number) {
+    const result = await this.database.prepare(
+      `SELECT subscription.monitor_id AS id
+       FROM music_channel_websub_subscriptions AS subscription
+       JOIN music_channel_upload_monitors AS monitor ON monitor.id = subscription.monitor_id
+       JOIN music_channels AS channel ON channel.id = monitor.channel_id
+       JOIN music_channel_automation_approvals AS approval ON approval.channel_id = monitor.channel_id
+       WHERE ${retryableSubscription}
+         AND ${automationRunning}
+         AND subscription.monitor_generation = monitor.generation
+         AND monitor.status = 'active' AND monitor.deleted_at IS NULL
+         AND channel.provider = 'youtube' AND channel.channel_role = 'approved_kirinuki'
+         AND channel.verification_status = 'approved' AND channel.active = 1
+         AND approval.scope = 'candidate_collection' AND approval.status = 'approved'
+       ORDER BY subscription.updated_at ASC, subscription.id ASC LIMIT ?`,
+    ).bind(now - SUBSCRIPTION_RETRY_MS, limit).all<{ id: string }>();
+    return (result.results ?? []).map((row) => row.id);
+  }
+
+  async listScheduledMaintenancePhases(now: number, paused: boolean) {
+    const [cleanup, intents, deliveries, renewals, retries] = await Promise.all([
+      this.listCleanupMonitorIds(1),
+      this.listStaleIntents(now, 1, paused),
+      paused ? [] : this.listRecoverableDeliveryIds(now, 1),
+      paused ? [] : this.listRenewalMonitorIds(now, 1),
+      paused ? [] : this.listRetryableSubscriptionMonitorIds(now, 1),
+    ]);
+    const phases: Array<"recover-delivery" | "cleanup" | "recover-intent" | "renew" | "retry-subscription"> = [];
+    if (deliveries.length) phases.push("recover-delivery");
+    if (cleanup.length) phases.push("cleanup");
+    if (intents.length) phases.push("recover-intent");
+    if (renewals.length) phases.push("renew");
+    if (retries.length) phases.push("retry-subscription");
+    return phases;
   }
 }

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { D1IngestionRepository, D1WebsubRepository } from "../../otw-play";
 import type {
   NewScheduledItem,
   ScheduledJobRunRecord,
@@ -8,8 +9,21 @@ import type { Env } from "../../../platform/types";
 const mocks = vi.hoisted(() => ({
   getScheduledXCollectionDecision: vi.fn(),
   readActiveXHandles: vi.fn(),
+  readOtwPlayAutomationPaused: vi.fn(),
+  readDueDataRetentionPolicyIds: vi.fn(),
+  hasScheduledYouTubeFeedWork: vi.fn(),
 }));
 
+vi.mock("../../otw-play", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../otw-play")>(),
+  readOtwPlayAutomationPaused: mocks.readOtwPlayAutomationPaused,
+}));
+vi.mock("../../operations", () => ({
+  readDueDataRetentionPolicyIds: mocks.readDueDataRetentionPolicyIds,
+}));
+vi.mock("../../youtube", () => ({
+  hasScheduledYouTubeFeedWork: mocks.hasScheduledYouTubeFeedWork,
+}));
 vi.mock("../../x-posts", () => ({
   getScheduledXCollectionDecision: mocks.getScheduledXCollectionDecision,
   readActiveXHandles: mocks.readActiveXHandles,
@@ -67,6 +81,70 @@ describe("ScheduledJobPlanner interval eligibility", () => {
       shouldRun: true,
     });
     mocks.readActiveXHandles.mockResolvedValue(["member_a"]);
+    mocks.readOtwPlayAutomationPaused.mockResolvedValue(false);
+    mocks.readDueDataRetentionPolicyIds.mockResolvedValue([]);
+    mocks.hasScheduledYouTubeFeedWork.mockResolvedValue(false);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("plans no empty recovery, WebSub, YouTube, or retention work", async () => {
+    const { env } = makeEnv({});
+    const repository = { addItems: vi.fn(), hasRecoveryWork: vi.fn(async () => false) };
+    vi.spyOn(D1WebsubRepository.prototype, "listScheduledMaintenancePhases").mockResolvedValue([]);
+    vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(false);
+    vi.spyOn(D1IngestionRepository.prototype, "listPendingMessages").mockResolvedValue([]);
+    const planner = new ScheduledJobPlanner(env, repository as never);
+
+    for (const jobType of ["ingestion_recovery", "websub_maintenance", "youtube_feed_collection", "retention_prune"] as const) {
+      expect(await planner.planScheduled(jobType, 100)).toEqual([]);
+    }
+    expect(repository.addItems).not.toHaveBeenCalled();
+  });
+
+  it("pausing Play keeps common recovery and metadata cleanup but skips ingestion requeue", async () => {
+    const { env } = makeEnv({});
+    const repository = { addItems: vi.fn(), hasRecoveryWork: vi.fn(async () => true) };
+    mocks.readOtwPlayAutomationPaused.mockResolvedValue(true);
+    vi.spyOn(D1IngestionRepository.prototype, "hasExpiredApiData").mockResolvedValue(true);
+    const pending = vi.spyOn(D1IngestionRepository.prototype, "listPendingMessages");
+    const planner = new ScheduledJobPlanner(env, repository as never);
+
+    expect(await planner.planScheduled("ingestion_recovery", 100)).toEqual([
+      { targetKey: "recover-scheduled", phase: "recover-scheduled", lane: "ingestion" },
+      { targetKey: "cleanup", phase: "cleanup", lane: "ingestion" },
+    ]);
+    expect(pending).not.toHaveBeenCalled();
+    for (const jobType of ["channel_reconcile", "recent_reconcile", "source_health"] as const) {
+      expect(await planner.planScheduled(jobType, 100)).toEqual([]);
+    }
+  });
+
+  it("uses WebSub teardown eligibility while automation is paused", async () => {
+    const { env } = makeEnv({});
+    mocks.readOtwPlayAutomationPaused.mockResolvedValue(true);
+    const phases = vi.spyOn(D1WebsubRepository.prototype, "listScheduledMaintenancePhases")
+      .mockResolvedValue(["cleanup", "recover-intent"]);
+
+    expect(await new ScheduledJobPlanner(env, {} as never).planScheduled("websub_maintenance", 100))
+      .toEqual([
+        { targetKey: "cleanup", phase: "cleanup", lane: "websub" },
+        { targetKey: "recover-intent", phase: "recover-intent", lane: "websub" },
+      ]);
+    expect(phases).toHaveBeenCalledWith(100, true);
+  });
+
+  it("plans only retention policies and YouTube feeds with actual work", async () => {
+    const { env } = makeEnv({});
+    mocks.readDueDataRetentionPolicyIds.mockResolvedValue(["x-api-cache"]);
+    mocks.hasScheduledYouTubeFeedWork.mockResolvedValue(true);
+    const planner = new ScheduledJobPlanner(env, {} as never);
+
+    expect(await planner.planScheduled("retention_prune", 100)).toEqual([
+      { targetKey: "x-api-cache", phase: "prune", lane: "maintenance", continuation: { policyId: "x-api-cache" } },
+    ]);
+    expect(await planner.planScheduled("youtube_feed_collection", 100)).toEqual([
+      { targetKey: "feed:0", phase: "collect", lane: "maintenance" },
+    ]);
   });
 
   it("scheduled X run은 저장된 주기가 아직 지나지 않으면 item을 만들지 않는다", async () => {

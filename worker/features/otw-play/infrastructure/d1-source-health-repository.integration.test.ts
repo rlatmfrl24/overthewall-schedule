@@ -118,6 +118,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.batch([
+    db.prepare("DELETE FROM settings WHERE key = 'otw_play_automation_paused'"),
     db.prepare("DELETE FROM music_catalog_events"),
     db.prepare("DELETE FROM music_performance_sources"),
     db.prepare("DELETE FROM music_performances"),
@@ -130,6 +131,50 @@ beforeEach(async () => {
 });
 
 describe("D1SourceHealthRepository", () => {
+  it("blocks automatic claims and late observations or retries after pause while retaining manual review", async () => {
+    await db.batch([
+      insertChannel(),
+      insertSource("source-1", "dQw4w9WgXcQ"),
+      ...insertPublishedLink("source-1"),
+    ]);
+    const repository = new D1SourceHealthRepository(db);
+    const [claimed] = await repository.claimDueSources(NOW, NOW + 60_000, 1);
+    expect(claimed).toBeDefined();
+    await db.prepare(`INSERT INTO settings (key, value)
+      VALUES ('otw_play_automation_paused', 'true')`).run();
+    await expect(repository.claimDueSources(NOW + 120_000, NOW + 180_000, 1))
+      .resolves.toEqual([]);
+    await expect(repository.applyObservation({
+      target: claimed!,
+      observation: playableObservation("dQw4w9WgXcQ"),
+      actor: { kind: "system" },
+      eventId: "paused-observation",
+      checkedAt: NOW + 1,
+      nextCheckAt: NOW + 240_000,
+    })).resolves.toEqual({ kind: "stale" });
+    await expect(repository.scheduleRetry({
+      target: claimed!,
+      actor: { kind: "system" },
+      eventId: "paused-retry",
+      retryCode: "timeout",
+      now: NOW + 1,
+      nextCheckAt: NOW + 240_000,
+    })).resolves.toEqual({ kind: "stale" });
+    await expect(repository.readTarget("source-1")).resolves.toEqual(claimed);
+    await expect(db.prepare("SELECT COUNT(*) AS count FROM music_catalog_events").first())
+      .resolves.toEqual({ count: 0 });
+    await expect(db.prepare("SELECT revision FROM music_catalog_meta WHERE id = 1").first())
+      .resolves.toEqual({ revision: 0 });
+    await expect(repository.applyObservation({
+      target: claimed!,
+      observation: playableObservation("dQw4w9WgXcQ"),
+      actor: { kind: "admin" },
+      eventId: "manual-observation",
+      checkedAt: NOW + 2,
+      nextCheckAt: NOW + 240_000,
+    })).resolves.toMatchObject({ kind: "applied", response: { catalogRevision: 1 } });
+  });
+
   it("backfills existing sources and uses both source-health indexes", () => {
     expect(backfilledNextCheckAt).toBe(123);
     expect(indexNames).toEqual([

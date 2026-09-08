@@ -36,6 +36,148 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
+  it("keeps idle dispatch and delivery recovery reads independent of retained completed history", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "ingestion_recovery", source: "scheduled", idempotencyKey: "retained-history",
+    });
+    await db.prepare(`WITH RECURSIVE history(n) AS (
+      VALUES (0) UNION ALL SELECT n + 1 FROM history WHERE n < 2129
+    ) INSERT INTO scheduled_job_items (
+      id, run_id, target_key, phase, lane, status, available_at,
+      finished_at, created_at, updated_at
+    ) SELECT 'retained-item-' || n, ?, 'history:' || n, 'cleanup', 'ingestion',
+        'succeeded', ?, ?, ?, ? FROM history`)
+      .bind(run.id, timestamp, timestamp, timestamp, timestamp).run();
+    await db.prepare(`INSERT INTO scheduled_outbox (
+      id, run_id, item_id, lane, event_type, status, attempts,
+      available_at, dispatched_at, created_at, updated_at
+    ) SELECT 'retained-outbox-' || id, run_id, id, lane, 'execute', 'dispatched',
+        1, ?, ?, ?, ? FROM scheduled_job_items WHERE run_id = ?`)
+      .bind(timestamp, timestamp, timestamp, timestamp, run.id).run();
+    await db.batch([
+      db.prepare("UPDATE scheduled_job_runs SET status = 'succeeded', finished_at = ?").bind(timestamp),
+    ]);
+    timestamp += SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS + 1;
+
+    const measurements: Array<{ operation: string; rowsRead: number; rowsWritten: number }> = [];
+    let operation = "scoped-claim";
+    const native = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+    const record = <T>(result: D1Result<T>) => {
+      measurements.push({ operation,
+        rowsRead: Number(result.meta.rows_read ?? 0),
+        rowsWritten: Number(result.meta.rows_written ?? 0),
+      });
+      return result;
+    };
+    const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+      const wrapped = {
+        bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+        all: async <T>() => record(await statement.all<T>()),
+        run: async <T>() => record(await statement.run<T>()),
+        first: statement.first.bind(statement),
+        raw: statement.raw.bind(statement),
+      } as D1PreparedStatement;
+      native.set(wrapped, statement);
+      return wrapped;
+    };
+    const measuredDb = {
+      prepare: (sql: string) => wrap(db.prepare(sql)),
+      batch: async <T>(statements: D1PreparedStatement[]) =>
+        (await db.batch<T>(statements.map((statement) => native.get(statement) ?? statement))).map(record),
+    } as D1Database;
+    const measured = new D1ScheduledJobRepository(measuredDb, () => timestamp);
+
+    expect(await measured.claimPendingOutbox(run.id, 8)).toEqual([]);
+    operation = "global-claim";
+    expect(await measured.claimPendingOutbox(undefined, 8)).toEqual([]);
+    operation = "recovery-probe";
+    expect(await measured.hasRecoveryWork()).toBe(false);
+    operation = "recovery";
+    expect(await measured.recoverStaleItems()).toBe(0);
+    expect(measurements.filter((row) => row.operation === "scoped-claim")).toHaveLength(1);
+    expect(measurements.filter((row) => row.operation === "global-claim")).toHaveLength(1);
+    expect(measurements.filter((row) => row.operation === "recovery-probe")).toHaveLength(4);
+    expect(measurements.filter((row) => row.operation === "recovery")).toHaveLength(4);
+    expect(measurements.some((row) => row.rowsRead > 0)).toBe(true);
+    for (const measurement of measurements) {
+      expect(measurement.rowsRead, measurement.operation).toBeLessThanOrEqual(10);
+      expect(measurement.rowsWritten, measurement.operation).toBe(0);
+    }
+  });
+
+  it("uses the same read-only recovery eligibility for pending, expired, and missing deliveries", async () => {
+    const repository = createRepository();
+    const readOnly = new D1ScheduledJobRepository({
+      prepare(sql: string) {
+        expect(sql.trim()).toMatch(/^SELECT\b/i);
+        return db.prepare(sql);
+      },
+      batch: db.batch.bind(db),
+    } as D1Database, () => timestamp);
+    const run = await repository.createRun({
+      jobType: "x_collection", source: "scheduled", idempotencyKey: "recovery-eligibility",
+    });
+    expect(await readOnly.hasRecoveryWork()).toBe(false);
+    await repository.addItems(run.id, [{ targetKey: "target", phase: "collect", lane: "x" }]);
+    expect(await readOnly.hasRecoveryWork()).toBe(true);
+    const [outbox] = await repository.claimPendingOutbox(run.id, 1);
+    expect(await repository.hasRecoveryWork()).toBe(false);
+    await repository.markOutboxDispatched(outbox.id);
+    expect(await repository.hasRecoveryWork()).toBe(false);
+    timestamp += SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS;
+    expect(await repository.hasRecoveryWork()).toBe(true);
+    expect(await repository.recoverStaleItems()).toBe(1);
+    await db.prepare("DELETE FROM scheduled_outbox WHERE id = ?").bind(outbox.id).run();
+    expect(await repository.hasRecoveryWork()).toBe(true);
+    expect(await repository.recoverStaleItems()).toBe(1);
+  });
+
+  it("keeps failed and expired dispatches eligible while respecting future and live leases", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "x_collection", source: "scheduled", idempotencyKey: "dispatch-status-eligibility",
+    });
+    const targets = ["pending", "failed", "expired", "leased", "future", "null-lease", "delivered"];
+    await repository.addItems(run.id, targets.map((targetKey) => ({ targetKey, phase: "collect", lane: "x" as const })));
+    const updateOutbox = (target: string, status: string, availableAt: number, leaseUntil: number | null) =>
+      db.prepare(`UPDATE scheduled_outbox SET status = ?, available_at = ?, lease_until = ?
+        WHERE item_id = (SELECT id FROM scheduled_job_items WHERE run_id = ? AND target_key = ?)`)
+        .bind(status, availableAt, leaseUntil, run.id, target);
+    await db.batch([
+      updateOutbox("failed", "failed", timestamp, null),
+      updateOutbox("expired", "dispatching", timestamp, timestamp - 1),
+      updateOutbox("leased", "dispatching", timestamp, timestamp),
+      updateOutbox("future", "pending", timestamp + 1, null),
+      updateOutbox("null-lease", "dispatching", timestamp, null),
+      updateOutbox("delivered", "dispatched", timestamp, null),
+    ]);
+    const expected = await db.prepare(`SELECT id FROM scheduled_job_items
+      WHERE run_id = ? AND target_key IN ('pending', 'failed', 'expired') ORDER BY id`).bind(run.id).all<{ id: string }>();
+    const claimed = await repository.claimPendingOutbox(run.id, 20);
+    expect(claimed.map((row) => row.item_id).sort()).toEqual(expected.results.map((row) => row.id).sort());
+  });
+
+  it("exposes source-health retry partials in the operation failure readback", async () => {
+    const repository = createRepository();
+    const run = await repository.createRun({
+      jobType: "source_health", source: "scheduled", idempotencyKey: "source-health-retry",
+    });
+    await repository.addItems(run.id, [{ targetKey: "due:0", phase: "check", lane: "youtube-critical" }]);
+    const [outbox] = await repository.claimPendingOutbox(run.id, 1);
+    await repository.markOutboxDispatched(outbox.id);
+    const item = await repository.claimItem(outbox.item_id);
+    expect(await repository.completeItem(item!, {
+      status: "partial", result: { claimed: 2, checked: 0, failed: 0, retryScheduled: 2 },
+      errorCode: "source_health_retry_pending", error: "2 sources are waiting for retry",
+    })).toBe(true);
+    expect(await repository.readRunDto(run.id)).toMatchObject({
+      status: "partial",
+      failures: [{ code: "source_health_retry_pending", message: "2 sources are waiting for retry" }],
+    });
+    expect((await repository.readLatestSuccessfulRunTimes()).some((row) => row.jobType === "source_health")).toBe(false);
+  });
+
   it("reads every X shard result without normalizing partials or inventing missing hydration", async () => {
     const repository = createRepository();
     const run = await repository.createRun({ jobType: "x_collection", source: "manual", idempotencyKey: "x-observability" });

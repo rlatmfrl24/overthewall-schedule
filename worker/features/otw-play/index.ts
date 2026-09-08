@@ -117,3 +117,4 @@ export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
 export { createReleaseHandler } from "./http/release-handler";
 
 export { readAdminReviewSummary } from "./infrastructure/admin-review-summary";
+export { readOtwPlayAutomationPaused } from "./infrastructure/play-automation-settings";

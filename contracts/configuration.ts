@@ -72,6 +72,8 @@ export const LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY =
   "live_schedule_auto_fill_enabled";
 export const OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY =
   "otw_play_submission_daily_limit";
+export const OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY =
+  "otw_play_automation_paused";
 export const DEFAULT_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 5;
 export const MIN_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 1;
 export const MAX_OTW_PLAY_SUBMISSION_DAILY_LIMIT = 100;
@@ -104,6 +106,7 @@ export interface AdminSettingsDto {
   youtube_api_daily_quota_units: string;
   youtube_feed_enabled: BooleanSettingValue;
   otw_play_submission_daily_limit: string;
+  otw_play_automation_paused: BooleanSettingValue;
 }
 
 export const SETTINGS_KEYS = [
@@ -133,6 +136,7 @@ export const SETTINGS_KEYS = [
   YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
   "youtube_feed_enabled",
   OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
+  OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY,
   LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,
 ] as const satisfies readonly (keyof AdminSettingsDto)[];
 
@@ -540,6 +544,12 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     writable: true,
     normalize: normalizeOtwPlaySubmissionDailyLimit,
     validate: isOtwPlaySubmissionDailyLimitValue,
+  },
+  {
+    key: OTW_PLAY_AUTOMATION_PAUSED_SETTING_KEY,
+    writable: true,
+    normalize: (value) => normalizeBoolean(value, "false"),
+    validate: isBooleanValue,
   },
   {
     key: LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY,

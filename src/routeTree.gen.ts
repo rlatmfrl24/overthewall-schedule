@@ -9,88 +9,48 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WeeklyRouteImport } from './routes/weekly'
-import { Route as VodsRouteImport } from './routes/vods'
-import { Route as SnapshotRouteImport } from './routes/snapshot'
-import { Route as RightsRouteImport } from './routes/rights'
-import { Route as PlayRouteImport } from './routes/play'
-import { Route as NoticeRouteImport } from './routes/notice'
-import { Route as MultiviewRouteImport } from './routes/multiview'
-import { Route as FeedRouteImport } from './routes/feed'
-import { Route as CafeRouteImport } from './routes/cafe'
-import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as VodsIndexRouteImport } from './routes/vods/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as CafeRouteImport } from './routes/cafe'
+import { Route as FeedRouteImport } from './routes/feed'
+import { Route as MultiviewRouteImport } from './routes/multiview'
+import { Route as NoticeRouteImport } from './routes/notice'
+import { Route as PlayRouteImport } from './routes/play'
+import { Route as RightsRouteImport } from './routes/rights'
+import { Route as SnapshotRouteImport } from './routes/snapshot'
+import { Route as VodsRouteImport } from './routes/vods'
+import { Route as WeeklyRouteImport } from './routes/weekly'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
-import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
-import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
-import { Route as PlayMemberRouteImport } from './routes/play/_member'
-import { Route as PlayCatalogRouteImport } from './routes/play/_catalog'
-import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
-import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
-import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
-import { Route as AdminReviewRouteImport } from './routes/admin/review'
-import { Route as AdminResourcesRouteImport } from './routes/admin/resources'
-import { Route as AdminOtwPlayRouteImport } from './routes/admin/otw-play'
-import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
-import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
-import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
-import { Route as AdminLogsRouteImport } from './routes/admin/logs'
-import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
-import { Route as AdminHistoryRouteImport } from './routes/admin/history'
-import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
-import { Route as AdminContentRouteImport } from './routes/admin/content'
 import { Route as AdminCollectionRouteImport } from './routes/admin/collection'
+import { Route as AdminContentRouteImport } from './routes/admin/content'
+import { Route as AdminDdaysRouteImport } from './routes/admin/ddays'
+import { Route as AdminHistoryRouteImport } from './routes/admin/history'
+import { Route as AdminKirinukiRouteImport } from './routes/admin/kirinuki'
+import { Route as AdminLogsRouteImport } from './routes/admin/logs'
+import { Route as AdminMemberPostsRouteImport } from './routes/admin/member-posts'
+import { Route as AdminNoticesRouteImport } from './routes/admin/notices'
+import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
+import { Route as AdminOtwPlayRouteImport } from './routes/admin/otw-play'
+import { Route as AdminResourcesRouteImport } from './routes/admin/resources'
+import { Route as AdminReviewRouteImport } from './routes/admin/review'
+import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
+import { Route as AdminSnapshotRouteImport } from './routes/admin/snapshot'
+import { Route as AdminYoutubeCacheRouteImport } from './routes/admin/youtube-cache'
+import { Route as PlayCatalogRouteImport } from './routes/play/_catalog'
+import { Route as PlayMemberRouteImport } from './routes/play/_member'
+import { Route as PlayDiscoverRouteImport } from './routes/play/discover'
+import { Route as ProfileCodeRouteImport } from './routes/profile/$code'
+import { Route as VodsIndexRouteImport } from './routes/vods/index'
 import { Route as PlayCatalogIndexRouteImport } from './routes/play/_catalog/index'
-import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
-import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
 import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/songs'
+import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
+import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
 import { Route as PlayCatalogSongsIndexRouteImport } from './routes/play/_catalog/songs/index'
 import { Route as PlayCatalogSongsSongSlugRouteImport } from './routes/play/_catalog/songs/$songSlug'
 
-const WeeklyRoute = WeeklyRouteImport.update({
-  id: '/weekly',
-  path: '/weekly',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VodsRoute = VodsRouteImport.update({
-  id: '/vods',
-  path: '/vods',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SnapshotRoute = SnapshotRouteImport.update({
-  id: '/snapshot',
-  path: '/snapshot',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RightsRoute = RightsRouteImport.update({
-  id: '/rights',
-  path: '/rights',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayRoute = PlayRouteImport.update({
-  id: '/play',
-  path: '/play',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NoticeRoute = NoticeRouteImport.update({
-  id: '/notice',
-  path: '/notice',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MultiviewRoute = MultiviewRouteImport.update({
-  id: '/multiview',
-  path: '/multiview',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FeedRoute = FeedRouteImport.update({
-  id: '/feed',
-  path: '/feed',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CafeRoute = CafeRouteImport.update({
-  id: '/cafe',
-  path: '/cafe',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -98,107 +58,54 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const CafeRoute = CafeRouteImport.update({
+  id: '/cafe',
+  path: '/cafe',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VodsIndexRoute = VodsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => VodsRoute,
+const FeedRoute = FeedRouteImport.update({
+  id: '/feed',
+  path: '/feed',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MultiviewRoute = MultiviewRouteImport.update({
+  id: '/multiview',
+  path: '/multiview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NoticeRoute = NoticeRouteImport.update({
+  id: '/notice',
+  path: '/notice',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlayRoute = PlayRouteImport.update({
+  id: '/play',
+  path: '/play',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RightsRoute = RightsRouteImport.update({
+  id: '/rights',
+  path: '/rights',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SnapshotRoute = SnapshotRouteImport.update({
+  id: '/snapshot',
+  path: '/snapshot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VodsRoute = VodsRouteImport.update({
+  id: '/vods',
+  path: '/vods',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WeeklyRoute = WeeklyRouteImport.update({
+  id: '/weekly',
+  path: '/weekly',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AdminRoute,
-} as any)
-const ProfileCodeRoute = ProfileCodeRouteImport.update({
-  id: '/profile/$code',
-  path: '/profile/$code',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PlayDiscoverRoute = PlayDiscoverRouteImport.update({
-  id: '/discover',
-  path: '/discover',
-  getParentRoute: () => PlayRoute,
-} as any)
-const PlayMemberRoute = PlayMemberRouteImport.update({
-  id: '/_member',
-  getParentRoute: () => PlayRoute,
-} as any)
-const PlayCatalogRoute = PlayCatalogRouteImport.update({
-  id: '/_catalog',
-  getParentRoute: () => PlayRoute,
-} as any)
-const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
-  id: '/youtube-cache',
-  path: '/youtube-cache',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminSnapshotRoute = AdminSnapshotRouteImport.update({
-  id: '/snapshot',
-  path: '/snapshot',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminReviewRoute = AdminReviewRouteImport.update({
-  id: '/review',
-  path: '/review',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminResourcesRoute = AdminResourcesRouteImport.update({
-  id: '/resources',
-  path: '/resources',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminOtwPlayRoute = AdminOtwPlayRouteImport.update({
-  id: '/otw-play',
-  path: '/otw-play',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminOperationsRoute = AdminOperationsRouteImport.update({
-  id: '/operations',
-  path: '/operations',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminNoticesRoute = AdminNoticesRouteImport.update({
-  id: '/notices',
-  path: '/notices',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminMemberPostsRoute = AdminMemberPostsRouteImport.update({
-  id: '/member-posts',
-  path: '/member-posts',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminLogsRoute = AdminLogsRouteImport.update({
-  id: '/logs',
-  path: '/logs',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminKirinukiRoute = AdminKirinukiRouteImport.update({
-  id: '/kirinuki',
-  path: '/kirinuki',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminHistoryRoute = AdminHistoryRouteImport.update({
-  id: '/history',
-  path: '/history',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminDdaysRoute = AdminDdaysRouteImport.update({
-  id: '/ddays',
-  path: '/ddays',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminContentRoute = AdminContentRouteImport.update({
-  id: '/content',
-  path: '/content',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminCollectionRoute = AdminCollectionRouteImport.update({
@@ -206,25 +113,118 @@ const AdminCollectionRoute = AdminCollectionRouteImport.update({
   path: '/collection',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminContentRoute = AdminContentRouteImport.update({
+  id: '/content',
+  path: '/content',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDdaysRoute = AdminDdaysRouteImport.update({
+  id: '/ddays',
+  path: '/ddays',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminHistoryRoute = AdminHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminKirinukiRoute = AdminKirinukiRouteImport.update({
+  id: '/kirinuki',
+  path: '/kirinuki',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLogsRoute = AdminLogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMemberPostsRoute = AdminMemberPostsRouteImport.update({
+  id: '/member-posts',
+  path: '/member-posts',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminNoticesRoute = AdminNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminOperationsRoute = AdminOperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminOtwPlayRoute = AdminOtwPlayRouteImport.update({
+  id: '/otw-play',
+  path: '/otw-play',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminResourcesRoute = AdminResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminReviewRoute = AdminReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSnapshotRoute = AdminSnapshotRouteImport.update({
+  id: '/snapshot',
+  path: '/snapshot',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminYoutubeCacheRoute = AdminYoutubeCacheRouteImport.update({
+  id: '/youtube-cache',
+  path: '/youtube-cache',
+  getParentRoute: () => AdminRoute,
+} as any)
+const PlayCatalogRoute = PlayCatalogRouteImport.update({
+  id: '/_catalog',
+  getParentRoute: () => PlayRoute,
+} as any)
+const PlayMemberRoute = PlayMemberRouteImport.update({
+  id: '/_member',
+  getParentRoute: () => PlayRoute,
+} as any)
+const PlayDiscoverRoute = PlayDiscoverRouteImport.update({
+  id: '/discover',
+  path: '/discover',
+  getParentRoute: () => PlayRoute,
+} as any)
+const ProfileCodeRoute = ProfileCodeRouteImport.update({
+  id: '/profile/$code',
+  path: '/profile/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VodsIndexRoute = VodsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => VodsRoute,
+} as any)
 const PlayCatalogIndexRoute = PlayCatalogIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => PlayCatalogRoute,
 } as any)
-const PlayMemberSubmitRoute = PlayMemberSubmitRouteImport.update({
-  id: '/submit',
-  path: '/submit',
-  getParentRoute: () => PlayMemberRoute,
+const PlayCatalogSongsRoute = PlayCatalogSongsRouteImport.update({
+  id: '/songs',
+  path: '/songs',
+  getParentRoute: () => PlayCatalogRoute,
 } as any)
 const PlayMemberSubmissionsRoute = PlayMemberSubmissionsRouteImport.update({
   id: '/submissions',
   path: '/submissions',
   getParentRoute: () => PlayMemberRoute,
 } as any)
-const PlayCatalogSongsRoute = PlayCatalogSongsRouteImport.update({
-  id: '/songs',
-  path: '/songs',
-  getParentRoute: () => PlayCatalogRoute,
+const PlayMemberSubmitRoute = PlayMemberSubmitRouteImport.update({
+  id: '/submit',
+  path: '/submit',
+  getParentRoute: () => PlayMemberRoute,
 } as any)
 const PlayCatalogSongsIndexRoute = PlayCatalogSongsIndexRouteImport.update({
   id: '/',
@@ -483,67 +483,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/weekly': {
-      id: '/weekly'
-      path: '/weekly'
-      fullPath: '/weekly'
-      preLoaderRoute: typeof WeeklyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/vods': {
-      id: '/vods'
-      path: '/vods'
-      fullPath: '/vods'
-      preLoaderRoute: typeof VodsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/snapshot': {
-      id: '/snapshot'
-      path: '/snapshot'
-      fullPath: '/snapshot'
-      preLoaderRoute: typeof SnapshotRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/rights': {
-      id: '/rights'
-      path: '/rights'
-      fullPath: '/rights'
-      preLoaderRoute: typeof RightsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/play': {
-      id: '/play'
-      path: '/play'
-      fullPath: '/play'
-      preLoaderRoute: typeof PlayRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/notice': {
-      id: '/notice'
-      path: '/notice'
-      fullPath: '/notice'
-      preLoaderRoute: typeof NoticeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/multiview': {
-      id: '/multiview'
-      path: '/multiview'
-      fullPath: '/multiview'
-      preLoaderRoute: typeof MultiviewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/feed': {
-      id: '/feed'
-      path: '/feed'
-      fullPath: '/feed'
-      preLoaderRoute: typeof FeedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cafe': {
-      id: '/cafe'
-      path: '/cafe'
-      fullPath: '/cafe'
-      preLoaderRoute: typeof CafeRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -553,151 +497,74 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/cafe': {
+      id: '/cafe'
+      path: '/cafe'
+      fullPath: '/cafe'
+      preLoaderRoute: typeof CafeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/vods/': {
-      id: '/vods/'
-      path: '/'
-      fullPath: '/vods/'
-      preLoaderRoute: typeof VodsIndexRouteImport
-      parentRoute: typeof VodsRoute
+    '/feed': {
+      id: '/feed'
+      path: '/feed'
+      fullPath: '/feed'
+      preLoaderRoute: typeof FeedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/multiview': {
+      id: '/multiview'
+      path: '/multiview'
+      fullPath: '/multiview'
+      preLoaderRoute: typeof MultiviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notice': {
+      id: '/notice'
+      path: '/notice'
+      fullPath: '/notice'
+      preLoaderRoute: typeof NoticeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/play': {
+      id: '/play'
+      path: '/play'
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/rights': {
+      id: '/rights'
+      path: '/rights'
+      fullPath: '/rights'
+      preLoaderRoute: typeof RightsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/snapshot': {
+      id: '/snapshot'
+      path: '/snapshot'
+      fullPath: '/snapshot'
+      preLoaderRoute: typeof SnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vods': {
+      id: '/vods'
+      path: '/vods'
+      fullPath: '/vods'
+      preLoaderRoute: typeof VodsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weekly': {
+      id: '/weekly'
+      path: '/weekly'
+      fullPath: '/weekly'
+      preLoaderRoute: typeof WeeklyRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/admin/': {
       id: '/admin/'
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/profile/$code': {
-      id: '/profile/$code'
-      path: '/profile/$code'
-      fullPath: '/profile/$code'
-      preLoaderRoute: typeof ProfileCodeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/play/discover': {
-      id: '/play/discover'
-      path: '/discover'
-      fullPath: '/play/discover'
-      preLoaderRoute: typeof PlayDiscoverRouteImport
-      parentRoute: typeof PlayRoute
-    }
-    '/play/_member': {
-      id: '/play/_member'
-      path: ''
-      fullPath: '/play'
-      preLoaderRoute: typeof PlayMemberRouteImport
-      parentRoute: typeof PlayRoute
-    }
-    '/play/_catalog': {
-      id: '/play/_catalog'
-      path: ''
-      fullPath: '/play'
-      preLoaderRoute: typeof PlayCatalogRouteImport
-      parentRoute: typeof PlayRoute
-    }
-    '/admin/youtube-cache': {
-      id: '/admin/youtube-cache'
-      path: '/youtube-cache'
-      fullPath: '/admin/youtube-cache'
-      preLoaderRoute: typeof AdminYoutubeCacheRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/snapshot': {
-      id: '/admin/snapshot'
-      path: '/snapshot'
-      fullPath: '/admin/snapshot'
-      preLoaderRoute: typeof AdminSnapshotRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/settings': {
-      id: '/admin/settings'
-      path: '/settings'
-      fullPath: '/admin/settings'
-      preLoaderRoute: typeof AdminSettingsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/review': {
-      id: '/admin/review'
-      path: '/review'
-      fullPath: '/admin/review'
-      preLoaderRoute: typeof AdminReviewRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/resources': {
-      id: '/admin/resources'
-      path: '/resources'
-      fullPath: '/admin/resources'
-      preLoaderRoute: typeof AdminResourcesRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/otw-play': {
-      id: '/admin/otw-play'
-      path: '/otw-play'
-      fullPath: '/admin/otw-play'
-      preLoaderRoute: typeof AdminOtwPlayRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/operations': {
-      id: '/admin/operations'
-      path: '/operations'
-      fullPath: '/admin/operations'
-      preLoaderRoute: typeof AdminOperationsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/notices': {
-      id: '/admin/notices'
-      path: '/notices'
-      fullPath: '/admin/notices'
-      preLoaderRoute: typeof AdminNoticesRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/member-posts': {
-      id: '/admin/member-posts'
-      path: '/member-posts'
-      fullPath: '/admin/member-posts'
-      preLoaderRoute: typeof AdminMemberPostsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/logs': {
-      id: '/admin/logs'
-      path: '/logs'
-      fullPath: '/admin/logs'
-      preLoaderRoute: typeof AdminLogsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/kirinuki': {
-      id: '/admin/kirinuki'
-      path: '/kirinuki'
-      fullPath: '/admin/kirinuki'
-      preLoaderRoute: typeof AdminKirinukiRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/history': {
-      id: '/admin/history'
-      path: '/history'
-      fullPath: '/admin/history'
-      preLoaderRoute: typeof AdminHistoryRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/ddays': {
-      id: '/admin/ddays'
-      path: '/ddays'
-      fullPath: '/admin/ddays'
-      preLoaderRoute: typeof AdminDdaysRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/content': {
-      id: '/admin/content'
-      path: '/content'
-      fullPath: '/admin/content'
-      preLoaderRoute: typeof AdminContentRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/collection': {
@@ -707,6 +574,139 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCollectionRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/content': {
+      id: '/admin/content'
+      path: '/content'
+      fullPath: '/admin/content'
+      preLoaderRoute: typeof AdminContentRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/ddays': {
+      id: '/admin/ddays'
+      path: '/ddays'
+      fullPath: '/admin/ddays'
+      preLoaderRoute: typeof AdminDdaysRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/history': {
+      id: '/admin/history'
+      path: '/history'
+      fullPath: '/admin/history'
+      preLoaderRoute: typeof AdminHistoryRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/kirinuki': {
+      id: '/admin/kirinuki'
+      path: '/kirinuki'
+      fullPath: '/admin/kirinuki'
+      preLoaderRoute: typeof AdminKirinukiRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/logs': {
+      id: '/admin/logs'
+      path: '/logs'
+      fullPath: '/admin/logs'
+      preLoaderRoute: typeof AdminLogsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/member-posts': {
+      id: '/admin/member-posts'
+      path: '/member-posts'
+      fullPath: '/admin/member-posts'
+      preLoaderRoute: typeof AdminMemberPostsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/notices': {
+      id: '/admin/notices'
+      path: '/notices'
+      fullPath: '/admin/notices'
+      preLoaderRoute: typeof AdminNoticesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/operations': {
+      id: '/admin/operations'
+      path: '/operations'
+      fullPath: '/admin/operations'
+      preLoaderRoute: typeof AdminOperationsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/otw-play': {
+      id: '/admin/otw-play'
+      path: '/otw-play'
+      fullPath: '/admin/otw-play'
+      preLoaderRoute: typeof AdminOtwPlayRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/resources': {
+      id: '/admin/resources'
+      path: '/resources'
+      fullPath: '/admin/resources'
+      preLoaderRoute: typeof AdminResourcesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/review': {
+      id: '/admin/review'
+      path: '/review'
+      fullPath: '/admin/review'
+      preLoaderRoute: typeof AdminReviewRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/snapshot': {
+      id: '/admin/snapshot'
+      path: '/snapshot'
+      fullPath: '/admin/snapshot'
+      preLoaderRoute: typeof AdminSnapshotRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/youtube-cache': {
+      id: '/admin/youtube-cache'
+      path: '/youtube-cache'
+      fullPath: '/admin/youtube-cache'
+      preLoaderRoute: typeof AdminYoutubeCacheRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/play/_catalog': {
+      id: '/play/_catalog'
+      path: ''
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayCatalogRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/_member': {
+      id: '/play/_member'
+      path: ''
+      fullPath: '/play'
+      preLoaderRoute: typeof PlayMemberRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/play/discover': {
+      id: '/play/discover'
+      path: '/discover'
+      fullPath: '/play/discover'
+      preLoaderRoute: typeof PlayDiscoverRouteImport
+      parentRoute: typeof PlayRoute
+    }
+    '/profile/$code': {
+      id: '/profile/$code'
+      path: '/profile/$code'
+      fullPath: '/profile/$code'
+      preLoaderRoute: typeof ProfileCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/vods/': {
+      id: '/vods/'
+      path: '/'
+      fullPath: '/vods/'
+      preLoaderRoute: typeof VodsIndexRouteImport
+      parentRoute: typeof VodsRoute
+    }
     '/play/_catalog/': {
       id: '/play/_catalog/'
       path: '/'
@@ -714,12 +714,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayCatalogIndexRouteImport
       parentRoute: typeof PlayCatalogRoute
     }
-    '/play/_member/submit': {
-      id: '/play/_member/submit'
-      path: '/submit'
-      fullPath: '/play/submit'
-      preLoaderRoute: typeof PlayMemberSubmitRouteImport
-      parentRoute: typeof PlayMemberRoute
+    '/play/_catalog/songs': {
+      id: '/play/_catalog/songs'
+      path: '/songs'
+      fullPath: '/play/songs'
+      preLoaderRoute: typeof PlayCatalogSongsRouteImport
+      parentRoute: typeof PlayCatalogRoute
     }
     '/play/_member/submissions': {
       id: '/play/_member/submissions'
@@ -728,12 +728,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayMemberSubmissionsRouteImport
       parentRoute: typeof PlayMemberRoute
     }
-    '/play/_catalog/songs': {
-      id: '/play/_catalog/songs'
-      path: '/songs'
-      fullPath: '/play/songs'
-      preLoaderRoute: typeof PlayCatalogSongsRouteImport
-      parentRoute: typeof PlayCatalogRoute
+    '/play/_member/submit': {
+      id: '/play/_member/submit'
+      path: '/submit'
+      fullPath: '/play/submit'
+      preLoaderRoute: typeof PlayMemberSubmitRouteImport
+      parentRoute: typeof PlayMemberRoute
     }
     '/play/_catalog/songs/': {
       id: '/play/_catalog/songs/'

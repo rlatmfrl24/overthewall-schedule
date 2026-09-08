@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../platform/types";
+import { ScheduledJobCoordinator } from "../features/scheduled-operations";
 import {
   handleScheduledWorkflowCron,
   SCHEDULED_WORKFLOW_CRON,
@@ -34,6 +35,11 @@ const makeDb = (
 });
 
 describe("scheduled Workflow cron bridge", () => {
+  beforeEach(() => {
+    vi.spyOn(ScheduledJobCoordinator.prototype, "hasScheduledWork").mockResolvedValue(true);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it("hourly lanes remain staggered across one Free-plan cron expression", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 13))).toEqual([
       "websub_maintenance",
@@ -107,6 +113,27 @@ describe("scheduled Workflow cron bridge", () => {
     } as ScheduledController, env);
 
     expect(create).not.toHaveBeenCalled();
+    expect(ScheduledJobCoordinator.prototype.hasScheduledWork).not.toHaveBeenCalled();
+  });
+
+  it("does not create an enabled Workflow for a read-only no-target probe", async () => {
+    vi.mocked(ScheduledJobCoordinator.prototype.hasScheduledWork)
+      .mockImplementation(async (jobType) => jobType === "ingestion_recovery");
+    const create = vi.fn().mockResolvedValue(undefined);
+    const env = {
+      otw_db: makeDb(),
+      SCHEDULED_OPERATIONS_WORKFLOW: { create },
+    } as unknown as Env;
+    const scheduledTime = utc(5, 3);
+
+    await handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON, scheduledTime,
+    } as ScheduledController, env);
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledWith({
+      params: { jobType: "ingestion_recovery", scheduledFor: scheduledTime },
+    });
   });
 
   it("fails loudly when a configured Workflow binding is absent", async () => {
@@ -116,5 +143,25 @@ describe("scheduled Workflow cron bridge", () => {
     } as ScheduledController, {} as Env)).rejects.toThrow(
       "Missing scheduled Workflow binding: SCHEDULED_OPERATIONS_WORKFLOW",
     );
+  });
+
+  it("finishes independent Workflow creation before reporting another job's eligibility failure", async () => {
+    const eligibilityError = new Error("ingestion eligibility unavailable");
+    vi.mocked(ScheduledJobCoordinator.prototype.hasScheduledWork)
+      .mockImplementation(async (jobType) => {
+        if (jobType === "ingestion_recovery") throw eligibilityError;
+        return true;
+      });
+    let created = false;
+    const create = vi.fn(async () => { await Promise.resolve(); created = true; });
+    const env = { otw_db: makeDb(), SCHEDULED_OPERATIONS_WORKFLOW: { create } } as unknown as Env;
+    const scheduledTime = utc(5, 3);
+    await expect(handleScheduledWorkflowCron({
+      cron: SCHEDULED_WORKFLOW_CRON, scheduledTime,
+    } as ScheduledController, env)).rejects.toMatchObject({ errors: [eligibilityError] });
+    expect(created).toBe(true);
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      params: { jobType: "schedule_auto_update", scheduledFor: scheduledTime },
+    });
   });
 });

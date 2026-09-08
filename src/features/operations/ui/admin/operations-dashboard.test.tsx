@@ -35,6 +35,7 @@ vi.mock("@/shared/ui/toast", () => ({
 const makeOperationsStatus = (
   overrides: Partial<OperationsStatusResponse["scheduledOperations"]> = {},
 ): OperationsStatusResponse => ({
+  playAutomationPaused: false,
   updatedAt: "2026-09-01T00:00:00.000Z",
   window: { hours: 24, since: 0 },
   summary: { status: "warning", issues: [] },
@@ -204,6 +205,14 @@ describe("OperationsDashboard", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("shows an explicit Play pause and a reachable channel control while retaining operations", async () => {
+    fetchOperationsStatusMock.mockResolvedValue({ ...makeOperationsStatus(), playAutomationPaused: true });
+    render(<OperationsDashboard view="home" />, { wrapper: createQueryWrapper() });
+    expect(await screen.findByText("Play 자동화가 일시 중지되어 있습니다.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Play 채널 감시 설정 열기" }).getAttribute("href"))
+      .toBe("/admin/otw-play?tab=channels");
   });
 
   it("shows a failed YouTube lookup independently of a successful dashboard lookup and can retry", async () => {

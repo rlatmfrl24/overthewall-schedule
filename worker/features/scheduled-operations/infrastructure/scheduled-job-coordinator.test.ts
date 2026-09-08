@@ -60,6 +60,22 @@ describe("scheduled job physical queue mapping", () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
+  it("keeps Workflow eligibility read-only and lets queued runs resume without new targets", async () => {
+    const readRun = vi.spyOn(D1ScheduledJobRepository.prototype, "readRunByIdempotencyKey")
+      .mockResolvedValue(null);
+    const plan = vi.spyOn(ScheduledJobPlanner.prototype, "planScheduled").mockResolvedValue([]);
+    const createRun = vi.spyOn(D1ScheduledJobRepository.prototype, "createRun");
+    const coordinator = new ScheduledJobCoordinator(env);
+
+    expect(await coordinator.hasScheduledWork("x_collection", 100)).toBe(false);
+    readRun.mockResolvedValue({ status: "queued" } as never);
+    expect(await coordinator.hasScheduledWork("x_collection", 100)).toBe(true);
+    readRun.mockResolvedValue({ status: "running" } as never);
+    expect(await coordinator.hasScheduledWork("x_collection", 100)).toBe(false);
+    expect(plan).toHaveBeenCalledOnce();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
   it("returns an existing idempotent run before recalculating due targets", async () => {
     const existing = {
       id: "existing-run",
