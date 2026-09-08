@@ -97,9 +97,7 @@ Cloudflare Worker·D1·Queue·Workflow·R2 구조와 물리 Queue 격리를 유�
 
 이 작업에 연결된 자동화 `백엔드 비용 최적화 7일 검증`(ID `7`)을 생성했다. 9/8부터 9/15까지 매일 한국시간 오전 10시에 읽기 전용 관측을 수행하며, 의미 있는 장애·비용 증가·작업 생성 이상과 마지막 결과를 알린다. 9/15 최종 비교 전까지 outbox 읽기 80% 감소와 불필요한 유지보수 생성 0의 장기 기준은 검증 대기다.
 
-## 도구 버전과 잔여 항목
-
-### 2026-09-09 Outbox UPDATE PK 보완
+## 2026-09-09 Outbox UPDATE PK 보완
 
 후속 관측에서 후보 SELECT는 상태 인덱스를 사용하지만 실제 claim UPDATE의 바깥 대상 선택에는 전체 스캔이 남아 있었다. 운영에는 보존 이력 2,000개 이상과 22행 시점의 오래된 통계가 함께 존재했다. 기존 로컬 검사는 실제 UPDATE도 실행했지만 이 통계 차이를 재현하지 못했다.
 
@@ -108,6 +106,14 @@ Cloudflare Worker·D1·Queue·Workflow·R2 구조와 물리 Queue 격리를 유�
 회귀검사는 로컬 D1에서 22개 outbox 행을 분석한 다음 통계를 갱신하지 않고 완료 이력 2,130개로 늘린다. 수정 전 실제 scoped claim UPDATE는 2,134행을 읽어 실패했고, 수정 후 scoped/global claim과 복구의 빈 결과 UPDATE는 각각 10행 이하·쓰기 0으로 통과했다. 실제 실행 대상 3개에 대해서도 LIMIT 2의 반환 정보와 다음 claim의 나머지 1개, 중복 없는 ID를 확인했다. 동시 scoped/global claim의 단일 획득도 검증했다.
 
 검증 결과: 관련 D1 26개 및 전체 preflight 264개 파일·1,916개 테스트 통과. Coverage statements 81.99%, branches 69.33%, functions 85.61%, lines 83.53%. 마지막 테스트 보강 후 타입·대상 lint도 통과했다.
+
+운영 코드 `51a1182`를 2026-09-08 22:03:10 UTC(9/9 07:03 KST)에 Worker `9ac3aaf1-2ffd-4643-983f-acb7e8f2dafa`로 100% 배포하고 Cloudflare deployments에서 재조회했다. 구현은 `codex/outbox-pk-claim`, `C:\Develop\overthewall-schedule-outbox-pk`에 있다.
+
+22:04 UTC에 이틀 이상 지난 동일한 성공 완료 run을 대상으로 기존·수정 SQL의 실제 UPDATE 전체를 비교했다. 두 쿼리 모두 대상 없음·쓰기 0·`changed_db=false`였고 완료 run 상태도 유지됐다. 기존 바깥 UPDATE는 2,092행, 수정된 바깥 PK UPDATE는 **5행**을 읽었다. 임의 SELECT로 대신하지 않고 `claimPendingOutbox`가 만든 SQL과 실제 운영 D1의 실행 결과를 사용했다. 비교 쿼리에는 `outbox-pk-verification-*` 주석을 붙였으므로 정기 dispatcher의 자연 발생 사용량과 구분한다. 이 검증은 빈 결과의 비용 확인이며 활성 Queue 전달 자체의 성공 증거로 확장하지 않는다.
+
+7일 관측에서는 22:03 UTC 이전·이후의 UPDATE 쿼리를 구분하고, 기존 비싼 바깥 UPDATE가 다시 등장하는지 확인한다. Operations의 COUNT·MIN 조회 및 WebSub 수동 해제 지원은 이번 변경에 포함하지 않는다.
+
+## 도구 버전과 잔여 항목
 
 Node `24.20.0`, Vite `7.3.6`, Wrangler `4.129.1`, Cloudflare Vite plugin `1.54.5`, Vitest `4.1.11`, PostCSS `8.5.28`로 검증한다. Cloudflare 빌드 환경도 `.node-version` 또는 `NODE_VERSION=24.20.0`을 사용한다. Worker 자체는 workerd에서 실행된다. Wrangler의 package export 변경에 맞춰 DB 점검·초기화·seed CLI 경로도 수정했다.
 
