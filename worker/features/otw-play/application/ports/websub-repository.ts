@@ -64,6 +64,7 @@ export interface WebsubRepository {
     actorUserId: string;
     eventId: string;
     now: number;
+    retryFailedBefore?: number;
   }): Promise<void>;
   markSubscriptionVerified(input: {
     id: string;
@@ -77,6 +78,7 @@ export interface WebsubRepository {
     errorCode: string,
     fallbackStatus: "active" | "failed",
     now: number,
+    requestStartedAt?: number,
   ): Promise<void>;
   recordDelivery(input: {
     id: string;
@@ -97,9 +99,10 @@ export interface WebsubRepository {
   rejectDelivery(id: string, errorCode: string, now: number): Promise<void>;
   markDeliveryDeadLetter(id: string, errorCode: string, now: number): Promise<void>;
   listRecoverableDeliveryIds(now: number, limit: number): Promise<string[]>;
-  listStaleIntents(now: number, limit: number): Promise<StaleWebsubIntent[]>;
+  listStaleIntents(now: number, limit: number, teardownOnly?: boolean): Promise<StaleWebsubIntent[]>;
   listCleanupMonitorIds(limit: number): Promise<string[]>;
   listRenewalMonitorIds(now: number, limit: number): Promise<string[]>;
+  listRetryableSubscriptionMonitorIds(now: number, limit: number): Promise<string[]>;
 }
 
 export interface WebsubHubClient {

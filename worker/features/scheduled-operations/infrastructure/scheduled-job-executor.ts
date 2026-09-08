@@ -8,6 +8,7 @@ import {
   D1SourceHealthRepository,
   SourceHealthService,
   YouTubeOtwPlayMetadataReader,
+  readOtwPlayAutomationPaused,
 } from "../../otw-play";
 import {
   runDataRetentionPolicyPrune,
@@ -49,13 +50,13 @@ const succeeded = (result: unknown): ScheduledJobExecutionOutcome => ({
   result,
 });
 
-const batchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
+export const toScheduledBatchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
   const items = Array.isArray(result)
     ? result
     : result && typeof result === "object" && Array.isArray((result as { results?: unknown }).results)
       ? (result as { results: unknown[] }).results
       : [];
-  if (items.length === 0) return { ...succeeded(result), attempted: 0, succeeded: 0, failed: 0 };
+  if (items.length === 0) return { status: "skipped", result, attempted: 0, succeeded: 0, failed: 0 };
   const failures = items.filter((item) =>
     item && typeof item === "object" && (item as { ok?: boolean }).ok === false
   );
@@ -69,9 +70,9 @@ const batchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
   });
   const status = failures.length === 0
     ? partials.length > 0 ? "partial" : "succeeded"
-    : throttled
-      ? "throttled"
-      : failures.length === items.length ? "failed" : "partial";
+    : failures.length < items.length
+      ? "partial"
+      : throttled ? "throttled" : "failed";
   const firstFailure = failures[0] as { errorCode?: string; error?: string; retryAt?: number } | undefined;
   return {
     status,
@@ -83,8 +84,39 @@ const batchOutcome = (result: unknown): ScheduledJobExecutionOutcome => {
       Boolean((item as { retryAt?: unknown }).retryAt)
     ).length,
     retryAt: firstFailure?.retryAt ?? null,
-    errorCode: firstFailure?.errorCode ?? firstFailure?.error ?? null,
-    error: firstFailure?.error ?? firstFailure?.errorCode ?? null,
+    errorCode: firstFailure?.errorCode ?? firstFailure?.error ??
+      (failures.length > 0 ? "scheduled_target_failed" : null),
+    error: firstFailure?.error ?? firstFailure?.errorCode ??
+      (failures.length > 0 ? `${failures.length} of ${items.length} targets failed` : null),
+  };
+};
+
+export const toSourceHealthOutcome = (
+  result: Awaited<ReturnType<SourceHealthService["runScheduled"]>>,
+): ScheduledJobExecutionOutcome => {
+  const status = result.claimed === 0
+    ? "skipped"
+    : result.failed > 0 && result.checked === 0
+      ? "failed"
+      : result.failed > 0 || result.retryScheduled > 0 || result.checked < result.claimed
+        ? "partial"
+        : "succeeded";
+  const errorCode = result.failed > 0
+    ? "source_health_check_failed"
+    : result.retryScheduled > 0
+      ? "source_health_retry_pending"
+      : status === "partial" ? "source_health_check_incomplete" : null;
+  return {
+    status,
+    result,
+    attempted: result.claimed,
+    succeeded: result.checked,
+    failed: result.failed,
+    retryScheduled: result.retryScheduled,
+    errorCode,
+    error: errorCode
+      ? `Source health checked ${result.checked} of ${result.claimed} sources; ${result.failed} failed, ${result.retryScheduled} waiting for retry`
+      : null,
   };
 };
 
@@ -260,6 +292,15 @@ export class ScheduledJobExecutor {
     const run = await this.repository.readRun(item.run_id);
     if (!run) throw new Error("scheduled_run_not_found");
     const continuation = parseContinuation(item);
+    const isPlayWork = [
+      "websub_maintenance", "source_health", "channel_reconcile", "recent_reconcile",
+    ].includes(run.job_type) || run.job_type === "ingestion_recovery" && item.phase === "requeue";
+    const automationPaused = run.source === "scheduled" && isPlayWork &&
+      await readOtwPlayAutomationPaused(this.env.otw_db);
+    if (automationPaused && !(run.job_type === "websub_maintenance" &&
+      ["cleanup", "recover-intent"].includes(item.phase))) {
+      return { status: "skipped", result: { reason: "otw_play_automation_paused" } };
+    }
     switch (run.job_type) {
       case "x_collection": {
         const handles = getStringArray(continuation.handles);
@@ -341,7 +382,7 @@ export class ScheduledJobExecutor {
         throw new Error("invalid_auto_update_phase");
       }
       case "source_health":
-        return batchOutcome(await new SourceHealthService(
+        return toSourceHealthOutcome(await new SourceHealthService(
           new D1SourceHealthRepository(this.env.otw_db),
           new YouTubeOtwPlayMetadataReader(this.env.YOUTUBE_API_KEY, fetch, {
             db: this.env.otw_db,
@@ -353,31 +394,48 @@ export class ScheduledJobExecutor {
           new CloudflarePlayTelemetryWriter(this.env.OTW_PLAY_ANALYTICS),
         ).runScheduled(2));
       case "channel_reconcile":
-        return batchOutcome(
+        return toScheduledBatchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runDue(1),
         );
       case "recent_reconcile":
-        return batchOutcome(
+        return toScheduledBatchOutcome(
           await createOtwPlayChannelMonitorService(this.env).runRecentDue(1),
         );
       case "websub_maintenance": {
         const service = createOtwPlayWebsubService(this.env);
         switch (item.phase) {
-          case "recover-delivery":
-            return succeeded({ recovered: await service.recoverPending(1) });
+          case "recover-delivery": {
+            const result = await service.recoverPendingWithOutcome(1);
+            return {
+              status: result.failed > 0
+                ? result.enqueued > 0 ? "partial" : "failed"
+                : result.attempted > 0 ? "succeeded" : "skipped",
+              result,
+              attempted: result.attempted,
+              succeeded: result.enqueued,
+              failed: result.failed,
+              errorCode: result.failed > 0 ? "websub_delivery_dispatch_failed" : null,
+              error: result.failed > 0 ? "WebSub delivery queue dispatch failed" : null,
+            };
+          }
           case "cleanup":
-            return succeeded(await service.cleanupInvalidSubscriptions(
+            return toScheduledBatchOutcome(await service.cleanupInvalidSubscriptions(
               "system:websub-cleanup",
               1,
             ));
           case "recover-intent":
-            return succeeded(await service.recoverStaleIntents(
+            return toScheduledBatchOutcome(await service.recoverStaleIntents(
               "system:websub-intent-recovery",
               1,
+              automationPaused,
             ));
           case "renew":
-            return succeeded(
+            return toScheduledBatchOutcome(
               await service.renewDue("system:websub-renewal", 1),
+            );
+          case "retry-subscription":
+            return toScheduledBatchOutcome(
+              await service.retryFailedSubscriptions("system:websub-retry", 1),
             );
           default:
             throw new Error("invalid_websub_phase");
@@ -388,14 +446,43 @@ export class ScheduledJobExecutor {
           const recovered = await this.repository.recoverStaleItems(10);
           const dispatched = await new ScheduledJobCoordinator(this.env)
             .dispatchPending();
-          return succeeded({ recovered, ...dispatched });
+          const deferred = dispatched.claimed - dispatched.dispatched - dispatched.failed;
+          return {
+            status: deferred > 0
+              ? dispatched.dispatched > 0 || dispatched.failed > 0 ? "partial" : "throttled"
+              : dispatched.failed > 0
+                ? dispatched.dispatched > 0 ? "partial" : "failed"
+                : recovered > 0 || dispatched.claimed > 0 ? "succeeded" : "skipped",
+            result: { recovered, ...dispatched, deferred },
+            attempted: dispatched.claimed,
+            succeeded: dispatched.dispatched,
+            failed: dispatched.failed,
+            errorCode: dispatched.failed > 0 ? "scheduled_dispatch_failed"
+              : deferred > 0 ? "daily_background_budget_exhausted" : null,
+            error: dispatched.failed > 0 ? "Scheduled queue dispatch failed"
+              : deferred > 0 ? "Scheduled queue dispatch is waiting for budget" : null,
+          };
         }
         const service = createOtwPlayIngestionService(this.env);
         if (item.phase === "cleanup") {
           return succeeded({ cleared: await service.clearExpiredApiData(20) });
         }
         if (item.phase === "requeue") {
-          return succeeded({ enqueued: await service.requeuePending(20) });
+          const result = await service.requeuePendingWithOutcome(
+            20,
+            async () => !(await readOtwPlayAutomationPaused(this.env.otw_db)),
+          );
+          return {
+            status: result.failed > 0
+              ? result.enqueued > 0 ? "partial" : "failed"
+              : result.attempted > 0 ? "succeeded" : "skipped",
+            result,
+            attempted: result.attempted,
+            succeeded: result.enqueued,
+            failed: result.failed,
+            errorCode: result.failed > 0 ? "ingestion_dispatch_failed" : null,
+            error: result.failed > 0 ? "Ingestion queue dispatch failed" : null,
+          };
         }
         throw new Error("invalid_ingestion_recovery_phase");
       }

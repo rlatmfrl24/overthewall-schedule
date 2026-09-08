@@ -117,6 +117,7 @@ export interface AdminReviewSummaryDto {
 }
 
 export interface OperationsStatusResponseDto {
+  playAutomationPaused: boolean;
   review?: AdminReviewSummaryDto;
   updatedAt: string;
   window: { hours: number; since: number };

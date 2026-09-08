@@ -298,7 +298,7 @@ const getPolicyCutoff = (policy: RetentionPolicy, now: number) =>
 
 const getPolicyWhereClause = (policy: RetentionPolicy) => {
   const timestampClause = policy.timestampKind === "sqlite_datetime"
-    ? `${policy.timestampColumn} IS NOT NULL AND unixepoch(${policy.timestampColumn}) < ?`
+    ? `${policy.timestampColumn} IS NOT NULL AND ${policy.timestampColumn} < ?`
     : `${policy.timestampColumn} < ?`;
   return policy.extraWhere
     ? `(${policy.extraWhere}) AND (${timestampClause})`
@@ -307,7 +307,9 @@ const getPolicyWhereClause = (policy: RetentionPolicy) => {
 
 const getPolicyBindValue = (policy: RetentionPolicy, cutoff: number) => {
   if (policy.timestampKind === "sqlite_datetime") {
-    return Math.floor(cutoff / 1000);
+    // update_logs uses SQLite CURRENT_TIMESTAMP (UTC, second precision).
+    // Compare the stored representation so its timestamp index can bound reads.
+    return new Date(cutoff).toISOString().slice(0, 19).replace("T", " ");
   }
   return cutoff;
 };
@@ -371,10 +373,14 @@ const readRetentionPolicies = async (
   env: Env,
   now = Date.now(),
 ): Promise<DataRetentionPolicyStatus[]> => {
-  const policies: DataRetentionPolicyStatus[] = [];
-  for (const policy of DATA_RETENTION_POLICIES) {
+  const counts = await env.otw_db.batch<{ count: number | string | null }>(
+    DATA_RETENTION_POLICIES.map((policy) => env.otw_db.prepare(
+      `SELECT COUNT(*) AS count FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)}`,
+    ).bind(getPolicyBindValue(policy, getPolicyCutoff(policy, now)))),
+  );
+  return DATA_RETENTION_POLICIES.map((policy, index) => {
     const cutoff = getPolicyCutoff(policy, now);
-    policies.push({
+    return {
       id: policy.id,
       category: policy.category,
       table: policy.table,
@@ -382,11 +388,25 @@ const readRetentionPolicies = async (
       timestampColumn: policy.timestampColumn,
       retentionDays: policy.retentionDays,
       cutoff,
-      prunableRows: await readPrunableCount(env, policy, cutoff),
+      prunableRows: Number(counts[index].results[0]?.count ?? 0) || 0,
       deletedRows: 0,
-    });
-  }
-  return policies;
+    };
+  });
+};
+
+/** Shares the exact prune predicate; eligibility never records a run or writes. */
+export const readDueDataRetentionPolicyIds = async (
+  env: Env,
+  now = Date.now(),
+): Promise<string[]> => {
+  const matches = await env.otw_db.batch<{ has_work: number }>(
+    DATA_RETENTION_POLICIES.map((policy) => env.otw_db.prepare(
+      `SELECT 1 AS has_work FROM ${policy.table} WHERE ${getPolicyWhereClause(policy)} LIMIT 1`,
+    ).bind(getPolicyBindValue(policy, getPolicyCutoff(policy, now)))),
+  );
+  return DATA_RETENTION_POLICIES.filter(
+    (_policy, index) => matches[index].results.length > 0,
+  ).map((policy) => policy.id);
 };
 
 type RetentionRunRow = {
@@ -464,7 +484,11 @@ export const getDataRetentionStatus = async (
   env: Env,
   now = Date.now(),
 ): Promise<DataRetentionStatusResult> => {
-  const policies = await readRetentionPolicies(env, now);
+  const [policies, recentRuns, capacity] = await Promise.all([
+    readRetentionPolicies(env, now),
+    readRecentRetentionRuns(env),
+    readD1Capacity(env),
+  ]);
   return {
     source: "manual",
     dryRun: true,
@@ -473,8 +497,8 @@ export const getDataRetentionStatus = async (
     totalPrunableRows: policies.reduce((total, policy) => total + policy.prunableRows, 0),
     totalDeletedRows: 0,
     policies,
-    recentRuns: await readRecentRetentionRuns(env),
-    capacity: await readD1Capacity(env),
+    recentRuns,
+    capacity,
   };
 };
 

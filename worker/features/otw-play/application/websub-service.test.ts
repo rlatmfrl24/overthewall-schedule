@@ -110,10 +110,11 @@ const repository = () => ({
   recordDeliveryObservation: vi.fn(async () => undefined),
   rejectDelivery: vi.fn(async () => undefined),
   markDeliveryDeadLetter: vi.fn(async () => undefined),
-  listRecoverableDeliveryIds: vi.fn(async () => []),
+  listRecoverableDeliveryIds: vi.fn<WebsubRepository["listRecoverableDeliveryIds"]>(async () => []),
   listStaleIntents: vi.fn<WebsubRepository["listStaleIntents"]>(async () => []),
   listCleanupMonitorIds: vi.fn<WebsubRepository["listCleanupMonitorIds"]>(async () => []),
   listRenewalMonitorIds: vi.fn(async () => []),
+  listRetryableSubscriptionMonitorIds: vi.fn<WebsubRepository["listRetryableSubscriptionMonitorIds"]>(async () => []),
 }) satisfies WebsubRepository;
 
 const youtube = () => ({
@@ -152,6 +153,98 @@ const hmacHeader = async (secret: string, payload: Uint8Array) => {
 };
 
 describe("WebsubService", () => {
+  it("pauses new subscriptions, notifications and queued delivery work while allowing unsubscribe", async () => {
+    const repo = repository();
+    const reader = youtube();
+    const hub = { request: vi.fn(async () => undefined) };
+    const service = new WebsubService(repo, reader, hub, { send: vi.fn() },
+      { 1: "root-secret" }, "https://example.com", () => "event-pause", () => NOW, async () => true);
+    await expect(service.subscribe(monitor.id, "admin-1")).rejects.toMatchObject({ code: "authority_denied" });
+    await expect(service.receiveNotification({ token: "token", signature: null, payload: new Uint8Array() }))
+      .rejects.toMatchObject({ code: "authority_denied" });
+    await service.process({ schemaVersion: 1, messageType: "channel_websub", deliveryId: "delivery-1" });
+    await expect(service.recoverPendingWithOutcome()).resolves.toEqual({ attempted: 0, enqueued: 0, failed: 0 });
+    expect(repo.claimDelivery).not.toHaveBeenCalled();
+    expect(reader.readVideos).not.toHaveBeenCalled();
+    await service.unsubscribe(monitor.id, "admin-1");
+    expect(hub.request).toHaveBeenCalledWith(expect.objectContaining({ mode: "unsubscribe" }));
+  });
+
+  it("retries eligible failed subscriptions through the guarded subscription command", async () => {
+    const repo = repository();
+    repo.listRetryableSubscriptionMonitorIds.mockResolvedValue([monitor.id]);
+    repo.getCurrentSubscription.mockResolvedValue({ ...subscription, status: "failed", verifiedAt: null, leaseExpiresAt: null });
+    const hub = { request: vi.fn(async () => undefined) };
+    const service = new WebsubService(repo, youtube(), hub, { send: vi.fn() },
+      { 1: "root-secret" }, "https://example.com", () => "event-retry", () => NOW);
+    await expect(service.retryFailedSubscriptions()).resolves.toEqual([{ id: monitor.id, ok: true }]);
+    expect(repo.prepareSubscription).toHaveBeenCalledWith(expect.objectContaining({
+      retryFailedBefore: NOW - 60 * 60_000, status: "pending", pendingMode: "subscribe",
+    }));
+    expect(hub.request).toHaveBeenCalledOnce();
+  });
+
+  it("reports queue recovery failures instead of treating zero requeued messages as success", async () => {
+    const repo = repository();
+    repo.listRecoverableDeliveryIds.mockResolvedValue(["delivery-1"]);
+    const service = new WebsubService(repo, youtube(), { request: vi.fn() },
+      { send: vi.fn(async () => { throw new Error("queue unavailable"); }) },
+      { 1: "root-secret" }, "https://example.com", () => "id", () => NOW);
+    await expect(service.recoverPendingWithOutcome(1)).resolves.toEqual({ attempted: 1, enqueued: 0, failed: 1 });
+    expect(repo.markDeliveryFailed).toHaveBeenCalledWith("delivery-1", "queue_send_failed", NOW);
+  });
+
+  it("stops recovery between sends and counts only attempted deliveries when automation pauses", async () => {
+    const repo = repository();
+    repo.listRecoverableDeliveryIds.mockResolvedValue(["delivery-1", "delivery-2"]);
+    let paused = false;
+    const queue = { send: vi.fn(async () => { paused = true; }) };
+    const service = new WebsubService(repo, youtube(), { request: vi.fn() }, queue,
+      { 1: "root-secret" }, "https://example.com", () => "id", () => NOW, async () => paused);
+    await expect(service.recoverPendingWithOutcome()).resolves.toEqual({ attempted: 1, enqueued: 1, failed: 0 });
+    expect(queue.send).toHaveBeenCalledOnce();
+    expect(repo.markDeliveryEnqueued).toHaveBeenCalledWith("delivery-1", NOW);
+    expect(repo.markDeliveryFailed).not.toHaveBeenCalled();
+  });
+
+  it("preserves a recorded notification without sending when pause changes during persistence", async () => {
+    const repo = repository();
+    let paused = false;
+    repo.recordDelivery.mockImplementation(async () => {
+      paused = true;
+      return { id: "delivery-1", shouldEnqueue: true };
+    });
+    const queue = { send: vi.fn() };
+    const material = await deriveWebsubSecrets("root-secret", subscription.id, 0);
+    const payload = encoder.encode(`<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015">
+      <link rel="self" href="${subscription.topicUrl}" /><entry><yt:videoId>BBBBBBBBBBB</yt:videoId>
+      <yt:channelId>${monitor.externalChannelId}</yt:channelId><updated>2026-08-25T06:00:00Z</updated></entry></feed>`);
+    const service = new WebsubService(repo, youtube(), { request: vi.fn() }, queue,
+      { 1: "root-secret" }, "https://example.com", () => "id", () => NOW, async () => paused);
+    await service.receiveNotification({ token: material.callbackToken,
+      signature: await hmacHeader(material.hubSecret, payload), payload });
+    expect(repo.recordDelivery).toHaveBeenCalledOnce();
+    expect(queue.send).not.toHaveBeenCalled();
+    expect(repo.markDeliveryEnqueued).not.toHaveBeenCalled();
+    expect(repo.markDeliveryFailed).not.toHaveBeenCalled();
+  });
+
+  it("while paused recovers only unsubscribe intents and accepts their confirmation", async () => {
+    const repo = repository();
+    repo.listStaleIntents.mockResolvedValue([
+      { monitorId: monitor.id, status: "pending" },
+      { monitorId: monitor.id, status: "unsubscribing" },
+    ]);
+    repo.findSubscriptionByTokenHash.mockResolvedValue({ ...subscription, status: "unsubscribing", pendingMode: "unsubscribe" });
+    const hub = { request: vi.fn(async () => undefined) };
+    const service = new WebsubService(repo, youtube(), hub, { send: vi.fn() },
+      { 1: "root-secret" }, "https://example.com", () => "id", () => NOW, async () => true);
+    await expect(service.recoverStaleIntents()).resolves.toEqual([{ id: monitor.id, ok: true }]);
+    expect(repo.listStaleIntents).toHaveBeenCalledWith(NOW, 10, true);
+    expect(hub.request).toHaveBeenCalledOnce();
+    await expect(service.verifyIntent("token", { mode: "unsubscribe", topic: subscription.topicUrl,
+      challenge: "confirmed", leaseSeconds: null, reason: null })).resolves.toEqual({ denied: false, challenge: "confirmed" });
+  });
   it("verifies the exact pending topic, challenge, and lease", async () => {
     const repo = repository();
     repo.findSubscriptionByTokenHash.mockResolvedValue({
@@ -408,6 +501,7 @@ describe("WebsubService", () => {
       "hub_request_failed",
       "active",
       NOW,
+      NOW,
     );
   });
 
@@ -457,6 +551,7 @@ describe("WebsubService", () => {
       subscription.id,
       "hub_request_failed",
       "failed",
+      NOW,
       NOW,
     );
   });

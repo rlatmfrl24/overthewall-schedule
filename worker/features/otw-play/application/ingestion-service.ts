@@ -307,17 +307,27 @@ export class IngestionService {
   }
 
   async requeuePending(limit = 100) {
+    return (await this.requeuePendingWithOutcome(limit)).enqueued;
+  }
+
+  async requeuePendingWithOutcome(
+    limit = 100,
+    canContinue: () => Promise<boolean> = async () => true,
+  ) {
     const pending = await this.repository.listPendingMessages(this.clock(), limit);
-    let enqueued = 0;
+    const result = { attempted: 0, enqueued: 0, failed: 0 };
     for (const message of pending) {
+      if (!(await canContinue())) break;
+      result.attempted += 1;
       try {
         await this.queue.send(message);
-        enqueued += 1;
+        result.enqueued += 1;
       } catch {
+        result.failed += 1;
         break;
       }
     }
-    return enqueued;
+    return result;
   }
 
   clearExpiredApiData(limit = 100) {

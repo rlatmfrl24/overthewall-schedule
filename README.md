@@ -37,7 +37,11 @@ content discovery, and lightweight admin workflows.
 
 ## Development
 
-Use `pnpm` for project commands.
+Use Node.js 24 LTS (the tested patch is recorded in `.node-version`) and
+`pnpm@11.7.0` for project commands. Match this Node version in Cloudflare Builds
+with `NODE_VERSION=24.20.0`; the deployed Worker still runs on workerd.
+`pnpm preflight` runs the unit and Worker integration suites once through the
+combined coverage project.
 
 ```bash
 pnpm dev
