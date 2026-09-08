@@ -100,4 +100,19 @@ describe("XPostHistoryManager", () => {
     expect(await screen.findByText(/기록 분석 킬스위치가 꺼져 있습니다/)).toBeTruthy();
     expect(fetchXHistoryPostsMock).not.toHaveBeenCalled();
   });
+
+  it("동일 게시물의 관계 표시 답글과 인용을 모두 표시한다", async () => {
+    const result = await fetchXHistoryPostsMock();
+    const post = result.posts[0].post;
+    post.reply = { postId: "10", conversationId: "9", post: null };
+    post.quote = { postId: "20", post: { ...post, id: "20", text: "인용 본문" } };
+    fetchXHistoryPostsMock.mockResolvedValue(result);
+    render(createElement(XPostHistoryManager, { enabled: true }), { wrapper: createQueryWrapper() });
+    const details = screen.getByText("보관 기록 관리").closest("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(await screen.findByText("인용 본문")).toBeTruthy();
+    expect(screen.getByText(/답글 대상.*관계 표시/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /참조 ID로 X에서 열기/ }).getAttribute("href")).toBe("https://x.com/i/web/status/10");
+  });
 });

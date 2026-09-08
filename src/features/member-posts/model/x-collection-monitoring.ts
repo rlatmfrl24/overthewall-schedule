@@ -59,5 +59,6 @@ export function xHydrationResultText(run: OperationRunDto) {
   const label = results.some((result) => result.status === "failed" || result.failed > 0) ? "오류·재시도 대기"
     : results.some((result) => result.status === "deferred") ? "이월 대기" : "이번 처리 완료";
   const prefix = items.some((item) => item.status === "queued" || item.status === "running") ? "진행 중 · 저장된 결과: " : "";
-  return `${prefix}${label} · 원문 연결 ${results.reduce((sum, result) => sum + result.hydrated, 0)}건${results.length < items.length ? " · 일부 기록 없음" : ""}`;
+  const scope = results.every((result) => result.scope === "quotes") ? "인용 보강 · " : "";
+  return `${prefix}${scope}${label} · 원문 연결 ${results.reduce((sum, result) => sum + result.hydrated, 0)}건${results.length < items.length ? " · 일부 기록 없음" : ""}`;
 }

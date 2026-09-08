@@ -58,7 +58,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
       : latestRun.status === "queued" || latestRun.status === "running" ? statusLabel(latestRun.status)
         : xCollectionStatusText(latestRun);
   return <div className="space-y-3">
-    <p className="text-sm leading-6 text-muted-foreground">게시물 수집 후 원문·작성자 보강을 처리하며, 남은 보강은 이후 실행에서 이어집니다.</p>
+    <p className="text-sm leading-6 text-muted-foreground">게시물 수집 후 인용 원문·작성자를 보강합니다. 답글은 저장된 미리보기를 유지하거나 관계와 링크로 표시합니다.</p>
     <div className="grid items-stretch gap-3 xl:grid-cols-2">
       <section aria-label="X 게시물 수집 상태" className="min-w-0 space-y-3 rounded-lg border bg-background p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -75,7 +75,7 @@ export function XCollectionOverview({ operations, loading, error, latestRun, run
           <div><dt className="text-muted-foreground">자동 수집</dt><dd className="mt-1">{error || loading || !x ? "설정 확인 불가" : (enabled ? "활성" : "중지") + " · " + x.intervalHours + "시간 주기"}</dd></div>
           <div><dt className="text-muted-foreground">다음 수집 가능</dt><dd className="mt-1">{!enabled ? "자동 수집 중지" : error || loading || !x ? "확인 불가" : formatXEligibility(x.nextEligibleAt)}</dd></div>
         </dl>
-        <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">새 게시물이 없어 저장 0건일 수 있습니다. 답글·인용 게시물 자체는 이 단계에서 수집하며, 참조 원문과 작성자는 원문 보강 카드에서 확인합니다. 가능 시각은 실행 예약 시각이 아닙니다.</p>
+        <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">새 게시물이 없어 저장 0건일 수 있습니다. 답글·인용 게시물 자체는 이 단계에서 수집하며, 인용 원문·작성자 보강과 답글 표시 현황은 옆 카드에서 확인합니다. 가능 시각은 실행 예약 시각이 아닙니다.</p>
       </section>
       <XReferenceHealth />
     </div>
@@ -96,7 +96,7 @@ function ItemResult({ item }: { item: XCollectionOperationItemDto }) {
         {c && <p className="text-muted-foreground">응답 {c.postsReturned}건 · 저장 {c.postsStored}건</p>}
         {c?.error && <p className="break-words">{xReasonLabel(c.error)}</p>}
       </div>
-      <div className="space-y-1"><p className="font-medium">원문 보강</p>
+      <div className="space-y-1"><p className="font-medium">{h?.scope === "quotes" ? "인용 원문 보강" : "답글·인용 원문 보강"}</p>
         {h ? <>
           <p>{h.status === "complete" ? "이번 처리 완료" : h.status === "deferred" ? "이월 대기" : "오류·재시도 대기"}</p>
           <p className="text-muted-foreground">검토 관계 {h.scanned}건 · 원문 연결 {h.hydrated}건 · 작성자 해결 {h.authorsResolved}건</p>

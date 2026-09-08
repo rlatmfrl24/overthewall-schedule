@@ -11,6 +11,7 @@ import {
 } from "./link-preview";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import { readStoredXPreview } from "./x-reference-store";
+import { connectStoredReplyReferences } from "./x-reply-reference";
 import { prepareXReferenceRedaction } from "./x-reference-redaction";
 import { reserveXReferenceBudget, XReferenceBudgetError } from "./x-reference-budget";
 import {
@@ -1291,10 +1292,10 @@ const recordXPostReferences = async (
       Boolean(reference?.id)
     );
     for (const reference of references) {
-      const local = await cacheDb.prepare(
+      const local = reference.type === "quote" ? await cacheDb.prepare(
         "SELECT 1 AS found FROM x_posts WHERE id = ? LIMIT 1",
-      ).bind(reference.id).first<{ found: number }>();
-      const state = local
+      ).bind(reference.id).first<{ found: number }>() : null;
+      const state = reference.type === "reply" && !reference.hydrated ? "link_only" : local
         ? "local"
         : reference.hydrated
           ? "hydrated"
@@ -1309,6 +1310,7 @@ const recordXPostReferences = async (
            referenced_post_id = excluded.referenced_post_id,
             resolution_state = CASE
               WHEN x_post_references.resolution_state = 'terminal'
+                AND x_post_references.referenced_post_id = excluded.referenced_post_id
                 THEN x_post_references.resolution_state
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND x_post_references.hydrated_at IS NOT NULL
@@ -1316,17 +1318,27 @@ const recordXPostReferences = async (
               ELSE excluded.resolution_state
             END,
             next_attempt_at = CASE
+              WHEN excluded.relation_type = 'reply' THEN NULL
               WHEN x_post_references.referenced_post_id = excluded.referenced_post_id
                 AND (x_post_references.hydrated_at IS NOT NULL OR x_post_references.resolution_state = 'terminal')
               THEN x_post_references.next_attempt_at ELSE excluded.next_attempt_at END,
-           hydrated_at = COALESCE(excluded.hydrated_at, x_post_references.hydrated_at),
+           hydrated_at = CASE WHEN x_post_references.referenced_post_id=excluded.referenced_post_id
+             THEN COALESCE(excluded.hydrated_at, x_post_references.hydrated_at) ELSE excluded.hydrated_at END,
+           author_state = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN 'not_required'
+             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
+             THEN 'not_required' ELSE x_post_references.author_state END,
+           author_next_attempt_at = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_next_attempt_at END,
+           author_last_error_code = CASE WHEN excluded.relation_type='reply' THEN NULL ELSE x_post_references.author_last_error_code END,
+           last_error_code = CASE WHEN x_post_references.referenced_post_id<>excluded.referenced_post_id THEN NULL
+             WHEN excluded.relation_type='reply' AND x_post_references.resolution_state<>'terminal'
+             THEN NULL ELSE x_post_references.last_error_code END,
            updated_at = excluded.updated_at`,
       ).bind(
         post.id,
         reference.type,
         reference.id,
         state,
-        !reference.hydrated ? recordedAt : null,
+        reference.type === "quote" && !reference.hydrated ? recordedAt : null,
         reference.hydrated ? recordedAt : null,
         recordedAt,
         recordedAt,
@@ -1398,8 +1410,9 @@ const writeStoredPosts = async (
     // Facts deliberately contain no raw content. They are gated separately so
     // the existing feed can stay enabled until the approved analytics use-case
     // is confirmed in the X Developer Console.
-    await recordXPostFacts(cacheDb, normalizedHandle, posts, fetchedAt);
-    await recordXPostReferences(cacheDb, posts, fetchedAt);
+    const connectedPosts = await connectStoredReplyReferences(cacheDb, posts);
+    await recordXPostFacts(cacheDb, normalizedHandle, connectedPosts, fetchedAt);
+    await recordXPostReferences(cacheDb, connectedPosts, fetchedAt);
     return { ok: true, count: posts.length, error: null };
   } catch (error) {
     console.warn("Failed to write stored X posts", error);
@@ -1887,6 +1900,7 @@ export const normalizeXTimelineResponse = (
         ? {
             postId: replyReference.id,
             conversationId: post.conversation_id ?? null,
+            inReplyToUserId: post.in_reply_to_user_id ?? null,
             post: null,
           }
         : null,
@@ -1944,7 +1958,7 @@ const inferMissingXQuoteReferences = (posts: XPostItem[]) =>
 
     const quotePostId = (post.links ?? [])
       .map((link) => extractLinkedXStatusId(link, post.id))
-      .find((id): id is string => Boolean(id));
+      .find((id): id is string => Boolean(id) && id !== post.reply?.postId);
     return quotePostId
       ? {
           ...post,
@@ -1963,6 +1977,7 @@ const collectLinkedXStatusIds = (posts: XPostItem[]) => {
 
       const id = extractLinkedXStatusId(link, post.id);
       if (id && id === post.quote?.postId) continue;
+      if (id && id === post.reply?.postId) continue;
       if (!id || seen.has(id)) continue;
 
       seen.add(id);
@@ -2312,7 +2327,6 @@ const enrichXPostsWithReferencedPosts = async (
     new Set(
       postsWithInferredQuotes.flatMap((post) => [
         post.quote && !post.quote.post ? post.quote.postId : null,
-        post.reply && !post.reply.post ? post.reply.postId : null,
       ]),
     ),
   )

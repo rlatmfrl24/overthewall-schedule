@@ -45,6 +45,7 @@ const LEASE_MS = 5 * 60_000;
 const POST_RESERVATION = 25_000; // Post + up to four media resources, at conservative internal rates.
 const USER_RESERVATION = 10_000;
 const emptyResult = (): XReferenceHydrationResultDto => ({
+  scope: "quotes",
   status: "complete",
   scanned: 0,
   hydrated: 0,
@@ -68,7 +69,7 @@ export async function claimXReferenceTarget(
       `WITH free AS MATERIALIZED (
     SELECT NOT EXISTS(SELECT 1 FROM x_post_references WHERE referenced_post_id=? AND lease_until>?) AS available
   ) UPDATE x_post_references SET lease_token=?,lease_until=?
-    WHERE referenced_post_id=? AND (SELECT available FROM free)=1 RETURNING source_post_id`,
+    WHERE referenced_post_id=? AND relation_type='quote' AND (SELECT available FROM free)=1 RETURNING source_post_id`,
     )
     .bind(id, timestamp, token, timestamp + LEASE_MS, id)
     .all<{ source_post_id: string }>();
@@ -132,7 +133,7 @@ const createPreviewAttacher = (scope: string) =>
       .prepare(
         `SELECT r.source_post_id,r.relation_type,p.handle FROM x_post_references r
     JOIN x_posts p ON p.id=r.source_post_id WHERE r.referenced_post_id=? AND r.lease_token=?
-    AND r.lease_until>? AND p.hidden_at IS NULL AND p.content_removed_at IS NULL AND json_valid(p.value)
+    AND r.relation_type='quote' AND r.lease_until>? AND p.hidden_at IS NULL AND p.content_removed_at IS NULL AND json_valid(p.value)
     AND (r.source_post_id||':'||r.relation_type) IN (SELECT value FROM json_each(?))
     AND (?=0 OR COALESCE(json_extract(p.value,'$.'||r.relation_type||'.post.id'),'')<>r.referenced_post_id)`,
       )
@@ -260,7 +261,7 @@ export async function hydrateXReferences(
   const rows = await db
     .prepare(
       `SELECT r.* FROM x_post_references r JOIN x_posts p ON p.id=r.source_post_id
-    WHERE p.handle IN (${handles.map(() => "?").join(",")}) AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
+    WHERE r.relation_type='quote' AND p.handle IN (${handles.map(() => "?").join(",")}) AND p.hidden_at IS NULL AND p.content_removed_at IS NULL
     AND json_valid(p.value)
     AND ((r.resolution_state IN ('pending','local','link_only','hydrated')
       AND (r.hydrated_at IS NULL OR COALESCE(json_extract(p.value,'$.'||r.relation_type||'.post.id'),'')<>r.referenced_post_id)
@@ -270,6 +271,7 @@ export async function hydrateXReferences(
     .bind(...handles, timestamp, timestamp)
     .all<Reference>();
   result.scanned = rows.results.length;
+  if (!result.scanned) return result;
   // Bound content writes to the selected 100 relations. Other shards resolve
   // from the shared cache on their next run, without repurchasing the Post.
   const attachPreview = createPreviewAttacher(
@@ -327,7 +329,7 @@ export async function hydrateXReferences(
     await db
       .prepare(
         `UPDATE x_post_references SET ${column}next_attempt_at=?,${column}last_error_code=?,
-      ${column}attempt_count=${column}attempt_count+?,updated_at=? WHERE referenced_post_id=? AND lease_token=? AND lease_until>?`,
+      ${column}attempt_count=${column}attempt_count+?,updated_at=? WHERE relation_type='quote' AND referenced_post_id=? AND lease_token=? AND lease_until>?`,
       )
       .bind(next, code, attempted ? 1 : 0, Date.now(), id, token, Date.now())
       .run();
@@ -369,7 +371,7 @@ export async function hydrateXReferences(
           Boolean(stored.authorId ?? row.author_id);
         // Attach cached bodies only where missing while preserving author retry state
         // on relations that already have their body. Never let one author's state
-        // suppress a cost-free repair of a different reply to the same original.
+        // suppress a cost-free repair of a different quote of the same original.
         result.hydrated += await attachPreview(
           db,
           id,

@@ -27,6 +27,7 @@ function parseHydration(value: unknown): XReferenceHydrationResultDto | null {
   const keys = ["scanned", "hydrated", "authorsResolved", "deferred", "failed", "terminal", "coalesced"] as const;
   if (!keys.every((key) => count(data[key]))) return null;
   return {
+    ...(data.scope === "quotes" ? { scope: "quotes" as const } : {}),
     status: data.status as XReferenceHydrationResultDto["status"],
     scanned: data.scanned as number,
     hydrated: data.hydrated as number,

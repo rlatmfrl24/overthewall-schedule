@@ -20,7 +20,8 @@ import {
   clearXServiceCachesForTests,
   type XApiUsageTracker,
 } from "./x-api";
-import { linkedPostKey } from "./x-reference-store";
+import { linkedPostKey, linkedUserKey } from "./x-reference-store";
+import { connectStoredReplyReferences } from "./x-reply-reference";
 import type { XPostDto } from "@contracts/x-posts";
 import { runXCollectionForHandles } from "./x-collection";
 
@@ -48,7 +49,7 @@ const body = (id: string): XPostDto => ({
 const seed = async (id = "101", parent = "10", handle = "member") => {
   const post = {
     ...body(id),
-    reply: { postId: parent, conversationId: parent, post: null },
+    quote: { postId: parent, post: null },
   };
   await db
     .prepare(
@@ -75,6 +76,14 @@ const getPost = async (id = "101") =>
       .bind(id)
       .first<{ value: string }>())!.value,
   ) as XPostDto;
+const seedReply = async (id: string, parent: string, preview: XPostDto | null = null) => {
+  const post: XPostDto = { ...body(id), reply: { postId: parent, conversationId: "root", post: preview
+    ? { ...preview, name: null, profileImageUrl: null } : null } };
+  await db.prepare(`INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at)
+    VALUES(?,'member','member',?,?,1,1)`).bind(id, JSON.stringify(post), post.createdAt).run();
+  await backfillXPostReferencesFromStoredPosts(db);
+  return post;
+};
 const run = (
   mode: "cached_author" | "post_only" | "link_only" = "cached_author",
   handles = ["member"],
@@ -115,6 +124,156 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+
+describe("X replies use stored context or a completed relation", () => {
+  it("ignores reply-only post and author backlog without reserving budget or retrying", async () => {
+    await seedReply("201", "10");
+    await db.prepare("UPDATE x_post_references SET resolution_state='pending',next_attempt_at=1,author_state='pending',author_id='2',author_next_attempt_at=1,last_error_code='x_api_503'").run();
+    const before = await db.prepare("SELECT * FROM x_post_references").first();
+    const usage = tracker();
+    expect(await hydrateXReferences({ db, handles: ["member"], bearerToken: "test", mode: "cached_author", tracker: usage }))
+      .toMatchObject({ scope: "quotes", status: "complete", scanned: 0, deferred: 0, retryAt: null });
+    expect(usage).toMatchObject({ apiCalls: 0, reservedCostMicros: 0, estimatedCostMicros: 0 });
+    expect(await db.prepare("SELECT * FROM x_post_references").first()).toEqual(before);
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM x_api_usage_events").first()).toEqual({ count: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("collects replies and advances the cursor without purchasing their parent or author", async () => {
+    await db.batch([
+      db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_reference_preview_mode','cached_author')"),
+      db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at) VALUES('member','1','member','100',0,0,1),('parent_member','2','parent_member','900',0,0,1)"),
+    ]);
+    const cached = body("20");
+    await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'linked_post',?,?,?)")
+      .bind(linkedPostKey("20"), JSON.stringify({ post: { ...cached, name: null, profileImageUrl: null } }), Date.now(), Date.now()+86_400_000).run();
+    await db.prepare("INSERT INTO x_api_cache(key,type,value,fetched_at,expires_at) VALUES(?,'linked_user',?,?,?)")
+      .bind(linkedUserKey("3"), JSON.stringify({ user: { id: "3", username: "cached_external" } }), Date.now(), Date.now()+86_400_000).run();
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
+      if (url.pathname === "/2/users/1/tweets") return json({ meta: { newest_id: "203" }, data: [
+        { id: "201", text: "reply one", created_at: new Date().toISOString(), in_reply_to_user_id: "2", conversation_id: "root",
+          referenced_tweets: [{ type: "replied_to", id: "10" }] },
+        { id: "202", text: "reply two", created_at: new Date().toISOString(), referenced_tweets: [{ type: "replied_to", id: "20" }] },
+        { id: "203", text: "reply three", created_at: new Date().toISOString(), in_reply_to_user_id: "3", referenced_tweets: [{ type: "replied_to", id: "30" }] },
+      ].reverse() });
+      throw new Error("Unexpected paid reply lookup: " + url.pathname);
+    });
+    const result = await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "manual");
+    expect(result.postsStored).toBe(3);
+    expect(result.referenceHydration).toMatchObject({ scope: "quotes", status: "complete", scanned: 0, deferred: 0 });
+    expect((await getPost("201")).reply).toMatchObject({ postId: "10", inReplyToUserId: "2", targetUsername: "parent_member", post: null });
+    expect((await getPost("202")).reply?.post?.text).toBe(cached.text);
+    expect((await getPost("203")).reply).toMatchObject({ inReplyToUserId: "3", targetUsername: "cached_external", post: null });
+    expect(await db.prepare("SELECT last_seen_post_id FROM x_post_sources WHERE handle='member'").first()).toMatchObject({ last_seen_post_id: "203" });
+    expect((await db.prepare("SELECT resolution_state,author_state,next_attempt_at,author_next_attempt_at FROM x_post_references WHERE source_post_id='201'").first()))
+      .toMatchObject({ resolution_state: "link_only", author_state: "not_required", next_attempt_at: null, author_next_attempt_at: null });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM x_api_usage_events WHERE operation='tweet_lookup' OR json_extract(detail,'$.purpose')='reference_preview'").first()).toEqual({ count: 0 });
+    const readOnly = { prepare(sql: string) { expect(sql.trim()).toMatch(/^(SELECT|WITH)\b/i); return db.prepare(sql); } };
+    const calls = vi.mocked(fetch).mock.calls.length;
+    const feed = await fetchXPostsForHandles(["member"], { cacheDb: readOnly, refresh: false });
+    expect(feed.posts.find((post) => post.id === "202")?.reply?.post?.text).toBe(cached.text);
+    expect(fetch).toHaveBeenCalledTimes(calls);
+  });
+
+  it("does not consume stale reply backlog or let a shared quote retry modify it", async () => {
+    await seedReply("201", "10");
+    await seed("101", "10");
+    await db.prepare("UPDATE x_post_references SET resolution_state='pending',next_attempt_at=1,author_state='pending',author_id='2',author_next_attempt_at=1 WHERE relation_type='reply'").run();
+    const before = await db.prepare("SELECT * FROM x_post_references WHERE relation_type='reply'").first();
+    vi.mocked(fetch).mockResolvedValue(json({ errors: [{ title: "Temporary error" }] }));
+    const result = await run();
+    expect(result.scope).toBe("quotes");
+    expect(result.scanned).toBe(1);
+    expect(await db.prepare("SELECT * FROM x_post_references WHERE relation_type='reply'").first()).toEqual(before);
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => new URL(String(input)).pathname === "/2/tweets")).toBe(true);
+  });
+
+  it.each(["10", "20"])("resolves a quote sharing reply author or target %s without changing the reply", async (parent) => {
+    await seedReply("201", parent);
+    await seed("101", "10");
+    await db.prepare("UPDATE x_post_references SET author_state='pending',author_id='2',author_next_attempt_at=1 WHERE relation_type='reply'").run();
+    if (parent === "10") {
+      await db.prepare("UPDATE x_post_references SET lease_token='older-worker',lease_until=? WHERE relation_type='reply'").bind(Date.now()+60_000).run();
+      expect(await run()).toMatchObject({ coalesced: 1, hydrated: 0 });
+      expect(fetch).not.toHaveBeenCalled();
+      await db.prepare("UPDATE x_post_references SET lease_until=1 WHERE relation_type='reply'").run();
+    }
+    const before = await db.prepare("SELECT * FROM x_post_references WHERE relation_type='reply'").first();
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/tweets") return json({ data: [{ id: "10", text: "quote body", author_id: "2" }] });
+      if (url.pathname === "/2/users") return json({ data: [{ id: "2", username: "shared_author", name: "Shared author" }] });
+      throw new Error("Unexpected lookup: " + url.pathname);
+    });
+    expect(await run()).toMatchObject({ hydrated: 1, authorsResolved: 1 });
+    expect((await getPost("101")).quote?.post?.username).toBe("shared_author");
+    expect(await db.prepare("SELECT * FROM x_post_references WHERE relation_type='reply'").first()).toEqual(before);
+    expect((await getPost("201")).reply?.post).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["hydrated", "terminal"])("does not transfer an old %s reply target to a changed relation", async (state) => {
+    await seedReply("150", "10", state === "hydrated" ? body("10") : null);
+    await db.prepare("UPDATE x_post_references SET resolution_state=?,hydrated_at=100,author_state='pending',author_next_attempt_at=1,last_error_code='old_target'").bind(state).run();
+    await db.prepare("INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_reference_preview_mode','cached_author')").run();
+    await db.prepare("INSERT INTO x_post_sources(handle,user_id,username,last_seen_post_id,last_checked_at,updated_at,collection_started_at,sync_pagination_token,sync_base_post_id,sync_newest_post_id) VALUES('member','1','member','100',0,0,0,'page2','100','200')").run();
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/2/users/by") return json({ data: [{ id: "1", username: "member" }] });
+      if (url.pathname === "/2/users/1/tweets") return json({ data: [{ id: "150", text: "changed target", created_at: new Date().toISOString(),
+        referenced_tweets: [{ id: "20", type: "replied_to" }] }], meta: {} });
+      throw new Error("Unexpected paid reply lookup: " + url.pathname);
+    });
+    const result = await runXCollectionForHandles({ ...testEnv, X_BEARER_TOKEN: "test" }, ["member"], "manual");
+    expect(result.postsStored).toBe(1);
+    expect((await getPost("150")).reply).toMatchObject({ postId: "20", post: null });
+    expect(await db.prepare("SELECT referenced_post_id,resolution_state,hydrated_at,author_state,next_attempt_at,author_next_attempt_at,last_error_code FROM x_post_references WHERE source_post_id='150'").first())
+      .toEqual({ referenced_post_id: "20", resolution_state: "link_only", hydrated_at: null, author_state: "not_required", next_attempt_at: null, author_next_attempt_at: null, last_error_code: null });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses stored context once per target and never resurrects a removed original", async () => {
+    const original = body("10");
+    await db.prepare("INSERT INTO x_posts(id,handle,username,value,created_at,first_seen_at,fetched_at) VALUES('10','member','member',?,?,1,1)")
+      .bind(JSON.stringify(original), original.createdAt).run();
+    const posts = [await seedReply("201", "10"), await seedReply("202", "10")];
+    let targetReads = 0;
+    const observed = { prepare(sql: string) { if (sql.includes("SELECT value, user_id")) targetReads++; return db.prepare(sql); } };
+    await connectStoredReplyReferences(observed, posts);
+    expect(targetReads).toBe(1);
+    expect((await getPost("201")).reply?.post?.text).toBe(original.text);
+    expect((await getPost("202")).reply?.post?.text).toBe(original.text);
+    await redactStoredXPosts(db, ["10"]);
+    await connectStoredReplyReferences(db, posts);
+    expect((await getPost("201")).reply?.post).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("migrates only obsolete reply work while preserving previews, terminal state, leases and quote retries", async () => {
+    const original = body("10");
+    await seedReply("201", "10", original);
+    await seedReply("202", "20");
+    await seedReply("203", "30");
+    await seed("101", "40");
+    await db.prepare("UPDATE x_post_references SET next_attempt_at=100,last_error_code='old_error',author_state='pending',author_next_attempt_at=200,author_last_error_code='old_error',lease_token='active',lease_until=9999999999999").run();
+    await db.prepare("UPDATE x_post_references SET resolution_state='terminal' WHERE source_post_id='203'").run();
+    const previewsBefore = (await db.prepare("SELECT id,value FROM x_posts ORDER BY id").all()).results;
+    const protectedBefore = (await db.prepare("SELECT * FROM x_post_references WHERE relation_type='quote' OR resolution_state='terminal' ORDER BY source_post_id").all()).results;
+    const migration = testEnv.X_REFERENCE_MIGRATIONS.find((item) => item.name.startsWith("0084_"))!;
+    for (const query of migration.queries) await db.prepare(query).run();
+    for (const query of migration.queries) expect((await db.prepare(query).run()).meta.changes).toBe(0);
+    expect((await db.prepare("SELECT id,value FROM x_posts ORDER BY id").all()).results).toEqual(previewsBefore);
+    expect((await db.prepare("SELECT * FROM x_post_references WHERE relation_type='quote' OR resolution_state='terminal' ORDER BY source_post_id").all()).results).toEqual(protectedBefore);
+    expect(await db.prepare("SELECT resolution_state,author_state,next_attempt_at,author_next_attempt_at,lease_token FROM x_post_references WHERE source_post_id='202'").first())
+      .toEqual({ resolution_state: "link_only", author_state: "not_required", next_attempt_at: null, author_next_attempt_at: null, lease_token: "active" });
+    const health = await readXHistoryHealth(db);
+    expect(health.referenceHydration).toMatchObject({ replyPolicy: "stored_or_link", replyDisplay: { withPreview: 1, linkOnly: 1, terminal: 1 },
+      pendingPosts: 1, pendingAuthors: 1, errors: 2 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("X durable reference hydration", () => {
@@ -219,7 +378,7 @@ describe("X durable reference hydration", () => {
       .bind(
         JSON.stringify({
           ...reply,
-          quote: { postId: "10", post: null },
+          reply: { postId: "10", post: original },
           links: [
             {
               url: original.url,
@@ -350,7 +509,7 @@ describe("X durable reference hydration", () => {
             .first()
         )?.hidden_at,
       ).toBeNull();
-      expect((await getPost()).reply?.post?.text).toBe("body 10");
+      expect((await getPost()).quote?.post?.text).toBe("body 10");
     } finally {
       await db.prepare("DROP TRIGGER test_reference_cleanup_failure").run();
     }
@@ -398,7 +557,7 @@ describe("X durable reference hydration", () => {
       tracker: tracker(),
     });
     expect(removed).toBe(true);
-    expect((await getPost()).reply?.post).toBeNull();
+    expect((await getPost()).quote?.post).toBeNull();
     expect(
       await db
         .prepare("SELECT value FROM x_api_cache WHERE key=?")
@@ -416,15 +575,16 @@ describe("X durable reference hydration", () => {
       )
       .run();
     expect((await run("link_only")).hydrated).toBe(1);
-    expect((await getPost()).reply?.post?.text).toBe("body 10");
+    expect((await getPost()).quote?.post?.text).toBe("body 10");
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("preserves hydrated context when the normal pipeline replays a continuation page", async () => {
+  it.each(["reply", "quote"] as const)("preserves hydrated %s context when the normal pipeline replays a continuation page", async (relation) => {
     await seed("10", "999");
-    await seed("150", "10");
+    if (relation === "reply") await seedReply("150", "10", body("10"));
+    else await seed("150", "10");
     await run("link_only");
-    const preview = (await getPost("150")).reply?.post;
+    const preview = (await getPost("150"))[relation]?.post;
     await db
       .prepare(
         "INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_reference_preview_mode','link_only')",
@@ -444,9 +604,9 @@ describe("X durable reference hydration", () => {
         data: [
           {
             id: "150",
-            text: "replayed reply",
+            text: "replayed post",
             created_at: new Date().toISOString(),
-            referenced_tweets: [{ id: "10", type: "replied_to" }],
+            referenced_tweets: [{ id: "10", type: relation === "reply" ? "replied_to" : "quoted" }],
           },
         ],
         meta: {},
@@ -457,7 +617,7 @@ describe("X durable reference hydration", () => {
       ["member"],
       "manual",
     );
-    expect((await getPost("150")).reply?.post).toEqual(preview);
+    expect((await getPost("150"))[relation]?.post).toEqual(preview);
     expect(
       (await db.prepare("SELECT last_seen_post_id FROM x_post_sources").first())
         ?.last_seen_post_id,
@@ -482,7 +642,7 @@ describe("X durable reference hydration", () => {
         .bind(
           JSON.stringify({
             ...second,
-            reply: { ...second.reply, post: preview },
+            quote: { ...second.quote, post: preview },
           }),
         )
         .run();
@@ -514,8 +674,8 @@ describe("X durable reference hydration", () => {
         .run();
       const result = await run(mode);
       expect(result.hydrated).toBe(1);
-      expect((await getPost()).reply?.post?.text).toBe(preview.text);
-      expect((await getPost("102")).reply?.post).toEqual(preview);
+      expect((await getPost()).quote?.post?.text).toBe(preview.text);
+      expect((await getPost("102")).quote?.post).toEqual(preview);
       expect(fetch).not.toHaveBeenCalled();
     },
   );
@@ -583,7 +743,7 @@ describe("X durable reference hydration", () => {
   it("bounds content fanout to 100 selected references and resumes the remainder for free", async () => {
     const posts = Array.from({ length: 101 }, (_, index) => ({
       ...body(String(500 + index)),
-      reply: { postId: "10", conversationId: null, post: null },
+      quote: { postId: "10", post: null },
     }));
     await db.batch(
       [...posts, body("10")].map((post) =>
@@ -601,7 +761,7 @@ describe("X durable reference hydration", () => {
       (
         await db
           .prepare(
-            "SELECT COUNT(*) AS count FROM x_posts WHERE json_extract(value,'$.reply.post.id')='10'",
+            "SELECT COUNT(*) AS count FROM x_posts WHERE json_extract(value,'$.quote.post.id')='10'",
           )
           .first()
       )?.count,
@@ -627,7 +787,7 @@ describe("X durable reference hydration", () => {
     );
     expect((await run()).authorsResolved).toBe(1);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect((await getPost()).reply?.post?.username).toBe("cached");
+    expect((await getPost()).quote?.post?.username).toBe("cached");
     await seed("102", "11");
     await db
       .prepare("UPDATE x_api_cache SET expires_at=0 WHERE type='linked_user'")
@@ -639,7 +799,7 @@ describe("X durable reference hydration", () => {
       .mockResolvedValueOnce(json({ data: [{ id: "20", username: "fresh" }] }));
     await run();
     expect(fetch).toHaveBeenCalledTimes(3);
-    expect((await getPost("102")).reply?.post?.username).toBe("fresh");
+    expect((await getPost("102")).quote?.post?.username).toBe("fresh");
   });
 
   it("keeps free D1 repair available when the timeline provider fails", async () => {
@@ -660,7 +820,7 @@ describe("X durable reference hydration", () => {
     );
     expect(result.status).toBe("failed");
     expect(result.referenceHydration?.hydrated).toBe(1);
-    expect((await getPost()).reply?.post?.text).toBe("body 10");
+    expect((await getPost()).quote?.post?.text).toBe("body 10");
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -676,11 +836,11 @@ describe("X durable reference hydration", () => {
       return json({ data: [{ id: "10", text: "must not reappear" }] });
     });
     await run("post_only");
-    expect((await getPost()).reply?.post).toBeNull();
+    expect((await getPost()).quote?.post).toBeNull();
     expect(await fetchXPostPreviewById("10", { cacheDb: db })).toBeNull();
   });
 
-  it("normal pipeline advances a new reply cursor, then recovers its parent on a zero-new-post run", async () => {
+  it("normal pipeline advances a new quote cursor, then recovers its parent on a zero-new-post run", async () => {
     await db
       .prepare(
         "INSERT INTO settings(key,value) VALUES('x_cost_optimizer_enabled','true'),('x_collection_interval_hours','2'),('x_reference_preview_mode','post_only')",
@@ -706,7 +866,7 @@ describe("X durable reference hydration", () => {
                     id: "101",
                     text: "reply",
                     created_at: new Date().toISOString(),
-                    referenced_tweets: [{ id: "10", type: "replied_to" }],
+                    referenced_tweets: [{ id: "10", type: "quoted" }],
                   },
                 ]
               : [],
@@ -738,7 +898,7 @@ describe("X durable reference hydration", () => {
     );
     expect(second.postsStored).toBe(0);
     expect(second.referenceHydration?.hydrated).toBe(1);
-    expect((await getPost()).reply?.post?.text).toBe(
+    expect((await getPost()).quote?.post?.text).toBe(
       "recovered through pipeline",
     );
     expect(await db.prepare("SELECT * FROM x_post_facts").all()).toMatchObject({
@@ -804,8 +964,8 @@ describe("X durable reference hydration", () => {
       .run();
     const result = await run("link_only");
     expect(result.hydrated).toBe(2);
-    expect((await getPost()).reply?.post?.text).toBe("body 10");
-    expect((await getPost("102")).reply?.post?.text).toBe("body 11");
+    expect((await getPost()).quote?.post?.text).toBe("body 10");
+    expect((await getPost("102")).quote?.post?.text).toBe("body 11");
     expect((await fetchXPostPreviewById("10", { cacheDb: db }))?.text).toBe(
       "body 10",
     );
@@ -831,8 +991,8 @@ describe("X durable reference hydration", () => {
       .mockResolvedValueOnce(new Response("temporary", { status: 503 }));
     const first = await run();
     expect(first.failed).toBe(1);
-    expect((await getPost()).reply?.post?.text).toBe("parent");
-    expect((await getPost()).reply?.post?.username).toBe("i");
+    expect((await getPost()).quote?.post?.text).toBe("parent");
+    expect((await getPost()).quote?.post?.username).toBe("i");
     await db
       .prepare("UPDATE x_post_references SET author_next_attempt_at=0")
       .run();
@@ -845,7 +1005,7 @@ describe("X durable reference hydration", () => {
         .mocked(fetch)
         .mock.calls.map((call) => new URL(String(call[0])).pathname),
     ).toEqual(["/2/tweets", "/2/users", "/2/users"]);
-    expect((await getPost()).reply?.post?.username).toBe("parent_author");
+    expect((await getPost()).quote?.post?.username).toBe("parent_author");
   });
 
   it("coalesces concurrent shards referring to the same target", async () => {
@@ -872,7 +1032,7 @@ describe("X durable reference hydration", () => {
     await first;
     await run("post_only", ["other"]);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect((await getPost("102")).reply?.post?.text).toBe("parent");
+    expect((await getPost("102")).quote?.post?.text).toBe("parent");
   });
 
   it("a newly inserted reference cannot bypass an existing target lease", async () => {
@@ -937,7 +1097,7 @@ describe("X durable reference hydration", () => {
     const post = await seed();
     await db
       .prepare("UPDATE x_posts SET value=? WHERE id='101'")
-      .bind(JSON.stringify({ ...post, quote: { postId: "12", post: null } }))
+      .bind(JSON.stringify({ ...post, reply: { postId: "12", conversationId: "12", post: null } }))
       .run();
     await backfillXPostReferencesFromStoredPosts(db);
     await backfillXPostReferencesFromStoredPosts(db);
@@ -983,7 +1143,7 @@ describe("X durable reference hydration", () => {
         }),
     });
     expect(result.postsStored).toBe(0);
-    expect((await getPost()).reply?.post?.text).toBe("recovered");
+    expect((await getPost()).quote?.post?.text).toBe("recovered");
     expect(
       (await db.prepare("SELECT last_seen_post_id FROM x_post_sources").first())
         ?.last_seen_post_id,
@@ -1073,8 +1233,8 @@ describe("X preview dual budget", () => {
     expect(health.referenceHydration).toMatchObject({
       pendingPosts: 1, pendingAuthors: 2, terminal: 1, errors: 1, nextAttemptAt: 700,
       byRelation: [
-        { relation: "reply", pendingPosts: 1, pendingAuthors: 1, terminal: 1 },
-        { relation: "quote", pendingPosts: 0, pendingAuthors: 1, terminal: 0 },
+        { relation: "reply", pendingPosts: 0, pendingAuthors: 0, terminal: 0 },
+        { relation: "quote", pendingPosts: 1, pendingAuthors: 2, terminal: 1 },
       ],
       globalBudget: { limitMicros: 1_000_000, usedMicros: 0, reservedMicros: 0 },
     });

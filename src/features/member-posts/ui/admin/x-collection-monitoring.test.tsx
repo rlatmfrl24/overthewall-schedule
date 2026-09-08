@@ -37,6 +37,20 @@ describe("XCollectionRuns", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
+  it("distinguishes new quote scope from historical mixed reference results", () => {
+    const value = item();
+    value.referenceHydration!.scope = "quotes";
+    show(run([value]));
+    const row = screen.getByRole("button", { name: /전체 결과/ });
+    expect(row.textContent).toContain("인용 보강");
+    fireEvent.click(row);
+    expect(screen.getByText("인용 원문 보강")).toBeTruthy();
+    cleanup();
+    show(run());
+    fireEvent.click(screen.getByRole("button", { name: /전체 결과/ }));
+    expect(screen.getByText("답글·인용 원문 보강")).toBeTruthy();
+  });
+
   it("can show skipped collection and completed hydration on the same run", () => {
     const value = item();
     value.status = "skipped";

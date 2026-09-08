@@ -37,6 +37,22 @@ function show(client = new QueryClient({ defaultOptions: { queries: { retry: fal
 }
 
 describe("XReferenceHealth", () => {
+  it("treats stored previews and relation-only replies as completed while showing quote errors", async () => {
+    const value = health();
+    Object.assign(value.referenceHydration!, { replyPolicy: "stored_or_link",
+      replyDisplay: { withPreview: 12, linkOnly: 34, terminal: 1 },
+      byRelation: [{ relation: "reply", pendingPosts: 0, pendingAuthors: 0, terminal: 1 },
+        { relation: "quote", pendingPosts: 1, pendingAuthors: 0, terminal: 2 }],
+      pendingPosts: 1, pendingAuthors: 0, errors: 1,
+      pendingReasons: [{ stage: "post", code: "x_api_503", count: 1, nextAttemptAt: 2 }] });
+    vi.mocked(fetchXHistoryHealth).mockResolvedValue(value);
+    const client = show();
+    expect(await screen.findByText("인용 원문 보강")).toBeTruthy();
+    expect(screen.getByText("미리보기 있음 12건 · 관계 표시 34건 · 접근 불가 1건")).toBeTruthy();
+    expect(screen.getByText("재시도 확인 필요")).toBeTruthy();
+    expect(screen.queryByText(/답글: 원문/)).toBeNull();
+    client.clear();
+  });
   it("separates body and author backlog and explains stored deferral without claiming collection failure", async () => {
     vi.mocked(fetchXHistoryHealth).mockResolvedValue(health());
     const client = show();

@@ -3,7 +3,7 @@ import type { XReferencePendingReasonDto } from "@contracts/x-posts";
 type Group = {
   relation: "reply" | "quote";
   stage: "post" | "author";
-  state: "pending" | "terminal";
+  state: "pending" | "terminal" | "preview" | "link";
   code: string | null;
   count: number;
   oldest: number | null;
@@ -18,7 +18,7 @@ const normalDeferral = new Set(["", "budget_exceeded", "preview_budget_exceeded"
 export async function readXReferenceHealthCounts(db: Pick<D1Database, "prepare">) {
   const rows = await db.prepare(`
     WITH visible_references AS (
-      SELECT r.* FROM x_post_references r JOIN x_posts p ON p.id = r.source_post_id
+      SELECT r.*, p.value AS post_value FROM x_post_references r JOIN x_posts p ON p.id = r.source_post_id
       WHERE p.hidden_at IS NULL AND p.content_removed_at IS NULL
     ), stages AS (
       SELECT relation_type AS relation, 'post' AS stage,
@@ -26,10 +26,15 @@ export async function readXReferenceHealthCounts(db: Pick<D1Database, "prepare">
         last_error_code AS code, created_at, next_attempt_at AS next
       FROM visible_references
       WHERE resolution_state = 'terminal'
-        OR (resolution_state IN ('pending', 'local', 'link_only') AND hydrated_at IS NULL)
+        OR (relation_type='quote' AND resolution_state IN ('pending', 'local', 'link_only') AND hydrated_at IS NULL)
       UNION ALL
       SELECT relation_type, 'author', 'pending', author_last_error_code, created_at, author_next_attempt_at
-      FROM visible_references WHERE author_state = 'pending' AND resolution_state <> 'terminal'
+      FROM visible_references WHERE relation_type='quote' AND author_state = 'pending' AND resolution_state <> 'terminal'
+      UNION ALL
+      SELECT relation_type, 'post',
+        CASE WHEN json_valid(post_value) AND json_extract(post_value,'$.reply.post.id')=referenced_post_id
+          THEN 'preview' ELSE 'link' END, NULL, created_at, NULL
+      FROM visible_references WHERE relation_type='reply' AND resolution_state<>'terminal'
     )
     SELECT relation, stage, state, code, COUNT(*) AS count,
       MIN(created_at) AS oldest, MIN(next) AS next
@@ -38,13 +43,20 @@ export async function readXReferenceHealthCounts(db: Pick<D1Database, "prepare">
   `).all<Group>();
   const byRelation = (["reply", "quote"] as const).map((relation) => ({ relation, pendingPosts: 0, pendingAuthors: 0, terminal: 0 }));
   const pendingReasons: XReferencePendingReasonDto[] = [];
+  const replyDisplay = { withPreview: 0, linkOnly: 0, terminal: 0 };
   let oldestPendingAt: number | null = null;
   let nextAttemptAt: number | null = null;
   let errors = 0;
   for (const row of rows.results) {
     const group = byRelation.find((item) => item.relation === row.relation)!;
     const amount = Number(row.count);
-    if (row.state === "terminal") { group.terminal += amount; continue; }
+    if (row.state === "preview") { replyDisplay.withPreview += amount; continue; }
+    if (row.state === "link") { replyDisplay.linkOnly += amount; continue; }
+    if (row.state === "terminal") {
+      group.terminal += amount;
+      if (row.relation === "reply") replyDisplay.terminal += amount;
+      continue;
+    }
     group[row.stage === "post" ? "pendingPosts" : "pendingAuthors"] += amount;
     oldestPendingAt = earliest(oldestPendingAt, row.oldest);
     nextAttemptAt = earliest(nextAttemptAt, row.next);
@@ -56,6 +68,8 @@ export async function readXReferenceHealthCounts(db: Pick<D1Database, "prepare">
     } else pendingReasons.push({ stage: row.stage, code: row.code, count: amount, nextAttemptAt: row.next });
   }
   return {
+    replyPolicy: "stored_or_link" as const,
+    replyDisplay,
     pendingPosts: byRelation.reduce((sum, group) => sum + group.pendingPosts, 0),
     pendingAuthors: byRelation.reduce((sum, group) => sum + group.pendingAuthors, 0),
     terminal: byRelation.reduce((sum, group) => sum + group.terminal, 0),
