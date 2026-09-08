@@ -821,6 +821,8 @@ const refreshStaleMetadata = async (env: Env, timestamp: number) => {
 
 export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) => {
   if (!env.YOUTUBE_API_KEY?.trim()) return false;
+  // Official initialization uses the backfill lease even when its normal poll
+  // is due. Only initialized sources can collect new videos independently.
   const row = await env.otw_db.prepare(
     `SELECT
        EXISTS (SELECT 1 FROM settings WHERE key = 'youtube_feed_enabled' AND value = 'true')
@@ -828,9 +830,11 @@ export const hasScheduledYouTubeFeedWork = async (env: Env, timestamp: number) =
          NOT EXISTS (SELECT 1 FROM settings WHERE key = ?)
          OR EXISTS (
            SELECT 1 FROM youtube_feed_sources WHERE enabled = 1 AND (
-             next_check_at IS NULL OR next_check_at <= ?
-             OR (source_kind = 'official' AND backfill_page_token IS NULL
-                 AND backfill_exhausted_at IS NULL)
+             ((next_check_at IS NULL OR next_check_at <= ?)
+              AND (source_kind != 'official'
+                   OR (initialization_completed_at IS NOT NULL
+                       AND uploads_playlist_id IS NOT NULL
+                       AND (backfill_page_token IS NOT NULL OR backfill_exhausted_at IS NOT NULL))))
              OR (source_kind = 'official' AND backfill_exhausted_at IS NULL
                  AND (backfill_lease_until IS NULL OR backfill_lease_until <= ?)
                  AND (backfill_retry_after IS NULL OR backfill_retry_after <= ?))
