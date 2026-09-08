@@ -1,9 +1,12 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { WebsubSubscriptionAuthority } from "../application/ports/websub-repository";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WebsubHubRequestError, type WebsubSubscriptionAuthority } from "../application/ports/websub-repository";
+import { WebsubService } from "../application/websub-service";
+import { deriveWebsubSecrets } from "../domain/websub-crypto";
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
 import { D1WebsubRepository } from "./d1-websub-repository";
+import { YouTubeOtwPlayMetadataReader } from "./youtube-metadata-reader";
 
 type TestEnv = Env & { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
@@ -97,7 +100,36 @@ describe("D1WebsubRepository", () => {
     });
     expect((await repository.getCurrentSubscription("monitor-1", 0))?.leaseExpiresAt).toBeNull();
     await repository.markSubscriptionFailed("subscription-1", "hub_timeout", "active", later + 1, later);
-    expect((await repository.getCurrentSubscription("monitor-1", 0))?.status).toBe("failed");
+    expect((await repository.getCurrentSubscription("monitor-1", 0))?.status).toBe(mode === "unsubscribe" ? "unsubscribing" : "failed");
+  });
+
+  it("preserves timed-out unsubscribe intent for a late verified callback and stale-intent recovery", async () => {
+    const { repository } = await prepareActiveSubscription();
+    const startedAt = NOW + 172_800_000;
+    let clockNow = startedAt;
+    await db.prepare("INSERT INTO settings (key,value) VALUES ('otw_play_automation_paused','true')").run();
+    const fetcher = vi.fn<typeof fetch>(async () => { throw new Error("YouTube must not be called"); });
+    const hub = { request: vi.fn(async () => { throw new WebsubHubRequestError("hub_timeout"); }) };
+    const service = new WebsubService(repository, new YouTubeOtwPlayMetadataReader("unused", fetcher), hub,
+      { send: vi.fn() }, { 1: "test-root-secret" }, "https://example.com",
+      () => "event-unsubscribe-timeout", () => clockNow, async () => true);
+    await expect(service.unsubscribe("monitor-1", "admin-1")).rejects.toMatchObject({ code: "hub_failed", retryable: true });
+    const stateSql = "SELECT status, pending_mode, last_error_code, version FROM music_channel_websub_subscriptions WHERE id='subscription-1'";
+    const timedOut = await db.prepare(stateSql).first();
+    expect(timedOut).toMatchObject({ status: "unsubscribing", pending_mode: "unsubscribe", last_error_code: "hub_timeout" });
+    expect(await repository.listStaleIntents(startedAt + 899_999, 1, true)).toEqual([]);
+    expect(await repository.listStaleIntents(startedAt + 900_000, 1, true)).toEqual([{ monitorId: "monitor-1", status: "unsubscribing" }]);
+    await repository.markSubscriptionFailed("subscription-1", "hub_http_500", "failed", startedAt + 1, startedAt - 1);
+    expect(await db.prepare(stateSql).first()).toEqual(timedOut);
+    const material = await deriveWebsubSecrets("test-root-secret", "subscription-1", 0);
+    clockNow = startedAt + 20_001;
+    await expect(service.verifyIntent(material.callbackToken, { mode: "unsubscribe",
+      topic: `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${CHANNEL_ID}`,
+      challenge: "late-confirmation", leaseSeconds: null, reason: null,
+    })).resolves.toEqual({ denied: false, challenge: "late-confirmation" });
+    expect(await repository.getCurrentSubscription("monitor-1", 0)).toMatchObject({ status: "unsubscribed", pendingMode: null });
+    expect(await repository.listScheduledMaintenancePhases(clockNow, true)).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("preserves a still-valid lease after a renewal timeout", async () => {

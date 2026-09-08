@@ -267,14 +267,22 @@ export class D1WebsubRepository implements WebsubRepository {
   ) {
     await this.database.prepare(
       `UPDATE music_channel_websub_subscriptions
-       SET status = CASE WHEN ? = 'active' AND verified_at IS NOT NULL AND lease_expires_at > ?
+       SET status = CASE
+           WHEN ? = 'hub_timeout' AND status = 'unsubscribing' AND pending_mode = 'unsubscribe'
+             THEN 'unsubscribing'
+           WHEN ? = 'active' AND verified_at IS NOT NULL AND lease_expires_at > ?
            THEN 'active' ELSE 'failed' END,
-         pending_mode = NULL, last_error_code = ?,
+         pending_mode = CASE
+           WHEN ? = 'hub_timeout' AND status = 'unsubscribing' AND pending_mode = 'unsubscribe'
+             THEN 'unsubscribe'
+           ELSE NULL END,
+         last_error_code = ?,
          version = version + 1, updated_at = ? WHERE id = ?
          AND (? IS NULL OR (
            requested_at = ? AND status IN ('pending', 'renewing', 'unsubscribing')
          ))`,
-    ).bind(fallbackStatus, now, errorCode, now, id, requestStartedAt ?? null, requestStartedAt ?? null).run();
+    ).bind(errorCode, fallbackStatus, now, errorCode, errorCode, now, id,
+      requestStartedAt ?? null, requestStartedAt ?? null).run();
   }
 
   async recordDelivery(input: Parameters<WebsubRepository["recordDelivery"]>[0]) {
