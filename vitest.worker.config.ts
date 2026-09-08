@@ -252,6 +252,9 @@ export default defineConfig({
             OTW_PLAY_PUBLIC_CATALOG_MIGRATIONS:
               otwPlayPublicCatalogMigrations,
             OTW_PLAY_INGESTION_MIGRATIONS: otwPlayIngestionMigrations,
+            OTW_PLAY_POLLING_MIGRATIONS: migrations.filter(({ name }) =>
+              name === "0085_retire_websub_hourly_polling.sql"
+            ),
             OTW_PLAY_PRE_HARDENING_MIGRATIONS: otwPlayPreHardeningMigrations,
             OTW_PLAY_HARDENING_MIGRATIONS: otwPlayHardeningMigrations,
             OTW_PLAY_PRE_SOURCE_HEALTH_MIGRATIONS:

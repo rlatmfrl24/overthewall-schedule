@@ -11,6 +11,7 @@ import type { OperationsApplication } from "../application/operations-applicatio
 import {
   isScheduledJobStatus,
   isScheduledJobType,
+  isRetiredScheduledJob,
 } from "@contracts/scheduled-operations";
 
 const NO_STORE_HEADERS = {
@@ -104,6 +105,9 @@ export const createOperationsHandler =
         if (!body || !isScheduledJobType(body.jobType)) {
           return badRequest("jobType is invalid");
         }
+        if (isRetiredScheduledJob(body.jobType)) {
+          return json({ error: "operation_job_retired" }, 410, { headers: NO_STORE_HEADERS });
+        }
         const idempotencyKey = request.headers.get("Idempotency-Key");
         if (idempotencyKey && idempotencyKey.length > 200) {
           return badRequest("Idempotency-Key must be 200 characters or fewer");
@@ -168,6 +172,10 @@ export const createOperationsHandler =
       const retry = runMatch[2] === "/retry";
       if (retry) {
         if (request.method !== "POST") return methodNotAllowed();
+        const run = await application.getRun(runId);
+        if (run && isRetiredScheduledJob(run.jobType)) {
+          return json({ error: "operation_job_retired" }, 410, { headers: NO_STORE_HEADERS });
+        }
         const result = await application.retryRun(runId);
         if (result.kind === "not_found") {
           return new Response(null, { status: 404 });

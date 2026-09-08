@@ -42,7 +42,6 @@ describe("scheduled Workflow cron bridge", () => {
 
   it("hourly lanes remain staggered across one Free-plan cron expression", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 13))).toEqual([
-      "websub_maintenance",
       "naver_cafe_collection",
     ]);
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(5, 33))).toEqual([
@@ -70,7 +69,6 @@ describe("scheduled Workflow cron bridge", () => {
     expect(selectScheduledWorkflowJobs(SCHEDULED_WORKFLOW_CRON, utc(18, 3))).toEqual([
       "ingestion_recovery",
       "schedule_auto_update",
-      "recent_reconcile",
       "retention_prune",
     ]);
   });

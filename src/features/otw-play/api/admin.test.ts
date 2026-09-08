@@ -21,12 +21,9 @@ import {
   publishOtwPlayPerformance,
   preflightOtwPlayCatalogEntry,
   rejectOtwPlayProposal,
-  renewOtwPlayChannelMonitor,
   revokeOtwPlayChannelMonitorApproval,
   recheckOtwPlaySource,
   retryOtwPlayImportJob,
-  subscribeOtwPlayChannelMonitor,
-  unsubscribeOtwPlayChannelMonitor,
   updateOtwPlayImportCandidate,
   updateOtwPlayAdminRelease,
   updateOtwPlayChannelMonitor,
@@ -273,10 +270,7 @@ describe("OTW Play admin API", () => {
     );
   });
 
-  it("uses explicit WebSub commands and a bounded backfill payload", async () => {
-    await subscribeOtwPlayChannelMonitor("monitor / one");
-    await renewOtwPlayChannelMonitor("monitor / one");
-    await unsubscribeOtwPlayChannelMonitor("monitor / one");
+  it("preserves approval revocation and bounded manual backfill", async () => {
     await revokeOtwPlayChannelMonitorApproval("monitor / one", {
       expectedVersion: 3,
       expectedApprovalVersion: 2,
@@ -286,21 +280,6 @@ describe("OTW Play admin API", () => {
 
     expect(apiFetchMock).toHaveBeenNthCalledWith(
       1,
-      "/api/play/admin/channel-monitors/monitor%20%2F%20one/subscribe",
-      { method: "POST", json: {}, auth: "required" },
-    );
-    expect(apiFetchMock).toHaveBeenNthCalledWith(
-      2,
-      "/api/play/admin/channel-monitors/monitor%20%2F%20one/renew",
-      { method: "POST", json: {}, auth: "required" },
-    );
-    expect(apiFetchMock).toHaveBeenNthCalledWith(
-      3,
-      "/api/play/admin/channel-monitors/monitor%20%2F%20one/unsubscribe",
-      { method: "POST", json: {}, auth: "required" },
-    );
-    expect(apiFetchMock).toHaveBeenNthCalledWith(
-      4,
       "/api/play/admin/channel-monitors/monitor%20%2F%20one/revoke-approval",
       {
         method: "POST",
@@ -309,7 +288,7 @@ describe("OTW Play admin API", () => {
       },
     );
     expect(apiFetchMock).toHaveBeenNthCalledWith(
-      5,
+      2,
       "/api/play/admin/channel-monitors/monitor%20%2F%20one/backfill",
       { method: "POST", json: { count: 20 }, auth: "required" },
     );

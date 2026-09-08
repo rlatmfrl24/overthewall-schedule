@@ -1,9 +1,9 @@
-import type { ScheduledJobType } from "@contracts/scheduled-operations";
+import { isRetiredScheduledJob, type ScheduledJobType } from "@contracts/scheduled-operations";
 import { parseAutoUpdateIntervalHours } from "@contracts/configuration";
 import { readDueDataRetentionPolicyIds } from "../../operations";
 import {
   D1IngestionRepository,
-  D1WebsubRepository,
+  D1ChannelMonitorRepository,
   readOtwPlayAutomationPaused,
 } from "../../otw-play";
 import {
@@ -167,6 +167,7 @@ const planSimpleJob = async (
   source: ScheduledJobRunRecord["source"],
   timestamp: number,
 ): Promise<NewScheduledItem[]> => {
+  if (isRetiredScheduledJob(jobType)) return [];
   const lane = getLaneForJob(jobType);
   const isPlayJob = [
     "websub_maintenance", "ingestion_recovery", "source_health",
@@ -183,11 +184,6 @@ const planSimpleJob = async (
         ? [{ targetKey: "feed:0", phase: "collect", lane }]
         : [];
     }
-    case "websub_maintenance":
-      return (await new D1WebsubRepository(env.otw_db)
-        .listScheduledMaintenancePhases(timestamp, paused)).map(
-        (phase) => ({ targetKey: phase, phase, lane }),
-      );
     case "ingestion_recovery": {
       const ingestion = new D1IngestionRepository(env.otw_db);
       const [recoverScheduled, cleanup, pending] = await Promise.all([
@@ -226,33 +222,10 @@ const planSimpleJob = async (
       );
     }
     case "channel_reconcile": {
-      const row = await env.otw_db.prepare(
-        `SELECT COUNT(*) AS count FROM music_channel_upload_monitors
-         WHERE status = 'active' AND deleted_at IS NULL
-           AND next_check_at <= ? AND (lease_until IS NULL OR lease_until < ?)`,
-      ).bind(timestamp, timestamp).first<{ count: number | string }>();
-      return makeIndexedItems(
-        Number(row?.count ?? 0),
-        "monitor",
-        "reconcile",
-        lane,
-      );
-    }
-    case "recent_reconcile": {
-      const threshold = timestamp - 24 * 60 * 60_000;
-      const row = await env.otw_db.prepare(
-        `SELECT COUNT(*) AS count FROM music_channel_upload_monitors
-         WHERE status = 'active' AND deleted_at IS NULL
-           AND (last_recent_reconciled_at IS NULL
-             OR last_recent_reconciled_at <= ?)
-           AND (lease_until IS NULL OR lease_until < ?)`,
-      ).bind(threshold, timestamp).first<{ count: number | string }>();
-      return makeIndexedItems(
-        Number(row?.count ?? 0),
-        "recent-monitor",
-        "reconcile-recent",
-        lane,
-      );
+      const ids = await new D1ChannelMonitorRepository(env.otw_db).listDueIds(timestamp, 10);
+      // Each item claims the next currently due monitor at execution time.
+      // Keep slot keys so a queued item never claims to have checked a stale ID.
+      return makeIndexedItems(ids.length, "monitor", "reconcile", lane);
     }
     default:
       return [];

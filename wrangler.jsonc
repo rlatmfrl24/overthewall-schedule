@@ -92,10 +92,6 @@
         "binding": "OTW_PLAY_INGESTION_QUEUE",
         "queue": "otw-play-ingestion",
       },
-      {
-        "binding": "OTW_WEBSUB_QUEUE",
-        "queue": "otw-websub",
-      },
     ],
     "consumers": [
       {
@@ -130,6 +126,7 @@
         "dead_letter_queue": "otw-dead-letter",
         "max_concurrency": 1,
       },
+      // Drain only messages sent before WebSub retirement; no producer remains.
       {
         "queue": "otw-websub",
         "max_batch_size": 1,

@@ -212,7 +212,7 @@ describe("OperationsDashboard", () => {
     render(<OperationsDashboard view="home" />, { wrapper: createQueryWrapper() });
     expect(await screen.findByText("Play 자동화가 일시 중지되어 있습니다.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Play 채널 감시 설정 열기" }).getAttribute("href"))
-      .toBe("/admin/otw-play?tab=channels");
+      .toBe("/admin/otw-play?tab=play-monitor");
   });
 
   it("shows a failed YouTube lookup independently of a successful dashboard lookup and can retry", async () => {

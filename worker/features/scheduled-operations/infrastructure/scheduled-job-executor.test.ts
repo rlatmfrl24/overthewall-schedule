@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 import type { Env } from "../../../platform/types";
 import type { ScheduledJobItemRecord } from "../../../platform/scheduled-jobs";
-import { IngestionService, WebsubService } from "../../otw-play";
+import { IngestionService } from "../../otw-play";
 import { ScheduledJobCoordinator } from "./scheduled-job-coordinator";
 import {
   ScheduledJobExecutor,
@@ -59,17 +59,13 @@ describe("scheduled job executor outcomes", () => {
     expect(cleanup).toHaveBeenCalledWith(20);
   });
 
-  it("limits an already dispatched intent recovery to unsubscribe teardown after pause", async () => {
-    const statement = { bind: vi.fn(), first: vi.fn(async () => ({ value: "true" })) };
-    statement.bind.mockReturnValue(statement);
-    const env = { otw_db: { prepare: vi.fn(() => statement) }, YOUTUBE_API_KEY: "test-key" } as unknown as Env;
-    const repository = { readRun: vi.fn(async () => ({ job_type: "websub_maintenance", source: "scheduled" })) };
-    const recover = vi.spyOn(WebsubService.prototype, "recoverStaleIntents").mockResolvedValue([]);
-
-    expect(await new ScheduledJobExecutor(env, repository as never)
+  it.each(["websub_maintenance", "recent_reconcile"])("skips already dispatched retired %s work without D1 mutations", async (jobType) => {
+    const prepare = vi.fn();
+    const repository = { readRun: vi.fn(async () => ({ job_type: jobType, source: "scheduled" })) };
+    expect(await new ScheduledJobExecutor({ otw_db: { prepare } } as unknown as Env, repository as never)
       .execute({ run_id: "run", phase: "recover-intent" } as ScheduledJobItemRecord))
-      .toMatchObject({ status: "skipped" });
-    expect(recover).toHaveBeenCalledWith("system:websub-intent-recovery", 1, true);
+      .toEqual({ status: "skipped", result: { reason: "channel_polling_replaced_websub" } });
+    expect(prepare).not.toHaveBeenCalled();
   });
 
   it("exposes common queue recovery failures rather than marking them successful", async () => {

@@ -20,13 +20,6 @@ vi.mock("../features/otw-play", async (importOriginal) => {
 vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
-const websubService = vi.hoisted(() => ({
-  process: vi.fn(),
-  markDeadLetter: vi.fn(),
-}));
-vi.mock("./websub", () => ({
-  createOtwPlayWebsubService: () => websubService,
-}));
 
 const batch = (
   queue: string,
@@ -48,8 +41,6 @@ describe("OTW Play ingestion queue handler", () => {
   beforeEach(() => {
     service.process.mockReset();
     service.markDeadLetter.mockReset();
-    websubService.process.mockReset();
-    websubService.markDeadLetter.mockReset();
     telemetryWrite.mockReset();
   });
 
@@ -92,41 +83,18 @@ describe("OTW Play ingestion queue handler", () => {
     expect(service.markDeadLetter).toHaveBeenCalledBefore(ack);
   });
 
-  it("dispatches versioned WebSub messages without changing the playlist shape", async () => {
-    const websubMessage = {
-      schemaVersion: 1,
-      messageType: "channel_websub",
-      deliveryId: "delivery-1",
-    };
-    const ack = vi.fn();
-    await handleQueue(batch("otw-play-ingestion", websubMessage, ack), {} as Env);
-    expect(websubService.process).toHaveBeenCalledWith(websubMessage);
-    expect(service.process).not.toHaveBeenCalled();
-    expect(ack).toHaveBeenCalledOnce();
-    expect(telemetryWrite).toHaveBeenCalledWith(expect.objectContaining({
-      event: "play.websub.updated",
-      requestId: "delivery-1",
-      resourceId: "delivery-1",
-      transition: "processed",
-      trigger: "queue",
-    }));
-
-    const retry = vi.fn();
-    websubService.process.mockRejectedValueOnce(new Error("metadata unavailable"));
-    await handleQueue(batch("otw-play-ingestion", websubMessage, vi.fn(), retry), {} as Env);
-    expect(retry).toHaveBeenCalledOnce();
-    expect(telemetryWrite).toHaveBeenLastCalledWith(expect.objectContaining({
-      transition: "retry",
-      status: 503,
-    }));
-
-    const deadAck = vi.fn();
-    await handleQueue(batch("otw-dead-letter", websubMessage, deadAck), {} as Env);
-    expect(websubService.markDeadLetter).toHaveBeenCalledWith(websubMessage);
-    expect(deadAck).toHaveBeenCalledOnce();
-    expect(telemetryWrite).toHaveBeenLastCalledWith(expect.objectContaining({
-      transition: "dead_letter",
-      errorCode: "queue_retries_exhausted",
-    }));
-  });
+  it.each(["otw-play-ingestion", "otw-websub", "otw-dead-letter"])(
+    "acknowledges retired WebSub messages on %s without delivery work", async (queue) => {
+      const ack = vi.fn();
+      const retry = vi.fn();
+      const prepare = vi.fn();
+      await handleQueue(batch(queue, { schemaVersion: 1, messageType: "channel_websub", deliveryId: "delivery-1" }, ack, retry), { otw_db: { prepare } } as unknown as Env);
+      expect(ack).toHaveBeenCalledOnce();
+      expect(retry).not.toHaveBeenCalled();
+      expect(service.process).not.toHaveBeenCalled();
+      expect(service.markDeadLetter).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      expect(telemetryWrite).toHaveBeenCalledWith(expect.objectContaining({ transition: "retired", status: 410, errorCode: "websub_retired" }));
+    },
+  );
 });

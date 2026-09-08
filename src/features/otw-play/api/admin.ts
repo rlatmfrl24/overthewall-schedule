@@ -123,24 +123,6 @@ export const reconcileOtwPlayChannelMonitor = (id: string) =>
     { method: "POST", json: {} },
   ).then((response) => response.data);
 
-export const subscribeOtwPlayChannelMonitor = (id: string) =>
-  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
-    apiRoutes.otwPlay.admin.subscribeChannelMonitor.build(id),
-    { method: "POST", json: {} },
-  ).then((response) => response.data);
-
-export const renewOtwPlayChannelMonitor = (id: string) =>
-  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
-    apiRoutes.otwPlay.admin.renewChannelMonitor.build(id),
-    { method: "POST", json: {} },
-  ).then((response) => response.data);
-
-export const unsubscribeOtwPlayChannelMonitor = (id: string) =>
-  adminRequest<{ data: OtwPlayChannelMonitorDto }>(
-    apiRoutes.otwPlay.admin.unsubscribeChannelMonitor.build(id),
-    { method: "POST", json: {} },
-  ).then((response) => response.data);
-
 export const revokeOtwPlayChannelMonitorApproval = (
   id: string,
   json: OtwPlayRevokeChannelMonitorRequest,

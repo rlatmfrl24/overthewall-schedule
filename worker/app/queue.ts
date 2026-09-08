@@ -5,17 +5,15 @@ import {
 } from "../features/otw-play";
 import type {
   OtwPlayIngestionQueueMessage,
-  OtwPlayWebsubQueueMessage,
 } from "../features/otw-play";
 import type { Env } from "../platform/types";
 import { createOtwPlayIngestionService } from "./ingestion";
-import { createOtwPlayWebsubService } from "./websub";
 
 const writeWebsubQueueTelemetry = (
   env: Env,
   input: {
     deliveryId: string;
-    transition: "processed" | "retry" | "dead_letter";
+    transition: "retired";
     status: number;
     durationMs: number;
     errorCode?: string;
@@ -51,40 +49,13 @@ export const handleQueue = async (batch: MessageBatch<unknown>, env: Env) => {
       (body as { messageType?: unknown }).messageType === "channel_websub" &&
       typeof (body as { deliveryId?: unknown }).deliveryId === "string";
     if (isWebsubMessage) {
-      const startedAt = Date.now();
-      const websubService = createOtwPlayWebsubService(env);
-      const websubMessage = body as OtwPlayWebsubQueueMessage;
-      if (isDeadLetter) {
-        await websubService.markDeadLetter(websubMessage);
-        writeWebsubQueueTelemetry(env, {
-          deliveryId: websubMessage.deliveryId,
-          transition: "dead_letter",
-          status: 500,
-          durationMs: Math.max(0, Date.now() - startedAt),
-          errorCode: "queue_retries_exhausted",
-        });
-        message.ack();
-        continue;
-      }
-      try {
-        await websubService.process(websubMessage);
-        writeWebsubQueueTelemetry(env, {
-          deliveryId: websubMessage.deliveryId,
-          transition: "processed",
-          status: 200,
-          durationMs: Math.max(0, Date.now() - startedAt),
-        });
-        message.ack();
-      } catch (error) {
-        writeWebsubQueueTelemetry(env, {
-          deliveryId: websubMessage.deliveryId,
-          transition: "retry",
-          status: 503,
-          durationMs: Math.max(0, Date.now() - startedAt),
-          errorCode: error instanceof Error ? error.name : "UnknownError",
-        });
-        message.retry();
-      }
+      // Retirement is not successful delivery. Keep the archived DB record intact.
+      writeWebsubQueueTelemetry(env, {
+        deliveryId: (body as { deliveryId: string }).deliveryId,
+        transition: "retired", status: 410, durationMs: 0,
+        errorCode: "websub_retired",
+      });
+      message.ack();
       continue;
     }
     if (

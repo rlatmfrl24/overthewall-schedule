@@ -4,7 +4,10 @@ import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
 
-type TestEnv = Env & { OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[] };
+type TestEnv = Env & {
+  OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
+  OTW_PLAY_POLLING_MIGRATIONS: D1Migration[];
+};
 const testEnv = env as TestEnv;
 const db = testEnv.otw_db;
 const NOW = Date.UTC(2026, 7, 24, 5);
@@ -103,6 +106,66 @@ beforeEach(async () => {
 });
 
 describe("D1ChannelMonitorRepository", () => {
+  it("migrates to hourly polling while preserving pause, watermark, candidates and retired subscription history", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({ id: "monitor-retired", eventId: "event-retired", approvalEventId: "approval-retired",
+      channel: channel!, uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm", lastSeenVideoId: "AAAAAAAAAAA", approval,
+      actorUserId: "admin-1", now: NOW });
+    await repository.recordCandidates({ monitorId: created.id, expectedVersion: created.version,
+      monitorGeneration: created.generation, observations: [observation("BBBBBBBBBBB")], now: NOW + 1 });
+    await db.prepare("UPDATE music_channel_upload_monitors SET status='paused', check_interval_minutes=360 WHERE id=?").bind(created.id).run();
+    await db.prepare(`INSERT INTO music_channel_websub_subscriptions (
+      id, monitor_id, monitor_generation, topic_url, callback_token_hash, secret_version,
+      status, pending_mode, requested_at, last_error_code, version, created_at, updated_at
+    ) VALUES ('retired-sub', ?, 0, ?, ?, 1, 'unsubscribing', 'unsubscribe', ?, 'hub_timeout', 115, ?, ?)`)
+      .bind(created.id, "https://www.youtube.com/xml/feeds/videos.xml?channel_id=UCmmmmmmmmmmmmmmmmmmmmmm", "a".repeat(64), NOW, NOW, NOW).run();
+    const before = await repository.get(created.id);
+    expect(testEnv.OTW_PLAY_POLLING_MIGRATIONS).toHaveLength(1);
+    await db.batch(testEnv.OTW_PLAY_POLLING_MIGRATIONS[0]!.queries.map(sql => db.prepare(sql)));
+    const after = await repository.get(created.id);
+    expect(after).toMatchObject({ status: "paused", checkIntervalMinutes: 60, generation: before.generation,
+      lastSeenVideoId: before.lastSeenVideoId, candidateCount: 1, nextCheckAt: before.nextCheckAt, version: before.version + 1 });
+    expect(after).not.toHaveProperty("subscription");
+    expect(after).not.toHaveProperty("deliveryHealth");
+    expect(await db.prepare("SELECT status, pending_mode, version FROM music_channel_websub_subscriptions WHERE id='retired-sub'").first())
+      .toEqual({ status: "unsubscribing", pending_mode: "unsubscribe", version: 115 });
+    expect(await repository.listDueIds(NOW + 86_400_000, 10)).toEqual([]);
+    // Monitor deletion is a versioned soft delete; archived records do not block it.
+    await repository.remove({ id: after.id, expectedVersion: after.version, actorUserId: "admin-1", eventId: "event-remove-retired", now: NOW + 86_400_000 });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM music_channel_websub_subscriptions WHERE id='retired-sub'").first()).toEqual({ count: 1 });
+  });
+
+  it("uses the same approval and pause predicates for polling eligibility and claims", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({ id: "monitor-eligibility", eventId: "event-eligibility", approvalEventId: "approval-eligibility",
+      channel: channel!, uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm", lastSeenVideoId: "AAAAAAAAAAA", approval,
+      actorUserId: "admin-1", now: NOW });
+    expect(await repository.listDueIds(NOW + 60 * 60_000, 10)).toEqual([created.id]);
+    await db.prepare("UPDATE music_channel_automation_approvals SET status='revoked', revoked_by_user_id='admin-1', revoked_at=? WHERE channel_id=?").bind(NOW + 1, channel!.id).run();
+    expect(await repository.listDueIds(NOW + 60 * 60_000, 10)).toEqual([]);
+    expect(await repository.claim(created.id, NOW + 60 * 60_000)).toBeNull();
+    await expect(repository.resetWatermark({ id: created.id, expectedVersion: created.version,
+      lastSeenVideoId: "BBBBBBBBBBB", actorUserId: "admin-1", eventId: "event-revoked-resume", now: NOW + 2 }))
+      .rejects.toMatchObject({ code: "stale_write" });
+  });
+
+  it("discards a saved continuation when resuming from a new watermark", async () => {
+    const repository = new D1ChannelMonitorRepository(db);
+    const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
+    const created = await repository.create({ id: "monitor-resume", eventId: "event-resume", approvalEventId: "approval-resume",
+      channel: channel!, uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm", lastSeenVideoId: "AAAAAAAAAAA", approval,
+      actorUserId: "admin-1", now: NOW });
+    const continued = await repository.saveContinuation({ id: created.id, expectedVersion: created.version,
+      monitorGeneration: created.generation, pageToken: "old-page", baseVideoId: "AAAAAAAAAAA", newestVideoId: "BBBBBBBBBBB", now: NOW + 1 });
+    const paused = await repository.updateStatus({ id: created.id, expectedVersion: continued.version, status: "paused", actorUserId: "admin-1", eventId: "pause-resume", now: NOW + 2 });
+    const resumed = await repository.resetWatermark({ id: created.id, expectedVersion: paused.version,
+      lastSeenVideoId: "CCCCCCCCCCC", actorUserId: "admin-1", eventId: "reset-resume", now: NOW + 3 });
+    expect(resumed).toMatchObject({ status: "active", lastSeenVideoId: "CCCCCCCCCCC",
+      syncPageToken: null, syncBaseVideoId: null, syncNewestVideoId: null, syncStartedAt: null });
+  });
+
   it("rejects candidate persistence and continuation when automation pauses after a claim", async () => {
     const repository = new D1ChannelMonitorRepository(db);
     const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");
@@ -194,7 +257,7 @@ describe("D1ChannelMonitorRepository", () => {
       lastSeenVideoId: "AAAAAAAAAAA",
       candidateCount: 0,
       generation: 0,
-      nextCheckAt: NOW + 360 * 60_000,
+      nextCheckAt: NOW + 23 * 60_000,
     });
     const claimed = await repository.claim(created.id, NOW + 1);
     expect(claimed).toMatchObject({ id: created.id, generation: 0, version: 1 });
