@@ -433,8 +433,11 @@ export class D1ScheduledJobRepository {
 
   async claimPendingOutbox(runId?: string, limit = 25) {
     const leaseToken = this.createId();
+    // Stale D1 statistics can select a full scan for the outer UPDATE even
+    // when its candidate subquery uses the status index. Keep the atomic
+    // claim bounded by the selected IDs using the existing primary key.
     const statement = this.db.prepare(
-      `UPDATE scheduled_outbox
+      `UPDATE scheduled_outbox INDEXED BY sqlite_autoindex_scheduled_outbox_1
        SET status = 'dispatching', attempts = attempts + 1,
            lease_token = ?, lease_until = ?, updated_at = ?
        WHERE id IN (${pendingOutboxSelection(Boolean(runId))})
@@ -495,7 +498,7 @@ export class D1ScheduledJobRepository {
     const now = this.clock();
     const queueDeliveryCutoff = now - SCHEDULED_QUEUE_DELIVERY_RECOVERY_MS;
     const redispatchExpiredDeliveries = this.db.prepare(
-      `UPDATE scheduled_outbox
+      `UPDATE scheduled_outbox INDEXED BY sqlite_autoindex_scheduled_outbox_1
        SET status = 'pending', available_at = ?, dispatched_at = NULL,
            last_error = 'queue_delivery_retention_elapsed',
            lease_token = NULL, lease_until = NULL, updated_at = ?
