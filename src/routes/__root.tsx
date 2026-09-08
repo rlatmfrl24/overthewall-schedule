@@ -4,6 +4,8 @@ import { Footer } from "@/app/layout/footer";
 import { RootRouteError } from "@/app/errors/root-route-error";
 import { RootNotFound } from "@/app/errors/root-not-found";
 import { SiteSeoProvider } from "@/shared/seo";
+import { InteractionProvider } from "@/app/providers/interaction-provider";
+import { UiScopeContext } from "@/shared/lib/ui-scope";
 
 const RootComponent = () => {
   const location = useLocation();
@@ -45,7 +47,9 @@ const RootComponent = () => {
   }
 
   return (
-    <SiteSeoProvider pathname={location.pathname}>{content}</SiteSeoProvider>
+    <UiScopeContext value={chromeMode === "admin" ? "admin" : isPlayRoute ? "play" : "public"}>
+      <InteractionProvider><SiteSeoProvider pathname={location.pathname}>{content}</SiteSeoProvider></InteractionProvider>
+    </UiScopeContext>
   );
 };
 

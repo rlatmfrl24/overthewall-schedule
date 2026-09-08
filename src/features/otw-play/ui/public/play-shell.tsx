@@ -1,10 +1,10 @@
+import { QueryState } from "@/shared/ui/query-state";
+import { Input } from "@/shared/ui/input";
 import { SignInButton, useUser } from "@clerk/clerk-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   Eye,
   LoaderCircle,
-  RefreshCw,
   Search,
   ShieldAlert,
 } from "lucide-react";
@@ -110,9 +110,9 @@ export function OtwPlayShell({ children }: { children: ReactNode }) {
         title="OTW Play 공개 준비 중입니다"
         description="곡 제안과 내 제안은 공개 전에도 계속 이용할 수 있습니다."
       >
-        <Link to="/play/submit" search={{ edit: undefined }} className="w-full">
-          <Button className="w-full rounded-full">곡 제안하기</Button>
-        </Link>
+        <Button asChild className="w-full rounded-full">
+          <Link to="/play/submit" search={{ edit: undefined }}>곡 제안하기</Link>
+        </Button>
       </OtwPlayAccessCard>
     );
   }
@@ -139,11 +139,9 @@ function OtwPlayAccessCard({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {children}
-          <Link to="/" className="w-full">
-            <Button variant="ghost" className="w-full rounded-full">
-              홈으로
-            </Button>
-          </Link>
+          <Button asChild variant="ghost" className="w-full rounded-full">
+            <Link to="/">홈으로</Link>
+          </Button>
         </CardContent>
       </Card>
     </main>
@@ -161,16 +159,9 @@ function AuthorizedOtwPlayShell({ children }: { children: ReactNode }) {
 function OtwPlayConfigError({ onRetry }: { onRetry: () => void }) {
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center p-5">
-      <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
-        <AlertTriangle className="mx-auto mb-3 size-8 text-amber-500" />
-        <h1 className="text-lg font-semibold">OTW Play 상태를 확인하지 못했습니다</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          잠시 후 다시 시도해 주세요.
-        </p>
-        <Button className="mt-4" variant="outline" onClick={onRetry}>
-          <RefreshCw /> 다시 시도
-        </Button>
-      </div>
+      <QueryState state="error" headingLevel={1} title="OTW Play 상태를 확인하지 못했습니다"
+        description="잠시 후 다시 시도해 주세요." action={{ onClick: onRetry }}
+        className="max-w-md rounded-xl border bg-card p-6 shadow-sm" />
     </main>
   );
 }
@@ -250,12 +241,12 @@ function PlayHeaderSearch() {
       <label htmlFor="otw-play-header-search" className="sr-only">
         곡, 원곡 가수, 참여자 검색
       </label>
-      <input
+      <Input
         id="otw-play-header-search"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="곡, 원곡 가수, 참여자 검색"
-        className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
       />
       <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행">
         <Search />

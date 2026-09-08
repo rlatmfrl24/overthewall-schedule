@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Card, CardContent } from "@/shared/ui/card";
-import { ConfirmActionDialog } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useToast } from "@/shared/ui/toast";
 import { REJECTION_REASON_OPTIONS } from "../../model/rejection-reasons";
@@ -88,7 +88,7 @@ const RejectionSnapshot = ({
   </div>
 );
 
-export function ScheduleRejectionsPanel() {
+export function ScheduleRejectionsPanel({ standalone = false }: { standalone?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -153,8 +153,9 @@ export function ScheduleRejectionsPanel() {
   return (
     <section
       id="auto-update-panel-rejections"
-      role="tabpanel"
-      aria-labelledby="auto-update-tab-rejections"
+      role={standalone ? "region" : "tabpanel"}
+      aria-label={standalone ? "거부 제외" : undefined}
+      aria-labelledby={standalone ? undefined : "auto-update-tab-rejections"}
       className="space-y-3"
     >
       <div>

@@ -9,7 +9,7 @@ import type {
   OtwPlayAdminEntityDto,
   OtwPlayParticipationType,
 } from "@contracts/otw-play";
-import { ConfirmActionDialog } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { fetchActiveMembers, type Member } from "@/features/members";
 import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";

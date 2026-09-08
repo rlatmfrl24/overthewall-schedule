@@ -58,7 +58,7 @@ export function ChoiceGroup<T extends string>({
                 "relative cursor-pointer transition-colors has-[:focus-visible]:outline-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2",
                 presentation === "cards"
                   ? "flex min-h-20 items-start gap-3 rounded-lg border bg-background p-3 hover:bg-muted/50"
-                  : "inline-flex min-h-9 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm hover:bg-muted/50",
+                  : "inline-flex min-h-9 max-sm:min-h-11 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-sm hover:bg-muted/50",
                 selected &&
                   "border-primary bg-primary/5 text-foreground shadow-xs dark:bg-primary/10",
               )}

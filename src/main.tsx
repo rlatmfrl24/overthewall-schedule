@@ -10,8 +10,9 @@ import { routeTree } from "./routeTree.gen";
 import { ThemeProvider } from "./app/providers/theme-provider";
 import { ToastProvider } from "./shared/ui/toast";
 import { queryClient } from "./shared/query/query-client";
+import { RootNotFound } from "./app/errors/root-not-found";
 
-const router = createRouter({ routeTree });
+const router = createRouter({ routeTree, defaultNotFoundComponent: RootNotFound });
 
 // Register the router instance for type safety
 declare module "@tanstack/react-router" {

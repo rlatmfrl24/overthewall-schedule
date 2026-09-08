@@ -18,6 +18,101 @@
 | 공지 배너 | `src/features/notices/ui/notice-banner.tsx` |
 | 관리자 레이아웃 | `src/app/admin/admin-layout.tsx` |
 
+## 공통 UI 선택 기준과 사용처
+
+공통 UI는 표시·접근성·상호작용을 소유한다. API 호출, 권한, 서버 상태,
+업무별 성공·오류·최신성 판정은 각 기능이 소유한다. 기능 간에는 해당 기능의
+`index.ts` 공개 인터페이스를 사용한다. 전체 화면과 참조 목록은
+[UI 통합 검증 기록](docs/ui-system-audit.md)과
+[컴포넌트 인벤토리](docs/ui-component-inventory.md)에서 확인한다.
+
+| 필요 | 기본 선택 / 지원 변형 | 실제 사용 예 |
+| --- | --- | --- |
+| 일반 동작 / 링크 모양 버튼 | `Button`: variant, size, disabled, asChild. 처리 중에는 기능이 disabled와 동작 문구를 전달 | `RootRouteError`, `RootNotFound`, `PlayShell` |
+| 문자열·숫자·날짜 / 긴 입력 | `Input`, `Textarea` + `LabeledField` 또는 `FieldLabel htmlFor` | `NoticeFormDialog`, `DDayFormDialog`, `ScheduleDialog` |
+| 단일 옵션 선택 | `Select` / `SelectField`: 기본·sm, label 또는 aria-label | 공지·D-Day 정렬, 일정 수집 설정 |
+| 그룹 중 하나 선택 | `ChoiceGroup`: pills / cards, cardColumns 2 / 3. native radio와 legend 사용 | Play 회원 곡 연결 방식, 관리자 가져오기 |
+| 켜짐·꺼짐 필터 | `FilterChip`: wrap / vertical, selected → aria-pressed, native button 속성 | Play 곡 검색의 다중 멤버 선택 |
+| 멤버 단일 선택 | members의 `MemberFilter`: 멤버 색상·이모지, wrap / vertical, deselectOnRepeat | VOD, 치지직 클립, 멤버 게시글 |
+| 로딩·조회 실패·정상 빈 결과 | `QueryState`: loading / error / empty, headingLevel, action | YouTube / Shorts, 공지, Play 조회 |
+| URL 이동 메뉴 | `SectionNavigation` + router `Link`, `aria-current="page"` | Admin Center 업무 선택, Play 발견·곡 검색 |
+| 같은 화면의 내부 전환 | `TabsList`: 제어형 value / onValueChange, id / panelId | 작업 이력 보기, 독립형 일정 설정·Play 관리자 |
+| 날짜 이동 | `DateNavigation`: 이전 / 오늘 / 다음, compact, isCurrent | 오늘·주간 스케쥴 |
+| 확인 / 미저장 보호 | `useConfirmation`, `useUnsavedChanges`, `ConfirmActionDialog` | 운영 작업, Play 제안, 공지·D-Day·일정 편집 |
+| 일반 콘텐츠 프레임 | `ContentPageShell`, 앱의 `PublicAppShell` | 공지·VOD·피드 |
+
+### 입력과 오류 연결
+
+단일 입력은 render child에 전달된 id·설명·오류 속성을 실제 컨트롤에 펼친다.
+단순히 입력 위에 글자를 놓는 것으로 레이블 연결을 대신하지 않는다.
+
+```tsx
+<LabeledField label="내용" error={errors.content?.message}>
+  {(control) => <Textarea {...control} {...register("content")} />}
+</LabeledField>
+```
+
+설명과 오류가 함께 있으면 `aria-describedby`는 두 ID를 연결한다. `hideLabel`은
+시각적으로만 레이블을 숨긴다. 여러 입력을 묶는 기존 카탈로그 편집기는 node
+children을 사용해 이름 있는 group으로 유지하고, 내부 개별 입력의 이름도 제공한다.
+파일·색상·범위·시간 입력, DayPicker의 월·연도 선택, 복합 검색 combobox는
+브라우저·도메인 동작에 맞는 컨트롤을 유지한다. 기본 HTML 요소를 일괄 금지하지 않는다.
+
+### 필터와 조회 상태의 의미
+
+`MemberFilter`는 현재 VOD·클립·피드의 단일 선택 표시용이다. 기본값은 같은 멤버를
+다시 누르면 전체로 돌아간다. 게시글은 `deselectOnRepeat={false}`로 같은 선택을
+유지한다. Play의 다중 선택은 `FilterChip`을 조합하고 기능이 배열 및 URL을 갱신한다.
+공통 UI에서 단일·다중 선택 의미를 임의로 바꾸지 않는다.
+
+```tsx
+<MemberFilter members={members} selectedUids={selectedMemberUids}
+  onChange={setSelectedMemberUids} layout="vertical" deselectOnRepeat={false} />
+<QueryState state="error" title={errorMessage}
+  action={{ onClick: () => void refetch(), pending: isFetching }} />
+```
+
+`QueryState`에 query 객체를 넘기지 않는다. 기능이 최초 실패·정상 0건·수집 중을
+구분한다. Shorts는 최초 실패 때 빈 결과를 함께 렌더링하지 않으며, 갱신 실패 때는
+기존 목록과 최신성 안내·재시도를 함께 유지한다. 일반 YouTube의 기존 데이터 유지,
+Play의 409 일관성 오류·503 공개 설정 정책은 기존 기능 계층에 남는다.
+`action.icon`의 기본값은 새로고침이며, 조건 초기화처럼 다른 동작은 `icon: null`을 쓴다.
+
+### 탭, URL, 확인창
+
+`TabsList`는 좌우 방향키·Home·End로 활성 탭과 포커스를 함께 이동하고 disabled 항목을
+건너뛴다. 소비자는 `role="tabpanel"`, `id={panelId}`, `aria-labelledby={activeTabId}`를
+연결한다. 외부 업무 메뉴가 전환하는 콘텐츠는 이름 있는 `region`을 사용하고, 화면에
+존재하지 않는 내부 탭 ID를 참조하지 않는다. URL 메뉴는 탭 키보드 모델을 덧씌우지 않는다.
+
+```tsx
+const confirm = useConfirmation();
+if (!await confirm({ title: "작업 확인", description: "선택한 작업을 실행합니다." })) return;
+await executeOperation(); // 기능이 권한, mutation, 재조회 및 오류를 소유
+
+const canDiscard = useUnsavedChanges(isDirty);
+const closeEditor = async () => { if (await canDiscard()) onOpenChange(false); };
+```
+
+루트 `InteractionProvider` 하나가 확인 요청과 dirty 등록을 처리한다. 같은 확인에서
+중복 작업을 승인하지 않으며 취소 시 입력과 시작 버튼 포커스를 보존한다. 페이지 이동은
+루트 router blocker에 맡기고, 편집기 닫기만 `canDiscard`를 호출한다. 두 곳에서 동일한
+이동을 다시 확인하지 않는다. 새로고침·탭 닫기는 `beforeunload`를 유지한다.
+단독 컨트롤형 확인창도 shared `ConfirmActionDialog`를 사용한다. 직접 `window.confirm`
+및 폐기 경로 import는 `pnpm architecture:check`가 거부한다.
+
+### 테마와 기능 전용 화면
+
+루트 `UiScopeContext`의 public / admin / play 값이 공통 portal 콘텐츠로 전달된다.
+Dialog·AlertDialog·Select·Popover·DropdownMenu·Sheet·Tooltip에 페이지의 테마를 적용하며,
+body 전체에 관리자/Play 클래스를 붙여 다른 화면을 오염시키지 않는다. 짧은 화면에서
+대화상자 본문을 스크롤할 수 있고 동작 줄이기 설정에서는 공통 오버레이 애니메이션을 제거한다.
+
+프로필의 배경·사인·채널 배치, 스냅샷의 내보내기 폭, Mul.Live iframe, Play glass와
+플레이어·대기열은 기능 전용으로 유지한다. 특히 플레이어는 검색·상세의 하위 콘텐츠
+전환과 무관한 기존 소유 위치에 둔다. 화면 전체를 일반 콘텐츠 카드로 바꾸거나 route
+필터 변경을 이유로 iframe에 새 key를 부여하지 않는다.
+
 ## 제품 톤
 
 - 공개 화면은 팬 사이트다운 친근함과 빠른 스캔성을 함께 가져간다.

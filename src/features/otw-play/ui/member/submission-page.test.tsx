@@ -1,3 +1,4 @@
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -9,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   preflight: vi.fn(),
   members: vi.fn(),
-  blocker: vi.fn(),
+  registerDirty: vi.fn(),
   editDetail: vi.fn(),
 }));
 vi.mock("../../api/submissions", () => ({
@@ -25,7 +26,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
   return {
     ...actual,
-    useBlocker: mocks.blocker,
     Link: ({ children, to }: { children: React.ReactNode; to: string }) => <a href={to}>{children}</a>,
   };
 });
@@ -244,7 +244,7 @@ describe("OtwPlaySubmissionPage", () => {
     expect(screen.getByDisplayValue("기존 곡")).toBeTruthy();
     expect(screen.getAllByText("기존 가수").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "선택 해제" }));
-    expect(screen.getByRole("radio", { name: /새 곡으로 제안/ }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("radio", { name: /새 곡으로 제안/ }) as HTMLInputElement).checked).toBe(true);
   });
 
   it("adds chips only explicitly and supports keyboard member autocomplete", async () => {
@@ -336,10 +336,12 @@ describe("OtwPlaySubmissionPage", () => {
   });
 
   it("registers route and browser-leave protection while the form is dirty", () => {
-    renderPage();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><UnsavedChangesContext value={{ register: mocks.registerDirty, confirm: async () => false }}><OtwPlaySubmissionPage /></UnsavedChangesContext></QueryClientProvider>);
     fireEvent.change(screen.getByLabelText("YouTube 영상 URL"), { target: { value: "draft" } });
-    const latestOptions = mocks.blocker.mock.calls.at(-1)?.[0];
-    expect(latestOptions.disabled).toBe(false);
-    expect(latestOptions.enableBeforeUnload).toBe(true);
+    expect(mocks.registerDirty.mock.calls.at(-1)?.[1]).toBe(true);
+    const leave = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(true);
   });
 });

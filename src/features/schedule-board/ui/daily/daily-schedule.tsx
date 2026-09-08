@@ -1,3 +1,4 @@
+import { DateNavigation } from "@/shared/ui/date-navigation";
 import {
   fetchLiveStatusDiagnostics,
   fetchLiveStatusesForMembersWithMeta,
@@ -26,8 +27,6 @@ import { format, addDays, subDays, isSameDay } from "date-fns";
 import {
   CalendarDays,
   Plus,
-  ChevronLeft,
-  ChevronRight,
   Copy,
   List,
   Download,
@@ -452,10 +451,13 @@ export const DailySchedule = ({
             <div className="flex items-center gap-3">
               <div className="relative z-20">
                 <Tooltip>
-                  <TooltipTrigger>
-                    <div
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-label={viewMode === "grid" ? "시간순 보기 전환" : "그리드 뷰 전환"}
                       className={cn(
-                        "relative z-20 p-3 rounded-2xl shadow-sm border border-border cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95",
+                        "relative z-20 size-12 p-3 rounded-2xl shadow-sm border border-border",
                         viewMode === "grid"
                           ? "bg-card hover:bg-muted"
                           : "bg-indigo-50 border-indigo-200",
@@ -467,7 +469,7 @@ export const DailySchedule = ({
                       ) : (
                         <List className="w-6 h-6 text-indigo-600" />
                       )}
-                    </div>
+                    </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
                     <p>
@@ -504,8 +506,9 @@ export const DailySchedule = ({
               )}
               <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     className="group inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-background/50 px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-accent hover:text-accent-foreground sm:px-4 sm:h-10 h-9"
                     aria-label="라이브 표시 안내"
                     onClick={(e) => e.preventDefault()}
@@ -514,7 +517,7 @@ export const DailySchedule = ({
                     <span className="hidden sm:inline-block">
                       라이브 표시 기능 안내
                     </span>
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent
                   side="bottom"
@@ -589,32 +592,8 @@ export const DailySchedule = ({
                 <Plus className="h-4 w-4" />
                 <span className="hidden sm:inline">스케쥴 추가</span>
               </Button>
-              <div className="flex items-center gap-1.5 bg-card p-0.5 sm:gap-2 sm:p-1 rounded-full shadow-sm border border-border">
-                <button
-                  onClick={handlePrevDay}
-                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
-                >
-                  <ChevronLeft className="w-5 h-5 text-muted-foreground" />
-                </button>
-                <button
-                  onClick={handleToday}
-                  disabled={isSameDay(currentDate, new Date())}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                    isSameDay(currentDate, new Date())
-                      ? "text-muted-foreground cursor-not-allowed opacity-50"
-                      : "text-foreground hover:bg-muted"
-                  }`}
-                >
-                  <span className="hidden sm:inline">오늘로 이동</span>
-                  <span className="inline sm:hidden">오늘</span>
-                </button>
-                <button
-                  onClick={handleNextDay}
-                  className="p-1.5 sm:p-2 hover:bg-muted rounded-full transition-colors"
-                >
-                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                </button>
-              </div>
+              <DateNavigation previousLabel="이전 날짜로 이동" nextLabel="다음 날짜로 이동" todayLabel="오늘로 이동" compactTodayLabel="오늘"
+                isCurrent={isSameDay(currentDate, new Date())} onPrevious={handlePrevDay} onNext={handleNextDay} onToday={handleToday} />
             </div>
           </div>
 

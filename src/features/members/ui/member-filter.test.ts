@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MemberDto } from "@contracts/members";
-import { MemberFilterChips } from "./member-filter-chips";
+import { MemberFilter } from "./member-filter";
 
 const members: MemberDto[] = [
   {
@@ -55,7 +55,7 @@ const StatefulMemberFilter = () => {
       { "data-testid": "selected" },
       selectedUids?.join(",") || "all",
     ),
-    React.createElement(MemberFilterChips, {
+    React.createElement(MemberFilter, {
       members,
       selectedUids,
       onChange: setSelectedUids,
@@ -63,7 +63,7 @@ const StatefulMemberFilter = () => {
   );
 };
 
-describe("MemberFilterChips", () => {
+describe("MemberFilter", () => {
   afterEach(() => {
     cleanup();
   });
@@ -80,4 +80,16 @@ describe("MemberFilterChips", () => {
     fireEvent.click(screen.getByRole("button", { name: "멤버2" }));
     expect(screen.getByTestId("selected").textContent).toBe("all");
   });
+  it("게시글 필터는 재선택을 유지하고 선택 상태를 보조기기에 전달한다", () => {
+    const onChange = vi.fn();
+    render(React.createElement(MemberFilter, { members, selectedUids: [1], onChange, deselectOnRepeat: false, layout: "vertical" }));
+    const selected = screen.getByRole("button", { name: "멤버1" });
+    expect(selected.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "전체" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(selected);
+    expect(onChange).toHaveBeenLastCalledWith([1]);
+    fireEvent.click(screen.getByRole("button", { name: "전체" }));
+    expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
 });

@@ -1,3 +1,4 @@
+import { QueryState } from "@/shared/ui/query-state";
 import { useEffect, useMemo, useState } from "react";
 import type { Member } from "@/features/members";
 import { cn } from "@/shared/lib/utils";
@@ -12,7 +13,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Megaphone,
-  RefreshCw,
   Users,
 } from "lucide-react";
 import {
@@ -244,9 +244,11 @@ function NoticePageSkeleton() {
 }
 
 function NoticeError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <div className="flex flex-col gap-4 rounded-lg border border-destructive/30 bg-destructive/5 p-5 text-destructive sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><AlertCircle className="mt-0.5 h-5 w-5" /><p className="text-sm font-medium">{message}</p></div><Button type="button" variant="outline" size="sm" onClick={onRetry}><RefreshCw className="h-4 w-4" />다시 불러오기</Button></div>;
+  return <QueryState state="error" title={message} icon={<AlertCircle aria-hidden="true" className="size-5 text-destructive" />}
+    className="rounded-lg border border-destructive/30 bg-destructive/5 p-5" action={{ label: "다시 불러오기", onClick: onRetry }} />;
 }
 
 function NoticeEmptyState() {
-  return <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/20 px-6 py-14 text-center"><Megaphone className="h-8 w-8 text-muted-foreground" /><p className="font-semibold">표시할 공지사항이 없습니다.</p><p className="text-sm text-muted-foreground">새로운 소식이 등록되면 이곳에 표시됩니다.</p></div>;
+  return <QueryState state="empty" title="표시할 공지사항이 없습니다." description="새로운 소식이 등록되면 이곳에 표시됩니다."
+    icon={<Megaphone aria-hidden="true" className="size-8 text-muted-foreground" />} className="min-h-80 rounded-lg border border-dashed bg-muted/20 px-6 py-14" />;
 }

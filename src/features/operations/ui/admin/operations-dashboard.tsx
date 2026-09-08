@@ -1,8 +1,11 @@
+import { TabsList } from "@/shared/ui/tabs-list";
+import { Input } from "@/shared/ui/input";
+import { useConfirmation } from "@/shared/lib/confirmation";
 import { SelectField } from "@/shared/ui/select-field"
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { scheduledJobTypes, scheduledJobStatuses } from "@contracts/scheduled-operations";
 import { QueryReadback } from "@/shared/ui/query-readback";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -649,6 +652,7 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
   const page = search.page ?? 1;
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const confirm = useConfirmation();
   const [retentionRunId, setRetentionRunId] = useState<string | null>(null);
   const [runView, setRunView] = useState<"summary" | "history">(view === "history" ? "history" : "summary");
   const statusQuery = useQuery({ queryKey: queryKeys.operations.status(WINDOW_HOURS), queryFn: () => fetchOperationsStatus(WINDOW_HOURS), staleTime: 30_000 });
@@ -679,17 +683,8 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
   const naverIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("naver_")) ?? [];
   const autoIssues = data?.summary.issues.filter((issue) => issue.code.startsWith("auto_") || issue.code.startsWith("pending_schedule")) ?? [];
   const toneForIssues = (issues: OperationsIssue[]): StatusTone => issues.some((issue) => issue.severity === "critical") ? "critical" : issues.length > 0 ? "warning" : "success";
-  const confirmPrune = () => { const count = retentionQuery.data?.totalPrunableRows ?? 0; if (window.confirm(`보존 기간이 지난 D1 데이터 ${count.toLocaleString("ko-KR")}건을 삭제합니다. 계속할까요?`)) retentionMutation.mutate(); };
+  const confirmPrune = async () => { const count = retentionQuery.data?.totalPrunableRows ?? 0; if (await confirm({ title: "보존 기간이 지난 데이터 삭제", description: `보존 기간이 지난 D1 데이터 ${count.toLocaleString("ko-KR")}건을 삭제합니다. 계속할까요?`, destructive: true, confirmLabel: "삭제" })) retentionMutation.mutate(); };
   const refreshAll = () => { onRefresh?.(); void statusQuery.refetch(); if (view !== "resources") void jobSummariesQuery.refetch(); if (view === "all" || view === "resources") { void d1Query.refetch(); void retentionQuery.refetch(); } if (runView === "history") void runsQuery.refetch(); };
-  const selectRunView = (view: "summary" | "history") => {
-    setRunView(view);
-    window.requestAnimationFrame(() => document.getElementById(view === "summary" ? "job-summary-tab" : "job-history-tab")?.focus());
-  };
-  const handleRunTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    selectRunView(event.key === "ArrowLeft" || event.key === "Home" ? "summary" : "history");
-  };
 
   return (
     <div className="flex w-full flex-col gap-6" data-testid="operations-dashboard">
@@ -760,15 +755,18 @@ export function OperationsDashboard({ view = "all", onRefresh, referenceBacklog 
         {runView === "history" && <div className="flex flex-wrap items-end gap-2">
           <label className="text-xs">작업 종류<SelectField aria-label="작업 종류" value={search.source ?? ""} onValueChange={(value) => updateSearch({source: value, page: 1})} options={[{ value: "", label: "모든 작업" }, ...scheduledJobTypes.map((type) => ({ value: type, label: runLabel(type) }))]} /></label>
           <label className="text-xs">결과<SelectField aria-label="결과" value={search.state ?? ""} onValueChange={(value) => updateSearch({state: value, page: 1})} options={[{ value: "", label: "모든 결과" }, ...scheduledJobStatuses.map((status) => ({ value: status, label: statusLabel(status) }))]} /></label>
-          <label className="text-xs">시작일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label>
-          <label className="text-xs">종료일 UTC<input type="date" className="block h-9 rounded border bg-background px-2" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
+          <label className="text-xs">시작일 UTC<Input type="date" className="block h-9 rounded border bg-background px-2" value={search.from ?? ""} onChange={(e) => updateSearch({from: e.target.value, page: 1})}/></label>
+          <label className="text-xs">종료일 UTC<Input type="date" className="block h-9 rounded border bg-background px-2" value={search.until ?? ""} onChange={(e) => updateSearch({until: e.target.value, page: 1})}/></label>
           <Button variant="outline" disabled={page === 1} onClick={() => updateSearch({page: page - 1}, false)}>이전</Button><span>{page}페이지</span><Button variant="outline" disabled={(runsQuery.data?.runs.length ?? 0) <= 25} onClick={() => updateSearch({page: page + 1}, false)}>다음</Button>
         </div>
         }
         {runView === "history" && <QueryReadback updatedAt={runsQuery.dataUpdatedAt} fetching={runsQuery.isFetching} error={runsQuery.isError}/>}
         <SectionHeading id="jobs-heading" title="정기 작업 상태" description="기본 화면은 작업 종류별 최신 의미 있는 실행만 표시합니다." />
         <Card>
-          <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-base">예약·수동 작업</CardTitle><CardDescription className="mt-1">대상이 없는 정기 점검은 D1 쓰기 절감을 위해 run을 저장하지 않습니다.</CardDescription></div><div role="tablist" aria-label="작업 이력 보기" className="flex rounded-md border p-1" onKeyDown={handleRunTabKeyDown}><Button id="job-summary-tab" role="tab" tabIndex={runView === "summary" ? 0 : -1} aria-selected={runView === "summary"} aria-controls="job-summary-panel" variant={runView === "summary" ? "secondary" : "ghost"} size="sm" onClick={() => setRunView("summary")}><ListChecks /> 작업별 최신</Button><Button id="job-history-tab" role="tab" tabIndex={runView === "history" ? 0 : -1} aria-selected={runView === "history"} aria-controls="job-history-panel" variant={runView === "history" ? "secondary" : "ghost"} size="sm" onClick={() => setRunView("history")}><History /> 전체 이력</Button></div></div></CardHeader>
+          <CardHeader><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><CardTitle className="text-base">예약·수동 작업</CardTitle><CardDescription className="mt-1">대상이 없는 정기 점검은 D1 쓰기 절감을 위해 run을 저장하지 않습니다.</CardDescription></div><TabsList value={runView} onValueChange={setRunView} label="작업 이력 보기" items={[
+            { value: "summary", id: "job-summary-tab", panelId: "job-summary-panel", label: <><ListChecks /> 작업별 최신</> },
+            { value: "history", id: "job-history-tab", panelId: "job-history-panel", label: <><History /> 전체 이력</> },
+          ]} /></div></CardHeader>
           <CardContent>
             {runView === "summary" ? <div id="job-summary-panel" role="tabpanel" aria-labelledby="job-summary-tab"><QueryReadback updatedAt={jobSummariesQuery.dataUpdatedAt} fetching={jobSummariesQuery.isFetching} error={jobSummariesQuery.isError} />{jobSummariesQuery.isLoading ? <div className="flex min-h-32 items-center justify-center"><Loader2 className="size-5 animate-spin" /></div> : <JobSummaryTable summaries={summaries} />}</div> : <div id="job-history-panel" role="tabpanel" aria-labelledby="job-history-tab"><div className="hidden overflow-x-auto xl:block"><Table><TableHeader><TableRow><TableHead>작업</TableHead><TableHead>상태</TableHead><TableHead>작업 묶음 진행률</TableHead><TableHead>시각</TableHead><TableHead>결과</TableHead></TableRow></TableHeader><TableBody>{historyRuns.map((run) => <RunRow key={run.runId} run={run} />)}{!runsQuery.isLoading && !runsQuery.isError && historyRuns.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">아직 기록된 작업이 없습니다.</TableCell></TableRow> : null}</TableBody></Table></div><div className="space-y-2 xl:hidden">{historyRuns.map((run) => <RunCard key={run.runId} run={run} />)}</div></div>}
           </CardContent>

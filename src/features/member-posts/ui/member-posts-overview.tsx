@@ -1,3 +1,4 @@
+import { MemberFilter } from "@/features/members";
 import { type ReactNode, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -16,7 +17,7 @@ import type {
   UnifiedMemberPost,
 } from "../api/member-posts-api";
 import type { MemberDto } from "@contracts/members";
-import { cn, getContrastColor } from "@/shared/lib/utils";
+import { cn } from "@/shared/lib/utils";
 import { NaverCafePostCard } from "@/features/naver-cafe";
 import { XPostCard } from "@/features/x-posts";
 
@@ -160,108 +161,6 @@ const MemberPostsSkeleton = () => (
   </div>
 );
 
-const MemberPostFilterBar = ({
-  items,
-  selectedUids,
-  onChange,
-  layout = "wrap",
-}: {
-  items: MemberPostSource[];
-  selectedUids: number[] | null;
-  onChange: (value: number[] | null) => void;
-  layout?: "wrap" | "vertical";
-}) => {
-  const selectedList = selectedUids ?? [];
-  const isAllSelected = selectedList.length === 0;
-  const isVertical = layout === "vertical";
-
-  return (
-    <div
-      className={cn(
-        "flex gap-2 px-px py-1",
-        isVertical ? "flex-col overflow-visible" : "flex-wrap",
-      )}
-    >
-      <button
-        type="button"
-        aria-pressed={isAllSelected}
-        onClick={() => onChange(null)}
-        className={cn(
-          "relative inline-flex shrink-0 items-center gap-2 overflow-hidden border text-sm font-medium",
-          isVertical
-            ? "h-10 w-full justify-start rounded-md px-3 transition-colors"
-            : "rounded-full border-2 px-3 py-1.5 transition-all duration-200 ease-out hover:scale-105",
-          isVertical
-            ? isAllSelected
-              ? "border-foreground bg-foreground text-background"
-              : "border-border bg-background text-muted-foreground hover:text-foreground"
-            : isAllSelected
-              ? "border-primary bg-primary text-primary-foreground shadow-sm"
-              : "border-border bg-transparent text-muted-foreground hover:border-primary/50",
-        )}
-      >
-        전체
-      </button>
-      {items.map(({ member }) => {
-        const selected = selectedList.includes(member.uid);
-        const accentColor = member.main_color || "#111111";
-        const textColor = selected
-          ? getContrastColor(accentColor)
-          : accentColor;
-
-        return (
-          <button
-            key={member.uid}
-            type="button"
-            aria-label={member.name}
-            aria-pressed={selected}
-            onClick={() => onChange([member.uid])}
-            style={
-              isVertical && selected
-                ? {
-                    borderColor: accentColor,
-                    boxShadow: `0 0 0 1px ${accentColor}`,
-                  }
-                : isVertical
-                  ? undefined
-                  : {
-                      backgroundColor: selected ? accentColor : "transparent",
-                      borderColor: accentColor,
-                      color: textColor,
-                    }
-            }
-            className={cn(
-              "relative inline-flex shrink-0 items-center gap-2 overflow-hidden border px-3 text-sm font-medium",
-              isVertical
-                ? "h-10 w-full justify-start rounded-md bg-background transition-colors"
-                : "rounded-full border-2 py-1.5 transition-all duration-200 ease-out hover:scale-105",
-              isVertical
-                ? selected
-                  ? "text-foreground shadow-sm"
-                  : isAllSelected
-                    ? "border-border text-muted-foreground hover:text-foreground"
-                    : "border-border text-muted-foreground/60 opacity-60 hover:text-foreground hover:opacity-100"
-                : selected && "shadow-sm",
-            )}
-          >
-            {member.oshi_mark ? (
-              <span className="text-base leading-none" aria-hidden="true">
-                {member.oshi_mark}
-              </span>
-            ) : (
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: accentColor }}
-              />
-            )}
-            <span className="truncate">{member.name}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
 const SourceUpdateBadge = ({
   icon,
   label,
@@ -316,8 +215,9 @@ const MemberPostContentLayout = ({
           className="hidden min-w-0 lg:block"
         >
           <div className="sticky top-5 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
-            <MemberPostFilterBar
-              items={filterItems}
+            <MemberFilter
+              deselectOnRepeat={false}
+              members={filterItems.map(({ member }) => member)}
               selectedUids={selectedUids}
               onChange={onFilterChange}
               layout="vertical"
@@ -494,8 +394,9 @@ export const MemberPostsOverview = ({
             data-testid="member-post-filter-top"
             className="border-t border-border/60 pt-2 lg:hidden"
           >
-            <MemberPostFilterBar
-              items={memberSources}
+            <MemberFilter
+              deselectOnRepeat={false}
+              members={memberSources.map(({ member }) => member)}
               selectedUids={selectedMemberUids}
               onChange={setSelectedMemberUids}
             />

@@ -39,7 +39,8 @@ import {
   updateKirinukiChannel,
 } from "../../api/kirinuki";
 import { useToast } from "@/shared/ui/toast";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 
 const KIRINUKI_SORT_OPTIONS = [
   { value: "name_asc", label: "채널명 오름차순" },
@@ -185,7 +186,7 @@ export function KirinukiChannelManager() {
               value={channelSort}
               onValueChange={(value) => setChannelSort(value as KirinukiSortKey)}
             >
-              <SelectTrigger size="sm" className="w-[170px]">
+              <SelectTrigger aria-label="키리누키 채널 정렬" size="sm" className="w-[170px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

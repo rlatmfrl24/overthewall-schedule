@@ -1,3 +1,4 @@
+import { useUiScopeClassName } from "@/shared/lib/ui-scope";
 import * as React from "react"
 import * as SheetPrimitive from "@radix-ui/react-dialog"
 import { XIcon } from "lucide-react"
@@ -70,6 +71,7 @@ function SheetContent({
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
 }) {
+  const scopeClassName = useUiScopeClassName();
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -85,7 +87,8 @@ function SheetContent({
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b",
           side === "bottom" &&
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto border-t",
-          className
+          scopeClassName,
+        className
         )}
         {...props}
       >

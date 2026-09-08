@@ -62,6 +62,53 @@ describe("YouTubeSection", () => {
     vi.clearAllMocks();
   });
 
+  it("Shorts 실패를 빈 결과로 표시하지 않고 현재 목록을 유지하며 재시도한다", () => {
+    const retry = vi.fn();
+    const videos = [makeVideo(1)];
+    useYouTubeVideosMock.mockReturnValue({ videos, error: null, hasLoaded: true, loading: false });
+    useFilteredYouTubeVideosMock.mockReturnValue({ filteredVideos: videos });
+    useYouTubeShortsMock.mockReturnValue({ shorts: [], collection: { state: "ready" }, error: "Shorts 조회 실패", hasLoaded: true, hasMore: false, loading: false, loadingMore: false, retry });
+    render(React.createElement(YouTubeSection, { members: [member], selectedMemberUids: null, loadingMembers: false }));
+    expect(screen.getByText("일반 영상 1")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Shorts 조회 실패");
+    expect(screen.queryByText("업로드된 Shorts가 없습니다.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("Shorts 로딩이 끝나지 않아도 조회된 일반 동영상을 보여준다", () => {
+    const videos = [makeVideo(1)];
+    useYouTubeVideosMock.mockReturnValue({ videos, error: null, hasLoaded: true, loading: false });
+    useFilteredYouTubeVideosMock.mockReturnValue({ filteredVideos: videos });
+    useYouTubeShortsMock.mockReturnValue({ shorts: [], collection: { state: "refreshing" }, error: null, hasLoaded: false, loading: true });
+    render(React.createElement(YouTubeSection, { members: [member], selectedMemberUids: null, loadingMembers: false }));
+    expect(screen.getByText("일반 영상 1")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Shorts를 불러오고 있습니다.");
+    expect(screen.queryByText("업로드된 Shorts가 없습니다.")).toBeNull();
+  });
+
+  it("Shorts 갱신 실패 시 기존 카드와 재시도를 함께 표시한다", () => {
+    const retry = vi.fn();
+    useYouTubeVideosMock.mockReturnValue({ videos: [], error: null, hasLoaded: true, loading: false });
+    useFilteredYouTubeVideosMock.mockReturnValue({ filteredVideos: [] });
+    useYouTubeShortsMock.mockReturnValue({ shorts: [makeVideo(2, true)], collection: { state: "ready" },
+      error: null, refreshError: "Shorts 목록을 갱신하지 못했습니다.", hasLoaded: true, loading: false, retry });
+    render(React.createElement(YouTubeSection, { members: [member], selectedMemberUids: null, loadingMembers: false }));
+    expect(screen.getByText("쇼츠 2")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("이전에 불러온 Shorts");
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("일반 영상 실패가 조회된 Shorts를 숨기지 않는다", () => {
+    useYouTubeVideosMock.mockReturnValue({ videos: [], error: "동영상 조회 실패", hasLoaded: true, loading: false });
+    useFilteredYouTubeVideosMock.mockReturnValue({ filteredVideos: [] });
+    useYouTubeShortsMock.mockReturnValue({ shorts: [makeVideo(2, true)], collection: { state: "ready" }, error: null, hasLoaded: true, loading: false });
+    render(React.createElement(YouTubeSection, { members: [member], selectedMemberUids: null, loadingMembers: false }));
+    expect(screen.getByRole("alert").textContent).toContain("동영상 조회 실패");
+    expect(screen.getByText("쇼츠 2")).toBeTruthy();
+  });
+
   it("공식 영상은 그리드 열 수만큼 표시하고 더보기마다 같은 단위로 늘린다", () => {
     const videos = Array.from({ length: 8 }, (_, index) =>
       makeVideo(index + 1),

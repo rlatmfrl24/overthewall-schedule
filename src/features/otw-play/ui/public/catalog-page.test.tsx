@@ -84,6 +84,41 @@ describe("OtwPlayCatalogPage", () => {
     vi.useRealTimers();
   });
 
+  it("keeps catalog results reachable while reporting and retrying a failed filter query", () => {
+    const refetchFacets = vi.fn();
+    mocks.useCatalog.mockReturnValue({
+      ...catalogResult,
+      data: { pages: [{ data: { items: [{ id: "song-1" }] } }] },
+    });
+    mocks.useFacets.mockReturnValue({
+      data: undefined, isPending: false, isError: true,
+      error: new Error("filter request failed"), refetch: refetchFacets,
+    });
+    render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+
+    expect(screen.getByRole("alert").textContent).toContain("필터를 불러오지 못했습니다.");
+    expect(screen.queryByText("조건에 맞는 곡이 없습니다.")).toBeNull();
+    expect(screen.getByText(/현재 1곡을 불러왔습니다/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "필터 다시 불러오기" }));
+    expect(refetchFacets).toHaveBeenCalledOnce();
+    expect(catalogResult.refetch).not.toHaveBeenCalled();
+    openFilters();
+    expect(screen.getByRole("combobox", { name: "곡 관계" })).toBeTruthy();
+  });
+
+  it("does not block available catalog results while filters are loading", () => {
+    mocks.useCatalog.mockReturnValue({
+      ...catalogResult,
+      data: { pages: [{ data: { items: [{ id: "song-1" }] } }] },
+    });
+    mocks.useFacets.mockReturnValue({ data: undefined, isPending: true });
+    render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+
+    expect(screen.queryByText("곡 목록 불러오는 중")).toBeNull();
+    expect(screen.getByText("필터 불러오는 중")).toBeTruthy();
+    expect(screen.getByText(/현재 1곡을 불러왔습니다/)).toBeTruthy();
+  });
+
   it("syncs search after 250ms but Enter applies immediately", () => {
     const onSearchChange = vi.fn();
     render(<OtwPlayCatalogPage search={{}} onSearchChange={onSearchChange} />);

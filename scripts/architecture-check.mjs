@@ -136,6 +136,14 @@ for (const file of sourceFiles) {
   const capability = getFrontendCapability(file);
   const workerFeature = getWorkerFeature(file);
   const isProduction = productionFileSet.has(path.resolve(file));
+  const retiredUiModules = [
+    "src/app/admin/components/confirm-action-dialog.tsx",
+    "src/features/media-library/ui/member-filter-chips.tsx",
+    "src/features/otw-play/ui/admin/ingestion-form-controls.tsx",
+  ];
+  if (isProduction && retiredUiModules.includes(normalized)) {
+    errors.push(`${normalized}: retired UI implementation; use the canonical shared UI or members public export.`);
+  }
   const isWorkerInnerLayer =
     isProduction &&
     workerFeature &&
@@ -395,6 +403,16 @@ for (const file of sourceFiles) {
   };
 
   const visit = (node) => {
+    if (isProduction && normalized.startsWith("src/") && ts.isCallExpression(node)) {
+      const expression = node.expression;
+      const owner = (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
+        && ts.isIdentifier(expression.expression) ? expression.expression.text : null;
+      const member = ts.isPropertyAccessExpression(expression) ? expression.name.text
+        : ts.isElementAccessExpression(expression) && ts.isStringLiteral(expression.argumentExpression) ? expression.argumentExpression.text : null;
+      if ((owner === "window" || owner === "globalThis") && member === "confirm") {
+        errors.push(`${normalized}: useConfirmation / ConfirmActionDialog must own application confirmations.`);
+      }
+    }
     if (
       (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier &&

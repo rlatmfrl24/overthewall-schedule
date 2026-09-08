@@ -8,6 +8,7 @@ import { useYouTubeShorts } from "../queries/use-youtube-shorts";
 import { YouTubePlaylist } from "./youtube-playlist";
 import { YouTubeSectionSkeleton } from "./youtube-skeleton";
 import { Button } from "@/shared/ui/button";
+import { QueryState } from "@/shared/ui/query-state";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 const getVideoGridColumnCount = () => {
@@ -68,7 +69,7 @@ export const YouTubeSection = ({
   const [visibleVideoCount, setVisibleVideoCount] = useState(gridColumnCount);
   const hasYouTubeMember = members.some((member) => member.youtube_channel_id);
 
-  const { videos, error, hasLoaded, loading } = useYouTubeVideos(
+  const { videos, error, hasLoaded, loading, reload } = useYouTubeVideos(
     members,
     { maxResults: 20 },
   );
@@ -92,6 +93,8 @@ export const YouTubeSection = ({
     loadMore: loadMoreShorts,
     loading: loadingShorts,
     loadingMore: loadingMoreShorts,
+    retry: retryShorts,
+    refreshError: shortsRefreshError,
   } = useYouTubeShorts(shortsMembers, { limit: 20 });
   const selectedMemberKey = selectedMemberUids?.join(",") || "all";
   const clampedVisibleVideoCount = Math.min(
@@ -135,11 +138,8 @@ export const YouTubeSection = ({
     return null;
   }
 
-  const isInitialLoading =
-    !hasLoaded ||
-    !shortsLoaded ||
-    (loading && videos.length === 0) ||
-    (loadingShorts && shorts.length === 0);
+  const videosPending = !error && (!hasLoaded || (loading && videos.length === 0));
+  const shortsPending = !shortsError && (!shortsLoaded || (loadingShorts && shorts.length === 0));
   const shortsNeedsCollection =
     shortsCollection.state === "refreshing" ||
     shortsCollection.state === "partial";
@@ -153,17 +153,13 @@ export const YouTubeSection = ({
   return (
     <div className="space-y-8">
       {/* 로딩 상태 */}
-      {isInitialLoading && <YouTubeSectionSkeleton />}
+      {videosPending && <QueryState state="loading" title="동영상을 불러오고 있습니다." />}
 
       {/* 에러 상태 */}
-      {error && hasLoaded && !isInitialLoading && (
-        <div className="flex flex-col items-center justify-center py-12 gap-4">
-          <p className="text-destructive">{error}</p>
-        </div>
-      )}
+      {error && <QueryState state="error" title={error} action={{ onClick: () => void reload(), pending: loading }} />}
 
       {/* 콘텐츠 */}
-      {!isInitialLoading && !error && (
+      {!videosPending && !error && (
         <>
           {/* 일반 동영상 플레이리스트 */}
           <YouTubePlaylist
@@ -198,7 +194,10 @@ export const YouTubeSection = ({
             </div>
           )}
 
-          {/* 쇼츠 플레이리스트 */}
+        </>
+      )}
+      {/* Each independent source keeps its own pending/error/empty state. */}
+      {shortsPending ? <QueryState state="loading" title="Shorts를 불러오고 있습니다." /> : <>
           <YouTubePlaylist
             title="Shorts"
             videos={shorts}
@@ -206,21 +205,26 @@ export const YouTubeSection = ({
             variant="short"
             layout="shorts-grid"
             emptyMessage="업로드된 Shorts가 없습니다."
+            emptyState={shortsError ? <QueryState state="error" title={shortsError} headingLevel={3}
+              action={{ onClick: () => void retryShorts(), pending: loadingMoreShorts }} />
+              : shortsNeedsCollection ? <QueryState state="loading" title="Shorts를 찾고 있습니다." headingLevel={3} /> : undefined}
           />
 
           <div className="space-y-3 text-center">
+            {shortsRefreshError && <QueryState state="error" title={shortsRefreshError} headingLevel={3}
+              description="이전에 불러온 Shorts를 표시하고 있습니다."
+              action={{ onClick: () => void retryShorts(), pending: loadingMoreShorts }} />}
             <p
               className="min-h-5 text-sm text-muted-foreground"
               aria-live="polite"
             >
               {loadingMoreShorts
                 ? "Shorts 추가 항목을 찾고 있습니다. 기존 항목은 그대로 유지됩니다."
-                : shortsError ??
-                  (shortsNeedsCollection
+                : (shortsNeedsCollection && !shortsError
                     ? "아직 페이지가 확정되지 않았습니다. 계속 찾을 수 있습니다."
                     : "")}
             </p>
-            {showShortsButton && (
+            {showShortsButton && !shortsError && (
               <Button
                 type="button"
                 variant="outline"
@@ -235,8 +239,7 @@ export const YouTubeSection = ({
               </Button>
             )}
           </div>
-        </>
-      )}
+        </>}
     </div>
   );
 };

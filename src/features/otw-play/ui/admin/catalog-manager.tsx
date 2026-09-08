@@ -1,3 +1,6 @@
+import { TabsList } from "@/shared/ui/tabs-list";
+import { LabeledField as Field } from "@/shared/ui/labeled-field";
+import { useConfirmation } from "@/shared/lib/confirmation";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { QueryReadback } from "@/shared/ui/query-readback";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
@@ -18,7 +21,8 @@ import type {
   OtwPlayParticipationType,
   OtwPlayReleaseType,
 } from "@contracts/otw-play";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { ApiError } from "@/shared/api/client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
@@ -148,26 +152,6 @@ type ReviewParticipant = ReviewIdentity & {
 type ReviewChannelOwner = ReviewIdentity & {
   source: "custom" | `participant:${string}` | `artist:${string}`;
 };
-
-const Field = ({
-  label,
-  htmlFor,
-  description,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  description?: string;
-  children: React.ReactNode;
-}) => (
-  <div className="space-y-1.5">
-    <Label htmlFor={htmlFor}>{label}</Label>
-    {children}
-    {description && (
-      <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
-    )}
-  </div>
-);
 
 export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorMode }: { activeSection?: Section; onSectionChange?: (section: Section) => void; monitorMode?: "review" | "sources" } = {}) {
   const catalogQuery = useOtwPlayAdminCatalog();
@@ -353,19 +337,12 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         }
       />
       {!activeSection && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-2">
-          {SECTIONS.map((item) => (
-            <Button
-              key={item.value}
-              size="sm"
-              variant={section === item.value ? "default" : "ghost"}
-              onClick={() => setSection(item.value)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
+        <TabsList value={section} onValueChange={setSection} label="Play 관리 영역"
+          items={SECTIONS.map((item) => ({ ...item, id: `play-admin-${item.value}-tab`, panelId: "play-admin-section-panel" }))} />
       )}
+      <div id="play-admin-section-panel" role={activeSection ? "region" : "tabpanel"}
+        aria-label={activeSection ? SECTIONS.find((item) => item.value === section)?.label : undefined}
+        aria-labelledby={activeSection ? undefined : `play-admin-${section}-tab`} className="space-y-3">
       {catalog && !readModelReady && (
         <div
           role="alert"
@@ -502,6 +479,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         />
       )}
 
+      </div>
       {catalog && (
         <CatalogEntryDialog
           open={registrationOpen}
@@ -536,6 +514,7 @@ function ProposalSection({
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const confirm = useConfirmation();
   const [proposalDirty, setProposalDirty] = useState(false);
   useUnsavedChanges(proposalDirty);
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -726,7 +705,7 @@ function ProposalSection({
             isPrimary: index === 0,
           })),
         };
-    if (!window.confirm("최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?")) return;
+    if (!await confirm({ title: "제안을 승인하고 게시할까요?", description: "최신 영상·채널 metadata와 실제 가창 credit을 확인하고 게시할까요?", confirmLabel: "승인하고 게시" })) return;
     const approved = await run("제안 승인", () =>
       approveOtwPlayProposal(selected.id, {
         expectedVersion: selected.version,

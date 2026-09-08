@@ -1,6 +1,7 @@
+import { DateNavigation } from "@/shared/ui/date-navigation";
 import { format, addDays, startOfWeek, isSameWeek } from "date-fns";
 import { ko } from "date-fns/locale";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { CalendarDays, Plus } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 
 interface WeeklyHeaderProps {
@@ -47,35 +48,8 @@ export const WeeklyHeader = ({
             <Plus className="h-4 w-4" />
             스케쥴 추가
           </Button>
-          <div className="flex w-full items-center justify-between gap-1 rounded-full border border-border bg-card p-1 shadow-sm sm:w-auto sm:gap-2">
-            <button
-              aria-label="이전 주로 이동"
-              onClick={onPrevWeek}
-              className="p-2 hover:bg-muted rounded-full transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
-            </button>
-            <button
-              onClick={onToday}
-              disabled={isSameWeek(currentDate, new Date(), {
-                weekStartsOn: 1,
-              })}
-              className={`px-4 py-1.5 text-sm font-medium rounded-full transition-colors ${
-                isSameWeek(currentDate, new Date(), { weekStartsOn: 1 })
-                  ? "text-muted-foreground cursor-not-allowed opacity-50"
-                  : "text-foreground hover:bg-muted"
-              }`}
-            >
-              이번주로 이동
-            </button>
-            <button
-              aria-label="다음 주로 이동"
-              onClick={onNextWeek}
-              className="p-2 hover:bg-muted rounded-full transition-colors"
-            >
-              <ChevronRight className="w-5 h-5 text-muted-foreground" />
-            </button>
-          </div>
+          <DateNavigation previousLabel="이전 주로 이동" nextLabel="다음 주로 이동" todayLabel="이번주로 이동"
+            isCurrent={isSameWeek(currentDate, new Date(), { weekStartsOn: 1 })} onPrevious={onPrevWeek} onNext={onNextWeek} onToday={onToday} className="w-full sm:w-auto" />
         </div>
       </div>
     </div>

@@ -14,6 +14,8 @@ import {
 } from "../../model/catalog-route-search";
 import { useOtwPlayCatalog, useOtwPlayFacets } from "../../queries/use-public-catalog";
 import { Button } from "@/shared/ui/button";
+import { FilterChip } from "@/shared/ui/filter-chip";
+import { QueryState } from "@/shared/ui/query-state";
 import { Badge } from "@/shared/ui/badge";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
@@ -157,6 +159,15 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
         </Button>
       </div>
 
+      {facets.isPending ? (
+        <QueryState state="loading" title="필터 불러오는 중" className="py-3" />
+      ) : facets.isError ? (
+        <QueryState state="error" title="필터를 불러오지 못했습니다."
+          description="곡 검색은 계속 이용할 수 있습니다. 멤버·그룹·원곡 가수 선택지를 다시 불러와 주세요."
+          className="rounded-lg border border-destructive/30 p-4"
+          action={{ label: "필터 다시 불러오기", onClick: () => void facets.refetch(), pending: facets.isFetching }} />
+      ) : null}
+
       {filtersOpen ? (
         <section
           id="otw-play-catalog-filters"
@@ -178,18 +189,15 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
                   {facets.data?.data.members.map((member) => {
                     const selected = memberUids.includes(member.memberUid);
                     return (
-                      <Button
+                      <FilterChip
                         key={member.memberUid}
-                        type="button"
-                        size="sm"
-                        variant={selected ? "default" : "outline"}
-                        aria-pressed={selected}
-                        className="h-8 rounded-full px-2.5 text-xs"
+                        selected={selected}
+                        className="min-h-8 rounded-full border px-2.5 text-xs"
                         onClick={() => toggleMember(member.memberUid)}
                       >
                         {member.oshiMark ? <span aria-hidden="true">{member.oshiMark}</span> : null}
                         {member.displayName}
-                      </Button>
+                      </FilterChip>
                     );
                   })}
                 </div>
@@ -310,19 +318,13 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
 
       </div>
 
-      {catalog.isPending || facets.isPending ? (
-        <div className="flex min-h-40 items-center justify-center text-sm text-muted-foreground" aria-busy="true">
-          <LoaderCircle className="mr-2 size-4 animate-spin" /> 곡 목록 불러오는 중
-        </div>
+      {catalog.isPending ? (
+        <QueryState state="loading" title="곡 목록 불러오는 중" className="min-h-40" />
       ) : catalog.isError ? (
         <OtwPlayQueryError error={catalogError} retry={retryCatalog} />
       ) : songs.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-10 text-center">
-          <p className="font-medium">조건에 맞는 곡이 없습니다.</p>
-          <Button type="button" variant="outline" className="mt-4" onClick={resetSearch}>
-            필터 초기화
-          </Button>
-        </div>
+        <QueryState state="empty" title="조건에 맞는 곡이 없습니다."
+          className="rounded-xl border border-dashed p-10" action={{ label: "필터 초기화", onClick: resetSearch, icon: null }} />
       ) : (
         <>
           <p className="text-sm text-muted-foreground">

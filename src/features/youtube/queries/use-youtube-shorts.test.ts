@@ -121,4 +121,19 @@ describe("useYouTubeShorts", () => {
     });
     expect(fetchMembersYouTubeShortsMock).toHaveBeenCalledTimes(2);
   });
+
+  it("갱신 실패를 최초 조회 실패와 구별하고 기존 결과를 보존한 채 재시도한다", async () => {
+    fetchMembersYouTubeShortsMock.mockResolvedValueOnce(makePage("exhausted", "short-1", null))
+      .mockRejectedValueOnce(new Error("refresh failed"))
+      .mockResolvedValueOnce(makePage("exhausted", "short-2", null));
+    const { result } = renderHook(() => useYouTubeShorts([member]), { wrapper: createQueryWrapper() });
+    await vi.waitFor(() => expect(result.current.hasLoaded).toBe(true));
+    await act(async () => { await result.current.retry(); });
+    await vi.waitFor(() => expect(result.current.refreshError).toBeTruthy());
+    expect(result.current.error).toBeNull();
+    expect(result.current.shorts[0]?.videoId).toBe("short-1");
+    await act(async () => { await result.current.retry(); });
+    await vi.waitFor(() => expect(result.current.refreshError).toBeNull());
+    expect(result.current.shorts[0]?.videoId).toBe("short-2");
+  });
 });

@@ -1,8 +1,6 @@
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/shared/ui/alert-dialog";
-import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import { ModeToggle } from "@/app/layout/mode-toggle";
 import { ConsoleSearchContext, validateConsoleSearch, type ConsoleSearch } from "@/shared/lib/admin-console-search";
-import { Link, useBlocker, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/shared/lib/utils";
 import {
   Activity,
@@ -24,7 +22,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/shared/ui/sheet";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -57,12 +55,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const dirtyForms = useRef(new Set<string>());
-  const registerDirty = useCallback((id: string, dirty: boolean) => { if (dirty) dirtyForms.current.add(id); else dirtyForms.current.delete(id); }, []);
-  const [discardRequest, setDiscardRequest] = useState<((discard: boolean) => void) | null>(null);
-  const confirmDiscard = useCallback(() => new Promise<boolean>((resolve) => setDiscardRequest(() => resolve)), []);
-  const resolveDiscard = (discard: boolean) => { discardRequest?.(discard); setDiscardRequest(null); };
-  useBlocker({shouldBlockFn: async () => dirtyForms.current.size > 0 && !await confirmDiscard(), enableBeforeUnload: false});
   const search = validateConsoleSearch(Object.fromEntries(new URLSearchParams(location.searchStr)));
   const updateSearch = useCallback((patch: ConsoleSearch, replace = true) => { void navigate({to: ".", search: (previous: ConsoleSearch) => ({...previous, ...patch}), replace, resetScroll: false}); }, [navigate]);
 
@@ -127,7 +119,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden admin-console bg-muted/20 md:flex-row">
-      <AlertDialog open={discardRequest !== null} onOpenChange={(open) => { if (!open) resolveDiscard(false); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>저장하지 않은 변경 사항</AlertDialogTitle><AlertDialogDescription>입력 내용을 버리고 이동할까요? 계속 편집하면 입력값을 유지합니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel onClick={() => resolveDiscard(false)}>계속 편집</AlertDialogCancel><AlertDialogAction onClick={() => resolveDiscard(true)}>변경 버리고 이동</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+
       {/* Mobile Header */}
       <div className="md:hidden h-(--admin-header-height) border-b bg-background px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
@@ -158,7 +150,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       {/* Main Content */}
       <main className="relative min-h-0 min-w-0 flex-1 overflow-y-auto bg-muted/10">
         <div className="w-full min-h-full p-(--admin-content-padding) pb-8 md:pb-10">
-          <UnsavedChangesContext value={{register: registerDirty, confirm: confirmDiscard}}><ConsoleSearchContext value={[search, updateSearch]}>{children}</ConsoleSearchContext></UnsavedChangesContext>
+          <ConsoleSearchContext value={[search, updateSearch]}>{children}</ConsoleSearchContext>
         </div>
       </main>
     </div>

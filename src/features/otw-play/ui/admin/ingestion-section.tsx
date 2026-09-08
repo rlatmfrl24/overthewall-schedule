@@ -77,7 +77,7 @@ import { chunkOtwPlayIngestionSelections } from "../../model/ingestion-selection
 import {
   ChoiceGroup,
   type ChoiceOption,
-} from "./ingestion-form-controls";
+} from "@/shared/ui/choice-group";
 import {
   SubjectPicker,
   type SelectedSubject,
@@ -1395,7 +1395,7 @@ export function IngestionSection({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">검토 가능</SelectItem><SelectItem value="existing_candidate">기존 후보</SelectItem><SelectItem value="channel_review">채널 승인 필요</SelectItem><SelectItem value="existing_catalog">기존 카탈로그</SelectItem><SelectItem value="existing_proposal">기존 제안</SelectItem><SelectItem value="unavailable">재생 불가</SelectItem><SelectItem value="policy_blocked">정책 확인</SelectItem><SelectItem value="scope_review">노래 영상 확인</SelectItem><SelectItem value="playlist_duplicate">목록 중복</SelectItem></SelectContent></Select>
+              <Select value={classification} onValueChange={(value) => setClassification(value as typeof classification)}><SelectTrigger aria-label="가져오기 후보 분류" className="w-48"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">전체 분류</SelectItem><SelectItem value="eligible">검토 가능</SelectItem><SelectItem value="existing_candidate">기존 후보</SelectItem><SelectItem value="channel_review">채널 승인 필요</SelectItem><SelectItem value="existing_catalog">기존 카탈로그</SelectItem><SelectItem value="existing_proposal">기존 제안</SelectItem><SelectItem value="unavailable">재생 불가</SelectItem><SelectItem value="policy_blocked">정책 확인</SelectItem><SelectItem value="scope_review">노래 영상 확인</SelectItem><SelectItem value="playlist_duplicate">목록 중복</SelectItem></SelectContent></Select>
               <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setBulkIgnoreConfirmOpen(true)}>
                 {busy === "ignore-unavailable" ? <Loader2 className="animate-spin" /> : <EyeOff />}
                 숨김·삭제 영상 일괄 제외
