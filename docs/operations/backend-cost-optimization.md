@@ -99,6 +99,16 @@ Cloudflare Worker·D1·Queue·Workflow·R2 구조와 물리 Queue 격리를 유�
 
 ## 도구 버전과 잔여 항목
 
+### 2026-09-09 Outbox UPDATE PK 보완
+
+후속 관측에서 후보 SELECT는 상태 인덱스를 사용하지만 실제 claim UPDATE의 바깥 대상 선택에는 전체 스캔이 남아 있었다. 운영에는 보존 이력 2,000개 이상과 22행 시점의 오래된 통계가 함께 존재했다. 기존 로컬 검사는 실제 UPDATE도 실행했지만 이 통계 차이를 재현하지 못했다.
+
+`claimPendingOutbox`와 같은 구조의 전달 유실 복구 UPDATE에 기존 `sqlite_autoindex_scheduled_outbox_1`을 명시했다. 내부 선택 조건·ORDER BY·LIMIT, 단일 UPDATE의 원자성, lease·CAS·RETURNING은 유지한다. 새 인덱스·스키마 변경·운영 통계 갱신은 포함하지 않는다. 이 인덱스는 필수 SQL 의존성이므로 향후 스키마 재구축 시 이름과 사용 가능 여부를 함께 확인해야 한다.
+
+회귀검사는 로컬 D1에서 22개 outbox 행을 분석한 다음 통계를 갱신하지 않고 완료 이력 2,130개로 늘린다. 수정 전 실제 scoped claim UPDATE는 2,134행을 읽어 실패했고, 수정 후 scoped/global claim과 복구의 빈 결과 UPDATE는 각각 10행 이하·쓰기 0으로 통과했다. 실제 실행 대상 3개에 대해서도 LIMIT 2의 반환 정보와 다음 claim의 나머지 1개, 중복 없는 ID를 확인했다. 동시 scoped/global claim의 단일 획득도 검증했다.
+
+검증 결과: 관련 D1 26개 및 전체 preflight 264개 파일·1,916개 테스트 통과. Coverage statements 81.99%, branches 69.33%, functions 85.61%, lines 83.53%. 마지막 테스트 보강 후 타입·대상 lint도 통과했다.
+
 Node `24.20.0`, Vite `7.3.6`, Wrangler `4.129.1`, Cloudflare Vite plugin `1.54.5`, Vitest `4.1.11`, PostCSS `8.5.28`로 검증한다. Cloudflare 빌드 환경도 `.node-version` 또는 `NODE_VERSION=24.20.0`을 사용한다. Worker 자체는 workerd에서 실행된다. Wrangler의 package export 변경에 맞춰 DB 점검·초기화·seed CLI 경로도 수정했다.
 
 Coverage는 동시 worker를 2개로 제한한다. 기존 UI 테스트의 5초 제한과 검증 내용은 유지하며 과도한 병렬 실행에 따른 timeout을 줄인다. 개발 서버는 `coverage/`와 `.tmp/`를 감시하지 않아 보고서 생성 때마다 반복 새로고침하지 않는다.

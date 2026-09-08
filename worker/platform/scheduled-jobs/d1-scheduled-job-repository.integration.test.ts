@@ -36,7 +36,7 @@ beforeEach(async () => {
 });
 
 describe("D1 scheduled job state machine", () => {
-  it("keeps idle dispatch and delivery recovery reads independent of retained completed history", async () => {
+  it("keeps idle atomic outbox updates bounded after retained history outgrows planner statistics", async () => {
     const repository = createRepository();
     const run = await repository.createRun({
       jobType: "ingestion_recovery", source: "scheduled", idempotencyKey: "retained-history",
@@ -49,12 +49,22 @@ describe("D1 scheduled job state machine", () => {
     ) SELECT 'retained-item-' || n, ?, 'history:' || n, 'cleanup', 'ingestion',
         'succeeded', ?, ?, ?, ? FROM history`)
       .bind(run.id, timestamp, timestamp, timestamp, timestamp).run();
-    await db.prepare(`INSERT INTO scheduled_outbox (
+    const insertHistoryOutbox = `INSERT INTO scheduled_outbox (
       id, run_id, item_id, lane, event_type, status, attempts,
       available_at, dispatched_at, created_at, updated_at
     ) SELECT 'retained-outbox-' || id, run_id, id, lane, 'execute', 'dispatched',
-        1, ?, ?, ?, ? FROM scheduled_job_items WHERE run_id = ?`)
+        1, ?, ?, ?, ? FROM scheduled_job_items WHERE run_id = ?`;
+    await db.prepare(`${insertHistoryOutbox} LIMIT 22`)
       .bind(timestamp, timestamp, timestamp, timestamp, run.id).run();
+    // Production retained statistics for 22 outbox rows after the table grew
+    // past 2,000. Without this stale-statistics condition the outer UPDATE
+    // happened to use its PK in local tests and hid the production full scan.
+    await db.prepare("ANALYZE scheduled_outbox").run();
+    await db.prepare(`${insertHistoryOutbox} ON CONFLICT(id) DO NOTHING`)
+      .bind(timestamp, timestamp, timestamp, timestamp, run.id).run();
+    expect(await db.prepare(
+      "SELECT stat FROM sqlite_stat1 WHERE idx = 'sqlite_autoindex_scheduled_outbox_1'",
+    ).first("stat")).toBe("22 1");
     await db.batch([
       db.prepare("UPDATE scheduled_job_runs SET status = 'succeeded', finished_at = ?").bind(timestamp),
     ]);
@@ -104,6 +114,23 @@ describe("D1 scheduled job state machine", () => {
       expect(measurement.rowsRead, measurement.operation).toBeLessThanOrEqual(10);
       expect(measurement.rowsWritten, measurement.operation).toBe(0);
     }
+
+    const activeRun = await repository.createRun({
+      jobType: "x_collection", source: "scheduled", idempotencyKey: "after-retained-history",
+    });
+    await repository.addItems(activeRun.id, ["first", "second", "third"].map((targetKey) => ({
+      targetKey, phase: "collect", lane: "x" as const,
+    })));
+    operation = "active-claim";
+    const claimed = await measured.claimPendingOutbox(activeRun.id, 2);
+    expect(claimed).toHaveLength(2);
+    expect(claimed.every((row) => row.run_id === activeRun.id &&
+      row.phase === "collect" && row.job_type === "x_collection")).toBe(true);
+    expect(measurements.at(-1)?.rowsRead).toBeLessThanOrEqual(100);
+    const remaining = await measured.claimPendingOutbox(undefined, 2);
+    expect(remaining).toHaveLength(1);
+    expect(new Set([...claimed, ...remaining].map((row) => row.id)).size).toBe(3);
+    expect(measurements.at(-1)?.rowsRead).toBeLessThanOrEqual(100);
   });
 
   it("uses the same read-only recovery eligibility for pending, expired, and missing deliveries", async () => {
@@ -268,9 +295,12 @@ describe("D1 scheduled job state machine", () => {
     await repository.addItems(run.id, [item]);
     await repository.addItems(run.id, [item]);
 
-    const firstClaim = await repository.claimPendingOutbox(run.id, 10);
+    const concurrentClaims = await Promise.all([
+      repository.claimPendingOutbox(run.id, 10),
+      repository.claimPendingOutbox(undefined, 10),
+    ]);
+    expect(concurrentClaims.map((claim) => claim.length).sort()).toEqual([0, 1]);
     const duplicateClaim = await repository.claimPendingOutbox(run.id, 10);
-    expect(firstClaim).toHaveLength(1);
     expect(duplicateClaim).toHaveLength(0);
 
     const counts = await db.prepare(
