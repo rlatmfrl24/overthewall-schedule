@@ -1,5 +1,7 @@
+import { ChoiceGroup } from "@/shared/ui/choice-group";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useBlocker } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
   Check,
@@ -12,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -574,11 +575,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
   const dirty = !success && (editId
     ? editBaseline !== null && currentEditSnapshot !== editBaseline
     : Boolean(youtubeUrl || title || songTags.length || originalArtists.length || memberUids.length || externalParticipants.length || note));
-  const shouldBlock = useCallback(
-    () => dirty && !window.confirm("저장하지 않은 곡 제안 변경이 있습니다. 이 페이지를 나가시겠습니까?"),
-    [dirty],
-  );
-  useBlocker({ shouldBlockFn: shouldBlock, enableBeforeUnload: dirty, disabled: !dirty });
+  useUnsavedChanges(dirty);
   const participantCount = participants.length;
   const participantRoleItems = useMemo(
     () => [
@@ -655,7 +652,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
     setTitle(candidate.title);
     setOriginalArtists(candidate.originalArtists);
   };
-  const useNewSong = () => { setSongMode("new"); setSuggestedSongId(null); };
+  const selectNewSong = () => { setSongMode("new"); setSuggestedSongId(null); };
   const canReview = title.trim().length > 0 && originalArtists.length > 0 && originalArtists.length <= ORIGINAL_ARTIST_LIMIT && participantCount > 0 && participantCount <= PARTICIPANT_LIMIT && (songMode === "new" || suggestedSongId !== null);
   const resetForm = () => {
     preflightRequestId.current += 1;
@@ -747,14 +744,11 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
             {preflight ? <VideoSummary preflight={preflight} /> : null}
             <fieldset className="space-y-4 rounded-xl border p-4 sm:p-5">
               <legend className="px-1 font-semibold">곡 정보</legend>
-              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="곡 연결 방식">
-                <button type="button" role="radio" aria-checked={songMode === "new"} onClick={useNewSong} className={`rounded-lg border p-3 text-left ${songMode === "new" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
-                  <span className="block font-medium">새 곡으로 제안</span><span className="mt-1 block text-xs text-muted-foreground">새 곡명과 원곡 가수 snapshot을 제출합니다.</span>
-                </button>
-                <button type="button" role="radio" aria-checked={songMode === "existing"} onClick={() => setSongMode("existing")} className={`rounded-lg border p-3 text-left ${songMode === "existing" ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>
-                  <span className="block font-medium">기존 곡 연결</span><span className="mt-1 block text-xs text-muted-foreground">검색한 카탈로그 곡에 새 가창을 연결합니다.</span>
-                </button>
-              </div>
+              <ChoiceGroup label="곡 연결 방식" value={songMode} onValueChange={(value) => value === "new" ? selectNewSong() : setSongMode(value)}
+                presentation="cards" cardColumns={2} options={[
+                  { value: "new", label: "새 곡으로 제안", description: "새 곡명과 원곡 가수 정보를 제출합니다." },
+                  { value: "existing", label: "기존 곡 연결", description: "검색한 카탈로그 곡에 새 가창을 연결합니다." },
+                ]} />
               <div className="space-y-2">
                 <Label htmlFor="submission-title">곡명 *</Label>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -766,7 +760,7 @@ export function OtwPlaySubmissionPage({ editId }: { editId?: string }) {
               </div>
               {candidateSearchAttempted ? (
                 <div className="space-y-2" aria-live="polite">
-                  <div className="flex items-center justify-between gap-3"><Label>기존 곡 후보</Label>{suggestedSongId ? <Button type="button" size="sm" variant="ghost" onClick={useNewSong}>선택 해제</Button> : null}</div>
+                  <div className="flex items-center justify-between gap-3"><Label>기존 곡 후보</Label>{suggestedSongId ? <Button type="button" size="sm" variant="ghost" onClick={selectNewSong}>선택 해제</Button> : null}</div>
                   {preflightMutation.isPending ? <p className="text-sm text-muted-foreground"><LoaderCircle className="mr-1 inline size-4 animate-spin" /> 검색 중</p> : preflight?.songCandidates.length ? (
                     <div className="grid gap-2">{preflight.songCandidates.map((song) => (
                       <button type="button" key={song.id} onClick={() => selectCandidate(song)} className={`rounded-lg border p-3 text-left text-sm ${suggestedSongId === song.id ? "border-primary bg-primary/5" : "hover:bg-muted"}`}>

@@ -1,3 +1,5 @@
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { cn } from "@/shared/lib/utils";
@@ -16,7 +18,6 @@ import { Button } from "@/shared/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -134,6 +135,7 @@ export const ScheduleDialog = ({
   const [lastDecidedTime, setLastDecidedTime] = useState<TimeParts>(DEFAULT_TIME);
 
   const [title, setTitle] = useState("");
+  const [formBaseline, setFormBaseline] = useState("");
   const [alertOpen, setAlertOpen] = useState(false);
   const [alertMessage, setAlertMessage] = useState("");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -152,6 +154,8 @@ export const ScheduleDialog = ({
     EXCLUSIVE_STATUSES.includes(nextStatus);
   const canSubmit = memberUid !== "" && !isBusy;
   const currentTimeValue = `${startHour}:${startMinute}`;
+  const formKey = JSON.stringify([memberUid, format(date, "yyyy-MM-dd"), status, isTimeUndecided, startHour, startMinute, title]);
+  const canDiscard = useUnsavedChanges(isOpen && Boolean(formBaseline) && formKey !== formBaseline);
 
   const parseTimeValue = (value: string): TimeParts | null => {
     const [rawHour, rawMinute] = value.split(":");
@@ -238,6 +242,14 @@ export const ScheduleDialog = ({
       setTitle("");
     }
     if (isOpen) {
+      const baseTime = schedule?.start_time ? parseTimeValue(schedule.start_time.slice(0, 5)) ?? DEFAULT_TIME : DEFAULT_TIME;
+      setFormBaseline(JSON.stringify([
+        schedule?.member_uid ?? (initialMemberUid || ""),
+        format(schedule ? new Date(schedule.date) : initialDate ?? new Date(), "yyyy-MM-dd"),
+        schedule && schedule.status !== LEGACY_UNSCHEDULED_STATUS ? schedule.status : "방송",
+        !schedule?.start_time, baseTime.hour, baseTime.minute,
+        schedule && schedule.status !== LEGACY_UNSCHEDULED_STATUS ? schedule.title || "" : "",
+      ]));
       setHasAttemptedSubmit(false);
       setImpactConfirmOpen(false);
       setPendingSubmitData(null);
@@ -353,8 +365,8 @@ export const ScheduleDialog = ({
     setDeleteConfirmOpen(false);
   };
 
-  const handleDialogOpenChange = (nextOpen: boolean) => {
-    if (isBusy) return;
+  const handleDialogOpenChange = async (nextOpen: boolean) => {
+    if (isBusy || (!nextOpen && !await canDiscard())) return;
     setIsOpen(nextOpen);
   };
 
@@ -385,13 +397,13 @@ export const ScheduleDialog = ({
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field>
-                <FieldLabel>멤버</FieldLabel>
+                <FieldLabel htmlFor="schedule-member">멤버</FieldLabel>
                 <Select
                   disabled={isBusy}
                   value={memberUid.toString()}
                   onValueChange={(value) => setMemberUid(Number(value))}
                 >
-                  <SelectTrigger aria-invalid={hasMemberError}>
+                  <SelectTrigger id="schedule-member" aria-invalid={hasMemberError} aria-describedby={hasMemberError ? "schedule-member-error" : undefined}>
                     <SelectValue placeholder="멤버 선택" />
                   </SelectTrigger>
                   <SelectContent>
@@ -407,10 +419,10 @@ export const ScheduleDialog = ({
                     </SelectGroup>
                   </SelectContent>
                 </Select>
-                <FieldError>{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
+                <FieldError id="schedule-member-error">{hasMemberError ? "멤버를 선택해주세요." : null}</FieldError>
               </Field>
               <Field>
-                <FieldLabel>날짜</FieldLabel>
+                <FieldLabel htmlFor="date">날짜</FieldLabel>
                 <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -471,8 +483,9 @@ export const ScheduleDialog = ({
               </div>
             </Field>
             <Field>
-              <FieldLabel>제목</FieldLabel>
+              <FieldLabel htmlFor="schedule-title">제목</FieldLabel>
               <Input
+                id="schedule-title"
                 disabled={isBusy}
                 value={title}
                 placeholder="방송 예정"
@@ -481,10 +494,11 @@ export const ScheduleDialog = ({
             </Field>
             {status === "방송" && (
               <Field>
-                <FieldLabel>시간</FieldLabel>
+                <FieldLabel htmlFor="schedule-time">시간</FieldLabel>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                   <div className="flex-1 space-y-3">
                     <Input
+                      id="schedule-time"
                       type="time"
                       disabled={isBusy || isTimeUndecided}
                       value={currentTimeValue}
@@ -608,69 +622,18 @@ export const ScheduleDialog = ({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog
-        open={impactConfirmOpen}
-        onOpenChange={(open) => {
-          if (isSubmitting) return;
-          setImpactConfirmOpen(open);
-          if (!open) {
-            setPendingSubmitData(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>기존 일정 정리 확인</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <p>
-                <strong>{impactMemberName}</strong> · <strong>{impactDateLabel}</strong>
-              </p>
-              <p>
-                상태를 <strong>{impactStatus}</strong>(으)로 저장하면 기존 일정이 정리됩니다.
-              </p>
-              <p>
-                {impactDeleteCount === null
-                  ? "삭제될 일정 수를 계산하지 못했습니다."
-                  : `삭제될 일정: ${impactDeleteCount}건`}
-              </p>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmitting}>취소</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isSubmitting}
-              onClick={() => void onConfirmImpactSubmit()}
-            >
-              삭제 후 저장
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
-            <AlertDialogDescription>
-              이 스케쥴을 삭제합니다. 삭제 후에는 되돌릴 수 없습니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              disabled={isSubmitting}
-              onClick={() => setDeleteConfirmOpen(false)}
-            >
-              취소
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isSubmitting}
-              onClick={() => void onConfirmDelete()}
-            >
-              {isSubmitting ? "삭제 중..." : "삭제"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmActionDialog open={impactConfirmOpen}
+        onOpenChange={(open) => { setImpactConfirmOpen(open); if (!open) setPendingSubmitData(null); }}
+        title="기존 일정 정리 확인" confirmLabel="삭제 후 저장" isProcessing={isSubmitting}
+        onConfirm={() => void onConfirmImpactSubmit()}
+        description={<div className="space-y-2">
+          <p><strong>{impactMemberName}</strong> · <strong>{impactDateLabel}</strong></p>
+          <p>상태를 <strong>{impactStatus}</strong>(으)로 저장하면 기존 일정이 정리됩니다.</p>
+          <p>{impactDeleteCount === null ? "삭제될 일정 수를 계산하지 못했습니다." : `삭제될 일정: ${impactDeleteCount}건`}</p>
+        </div>} />
+      <ConfirmActionDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}
+        title="삭제 확인" description="이 스케쥴을 삭제합니다. 삭제 후에는 되돌릴 수 없습니다."
+        confirmLabel="삭제" destructive isProcessing={isSubmitting} onConfirm={() => void onConfirmDelete()} />
     </Dialog>
   );
 };

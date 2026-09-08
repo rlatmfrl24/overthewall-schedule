@@ -1,3 +1,4 @@
+import { LabeledField } from "@/shared/ui/labeled-field";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useEffect, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
@@ -20,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/ui/select";
-import { FieldError, FieldLabel } from "@/shared/ui/field";
+import { FieldLabel } from "@/shared/ui/field";
 import { normalizeDDayColors } from "../../model/dday";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
@@ -124,25 +125,18 @@ export function DDayFormDialog({
         <form onSubmit={handleSubmit(async (values) => { setSaveError(null); try { await onSubmit(values); } catch { setSaveError("저장하지 못했습니다. 입력 내용을 확인하고 다시 시도해 주세요."); } })} className="space-y-6 py-4">
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
           {isSaving && <p role="status" className="text-sm text-muted-foreground">저장 후 서버 응답을 확인하고 있습니다.</p>}
-          <div className="space-y-2">
-            <FieldLabel htmlFor="title">제목</FieldLabel>
-            <Input
-              id="title"
-              placeholder="예) 데뷔 1주년 / 신곡 발매"
-              {...register("title", { required: "제목을 입력해주세요" })}
-            />
-            <FieldError errors={[errors.title]} />
-          </div>
+          <LabeledField label="제목" htmlFor="title" error={errors.title?.message}>
+            {(control) => <Input {...control} placeholder="예) 데뷔 1주년 / 신곡 발매"
+              {...register("title", { required: "제목을 입력해주세요" })} />}
+          </LabeledField>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <FieldLabel htmlFor="date">기준 날짜</FieldLabel>
-              {watch("type") === "birthday" ? <Input id="date" aria-label="생일 월-일" placeholder="09-06" value={watch("date").slice(5)} onChange={(event) => setValue("date", `${watch("date").slice(0,4) || "9999"}-${event.target.value}`, {shouldDirty: true})} pattern="[0-9]{2}-[0-9]{2}" required /> : <Input id="date" type="date" {...register("date", { required: "날짜를 입력해주세요" })}/>}
-              <p className="text-xs text-muted-foreground">
-                연간 반복 시에도 월/일 정보를 기준으로 사용합니다.
-              </p>
-              <FieldError errors={[errors.date]} />
-            </div>
+            <LabeledField label={watch("type") === "birthday" ? "생일 월-일" : "기준 날짜"} htmlFor="date"
+              error={errors.date?.message} description="연간 반복 시에도 월/일 정보를 기준으로 사용합니다.">
+              {(control) => watch("type") === "birthday"
+                ? <Input {...control} placeholder="09-06" value={watch("date").slice(5)} onChange={(event) => setValue("date", `${watch("date").slice(0,4) || "9999"}-${event.target.value}`, {shouldDirty: true})} pattern="[0-9]{2}-[0-9]{2}" required />
+                : <Input {...control} type="date" {...register("date", { required: "날짜를 입력해주세요" })} />}
+            </LabeledField>
             <div className="space-y-2">
               <FieldLabel htmlFor="color-0">포인트 색상</FieldLabel>
               <div className="space-y-2">

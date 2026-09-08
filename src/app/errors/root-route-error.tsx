@@ -1,3 +1,4 @@
+import { Button } from "@/shared/ui/button";
 import { useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import type { ErrorComponentProps } from "@tanstack/react-router";
@@ -19,19 +20,19 @@ export const RootRouteError = ({ error, reset }: ErrorComponentProps) => {
           잠시 후 다시 시도해 주세요. 문제가 계속되면 홈으로 이동해 주세요.
         </p>
         <div className="mt-6 flex justify-center gap-3">
-          <button
+          <Button
             type="button"
             onClick={reset}
             className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
           >
             다시 시도
-          </button>
-          <Link
+          </Button>
+          <Button asChild variant="outline"><Link
             to="/"
             className="rounded-md border px-4 py-2 text-sm"
           >
             홈으로 이동
-          </Link>
+          </Link></Button>
         </div>
       </section>
     </main>

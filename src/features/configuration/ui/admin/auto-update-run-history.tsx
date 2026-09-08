@@ -9,15 +9,18 @@ const formatDateTime = (value: number | null) =>
 
 export function AutoUpdateRunHistory({
   status,
+  standalone = false,
 }: {
   status: OperationsStatusResponse | undefined;
+  standalone?: boolean;
 }) {
   const runs = status?.autoUpdate.recentRuns ?? [];
   return (
     <section
       id="auto-update-panel-runs"
-      role="tabpanel"
-      aria-labelledby="auto-update-tab-runs"
+      role={standalone ? "region" : "tabpanel"}
+      aria-label={standalone ? "실행 기록" : undefined}
+      aria-labelledby={standalone ? undefined : "auto-update-tab-runs"}
       className="space-y-4"
     >
       <div>

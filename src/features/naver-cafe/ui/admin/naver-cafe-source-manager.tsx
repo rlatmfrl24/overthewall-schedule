@@ -35,7 +35,7 @@ import {
   fetchNaverCafeSources,
   updateNaverCafeSource,
 } from "../../api/naver-cafe-api";
-import { ConfirmActionDialog } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   NaverCafeSourceFormDialog,

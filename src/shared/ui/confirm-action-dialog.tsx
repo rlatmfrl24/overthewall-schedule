@@ -21,6 +21,7 @@ interface ConfirmActionDialogProps {
   isProcessing?: boolean;
   confirmDisabled?: boolean;
   destructive?: boolean;
+  restoreFocusTo?: HTMLElement | null;
 }
 
 export function ConfirmActionDialog({
@@ -34,10 +35,14 @@ export function ConfirmActionDialog({
   isProcessing = false,
   confirmDisabled = false,
   destructive = false,
+  restoreFocusTo,
 }: ConfirmActionDialogProps) {
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+    <AlertDialog open={open} onOpenChange={(next) => { if (!isProcessing) onOpenChange(next); }}>
+      <AlertDialogContent onCloseAutoFocus={restoreFocusTo ? (event) => {
+        event.preventDefault();
+        if (restoreFocusTo.isConnected) restoreFocusTo.focus();
+      } : undefined}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {typeof description === "string" ? (

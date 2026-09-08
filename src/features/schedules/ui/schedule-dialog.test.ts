@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -148,6 +149,23 @@ describe("ScheduleDialog", () => {
     expect(screen.getByRole("button", { name: "방송" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "휴방" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "게릴라" })).toBeTruthy();
+  });
+
+  it("닫기 취소 시 편집 내용을 보존하고 원래 값으로 복구하면 확인 없이 닫는다", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    render(React.createElement(UnsavedChangesContext.Provider, { value: { register: vi.fn(), confirm } },
+      React.createElement(ScheduleDialog, { open: true, schedule, members: [member], onSubmit: vi.fn(), onOpenChange })));
+    const input = screen.getByDisplayValue("테스트 방송");
+    fireEvent.change(input, { target: { value: "보존할 제목" } });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect((input as HTMLInputElement).value).toBe("보존할 제목");
+    fireEvent.change(input, { target: { value: "테스트 방송" } });
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(confirm).toHaveBeenCalledOnce();
   });
 
   it("수정 모드에서는 미정 상태를 숨기고 삭제 액션을 명확히 표시한다", () => {

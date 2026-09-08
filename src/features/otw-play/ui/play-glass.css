@@ -3,6 +3,8 @@
   --foreground: #20232b;
   --card: #ffffff;
   --card-foreground: #20232b;
+  --popover: var(--card);
+  --popover-foreground: var(--card-foreground);
   --muted: #eef0f4;
   --muted-foreground: #5d626f;
   --border: #dce0e7;
@@ -27,6 +29,8 @@
   --foreground: #f4f4f7;
   --card: #1b1d25;
   --card-foreground: #f4f4f7;
+  --popover: var(--card);
+  --popover-foreground: var(--card-foreground);
   --muted: #252832;
   --muted-foreground: #b0b4c2;
   --border: #363946;

@@ -5,6 +5,8 @@ import { YouTubeVideoCard } from "./youtube-video-card";
 import { cn } from "@/shared/lib/utils";
 import { ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { Button } from "@/shared/ui/button";
+import type { ReactNode } from "react";
+import { QueryState } from "@/shared/ui/query-state";
 import {
   Dialog,
   DialogContent,
@@ -120,6 +122,7 @@ interface YouTubePlaylistProps {
   members: MemberDto[];
   variant?: "default" | "short";
   emptyMessage?: string;
+  emptyState?: ReactNode;
   isKirinuki?: boolean;
   kirinukiChannels?: KirinukiChannelInfo[];
   layout?: "carousel" | "feed-grid" | "shorts-grid";
@@ -131,6 +134,7 @@ export const YouTubePlaylist = ({
   members,
   variant = "default",
   emptyMessage = "동영상이 없습니다.",
+  emptyState,
   isKirinuki = false,
   kirinukiChannels: providedKirinukiChannels,
   layout = "carousel",
@@ -246,9 +250,7 @@ export const YouTubePlaylist = ({
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-center py-8 text-muted-foreground">
-          {emptyMessage}
-        </div>
+        {emptyState ?? <QueryState state="empty" title={emptyMessage} headingLevel={3} />}
       </div>
     );
   }

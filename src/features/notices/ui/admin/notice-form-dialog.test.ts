@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { UnsavedChangesContext } from "@/shared/lib/unsaved-changes";
 import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -58,6 +59,17 @@ describe("NoticeFormDialog", () => {
     const fileInput = screen.getByLabelText("공지 이미지 파일") as HTMLInputElement;
     expect(fileInput.multiple).toBe(true);
     expect(fileInput.accept).toBe(NOTICE_THUMBNAIL_ACCEPT);
+  });
+
+  it("필수 입력 오류를 해당 입력의 접근성 설명과 연결하고 저장을 차단한다", async () => {
+    const onSubmit = vi.fn();
+    render(createElement(NoticeFormDialog, { open: true, onOpenChange: vi.fn(), onSubmit, members }));
+    fireEvent.click(screen.getByRole("button", { name: "공지 등록" }));
+    const error = await screen.findByText("내용을 입력해주세요.");
+    const input = screen.getByRole("textbox", { name: "내용" });
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("loads and reorders existing links and images", async () => {
@@ -210,12 +222,12 @@ describe("NoticeFormDialog", () => {
   });
 
   it("cleans up every newly uploaded image only after confirming cancellation", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     uploadNoticeThumbnailMock
       .mockResolvedValueOnce({ thumbnail_url: "/one.webp" })
       .mockResolvedValueOnce({ thumbnail_url: "/two.webp" });
     const onOpenChange = vi.fn();
-    render(createElement(NoticeFormDialog, { open: true, onOpenChange, onSubmit: vi.fn(), members: [] }));
+    render(createElement(UnsavedChangesContext.Provider, { value: { register: vi.fn(), confirm } }, createElement(NoticeFormDialog, { open: true, onOpenChange, onSubmit: vi.fn(), members: [] })));
     const files = [
       new File(["1"], "one.png", { type: "image/png" }),
       new File(["2"], "two.png", { type: "image/png" }),

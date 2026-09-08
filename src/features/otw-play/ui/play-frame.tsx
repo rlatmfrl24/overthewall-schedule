@@ -1,3 +1,4 @@
+import { SectionNavigation } from "@/shared/ui/section-navigation";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown, ListPlus, ListTodo, Music2 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -63,6 +64,7 @@ function OtwPlayHeader({
       <div className="grid h-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 sm:px-5 lg:gap-5 lg:px-6">
         <Link
           to="/play"
+          aria-label="OTW Play 홈"
           className="play-wordmark flex shrink-0 items-center gap-2 font-bold"
         >
           <Music2 className="size-5" />
@@ -72,7 +74,7 @@ function OtwPlayHeader({
         <div className="flex min-w-0 items-center justify-end gap-2">
           {status}
           {showCatalogTabs ? (
-            <nav aria-label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
+            <SectionNavigation label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
               {catalogTabs.map((tab) => (
                 <Link
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
@@ -92,7 +94,7 @@ function OtwPlayHeader({
                   {tab.label}
                 </Link>
               ))}
-            </nav>
+            </SectionNavigation>
           ) : null}
           <SubmissionMenu active={submissionActive} />
         </div>

@@ -1,3 +1,5 @@
+import { Textarea } from "@/shared/ui/textarea";
+import { TabsList } from "@/shared/ui/tabs-list";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -69,10 +71,8 @@ import {
 } from "../../model/settings-config";
 import { roundTimeToNearestScheduleHalfHour } from "@/features/schedules";
 import { cn } from "@/shared/lib/utils";
-import {
-  AdminSectionHeader,
-  ConfirmActionDialog,
-} from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { queryKeys } from "@/shared/query/query-keys";
 import { ScheduleRejectionsPanel } from "./schedule-rejections-panel";
 import { AutoUpdateRunHistory } from "./auto-update-run-history";
@@ -1163,27 +1163,8 @@ export function AutoUpdateSettingsManager({
         }
       />
 
-      <div
-        role="tablist"
-        aria-label="자동 일정 업데이트 관리"
-        className={controlledActiveTab ? "hidden" : "flex overflow-x-auto rounded-lg border bg-muted/25 p-1"}
-      >
-        {!controlledActiveTab && AUTO_UPDATE_TABS.map((tab) => (
-          <Button
-            key={tab.value}
-            id={`auto-update-tab-${tab.value}`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.value}
-            aria-controls={`auto-update-panel-${tab.value}`}
-            variant={activeTab === tab.value ? "default" : "ghost"}
-            className="shrink-0"
-            onClick={() => setActiveTab(tab.value)}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
+      {!controlledActiveTab && <TabsList value={activeTab} onValueChange={setActiveTab} label="자동 일정 업데이트 관리"
+        items={AUTO_UPDATE_TABS.map((tab) => ({ ...tab, id: `auto-update-tab-${tab.value}`, panelId: `auto-update-panel-${tab.value}` }))} />}
 
       <Card className="gap-0 overflow-hidden py-0! shadow-sm">
         <CardContent className="grid grid-cols-2 gap-px bg-border p-0! [&>div]:bg-card lg:grid-cols-4">
@@ -1224,8 +1205,9 @@ export function AutoUpdateSettingsManager({
           {activeTab === "settings" ? (
           <div
             id="auto-update-panel-settings"
-            role="tabpanel"
-            aria-labelledby="auto-update-tab-settings"
+            role={controlledActiveTab ? "region" : "tabpanel"}
+            aria-label={controlledActiveTab ? "일정 수집 설정" : undefined}
+            aria-labelledby={controlledActiveTab ? undefined : "auto-update-tab-settings"}
             className="grid auto-rows-fr gap-2 rounded-lg border bg-card p-2 md:grid-cols-2 md:items-stretch xl:grid-cols-[minmax(180px,1fr)_minmax(180px,1fr)_minmax(160px,220px)_minmax(160px,220px)]"
           >
             <div className="flex h-full min-h-12 items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2">
@@ -1288,7 +1270,7 @@ export function AutoUpdateSettingsManager({
                 onValueChange={handleIntervalChange}
                 disabled={isSaving}
               >
-                <SelectTrigger size="sm" className="flex-1">
+                <SelectTrigger aria-label="자동 업데이트 주기" size="sm" className="flex-1">
                   <SelectValue placeholder="주기 선택" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1311,7 +1293,7 @@ export function AutoUpdateSettingsManager({
                 onValueChange={handleRangeChange}
                 disabled={isSaving}
               >
-                <SelectTrigger size="sm" className="flex-1">
+                <SelectTrigger aria-label="일정 수집 범위" size="sm" className="flex-1">
                   <SelectValue placeholder="범위 선택" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1356,8 +1338,9 @@ export function AutoUpdateSettingsManager({
           {activeTab === "review" ? (
             <section
               id="auto-update-panel-review"
-              role="tabpanel"
-              aria-labelledby="auto-update-tab-review"
+              role={controlledActiveTab ? "region" : "tabpanel"}
+              aria-label={controlledActiveTab ? "일정 승인" : undefined}
+              aria-labelledby={controlledActiveTab ? undefined : "auto-update-tab-review"}
               className="space-y-4"
             >
               <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -1907,7 +1890,7 @@ export function AutoUpdateSettingsManager({
                                       pending.same_day_schedules.length === 0
                                     }
                                   >
-                                    <SelectTrigger size="sm" className="w-full">
+                                    <SelectTrigger aria-label="수정할 기존 일정" size="sm" className="w-full">
                                       <SelectValue placeholder="수정 대상" />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -1990,11 +1973,11 @@ export function AutoUpdateSettingsManager({
           ) : null}
 
           {activeTab === "rejections" ? (
-            <ScheduleRejectionsPanel />
+            <ScheduleRejectionsPanel standalone={Boolean(controlledActiveTab)} />
           ) : null}
 
           {activeTab === "runs" ? (
-            <AutoUpdateRunHistory status={operationsQuery.data} />
+            <AutoUpdateRunHistory standalone={Boolean(controlledActiveTab)} status={operationsQuery.data} />
           ) : null}
 
           {activeTab === "runs" && lastRunResult ? (
@@ -2145,7 +2128,7 @@ export function AutoUpdateSettingsManager({
                   {rejectionReasonNote.length}/500
                 </span>
               </div>
-              <textarea
+              <Textarea
                 id="pending-rejection-note"
                 value={rejectionReasonNote}
                 maxLength={500}

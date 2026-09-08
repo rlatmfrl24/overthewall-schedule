@@ -215,6 +215,19 @@ describe("DailySchedule", () => {
     ).toBeNull();
   });
 
+  it("보기 전환을 이름 있는 기본 버튼으로 제공하고 날짜 이동을 유지한다", () => {
+    render(createElement(DailySchedule), { wrapper: createQueryWrapper() });
+    const toggle = screen.getByRole("button", { name: "시간순 보기 전환" });
+    expect(toggle.tagName).toBe("BUTTON");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("heading", { name: "오늘의 편성표" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "그리드 뷰 전환" }));
+    expect(screen.getByRole("heading", { name: "오늘의 스케쥴" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "오늘로 이동" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "이전 날짜로 이동" }));
+    expect(screen.getByRole("button", { name: "오늘로 이동" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("비방송 일정도 기존처럼 편집 다이얼로그를 연다", async () => {
     setLiveStatus("CLOSE");
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);

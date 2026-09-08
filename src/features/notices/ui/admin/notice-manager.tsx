@@ -39,7 +39,8 @@ import {
 } from "../../api/notices";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useToast } from "@/shared/ui/toast";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { getOwnedNoticeThumbnailKey } from "../../model/notice-thumbnails";
 import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import type { NoticeThumbnailStatusResponse } from "../../model/types";
@@ -451,7 +452,7 @@ export function NoticeManager({ view = "content" }: { view?: "content" | "resour
               value={noticeSort}
               onValueChange={(value) => setNoticeSort(value as NoticeSortKey)}
             >
-              <SelectTrigger size="sm" className="w-[150px]">
+              <SelectTrigger aria-label="공지 정렬" size="sm" className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -1,3 +1,4 @@
+import { TabsList } from "@/shared/ui/tabs-list";
 import { openXSettings } from "./x-settings-navigation";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useCallback, useEffect, useState } from "react";
@@ -1013,37 +1014,11 @@ export function MemberPostSettingsManager({
         }
       />
 
-      <div
-        role="tablist"
-        aria-label="멤버 게시글 수집 소스"
-        className={controlledActiveSource ? "hidden" : "grid grid-cols-2 gap-1 rounded-lg border bg-muted/25 p-1"}
-      >
-        {!controlledActiveSource && SOURCE_TABS.map((tab) => {
-          const active = activeSource === tab.value;
-          return (
-            <Button
-              key={tab.value}
-              id={`member-post-tab-${tab.value}`}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={`member-post-panel-${tab.value}`}
-              variant={active ? "default" : "ghost"}
-              className="h-9 justify-center gap-2 px-3 text-center"
-              onClick={() => setActiveSource(tab.value)}
-            >
-              <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", active ? "bg-background/15" : "bg-background")}>
-                {tab.value === "x" ? (
-                  <img src={IconX} alt="" className="h-4 w-4" />
-                ) : (
-                  <Coffee className="h-4 w-4 text-emerald-600" />
-                )}
-              </span>
-              <span className="truncate text-sm font-semibold">{tab.label}</span>
-            </Button>
-          );
-        })}
-      </div>
+      {!controlledActiveSource && <TabsList value={activeSource} onValueChange={setActiveSource} label="멤버 게시글 수집 소스"
+        items={SOURCE_TABS.map((tab) => ({ value: tab.value, id: `member-post-tab-${tab.value}`, panelId: `member-post-panel-${tab.value}`,
+          label: <><span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-background">
+            {tab.value === "x" ? <img src={IconX} alt="" className="size-4" /> : <Coffee className="size-4 text-emerald-600" />}
+          </span>{tab.label}</> }))} />}
 
       {isFetching && !settings ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -1053,8 +1028,9 @@ export function MemberPostSettingsManager({
       ) : (
         <div
           id={`member-post-panel-${activeSource}`}
-          role="tabpanel"
-          aria-labelledby={`member-post-tab-${activeSource}`}
+          role={controlledActiveSource ? "region" : "tabpanel"}
+          aria-label={controlledActiveSource ? SOURCE_TABS.find((tab) => tab.value === activeSource)?.label : undefined}
+          aria-labelledby={controlledActiveSource ? undefined : `member-post-tab-${activeSource}`}
           className="space-y-3"
         >
           {activeSource === "x" ? (

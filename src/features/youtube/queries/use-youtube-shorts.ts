@@ -132,7 +132,12 @@ export const useYouTubeShorts = (
       query.error && shorts.length === 0
         ? "YouTube Shorts를 불러오는데 실패했습니다."
         : null,
+    refreshError:
+      query.error && shorts.length > 0
+        ? "Shorts 목록을 갱신하지 못했습니다."
+        : null,
     hasLoaded: enabled ? query.isFetched : true,
     loadMore,
+    retry: refetch,
   };
 };

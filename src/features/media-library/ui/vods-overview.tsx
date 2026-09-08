@@ -1,3 +1,4 @@
+import { Button } from "@/shared/ui/button";
 import { useState, useMemo } from "react";
 import { ContentPageShell } from "@/shared/ui/content-page-shell";
 import { useScheduleData } from "@/features/schedule-board";
@@ -10,7 +11,7 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { Scissors, Video } from "lucide-react";
 import { KirinukiSection, YouTubeSection } from "@/features/youtube";
-import { MemberFilterChips } from "./member-filter-chips";
+import { MemberFilter } from "@/features/members";
 import IconYoutube from "@/assets/icon_youtube.svg";
 import IconChzzk from "@/assets/icon_chzzk.png";
 
@@ -124,7 +125,7 @@ const MediaTabSwitcher = ({
       const isActive = activeTab === tab.value;
 
       return (
-        <button
+        <Button variant="ghost"
           key={tab.value}
           type="button"
           onClick={() => onTabChange(tab.value)}
@@ -139,7 +140,7 @@ const MediaTabSwitcher = ({
         >
           {renderTabIcon(tab.icon, isActive)}
           <span className="truncate">{tab.label}</span>
-        </button>
+        </Button>
       );
     })}
   </div>
@@ -201,7 +202,7 @@ export const VodsOverview = () => {
       }
     >
       {activeTab === "official-youtube" && (
-        <MemberFilterChips
+        <MemberFilter
           members={membersWithYouTube}
           selectedUids={youtubeMemberFilter}
           onChange={setYoutubeMemberFilter}

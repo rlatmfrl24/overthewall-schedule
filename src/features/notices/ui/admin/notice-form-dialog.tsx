@@ -1,3 +1,4 @@
+import { LabeledField } from "@/shared/ui/labeled-field";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import {
   useEffect,
@@ -30,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { FieldError, FieldLabel } from "@/shared/ui/field";
+import { FieldLabel } from "@/shared/ui/field";
 import { Input } from "@/shared/ui/input";
 import {
   Select,
@@ -372,16 +373,10 @@ export function NoticeFormDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit(submit)} onPaste={handlePaste} className="space-y-6 py-4">
-          <div className="space-y-2">
-            <FieldLabel htmlFor="content">내용</FieldLabel>
-            <Textarea
-              id="content"
-              className="min-h-[110px] resize-none"
-              placeholder="공지 내용을 입력하세요"
-              {...register("content", { required: "내용을 입력해주세요." })}
-            />
-            <FieldError errors={[errors.content]} />
-          </div>
+          <LabeledField label="내용" htmlFor="content" error={errors.content?.message}>
+            {(control) => <Textarea {...control} className="min-h-[110px] resize-none"
+              placeholder="공지 내용을 입력하세요" {...register("content", { required: "내용을 입력해주세요." })} />}
+          </LabeledField>
 
           <section className="space-y-3 rounded-lg border p-4">
             <div className="flex items-center justify-between gap-3">
@@ -405,25 +400,12 @@ export function NoticeFormDialog({
               <div className="space-y-2">
                 {linkFields.map((field, index) => (
                   <div key={field.id} className="grid gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-[minmax(0,.7fr)_minmax(0,1.3fr)_auto]">
-                    <div>
-                      <Input
-                        aria-label={`링크 ${index + 1} 이름`}
-                        placeholder="링크 이름"
-                        {...register(`links.${index}.label`, { required: "링크 이름이 필요합니다." })}
-                      />
-                      <FieldError errors={[errors.links?.[index]?.label]} />
-                    </div>
-                    <div>
-                      <Input
-                        aria-label={`링크 ${index + 1} URL`}
-                        placeholder="https://..."
-                        {...register(`links.${index}.url`, {
-                          required: "링크 URL이 필요합니다.",
-                          validate: (value) => isValidHttpUrl(value) || "HTTP(S) URL을 입력해주세요.",
-                        })}
-                      />
-                      <FieldError errors={[errors.links?.[index]?.url]} />
-                    </div>
+                    <LabeledField label={`링크 ${index + 1} 이름`} hideLabel error={errors.links?.[index]?.label?.message}>
+                      {(control) => <Input {...control} placeholder="링크 이름" {...register(`links.${index}.label`, { required: "링크 이름이 필요합니다." })} />}
+                    </LabeledField>
+                    <LabeledField label={`링크 ${index + 1} URL`} hideLabel error={errors.links?.[index]?.url?.message}>
+                      {(control) => <Input {...control} placeholder="https://..." {...register(`links.${index}.url`, { required: "링크 URL이 필요합니다.", validate: (value) => isValidHttpUrl(value) || "HTTP(S) URL을 입력해주세요." })} />}
+                    </LabeledField>
                     <div className="flex gap-1">
                       <Button type="button" variant="ghost" size="icon-sm" aria-label={`링크 ${index + 1} 위로 이동`} disabled={index === 0} onClick={() => move(index, index - 1)}><ChevronUp className="h-4 w-4" /></Button>
                       <Button type="button" variant="ghost" size="icon-sm" aria-label={`링크 ${index + 1} 아래로 이동`} disabled={index === linkFields.length - 1} onClick={() => move(index, index + 1)}><ChevronDown className="h-4 w-4" /></Button>
@@ -490,9 +472,9 @@ export function NoticeFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <FieldLabel>유형</FieldLabel>
+              <FieldLabel htmlFor="notice-type">유형</FieldLabel>
               <Select value={watch("type")} onValueChange={(value) => setValue("type", value as NoticeTypeKey, { shouldDirty: true })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="notice-type"><SelectValue /></SelectTrigger>
                 <SelectContent>{Object.entries(noticeTypeConfigs).map(([value, config]) => <SelectItem key={value} value={value}>{config.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -509,7 +491,7 @@ export function NoticeFormDialog({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div><FieldLabel htmlFor="started_at">시작일</FieldLabel><Input id="started_at" type="date" {...register("started_at")} /></div>
-              <div><FieldLabel htmlFor="ended_at">종료일</FieldLabel><Input id="ended_at" type="date" {...register("ended_at")} /><FieldError errors={[errors.ended_at]} /></div>
+              <LabeledField label="종료일" htmlFor="ended_at" error={errors.ended_at?.message}>{(control) => <Input {...control} type="date" {...register("ended_at")} />}</LabeledField>
             </div>
           </div>
 

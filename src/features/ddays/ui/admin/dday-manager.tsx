@@ -40,7 +40,8 @@ import {
   updateDDay,
 } from "../../api/ddays";
 import { useToast } from "@/shared/ui/toast";
-import { AdminSectionHeader, ConfirmActionDialog } from "@/app/admin";
+import { AdminSectionHeader } from "@/app/admin";
+import { ConfirmActionDialog } from "@/shared/ui/confirm-action-dialog";
 import { QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import { invalidateDDayConsumers } from "../../queries/invalidate-dday-consumers";
@@ -200,7 +201,7 @@ export function DDayManager() {
               value={ddaySort}
               onValueChange={(value) => setDDaySort(value as DDaySortKey)}
             >
-              <SelectTrigger size="sm" className="w-[150px]">
+              <SelectTrigger aria-label="D-Day 정렬" size="sm" className="w-[150px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

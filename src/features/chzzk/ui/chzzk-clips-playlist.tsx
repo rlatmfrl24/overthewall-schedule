@@ -1,9 +1,10 @@
+import { MemberFilter } from "@/features/members";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import type { MemberDto } from "@contracts/members";
 import type { ChzzkClip } from "../model/types";
 import { ClipCard } from "./clip-card";
 import { groupClipsByDate } from "../model/clip-date-groups";
-import { cn, getContrastColor } from "@/shared/lib/utils";
+import { cn } from "@/shared/lib/utils";
 import { CalendarDays, ChevronDown, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/shared/ui/skeleton";
 
@@ -16,79 +17,6 @@ interface ChzzkClipsPlaylistProps {
   loading?: boolean;
   emptyMessage?: string;
 }
-
-// ============ 멤버 필터 칩 (내부용) ============
-
-interface ClipsMemberFilterProps {
-  members: MemberDto[];
-  selectedUids: number[] | null;
-  onChange: (uids: number[] | null) => void;
-}
-
-const ClipsMemberFilter = ({
-  members,
-  selectedUids,
-  onChange,
-}: ClipsMemberFilterProps) => {
-  const isAllSelected = selectedUids === null || selectedUids.length === 0;
-
-  const handleAllClick = () => onChange(null);
-
-  const handleMemberClick = (uid: number) => {
-    if (!isAllSelected && selectedUids?.includes(uid)) {
-      onChange(null);
-    } else {
-      onChange([uid]);
-    }
-  };
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        data-clip-member-filter-chip="all"
-        onClick={handleAllClick}
-        className={cn(
-          "px-3 py-1.5 rounded-full text-sm font-medium border-2",
-          "transition-all duration-200 ease-out hover:scale-105",
-          isAllSelected
-            ? "bg-primary text-primary-foreground border-primary shadow-sm"
-            : "bg-transparent text-muted-foreground border-border hover:border-primary/50",
-        )}
-      >
-        전체
-      </button>
-      {members.map((member) => {
-        const isSelected = selectedUids?.includes(member.uid);
-        const mainColor = member.main_color || "#6366f1";
-        const textColor = isSelected ? getContrastColor(mainColor) : mainColor;
-
-        return (
-          <button
-            key={member.uid}
-            data-clip-member-filter-chip="member"
-            data-member-uid={member.uid}
-            onClick={() => handleMemberClick(member.uid)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border-2",
-              "transition-all duration-200 ease-out hover:scale-105",
-              isSelected && "shadow-sm",
-            )}
-            style={{
-              backgroundColor: isSelected ? mainColor : "transparent",
-              borderColor: mainColor,
-              color: textColor,
-            }}
-          >
-            {member.oshi_mark && (
-              <span className="text-xs">{member.oshi_mark}</span>
-            )}
-            {member.name}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
 
 export const ChzzkClipsPlaylist = ({
   clips,
@@ -183,7 +111,7 @@ export const ChzzkClipsPlaylist = ({
 
   return (
     <div className="space-y-5">
-      <ClipsMemberFilter
+      <MemberFilter
         members={membersWithClips}
         selectedUids={selectedMemberUids}
         onChange={setSelectedMemberUids}

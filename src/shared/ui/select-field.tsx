@@ -2,7 +2,7 @@ import type { ComponentProps } from "react"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select"
 
-type SelectFieldProps = Pick<ComponentProps<typeof SelectTrigger>, "id" | "aria-label" | "aria-labelledby" | "aria-invalid" | "className" | "size" | "disabled"> & {
+type SelectFieldProps = Pick<ComponentProps<typeof SelectTrigger>, "id" | "aria-label" | "aria-labelledby" | "aria-describedby" | "aria-invalid" | "className" | "size" | "disabled"> & {
   value: string
   onValueChange: (value: string) => void
   options: readonly { value: string; label: string }[]

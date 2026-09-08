@@ -128,23 +128,6 @@
   }
 }
 
-@keyframes ripple {
-  to {
-    transform: scale(4);
-    opacity: 0;
-  }
-}
-
-.ripple {
-  position: absolute;
-  border-radius: 9999px;
-  transform: scale(0);
-  animation: ripple 600ms ease-out;
-  background-color: currentColor;
-  opacity: 0.25;
-  pointer-events: none;
-}
-
 /* Admin console: scoped density; public surfaces keep their own rhythm. */
 .admin-console { font-size: 14px; --admin-header-height: 56px; --admin-content-padding: 12px; }
 @media (min-width: 768px) { .admin-console { --admin-content-padding: 20px; } }
@@ -186,7 +169,10 @@
   .admin-console :is(input,select,a[data-slot="button"]) { min-height: 44px; }
 }
 
-/* Dialogs render in portals outside the shell; keep admin touch targets there too. */
+/* Shared overlay controls keep mobile touch targets inside their own scope. */
 @media (max-width: 767px) {
-  body:has(.admin-console) :is([role="dialog"], [role="alertdialog"]) :is(button,input,select,[role="combobox"]) { min-height: 44px; }
+  :is([data-slot="dialog-content"], [data-slot="alert-dialog-content"]).admin-console :is(button,input,select,[role="combobox"]) { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"] { animation: none !important; transition: none !important; }
 }

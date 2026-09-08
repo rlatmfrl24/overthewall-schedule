@@ -10,4 +10,5 @@ export type {
 } from "./model/member";
 export { useMemberProfile } from "./queries/use-member-profile";
 export { MemberProfilePage } from "./ui/member-profile-page";
+export { MemberFilter } from "./ui/member-filter";
 export { buildProfileBackgroundImageSourceSets } from "./model/profile-background-images";

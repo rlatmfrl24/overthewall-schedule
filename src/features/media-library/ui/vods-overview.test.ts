@@ -64,10 +64,10 @@ vi.mock("@/features/youtube", async () => {
   };
 });
 
-vi.mock("./member-filter-chips", async () => {
+vi.mock("@/features/members", async () => {
   const ReactModule = await import("react");
   return {
-    MemberFilterChips: ({
+    MemberFilter: ({
       members,
       selectedUids,
       onChange,

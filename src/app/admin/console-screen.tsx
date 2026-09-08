@@ -1,3 +1,5 @@
+import { Link } from "@tanstack/react-router";
+import { SectionNavigation, sectionNavigationItemClassName } from "@/shared/ui/section-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/shared/query/query-keys";
 import { xReferenceHealthQueryKey } from "@/features/member-posts";
@@ -33,7 +35,8 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
     : area === "otw-play" && search.tab === "source-health" ? "operations"
     : search.tab;
   const tab = tabs[area].some(([key]) => key === wanted) ? wanted! : tabs[area][0][0];
-  const select = (next: string) => update({ ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, proposal: undefined, from: undefined, until: undefined }, false);
+  const searchForTab = (next: string) => ({ ...search, ...(area === "collection" ? { source: next } : { tab: next, source: undefined }), sort: undefined, pageSize: undefined, q: undefined, state: undefined, category: undefined, page: undefined, selected: undefined, proposal: undefined, from: undefined, until: undefined });
+  const select = (next: string) => update(searchForTab(next), false);
   let content;
   if (area === "review") {
     content = <AutoUpdateSettingsManager activeTab={tab === "schedule" ? "review" : "rejections"} />;
@@ -49,5 +52,10 @@ export function ConsoleScreen({ area }: { area: ConsoleArea }) {
   } else {
     content = tab === "media" ? <NoticeManager view="resources" /> : <><ResourceBudgets /><OperationsDashboard view="resources" onRefresh={() => { void queryClient.refetchQueries({queryKey: xReferenceHealthQueryKey, type: "active"}); void queryClient.refetchQueries({queryKey: queryKeys.youtubeCache.all, type: "active"}); }} /></>;
   }
-  return <div className={area === "otw-play" ? "otw-play-console min-w-0 space-y-3" : "space-y-3"}><nav aria-label="업무 선택" className="console-tabs flex items-center gap-1 overflow-x-auto border-b">{tabs[area].map(([key, label]) => <button key={key} aria-current={tab === key ? "page" : undefined} className={`shrink-0 rounded-md px-3 py-2 text-sm ${tab === key ? "bg-primary text-primary-foreground font-semibold" : "hover:bg-muted text-muted-foreground"}`} onClick={() => select(key)}>{label}</button>)}</nav><div key={tab}>{content}</div></div>;
+  return <div className={area === "otw-play" ? "otw-play-console min-w-0 space-y-3" : "space-y-3"}>
+    <SectionNavigation label="업무 선택" className="console-tabs">
+      {tabs[area].map(([key, label]) => <Link key={key} to="." search={searchForTab(key)} resetScroll={false}
+        aria-current={tab === key ? "page" : undefined} className={sectionNavigationItemClassName}>{label}</Link>)}
+    </SectionNavigation><div key={tab}>{content}</div>
+  </div>;
 }
