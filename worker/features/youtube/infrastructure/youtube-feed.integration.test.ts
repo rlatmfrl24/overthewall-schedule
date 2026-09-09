@@ -87,7 +87,7 @@ beforeEach(async () => {
     database.prepare("DELETE FROM scheduled_usage_daily"),
     database.prepare("DELETE FROM kirinuki_channels"),
     database.prepare("DELETE FROM members"),
-    database.prepare("DELETE FROM settings"),
+    database.prepare("DELETE FROM settings WHERE key <> 'youtube_api_daily_quota_units'"),
     database.prepare("INSERT INTO settings (key, value) VALUES ('youtube_feed_enabled', 'true')"),
     database.prepare("INSERT INTO members (uid, code, name, youtube_channel_id) VALUES (1, 'one', 'One', ?)").bind(channelId),
   ]);

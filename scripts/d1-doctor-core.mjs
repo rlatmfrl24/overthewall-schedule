@@ -1,4 +1,5 @@
 export const REQUIRED_D1_COLUMNS = {
+  pending_schedules: ["id", "vod_started_at", "vod_duration_seconds", "vod_thumbnail_url", "processed_reset_at"],
   members: ["uid", "code", "name", "youtube_channel_id", "is_deprecated"],
   ddays: ["id", "title", "date", "type", "created_at"],
   music_entities: [
@@ -446,6 +447,16 @@ export const getOtwPlaySubmissionDailyLimitStatus = (rows) => {
   }
 
   return { ok: true, message: `daily limit=${parsed}` };
+};
+
+export const getYouTubeDailyQuotaStatus = (rows) => {
+  const value = rows?.[0]?.value;
+  const valid = Array.isArray(rows) && rows.length === 1 &&
+    typeof value === "string" && /^\d+$/.test(value.trim()) &&
+    Number.isSafeInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 10_000;
+  return valid
+    ? { ok: true, message: `YouTube canonical quota=${Number(value)}` }
+    : { ok: false, message: "youtube_api_daily_quota_units is missing or invalid (expected integer 1..10000)" };
 };
 
 export const getMigrationListStatus = (output) => {

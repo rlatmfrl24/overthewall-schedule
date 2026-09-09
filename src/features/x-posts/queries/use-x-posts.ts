@@ -1,11 +1,10 @@
-import { useCallback, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMembersXPosts } from "../api/x-posts-api";
 import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import type { MemberDto } from "@contracts/members";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
+import { fetchMembersXPosts } from "../api/x-posts-api";
 import type { XPostViewModel, XPostsByHandleViewModel } from "../model/types";
-import { filterXPostsByMembers } from "../model/filter-x-posts";
 
 interface UseXPostsReturn {
   posts: XPostViewModel[];
@@ -87,14 +86,4 @@ export function useXPosts(
     hasLoaded: queryEnabled ? query.isFetched : members.length === 0 && enabled,
     reload,
   };
-}
-
-export function useFilteredXPosts(
-  posts: XPostViewModel[],
-  selectedMemberUids: number[] | null,
-) {
-  return useMemo(
-    () => filterXPostsByMembers(posts, selectedMemberUids),
-    [posts, selectedMemberUids],
-  );
 }

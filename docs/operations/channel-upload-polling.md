@@ -23,6 +23,8 @@ Sources: [playlistItems.list](https://developers.google.com/youtube/v3/docs/play
 
 ## Retirement boundaries
 
+Physical resource removal follows the [49-hour drain and rollback procedure](retired-implementation-cleanup.md#websub-리소스-후속-제거). The earliest removal time is 2026-09-11 09:30:12.91995 KST; two zero-backlog observations at least 15 minutes apart and deployed consumer detachment are required before deletion. Hub unsubscribe acknowledgement is not a prerequisite.
+
 - Remove the Hub client, subscription service, WebSub repository, crypto/feed parser, producer binding and subscription controls.
 - Stop both `websub_maintenance` and the redundant daily `recent_reconcile`. Old job types remain readable in execution history, labeled retired; new manual runs and retries return authenticated HTTP 410. Previously dispatched items skip without Hub or YouTube calls.
 - Exact legacy callback GET/POST routes return 410 without D1 queries, payload parsing, challenge confirmation or new messages. Old admin subscription commands retain authentication and return 410.

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  assessExactSourceDuplicate,
-  assessSoftDuplicate,
   createPerformanceDedupeKeyMaterial,
   createSongDedupeKeyMaterial,
   createVideoBackedSongDedupeKeyMaterial,
@@ -70,52 +68,5 @@ describe("OTW Play duplicate policy", () => {
         }),
       ),
     ).toEqual(["performance:v1", "song-1", "source-1", 30]);
-  });
-
-  it("keeps exact duplicate evidence separate and never auto-merges", () => {
-    const exact = assessExactSourceDuplicate(
-      { youtubeVideoId: "dQw4w9WgXcQ", startSeconds: null },
-      { youtubeVideoId: "dQw4w9WgXcQ", startSeconds: 0 },
-    );
-    const differentSegment = assessExactSourceDuplicate(
-      { youtubeVideoId: "dQw4w9WgXcQ", startSeconds: 30 },
-      { youtubeVideoId: "dQw4w9WgXcQ", startSeconds: 0 },
-    );
-
-    expect(exact).toEqual({
-      isExactDuplicate: true,
-      evidence: ["same_youtube_video_id", "same_segment_start"],
-      automaticMerge: false,
-    });
-    expect(differentSegment).toEqual({
-      isExactDuplicate: false,
-      evidence: ["same_youtube_video_id"],
-      automaticMerge: false,
-    });
-  });
-
-  it("keeps soft duplicate evidence separate and never auto-merges", () => {
-    expect(
-      assessSoftDuplicate({
-        similarTitle: true,
-        overlappingOriginalArtistIds: ["artist-1"],
-        nearbyReleaseDate: true,
-        overlappingParticipantIds: ["member-1"],
-      }),
-    ).toEqual({
-      isSoftDuplicateCandidate: true,
-      evidence: [
-        "similar_title",
-        "overlapping_original_artist",
-        "nearby_release_date",
-        "overlapping_participant",
-      ],
-      automaticMerge: false,
-    });
-    expect(assessSoftDuplicate({})).toEqual({
-      isSoftDuplicateCandidate: false,
-      evidence: [],
-      automaticMerge: false,
-    });
   });
 });

@@ -1,10 +1,10 @@
 import type {
+  PendingCandidateKind,
   PendingMatchConfidence,
   PendingMatchReason,
-  PendingCandidateKind,
   PendingMissingField,
-  PendingRejectionReasonCode,
   PendingRankedScheduleDto,
+  PendingRejectionReasonCode,
   ScheduleCandidateRejectionDto,
   ScheduleCandidateRejectionListDto,
   ScheduleCandidateRejectionQuery,
@@ -81,62 +81,6 @@ const PENDING_COLUMNS = `
   processed_reset_at,
   created_at
 `;
-
-const LEGACY_PENDING_COLUMNS = `
-  id,
-  member_uid,
-  member_name,
-  date,
-  start_time,
-  title,
-  status,
-  action_type,
-  existing_schedule_id,
-  previous_status,
-  previous_title,
-  NULL AS previous_start_time,
-  NULL AS candidate_kind,
-  NULL AS match_reason,
-  NULL AS match_confidence,
-  NULL AS ranked_schedule_ids,
-  NULL AS source_vod_ids,
-  NULL AS session_started_at,
-  NULL AS session_ended_at,
-  1 AS vod_segment_count,
-  vod_id,
-  NULL AS vod_started_at,
-  NULL AS vod_duration_seconds,
-  NULL AS vod_thumbnail_url,
-  NULL AS processed_reset_at,
-  created_at
-`;
-
-const getErrorText = (error: unknown) =>
-  error instanceof Error
-    ? `${error.message}${
-        "cause" in error && error.cause instanceof Error
-          ? ` ${error.cause.message}`
-          : ""
-      }`
-    : String(error);
-
-const isMissingVodMetadataError = (error: unknown) => {
-  const message = getErrorText(error);
-  return (
-    [
-      "vod_started_at",
-      "vod_duration_seconds",
-      "vod_thumbnail_url",
-      "processed_reset_at",
-      "candidate_kind",
-      "source_vod_ids",
-      "vod_segment_count",
-    ].some((column) => message.includes(column)) &&
-    (message.includes("no such column") ||
-      message.includes("no column named") ||
-      message.includes("pending_schedules"))
-  );
-};
 
 const placeholders = (values: readonly unknown[]) =>
   values.map(() => "?").join(", ");
@@ -252,33 +196,11 @@ const normalizeMetadataText = (
     ? value
     : null;
 
-const selectPendingSchedules = async (db: D1Database) => {
-  try {
-    return (
-      await db
-        .prepare(
-          `SELECT ${PENDING_COLUMNS}
-           FROM pending_schedules
-           ORDER BY created_at DESC, id DESC`,
-        )
-        .all<PendingScheduleQueryRow>()
-    ).results;
-  } catch (error) {
-    if (!isMissingVodMetadataError(error)) throw error;
-    console.warn(
-      "[pending] VOD metadata columns are missing; using the legacy read model.",
-    );
-    return (
-      await db
-        .prepare(
-          `SELECT ${LEGACY_PENDING_COLUMNS}
-           FROM pending_schedules
-           ORDER BY created_at DESC, id DESC`,
-        )
-        .all<PendingScheduleQueryRow>()
-    ).results;
-  }
-};
+const selectPendingSchedules = async (db: D1Database) => (
+  await db.prepare(
+    `SELECT ${PENDING_COLUMNS} FROM pending_schedules ORDER BY created_at DESC, id DESC`,
+  ).all<PendingScheduleQueryRow>()
+).results;
 
 export const queryPendingScheduleReview = async (db: D1Database) => {
   const pendingList = await selectPendingSchedules(db);

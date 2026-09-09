@@ -1,11 +1,13 @@
-import { sql } from "drizzle-orm";
-import { getDb, type DbInstance } from "../../../platform/db";
-import { members } from "@db/schema";
 import {
   normalizeXCollectionIntervalHours,
   parseXCollectionIntervalHours,
 } from "@contracts/configuration";
+import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
+import { members } from "@db/schema";
+import { sql } from "drizzle-orm";
+import { getDb, type DbInstance } from "../../../platform/db";
 import { getSetting, updateSetting } from "../../../platform/http-helpers";
+import type { Env } from "../../../platform/types";
 import {
   collectXPostsForHandles,
   extractXHandleFromUrl,
@@ -14,9 +16,7 @@ import {
   backfillXPostFactsFromStoredPosts,
   backfillXPostReferencesFromStoredPosts,
 } from "./x-history";
-import type { Env } from "../../../platform/types";
 import { hydrateXReferences } from "./x-reference-hydration";
-import type { XReferenceHydrationResultDto } from "@contracts/x-posts";
 
 const X_COLLECTION_INTERVAL_SETTING_KEY = "x_collection_interval_hours";
 const X_COLLECTION_LAST_RUN_SETTING_KEY = "x_collection_last_run";
@@ -321,22 +321,4 @@ export const getScheduledXCollectionDecision = async (
     lastRunValue,
     currentTime,
   );
-};
-
-export const runScheduledXCollection = async (env: Env) => {
-  const db = getDb(env);
-  const decision = await getScheduledXCollectionDecision(db);
-  if (!decision.shouldRun) {
-    return {
-      skipped: true as const,
-      reason: "interval_not_elapsed" as const,
-      ...decision,
-    };
-  }
-
-  return {
-    skipped: false as const,
-    result: await runXCollection(env, "scheduled"),
-    ...decision,
-  };
 };

@@ -230,6 +230,17 @@ describe("D1 pending schedule transaction", () => {
       .run();
   });
 
+  it.each(["vod_started_at", "vod_duration_seconds", "vod_thumbnail_url"])(
+    "%s 누락 시 재조회나 승인으로 데이터를 생략하지 않는다", async (column) => {
+      const repository = new D1PendingScheduleRepository(env.otw_db);
+      await env.otw_db.prepare(`ALTER TABLE pending_schedules DROP COLUMN ${column}`).run();
+      await expect(queryPendingScheduleReview(env.otw_db)).rejects.toThrow();
+      await expect(repository.findById(1)).rejects.toThrow();
+      expect((await env.otw_db.prepare("SELECT COUNT(*) AS count FROM pending_schedules").first<{ count: number }>())?.count).toBe(1);
+      expect((await env.otw_db.prepare("SELECT COUNT(*) AS count FROM schedules").first<{ count: number }>())?.count).toBe(0);
+    },
+  );
+
   it("동일 pending을 동시에 승인해도 정확히 한 transaction만 성공한다", async () => {
     const firstRepository = new D1PendingScheduleRepository(env.otw_db);
     const secondRepository = new D1PendingScheduleRepository(env.otw_db);

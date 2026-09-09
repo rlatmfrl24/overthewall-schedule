@@ -1,5 +1,7 @@
 # Cloudflare Production Account Migration and Runtime Consolidation
 
+> 2026-09-09 runtime update: use Cron → Workflow → Outbox → Queue → collector and hourly approved-channel polling. WebSub is retired; do not copy its secret, create a new producer, or renew subscriptions. The old source-account Queue is drain-only until the [49-hour removal conditions](operations/retired-implementation-cleanup.md#websub-리소스-후속-제거) are met. Account inventory and completed consolidation evidence below remain dated historical observations.
+
 Status: repository consolidation validated; production-account provisioning and
 cutover pending. Last source-account inventory readback: 2026-08-31.
 
@@ -69,13 +71,12 @@ overthewall-schedule
 | Target queue | Traffic | Concurrency policy | Why it remains separate |
 | --- | --- | --- | --- |
 | `otw-ops-control` | Manual operation planning | 1 | Admin commands must not wait behind collection work |
-| `otw-ops-critical` | ingestion recovery, WebSub maintenance, source health, reconcile | 1 | Protects recovery and correctness work from background traffic |
+| `otw-ops-critical` | ingestion recovery, source health, hourly channel polling | 1 | Protects recovery and correctness work from background traffic |
 | `otw-ops-background` | X, Naver Cafe, schedule auto-update, retention | 1 | Serializes non-urgent external and maintenance load |
 | `otw-play-ingestion` | OTW Play ingestion messages | 1 | Preserves ingestion ordering and retry semantics |
-| `otw-websub` | Live WebSub delivery messages | 2 | Preserves delivery responsiveness |
 | `otw-dead-letter` | All terminal queue failures | 1 | Protocol-aware routing makes a shared failure sink safe |
 
-The logical D1 lanes (`x`, `naver`, `websub`, `ingestion`,
+The active logical D1 lanes (`x`, `naver`, `ingestion`,
 `youtube-critical`, `auto-update`, `maintenance`) remain unchanged. They still
 own admission priority, usage accounting, leases, idempotency, monitoring, and
 run history. Only their physical queue mapping changes.
@@ -107,7 +108,7 @@ Consolidation must not change the product contract or increase upstream load.
 - The existing staggered Cron expression and job selection times remain
   unchanged.
 - Scheduled item batch size remains one message per Queue invocation.
-- Ingestion remains concurrency 1 and WebSub delivery remains concurrency 2.
+- Ingestion remains concurrency 1. Archived WebSub messages only drain in the source account; no WebSub workflow is installed in a new account.
 - Critical and background scheduled traffic never share a physical queue.
 - Background consolidation does not add parallelism. X, Naver Cafe,
   auto-update, and retention each previously used concurrency 1 and now share a
@@ -140,7 +141,7 @@ secret values in this repository.
 | D1 database ID | current `otw-db` | new `otw-db` | migrations and row-count readback |
 | R2 bucket | current `otw-schedule` | new bucket | object count and sampled checksum |
 | Analytics datasets | current datasets | recreated datasets | test datapoint and query |
-| Queue IDs/names | current queues | six target queues | producer/consumer readback |
+| Queue IDs/names | current queues | five active target queues | producer/consumer readback |
 | Worker secrets | current Worker | target Worker | names-only secret list and route smoke |
 | DNS zone | current account | production account | authoritative nameserver readback |
 
@@ -155,7 +156,6 @@ Required target secrets include, as applicable:
 - `OTW_PLAY_ANALYTICS_READ_TOKEN`
 - `CLOUDFLARE_D1_TOKEN` with the existing D1 permissions and Account Analytics Read
 - `YOUTUBE_CACHE_ANALYTICS_READ_TOKEN` when separate
-- `OTW_PLAY_WEBSUB_SECRET_V1`
 
 ## 6. Execution Phases
 
@@ -183,7 +183,7 @@ do not exist there yet.
 
 1. Create the dedicated production account and least-privilege deployment API
    token.
-2. Create D1, R2, Analytics Engine datasets, rate limiter, and six queues.
+2. Create D1, R2, Analytics Engine datasets, rate limiter, and five active queues.
 3. Update target deployment configuration with the target account and resource
    IDs without changing source-account configuration prematurely.
 4. Apply the complete D1 migration chain to the empty target database.
@@ -199,7 +199,7 @@ do not exist there yet.
    members, scheduled-run state, and sampled records.
 4. Copy R2 objects and compare total objects, total bytes, and sampled hashes.
 5. Exercise representative public, admin, collection, Queue, Workflow, D1, R2,
-   WebSub, and Analytics flows through the target `workers.dev` entry point.
+   hourly channel polling, and Analytics flows through the target `workers.dev` entry point.
 6. Keep target Cron and external producers disabled during this verification.
 
 ### Phase D — queue and runtime cutover
@@ -207,9 +207,9 @@ do not exist there yet.
 1. Set all `scheduled_v2_<jobType>_enabled` flags to false in the source D1.
 2. Block new manual Operations runs for the short cutover window.
 3. Wait until active runs, scheduled items, outbox rows, and all replaced queues
-   are empty. Preserve live ingestion and WebSub messages in their existing
-   queues until their consumer handoff.
-4. Create the six target queues before deploying bindings that reference them.
+   are empty. Preserve live ingestion until its consumer handoff. Retired WebSub
+   messages only drain in the source account under the 49-hour retirement procedure.
+4. Create the five active target queues before deploying bindings that reference them.
 5. Remove legacy consumers, deploy the consolidated Worker, and confirm exactly
    one consumer for every queue.
 6. Run one canary per critical/background job family.
@@ -224,7 +224,7 @@ do not exist there yet.
 4. Handle DNSSEC, nameserver, certificate, and Registrar requirements before
    changing authority.
 5. Attach `otw-schedule.info` to the target Worker.
-6. Renew or verify WebSub subscriptions against the production callback.
+6. Verify approved-channel polling, pause and generation state. The retired callback must return HTTP 410.
 7. Confirm public DNS, TLS, HTTP, admin auth, D1 writes, R2 reads, Queues,
    Workflow runs, and Analytics readback.
 
@@ -283,7 +283,7 @@ and rollback has been closed.
 - [ ] All retired queues have zero pending messages.
 - [ ] No D1 outbox row references a retired queue delivery.
 - [ ] Target scheduled and manual runs have succeeded.
-- [ ] WebSub renewal and delivery have succeeded on the target.
+- [ ] Hourly channel polling and the retired HTTP 410 callback are verified on the target; no WebSub producer or secret is installed.
 - [ ] The production domain resolves only to the target account.
 - [ ] Required logs and migration evidence are retained.
 - [ ] Source account resources have an exact deletion inventory.

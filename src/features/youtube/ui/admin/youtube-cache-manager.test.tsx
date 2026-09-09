@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
+import { createQueryWrapper } from "@/test/query-client";
 import {
   cleanup,
   fireEvent,
@@ -8,7 +9,6 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createQueryWrapper } from "@/test/query-client";
 import { YouTubeCacheManager } from "./youtube-cache-manager";
 
 const fetchSettingsMock = vi.hoisted(() => vi.fn());
@@ -20,8 +20,8 @@ const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/features/configuration", () => ({
   fetchSettings: fetchSettingsMock,
   updateSettings: updateSettingsMock,
-  MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS: 1,
-  MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS: 10000,
+  MIN_YOUTUBE_API_DAILY_QUOTA_UNITS: 1,
+  MAX_YOUTUBE_API_DAILY_QUOTA_UNITS: 10000,
 }));
 
 vi.mock("../../api/youtube-cache", () => ({

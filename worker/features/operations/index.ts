@@ -1,23 +1,14 @@
-export {
-  createOperationsHandler,
-} from "./http/handler";
-export type {
-  OperationsHandlerDependencies,
-} from "./http/handler";
 export type {
   OperationsActor,
-  OperationsApplication,
+  OperationsApplication
 } from "./application/operations-application";
 export {
-  createD1OperationsApplication,
-  D1OperationsApplication,
-} from "./infrastructure/operations-application";
+  createOperationsHandler
+} from "./http/handler";
+export type {
+  OperationsHandlerDependencies
+} from "./http/handler";
+export { DATA_RETENTION_POLICIES, getDataRetentionStatus, readDueDataRetentionPolicyIds, runDataRetentionPolicyPrune, runDataRetentionPrune, summarizeDataRetentionRun } from "./infrastructure/data-retention";
 export {
-  DATA_RETENTION_POLICIES,
-  getDataRetentionStatus,
-  readDueDataRetentionPolicyIds,
-  runDataRetentionPolicyPrune,
-  runDataRetentionPrune,
-  runScheduledDataRetentionPrune,
-  summarizeDataRetentionRun,
-} from "./infrastructure/data-retention";
+  D1OperationsApplication, createD1OperationsApplication
+} from "./infrastructure/operations-application";

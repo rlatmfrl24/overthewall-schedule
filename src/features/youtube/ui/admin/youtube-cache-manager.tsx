@@ -1,27 +1,13 @@
-import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
-import { fetchActiveMembers } from "@/features/members";
-import { fetchKirinukiChannels } from "../../api/kirinuki";
-import { QueryReadback } from "@/shared/ui/query-readback";
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  ChevronDown,
-  CircleAlert,
-  DatabaseZap,
-  Loader2,
-  Play,
-  RefreshCw,
-  Youtube,
-} from "lucide-react";
 import { AdminSectionHeader } from "@/app/admin";
 import {
   fetchSettings,
-  MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS,
-  MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS,
+  MAX_YOUTUBE_API_DAILY_QUOTA_UNITS,
+  MIN_YOUTUBE_API_DAILY_QUOTA_UNITS,
   updateSettings,
 } from "@/features/configuration";
+import { fetchActiveMembers } from "@/features/members";
 import { ApiError } from "@/shared/api/client";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { queryKeys } from "@/shared/query/query-keys";
 import {
   AlertDialog,
@@ -44,6 +30,7 @@ import {
 } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 import { Label } from "@/shared/ui/label";
+import { QueryReadback } from "@/shared/ui/query-readback";
 import {
   Select,
   SelectContent,
@@ -60,6 +47,19 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 import { useToast } from "@/shared/ui/toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  ChevronDown,
+  CircleAlert,
+  DatabaseZap,
+  Loader2,
+  Play,
+  RefreshCw,
+  Youtube,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { fetchKirinukiChannels } from "../../api/kirinuki";
 import {
   fetchYouTubeCacheStatus,
   refreshYouTubeCache,
@@ -377,8 +377,8 @@ export function YouTubeCacheManager() {
     const parsed = Number.parseInt(quotaDraft, 10);
     if (
       !Number.isFinite(parsed) ||
-      parsed < MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS ||
-      parsed > MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS
+      parsed < MIN_YOUTUBE_API_DAILY_QUOTA_UNITS ||
+      parsed > MAX_YOUTUBE_API_DAILY_QUOTA_UNITS
     ) {
       toast({
         variant: "error",

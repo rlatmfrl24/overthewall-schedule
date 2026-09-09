@@ -8,20 +8,18 @@ import {
 import { requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
 import {
-  IngestionProcessingError,
   IngestionService,
-  IngestionServiceError,
+  IngestionServiceError
 } from "../application/ingestion-service";
 import {
-  IngestionRepositoryError,
-  type OtwPlayIngestionQueueMessage,
+  IngestionRepositoryError
 } from "../application/ports/ingestion-repository";
 import { OtwPlayYouTubeMetadataError } from "../application/ports/youtube-metadata";
 import { IngestionCursorError } from "../domain/ingestion-cursor";
 import {
-  parseCreatePlaylistImport,
   parseConvertIngestionCandidate,
   parseConvertIngestionCandidates,
+  parseCreatePlaylistImport,
   parseIgnoreIngestionCandidates,
   parsePlaylistPreflight,
   parseRetryIngestionJob,
@@ -414,30 +412,5 @@ export const createIngestionHandler = (
       "PLAY_ADMIN_INTERNAL_ERROR",
       "Playlist ingestion is temporarily unavailable",
     );
-  }
-};
-
-export const createIngestionQueueHandler = (
-  resolveService: ResolveIngestionService,
-) => async (batch: MessageBatch<OtwPlayIngestionQueueMessage>, env: Env) => {
-  const service = resolveService(env);
-  const isDeadLetter = batch.queue === "otw-dead-letter";
-  for (const message of batch.messages) {
-    if (isDeadLetter) {
-      await service.markDeadLetter(message.body, "queue_retries_exhausted");
-      message.ack();
-      continue;
-    }
-    try {
-      await service.process(message.body);
-      message.ack();
-    } catch (error) {
-      if (error instanceof IngestionProcessingError && !error.retryable) {
-        await service.markDeadLetter(message.body, error.errorCode);
-        message.ack();
-      } else {
-        message.retry();
-      }
-    }
   }
 };

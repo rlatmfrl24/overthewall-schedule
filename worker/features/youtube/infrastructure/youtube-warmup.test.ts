@@ -541,7 +541,7 @@ describe("YouTube demand cache manual refresh", () => {
     });
   });
 
-  it("상태 조회는 canonical quota를 우선하고 legacy quota를 fallback으로 사용한다", async () => {
+  it("상태 조회는 canonical quota만 사용하고 누락 시 명시적으로 실패한다", async () => {
     const canonicalDb = makeWarmupDb();
     canonicalDb.state.settings.set("youtube_api_daily_quota_units", "250");
     canonicalDb.state.settings.set("youtube_warmup_daily_quota_units", "999");
@@ -588,8 +588,7 @@ describe("YouTube demand cache manual refresh", () => {
     const fallbackDb = makeWarmupDb();
     fallbackDb.state.settings.set("youtube_warmup_daily_quota_units", "333");
 
-    const fallbackStatus = await getYouTubeWarmupStatus(fallbackDb, 24);
-
-    expect(fallbackStatus.settings.dailyQuotaUnits).toBe(333);
+    await expect(getYouTubeWarmupStatus(fallbackDb, 24))
+      .rejects.toThrow("youtube_quota_configuration_invalid");
   });
 });

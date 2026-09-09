@@ -1,13 +1,12 @@
-import { useCallback, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchNaverCafePosts } from "../api/naver-cafe-api";
 import { MEMBER_POSTS_QUERY_STALE_TIME_MS } from "@/shared/query/query-client";
 import { queryKeys } from "@/shared/query/query-keys";
 import type {
   NaverCafePostDto,
   NaverCafeSourceStatusDto,
 } from "@contracts/naver-cafe";
-import { filterNaverCafePostsByMembers } from "../model/filter-naver-cafe-posts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { fetchNaverCafePosts } from "../api/naver-cafe-api";
 
 interface UseNaverCafePostsReturn {
   posts: NaverCafePostDto[];
@@ -73,14 +72,4 @@ export function useNaverCafePosts(
     hasLoaded: enabled ? query.isFetched : false,
     reload,
   };
-}
-
-export function useFilteredNaverCafePosts(
-  posts: NaverCafePostDto[],
-  selectedMemberUids: number[] | null,
-) {
-  return useMemo(
-    () => filterNaverCafePostsByMembers(posts, selectedMemberUids),
-    [posts, selectedMemberUids],
-  );
 }

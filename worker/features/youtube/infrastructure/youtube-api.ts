@@ -1,3 +1,6 @@
+import type { YouTubeUsageRequestOrigin } from "@contracts/youtube";
+import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
+import { parseISO8601Duration } from "../../../platform/http-helpers";
 import type {
   CachedYouTubeVideos,
   YouTubeApiOperation,
@@ -6,12 +9,10 @@ import type {
   YouTubeCacheType,
   YouTubeVideoItem,
 } from "../../../platform/types";
-import type { YouTubeUsageRequestOrigin } from "@contracts/youtube";
-import { parseISO8601Duration } from "../../../platform/http-helpers";
-import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
 import {
   reserveYouTubeQuota,
   YouTubeQuotaAdmissionError,
+  YouTubeQuotaConfigurationError,
   type YouTubeQuotaPriority,
 } from "./youtube-quota";
 
@@ -178,10 +179,11 @@ const reportRefreshFailure = (
 ) => context?.onFailure?.(failure);
 
 const getCaughtFailure = (error: unknown): YouTubeRefreshFailure => ({
-  status: error instanceof YouTubeQuotaAdmissionError ? 403 : 0,
+  status: error instanceof YouTubeQuotaConfigurationError ? 503
+    : error instanceof YouTubeQuotaAdmissionError ? 403 : 0,
   error: getErrorText(error),
   retryAfterMs: null,
-  quotaRejected: error instanceof YouTubeQuotaAdmissionError,
+  quotaRejected: error instanceof YouTubeQuotaAdmissionError || error instanceof YouTubeQuotaConfigurationError,
 });
 
 const toNumber = (value: number | string | null | undefined, fallback = 0) => {

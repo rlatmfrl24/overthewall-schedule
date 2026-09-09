@@ -139,7 +139,8 @@ const AUDIT_CHANGE_LABELS: Record<string, string> = {
   x_collection_interval_hours: "X 수집 주기 (시간)",
   x_reference_preview_mode: "원문 보강 모드",
   youtube_daily_quota_limit: "YouTube 일일 쿼터",
-  youtube_warmup_interval_hours: "YouTube 캐시 갱신 주기 (시간)",
+  youtube_api_daily_quota_units: "YouTube 일일 쿼터",
+  youtube_warmup_interval_hours: "종료된 YouTube 예열 주기 (과거 기록)",
 };
 
 const AUDIT_STATUS_LABELS: Record<AdminAuditLog["status"], string> = {

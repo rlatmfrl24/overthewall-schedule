@@ -14,7 +14,7 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 
-import { OtwPlayMemberHome, OtwPlayMemberShell } from "./member-shell";
+import { OtwPlayMemberShell } from "./member-shell";
 
 describe("OtwPlayMemberShell", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -45,20 +45,5 @@ describe("OtwPlayMemberShell", () => {
     expect(screen.queryByRole("search")).toBeNull();
     expect(screen.queryByText("발견")).toBeNull();
     expect(screen.queryByText("곡 검색")).toBeNull();
-  });
-
-  it("provides a member-safe OTW Play landing without mounting the catalog", () => {
-    useUserMock.mockReturnValue({ isLoaded: true, isSignedIn: true });
-    render(
-      <OtwPlayMemberShell>
-        <OtwPlayMemberHome />
-      </OtwPlayMemberShell>,
-    );
-
-    expect(screen.getByRole("link", { name: /새 곡 제안/ }).getAttribute("href"))
-      .toBe("/play/submit");
-    expect(screen.getByRole("link", { name: /내 제안/ }).getAttribute("href"))
-      .toBe("/play/submissions");
-    expect(screen.queryByRole("search")).toBeNull();
   });
 });

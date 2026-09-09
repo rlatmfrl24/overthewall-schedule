@@ -9,9 +9,9 @@ import {
   YouTubeQuotaAdmissionError,
 } from "./youtube-quota";
 
-vi.mock("./youtube-quota", () => ({
+vi.mock("./youtube-quota", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./youtube-quota")>(),
   reserveYouTubeQuota: vi.fn(async () => undefined),
-  YouTubeQuotaAdmissionError: class YouTubeQuotaAdmissionError extends Error {},
 }));
 
 type FakeCacheRecord = {

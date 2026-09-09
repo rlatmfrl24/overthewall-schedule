@@ -3,15 +3,15 @@ import {
   DEFAULT_AUTO_UPDATE_INTERVAL_HOURS,
   DEFAULT_X_COLLECTION_INTERVAL_HOURS,
   isAutoUpdateIntervalHours,
-  normalizeAutoUpdateIntervalHours,
-  normalizeAdminSettings,
-  normalizeXCollectionIntervalHours,
-  parseSettingsUpdatePayload,
-  parseAutoUpdateIntervalHours,
-  parseXCollectionIntervalHours,
-  isXCollectionIntervalHours,
   isOtwPlaySubmissionDailyLimitValue,
+  isXCollectionIntervalHours,
+  normalizeAdminSettings,
+  normalizeAutoUpdateIntervalHours,
   normalizeOtwPlaySubmissionDailyLimit,
+  normalizeXCollectionIntervalHours,
+  parseAutoUpdateIntervalHours,
+  parseSettingsUpdatePayload,
+  parseXCollectionIntervalHours,
 } from "./settings-config";
 
 describe("auto update interval helpers", () => {
@@ -82,7 +82,7 @@ describe("settings policy", () => {
       auto_update_enabled: "invalid",
       auto_update_interval_hours: "2",
       x_collection_interval_hours: "1",
-      youtube_warmup_daily_quota_units: "20000",
+      youtube_api_daily_quota_units: "20000",
     });
 
     expect(settings).toMatchObject({
@@ -90,9 +90,7 @@ describe("settings policy", () => {
       auto_update_interval_hours: "6",
       live_schedule_auto_fill_enabled: "true",
       x_collection_interval_hours: "1",
-      youtube_warmup_enabled: "true",
-      youtube_warmup_interval_hours: "1",
-      youtube_warmup_daily_quota_units: "10000",
+      youtube_api_daily_quota_units: "10000",
       otw_play_submission_daily_limit: "5",
     });
   });
@@ -123,11 +121,11 @@ describe("settings policy", () => {
   it("허용 범위를 벗어난 설정값을 거부한다", () => {
     expect(
       parseSettingsUpdatePayload({
-        youtube_warmup_daily_quota_units: "0",
+        youtube_api_daily_quota_units: "0",
       }),
     ).toEqual({
       ok: false,
-      error: "Invalid youtube_warmup_daily_quota_units",
+      error: "Invalid youtube_api_daily_quota_units",
     });
     expect(
       parseSettingsUpdatePayload({

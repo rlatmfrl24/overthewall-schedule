@@ -1,22 +1,24 @@
-import { TabsList } from "@/shared/ui/tabs-list";
-import { openXSettings } from "./x-settings-navigation";
-import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
-import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock3,
-  EyeOff,
-  Globe2,
-  Coffee,
-  Gauge,
-  Loader2,
-  LockKeyhole,
-  RefreshCw,
-  Settings2,
-} from "lucide-react";
+import { AdminSectionHeader } from "@/app/admin";
 import IconX from "@/assets/icon_x.svg";
+import {
+  fetchSettings,
+  isXCollectionIntervalHours,
+  isXReferencePreviewMode,
+  normalizeXCollectionIntervalHours,
+  updateSettings,
+  X_COLLECTION_INTERVAL_HOURS,
+  type AutoUpdateSettings,
+} from "@/features/configuration";
+import { NaverCafeSourceManager } from "@/features/naver-cafe";
+import {
+  fetchOperationsStatus,
+  runNaverCafeCheckNow,
+  runXCollectionNow,
+  useOperationRun,
+  type OperationRunAccepted
+} from "@/features/operations";
+import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
+import { queryKeys } from "@/shared/query/query-keys";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { ButtonGroup } from "@/shared/ui/button-group";
@@ -27,8 +29,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/shared/ui/card";
-import { Label } from "@/shared/ui/label";
 import { Input } from "@/shared/ui/input";
+import { Label } from "@/shared/ui/label";
 import {
   Select,
   SelectContent,
@@ -37,37 +39,28 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Switch } from "@/shared/ui/switch";
+import { TabsList } from "@/shared/ui/tabs-list";
 import { useToast } from "@/shared/ui/toast";
-import {
-  isXCollectionIntervalHours,
-  isXReferencePreviewMode,
-  normalizeXCollectionIntervalHours,
-  X_COLLECTION_INTERVAL_HOURS,
-  fetchSettings,
-  updateSettings,
-  type AutoUpdateSettings,
-} from "@/features/configuration";
-import {
-  fetchOperationsStatus,
-  runNaverCafeCheckNow,
-  runXCollectionNow,
-  useOperationRun,
-  type OperationRunAccepted,
-  type OperationsStatusResponse,
-  type XCollectionRunResult,
-} from "@/features/operations";
 import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
-import { AdminSectionHeader } from "@/app/admin";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Clock3,
+  Coffee,
+  EyeOff,
+  Globe2,
+  Loader2,
+  LockKeyhole,
+  RefreshCw
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
 import {
   MemberPostFeedMonitor,
   type MemberPostSource,
 } from "./member-post-feed-monitor";
-import { NaverCafeSourceManager } from "@/features/naver-cafe";
-import { queryKeys } from "@/shared/query/query-keys";
-import { cn } from "@/shared/lib/utils";
 import { XPostHistoryManager } from "./x-post-history-manager";
-import { xReferenceHealthQueryKey } from "../../queries/use-x-reference-health";
+import { openXSettings } from "./x-settings-navigation";
 
 const VISIBILITY_OPTIONS: Array<{
   value: XPostsVisibility;
@@ -102,12 +95,6 @@ const X_COLLECTION_INTERVAL_OPTIONS = X_COLLECTION_INTERVAL_HOURS.map(
   }),
 );
 
-const getCollectionStatusLabel = (status: XCollectionRunResult["status"]) => {
-  if (status === "success") return "완료";
-  if (status === "skipped") return "건너뜀";
-  return "실패";
-};
-
 const SOURCE_TABS: Array<{
   value: MemberPostSource;
   label: string;
@@ -124,364 +111,6 @@ const SOURCE_TABS: Array<{
     description: "게시판 소스·점검 상태",
   },
 ];
-
-const formatOperationDate = (value: number | null | undefined) => {
-  if (!value) return "아직 없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "확인 불가";
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const getVisibilityLabel = (
-  visibility: XPostsVisibility | NaverCafePostsVisibility,
-) => {
-  if (visibility === "public") return "모두 공개";
-  if (visibility === "private") return "비공개";
-  return "회원 전용";
-};
-
-type SourceHealth = "ok" | "warning" | "critical" | "paused" | "loading";
-
-const SOURCE_HEALTH_META: Record<
-  SourceHealth,
-  { label: string; description: string }
-> = {
-  ok: {
-    label: "정상 운영",
-    description: "최근 실행과 수집 응답에서 주의할 항목이 없습니다.",
-  },
-  warning: {
-    label: "주의 필요",
-    description: "지연, API 실패 또는 예산 사용량을 확인하세요.",
-  },
-  critical: {
-    label: "조치 필요",
-    description: "최근 수집 실패 또는 운영 한도 초과가 감지되었습니다.",
-  },
-  paused: {
-    label: "운영 중지",
-    description: "현재 설정에서 자동 수집 또는 사용자 표시가 꺼져 있습니다.",
-  },
-  loading: {
-    label: "상태 확인 중",
-    description: "최신 운영 지표를 불러오고 있습니다.",
-  },
-};
-
-function getSourceHealth({
-  source,
-  enabled,
-  data,
-  loading,
-  error,
-}: {
-  source: MemberPostSource;
-  enabled: boolean;
-  data: OperationsStatusResponse | null;
-  loading: boolean;
-  error: boolean;
-}): SourceHealth {
-  if (loading && !data) return "loading";
-  if (!enabled) return "paused";
-  if (error || !data) return "warning";
-
-  if (source === "x") {
-    if (
-      data.xCollection.latestRun?.status === "failed" ||
-      data.xCollection.usage.quota.todayBudgetUsedPercent >= 100
-    ) {
-      return "critical";
-    }
-    if (
-      data.xCollection.usage.failureCount > 0 ||
-      data.xCollection.usage.rateLimitCount > 0 ||
-      data.xCollection.usage.quota.todayBudgetUsedPercent >= 80
-    ) {
-      return "warning";
-    }
-    return "ok";
-  }
-
-  if (data.naverCafe.failingSourceCount > 0) return "critical";
-  if (data.naverCafe.staleSourceCount > 0) return "warning";
-  return "ok";
-}
-
-function HealthBadge({ health }: { health: SourceHealth }) {
-  const meta = SOURCE_HEALTH_META[health];
-  const Icon =
-    health === "ok"
-      ? CheckCircle2
-      : health === "loading"
-        ? Loader2
-        : health === "paused"
-          ? Clock3
-          : AlertTriangle;
-  return (
-    <Badge
-      variant={health === "critical" ? "destructive" : "outline"}
-      className={cn(
-        "gap-1.5",
-        health === "ok" &&
-          "border-emerald-500/40 bg-emerald-500/10 text-emerald-700",
-        health === "warning" &&
-          "border-amber-500/40 bg-amber-500/10 text-amber-700",
-        health === "paused" && "bg-muted text-muted-foreground",
-      )}
-    >
-      <Icon
-        className={cn(
-          "h-3.5 w-3.5",
-          health === "loading" && "animate-spin",
-        )}
-      />
-      {meta.label}
-    </Badge>
-  );
-}
-
-function SummaryValue({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-lg border bg-background/70 p-3">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
-    </div>
-  );
-}
-
-export function SourceOperationalSummary({
-  source,
-  xCollectionEnabled,
-  xPostsVisibility,
-  naverCafeVisibility,
-  data,
-  loading,
-  error,
-}: {
-  source: MemberPostSource;
-  xCollectionEnabled: boolean;
-  xPostsVisibility: XPostsVisibility;
-  naverCafeVisibility: NaverCafePostsVisibility;
-  data: OperationsStatusResponse | null;
-  loading: boolean;
-  error: boolean;
-}) {
-  const isX = source === "x";
-  const enabled = isX
-    ? xCollectionEnabled
-    : data
-      ? data.naverCafe.enabledSourceCount > 0
-      : true;
-  const health = getSourceHealth({ source, enabled, data, loading, error });
-  const healthMeta = SOURCE_HEALTH_META[health];
-
-  if (isX) {
-    const x = data?.xCollection;
-    const budgetPercent = Math.max(
-      0,
-      Math.min(100, x?.usage.quota.todayBudgetUsedPercent ?? 0),
-    );
-    return (
-      <Card className="overflow-hidden border-primary/20">
-        <CardHeader className="border-b bg-gradient-to-r from-muted/60 to-background pb-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg border bg-background">
-                  <img src={IconX} alt="" className="h-4 w-4" />
-                </span>
-                X 현재 운영 상태
-              </CardTitle>
-              <CardDescription>{healthMeta.description}</CardDescription>
-            </div>
-            <HealthBadge health={health} />
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-2">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryValue
-              label="자동 수집"
-              value={enabled ? "활성" : "중지"}
-              detail={`${x?.intervalHours ?? normalizeXCollectionIntervalHours(undefined)}시간 주기`}
-            />
-            <SummaryValue
-              label="공개 범위"
-              value={getVisibilityLabel(xPostsVisibility)}
-              detail="X 피드 사용자 접근 정책"
-            />
-            <SummaryValue
-              label="최근 수집"
-              value={formatOperationDate(x?.lastRun)}
-              detail={
-                x?.latestRun
-                  ? `${x.latestRun.source === "manual" ? "수동" : "예약"} · ${getCollectionStatusLabel(x.latestRun.status)}`
-                  : "실행 이력 없음"
-              }
-            />
-            <SummaryValue
-              label="오늘 예산"
-              value={`${budgetPercent}%`}
-              detail={`${x?.usage.apiCalls ?? 0} calls · rate-limit ${x?.usage.rateLimitCount ?? 0}회`}
-            />
-          </div>
-          <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Gauge className="h-3.5 w-3.5" />
-                일일 X API 예산 사용률
-              </span>
-              <span className="tabular-nums text-muted-foreground">
-                {budgetPercent}%
-              </span>
-            </div>
-            <div
-              role="progressbar"
-              aria-label="X API 일일 예산 사용률"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={budgetPercent}
-              className="h-2 overflow-hidden rounded-full bg-muted"
-            >
-              <div
-                className={cn(
-                  "h-full rounded-full transition-[width]",
-                  budgetPercent >= 100
-                    ? "bg-destructive"
-                    : budgetPercent >= 80
-                      ? "bg-amber-500"
-                      : "bg-emerald-500",
-                )}
-                style={{ width: `${budgetPercent}%` }}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const cafe = data?.naverCafe;
-  const enabledSources = cafe?.enabledSourceCount ?? 0;
-  const healthySources = Math.max(
-    0,
-    enabledSources -
-      (cafe?.failingSourceCount ?? 0) -
-      (cafe?.staleSourceCount ?? 0),
-  );
-  const healthyPercent = enabledSources
-    ? Math.round((healthySources / enabledSources) * 100)
-    : 0;
-
-  return (
-    <Card className="overflow-hidden border-emerald-500/20">
-      <CardHeader className="border-b bg-gradient-to-r from-emerald-500/5 to-background pb-2">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg border bg-background">
-                <Coffee className="h-4 w-4 text-emerald-600" />
-              </span>
-              네이버 카페 현재 운영 상태
-            </CardTitle>
-            <CardDescription>{healthMeta.description}</CardDescription>
-          </div>
-          <HealthBadge health={health} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-2">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryValue
-            label="피드 표시"
-            value={enabled ? "활성" : "중지"}
-            detail={`${cafe?.collection.intervalHours ?? "-"}시간 고정 수집 주기`}
-          />
-          <SummaryValue
-            label="공개 범위"
-            value={getVisibilityLabel(naverCafeVisibility)}
-            detail="카페 피드 사용자 접근 정책"
-          />
-          <SummaryValue
-            label="최근 수집"
-            value={formatOperationDate(cafe?.collection.lastRun)}
-            detail={`다음 가능 ${formatOperationDate(cafe?.collection.nextEligibleAt)}`}
-          />
-          <SummaryValue
-            label="소스 상태"
-            value={`${enabledSources}/${cafe?.sourceCount ?? 0} 활성`}
-            detail={`오류 ${cafe?.failingSourceCount ?? 0} · 확인 지연 ${cafe?.staleSourceCount ?? 0}`}
-          />
-        </div>
-        <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
-          <div className="flex items-center justify-between gap-3 text-xs">
-            <span className="flex items-center gap-1.5 font-medium">
-              <Gauge className="h-3.5 w-3.5" />
-              활성 게시판 정상 비율
-            </span>
-            <span className="tabular-nums text-muted-foreground">
-              {healthySources}/{enabledSources}개 · {healthyPercent}%
-            </span>
-          </div>
-          <div
-            role="progressbar"
-            aria-label="활성 네이버 카페 게시판 정상 비율"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={healthyPercent}
-            className="h-2 overflow-hidden rounded-full bg-muted"
-          >
-            <div
-              className="h-full rounded-full bg-emerald-500 transition-[width]"
-              style={{ width: `${healthyPercent}%` }}
-            />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-export function SectionIntro({
-  kind,
-  title,
-  description,
-}: {
-  kind: "관리·설정" | "모니터링";
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 pt-2">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
-        {kind === "관리·설정" ? (
-          <Settings2 className="h-4 w-4" />
-        ) : (
-          <Gauge className="h-4 w-4" />
-        )}
-      </span>
-      <div>
-        <Badge variant="outline" className="mb-1">
-          {kind}
-        </Badge>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      </div>
-    </div>
-  );
-}
 
 export function MemberPostSettingsManager({
   activeSource: controlledActiveSource,

@@ -1,18 +1,19 @@
 import { parseISO8601Duration } from "../../../platform/http-helpers";
 import {
+  reserveYouTubeQuota,
+  YouTubeQuotaAdmissionError,
+  YouTubeQuotaConfigurationError,
+  type YouTubeQuotaPriority,
+} from "../../youtube";
+import {
   OtwPlayYouTubeMetadataError,
-  type OtwPlayYouTubeChannelMetadata,
   type OtwPlayYouTubeBatchMetadataReader,
+  type OtwPlayYouTubeChannelMetadata,
   type OtwPlayYouTubeIngestionReader,
   type OtwPlayYouTubeVideoMetadata,
   type OtwPlayYouTubeVideoObservation,
 } from "../application/ports/youtube-metadata";
 import { OTW_PLAY_SOURCE_HEALTH_FETCH_TIMEOUT_MS } from "../domain/source-health-policy";
-import {
-  reserveYouTubeQuota,
-  YouTubeQuotaAdmissionError,
-  type YouTubeQuotaPriority,
-} from "../../youtube";
 
 type ChannelResponse = {
   items?: Array<{
@@ -229,6 +230,13 @@ export class YouTubeOtwPlayMetadataReader
         { signal: controller.signal },
       );
     } catch (error) {
+      if (error instanceof YouTubeQuotaConfigurationError) {
+        throw new OtwPlayYouTubeMetadataError(
+          "YouTube quota configuration is missing or invalid",
+          "configuration",
+          false,
+        );
+      }
       if (error instanceof YouTubeQuotaAdmissionError) {
         await this.recordUsage(path, 0, startedAt, 0, "quota_admission_denied");
         throw new OtwPlayYouTubeMetadataError(
