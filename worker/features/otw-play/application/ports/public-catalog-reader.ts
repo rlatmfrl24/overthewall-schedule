@@ -1,3 +1,4 @@
+import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { PublicCatalogCursorPosition } from "../../domain/public-catalog-cursor";
 import type {
   PublicCatalogParticipationType,
@@ -152,6 +153,7 @@ export interface PublicCatalogReaderPage {
 }
 
 export interface PublicCatalogReader {
+  readMemberSummaries(): Promise<OtwPlayMemberSummary[]>;
   readMeta(): Promise<PublicCatalogMeta>;
   readCatalog(query: PublicCatalogReaderQuery): Promise<PublicCatalogReaderPage>;
   readFacets(): Promise<PublicCatalogFacets>;

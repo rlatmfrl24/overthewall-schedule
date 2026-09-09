@@ -41,6 +41,8 @@ const rewriteHtml = (
   status = 200,
 ): Response => {
   const headers = new Headers(response.headers);
+  // The rewritten document is a different representation from the shell asset.
+  for (const name of ["ETag", "Last-Modified", "Content-Length"]) headers.delete(name);
   headers.set("Content-Type", "text/html; charset=utf-8");
   const source = new Response(response.body, { status, headers });
   let rewriter = new HTMLRewriter()
@@ -84,6 +86,9 @@ const rewriteHtml = (
         element.setAttribute("content", metadata.ogType);
       },
     });
+  rewriter = rewriter.on('meta[property="og:image"], meta[name="twitter:image"]', {
+    element(element) { element.remove(); },
+  });
   if (metadata.image) {
     rewriter = rewriter.on("head", {
       element(element) {
@@ -103,7 +108,9 @@ const assetRequest = (request: Request, pathname: string): Request => {
   url.pathname = pathname;
   url.search = "";
   url.hash = "";
-  return new Request(url, { method: "GET", headers: request.headers });
+  const headers = new Headers(request.headers);
+  for (const name of ["If-None-Match", "If-Modified-Since", "Range", "If-Range"]) headers.delete(name);
+  return new Request(url, { method: "GET", headers });
 };
 
 const toHeadResponse = (request: Request, response: Response): Response =>
@@ -138,6 +145,7 @@ const unavailable = (request: Request) =>
 type PlayRoute =
   | { kind: "home"; canonicalPath: "/play"; trailing: boolean }
   | { kind: "songs"; canonicalPath: "/play/songs"; trailing: boolean }
+  | { kind: "member"; canonicalPath: string; trailing: boolean; rawSlug: string }
   | { kind: "song"; canonicalPath: string; trailing: boolean; rawSlug: string }
   | {
       kind: "private";
@@ -163,6 +171,8 @@ const classifyPlayRoute = (pathname: string): PlayRoute | null => {
   if (canonicalPath === "/play/discover") {
     return { kind: "discover", canonicalPath: "/play", trailing };
   }
+  const memberMatch = canonicalPath.match(/^\/play\/members\/([^/]+)$/);
+  if (memberMatch) return { kind: "member", canonicalPath, trailing, rawSlug: memberMatch[1] ?? "" };
   const songMatch = canonicalPath.match(/^\/play\/songs\/([^/]+)$/);
   if (songMatch) {
     return {
@@ -204,7 +214,7 @@ const rewritePlayHtml = (
   status = 200,
 ): Response => {
   const response = rewriteHtml(asset, metadata, status);
-  if (status === 200 && metadata.robots === "index,follow") {
+  if (status === 200 && metadata.robots === "index,follow" && !metadata.path.startsWith("/play/members/")) {
     response.headers.set("Cache-Control", PLAY_INDEX_CACHE);
   } else {
     response.headers.set("Cache-Control", "no-store");
@@ -233,10 +243,10 @@ export const createSiteSeoHandler = (
   if (playRoute?.kind === "discover") {
     return redirect(url, "/play", true);
   }
-  if (playRoute?.trailing && playRoute.kind !== "not-found") {
+  if (playRoute?.trailing && playRoute.kind !== "not-found" && playRoute.kind !== "member") {
     return redirect(url, playRoute.canonicalPath, true);
   }
-  if (url.pathname === "/feed/" || (profileMatch && url.pathname.endsWith("/"))) {
+  if (url.pathname === "/feed/") {
     return redirect(url, url.pathname.replace(/\/+$/, ""), false);
   }
 
@@ -307,7 +317,12 @@ export const createSiteSeoHandler = (
             rewritePlayHtml(asset, buildNotFoundSiteSeo(url.pathname), 404),
           );
         }
-        metadata = await service.findPlaySong(slug);
+        metadata = playRoute.kind === "member" ? await service.findPlayMember(slug) : await service.findPlaySong(slug);
+        if (metadata && playRoute.kind === "member" && metadata.path !== url.pathname) {
+          const response = redirect(url, metadata.path, true);
+          response.headers.set("Cache-Control", "no-store");
+          return response;
+        }
       }
 
       if (!metadata) {
@@ -344,7 +359,7 @@ export const createSiteSeoHandler = (
       return toHeadResponse(request, response);
     }
     const metadata = service.buildProfileMetadata(member);
-    if (member.code !== code) {
+    if (member.code !== code || url.pathname.endsWith("/")) {
       return new Response(null, {
         status: 301,
         headers: { Location: metadata.canonical, "Cache-Control": REDIRECT_CACHE },

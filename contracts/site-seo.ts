@@ -1,3 +1,4 @@
+import type { OtwPlayPublicMemberDto } from "./otw-play-members";
 import type { MemberProfileDto } from "./members";
 
 export const SITE_ORIGIN = "https://otw-schedule.info";
@@ -199,6 +200,19 @@ export const buildPlaySongSiteSeo = (
   });
 };
 
+export const buildPlayMemberSiteSeo = (
+  member: OtwPlayPublicMemberDto,
+  publicReadEnabled = true,
+): SiteSeoMetadata => define({
+  path: `/play/members/${encodeURIComponent(member.code)}`,
+  title: `${member.name} 노래 모음 | OTW Play`,
+  description: normalizeDescription(`${member.name}의 공식곡 ${member.songCount}곡을 만나보세요. 공식 오리지널·커버 영상을 OTW Play에서 감상하세요.`),
+  robots: !publicReadEnabled ? "noindex,nofollow" : member.pageEligible ? "index,follow" : "noindex,follow",
+  sitemap: publicReadEnabled && member.pageEligible,
+  ogType: "profile",
+  image: new URL(member.imageUrl, SITE_ORIGIN).toString(),
+});
+
 export const buildPlaySongPlaceholderSeo = (
   path: string,
 ): SiteSeoMetadata =>
@@ -227,7 +241,7 @@ export const buildProfileSiteSeo = (
   const description =
     normalizeDescription(member.introduction) ||
     `${member.name}의 프로필과 공식 방송·SNS 링크를 확인하세요.`;
-  const rawImage = member.profileImages[0]?.imageUrl;
+  const rawImage = [...member.profileImages].sort((a, b) => a.sortOrder - b.sortOrder || (a.id ?? 0) - (b.id ?? 0))[0]?.imageUrl || `/profile/${member.code}.webp`;
   return define({
     path: `/profile/${member.code}`,
     title: `${member.name} 프로필 | 오버더월`,
@@ -292,7 +306,7 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
     if (path === "/play/submit" || path === "/play/submissions") {
       return buildPlayPrivateSiteSeo(path);
     }
-    if (/^\/play\/songs\/[^/]+$/.test(path)) {
+    if (/^\/play\/(songs|members)\/[^/]+$/.test(path)) {
       return buildPlaySongPlaceholderSeo(path);
     }
     return buildNotFoundSiteSeo(path);

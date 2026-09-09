@@ -524,6 +524,20 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
     handler: handleOtwPlayPublicCatalog,
   },
   {
+    id: "otw-play.members",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.members.pattern,
+    methods: methods(get({ auth: "public", cache: "no-store", successStatus: 200 })),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.memberSongbook",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.memberSongbook.pattern,
+    methods: methods(get({ auth: "public", cache: "no-store", successStatus: 200 })),
+    handler: handleOtwPlayPublicCatalog,
+  },
+  {
     id: "otw-play.facets",
     owner: "otw-play",
     path: apiRoutes.otwPlay.facets.pattern,

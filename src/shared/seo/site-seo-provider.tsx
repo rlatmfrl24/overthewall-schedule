@@ -19,8 +19,8 @@ export const SiteSeoProvider = ({
 }) => {
   const base = useMemo(() => resolveSiteSeo(pathname), [pathname]);
   const [override, setOverride] = useState<SiteSeoMetadata | null>(null);
-  useEffect(() => setOverride(null), [pathname]);
-  useEffect(() => applySiteSeo(override ?? base), [base, override]);
+  const active = override?.path.toLowerCase() === base.path.toLowerCase() ? override : base;
+  useEffect(() => applySiteSeo(active), [active]);
   const update = useCallback((metadata: SiteSeoMetadata | null) => {
     setOverride(metadata);
   }, []);

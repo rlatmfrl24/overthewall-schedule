@@ -24,6 +24,7 @@ const createReader = (
     cafeEnabled: false,
     cafeVisibility: "private",
   }),
+  readPlayMemberSummaries: async () => [],
   listActiveProfileCodes: async () => [],
   findActiveProfileByCode: async () => null,
   readPlayState: async () => ({
@@ -353,5 +354,100 @@ describe("SEO HTML worker", () => {
     );
     expect(failed?.status).toBe(503);
     expect(failed?.headers.get("Cache-Control")).toBe("no-store");
+  });
+});
+
+describe("member profile and Play SEO policy", () => {
+  const state = { revision: 9, readModelRevision: 9, publicReadEnabled: true, navigationVisible: true, updatedAt: 1 };
+  const member = { uid: 1, code: "Alpha", name: "알파", oshiMark: null, unitName: null, imageUrl: "/profile/Alpha.webp", songCount: 3, performanceCount: 4 };
+  it.each([0, 1, 2, 3])("serves count %i with independent profile and member sitemap eligibility", async count => {
+    const reader = createReader({
+      readPlayState: async () => state,
+      readPlayMemberSummaries: async () => [{ ...member, songCount: count }],
+      findActiveProfileByCode: async code => code.toLowerCase() === "alpha" ? profile : null,
+      listActiveProfileCodes: async () => ["Alpha"],
+    });
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const testEnv = { ASSETS: testAssets } as unknown as Env;
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handler(new Request("https://otw-schedule.info/play/members/Alpha?q=test&participantRole=chorus", { method }), testEnv);
+      expect(response?.status).toBe(200);
+      expect(response?.headers.get("Cache-Control")).toBe("no-store");
+      const html = await response!.text();
+      if (method === "HEAD") expect(html).toBe("");
+      else {
+        expect(html).toContain("알파 노래 모음 | OTW Play");
+        expect(html).toContain(`공식곡 ${count}곡`);
+        expect(html).toContain(`content="${count >= 3 ? 'index,follow' : 'noindex,follow'}"`);
+        expect(html).toContain('href="https://otw-schedule.info/play/members/Alpha"');
+        expect(html.match(/property="og:image"/g)).toHaveLength(1);
+      }
+    }
+    const xml = await (await handler(new Request("https://otw-schedule.info/sitemap.xml"), testEnv))!.text();
+    expect(xml).toContain("/profile/Alpha</loc>");
+    expect(xml.includes("/play/members/Alpha</loc>")).toBe(count >= 3);
+    const redirect = await handler(new Request("https://otw-schedule.info/play/members/alpha/"), testEnv);
+    expect(redirect?.status).toBe(301);
+    expect(redirect?.headers.get("Location")).toBe("https://otw-schedule.info/play/members/Alpha");
+    expect((await handler(new Request("https://otw-schedule.info/play/members/missing"), testEnv))?.status).toBe(404);
+  });
+
+  it("does not reuse shell validators or duplicate sharing images in rewritten profile HTML", async () => {
+    const reader = createReader({ findActiveProfileByCode: async () => profile });
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const testEnv = { ASSETS: { fetch: async (request: Request) => {
+      expect(request.headers.has("If-None-Match")).toBe(false);
+      expect(request.headers.has("If-Modified-Since")).toBe(false);
+      expect(request.headers.has("Range")).toBe(false);
+      return new Response(shell.replace("</head>", '<meta property="og:image" content="old"><meta name="twitter:image" content="old"></head>'), {
+        headers: { ETag: '"shell"', "Last-Modified": "Mon, 07 Sep 2026 00:00:00 GMT" },
+      });
+    } } } as unknown as Env;
+    const response = await handler(new Request("https://otw-schedule.info/profile/Alpha", {
+      headers: { "If-None-Match": '"shell"', "If-Modified-Since": "Mon, 07 Sep 2026 00:00:00 GMT", Range: "bytes=0-10" },
+    }), testEnv);
+    expect(response?.status).toBe(200);
+    expect(response?.headers.has("ETag")).toBe(false);
+    expect(response?.headers.has("Last-Modified")).toBe(false);
+    const html = await response!.text();
+    expect(html.match(/property="og:image"/g)).toHaveLength(1);
+    expect(html.match(/name="twitter:image"/g)).toHaveLength(1);
+    expect(html).not.toContain('content="old"');
+  });
+
+  it("keeps profile GET and HEAD independent of broken Play reads and normalizes case plus slash once", async () => {
+    const reader = createReader({
+      readPlayState: async () => { throw new Error("Play unavailable"); },
+      readPlayMemberSummaries: async () => { throw new Error("Play unavailable"); },
+      findActiveProfileByCode: async code => code.toLowerCase() === "alpha" ? { ...profile, introduction: null, profileImages: [] } : null,
+    });
+    const handler = createSiteSeoHandler(() => new SiteSeoService(reader));
+    const testEnv = { ASSETS: testAssets } as unknown as Env;
+    const redirect = await handler(new Request("https://otw-schedule.info/profile/alpha/?utm_source=test"), testEnv);
+    expect(redirect?.status).toBe(301);
+    expect(redirect?.headers.get("Location")).toBe("https://otw-schedule.info/profile/Alpha");
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handler(new Request("https://otw-schedule.info/profile/Alpha?utm_source=test", { method }), testEnv);
+      expect(response?.status).toBe(200);
+      const body = await response!.text();
+      if (method === "HEAD") expect(body).toBe("");
+      else {
+        expect(body).toContain('content="index,follow"');
+        expect(body).toContain("https://otw-schedule.info/profile/Alpha.webp");
+        expect(body).not.toContain("utm_source");
+      }
+    }
+  });
+
+  it("disables member indexing when navigation is hidden and before public release", async () => {
+    for (const publicReadEnabled of [true, false]) {
+      const service = new SiteSeoService(createReader({
+        readPlayState: async () => ({ ...state, publicReadEnabled, navigationVisible: false }),
+        readPlayMemberSummaries: async () => [member],
+      }));
+      const metadata = await service.findPlayMember("Alpha");
+      expect(metadata?.robots).toBe(publicReadEnabled ? "noindex,follow" : "noindex,nofollow");
+      expect(metadata?.sitemap).toBe(false);
+    }
   });
 });

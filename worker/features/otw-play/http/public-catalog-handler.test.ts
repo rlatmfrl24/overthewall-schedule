@@ -53,6 +53,7 @@ const makeReader = (
     failMeta?: boolean;
   } = {},
 ): PublicCatalogReader => ({
+  async readMemberSummaries() { return []; },
   async readMeta() {
     if (options.failMeta) throw new Error("sensitive SQL failure");
     return {
@@ -112,6 +113,20 @@ describe("OTW Play public catalog HTTP handler", () => {
     vi.restoreAllMocks();
   });
 
+  it("serves the member index without cache validators and rejects unexpected query fields", async () => {
+    const { handler, cache } = makeHandler(makeReader());
+    const response = await handler(request("/api/play/members", { headers: { "If-None-Match": "*" } }), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.has("ETag")).toBe(false);
+    expect(await response.json()).toMatchObject({ data: { members: [] }, nextCursor: null, catalogRevision: 7 });
+    expect(cache.reads).toBe(0);
+    expect(cache.writes).toBe(0);
+    for (const path of ["/api/play/members?q=member", "/api/play/members/Alpha/songbook?member=2", "/api/play/members/Alpha/songbook?sort=title&sort=recent"]) {
+      expect((await handler(request(path), env)).status).toBe(400);
+    }
+  });
+
   it("returns config even while public reads are disabled", async () => {
     const { handler } = makeHandler(
       makeReader({
@@ -140,6 +155,8 @@ describe("OTW Play public catalog HTTP handler", () => {
     for (const path of [
       "/api/play/catalog",
       "/api/play/catalog?limit=999&cursor=malformed",
+      "/api/play/members",
+      "/api/play/members/Alpha/songbook",
       "/api/play/facets",
     ]) {
       const response = await handler(request(path), env);

@@ -1,3 +1,4 @@
+import { parseMemberSongbookQuery } from "../domain/member-songbook-query";
 import type {
   OtwPlayPublicCatalogDto,
   OtwPlayPublicConfigDto,
@@ -417,6 +418,7 @@ const withPrivateResponseHeaders = (response: Response) => {
 const endpointName = (pathname: string) => {
   if (pathname === "/api/play/config") return "config";
   if (pathname === "/api/play/catalog") return "catalog";
+  if (pathname.startsWith("/api/play/members")) return "members";
   if (pathname === "/api/play/facets") return "facets";
   if (pathname.startsWith("/api/play/songs/")) return "song";
   if (pathname.startsWith("/api/play/performances/")) return "performance";
@@ -560,6 +562,23 @@ export const createPublicCatalogHandler = (
         null,
         "PLAY_PUBLIC_READ_DISABLED",
       );
+    }
+
+    const memberMatch = url.pathname.match(/^\/api\/play\/members\/([^/]+)\/songbook$/);
+    if (url.pathname === "/api/play/members" || memberMatch) {
+      if (!memberMatch && url.searchParams.size) throw new PublicCatalogQueryError("unknown_parameter", "query");
+      const code = memberMatch ? decodePathSegment(memberMatch[1] ?? "") : null;
+      if (memberMatch && !code) return tracked(notFoundResponse(requestId, request));
+      const result = memberMatch
+        ? handleDetailResult(await service.readMemberSongbook(code!, parseMemberSongbookQuery(url.searchParams), context, meta),
+            data => ({ member: data.member, items: data.items.map(toSongSummary) }))
+        : await service.readMembers(context, meta);
+      if (result.status === "disabled") return tracked(disabledResponse(requestId, request));
+      if (result.status === "not_found") return tracked(notFoundResponse(requestId, request));
+      return tracked(new Response(JSON.stringify(result.document), { headers: {
+        "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store",
+        "X-Request-ID": requestId, "Vary": "Authorization, Cookie",
+      } }), "bypass");
     }
 
     if (url.pathname === "/api/play/catalog") {

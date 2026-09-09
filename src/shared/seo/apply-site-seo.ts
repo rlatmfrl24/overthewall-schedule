@@ -45,7 +45,7 @@ export const applySiteSeo = (metadata: SiteSeoMetadata): void => {
     if (metadata.image) {
       setMeta(key, key.startsWith("og:") ? "property" : "name", metadata.image);
     } else {
-      document.head.querySelector(`meta[data-site-seo="${key}"]`)?.remove();
+      document.head.querySelectorAll(`meta[data-site-seo="${key}"]`).forEach(node => node.remove());
     }
   }
 };

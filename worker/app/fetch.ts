@@ -39,6 +39,7 @@ const createSiteSeoService = (env: Env) => {
     readPlayState() {
       return play.readSeoState();
     },
+    readPlayMemberSummaries() { return play.readMemberSummaries(); },
     listPublishedPlaySongSlugs() {
       return play.listPublishedSeoSongSlugs();
     },

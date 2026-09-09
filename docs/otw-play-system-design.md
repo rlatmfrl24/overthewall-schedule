@@ -2,16 +2,26 @@
 
 > 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
 
-상태: 아키텍처 하드닝 구현 계약 반영, 운영 공개 `0/0` 설계 기준선
+> 2026-09-08 구현 갱신: `/profile/{code}`와 `/play/members/{memberCode}`의 SEO를 함께 구현했다.
+> 기본 목록·상단 집계·SEO는 메인 보컬(`vocal`)·피처링(`featured_vocal`)만 포함한다.
+> 코러스는 별도 역할 필터이며 기본 집계에서 제외한다. 개인 프로필은 Play 공개·곡 수와 무관하게
+> 독립적으로 index/sitemap을 유지한다. 세부 API·노출 정책·실제 검증과 제한은
+> [구현 가이드 30절](otw-play-implementation-guide.md#30-개인-프로필play-멤버-seo-통합-구현--2026-09-08)을 따른다.
+> 기본 큐레이션은 다음 높은 우선순위, 제작 참여·대표곡·정정은 낮은 우선순위로 유지한다.
 
-기준일: 2026-08-27
+
+상태: 아키텍처 하드닝 기준선 유지, 개인 프로필·Play 멤버 SEO 구현, 큐레이션 설계 인계
+
+기준일: 2026-09-08 (큐레이션 계획 추가; 아래 운영 snapshot은 각 기록일 기준)
 
 상위 문서: `otw-play-product-requirements.md`
 
-2026-09-05 차기 UI 보충: DEC-077의 3개 화면은 기존 공개 카탈로그·facets·곡 상세·session player를
-재사용한다. [시안의 재사용 계약](./otw-play-three-screen-design.md)을 따르며 새 추천 API·편집 모음 모델·DB·
-사용자 저장을 추가하지 않는다. 멤버 화면도 기존 `member`·`participantRole=vocal` 필터를 사용하는
-클라이언트 탐색이며 P1 노래책 read model의 구현이 아니다. 기존 공개 권한·cache·SEO·큐 의미를 유지한다.
+2026-09-05 DEC-077의 3개 화면 시안은 9월 7일 폐기된 기록이다. 현재 UI는 복원된
+발견·곡 검색·우측 플레이어를 기준으로 한다. 9월 8일 신규 큐레이션은 DEC-080과
+[구현 가이드 28절](./otw-play-implementation-guide.md#28-큐레이션-요구사항과-구현-계획)을 따른다.
+초기 조건형 API 재사용과 후속 사용자 저장의 경계는 아래 22절의 권장 설계이며 미구현이다.
+같은 날 확정한 DEC-079에 따라 멤버 페이지 SEO·큐레이션을 다음 개발로 둔다.
+23절과 [구현 인계](./otw-play-implementation-guide.md#29-다음-개발-우선순위와-문서-closeout)가 최신 전달 기준이다.
 
 관련 문서:
 
@@ -1734,7 +1744,7 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - production Clerk 로그인과 관리자 운영 화면 스모크는 완료했다. 예약 source-health
   실행 추적, 초기 catalog 정비, `0/0 → 1/0 → 1/1`과 rollback rehearsal은 구현 누락이
   아니라 공개 전후에 지속 확인할 운영 gate다.
-- 후속 capability는 제품 요구사항의 P0~P4 우선순위를 따른다. 새 UI/API/schema를
+- 후속 capability는 제품 요구사항 DEC-079의 최신 우선순위를 따른다. 새 UI/API/schema를
   먼저 만들지 않고 각 단계의 권리·개인정보·감사·외부 API 결정을 선행한다.
 
 ## 19. 과거 기록 — PR-9 closeout과 WebSub 전달 경계 (2026-09-09 종료)
@@ -1867,3 +1877,60 @@ vocabulary는 enum으로 고정하지 않는다. 통합 등록·가창 생성/�
 곡의 `music_song_tags`와 performance 태그 사이에는 복사·상속 규칙이 없다. admin/public
 read model은 song `tags`와 performance `tags`를 각각 반환하며, 공개 목록 hydration과
 song/performance detail 조회도 published performance의 태그만 해당 performance에 결합한다.
+
+## 22. 큐레이션 설계 방향 — 2026-09-08, 미구현
+
+확정 요구사항은 발견의 멤버·최근 곡 사이 배치, 클릭 시 기존 큐 끝에 추가, 기본 템플릿
+이후 사용자 편집이다. 아래는 이를 구현하기 위한 권장 설계이며, 상세 결정과 작업 목록의
+단일 기준은 구현 가이드 28절이다.
+
+- 기본 템플릿은 안정적 ID/version과 선정 조건·정렬·최대 수를 갖는다. 조건형 우선은
+  TBD-020의 권장안이다. 곡 metadata나 영상 URL을 템플릿의 권위 데이터로 복제하지 않는다.
+- 기존 catalog API의 필터·대표 performance·source 선택을 사용한다. frontend는
+  template → catalog 조회 → 순서 있는 실행 목록 → queue batch 추가를 조합한다.
+  API 결과의 `catalogRevision`과 public/admin-preview 구분을 보존한다.
+- 조회 중인 실행 목록과 실제 큐를 분리하고, 조회 성공/명시적 상한 도달 후 최신 큐에
+  한 번 반영한다. 조회 실패/revision 충돌은 무반영이다. 상한 도달은 전체 조회 완료가 아니다.
+- queue reducer는 performance 중복을 제거하고 기존 항목·현재 곡·순서를 보존한다.
+  player context는 track과 queue 등록 및 실제 결과 집계를 함께 소유한다. 개별 enqueue를
+  반복 호출하며 중간 상태·여러 안내를 만드는 방식으로 batch 계약을 대신하지 않는다.
+- 조건형을 코드에서 제공할 때는 새 DB/API가 필수는 아니며 템플릿 수정은 배포를 요구한다.
+  운영자가 배포 없이 고정 선곡을 수정해야 한다면 저장·관리·공개 조회를 최초 전달에 포함한다.
+- 후속 사용자 큐레이션은 template ID/version을 출처로 갖는 독립 사본을 권장한다.
+  `sessionStorage` queue와 별도 aggregate이며 performance 참조와 순서를 저장한다.
+  source는 실행 시 현재 공개 정책으로 선택하고 원본 갱신은 개인 사본에 자동 전파하지 않는다.
+- 계정 저장을 채택하면 인증된 소유자 검증, version CAS, 항목 순서 원자성, 삭제/참조 정책,
+  본인 저장 후 권위 재조회, 개인 캐시 분리를 동일 전달에서 완성한다. 테이블명과 endpoint는
+  TBD-022/023 후속 분석에서 확정하고 미사용 저장 계층을 선행 구현하지 않는다.
+- 태그/분위기 필터는 현재 public query에서 지원하지 않는다. song/performance 권위,
+  ANY/ALL, 분류 품질·인덱스·조회 비용을 검토한 뒤 contracts→Worker→frontend를 함께 확장한다.
+
+공개 자격·preview·소스 선택·현재 큐의 의미를 우회하는 별도 추천 경로는 만들지 않는다.
+이 절은 아키텍처 계획 추가 기록이며 schema 변경·API 구현·운영 배포의 완료 증거가 아니다.
+
+## 23. 멤버 페이지 SEO와 후속 사용자 탭 — DEC-079
+
+2026-09-08 설계 인계 후 개인 프로필·Play 멤버 SEO를 구현했다. 기본 큐레이션은 다음 구현이며 서로 독립적이다.
+낮은 제작 참여·pin·정정 모델을 SEO의 필수 의존성으로 도입하지 않는다.
+
+- 멤버 페이지는 기존 member/participant/published catalog로 구성하고 같은 관계에서
+  distinct song·performance 수를 계산한다. song 수를 version 수와 혼동하지 않는다.
+- public page DTO·SEO projection·sitemap은 같은 역할 범위와 공개 자격, catalog revision을
+  사용한다. count만 별도 fixture/cache로 만들어 3곡 노출 조건을 충족시키지 않는다.
+- 1~2곡 direct/noindex, 3곡 이상 public/navigation flags와 revision 일치에서 index·sitemap
+  정책을 적용한다. 0곡·unknown·preview 처리와 query canonical은 구현 가이드 29.2절을 따른다.
+- Worker SEO의 member route 분류·직접 HTML metadata·sitemap 조회와 frontend의 실제
+  member page·발견 진입점을 같은 전달에 포함한다. CSR meta 변경만으로 SEO 완료를 판정하지 않는다.
+- 새 read API와 기존 SEO port의 최소 확장을 contracts·route registry·catalog application·
+  D1 reader·frontend query/화면에 함께 반영한다. contribution/pin/correction DB는 후속이다.
+- member 상태·공개 철회·곡 수 변동 때 catalog cache와 SEO 결과를 일관되게 갱신한다.
+  sitemap에서 각 member별 상세 API를 재호출하는 N+1 경로를 만들지 않는다.
+- 사용자용 OTW Play 내부의 방송 가창·개인 감상 탭은 기존 Play player/provider 아래에 둔다.
+  관리자 console의 tab 상태로 사용자 탭을 구현하지 않는다. 두 화면의 권한은 분리한다.
+- 방송 공개는 기존 비공개 candidate/draft와 별개 read model/게시 정책이 필요하다.
+  기존 `official_mv|official_video` 조건을 제거하는 것만으로 공개 기능을 완성하지 않는다.
+- 개인 감상 저장은 소유자 권위와 version·순서 원자성을 갖는 사용자 목록으로 설계한다.
+  개인 큐레이션 사본은 같은 모델로 연결하고 session queue·public catalog와 분리한다.
+  최근 감상은 인정 기준·보관/삭제 정책을 정한 뒤 수집하며 public cache·SEO에 노출하지 않는다.
+
+멤버 SEO의 실제 구현·검증은 구현 가이드 30절에 기록했다. 방송 가창·개인 감상 탭은 설계 인계이며 후속 구현 대상이다.

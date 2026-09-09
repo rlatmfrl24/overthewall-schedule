@@ -45,6 +45,7 @@ import { Route as PlayCatalogIndexRouteImport } from './routes/play/_catalog/ind
 import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/songs'
 import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
 import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
+import { Route as PlayCatalogMembersMemberCodeRouteImport } from './routes/play/_catalog/members/$memberCode'
 import { Route as PlayCatalogSongsIndexRouteImport } from './routes/play/_catalog/songs/index'
 import { Route as PlayCatalogSongsSongSlugRouteImport } from './routes/play/_catalog/songs/$songSlug'
 
@@ -226,6 +227,12 @@ const PlayMemberSubmitRoute = PlayMemberSubmitRouteImport.update({
   path: '/submit',
   getParentRoute: () => PlayMemberRoute,
 } as any)
+const PlayCatalogMembersMemberCodeRoute =
+  PlayCatalogMembersMemberCodeRouteImport.update({
+    id: '/members/$memberCode',
+    path: '/members/$memberCode',
+    getParentRoute: () => PlayCatalogRoute,
+  } as any)
 const PlayCatalogSongsIndexRoute = PlayCatalogSongsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -273,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
   '/play/': typeof PlayCatalogIndexRoute
+  '/play/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
   '/play/songs/': typeof PlayCatalogSongsIndexRoute
 }
@@ -307,6 +315,7 @@ export interface FileRoutesByTo {
   '/vods': typeof VodsIndexRoute
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
+  '/play/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
   '/play/songs': typeof PlayCatalogSongsIndexRoute
 }
@@ -348,6 +357,7 @@ export interface FileRoutesById {
   '/play/_member/submissions': typeof PlayMemberSubmissionsRoute
   '/play/_member/submit': typeof PlayMemberSubmitRoute
   '/play/_catalog/': typeof PlayCatalogIndexRoute
+  '/play/_catalog/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
   '/play/_catalog/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
   '/play/_catalog/songs/': typeof PlayCatalogSongsIndexRoute
 }
@@ -388,6 +398,7 @@ export interface FileRouteTypes {
     | '/play/submissions'
     | '/play/submit'
     | '/play/'
+    | '/play/members/$memberCode'
     | '/play/songs/$songSlug'
     | '/play/songs/'
   fileRoutesByTo: FileRoutesByTo
@@ -422,6 +433,7 @@ export interface FileRouteTypes {
     | '/vods'
     | '/play/submissions'
     | '/play/submit'
+    | '/play/members/$memberCode'
     | '/play/songs/$songSlug'
     | '/play/songs'
   id:
@@ -462,6 +474,7 @@ export interface FileRouteTypes {
     | '/play/_member/submissions'
     | '/play/_member/submit'
     | '/play/_catalog/'
+    | '/play/_catalog/members/$memberCode'
     | '/play/_catalog/songs/$songSlug'
     | '/play/_catalog/songs/'
   fileRoutesById: FileRoutesById
@@ -735,6 +748,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayMemberSubmitRouteImport
       parentRoute: typeof PlayMemberRoute
     }
+    '/play/_catalog/members/$memberCode': {
+      id: '/play/_catalog/members/$memberCode'
+      path: '/members/$memberCode'
+      fullPath: '/play/members/$memberCode'
+      preLoaderRoute: typeof PlayCatalogMembersMemberCodeRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
     '/play/_catalog/songs/': {
       id: '/play/_catalog/songs/'
       path: '/'
@@ -808,11 +828,13 @@ const PlayCatalogSongsRouteWithChildren =
 interface PlayCatalogRouteChildren {
   PlayCatalogSongsRoute: typeof PlayCatalogSongsRouteWithChildren
   PlayCatalogIndexRoute: typeof PlayCatalogIndexRoute
+  PlayCatalogMembersMemberCodeRoute: typeof PlayCatalogMembersMemberCodeRoute
 }
 
 const PlayCatalogRouteChildren: PlayCatalogRouteChildren = {
   PlayCatalogSongsRoute: PlayCatalogSongsRouteWithChildren,
   PlayCatalogIndexRoute: PlayCatalogIndexRoute,
+  PlayCatalogMembersMemberCodeRoute: PlayCatalogMembersMemberCodeRoute,
 }
 
 const PlayCatalogRouteWithChildren = PlayCatalogRoute._addFileChildren(

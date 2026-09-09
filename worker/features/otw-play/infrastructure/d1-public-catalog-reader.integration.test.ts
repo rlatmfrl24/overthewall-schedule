@@ -1,3 +1,6 @@
+import { parseMemberSongbookQuery } from "../domain/member-songbook-query";
+import { PublicCatalogService } from "../application/public-catalog-service";
+import { createPublicCatalogHandler } from "../http/public-catalog-handler";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -416,6 +419,81 @@ describe("D1PublicCatalogReader", () => {
       "otw_play_public_catalog_test_migrations",
     );
     await cleanup();
+  });
+
+  it("serves member songbooks from D1 with stable counts, role filters and revision cursors", async () => {
+    await seedIdentityAndChannels();
+    const reader = new D1PublicCatalogReader(db);
+    const service = new PublicCatalogService(reader, { read: async () => null, write: async () => undefined });
+    const context = { allowSharedCache: false };
+    const query = (params = "") => parseMemberSongbookQuery(new URLSearchParams(params));
+    let summaries = await reader.readMemberSummaries();
+    expect(summaries.map(item => item.code)).toEqual(["current-a", "current-c"]);
+    expect(summaries[0]).toMatchObject({ songCount: 0, performanceCount: 0, imageUrl: "/profile/current-a.webp" });
+    await db.prepare("UPDATE music_catalog_meta SET navigation_visible = 1 WHERE id = 1").run();
+    for (let count = 0; count <= 3; count++) {
+      if (count) {
+        await db.batch([...insertSong(`member-song-${count}`), insertPerformance(`member-p-${count}`, `member-song-${count}`, {
+          relation: count === 1 ? "original" : "cover", participation: count === 3 ? "duet" : "solo",
+        }), insertParticipant(`member-p-${count}`, "entity-current-a", 0, count === 2 ? "featured_vocal" : "vocal")]);
+        await rebuildReadModel();
+      }
+      const result = await service.readMemberSongbook("CURRENT-A", query(), context);
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") throw new Error("Expected public member");
+      expect(result.document.data.member).toMatchObject({ songCount: count, performanceCount: count, pageEligible: count >= 3 });
+      expect(result.document.data.items).toHaveLength(count);
+    }
+    await db.batch([
+      insertPerformance("second-version", "member-song-1"), insertParticipant("second-version", "entity-current-a", 0),
+      ...insertSong("chorus-only"), insertPerformance("chorus-p", "chorus-only"), insertParticipant("chorus-p", "entity-current-a", 0, "chorus"),
+      ...insertSong("draft-song"), insertPerformance("draft-p", "draft-song", { status: "draft" }), insertParticipant("draft-p", "entity-current-a", 0),
+      ...insertSong("withdrawn-song"), insertPerformance("withdrawn-p", "withdrawn-song", { status: "withdrawn" }), insertParticipant("withdrawn-p", "entity-current-a", 0),
+      ...insertSong("broadcast-song"), insertPerformance("broadcast-p", "broadcast-song", { releaseType: "broadcast" }), insertParticipant("broadcast-p", "entity-current-a", 0),
+      ...insertSong("archived-song", "archived", { archived: true }), insertPerformance("archived-p", "archived-song"), insertParticipant("archived-p", "entity-current-a", 0),
+    ]);
+    await rebuildReadModel();
+    summaries = await reader.readMemberSummaries();
+    expect(summaries[0]).toMatchObject({ songCount: 3, performanceCount: 4 });
+    for (const [params, ids] of [
+      ["category=original", ["member-song-1"]],
+      ["category=collaboration", ["member-song-3"]],
+      ["participantRole=chorus", ["chorus-only"]],
+      ["participantRole=featured_vocal", ["member-song-2"]],
+      ["q=member&category=cover&sort=title", ["member-song-1", "member-song-2", "member-song-3"]],
+    ] as const) {
+      const result = await service.readMemberSongbook("current-a", query(params), context);
+      if (result.status !== "ok") throw new Error("Expected filtered member");
+      expect(result.document.data.member.songCount).toBe(3);
+      expect(result.document.data.items.map(item => item.id)).toEqual(ids);
+    }
+    const first = await service.readMemberSongbook("current-a", query("limit=1&sort=title"), context);
+    if (first.status !== "ok" || !first.document.nextCursor) throw new Error("Expected cursor");
+    const cursor = encodeURIComponent(first.document.nextCursor);
+    const second = await service.readMemberSongbook("current-a", query(`limit=1&sort=title&cursor=${cursor}`), context);
+    if (second.status !== "ok") throw new Error("Expected next page");
+    expect(second.document.data.items[0]?.id).not.toBe(first.document.data.items[0]?.id);
+    await expect(service.readMemberSongbook("current-c", query(`limit=1&sort=title&cursor=${cursor}`), context)).rejects.toThrow();
+    await expect(service.readMemberSongbook("current-a", query(`category=collaboration&limit=1&sort=title&cursor=${cursor}`), context)).rejects.toThrow();
+    const handler = createPublicCatalogHandler(() => service, async () => '"test"');
+    const response = await handler(new Request("https://example.com/api/play/members/current-a/songbook?category=collaboration"), testEnv);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.has("ETag")).toBe(false);
+    const body = await response.json() as { data: { member: { songCount: number }; items: { id: string }[] }; catalogRevision: number };
+    expect(body.data.member.songCount).toBe(3);
+    expect(body.data.items.map(item => item.id)).toEqual(["member-song-3"]);
+    expect(body.catalogRevision).toBe(7);
+    for (const code of ["former-b", "missing"]) {
+      expect((await handler(new Request(`https://example.com/api/play/members/${code}/songbook`), testEnv)).status).toBe(404);
+    }
+    await db.prepare("UPDATE music_performances SET publication_status = 'withdrawn' WHERE id = 'member-p-3'").run();
+    await db.prepare("UPDATE music_catalog_meta SET revision = 8 WHERE id = 1").run();
+    await rebuildReadModel();
+    const reduced = await service.readMembers(context);
+    if (reduced.status !== "ok") throw new Error("Expected members");
+    expect(reduced.document.data.members[0]).toMatchObject({ songCount: 2, performanceCount: 3, pageEligible: false });
+    await expect(service.readMemberSongbook("current-a", query(`limit=1&sort=title&cursor=${cursor}`), context)).rejects.toThrow();
   });
 
   it("reads the singleton metadata before public catalog work", async () => {

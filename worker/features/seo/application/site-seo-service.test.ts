@@ -14,6 +14,7 @@ const createReader = (
     cafeEnabled: false,
     cafeVisibility: "private",
   }),
+  readPlayMemberSummaries: async () => [],
   listActiveProfileCodes: async () => [],
   findActiveProfileByCode: async () => null,
   readPlayState: async () => ({

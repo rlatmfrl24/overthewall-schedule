@@ -101,6 +101,9 @@ export const apiRoutes = {
     config: staticRoute("/api/play/config"),
     catalog: staticRoute("/api/play/catalog"),
     facets: staticRoute("/api/play/facets"),
+    members: staticRoute("/api/play/members"),
+    memberSongbook: dynamicRoute("/api/play/members/:code/songbook",
+      (code: string) => `/api/play/members/${encodeURIComponent(code)}/songbook` as const),
     song: dynamicRoute(
       "/api/play/songs/:slug",
       (slug: string) =>

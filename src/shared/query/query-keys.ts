@@ -8,6 +8,9 @@ export const queryKeys = {
   },
   otwPlay: {
     all: ["otw-play"] as const,
+    members: (audience: "public" | "admin-preview" = "public") => ["otw-play", audience, "members"] as const,
+    memberSongbook: (code: string, query: string, audience: "public" | "admin-preview" = "public") =>
+      ["otw-play", audience, "member-songbook", code, query] as const,
     config: (audience: "public" | "admin-preview" = "public") =>
       [...queryKeys.otwPlay.all, audience, "config"] as const,
     catalog: (

@@ -1,3 +1,4 @@
+import type { OtwPlayPublicMemberDto, OtwPlayMemberSongbookDto, OtwPlayMemberSongbookQuery } from "@contracts/otw-play-members";
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import type {
   OtwPlayPublicCatalogDto,
@@ -158,4 +159,20 @@ export function fetchOtwPlayPerformance(
     apiRoutes.otwPlay.performance.build(id),
     options,
   );
+}
+
+export function serializeMemberSongbookQuery(query: OtwPlayMemberSongbookQuery) {
+  const params = new URLSearchParams();
+  for (const key of ["q", "category", "participantRole", "sort", "limit", "cursor"] as const) {
+    if (query[key] !== undefined) params.set(key, String(query[key]));
+  }
+  return params;
+}
+
+export function fetchOtwPlayMembers(options: OtwPlayPublicRequestOptions = {}) {
+  return publicGet<{ members: OtwPlayPublicMemberDto[] }>(apiRoutes.otwPlay.members.build(), options);
+}
+
+export function fetchOtwPlayMemberSongbook(code: string, query: OtwPlayMemberSongbookQuery = {}, options: OtwPlayPublicRequestOptions = {}) {
+  return publicGet<OtwPlayMemberSongbookDto>(withRouteSearch(apiRoutes.otwPlay.memberSongbook.build(code), serializeMemberSongbookQuery(query)), options);
 }

@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  useOtwPlayMemberSongbook,
   useOtwPlayCatalog,
   OtwPlayCatalogRequestProvider,
   useOtwPlayConfig,
@@ -13,6 +14,7 @@ import {
 } from "./use-public-catalog";
 
 const apiMocks = vi.hoisted(() => ({
+  fetchOtwPlayMemberSongbook: vi.fn(),
   fetchOtwPlayCatalog: vi.fn(),
   fetchOtwPlayConfig: vi.fn(),
   fetchOtwPlayFacets: vi.fn(),
@@ -21,7 +23,7 @@ const apiMocks = vi.hoisted(() => ({
   getOtwPlayCatalogQueryKey: vi.fn(() => "member=1&relation=cover"),
 }));
 
-vi.mock("../api/public", () => apiMocks);
+vi.mock("../api/public", async (importOriginal) => ({ ...await importOriginal<typeof import("../api/public")>(), ...apiMocks }));
 
 const envelope = (data: unknown, nextCursor: string | null = null) => ({
   data,
@@ -178,4 +180,20 @@ describe("OTW Play public queries", () => {
     expect(apiMocks.fetchOtwPlaySong).not.toHaveBeenCalled();
     expect(apiMocks.fetchOtwPlayPerformance).not.toHaveBeenCalled();
   });
+});
+
+it("retains the same member during filtering without leaking data across member routes", async () => {
+  const data = envelope({ member: { code: "Alpha", songCount: 3 }, items: [] });
+  apiMocks.fetchOtwPlayMemberSongbook.mockResolvedValueOnce(data).mockImplementation(() => new Promise(() => {}));
+  const { result, rerender, unmount } = renderHook(({ code, category }: { code: string; category?: "cover" }) => useOtwPlayMemberSongbook(code, { category }), {
+    initialProps: { code: "Alpha", category: undefined as "cover" | undefined }, wrapper: createWrapper(),
+  });
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  rerender({ code: "Alpha", category: "cover" });
+  expect(result.current.data).toEqual(data);
+  expect(result.current.isPlaceholderData).toBe(true);
+  rerender({ code: "Beta", category: "cover" });
+  expect(result.current.data).toBeUndefined();
+  expect(result.current.isPlaceholderData).toBe(false);
+  unmount();
 });
