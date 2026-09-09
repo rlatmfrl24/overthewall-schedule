@@ -16,7 +16,6 @@ const queues = [
   "otw-ops-critical",
   "otw-ops-background",
   "otw-play-ingestion",
-  "otw-websub",
   "otw-dead-letter",
 ];
 

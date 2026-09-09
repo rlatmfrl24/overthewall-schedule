@@ -1,6 +1,4 @@
 import {
-  CloudflarePlayTelemetryWriter,
-  createPlayTelemetryEvent,
   IngestionProcessingError,
 } from "../features/otw-play";
 import type {
@@ -9,55 +7,11 @@ import type {
 import type { Env } from "../platform/types";
 import { createOtwPlayIngestionService } from "./ingestion";
 
-const writeWebsubQueueTelemetry = (
-  env: Env,
-  input: {
-    deliveryId: string;
-    transition: "retired";
-    status: number;
-    durationMs: number;
-    errorCode?: string;
-  },
-) => {
-  new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS).write(
-    createPlayTelemetryEvent({
-      event: "play.websub.updated",
-      requestId: input.deliveryId,
-      cfRay: null,
-      routeId: "otw-play.websub.queue",
-      trigger: "queue",
-      status: input.status,
-      durationMs: input.durationMs,
-      cacheStatus: null,
-      d1RowsRead: null,
-      d1RowsWritten: null,
-      resourceType: "websub-delivery",
-      resourceId: input.deliveryId,
-      transition: input.transition,
-      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
-    }),
-  );
-};
-
 export const handleQueue = async (batch: MessageBatch<unknown>, env: Env) => {
   const service = createOtwPlayIngestionService(env);
   const isDeadLetter = batch.queue === "otw-dead-letter";
   for (const message of batch.messages) {
     const body = message.body;
-    const isWebsubMessage = typeof body === "object" && body !== null &&
-      (body as { schemaVersion?: unknown }).schemaVersion === 1 &&
-      (body as { messageType?: unknown }).messageType === "channel_websub" &&
-      typeof (body as { deliveryId?: unknown }).deliveryId === "string";
-    if (isWebsubMessage) {
-      // Retirement is not successful delivery. Keep the archived DB record intact.
-      writeWebsubQueueTelemetry(env, {
-        deliveryId: (body as { deliveryId: string }).deliveryId,
-        transition: "retired", status: 410, durationMs: 0,
-        errorCode: "websub_retired",
-      });
-      message.ack();
-      continue;
-    }
     if (
       typeof body !== "object" ||
       body === null ||

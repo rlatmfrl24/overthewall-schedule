@@ -126,15 +126,6 @@
         "dead_letter_queue": "otw-dead-letter",
         "max_concurrency": 1,
       },
-      // Drain only messages sent before WebSub retirement; no producer remains.
-      {
-        "queue": "otw-websub",
-        "max_batch_size": 1,
-        "max_batch_timeout": 1,
-        "max_retries": 3,
-        "dead_letter_queue": "otw-dead-letter",
-        "max_concurrency": 2,
-      },
       {
         "queue": "otw-dead-letter",
         "max_batch_size": 10,

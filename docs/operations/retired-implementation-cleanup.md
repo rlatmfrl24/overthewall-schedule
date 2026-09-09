@@ -32,12 +32,12 @@ D-Day `type`과 pending schedule VOD 컬럼이 필요하다. 정상 nullable 값
 
 2026-09-09 로컬 최종 검증: `pnpm preflight` 통과, 259개 파일·1,893개 테스트. Coverage는 statements 82.25%, branches 69.43%, functions 85.80%, lines 83.72%다. 임시 D1에서 전체 migration 86개 적용을 검증했고 `0086`의 schema snapshot은 직전과 동일하다. 운영 배포 identity와 반영 후 readback은 PR 검증 댓글에 기록한다.
 
-생산자 제거 배포는 `aebc630f-3d1b-4e68-a327-cf4253d6efc9`, 2026-09-08 23:30:12.91995 UTC다. 49시간 조건은 **2026-09-11 09:30:12.91995 KST** 이후 충족한다. Hub 해제 응답은 조건에 포함하지 않는다.
+생산자 제거 배포는 `aebc630f-3d1b-4e68-a327-cf4253d6efc9`, 2026-09-08 23:30:12.91995 UTC다. 최초 계획은 이 시각부터 49시간을 기다리는 보수적 기준이었다. 2026-09-09 사용자가 관측의 유효성 재판단과 조건부 작업의 조기 완료를 요청하여, 실제 잔여 메시지 증거를 확인하는 기준으로 대체했다. 이 결정과 원시 관측 위치는 [관측 유효성 재점검](observation-validity-2026-09-09.md)에 기록한다. Hub 해제 응답은 조건에 포함하지 않는다.
 
 1. 해당 배포 이후 신규 `websub_maintenance`/`recent_reconcile` 작업·WebSub 생산자 재등장이 없는지 확인한다. 원 Queue와 공용 DLQ 중 WebSub 관련 메시지의 보존·오류도 확인한다.
-2. 제거 직전 15분 이상 간격의 두 조회에서 `otw-websub` backlog 0을 기록한다. 시간, queue ID, producer/consumer 및 배포 identity를 함께 남긴다. 조건이 불충족하면 이 단계만 보류한다.
+2. 제거 직전 15분 이상 간격의 두 조회에서 `otw-websub`와 공용 DLQ의 backlog count/bytes 및 oldest timestamp 0을 기록한다. 시간, queue ID, producer/consumer 및 배포 identity를 함께 남긴다. 마지막 delivery enqueue가 원 Queue 24시간과 DLQ 24시간 보존기간을 충분히 지났고, 두 Queue의 최근 49시간 이상 메시지 작업이 관측되지 않는지 함께 확인한다. 기존 delivery가 완료되었고 신규 생산자·종료 작업이 없다는 D1 및 코드 근거도 필요하다. 어느 근거라도 없으면 조기 제거하지 않고 최초 49시간 경과 후 다시 확인한다.
 3. provision 목록·Wrangler consumer·Queue 라우팅·과거 메시지 전용 telemetry 분기를 제거하고 회귀검사와 preflight 후 병합 기반으로 배포한다. HTTP 410 종료 경로와 이력 해석 타입은 유지한다.
 4. 실제 consumer 해제 및 새 producer 부재를 확인한 다음 `otw-websub` Queue와 미사용 `OTW_PLAY_WEBSUB_SECRET_V1`을 삭제한다. 공용 DLQ와 ingestion Queue는 보존한다.
 5. 계정 리소스·배포 binding·provision 잔여 참조를 재조회한다. rollback도 polling이 유지되는 버전으로만 수행한다.
 
-현재 코드 정리 배포에는 drain consumer와 Queue를 포함한다. 관측 조건 전에 구성만 선제 제거하거나 오래된 구독 기능으로 되돌리지 않는다. 기존 7일 관측은 종료 작업 생성 0, 일반 수집 최신성, Outbox 읽기·오류 회귀와 이 리소스 제거 결과를 함께 확인한다.
+PR #130 배포까지는 drain consumer와 Queue를 포함했다. 강화된 실측 조건을 충족한 뒤 구성 제거 배포와 리소스 삭제를 순서대로 수행한다. 오래된 구독 기능으로 되돌리지 않는다. 7일 관측은 리소스 제거와 독립적으로 종료 작업 생성 0, 일반 수집 최신성, Outbox 읽기·오류 회귀를 확인한다.
