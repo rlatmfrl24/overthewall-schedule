@@ -23,12 +23,12 @@ Sources: [playlistItems.list](https://developers.google.com/youtube/v3/docs/play
 
 ## Retirement boundaries
 
-Physical resource removal follows the [49-hour drain and rollback procedure](retired-implementation-cleanup.md#websub-리소스-후속-제거). The earliest removal time is 2026-09-11 09:30:12.91995 KST; two zero-backlog observations at least 15 minutes apart and deployed consumer detachment are required before deletion. Hub unsubscribe acknowledgement is not a prerequisite.
+Physical resource removal follows the [evidence-based drain and rollback procedure](retired-implementation-cleanup.md#websub-리소스-후속-제거). The original 49-hour wait from producer retirement was reassessed at the user's request: the last completed delivery predates both retention windows, recent Queue/DLQ traffic is absent, and both queues must remain empty in two realtime observations at least 15 minutes apart. Deployed consumer detachment is still required before deletion. If that evidence is incomplete, use the original retention wait. Hub unsubscribe acknowledgement is not a prerequisite.
 
 - Remove the Hub client, subscription service, WebSub repository, crypto/feed parser, producer binding and subscription controls.
 - Stop both `websub_maintenance` and the redundant daily `recent_reconcile`. Old job types remain readable in execution history, labeled retired; new manual runs and retries return authenticated HTTP 410. Previously dispatched items skip without Hub or YouTube calls.
 - Exact legacy callback GET/POST routes return 410 without D1 queries, payload parsing, challenge confirmation or new messages. Old admin subscription commands retain authentication and return 410.
-- Keep a queue consumer only to acknowledge pre-retirement WebSub messages with a `retired` telemetry event. It does not report successful delivery or mutate the historical delivery records. No producer remains. The unused queue resource alone is not treated as a cost saving.
+- The temporary drain consumer and WebSub-only queue telemetry are removed after the verified drain. No producer remains. Obsolete message shapes received by a shared queue still follow generic invalid-message acknowledgement without changing historical delivery records. The unused queue resource alone is not treated as a cost saving.
 - Preserve historical subscription/delivery tables and all candidates, approvals and audit events. Do not fabricate an `unsubscribed` confirmation or an inferred lease expiry. Those archived subscription fields are removed from the current admin monitor DTO; public APIs are unchanged.
 - Migration `0085` only updates nondeleted monitor intervals to 60, records the change, and disables the retired job settings. It preserves pause, generation, watermark, pending candidates and subscription history. New monitors explicitly persist 60; the existing database column default is retained to avoid a table rebuild.
 
@@ -36,6 +36,6 @@ Physical resource removal follows the [49-hour drain and rollback procedure](ret
 
 Use the normal `/admin/otw-play?tab=play-monitor` and `/admin/operations` entry points. Confirm polling controls, pause state, last success/error readback and retired job labels. Preserve the public Play flags and global automation pause.
 
-Regression coverage includes real D1 migration/readback, deletion with archived subscriptions, authority and pause races, resumption with an old continuation, metadata failure, missing watermark, authenticated retirement endpoints and legacy queue draining. The release gate includes coverage, Worker integration, build, local D1 doctor and agent-rule synchronization.
+Regression coverage includes real D1 migration/readback, deletion with archived subscriptions, authority and pause races, resumption with an old continuation, metadata failure, missing watermark, authenticated retirement endpoints, shared-queue routing, retries and malformed-message acknowledgement. The release gate includes coverage, Worker integration, build, local D1 doctor and agent-rule synchronization.
 
 Production release identity, authoritative readback and remaining observation limits belong in the owning pull request's verification comments. A new-upload production canary remains deferred while global automation is deliberately paused; neither tests nor a successful HTTP response prove that future ingestion has occurred.

@@ -49,7 +49,7 @@ describe("consolidated Worker queue routing", () => {
     },
   );
 
-  it.each(["otw-play-ingestion", "otw-websub"])(
+  it.each(["otw-play-ingestion"])(
     "routes %s through the media protocol handler",
     async (queue) => {
       const batch = { queue, messages: [] } as unknown as MessageBatch<unknown>;

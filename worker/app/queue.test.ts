@@ -7,16 +7,6 @@ const service = vi.hoisted(() => ({
   process: vi.fn(),
   markDeadLetter: vi.fn(),
 }));
-const telemetryWrite = vi.hoisted(() => vi.fn());
-vi.mock("../features/otw-play", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../features/otw-play")>();
-  return {
-    ...original,
-    CloudflarePlayTelemetryWriter: class {
-      write = telemetryWrite;
-    },
-  };
-});
 vi.mock("./ingestion", () => ({
   createOtwPlayIngestionService: () => service,
 }));
@@ -41,7 +31,6 @@ describe("OTW Play ingestion queue handler", () => {
   beforeEach(() => {
     service.process.mockReset();
     service.markDeadLetter.mockReset();
-    telemetryWrite.mockReset();
   });
 
   it("acks successful and malformed main-queue deliveries", async () => {
@@ -83,8 +72,8 @@ describe("OTW Play ingestion queue handler", () => {
     expect(service.markDeadLetter).toHaveBeenCalledBefore(ack);
   });
 
-  it.each(["otw-play-ingestion", "otw-websub", "otw-dead-letter"])(
-    "acknowledges retired WebSub messages on %s without delivery work", async (queue) => {
+  it.each(["otw-play-ingestion", "otw-dead-letter"])(
+    "ignores obsolete message shapes on %s without changing archived data", async (queue) => {
       const ack = vi.fn();
       const retry = vi.fn();
       const prepare = vi.fn();
@@ -94,7 +83,6 @@ describe("OTW Play ingestion queue handler", () => {
       expect(service.process).not.toHaveBeenCalled();
       expect(service.markDeadLetter).not.toHaveBeenCalled();
       expect(prepare).not.toHaveBeenCalled();
-      expect(telemetryWrite).toHaveBeenCalledWith(expect.objectContaining({ transition: "retired", status: 410, errorCode: "websub_retired" }));
     },
   );
 });

@@ -16,7 +16,6 @@ const SCHEDULED_JOB_QUEUES = new Set([
 ]);
 const MEDIA_QUEUES = new Set([
   "otw-play-ingestion",
-  "otw-websub",
 ]);
 const DEAD_LETTER_QUEUE = "otw-dead-letter";
 
