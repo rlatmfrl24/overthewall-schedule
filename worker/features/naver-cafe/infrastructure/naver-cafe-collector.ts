@@ -1,13 +1,13 @@
-import { and, asc, isNull, sql } from "drizzle-orm";
 import { naverCafeSources, type NaverCafeSource } from "@db/schema";
+import { and, asc, isNull, sql } from "drizzle-orm";
+import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
+import { getDb } from "../../../platform/db";
+import { pMap } from "../../../platform/http-helpers";
+import type { Env } from "../../../platform/types";
 import {
   buildNaverCafeArticleUrl,
   buildNaverCafeBoardUrl,
 } from "../domain/board-urls";
-import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
-import { getDb } from "../../../platform/db";
-import { getSetting, pMap, updateSetting } from "../../../platform/http-helpers";
-import type { Env } from "../../../platform/types";
 
 export type NaverCafeSourceInput = Pick<
   NaverCafeSource,
@@ -198,9 +198,6 @@ const NAVER_CAFE_BOARD_API_BASE =
 const NAVER_CAFE_POSTS_CACHE_POLICY = WORKER_CACHE_POLICY.naverCafe.posts;
 const NAVER_CAFE_FETCH_CONCURRENCY = 3;
 const NAVER_CAFE_FETCH_TIMEOUT_MS = 5_000;
-const NAVER_CAFE_SCHEDULED_INTERVAL_MS = 60 * 60_000;
-const NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY =
-  "naver_cafe_collection_last_run";
 const NAVER_CAFE_COLLECTION_ENABLED_SETTING_KEY =
   "naver_cafe_collection_enabled";
 const NAVER_CAFE_DAILY_REQUEST_LIMIT = 240;
@@ -1109,58 +1106,6 @@ export const readEnabledNaverCafeSources = async (env: Env) =>
       ),
     )
     .orderBy(asc(naverCafeSources.sort_order), asc(naverCafeSources.name));
-
-export const runScheduledNaverCafeCollection = async (env: Env) => {
-  const db = getDb(env);
-  const lastRun = Number.parseInt(
-    (await getSetting(db, NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY)) ?? "",
-    10,
-  );
-  const currentTime = now();
-  const elapsedMs = Number.isFinite(lastRun)
-    ? currentTime - lastRun
-    : Number.POSITIVE_INFINITY;
-  if (elapsedMs < NAVER_CAFE_SCHEDULED_INTERVAL_MS) {
-    return {
-      skipped: true as const,
-      reason: "interval_not_elapsed" as const,
-      intervalHours: 1,
-      lastRun: Number.isFinite(lastRun) ? lastRun : null,
-      elapsedMs,
-    };
-  }
-
-  const sources = await readEnabledNaverCafeSources(env);
-  const result =
-    sources.length === 0
-      ? {
-          success: true,
-          updatedAt: new Date(currentTime).toISOString(),
-          checkedAt: currentTime,
-          durationMs: 0,
-          posts: [],
-          sources: [],
-        }
-      : await collectNaverCafePostsForSources(sources, {
-          cacheDb: env.otw_db,
-          size: NAVER_CAFE_COLLECTION_SIZE,
-          trigger: "scheduled",
-        });
-
-  await updateSetting(
-    db,
-    NAVER_CAFE_COLLECTION_LAST_RUN_SETTING_KEY,
-    String(result.checkedAt),
-  );
-
-  return {
-    skipped: false as const,
-    intervalHours: 1,
-    lastRun: Number.isFinite(lastRun) ? lastRun : null,
-    elapsedMs,
-    result,
-  };
-};
 
 export const clearNaverCafeServiceCachesForTests = () => {
   SOURCE_POSTS_CACHE.clear();

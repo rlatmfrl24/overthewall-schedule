@@ -38,45 +38,4 @@ describe("D1 D-Day repository", () => {
     expect(updateWhere).toHaveBeenCalled();
     expect(deleteWhere).toHaveBeenCalled();
   });
-
-  it("legacy DB의 type column 부재 시 type을 제외한 쓰기로 fallback한다", async () => {
-    const createFallbackValues = vi.fn(async () => ({ success: true }));
-    const updateFallbackWhere = vi.fn(async () => ({ success: true }));
-    const updateFallbackSet = vi.fn(() => ({
-      where: updateFallbackWhere,
-    }));
-    const db = {
-      insert: vi
-        .fn()
-        .mockReturnValueOnce({
-          values: vi.fn(async () => {
-            throw new Error("no such column: type");
-          }),
-        })
-        .mockReturnValueOnce({ values: createFallbackValues }),
-      update: vi
-        .fn()
-        .mockReturnValueOnce({
-          set: () => ({
-            where: vi.fn(async () => {
-              throw new Error("no such column: type");
-            }),
-          }),
-        })
-        .mockReturnValueOnce({ set: updateFallbackSet }),
-    } as unknown as DbInstance;
-    const repository = new D1DDayRepository(db);
-
-    await expect(repository.create(input)).resolves.toBe(true);
-    await expect(repository.update(1, input)).resolves.toBe(true);
-
-    const legacyInput = {
-      title: input.title,
-      date: input.date,
-      description: input.description,
-      color: input.color,
-    };
-    expect(createFallbackValues).toHaveBeenCalledWith(legacyInput);
-    expect(updateFallbackSet).toHaveBeenCalledWith(legacyInput);
-  });
 });

@@ -1,5 +1,7 @@
 # OTW Play UI/UX 설계
 
+> 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
+
 > 2026-09-07: 신규 UI를 폐기하고 개편 직전 `2abb35f`의 기존 UI를 복원했다.
 > 발견·곡 검색, 우측 플레이어와 기존 회원 흐름을 기준으로 이후 디자인을 개선한다.
 > 아래 차기 3개 화면 개편안은 이전 검토 기록이며 현재 구현 목표가 아니다.

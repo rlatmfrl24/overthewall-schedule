@@ -1,16 +1,14 @@
 // @vitest-environment jsdom
+import { createQueryWrapper } from "@/test/query-client";
+import type { MemberDto } from "@contracts/members";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemberDto } from "@contracts/members";
-import { createQueryWrapper } from "@/test/query-client";
 import { useAllMembersClips } from "./use-chzzk-clips";
 import {
-  useAllMembersLatestVods,
   useAllMembersVods,
 } from "./use-chzzk-vods";
 
 const fetchAllMembersClipsMock = vi.hoisted(() => vi.fn());
-const fetchAllMembersLatestVideosMock = vi.hoisted(() => vi.fn());
 const fetchAllMembersVodVideosMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../api/clips", () => ({
@@ -18,7 +16,6 @@ vi.mock("../api/clips", () => ({
 }));
 
 vi.mock("../api/vods", () => ({
-  fetchAllMembersLatestVideos: fetchAllMembersLatestVideosMock,
   fetchAllMembersVodVideos: fetchAllMembersVodVideosMock,
 }));
 
@@ -44,7 +41,6 @@ const makeMember = (uid: number, channelId: string): MemberDto => ({
 describe("CHZZK media queries", () => {
   beforeEach(() => {
     fetchAllMembersClipsMock.mockReset();
-    fetchAllMembersLatestVideosMock.mockReset();
     fetchAllMembersVodVideosMock.mockReset();
   });
 
@@ -63,29 +59,6 @@ describe("CHZZK media queries", () => {
       await result.current.reload();
     });
     expect(fetchAllMembersClipsMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("최신 VOD 조회가 비활성화되면 요청하지 않는다", async () => {
-    const members = [makeMember(1, "aaa")];
-    const { result } = renderHook(
-      () => useAllMembersLatestVods(members, { enabled: false }),
-      { wrapper: createQueryWrapper() },
-    );
-
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.hasLoaded).toBe(false);
-    expect(fetchAllMembersLatestVideosMock).not.toHaveBeenCalled();
-  });
-
-  it("최신 VOD 조회 결과를 반환한다", async () => {
-    fetchAllMembersLatestVideosMock.mockResolvedValue({ 1: { videoId: "v1" } });
-    const members = [makeMember(1, "aaa")];
-    const { result } = renderHook(() => useAllMembersLatestVods(members), {
-      wrapper: createQueryWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.hasLoaded).toBe(true));
-    expect(result.current.vods[1]).toEqual({ videoId: "v1" });
   });
 
   it("멤버당 VOD 조회 개수를 API에 전달한다", async () => {

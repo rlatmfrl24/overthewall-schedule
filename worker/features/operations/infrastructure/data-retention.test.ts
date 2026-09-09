@@ -1,12 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Env } from "../../../platform/types";
 import {
   DATA_RETENTION_POLICIES,
   getDataRetentionStatus,
   readDueDataRetentionPolicyIds,
   runDataRetentionPrune,
-  runScheduledDataRetentionPrune,
 } from "./data-retention";
-import type { Env } from "../../../platform/types";
 
 type TableRow = Record<string, number | string | null>;
 
@@ -243,27 +242,6 @@ describe("data retention service", () => {
       { id: 2, created_at: now - 10 * 24 * 60 * 60_000 },
     ]);
     expect(state.settings.has("data_retention_last_prune")).toBe(false);
-  });
-
-  it("scheduled prune은 하루에 한 번만 실행한다", async () => {
-    const now = Date.UTC(2026, 6, 9, 0, 0, 0);
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-    const state: FakeD1State = {
-      settings: new Map([
-        ["data_retention_last_prune", String(now - 60 * 60_000)],
-      ]),
-      tables: {
-        x_api_usage_events: [
-          { id: 1, created_at: now - 91 * 24 * 60 * 60_000 },
-        ],
-      },
-    };
-
-    const result = await runScheduledDataRetentionPrune(makeEnv(state));
-
-    expect(result.skipped).toBe(true);
-    expect(state.tables.x_api_usage_events).toHaveLength(1);
   });
 
   it("기존 prune item 결과도 최근 이력의 삭제 합계로 제공한다", async () => {

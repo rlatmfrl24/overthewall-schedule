@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
+import type { MemberDto } from "@contracts/members";
+import type { XLinkedPostPreviewDto } from "@contracts/x-posts";
 import {
   cleanup,
   fireEvent,
@@ -7,16 +8,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemberDto } from "@contracts/members";
-import type { XLinkedPostPreviewDto } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
 import { XPostCard } from "./x-post-card";
-
-const useXPostContextMock = vi.hoisted(() => vi.fn());
-vi.mock("../queries/use-x-post-context", () => ({
-  useXPostContext: useXPostContextMock,
-}));
 
 const makePost = (overrides: Partial<XPostViewModel> = {}): XPostViewModel => ({
   id: "p1",
@@ -77,13 +72,6 @@ const renderCard = (post: XPostViewModel, props = {}) =>
 
 describe("XPostCard", () => {
   beforeEach(() => {
-    useXPostContextMock.mockReset();
-    useXPostContextMock.mockReturnValue({
-      context: null,
-      loading: false,
-      error: null,
-      load: vi.fn(),
-    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: undefined,
@@ -335,7 +323,6 @@ describe("XPostCard", () => {
       .toBe("https://x.com/i/web/status/parent");
     expect(screen.queryByRole("button", { name: "저장된 원문 다시 확인" })).toBeNull();
     expect(screen.queryByText(/준비되지/)).toBeNull();
-    expect(useXPostContextMock).not.toHaveBeenCalled();
   });
 
   it("멘션과 해시태그를 X 링크로 만들고 헤더에 정확한 작성 시각을 노출한다", () => {

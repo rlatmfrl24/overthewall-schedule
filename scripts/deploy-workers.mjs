@@ -32,6 +32,10 @@ const run = (args, options = {}) => {
 };
 
 if (!dryRun) {
+  const doctor = spawnSync(process.execPath, ["scripts/d1-doctor.mjs", "--remote", "--skip-local"], {
+    cwd: process.cwd(), stdio: "inherit",
+  });
+  if (doctor.status !== 0) throw new Error("Remote D1 schema and configuration checks failed");
   const pending = run(
     ["d1", "migrations", "list", "otw-db", "--remote"],
     { capture: true },

@@ -1,6 +1,6 @@
 import type { YouTubeCacheRefreshRunSummaryDto } from "@contracts/youtube";
-import { pMap } from "../../../platform/http-helpers";
 import { WORKER_CACHE_POLICY } from "../../../platform/cache-policy";
+import { pMap } from "../../../platform/http-helpers";
 import type {
   Env,
   YouTubeCacheStatus,
@@ -8,14 +8,14 @@ import type {
   YouTubeWarmupStatusSummary,
   YouTubeWarmupTargetSource,
 } from "../../../platform/types";
+import { YouTubeCacheRefreshInProgressError } from "../application/youtube-service";
 import {
   fetchYouTubeVideosForChannel,
   getYouTubeVideosCacheKey,
   type YouTubeRefreshFailure,
 } from "./youtube-api";
-import { getYouTubeQuotaWindow, readYouTubeQuotaLedgerUsage } from "./youtube-quota";
 import { createYouTubeCacheTelemetryWriter } from "./youtube-cache-telemetry";
-import { YouTubeCacheRefreshInProgressError } from "../application/youtube-service";
+import { getYouTubeQuotaWindow, readYouTubeDailyQuota, readYouTubeQuotaLedgerUsage } from "./youtube-quota";
 
 type YouTubeWarmupDb = Pick<D1Database, "prepare">;
 
@@ -110,26 +110,10 @@ const toRunSummary = (row: WarmupRunRow): YouTubeWarmupRunSummary => ({
   error: row.error,
 });
 
-const readSetting = async (db: YouTubeWarmupDb, key: string) => {
-  const row = await db
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .bind(key)
-    .first<{ value: string | null }>();
-  return row?.value ?? null;
-};
-
-const readDailyQuota = async (db: YouTubeWarmupDb) => {
-  const canonical = await readSetting(db, "youtube_api_daily_quota_units");
-  const legacy =
-    canonical ?? await readSetting(db, "youtube_warmup_daily_quota_units");
-  const parsed = Number.parseInt(legacy ?? "1000", 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1000;
-};
-
 export const readYouTubeWarmupSettings = async (db: YouTubeWarmupDb) => ({
   enabled: false,
   intervalHours: 0,
-  dailyQuotaUnits: await readDailyQuota(db),
+  dailyQuotaUnits: await readYouTubeDailyQuota(db),
   officialEnabled: true,
   kirinukiEnabled: true,
   lastRun: null,

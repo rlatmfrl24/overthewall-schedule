@@ -1,3 +1,5 @@
+import { isYouTubeApiDailyQuotaUnitsValue } from "@contracts/configuration";
+
 export type YouTubeQuotaPriority = "critical" | "core" | "low";
 
 type YouTubeQuotaDb = Pick<D1Database, "prepare">;
@@ -89,37 +91,45 @@ export class YouTubeQuotaAdmissionError extends Error {
   }
 }
 
+export class YouTubeQuotaConfigurationError extends Error {
+  constructor() {
+    super("youtube_quota_configuration_invalid");
+    this.name = "YouTubeQuotaConfigurationError";
+  }
+}
+
+export const readYouTubeDailyQuota = async (db: YouTubeQuotaDb): Promise<number> => {
+  const row = await db.prepare(
+    "SELECT value FROM settings WHERE key = ?",
+  ).bind("youtube_api_daily_quota_units").first<{ value: string | null }>();
+  if (!isYouTubeApiDailyQuotaUnitsValue(row?.value)) {
+    throw new YouTubeQuotaConfigurationError();
+  }
+  return Number(row!.value);
+};
+
 export const reserveYouTubeQuota = async (
   db: YouTubeQuotaDb | undefined,
   priority: YouTubeQuotaPriority,
   units = 1,
 ) => {
   if (!db) return;
+  if (!Number.isSafeInteger(units) || units <= 0) {
+    throw new RangeError("YouTube quota units must be a positive safe integer");
+  }
   const now = Date.now();
-  await db.prepare(
-    `INSERT INTO settings (key, value, updated_at)
-     SELECT 'youtube_api_daily_quota_units',
-       COALESCE((SELECT value FROM settings
-                 WHERE key = 'youtube_warmup_daily_quota_units'), '1000'), ?
-     WHERE NOT EXISTS (
-       SELECT 1 FROM settings WHERE key = 'youtube_api_daily_quota_units'
-     )`,
-  ).bind(String(now)).run();
   const { day } = getYouTubeQuotaWindow(now);
   const ratio = getPriorityLimitRatio(priority);
   const result = await db.prepare(
     `INSERT INTO scheduled_usage_daily (
        day, lane, resource, reserved, used, limit_value, updated_at
-     ) VALUES (
-       ?, 'youtube-all', 'youtube_quota_units', 0, ?,
-       MAX(1, COALESCE((
-         SELECT CAST(value AS INTEGER) FROM settings
-         WHERE key = 'youtube_api_daily_quota_units'
-       ), (
-         SELECT CAST(value AS INTEGER) FROM settings
-         WHERE key = 'youtube_warmup_daily_quota_units'
-       ), 1000)), ?
-     )
+     ) SELECT ?, 'youtube-all', 'youtube_quota_units', 0, ?,
+              CAST(value AS INTEGER), ?
+       FROM settings
+       WHERE key = 'youtube_api_daily_quota_units'
+         AND TRIM(value) <> '' AND TRIM(value) NOT GLOB '*[^0-9]*'
+         AND CAST(value AS INTEGER) BETWEEN 1 AND 10000
+         AND ? <= CAST(CAST(value AS INTEGER) * ? AS INTEGER)
      ON CONFLICT(day, lane, resource) DO UPDATE SET
        used = scheduled_usage_daily.used + excluded.used,
        limit_value = excluded.limit_value,
@@ -127,6 +137,11 @@ export const reserveYouTubeQuota = async (
      WHERE scheduled_usage_daily.used + scheduled_usage_daily.reserved + excluded.used
        <= CAST(excluded.limit_value * ? AS INTEGER)
      RETURNING used`,
-  ).bind(day, units, now, ratio).first<{ used: number }>();
-  if (!result) throw new YouTubeQuotaAdmissionError(priority);
+  ).bind(day, units, now, units, ratio, ratio).first<{ used: number }>();
+  if (!result) {
+    // Failure-only diagnostic: distinguish invalid configuration from a full
+    // budget without another query on the successful reservation path.
+    await readYouTubeDailyQuota(db);
+    throw new YouTubeQuotaAdmissionError(priority);
+  }
 };

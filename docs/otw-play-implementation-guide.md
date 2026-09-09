@@ -1,5 +1,7 @@
 # OTW Play 구현 가이드와 단계별 플랜
 
+> 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
+
 > 2026-09-07: 신규 전면 개편과 후속 수정을 폐기했다. 기존 공개·회원 UI를 `2abb35f` 기준으로 복원했다.
 > 신규 멤버 페이지·하단 콘솔·전용 스타일·버전 펼침·관련 탐색은 구현 대상에서 제외한다.
 > 기존 검색·멤버 필터·곡 상세 버전 비교·단일 플레이어·세션 큐·회원 기능은 유지한다.
@@ -42,7 +44,7 @@ flowchart LR
   player --> queue["세션 대기열"]
 ```
 
-### 1.1 현재 권위 상태
+### 1.1 과거 기록 — 2026-08-26 권위 상태 (운영 지침 종료)
 
 2026-08-26 Clerk production 전환 closeout 기준 현재 상태는 다음과 같다.
 
@@ -1134,7 +1136,7 @@ retryable 외부 장애를 구분하며 운영자가 조치 대상을 확인할 
 - `worker/features/otw-play/application/ports/*`
 - `worker/features/otw-play/infrastructure/youtube-metadata-reader.ts`
 - `worker/features/otw-play/infrastructure/d1-*source*`
-- `worker/app/scheduled.ts`
+- `worker/app/scheduled-workflow-cron.ts`
 - `src/features/otw-play/ui/admin/*`
 
 #### 주요 작업

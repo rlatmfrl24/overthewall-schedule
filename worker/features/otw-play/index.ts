@@ -1,116 +1,85 @@
-export {
-  assessExactSourceDuplicate,
-  assessSoftDuplicate,
-  createPerformanceDedupeKeyMaterial,
-  createSongDedupeKeyMaterial,
-  createVideoBackedSongDedupeKeyMaterial,
-} from "./domain/duplicate-policy";
-export type {
-  ExactDuplicateAssessment,
-  ExactDuplicateEvidence,
-  PerformanceDedupeKeyInput,
-  SoftDuplicateAssessment,
-  SoftDuplicateEvidence,
-  SoftDuplicateSignals,
-  SongDedupeKeyInput,
-  SourceSegmentIdentity,
-  VideoBackedSongDedupeKeyInput,
-} from "./domain/duplicate-policy";
+export { createPerformanceDedupeKeyMaterial, createSongDedupeKeyMaterial, createVideoBackedSongDedupeKeyMaterial } from "./domain/duplicate-policy";
+export type { PerformanceDedupeKeyInput, SongDedupeKeyInput, VideoBackedSongDedupeKeyInput } from "./domain/duplicate-policy";
 export { normalizeOtwPlaySearchText } from "./domain/search-normalization";
-export { selectPreferredOfficialSource } from "./domain/source-selection";
-export type { OfficialSourceCandidate } from "./domain/source-selection";
-export {
-  canTransitionProposalStatus,
-  canTransitionPublicationStatus,
-  isOtwPlayProposalStatus,
-  isOtwPlayPublicationStatus,
-  isOtwPlayQualityStatus,
-  isOtwPlaySourceAvailabilityStatus,
-} from "./domain/status-transition";
-export {
-  extractYouTubeVideoId,
-  YOUTUBE_VIDEO_ID_PATTERN,
-} from "./domain/youtube-video-id";
-export {
-  canonicalizePublicCatalogQuery,
-  isStructuredFirstPagePublicCatalogCacheQuery,
-  parsePublicCatalogQuery,
-  PublicCatalogQueryError,
-} from "./domain/public-catalog-query";
-export type { PublicCatalogQuery } from "./domain/public-catalog-query";
-export {
-  decodePublicCatalogCursor,
-  encodePublicCatalogCursor,
-  PublicCatalogCursorError,
-} from "./domain/public-catalog-cursor";
-export {
-  decodePublicCatalogGroupKey,
-  encodePublicCatalogGroupKey,
-  PublicCatalogGroupKeyError,
-} from "./domain/public-group-key";
-export { selectPublicPlaybackSource } from "./domain/public-source-selection";
-export { PublicCatalogService } from "./application/public-catalog-service";
-export type {
-  PublicCatalogSeoReader,
-  PublicCatalogSeoState,
-  PublicCatalogSongSeoProjection,
-} from "./application/ports/public-catalog-seo-reader";
-export {
-  CloudflarePublicCatalogCache,
-  createPublicCatalogEtag,
-} from "./infrastructure/cloudflare-public-catalog-cache";
-export { D1PublicCatalogReader } from "./infrastructure/d1-public-catalog-reader";
-export { createPublicCatalogHandler } from "./http/public-catalog-handler";
+
+
+
 export { AdminCatalogService } from "./application/admin-catalog-service";
-export { SourceHealthService } from "./application/source-health-service";
-export { D1AdminCatalogRepository } from "./infrastructure/d1-admin-catalog-repository";
-export { D1SourceHealthRepository } from "./infrastructure/d1-source-health-repository";
-export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
-export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";
-export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
-export { MemberSubmissionService } from "./application/member-submission-service";
-export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
-export { createMemberSubmissionHandler } from "./http/member-submission-handler";
+export { ChannelMonitorService } from "./application/channel-monitor-service";
 export {
   IngestionProcessingError,
-  IngestionService,
+  IngestionService
 } from "./application/ingestion-service";
+export { MemberSubmissionService } from "./application/member-submission-service";
 export type { OtwPlayIngestionQueueMessage } from "./application/ports/ingestion-repository";
-export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
-export { ChannelMonitorService } from "./application/channel-monitor-service";
-export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
-export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
 export {
-  createWebsubAdminHandler,
-  createWebsubCallbackHandler,
-} from "./http/websub-handler";
-export {
-  createIngestionHandler,
-  createIngestionQueueHandler,
-} from "./http/ingestion-handler";
+  NoopPlayTelemetryWriter, createPlayTelemetryEvent
+} from "./application/ports/play-telemetry";
 export type {
   PlayTelemetryEvent,
   PlayTelemetryEventName,
-  PlayTelemetryWriter,
+  PlayTelemetryWriter
 } from "./application/ports/play-telemetry";
+export type {
+  PublicCatalogSeoReader,
+  PublicCatalogSeoState,
+  PublicCatalogSongSeoProjection
+} from "./application/ports/public-catalog-seo-reader";
+export { PublicCatalogService } from "./application/public-catalog-service";
+export { ReleaseService } from "./application/release-service";
+export { SourceHealthService } from "./application/source-health-service";
 export {
-  createPlayTelemetryEvent,
-  NoopPlayTelemetryWriter,
-} from "./application/ports/play-telemetry";
+  PublicCatalogCursorError, decodePublicCatalogCursor,
+  encodePublicCatalogCursor
+} from "./domain/public-catalog-cursor";
+export {
+  PublicCatalogQueryError, canonicalizePublicCatalogQuery,
+  isStructuredFirstPagePublicCatalogCacheQuery,
+  parsePublicCatalogQuery
+} from "./domain/public-catalog-query";
+export type { PublicCatalogQuery } from "./domain/public-catalog-query";
+export {
+  PublicCatalogGroupKeyError, decodePublicCatalogGroupKey,
+  encodePublicCatalogGroupKey
+} from "./domain/public-group-key";
+export { selectPublicPlaybackSource } from "./domain/public-source-selection";
+export {
+  YOUTUBE_VIDEO_ID_PATTERN, extractYouTubeVideoId
+} from "./domain/youtube-video-id";
+export { createAdminCatalogHandler } from "./http/admin-catalog-handler";
+export { createChannelMonitorHandler } from "./http/channel-monitor-handler";
+export { createIngestionHandler } from "./http/ingestion-handler";
+export { createMemberSubmissionHandler } from "./http/member-submission-handler";
+export { createPlayObservabilityHandler } from "./http/observability-handler";
+export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
+export { createPublicCatalogHandler } from "./http/public-catalog-handler";
+export { createReleaseHandler } from "./http/release-handler";
+export {
+  createWebsubAdminHandler,
+  createWebsubCallbackHandler
+} from "./http/websub-handler";
+export { DrizzleAdminCatalogAudit } from "./infrastructure/admin-catalog-audit";
+export {
+  CloudflarePlayObservabilityReader,
+  OTW_PLAY_OBSERVABILITY_SQL
+} from "./infrastructure/cloudflare-play-observability-reader";
 export {
   CloudflarePlayTelemetryWriter,
   shouldWritePlayCustomLog,
-  toPlayAnalyticsDataPoint,
+  toPlayAnalyticsDataPoint
 } from "./infrastructure/cloudflare-play-telemetry";
 export {
-  CloudflarePlayObservabilityReader,
-  OTW_PLAY_OBSERVABILITY_SQL,
-} from "./infrastructure/cloudflare-play-observability-reader";
-export { createPlayObservabilityHandler } from "./http/observability-handler";
-export { withPlayOperationsTelemetry } from "./http/play-telemetry-handler";
-export { ReleaseService } from "./application/release-service";
+  CloudflarePublicCatalogCache,
+  createPublicCatalogEtag
+} from "./infrastructure/cloudflare-public-catalog-cache";
+export { D1AdminCatalogRepository } from "./infrastructure/d1-admin-catalog-repository";
+export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-repository";
+export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
+export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
+export { D1PublicCatalogReader } from "./infrastructure/d1-public-catalog-reader";
 export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
-export { createReleaseHandler } from "./http/release-handler";
+export { D1SourceHealthRepository } from "./infrastructure/d1-source-health-repository";
+export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";
 
 export { readAdminReviewSummary } from "./infrastructure/admin-review-summary";
 export { readOtwPlayAutomationPaused } from "./infrastructure/play-automation-settings";

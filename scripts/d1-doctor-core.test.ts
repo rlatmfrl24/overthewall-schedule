@@ -6,6 +6,26 @@ import {
 
 const loadDoctorCore = () => import("./d1-doctor-core.mjs");
 
+describe("canonical runtime prerequisites", () => {
+  it("requires migrated D-Day and pending VOD columns", async () => {
+    const { REQUIRED_D1_COLUMNS } = await loadDoctorCore();
+    expect(REQUIRED_D1_COLUMNS.ddays).toContain("type");
+    expect(REQUIRED_D1_COLUMNS.pending_schedules).toEqual(expect.arrayContaining([
+      "vod_started_at", "vod_duration_seconds", "vod_thumbnail_url", "processed_reset_at",
+    ]));
+  });
+  it.each([[], [{ value: null }], [{ value: "bad" }], [{ value: "0" }], [{ value: "10001" }]].map(rows => ({ rows })))(
+    "rejects missing or invalid canonical quota: $rows", async ({ rows }) => {
+      const { getYouTubeDailyQuotaStatus } = await loadDoctorCore();
+      expect(getYouTubeDailyQuotaStatus(rows).ok).toBe(false);
+    },
+  );
+  it("accepts the migrated canonical quota", async () => {
+    const { getYouTubeDailyQuotaStatus } = await loadDoctorCore();
+    expect(getYouTubeDailyQuotaStatus([{ value: "1000" }]).ok).toBe(true);
+  });
+});
+
 const MUSIC_TABLES = [
   "music_entities",
   "music_entity_aliases",

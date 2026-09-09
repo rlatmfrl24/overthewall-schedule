@@ -1,3 +1,12 @@
+export const RETIRED_SETTINGS_KEYS = [
+  "youtube_warmup_enabled",
+  "youtube_warmup_interval_hours",
+  "youtube_warmup_daily_quota_units",
+  "youtube_warmup_official_enabled",
+  "youtube_warmup_kirinuki_enabled",
+  "youtube_warmup_last_run",
+] as const;
+
 export type BooleanSettingValue = "true" | "false";
 
 export const SETTINGS_VISIBILITY_VALUES = [
@@ -39,33 +48,9 @@ export type XReferencePreviewMode =
 export const DEFAULT_X_REFERENCE_PREVIEW_MODE: XReferencePreviewMode =
   "cached_author";
 
-export const YOUTUBE_WARMUP_INTERVAL_HOURS = [
-  "1",
-  "2",
-  "6",
-  "12",
-  "24",
-] as const;
-export type YouTubeWarmupIntervalHours =
-  (typeof YOUTUBE_WARMUP_INTERVAL_HOURS)[number];
-export const DEFAULT_YOUTUBE_WARMUP_INTERVAL_HOURS: YouTubeWarmupIntervalHours =
-  "1";
-
-export const YOUTUBE_WARMUP_SETTINGS_KEYS = [
-  "youtube_warmup_enabled",
-  "youtube_warmup_interval_hours",
-  "youtube_warmup_daily_quota_units",
-  "youtube_warmup_official_enabled",
-  "youtube_warmup_kirinuki_enabled",
-  "youtube_warmup_last_run",
-] as const;
-export type YouTubeWarmupSettingKey =
-  (typeof YOUTUBE_WARMUP_SETTINGS_KEYS)[number];
-
-export const DEFAULT_YOUTUBE_WARMUP_ENABLED = "true";
-export const DEFAULT_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 1000;
-export const MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 1;
-export const MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS = 10_000;
+export const DEFAULT_YOUTUBE_API_DAILY_QUOTA_UNITS = 1000;
+export const MIN_YOUTUBE_API_DAILY_QUOTA_UNITS = 1;
+export const MAX_YOUTUBE_API_DAILY_QUOTA_UNITS = 10_000;
 export const YOUTUBE_API_DAILY_QUOTA_SETTING_KEY =
   "youtube_api_daily_quota_units" as const;
 export const LIVE_SCHEDULE_AUTO_FILL_SETTING_KEY =
@@ -97,12 +82,6 @@ export interface AdminSettingsDto {
   x_reference_preview_mode: XReferencePreviewMode;
   x_reference_preview_daily_budget_cents: string;
   x_collection_last_run: string | null;
-  youtube_warmup_enabled: BooleanSettingValue;
-  youtube_warmup_interval_hours: YouTubeWarmupIntervalHours;
-  youtube_warmup_daily_quota_units: string;
-  youtube_warmup_official_enabled: BooleanSettingValue;
-  youtube_warmup_kirinuki_enabled: BooleanSettingValue;
-  youtube_warmup_last_run: string | null;
   youtube_api_daily_quota_units: string;
   youtube_feed_enabled: BooleanSettingValue;
   otw_play_submission_daily_limit: string;
@@ -127,12 +106,6 @@ export const SETTINGS_KEYS = [
   "x_reference_preview_mode",
   "x_reference_preview_daily_budget_cents",
   "x_collection_last_run",
-  "youtube_warmup_enabled",
-  "youtube_warmup_interval_hours",
-  "youtube_warmup_daily_quota_units",
-  "youtube_warmup_official_enabled",
-  "youtube_warmup_kirinuki_enabled",
-  "youtube_warmup_last_run",
   YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
   "youtube_feed_enabled",
   OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
@@ -145,7 +118,6 @@ export type SettingsKey = (typeof SETTINGS_KEYS)[number];
 export const READONLY_SETTINGS_KEYS = [
   "auto_update_last_run",
   "x_collection_last_run",
-  "youtube_warmup_last_run",
 ] as const satisfies readonly SettingsKey[];
 
 export type ReadonlySettingsKey = (typeof READONLY_SETTINGS_KEYS)[number];
@@ -237,31 +209,10 @@ export const normalizeXReferencePreviewMode = (
     ? value
     : DEFAULT_X_REFERENCE_PREVIEW_MODE;
 
-export const isYouTubeWarmupIntervalHours = (
-  value: unknown,
-): value is YouTubeWarmupIntervalHours =>
-  typeof value === "string" &&
-  (YOUTUBE_WARMUP_INTERVAL_HOURS as readonly string[]).includes(value);
-
-export const normalizeYouTubeWarmupIntervalHours = (
-  value: string | null | undefined,
-): YouTubeWarmupIntervalHours =>
-  isYouTubeWarmupIntervalHours(value)
-    ? value
-    : DEFAULT_YOUTUBE_WARMUP_INTERVAL_HOURS;
-
-export const parseYouTubeWarmupIntervalHours = (
-  value: string | null | undefined,
-) => Number(normalizeYouTubeWarmupIntervalHours(value));
-
 export const isBooleanSettingValue = (value: unknown) =>
   value === "true" || value === "false";
 
-export const normalizeYouTubeWarmupBoolean = (
-  value: string | null | undefined,
-) => (value === "false" ? "false" : "true");
-
-export const normalizeYouTubeWarmupDailyQuotaUnits = (
+export const normalizeYouTubeApiDailyQuotaUnits = (
   value: string | number | null | undefined,
 ) => {
   const parsed =
@@ -269,23 +220,23 @@ export const normalizeYouTubeWarmupDailyQuotaUnits = (
       ? value
       : Number.parseInt(String(value ?? ""), 10);
   if (!Number.isFinite(parsed)) {
-    return String(DEFAULT_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS);
+    return String(DEFAULT_YOUTUBE_API_DAILY_QUOTA_UNITS);
   }
   return String(
     Math.min(
-      Math.max(parsed, MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS),
-      MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS,
+      Math.max(parsed, MIN_YOUTUBE_API_DAILY_QUOTA_UNITS),
+      MAX_YOUTUBE_API_DAILY_QUOTA_UNITS,
     ),
   );
 };
 
-export const isYouTubeWarmupDailyQuotaUnitsValue = (value: unknown) => {
+export const isYouTubeApiDailyQuotaUnitsValue = (value: unknown) => {
   if (typeof value !== "string" || !/^\d+$/.test(value.trim())) return false;
   const parsed = Number.parseInt(value, 10);
   return (
     Number.isFinite(parsed) &&
-    parsed >= MIN_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS &&
-    parsed <= MAX_YOUTUBE_WARMUP_DAILY_QUOTA_UNITS
+    parsed >= MIN_YOUTUBE_API_DAILY_QUOTA_UNITS &&
+    parsed <= MAX_YOUTUBE_API_DAILY_QUOTA_UNITS
   );
 };
 
@@ -308,27 +259,6 @@ export const normalizeOtwPlaySubmissionDailyLimit = (
     : String(DEFAULT_OTW_PLAY_SUBMISSION_DAILY_LIMIT);
 };
 
-export const normalizeYouTubeWarmupSettings = (
-  values: Partial<Record<YouTubeWarmupSettingKey, string | null | undefined>>,
-) => ({
-  youtube_warmup_enabled: normalizeYouTubeWarmupBoolean(
-    values.youtube_warmup_enabled ?? DEFAULT_YOUTUBE_WARMUP_ENABLED,
-  ),
-  youtube_warmup_interval_hours: normalizeYouTubeWarmupIntervalHours(
-    values.youtube_warmup_interval_hours,
-  ),
-  youtube_warmup_daily_quota_units: normalizeYouTubeWarmupDailyQuotaUnits(
-    values.youtube_warmup_daily_quota_units,
-  ),
-  youtube_warmup_official_enabled: normalizeYouTubeWarmupBoolean(
-    values.youtube_warmup_official_enabled ?? "true",
-  ),
-  youtube_warmup_kirinuki_enabled: normalizeYouTubeWarmupBoolean(
-    values.youtube_warmup_kirinuki_enabled ?? "true",
-  ),
-  youtube_warmup_last_run: values.youtube_warmup_last_run ?? null,
-});
-
 const settingsKeySet = new Set<string>(SETTINGS_KEYS);
 const readonlySettingsKeySet = new Set<string>(READONLY_SETTINGS_KEYS);
 
@@ -343,11 +273,6 @@ const normalizeBoolean = (
   value: string | null | undefined,
   defaultValue: BooleanSettingValue,
 ): BooleanSettingValue => (isBooleanValue(value) ? value : defaultValue);
-
-const normalizeWarmupBoolean = (
-  value: string | null | undefined,
-): BooleanSettingValue =>
-  normalizeYouTubeWarmupBoolean(value) as BooleanSettingValue;
 
 const isSettingsVisibility = (value: unknown): value is SettingsVisibility =>
   typeof value === "string" &&
@@ -494,50 +419,10 @@ const SETTINGS_CONFIGS: readonly SettingConfig[] = [
     normalize: passthroughNullable,
   },
   {
-    key: "youtube_warmup_enabled",
-    writable: true,
-    normalize: normalizeWarmupBoolean,
-    validate: isBooleanValue,
-    persistOnRead: true,
-  },
-  {
-    key: "youtube_warmup_interval_hours",
-    writable: true,
-    normalize: normalizeYouTubeWarmupIntervalHours,
-    validate: isYouTubeWarmupIntervalHours,
-    persistOnRead: true,
-  },
-  {
-    key: "youtube_warmup_daily_quota_units",
-    writable: true,
-    normalize: normalizeYouTubeWarmupDailyQuotaUnits,
-    validate: isYouTubeWarmupDailyQuotaUnitsValue,
-    persistOnRead: true,
-  },
-  {
-    key: "youtube_warmup_official_enabled",
-    writable: true,
-    normalize: normalizeWarmupBoolean,
-    validate: isBooleanValue,
-    persistOnRead: true,
-  },
-  {
-    key: "youtube_warmup_kirinuki_enabled",
-    writable: true,
-    normalize: normalizeWarmupBoolean,
-    validate: isBooleanValue,
-    persistOnRead: true,
-  },
-  {
-    key: "youtube_warmup_last_run",
-    writable: false,
-    normalize: passthroughNullable,
-  },
-  {
     key: YOUTUBE_API_DAILY_QUOTA_SETTING_KEY,
     writable: true,
-    normalize: normalizeYouTubeWarmupDailyQuotaUnits,
-    validate: isYouTubeWarmupDailyQuotaUnitsValue,
+    normalize: normalizeYouTubeApiDailyQuotaUnits,
+    validate: isYouTubeApiDailyQuotaUnitsValue,
   },
   {
     key: OTW_PLAY_SUBMISSION_DAILY_LIMIT_SETTING_KEY,
@@ -597,6 +482,10 @@ export const normalizeAdminSettings = (
 export const parseSettingsUpdatePayload = (
   body: Record<string, unknown>,
 ): SettingsUpdateParseResult => {
+  const retired = RETIRED_SETTINGS_KEYS.filter((key) => Object.hasOwn(body, key));
+  if (retired.length > 0) {
+    return { ok: false, error: `Retired settings: ${retired.join(", ")}` };
+  }
   const updates: SettingWrite[] = [];
 
   for (const [key, value] of Object.entries(body)) {

@@ -53,7 +53,7 @@ flowchart LR
 
   subgraph worker["Cloudflare Worker"]
     fetchEntry["fetch entry<br/>worker/index.ts"]
-    scheduledEntry["scheduled entry · orchestration<br/>worker/index.ts → worker/app/scheduled.ts"]
+    scheduledEntry["scheduled entry · orchestration<br/>worker/index.ts → scheduled-workflow-cron.ts → Workflow"]
     registry["Route registry · Composition root<br/>worker/app"]
     platform["Auth · HTTP · D1 helper<br/>worker/platform"]
     workerFeature["Capability 계층<br/>worker/features"]
@@ -606,7 +606,7 @@ flowchart TB
   workflows["ScheduledOperationsWorkflow<br/>job type payload"]
   state[("D1 scheduled_job_runs<br/>items · outbox · usage")]
   queues["6 physical Queues<br/>control · critical · background<br/>ingestion · websub · dead-letter"]
-  executor["protocol-aware queue router<br/>scheduled · ingestion · WebSub"]
+  executor["protocol-aware queue router<br/>scheduled · ingestion · retired WebSub drain"]
   admin["관리자 Operations UI"]
   command["POST /api/operations/runs<br/>202 + run polling"]
   youtube["YouTube Demand-SWR<br/>정기 schedule 0건"]
@@ -626,11 +626,11 @@ flowchart TB
 범용 운영 작업은 통합 Worker의 Free-plan Cron Trigger 하나가 job type을 담은 범용
 Workflow instance를 시작하고, Workflow가 D1 run/item/outbox를 계획한다. 논리 lane은
 D1 admission·lease·관측 기준으로 유지하지만 물리 Queue는 control, critical,
-background로 통합한다. ingestion과 WebSub delivery는 서로 다른 concurrency와 지연
-요구를 가지므로 독립 Queue를 유지하고, dead-letter만 protocol-aware router로 합친다.
+background로 통합한다. ingestion은 독립 Queue를 유지하고 dead-letter는 공용 라우터를 사용한다.
+WebSub Queue는 신규 생산자 없이 과거 메시지 drain만 수행하며 49시간 관측 조건 충족 후 제거한다.
 모든 Queue invocation은 같은 Worker의 queue entry point를 사용한다.
 X·Naver Cafe·auto-update·retention 등 일반 관리자 command는 `202` run과 상태
-조회 계약을 공유한다. `youtube-critical` lane은 OTW Play WebSub·ingestion·
+조회 계약을 공유한다. `youtube-critical` lane은 OTW Play ingestion·
 source-health·reconcile을 위해 유지한다.
 
 공개 YouTube 캐시는 이 범용 scheduler의 작업 타입이 아니다. YouTube 정기
@@ -757,7 +757,7 @@ pnpm sync:agent-cursor:check
 ## 13. OTW Play 계층과 연계성
 
 OTW Play도 Worker 공통 의존 방향을 그대로 따른다. HTTP parser/handler는 transport와
-인증·오류 envelope만 소유하고, application service가 공개 경계, CAS, WebSub 권위와
+인증·오류 envelope만 소유하고, application service가 공개 경계, CAS, 채널 승인·generation 권위와
 원자 command를 조합한다. domain/port는 D1, Queue, telemetry, YouTube 구현을 알지 못하며
 infrastructure adapter가 port를 구현한다.
 
@@ -767,7 +767,7 @@ flowchart LR
   http --> app["application services"]
   app --> ports["domain policies + ports"]
   d1["D1 repositories"] --> ports
-  yt["YouTube + WebSub"] --> ports
+  yt["YouTube uploads polling"] --> ports
   queue["Cloudflare Queue + telemetry"] --> ports
   app --> read["catalog/read-model revision"]
 ```
@@ -780,8 +780,8 @@ flowchart LR
   하나의 D1 batch에서 갱신한다. legacy 단일 `source` 호환은 Worker ingress에만 둔다.
 - player의 presentation과 playback을 분리한다. visible host가 없으면 iframe load/play를
   허용하지 않고, 닫기·route 이탈·host 제거 시 pause를 선행한다.
-- WebSub callback은 active + verified + future lease와 monitor/approval을 application에서
-  확인한 뒤에만 delivery와 Queue를 갱신한다. current/previous generation candidate query는
+- 채널 polling은 승인·monitor 활성 상태·전역 중지·generation·lease를 검사한다. 종료된
+  WebSub callback은 HTTP 410만 반환한다. current/previous generation candidate query는
   별도 port method와 query key를 사용한다.
 - `0065`는 WebSub 권위와 30일 source metadata retention을, `0066`은 D1 FK·CHECK drift를
   보정한다. 두 migration, Worker 배포와 공개 flag 변경은 서로 독립된 운영 승인 대상이다.

@@ -12,6 +12,7 @@ import {
   getMusicSearchGramStatsStatus,
   getOtwPlaySubmissionDailyLimitStatus,
   getMigrationListStatus,
+  getYouTubeDailyQuotaStatus,
 } from "./d1-doctor-core.mjs";
 import {
   buildD1LocationArgs,
@@ -494,6 +495,12 @@ for (const scope of ["remote", "local"]) {
   failures += await checkPublicSortKeys(scope);
   failures += await checkSearchGramStats(scope);
   failures += await checkOtwPlaySubmissionDailyLimit(scope);
+  failures += await runReadModelDiagnostic(
+    scope,
+    "YouTube canonical quota",
+    "SELECT value FROM settings WHERE key = 'youtube_api_daily_quota_units'",
+    getYouTubeDailyQuotaStatus,
+  );
 }
 
 if (failures > 0) {

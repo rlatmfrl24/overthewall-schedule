@@ -1,37 +1,29 @@
 export {
-  createXPostsApplication,
   XAllowlistUnavailableError,
   XPostFeedError,
   XReplyContextNotFoundError,
-  XTargetsNotAllowedError,
-  type XPostsApplication,
-  type XPostsApplicationPorts,
+  XTargetsNotAllowedError, createXPostsApplication, type XPostsApplication,
+  type XPostsApplicationPorts
 } from "./application/x-posts-service";
 export {
   createManualXCollectionHandler,
-  type BuildManualXCollectionApplication,
+  type BuildManualXCollectionApplication
 } from "./http/manual-collection-handler";
 export {
   createXPostsHandler,
-  type BuildXPostsApplication,
+  type BuildXPostsApplication
 } from "./http/x-posts";
+export {
+  redactStoredXPosts
+} from "./infrastructure/x-api";
+export { getScheduledXCollectionDecision, readActiveXHandles, runXCollection, runXCollectionForHandles } from "./infrastructure/x-collection";
+export {
+  readXHistoryHealth,
+  readXHistoryPosts
+} from "./infrastructure/x-history";
 export {
   buildXPostsApplication,
   xPostFeedService,
   type XPostFeedService,
-  type XPostFeedServiceOptions,
+  type XPostFeedServiceOptions
 } from "./infrastructure/x-posts-adapters";
-export {
-  getScheduledXCollectionDecision,
-  readActiveXHandles,
-  runScheduledXCollection,
-  runXCollection,
-  runXCollectionForHandles,
-} from "./infrastructure/x-collection";
-export {
-  redactStoredXPosts,
-} from "./infrastructure/x-api";
-export {
-  readXHistoryHealth,
-  readXHistoryPosts,
-} from "./infrastructure/x-history";

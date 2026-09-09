@@ -1,11 +1,9 @@
 import { type Env } from "../../../platform/types";
 
 const DAY_MS = 24 * 60 * 60_000;
-const DAY_SECONDS = 24 * 60 * 60;
 const RETENTION_LAST_PRUNE_SETTING_KEY = "data_retention_last_prune";
 const D1_DATABASE_MAX_BYTES_SETTING_KEY = "d1_database_max_bytes";
 const DEFAULT_D1_DATABASE_MAX_BYTES = 500 * 1024 * 1024;
-const SCHEDULED_PRUNE_INTERVAL_MS = DAY_MS;
 
 type RetentionCategory =
   | "usage_events"
@@ -76,16 +74,6 @@ export type DataRetentionStatusResult = DataRetentionPruneResult & {
     thresholds: readonly [60, 75, 85];
   };
 };
-
-export type ScheduledDataRetentionPruneResult =
-  | {
-      skipped: true;
-      lastRun: number | null;
-      nextEligibleAt: number | null;
-    }
-  | ({
-      skipped: false;
-    } & DataRetentionPruneResult);
 
 export const DATA_RETENTION_POLICIES = [
   {
@@ -229,15 +217,6 @@ export const DATA_RETENTION_POLICIES = [
     retentionDays: 365,
   },
 ] as const satisfies readonly RetentionPolicy[];
-
-const readLastScheduledPrune = async (env: Env) => {
-  const row = await env.otw_db
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .bind(RETENTION_LAST_PRUNE_SETTING_KEY)
-    .first<{ value: string | null }>();
-  const parsed = Number.parseInt(row?.value ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-};
 
 const writeLastScheduledPrune = async (env: Env, value: number) => {
   const now = String(Date.now());
@@ -573,34 +552,4 @@ export const runDataRetentionPrune = async (
     ),
     policies,
   };
-};
-
-export const runScheduledDataRetentionPrune = async (
-  env: Env,
-): Promise<ScheduledDataRetentionPruneResult> => {
-  const now = Date.now();
-  const lastRun = await readLastScheduledPrune(env);
-  if (lastRun && now - lastRun < SCHEDULED_PRUNE_INTERVAL_MS) {
-    return {
-      skipped: true,
-      lastRun,
-      nextEligibleAt: lastRun + SCHEDULED_PRUNE_INTERVAL_MS,
-    };
-  }
-
-  return {
-    skipped: false,
-    ...(await runDataRetentionPrune(env, {
-      source: "scheduled",
-    })),
-  };
-};
-
-export const DATA_RETENTION_POLICY_SUMMARY = {
-  usageEventsRetentionDays: { x: 30, youtube: 90 },
-  collectionRunsRetentionDays: { x: 30, other: 90 },
-  feedPostRetention: { x: "permanent", naverCafe: "permanent" },
-  dailyUsageRetention: "permanent",
-  logsRetentionDays: 365,
-  scheduledIntervalSeconds: DAY_SECONDS,
 };

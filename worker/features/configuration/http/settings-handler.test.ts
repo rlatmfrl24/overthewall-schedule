@@ -130,12 +130,6 @@ describe("settings worker route", () => {
     expect(body.live_schedule_auto_fill_enabled).toBe("true");
     expect(body.x_collection_interval_hours).toBe("2");
     expect(body.x_collection_last_run).toBeNull();
-    expect(body.youtube_warmup_enabled).toBe("true");
-    expect(body.youtube_warmup_interval_hours).toBe("1");
-    expect(body.youtube_warmup_daily_quota_units).toBe("1000");
-    expect(body.youtube_warmup_official_enabled).toBe("true");
-    expect(body.youtube_warmup_kirinuki_enabled).toBe("true");
-    expect(body.youtube_warmup_last_run).toBeNull();
     expect(fakeDbContext.state.writes).toEqual([]);
   });
 
@@ -265,55 +259,6 @@ describe("settings worker route", () => {
     expect(fakeDbContext.state.writes).toEqual([]);
   });
 
-  it("허용된 YouTube 예열 설정을 저장한다", async () => {
-    const response = await handleSettings(
-      makeJsonRequest({
-        youtube_warmup_enabled: "false",
-        youtube_warmup_interval_hours: "6",
-        youtube_warmup_daily_quota_units: "500",
-        youtube_warmup_official_enabled: "true",
-        youtube_warmup_kirinuki_enabled: "false",
-      }),
-      makeEnv(),
-    );
-
-    expect(response.status).toBe(200);
-    expect(fakeDbContext.state.writes).toEqual([
-      { key: "youtube_warmup_enabled", value: "false" },
-      { key: "youtube_warmup_interval_hours", value: "6" },
-      { key: "youtube_warmup_daily_quota_units", value: "500" },
-      { key: "youtube_warmup_official_enabled", value: "true" },
-      { key: "youtube_warmup_kirinuki_enabled", value: "false" },
-    ]);
-  });
-
-  it("잘못된 YouTube 예열 설정을 거부한다", async () => {
-    const invalidEnabled = await handleSettings(
-      makeJsonRequest({ youtube_warmup_enabled: "yes" }),
-      makeEnv(),
-    );
-    const invalidInterval = await handleSettings(
-      makeJsonRequest({ youtube_warmup_interval_hours: "3" }),
-      makeEnv(),
-    );
-    const invalidQuota = await handleSettings(
-      makeJsonRequest({ youtube_warmup_daily_quota_units: "0" }),
-      makeEnv(),
-    );
-
-    expect(invalidEnabled.status).toBe(400);
-    expect(await invalidEnabled.text()).toBe("Invalid youtube_warmup_enabled");
-    expect(invalidInterval.status).toBe(400);
-    expect(await invalidInterval.text()).toBe(
-      "Invalid youtube_warmup_interval_hours",
-    );
-    expect(invalidQuota.status).toBe(400);
-    expect(await invalidQuota.text()).toBe(
-      "Invalid youtube_warmup_daily_quota_units",
-    );
-    expect(fakeDbContext.state.writes).toEqual([]);
-  });
-
   it("클라이언트가 보낸 last_run 설정은 저장하지 않는다", async () => {
     const response = await handleSettings(
       makeJsonRequest({
@@ -321,8 +266,6 @@ describe("settings worker route", () => {
         auto_update_last_run: "9999999999999",
         x_collection_interval_hours: "24",
         x_collection_last_run: "9999999999999",
-        youtube_warmup_interval_hours: "12",
-        youtube_warmup_last_run: "9999999999999",
       }),
       makeEnv(),
     );
@@ -331,8 +274,44 @@ describe("settings worker route", () => {
     expect(fakeDbContext.state.writes).toEqual([
       { key: "auto_update_enabled", value: "false" },
       { key: "x_collection_interval_hours", value: "24" },
-      { key: "youtube_warmup_interval_hours", value: "12" },
     ]);
   });
 
+});
+
+describe("retired YouTube settings", () => {
+  beforeEach(() => {
+    fakeDbContext.state.rows = [];
+    fakeDbContext.state.writes = [];
+    fakeDbContext.state.auditLogs = [];
+  });
+  it.each(["enabled", "interval_hours", "daily_quota_units", "official_enabled", "kirinuki_enabled", "last_run"])("rejects retired %s before any write or audit", async (suffix) => {
+    const key = `youtube_warmup_${suffix}`;
+    for (const body of [{ [key]: "true" }, { youtube_api_daily_quota_units: "500", [key]: "true" }]) {
+      const response = await handleSettings(makeJsonRequest(body), makeEnv());
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe(`Retired settings: ${key}`);
+      expect(fakeDbContext.state.writes).toEqual([]);
+      expect(fakeDbContext.state.auditLogs).toEqual([]);
+    }
+  });
+  it("stores the canonical quota with an audit record", async () => {
+    const response = await handleSettings(makeJsonRequest({ youtube_api_daily_quota_units: "500" }), makeEnv());
+    expect(response.status).toBe(200);
+    expect(fakeDbContext.state.writes).toEqual([{ key: "youtube_api_daily_quota_units", value: "500" }]);
+    expect(fakeDbContext.state.auditLogs).toHaveLength(1);
+  });
+  it("omits archived warmup settings from the admin response", async () => {
+    fakeDbContext.state.rows = [
+      { key: "youtube_warmup_enabled", value: "true" },
+      { key: "youtube_warmup_daily_quota_units", value: "700" },
+      { key: "youtube_api_daily_quota_units", value: "1000" },
+    ];
+    const response = await handleSettings(new Request("https://otw-schedule.info/api/settings"), makeEnv());
+    const body = await response.json() as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(Object.keys(body).filter(key => key.startsWith("youtube_warmup_"))).toEqual([]);
+    expect(body.youtube_api_daily_quota_units).toBe("1000");
+    expect(fakeDbContext.state.writes).toEqual([]);
+  });
 });

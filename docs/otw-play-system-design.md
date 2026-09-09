@@ -1,5 +1,7 @@
 # OTW Play 시스템·DB 설계
 
+> 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
+
 상태: 아키텍처 하드닝 구현 계약 반영, 운영 공개 `0/0` 설계 기준선
 
 기준일: 2026-08-27
@@ -1653,8 +1655,9 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 
 ### 18.2 PR-8B — source health와 예약 재검사
 
-- `worker/app/scheduled.ts`는 OTW Play application use case를 독립 scheduled task로
-  호출한다. Cron이 관리자 HTTP handler나 raw SQL을 직접 호출하지 않는다.
+- `worker/app/scheduled-workflow-cron.ts`는 읽기 전용 eligibility 검사 후 Workflow를 시작한다.
+  Workflow → Outbox → Queue를 거쳐 `scheduled-job-executor.ts`가 source-health service를
+  호출한다. 실제 scheduled item은 최대 2개 source를 처리하며 repository 상한과 lease·CAS를 유지한다.
 - repository는 `next_check_at <= now`인 source를 `next_check_at`, `id` 순으로 최대
   50개 claim하고 `next_check_at`을 30분 lease 시각으로 옮긴다. 한 실행이 상한을
   넘거나 offset pagination을 사용하지 않으며 source version CAS로 겹친 Cron과 수동
@@ -1734,7 +1737,7 @@ PR-8은 서로 다른 실패 경계와 rollback 단위를 가지므로 PR-8A, PR
 - 후속 capability는 제품 요구사항의 P0~P4 우선순위를 따른다. 새 UI/API/schema를
   먼저 만들지 않고 각 단계의 권리·개인정보·감사·외부 API 결정을 선행한다.
 
-## 19. PR-9 closeout과 WebSub 전달 경계
+## 19. 과거 기록 — PR-9 closeout과 WebSub 전달 경계 (2026-09-09 종료)
 
 이 절은 2026-08-26 당시의 production aggregate와 장애 진단 snapshot을 보존한다.
 이후 완료된 구현과 현재 잔여 gate는 20절을 권위로 사용한다.
@@ -1825,7 +1828,7 @@ priority·segment 중복 금지를 HTTP parser와 application service에서 모�
 source relation 추가·삭제·순서·대표 변경, catalog revision, event와 projection을 하나의
 D1 batch로 커밋한다.
 
-### 21.3 WebSub와 generation 권위
+### 21.3 과거 기록 — WebSub와 generation 권위 (2026-09-09 종료)
 
 subscription의 유효 active 조건은 다음 하나다.
 
