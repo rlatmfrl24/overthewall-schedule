@@ -1847,6 +1847,7 @@ describe("OtwPlayCatalogManager", () => {
     fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
       target: { value: "https://youtu.be/dQw4w9WgXcQ" },
     });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "구간 선택" }));
     fireEvent.change(within(dialog).getByLabelText("종료 위치(초)"), { target: { value: "90" } });
     const confirmVideo = async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "영상 확인" }));
@@ -1915,6 +1916,9 @@ describe("OtwPlayCatalogManager", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "새 영상 등록" }));
     const dialog = screen.getByRole("dialog", { name: "새 YouTube 영상 등록" });
+    expect(within(dialog).queryByLabelText("시작 위치(초)")).toBeNull();
+    expect(within(dialog).queryByLabelText("종료 위치(초)")).toBeNull();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: "구간 선택" }));
     expect(within(dialog).getByLabelText("시작 위치(초)")).toBeTruthy();
     expect(within(dialog).getByLabelText("종료 위치(초)")).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText("YouTube URL"), {
@@ -2148,6 +2152,29 @@ describe("OtwPlayCatalogManager", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
     await screen.findByText(/멤버 채널 자동 인식/);
+    expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
+    expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
+    expect(screen.getByText("전체 영상 · 180초")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), {
+      target: { value: "10" },
+    });
+    fireEvent.change(screen.getByLabelText("종료 위치(초)"), {
+      target: { value: "90" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByText(/멤버 채널 자동 인식/);
+    fireEvent.click(screen.getByRole("checkbox", { name: "구간 선택" }));
+    expect(screen.queryByLabelText("시작 위치(초)")).toBeNull();
+    expect(screen.queryByLabelText("종료 위치(초)")).toBeNull();
+    expect(screen.getByRole("button", { name: /다음/ })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "영상 확인" }));
+    await screen.findByText(/멤버 채널 자동 인식/);
+    expect(preflightEntryMock).toHaveBeenLastCalledWith({
+      youtubeUrl: "https://youtu.be/dQw4w9WgXcQ",
+      startSeconds: 0,
+      endSeconds: null,
+    });
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
     fireEvent.click(screen.getByRole("button", { name: /오리지널곡/ }));
     fireEvent.click(screen.getByRole("button", { name: /다음/ }));
@@ -2163,6 +2190,8 @@ describe("OtwPlayCatalogManager", () => {
         expect.objectContaining({
           relationType: "original",
           song: { kind: "from_video" },
+          startSeconds: 0,
+          endSeconds: 180,
         }),
       ),
     );

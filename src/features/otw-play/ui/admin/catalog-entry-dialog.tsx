@@ -436,6 +436,7 @@ export function CatalogEntryDialog({
   const close = async (next: boolean) => { if (next || await canDiscard()) onOpenChange(next); };
   const [startSeconds, setStartSeconds] = useState("0");
   const [endSeconds, setEndSeconds] = useState("");
+  const [segmentEnabled, setSegmentEnabled] = useState(false);
   const [preflight, setPreflight] = useState<OtwPlayAdminCatalogEntryPreflightDto | null>(null);
   const [checking, setChecking] = useState(false);
   const [channelChoice, setChannelChoice] = useState<"approved" | "pending">("pending");
@@ -472,6 +473,7 @@ export function CatalogEntryDialog({
     if (!open) return;
     setStep(0);
     setYoutubeUrl("");
+    setSegmentEnabled(false);
     setStartSeconds("0");
     setEndSeconds("");
     setPreflight(null);
@@ -504,13 +506,13 @@ export function CatalogEntryDialog({
     try {
       const result = await preflightOtwPlayCatalogEntry({
         youtubeUrl,
-        startSeconds: Number(startSeconds),
-        endSeconds: endSeconds.trim() ? Number(endSeconds) : null,
+        startSeconds: segmentEnabled ? Number(startSeconds) : 0,
+        endSeconds: segmentEnabled && endSeconds.trim() ? Number(endSeconds) : null,
       });
       setPreflight(result);
       if (result.video.durationSeconds === null) {
         setErrorMessage("영상 길이를 확인할 수 없어 시작·종료 구간을 등록할 수 없습니다.");
-      } else if (!endSeconds.trim()) {
+      } else if (!segmentEnabled || !endSeconds.trim()) {
         setEndSeconds(String(result.video.durationSeconds));
       }
       setChannelChoice(result.channel.state === "approved" || result.channel.state === "recognized_member" ? "approved" : "pending");
@@ -534,8 +536,13 @@ export function CatalogEntryDialog({
       preflight.channel.state !== "recognized_member" &&
       !(preflight.channel.catalogChannelId && channelChoice === "pending"),
   );
-  const parsedStartSeconds = Number(startSeconds);
-  const parsedEndSeconds = Number(endSeconds);
+  const parsedStartSeconds = segmentEnabled ? Number(startSeconds) : 0;
+  const parsedEndSeconds = segmentEnabled
+    ? Number(endSeconds)
+    : preflight?.video.durationSeconds ?? 0;
+  const segmentLabel = segmentEnabled
+    ? `구간 ${parsedStartSeconds}초–${parsedEndSeconds}초`
+    : `전체 영상 · ${parsedEndSeconds}초`;
   const segmentValid = Boolean(
     preflight?.video.durationSeconds !== null &&
       Number.isSafeInteger(parsedStartSeconds) &&
@@ -653,6 +660,7 @@ export function CatalogEntryDialog({
   const prepareNextMedleySegment = () => {
     if (!completedMedleySegment) return;
     setStep(0);
+    setSegmentEnabled(true);
     setStartSeconds(String(completedMedleySegment.endSeconds));
     setEndSeconds(String(completedMedleySegment.durationSeconds));
     setPreflight(null);
@@ -704,11 +712,37 @@ export function CatalogEntryDialog({
           <div className="min-h-[360px] space-y-3 py-2">
             {step === 0 && (
               <>
-                <div className="grid gap-3 sm:grid-cols-[1fr_120px_120px_auto] sm:items-end">
-                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} onChange={(event) => { setYoutubeUrl(event.target.value); setEndSeconds(""); setPreflight(null); setVideoKind(null); setRegistrationMode("standard"); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
-                  <div className="space-y-1.5"><Label htmlFor="catalog-start">시작 위치(초)</Label><Input id="catalog-start" type="number" min="0" value={startSeconds} onChange={(event) => { setStartSeconds(event.target.value); setPreflight(null); }} /></div>
-                  <div className="space-y-1.5"><Label htmlFor="catalog-end">종료 위치(초)</Label><Input id="catalog-end" type="number" min="1" value={endSeconds} onChange={(event) => { setEndSeconds(event.target.value); setPreflight(null); }} placeholder="확인 후 자동 입력" /></div>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div className="space-y-1.5"><Label htmlFor="catalog-youtube-url">YouTube URL</Label><Input id="catalog-youtube-url" value={youtubeUrl} disabled={checking} onChange={(event) => { setYoutubeUrl(event.target.value); setEndSeconds(""); setPreflight(null); setVideoKind(null); setRegistrationMode("standard"); }} placeholder="https://www.youtube.com/watch?v=..." /></div>
                   <Button onClick={() => void runPreflight()} disabled={checking || !youtubeUrl.trim()}>{checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />} 영상 확인</Button>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Label htmlFor="catalog-segment-enabled" className="flex items-center gap-2">
+                      <Checkbox
+                        id="catalog-segment-enabled"
+                        checked={segmentEnabled}
+                        disabled={checking}
+                        onCheckedChange={(checked) => {
+                          setSegmentEnabled(checked === true);
+                          if (checked !== true) {
+                            setStartSeconds("0");
+                            setEndSeconds("");
+                          }
+                          setPreflight(null);
+                          setErrorMessage(null);
+                        }}
+                      />
+                      구간 선택
+                    </Label>
+                    <span className="text-xs text-muted-foreground">선택하지 않으면 전체 영상을 등록합니다.</span>
+                  </div>
+                  {segmentEnabled && (
+                    <div className="grid gap-3 sm:max-w-sm sm:grid-cols-2">
+                      <div className="space-y-1.5"><Label htmlFor="catalog-start">시작 위치(초)</Label><Input id="catalog-start" type="number" min="0" value={startSeconds} disabled={checking} onChange={(event) => { setStartSeconds(event.target.value); setPreflight(null); }} /></div>
+                      <div className="space-y-1.5"><Label htmlFor="catalog-end">종료 위치(초)</Label><Input id="catalog-end" type="number" min="1" value={endSeconds} disabled={checking} onChange={(event) => { setEndSeconds(event.target.value); setPreflight(null); }} placeholder="확인 후 자동 입력" /></div>
+                    </div>
+                  )}
                 </div>
                 {preflight && (
                   <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 md:grid-cols-[240px_1fr]">
@@ -716,7 +750,7 @@ export function CatalogEntryDialog({
                     <div className="space-y-3">
                       <div><div className="font-semibold">{preflight.video.title}</div><div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div></div>
                       {preflight.duplicate && <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm"><strong>이미 등록된 영상 구간입니다.</strong><div>곡 {preflight.duplicate.songId} · 가창 {preflight.duplicate.performanceId}</div><Button type="button" variant="link" className="h-auto p-0" onClick={() => onOpenChange(false)}>기존 항목 보기</Button></div>}
-                      <div className="flex flex-wrap items-center gap-2"><Badge variant={preflight.channel.state === "revoked" ? "destructive" : "secondary"}>채널: {preflight.channel.state === "approved" ? "승인됨" : preflight.channel.state === "recognized_member" ? "멤버 채널 자동 인식" : preflight.channel.state === "pending" ? "검수 대기" : preflight.channel.state === "inactive" ? "비활성" : preflight.channel.state === "revoked" ? "철회됨" : "미등록"}</Badge><Badge variant="outline">구간 {startSeconds}초–{endSeconds || "?"}초</Badge><Badge variant="outline">catalog r{preflight.catalogRevision}</Badge></div>
+                      <div className="flex flex-wrap items-center gap-2"><Badge variant={preflight.channel.state === "revoked" ? "destructive" : "secondary"}>채널: {preflight.channel.state === "approved" ? "승인됨" : preflight.channel.state === "recognized_member" ? "멤버 채널 자동 인식" : preflight.channel.state === "pending" ? "검수 대기" : preflight.channel.state === "inactive" ? "비활성" : preflight.channel.state === "revoked" ? "철회됨" : "미등록"}</Badge><Badge variant="outline">{segmentLabel}</Badge><Badge variant="outline">catalog r{preflight.catalogRevision}</Badge></div>
                       {preflight.channel.state === "revoked" ? <p className="text-sm text-destructive">철회된 채널에서는 등록하거나 게시할 수 없습니다. 고급 관리에서 상태를 확인하세요.</p> : preflight.channel.state !== "approved" && preflight.channel.state !== "recognized_member" && <div className="grid gap-3 sm:grid-cols-2"><div className="space-y-1.5"><Label>채널 처리</Label><Select value={channelChoice} onValueChange={(value) => setChannelChoice(value as "approved" | "pending")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="approved">공식 채널로 승인</SelectItem><SelectItem value="pending">보류하고 draft만 저장</SelectItem></SelectContent></Select></div><div className="space-y-1.5"><Label>채널 역할</Label><Select value={channelRole} onValueChange={(value) => setChannelRole(value as typeof channelRole)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="otw_official">OTW 공식</SelectItem><SelectItem value="unit_official">유닛 공식</SelectItem><SelectItem value="member_music">멤버 노래 채널</SelectItem><SelectItem value="member_main">멤버 메인 채널</SelectItem><SelectItem value="project_official">승인 프로젝트</SelectItem></SelectContent></Select></div></div>}
                     </div>
                   </div>
@@ -922,7 +956,7 @@ export function CatalogEntryDialog({
                   <img src={preflight.video.thumbnailUrl ?? `https://i.ytimg.com/vi/${preflight.video.videoId}/hqdefault.jpg`} alt="등록 영상" className="mb-3 aspect-video w-full rounded-md object-cover" />
                   <div className="font-medium">{preflight.video.title}</div>
                   <div className="text-sm text-muted-foreground">{preflight.video.channelTitle}</div>
-                  <div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{channelChoice === "approved" || preflight.channel.state === "approved" || preflight.channel.state === "recognized_member" ? "승인 채널" : "채널 검수 대기"}</Badge><Badge variant="outline">{startSeconds}초–{endSeconds}초</Badge>{registrationMode === "medley_segment" ? <Badge>메들리 구간</Badge> : null}</div>
+                  <div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{channelChoice === "approved" || preflight.channel.state === "approved" || preflight.channel.state === "recognized_member" ? "승인 채널" : "채널 검수 대기"}</Badge><Badge variant="outline">{segmentLabel}</Badge>{registrationMode === "medley_segment" ? <Badge>메들리 구간</Badge> : null}</div>
                   {needsChannelOwnerChoice && <div className="mt-3 text-sm"><span className="font-medium">연결 주체:</span> {channelOwners.map((owner) => owner.label).join(", ")}</div>}
                 </div>
                 <div className="space-y-3 rounded-xl border p-3">
