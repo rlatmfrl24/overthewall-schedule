@@ -36,6 +36,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("../../queries/use-public-catalog", () => ({
   useOtwPlayCatalog: mocks.useCatalog,
   useOtwPlayFacets: mocks.useFacets,
+  useOtwPlayMembers: () => ({ data: undefined, isError: false }),
 }));
 vi.mock("../../player/play-player-context", () => ({
   useOtwPlayPlayer: () => ({

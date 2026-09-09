@@ -1,3 +1,4 @@
+import { isOtwPlayMemberPageEligible, type OtwPlayPublicMemberDto } from "@contracts/otw-play-members";
 import {
   canonicalizePublicCatalogQuery,
   isStructuredFirstPagePublicCatalogCacheQuery,
@@ -61,7 +62,7 @@ export interface PublicCatalogDisabledResult {
 
 export interface PublicCatalogNotFoundResult {
   status: "not_found";
-  reason: "song_not_found" | "performance_not_found";
+  reason: "song_not_found" | "performance_not_found" | "member_not_found";
   catalogRevision: number;
 }
 
@@ -191,6 +192,7 @@ export class PublicCatalogService {
         })
       : null;
     const readerQuery: PublicCatalogReaderQuery = {
+      collaborationOnly: query.collaborationOnly,
       normalizedQuery: query.normalizedQuery,
       memberUids: query.memberUids,
       memberMode: query.memberMode,
@@ -251,6 +253,42 @@ export class PublicCatalogService {
       document,
       cacheStatus: cacheAllowed ? "miss" : "bypass",
     };
+  }
+
+  private async assertMemberSnapshot(meta: PublicCatalogMeta) {
+    const current = await this.readPublicState();
+    if (current.revision !== meta.revision || current.readModelRevision !== meta.readModelRevision ||
+        current.publicReadEnabled !== meta.publicReadEnabled || current.navigationVisible !== meta.navigationVisible) {
+      throw new PublicCatalogServiceError("read_model_stale");
+    }
+  }
+
+  async readMembers(context: PublicCatalogReadContext, preloadedMeta?: PublicCatalogMeta):
+    Promise<PublicCatalogReadResult<{ members: OtwPlayPublicMemberDto[] }>> {
+    const meta = await this.resolveMeta(preloadedMeta);
+    const unavailable = assertContentReadable(meta, context.allowDisabledRead === true);
+    if (unavailable) return unavailable;
+    const members = (await this.reader.readMemberSummaries()).map(member => ({
+      ...member, pageEligible: isOtwPlayMemberPageEligible(member, meta),
+    }));
+    await this.assertMemberSnapshot(meta);
+    return { status: "ok", cacheStatus: "bypass", document: this.createDocument(meta, { members }) };
+  }
+
+  async readMemberSongbook(code: string, query: PublicCatalogQuery, context: PublicCatalogReadContext,
+    preloadedMeta?: PublicCatalogMeta): Promise<PublicCatalogDetailResult<{
+      member: OtwPlayPublicMemberDto; items: PublicCatalogSongSummary[];
+    }>> {
+    const meta = await this.resolveMeta(preloadedMeta);
+    const result = await this.readMembers(context, meta);
+    if (result.status !== "ok") return result;
+    const member = result.document.data.members.find(item => item.code.toLowerCase() === code.toLowerCase());
+    if (!member) return { status: "not_found", reason: "member_not_found", catalogRevision: meta.revision };
+    const catalog = await this.browseCatalog({ ...query, memberUids: [member.uid], memberMode: "any" },
+      { ...context, allowSharedCache: false }, meta);
+    if (catalog.status !== "ok") return catalog;
+    await this.assertMemberSnapshot(meta);
+    return { ...catalog, document: { ...catalog.document, data: { member, items: catalog.document.data.items } } };
   }
 
   async readFacets(

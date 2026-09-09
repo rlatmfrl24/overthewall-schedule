@@ -1,3 +1,4 @@
+import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 export interface PublicCatalogSeoState {
   revision: number;
   readModelRevision: number | null;
@@ -15,6 +16,7 @@ export interface PublicCatalogSongSeoProjection {
 }
 
 export interface PublicCatalogSeoReader {
+  readMemberSummaries(): Promise<OtwPlayMemberSummary[]>;
   readSeoState(): Promise<PublicCatalogSeoState>;
   listPublishedSeoSongSlugs(): Promise<string[]>;
   readPublishedSongSeoBySlug(

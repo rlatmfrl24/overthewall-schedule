@@ -1,3 +1,4 @@
+import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type {
   PublicCatalogEntity,
   PublicCatalogFacets,
@@ -339,6 +340,9 @@ const buildPerformanceFilters = (
     )`);
     binds.push(query.normalizedQuery, query.normalizedQuery, query.normalizedQuery);
     if (query.participantRole !== null) binds.push(query.participantRole);
+  }
+  if (query.collaborationOnly) {
+    predicates.push("performance.participation_type IN ('duet', 'unit', 'group', 'external_collab')");
   }
   if (query.relation !== null) {
     predicates.push("performance.relation_type = ?");
@@ -1740,6 +1744,40 @@ export class D1PublicCatalogReader
       navigationVisible: Boolean(row.navigation_visible),
       updatedAt: Number(row.updated_at),
     };
+  }
+
+  async readMemberSummaries(): Promise<OtwPlayMemberSummary[]> {
+    this.resetDiagnostics();
+    const rows = await this.all<{
+      uid: number; code: string; name: string; oshi_mark: string | null;
+      unit_name: string | null; image_url: string | null; song_count: number; performance_count: number;
+    }>(`
+      WITH public_credits AS (
+        SELECT entity.member_uid, song.id AS song_id, performance.id AS performance_id
+        FROM music_performance_participants AS participant
+        JOIN music_entities AS entity ON entity.id = participant.entity_id AND entity.archived_at IS NULL
+        JOIN music_performances AS performance ON performance.id = participant.performance_id
+        JOIN music_songs AS song ON song.id = performance.song_id
+        WHERE participant.participant_role IN ('vocal', 'featured_vocal')
+          AND ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE}
+      ), totals AS (
+        SELECT member_uid, COUNT(DISTINCT song_id) AS song_count,
+          COUNT(DISTINCT performance_id) AS performance_count
+        FROM public_credits GROUP BY member_uid
+      )
+      SELECT member.uid, member.code, member.name, member.oshi_mark, member.unit_name,
+        (SELECT image.image_url FROM member_profile_images AS image
+         WHERE image.member_uid = member.uid ORDER BY image.sort_order, image.id LIMIT 1) AS image_url,
+        COALESCE(totals.song_count, 0) AS song_count,
+        COALESCE(totals.performance_count, 0) AS performance_count
+      FROM members AS member LEFT JOIN totals ON totals.member_uid = member.uid
+      WHERE member.is_deprecated IS NULL OR member.is_deprecated = 0
+      ORDER BY member.uid`);
+    return rows.map(row => ({
+      uid: row.uid, code: row.code, name: row.name, oshiMark: row.oshi_mark,
+      unitName: row.unit_name, imageUrl: row.image_url || `/profile/${row.code}.webp`,
+      songCount: Number(row.song_count), performanceCount: Number(row.performance_count),
+    }));
   }
 
   readSeoState(): Promise<PublicCatalogMeta> {

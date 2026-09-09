@@ -1,3 +1,4 @@
+import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
 import type { MemberProfileDto } from "@contracts/members";
 import type { PlaySongSeoProjection } from "@contracts/site-seo";
 
@@ -16,6 +17,7 @@ export interface PlaySeoState {
 }
 
 export interface SiteSeoReader {
+  readPlayMemberSummaries(): Promise<OtwPlayMemberSummary[]>;
   readFeedState(): Promise<FeedSeoState>;
   listActiveProfileCodes(): Promise<string[]>;
   findActiveProfileByCode(code: string): Promise<MemberProfileDto | null>;

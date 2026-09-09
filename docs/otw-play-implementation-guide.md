@@ -5,10 +5,13 @@
 > 2026-09-07: 신규 전면 개편과 후속 수정을 폐기했다. 기존 공개·회원 UI를 `2abb35f` 기준으로 복원했다.
 > 신규 멤버 페이지·하단 콘솔·전용 스타일·버전 펼침·관련 탐색은 구현 대상에서 제외한다.
 > 기존 검색·멤버 필터·곡 상세 버전 비교·단일 플레이어·세션 큐·회원 기능은 유지한다.
+>
+> 2026-09-08 후속 결정: 위 전면 개편 폐기는 유지한다. DEC-079가 새로 지정한
+> 멤버 페이지 SEO에 필요한 최소 멤버 페이지와 기본 큐레이션은 다음 개발 범위다.
 
-상태: 아키텍처 하드닝 구현·검증 기준 반영, DEC-076 독립 커버 구간 등록 구현 반영
+상태: 개인 프로필·Play 멤버 SEO 통합 구현 — 검증 기록은 30절, 기본 큐레이션은 다음 개발
 
-기준일: 2026-09-05
+기준일: 2026-09-08
 
 상위 문서: `otw-play-product-requirements.md`
 
@@ -16,11 +19,13 @@
 
 - `otw-play-system-design.md`
 - `otw-play-ui-ux-design.md`
-- [현재 기능 중심의 3개 화면·모션 설계](./otw-play-three-screen-design.md)
+- [폐기된 3개 화면·모션 설계 기록](./otw-play-three-screen-design.md)
 
-2026-09-05의 DEC-077은 차기 UI 설계 목표이며 구현 완료 항목이 아니다. 에디터 큐레이션,
-새 노래책·프로필·집계, 저장, 개인화 추천을 추가하지 않고 기존 기능의 탐색·미학·모션을 개선한다.
-현재 P1/P2 프로그램의 구현이나 우선순위 변경을 이 UI 작업에 포함하지 않는다.
+2026-09-05의 DEC-077은 9월 7일 폐기된 검토 기록이다. 2026-09-08의 신규 큐레이션은
+기존 발견·곡 검색·우측 플레이어를 유지하는 별도 기능이며, [28절](#28-큐레이션-요구사항과-구현-계획)에
+요구사항·권장 설계·후속 분석·남은 구현 목록을 정리한다. 이 문서화로 구현이나 배포를
+수행한 것은 아니며, 다른 P1/P2 기능을 자동으로 구현 범위에 포함하지 않는다.
+이후 사용자 우선순위를 반영한 [29절](#29-다음-개발-우선순위와-문서-closeout)이 최신 착수 인계다.
 
 ## 1. 문서 목적
 
@@ -30,7 +35,8 @@ WebSub 관리, `singing_clip` 비공개 draft 검수와 2026-08-27 관리자 운
 구현·병합은 완료되었다. production Clerk 전환과 실제 로그인·관리자 스모크도 완료했다.
 현재 단계는 flag `0/0`을 유지하면서 P0-A/P0-B 운영 canary, 예약
 source-health, 운영 catalog와 단계적 공개·rollback을 지속 검증하는 것이다. 저장 플레이리스트와 방송
-가창·키리누키 등은 제품 요구사항의 P0~P4 우선순위를 따르는 후속 범위다.
+가창·키리누키 등은 제품 요구사항 DEC-079와 29절의 후속 범위다. 위 운영 상태는 과거
+closeout의 기록이며 이번 문서 정리에서 최신 원격 flag·배포·canary 상태를 재확인하지 않았다.
 
 목표는 테스트만 통과한 조각이 아니라 다음 실제 흐름이 완성되는 것이다.
 
@@ -1467,11 +1473,11 @@ MVP는 다음 조건이 모두 충족되어야 완료다.
    reconciliation, 250개 cap, watermark·gap·generation과 candidate inbox
 5. 완료 — PR-9D1: approved 노래 clip channel WebSub, lease renewal, daily recent-50과
    `singing_clip` candidate inbox. OTW·멤버 공식 channel은 직접 입력
-6. P1A: 기존 participant 기반 member songbook과 queue
-7. P1B: 최소 song/performance member contribution과 관리자 편집·곡 상세
-8. P1C: member contribution 정정 제안과 3곡 이상 current member SEO·sitemap
-9. 구현 완료·배포 대기 — PR-9D2: `singing_clip` candidate의 곡·가창자·segment 검수와
-   비공개 broadcast draft 변환. P3에서 방송일·원본 방송·setlist·공개 read model을 확장
+6. 과거 P1A~C 계획은 2026-09-08 DEC-079와 29절로 대체한다. 멤버 페이지·SEO와
+   큐레이션을 다음 개발로 두고 제작 참여·대표곡 pin·정정을 낮은 우선순위로 분리한다.
+7. 2026-08-27 문서 기록상 구현·배포 완료 — `singing_clip` candidate의 곡·가창자·segment
+   검수와 비공개 broadcast draft 변환(PR #81). 실제 신규 upload canary는 별도다.
+   방송일·원본 방송·setlist·공개 read model은 NEXT-BROADCAST에서 후속 구체화한다.
 
 P0-C 인증 스모크, source-health, catalog 정비와 단계적 공개 검증은 위 개발과 병행하는
 지속 운영 항목이다. PR-9D1은 PR-9B candidate pipeline보다 먼저 구현하지 않는다.
@@ -1579,3 +1585,430 @@ readback → `1/1` 순으로 진행한다.
 - 검증은 parser unit, admin D1 create/update round-trip, public list/detail round-trip,
   전체 migration validate/apply/FK doctor를 포함한다. remote migration과 배포는 별도
   release 승인 전에는 수행하지 않는다.
+
+## 28. 큐레이션 요구사항과 구현 계획
+
+작성일: 2026-09-08. 상태: 요구사항·구현 방향 문서화 완료, 기능 미구현.
+근거: DEC-080, FR-056~058과 사용자 답변 `기존 재생 대기열 끝에 추가`.
+코드 분석 기준: `f692d83`. 아래 현재 기능은 소스 확인 결과이며 운영 화면·데이터 검증
+결과가 아니다. 구현 착수 시 변경된 코드와 운영 후보 분포를 다시 확인한다.
+
+### 28.1 확정 요구사항과 권장 기본값
+
+| 구분 | 내용 | 상태 |
+| --- | --- | --- |
+| 배치 | 발견의 멤버와 최근 노래 사이 | 사용자 확정 |
+| 기본 클릭 | 큐레이션 곡 목록을 기존 대기열 끝에 추가 | 사용자 확정 |
+| 확장 목표 | 기본 템플릿을 먼저 제공하고 향후 사용자 편집 지원 | 사용자 확정, 편집·저장 상세 미결정 |
+| 초기 템플릿 | 기존 카탈로그 필터를 사용하는 조건형 3~4개 | 권장안, TBD-020 |
+| 구성 후보 | 오리지널 모음, 공식 커버 모음, 듀엣 모음 | 예시이며 실제 카탈로그 확인 전 선곡 확정 아님 |
+| 곡 수·정렬 | 최근순 최대 24곡 | 권장안, 조회 예산과 함께 TBD-021에서 확정 |
+| 재생 동작 | 현재 곡·위치·기존 순서·repeat 보존, 빈 큐 자동 재생 없음 | 기존 동작에 근거한 권장 계약 |
+| 사용자 편집 | 기본 템플릿을 내 목록으로 복사해 곡·버전·순서 편집 | 권장안, 조건 편집·보관 범위는 TBD-022 |
+
+이 작업은 폐기된 3개 화면 개편의 재개가 아니다. 현재 큐의 삭제·재정렬은 재사용하고,
+저장형 큐레이션이 미구현이라는 이유로 기존 큐 편집을 신규 기능으로 다시 만들지 않는다.
+
+### 28.2 현재 재사용 자산과 부족한 기능
+
+| 현재 자산 | 재사용/확장 방향 |
+| --- | --- |
+| `src/features/otw-play/ui/public/home-page.tsx` | 멤버 섹션 뒤에 독립 큐레이션 섹션 삽입. 최근 목록·hero 조회와 결합하지 않음 |
+| `api/public.ts`, `queries/use-public-catalog.ts` | 기존 카탈로그 요청·TanStack Query·public/admin-preview cache 경계 재사용 |
+| `contracts/otw-play.ts`의 catalog query | relation·participation·member·공개 기간·sort 지원. 태그·인기도·무작위 선정은 미지원 |
+| `model/play-queue.ts` | 단건 reducer를 일괄 추가로 확장. `performanceId` 중복 의미 보존 |
+| `player/play-player-context.tsx` | 큐 항목과 표시용 track 등록을 함께 처리하고 완료 안내를 한 번 생성 |
+| `ui/player/now-playing-panel.tsx` | 기존 제목·가창·순서 표시와 삭제·재정렬·재생 진입 재사용 |
+| Worker 공개 catalog/source selection | 공개 자격, 필터에 맞는 대표 가창과 재생 가능한 source 선택의 권위 |
+
+현재 queue는 식별자와 순서 등을 versioned `sessionStorage`에 저장한다. 템플릿 모델,
+일괄 추가 명령, 개인 큐레이션 저장과 운영자 큐레이션 관리 모델은 이번 신규 설계 대상이다.
+현재 catalog는 곡당 대표 가창을 반환한다. 조건형은 조건에 맞는 대표 가창을 사용하며,
+같은 곡의 모든 커버를 자동으로 포함하는 기능으로 해석하지 않는다. 특정 버전을 직접
+선정해야 하는 요구는 고정 목록형의 필요 여부와 함께 검토한다.
+
+### 28.3 템플릿·대기열·사용자 목록 경계
+
+| 대상 | 최소 개념 | 수명과 권위 |
+| --- | --- | --- |
+| 기본 조건형 템플릿 | 안정적 `id`, `version`, 제목·설명, 선정 조건, 정렬, 최대 항목 수 | 초기 권장안은 capability 내부 데이터. 공개 곡의 권위는 기존 catalog API |
+| 조회된 실행 목록 | template ID/version, catalog revision, 순서 있는 곡·performance·선택 source, 제외/제한 정보 | 클릭 시 해석한 결과. 현재 대기열에 반영한 뒤 템플릿 갱신으로 자동 변경하지 않음 |
+| 현재 대기열 | 기존 queue item ID, performance ID, source ID, 순서·현재 index·repeat·shuffle | 세션 상태. 기본 템플릿의 원본이나 사용자 영구 저장소가 아님 |
+| 후속 사용자 큐레이션 | 소유자, 목록 ID/version, 제목, 원본 template ID/version, 순서 있는 performance 참조 | 저장 방식 결정 후 구현. 원본 수정이 사용자의 편집본을 덮어쓰지 않음 |
+
+위 필드는 설계 개념이며 아직 wire DTO·DB schema를 확정한 것이 아니다. 첫 구현에는
+실제로 쓰는 조건형 모델과 실행 흐름만 둔다. 미사용 repository/endpoint나 모든 미래
+유형을 위한 빈 계층을 만들지 않는다. 고정 목록형을 추가해도 template → 조회/검증 →
+일괄 추가 흐름과 performance 정체성은 유지한다.
+
+사용자 사본은 복사 시점의 목록을 고정하는 안을 권장한다. 조건까지 자동 갱신하는 개인
+템플릿은 별도 기능이다. 사용자 목록은 영상 URL을 영구 권위로 삼지 않고 performance를
+참조하며, 다시 추가·재생할 때 현재 공개 상태와 source 선택 정책을 적용한다.
+
+### 28.4 대표 사용자 흐름과 실패 계약
+
+```text
+발견 → 멤버 아래 큐레이션 카드 클릭
+→ 해당 템플릿 조건으로 실제 카탈로그 조회
+→ 순서·재생 가능 여부·조회 상한 확인
+→ 최신 대기열 기준 중복 제거 및 track/queue 일괄 등록
+→ 실제 추가/제외 수 안내 → 기존 대기열에서 확인·삭제·순서 변경·재생
+```
+
+1. 초기 카드의 동작을 `대기열에 추가`로 명확히 표시한다. 카드 안에 편집/미리보기
+   행동을 추가하면 독립 컨트롤로 구성하고 중첩 button이나 클릭 전파로 이중 추가하지 않는다.
+2. 클릭한 템플릿의 조건으로 조회한다. Home이 이미 불러온 첫 24곡을 필터링하거나,
+   이전 템플릿의 placeholder 결과를 새 큐레이션으로 넣지 않는다. 기존 조회 API와
+   query-key 생성 규칙을 사용하며 public/admin-preview 캐시를 분리한다.
+3. 곡 수 목표와 조회 예산을 분리한다. API page limit은 현재 최대 60이다. 재생 불가를
+   제외한 결과가 목표보다 적으면 정해진 page/후보 상한 안에서만 추가 조회한다.
+   후보 예산·timeout의 정확한 값은 TBD-021에서 정한다. 무제한 전체 카탈로그 순회는 하지 않는다.
+4. 다중 page는 같은 catalog revision을 유지한다. 중간 요청 실패나 revision 충돌은
+   준비한 목록을 큐에 반영하지 않고 재시도를 제공한다. 정상 종료 또는 의도한 조회
+   상한 도달은 실제 확보한 목록을 추가하되, 상한 도달은 전체 탐색 완료와 구분해 안내한다.
+5. 전체 준비 결과를 최신 queue 상태에 한 번 반영한다. 기존 항목의 ID·source·순서는
+   유지하고 신규 항목만 템플릿 순서대로 뒤에 붙인다. 추가 전 queue snapshot으로 전체
+   덮어쓰기를 하면 조회 중 사용자 편집이 유실되므로 금지한다.
+6. 내부 중복과 기존 중복은 `performanceId`로 제외한다. 같은 곡의 다른 가창은 허용한다.
+   기존 항목을 뒤로 이동하거나 그 source를 교체하는 동작으로 구현하지 않는다.
+7. 재생 가능한 공개 항목만 추가한다. 명시적인 비공개/재생 불가와 일시적 통신 실패를
+   구분하고, 이후 철회·source 장애는 기존 player의 재조회·대체 소스·재시도 정책을 따른다.
+8. 같은 카드의 처리 중 재클릭을 막는다. 서로 다른 큐레이션의 빠른 클릭은 클릭 순서로
+   작업을 직렬 처리하는 안을 권장한다. 실행 시점 최신 큐로 합치고 실패한 앞 작업 때문에
+   뒤 작업을 영구 차단하지 않는다. 화면 이탈 시 미반영 작업은 취소하고 뒤늦게 추가하지 않는다.
+9. 큐와 track 정보를 함께 등록하고, 새 항목의 제목·가창·source가 바로 보이게 한다.
+   현재 곡 객체를 불필요하게 교체하거나 iframe을 다시 생성해 재생 위치를 초기화하지 않는다.
+10. `18곡 추가 · 중복 4곡 · 재생 불가 2곡 제외`, 전체 중복, 정상 0곡, 조회 실패를
+    별도 안내한다. 처리 결과 수는 실제 반영 결과를 기준으로 하고 항목마다 toast를 만들지 않는다.
+
+추가된 전체 큐를 대상으로 실행 취소하는 기능은 최초 요구가 아니다. 도입 시 해당 작업이
+새로 만든 item ID만 대상으로 삼고 이후 사용자 조작·현재 재생 처리까지 별도 설계한다.
+
+### 28.5 구현 파일 경계와 저장 도입 조건
+
+- frontend `otw-play/model`: 템플릿 정의, 순수 선정 결과 변환 및 batch queue reducer.
+- frontend `otw-play/use-cases` 또는 기존 기능 내부 조합: 클릭 작업의 조회·페이지 상한·취소·
+  revision·실행 순서 제어. 서버 상태는 TanStack Query를 사용하고 카드 컴포넌트에 복제하지 않는다.
+- player context: 신규 track과 queue 항목의 일괄 등록, 최신 상태 기준 결과 집계·announcement.
+- public UI: 독립 큐레이션 섹션과 카드, 로딩·실패·빈 결과·접근성. 기존 player 소유 위치 유지.
+- 조건형만으로 요구를 만족하면 기존 API를 재사용하고 새 D1 테이블/추천 API는 추가하지 않는다.
+  기본 템플릿 수정은 이 경우 코드 배포를 필요로 한다는 운영 특성을 문서와 전달 기록에 남긴다.
+- 운영자가 배포 없이 고정 선곡·순서·공개 상태를 편집해야 한다면 템플릿·항목 저장,
+  관리자 명령과 공개 조회를 첫 전달에 포함한다. 관리 권한·version 충돌·공개 캐시 무효화·
+  삭제/철회된 가창 처리까지 실제 저장→권위 재조회로 완성해야 한다.
+- 사용자 계정 저장은 소유자 권한, version 기반 동시 수정 제어, 항목 순서의 원자적 저장,
+  삭제/참조 수명, 저장 후 권위 재조회와 재방문 복원을 함께 구현한다. 익명 기기 저장을
+  계정 동기화처럼 표시하지 않는다. 개인 결과를 public shared cache에 넣지 않는다.
+- 새 API/DB가 필요해지면 `contracts`, 정확한 route registry, Worker
+  `http → application/domain/ports ← infrastructure`, Drizzle 생성 migration과 소비자를
+  함께 변경한다. 영구 저장의 구체 테이블명·endpoint는 후속 분석에서 확정한다.
+
+### 28.6 후속 분석 항목과 결정에 필요한 근거
+
+| 항목 | 분석할 내용 | 필요한 결과/영향 |
+| --- | --- | --- |
+| TBD-020 초기 템플릿 | 실제 공개 가능 곡 수, 템플릿 간 겹침, 대표 가창 선택, 원곡/커버 분류 | 제목·조건·구성 방식 확정. 빈 예시나 fixture를 실제 선곡처럼 출시하지 않음 |
+| TBD-021 조회 예산 | 곡 수, 페이지 수, 응답 지연, 제외 비율, 세션 복원 시 상세 조회 fan-out | 최대 곡/페이지/후보·timeout 및 제한 안내 확정. batch 추가와 복원 양쪽 검증 |
+| TBD-022 편집·저장 | 곡/버전/순서 vs 조건 편집, 로그인 필요성, 기기 저장 vs 계정 저장, 사본 갱신 정책 | 사용자 목록 수명·소유·동기화·충돌·미저장 보호 범위 확정 |
+| TBD-023 운영자 편집 | 고정 선곡, 배포 없는 수정, 공개/비공개, 템플릿 version·캐시 무효화 | 필요한 경우 초기 범위에 저장·관리 흐름 포함 |
+| 태그/분위기 | song 태그와 performance 태그의 의미, ANY/ALL, 정규화·누락, 실제 데이터 품질 | 태그 필터 API/인덱스 필요 여부. 분위기를 제목 검색으로 대체하지 않음 |
+| 개인화·인기도 | 선정 근거 데이터와 집계 정의, 개인정보·보관 기간·운영 비용 | 별도 요구 확정 전 추천/추적 수집을 추가하지 않음 |
+| 이용 결과 분석 | 노출→추가 성공→재생의 정의, 중복/빈 결과/실패 구분, 추가 수와 조회 비용 | 필요성이 확인되면 기존 telemetry 재사용 가능성 검토. 클릭 수를 재생 성과로 해석하지 않음 |
+
+구현 시작 전에는 초기 템플릿 방식과 상한을 결정 기록에 남긴다. 나머지 개인 저장·
+운영자 관리·추천 연구는 해당 기능의 결정을 보류할 뿐, 독립적인 기본 큐레이션 전달을 막지 않는다.
+
+### 28.7 검증 및 완료 기준
+
+- 순수 모델: 빈 큐, 기존 큐, 내부/기존 중복, 다른 가창 버전, 순서·현재 index·repeat·
+  shuffle 보존, 0건 추가와 실제 추가 수. 같은 입력을 다시 적용해 중복이 생기지 않는지 확인한다.
+- player 연동: batch 등록 직후 메타데이터 표시, 현재 재생 위치 유지, 자동 재생 없음,
+  source 교체/철회/일시 실패와 복원. 요약 track이 있는데 모든 곡 상세를 즉시 재요청하지 않는다.
+- 조회/경쟁: 최신 목록 밖의 곡 선정, 이전 query placeholder 배제, 다중 page revision 충돌,
+  중간 통신 실패 무반영, 조회 상한, 빠른 동일/다른 카드 클릭, 대기 중 큐 편집, 화면 이탈 취소.
+- 실제 UI: 기존 접근 정책의 `/play` 발견에서 클릭하고 실제 대기열의 곡·버전·순서·개수를
+  확인한다. 현재 곡 재생 유지 → 추가 항목 삭제/이동 → 새로고침 세션 복원 → 명시적 재생을
+  데스크톱·모바일과 키보드로 검증한다. 공개 disabled/admin preview 경계도 확인한다.
+- 후속 영구 저장: 실제 로그인 사용자의 편집→저장→서버 재조회→재방문 복원,
+  다른 사용자 수정 거부, version 충돌 입력 보존, 원본 수정 후 개인 사본 유지까지 확인한다.
+- 변경 범위에 맞는 queue/player/UI 회귀 테스트, typecheck·lint·architecture check·build를 수행한다.
+  Worker/DB 변경이 생기면 계약 및 D1 원자성·권한·migration 검증을 추가한다.
+
+테스트/fixture만 통과한 결과는 사용자 흐름 완료가 아니다. 실환경 제한은 정확한 표면과
+남은 검증으로 기록한다. 문서화 단계에서는 위 테스트·UI·운영 검증을 수행한 것으로 표시하지 않는다.
+
+### 28.8 남은 구현 기능 목록
+
+아래는 **큐레이션 범위**의 잔여 목록이며 프로젝트 전체 운영/개발 backlog의 재감사 결과가 아니다.
+
+| ID | 기능/작업 | 선행 조건 | 현재 상태 |
+| --- | --- | --- | --- |
+| CUR-01 | 초기 템플릿 조건·정렬·항목 수·버전 모델 | TBD-020/021 결정과 실제 카탈로그 분포 확인 | 미구현, 조건형 권장 |
+| CUR-02 | 템플릿 곡 조회·재생 가능 항목 변환·페이지/revision/취소 제어 | CUR-01 | 미구현 |
+| CUR-03 | 대기열 일괄 추가·중복 제거·track 등록·결과 집계 | 기존 queue 의미 유지 | 미구현 |
+| CUR-04 | 발견 큐레이션 카드·로딩/오류/빈 결과·추가 피드백·반응형/접근성 | CUR-02/03 | 미구현 |
+| CUR-05 | 실제 사용자 흐름·회귀·세션 복원·권한 경계 검증 | CUR-01~04 통합 | 미검증 |
+| CUR-06 | 기본 템플릿의 내 사본 생성, 제목·곡·버전·순서 편집 | TBD-022 편집 대상 확정 | 후속 목표, 미구현 |
+| CUR-07 | 개인 큐레이션 저장·목록·재열기·수정·삭제·기본 목록 재추가 | TBD-022 보관 방식 결정, CUR-06 | 후속 목표, 미구현 |
+| CUR-08 | 계정별 소유 권한·동기화·충돌·저장 후 권위 재조회 | 계정 저장 채택 시 CUR-07과 함께 전달 | 조건부 후속, 미구현 |
+| CUR-09 | 운영자 고정 선곡·순서·템플릿 공개/수정 관리 | TBD-023. 최초 제공에 필수면 CUR-01~04 범위로 편입 | 조건부 후속, 미구현 |
+| CUR-10 | 태그·분위기 조건 검색과 큐레이션 | 태그 범위·품질·API 비용 분석 | 검토 후보 |
+| CUR-11 | 공유·공개 범위, 개인화/인기도 추천, 이용 분석 | 별도 제품 범위·데이터/권한 정책 결정 | 검토 후보, 구현 약속 아님 |
+
+첫 전달은 CUR-01~05를 하나의 도달 가능한 사용자 흐름으로 완성한다. CUR-06~08의
+개인 저장을 초기 세션 큐로 대체하지 않으며, CUR-09~11은 필요성이 확정된 범위만 진행한다.
+
+## 29. 다음 개발 우선순위와 문서 closeout
+
+작성일: 2026-09-08. 기준 코드: `f692d83` 및 이번 문서 변경.
+범위: OTW Play 요구사항 정리·후속 분석·다음 구현 인계. **문서 closeout이며 기능 구현,
+실제 사용자 흐름 검증, 운영 공개, Git PR/병합 closeout이 아니다.**
+
+### 29.1 최신 결정과 적용 순서
+
+- 높은 우선순위: `NEXT-SEO` 멤버 페이지 SEO, `NEXT-CUR` 기본 큐레이션.
+  두 작업의 선후는 별도로 확정되지 않았으며 서로를 선행 조건으로 두지 않는다.
+- 낮은 우선순위: `LATER-CREDIT` 멤버 제작 참여, `LATER-PIN` 대표곡 지정,
+  `LATER-CORRECTION` 참여 정보 정정. 기능 요구는 보존하고 다음 개발에서 제외한다.
+- 후속 구체화: `NEXT-BROADCAST` 방송 가창, `NEXT-LIBRARY` 개인 감상.
+  사용자가 **사용자용 OTW Play 내부 탭**을 명시했다. 관리자 전용 탭으로 대신 구현하지 않는다.
+- ADM-009 중복 가창 병합과 FR-021 재생 패널 원곡 가수 표시 미충족은 독립 backlog다.
+  직전 검토의 '두 건부터 보완' 권장 순서는 사용자가 지정한 이번 높은 우선순위로 대체한다.
+- 과거 P1A → P1B → P1C → P2 순서를 폐기하고 SEO를 제작 참여·정정에서 분리한다.
+  기존 공개·회원·관리자 권한, 단일 player와 세션 큐의 의미는 유지한다.
+
+### 29.2 NEXT-SEO — 개인 프로필·실제 Play 멤버 페이지와 SEO 동시 전달
+
+결과: 실제 published 가창이 있는 멤버의 `/play/members/{memberCode}`에서 곡을
+탐색·상세 확인·재생하고, 같은 권위 자료가 HTML metadata·canonical·robots·sitemap에 반영된다.
+metadata만 만들거나 기존 곡 검색 URL로 우회하는 페이지를 완성된 멤버 페이지로 보지 않는다.
+
+초기 포함 범위:
+
+1. 기존 members와 가창 participant를 이용한 멤버 정보, 부른 곡·오리지널·커버·협업 목록.
+   distinct song 수와 published performance 수를 별도로 집계한다. `만든 곡`·제작 참여·
+   정정·대표곡 pin·새 전면 멤버 index는 필수 범위가 아니다. 최신 공개 목록만으로 페이지가 성립한다.
+2. 사용자 확정 기준은 기본 목록·상단 집계·SEO 모두 `vocal` + `featured_vocal`이다.
+   `chorus`는 명시적 역할 필터에서만 조회하며 기본 count와 SEO에 포함하지 않는다.
+   `other`를 제작 참여처럼 추론하지 않는다. 필터 변경은 상단 기본 집계를 바꾸지 않는다.
+3. 공개 가능한 current member 1~2곡은 직접 URL `200`·`noindex`·sitemap 제외,
+   3곡 이상은 `public_read_enabled=1`, `navigation_visible=1`, catalog/read-model revision
+   일치 조건에서 index·sitemap·멤버 페이지 진입을 허용한다. 후보/draft는 집계에서 제외한다.
+4. 0곡 current member는 기존 상세 노래책 설계의 `200` empty/noindex·navigation 제외를
+   기본값으로 두고 알 수 없는 code는 `404`로 처리한다. 공개 비활성/preview의 기존 접근 규칙이
+   곡 수보다 우선한다. preview 응답과 private 정보는 검색 노출·public cache에 들어가지 않는다.
+5. 멤버 이름·공개 곡 내용에 맞는 title/description·OG·canonical을 실제 HTTP HTML에 반영한다.
+   filter/query canonical 정책, member 상태·공개 철회·곡 수 2↔3 변경 시 metadata/robots/
+   sitemap/cache의 동시 갱신을 설계한다. 페이지별 집계 N+1 없이 sitemap 후보를 조회한다.
+6. 노출 조건을 충족한 멤버는 기존 발견 멤버 rail 등 자연스러운 진입점에서 실제 페이지로
+   연결한다. 1~2곡은 직접 링크로 접근하고 기존 곡 검색 필터 진입은 별도로 유지한다.
+7. 같은 `/play/*` player provider 아래에서 기존 재생·마지막 추가를 재사용하고 페이지 이동이
+   현재 곡·진행 위치·큐를 초기화하지 않도록 한다. 새 데이터/API는 사용되는 화면과 함께 전달한다.
+
+변경 경계:
+
+| 계층 | 착수 대상 |
+| --- | --- |
+| contracts | `contracts/otw-play-members.ts`, `contracts/api-routes.ts`: 실제 필요한 member page/집계 DTO·정확한 route·오류/공개 조건 |
+| Worker catalog | `worker/features/otw-play` application/ports/infrastructure 및 `worker/app/routes.ts`: participant 기반 공개 read와 revision 일관성 |
+| SEO | `worker/features/seo/http/handler.ts`, `application/site-seo-service.ts`, catalog SEO port: member 경로 분류·HTML metadata·sitemap |
+| frontend | `src/routes/play/_catalog`의 얇은 member route, `src/features/otw-play` API/query/UI, 발견의 멤버 진입점 |
+| 데이터 | 기존 관계 재사용. 실제 실행 계획에 따라 필요한 인덱스만 검토하며 contribution/pin/correction 테이블을 만들지 않음 |
+
+완료 검증: 실제 멤버 페이지 진입 → 목록/카운트 일치 → 특정 가창 상세/재생/큐 확인,
+직접 HTTP HTML의 metadata/canonical/robots와 sitemap 대조. 0·1·2·3곡, draft/withdrawn,
+역할·같은 곡 다중 버전, 비활성 공개/preview, member 상태 변경을 검증한다. fixture는
+경계 회귀를 지원하며 실제 UI/HTTP 검증을 대체하지 않는다. 코드 배포와 검색 색인 반영은
+별개이며 검색 엔진 실제 색인 완료를 개발 완료와 동일시하지 않는다.
+
+### 29.3 NEXT-CUR — 기본 템플릿과 대기열 끝 추가
+
+결과: 발견의 멤버 → 큐레이션 → 최근 곡에서 카드를 클릭하면 실제 목록이 기존 큐 끝에
+추가되고 현재 재생은 유지된다. 범위와 검증은 28절 CUR-01~05를 사용한다.
+
+- 구현 기본안: 기존 조건형 3~4개, 최근순 최대 24곡. 이 값은 사용자 확정 수치가 아니라
+  권장안이며 착수 시 실제 catalog 분포·템플릿 겹침·조회 예산을 확인해 기록한다.
+- 큐에는 같은 performance를 중복 추가하지 않고 다른 버전은 별도로 허용한다.
+  한 작업의 전체 조회가 끝나면 최신 큐에 일괄 반영하고 실패·중복·제외 수를 구분한다.
+- NEXT-SEO가 추가한 member page는 기존 player 동작을 재사용할 수 있지만 큐레이션 배치·
+  batch 기능의 선행 조건이 아니다. 두 기능의 공통 파일 변경은 통합 시 함께 검증한다.
+- 저장형 편집 CUR-06~08은 후속 개인 감상 탭과 연결한다. 높은 큐레이션 우선순위를 이유로
+  계정 보관함·운영자 에디터·공유·추천까지 첫 전달로 자동 확장하지 않는다.
+
+### 29.4 사용자용 OTW Play 내부 탭 — 후속 기능 구체화
+
+확정 진입점은 사용자용 OTW Play 내부다. `방송 가창`, `내 감상`은 제안 라벨이며
+최종 탭 이름·URL은 미정이다. 기존 발견·곡 검색과 동일한 Play shell/player/큐를 공유한다.
+실제 기능과 권한/빈 상태가 준비된 뒤 노출하고 동작하지 않는 placeholder 탭을 먼저 만들지 않는다.
+
+| 항목 | 방송 가창 탭 | 개인 감상 탭 |
+| --- | --- | --- |
+| 사용자 가치 | 방송에서 부른 곡과 방송별 setlist를 탐색·구간 재생 | 좋아요·최근 감상·저장한 목록을 다시 찾고 편집·재생 |
+| 1차 구체화 대상 | 곡/방송 단위 탐색, 멤버·방송일 필터, 동일 곡 반복 가창, 원본 방송 출처·공식/방송 버전 연결 | 좋아요/즐겨찾기, 최근 들은 곡, 개인 목록 생성·재열기·이름/곡/순서 변경·삭제·큐 추가 |
+| 기존 기반 | 승인 clip 후보 수집, 개별 검수, 비공개 broadcast draft, source 구간 재생 | 기존 단건 큐 조작·세션 복원, 기본 큐레이션 실행 목록 |
+| 신규 저장/조회 | 방송일·원본·setlist 관계·공개 projection, 승인 소스/대체 원본 정책 | 사용자 소유 목록·항목, 감상 기록·삭제/보관, 계정 또는 기기 저장 계약 |
+| 권한 | 공개된 방송 가창만 사용자에게 제공. 검수·게시·승인 채널은 관리자 소유 | 로그인/익명 정책 확정. 타인의 개인 감상 내역은 관리자 탭으로 자동 노출하지 않음 |
+| 실패/변경 | 가창 철회, 구간/원본 유실, 임베드 불가, 다음 재생·재시도, source 검증 | 로그인 만료·통신 실패·중복 저장·동시 편집 충돌·삭제된 가창 표시와 재추가 |
+| 이후 후보 | 많이 부른 순, 방송별 전체 재생 | 멤버 라디오·랜덤 재생, 공개/공유; 행동 기반 추천은 별도 검토 |
+
+다음 분석에서 확정할 질문:
+
+- 방송: 후보 draft를 어떤 근거로 공개하는가(TBD-004/005), 원본 없는 가창 허용 여부,
+  방송일의 출처/시간대, setlist 순서·구간 검증, 공개 source 우선순위와 원본 대체 재생.
+- 개인 감상: 좋아요/즐겨찾기를 하나로 합칠지, 최근 들은 곡의 인정 기준·중복·보관 기간·
+  삭제, 로그인/기기 저장/계정 동기화, 목록 최대 수·항목 수와 기본 비공개·공유 범위.
+- 공통: 탭 이름·URL·딥링크·back 동작, 탭 전환 시 같은 iframe 유지, API/cache 비용,
+  기존 queue와 저장형 목록의 구분, 개인정보를 public cache/SEO/telemetry로 흘리지 않는 경계.
+
+관리자 `OTW Play`는 기존 검수·카탈로그·공개 상태 관리 역할을 유지한다. 사용자 탭 요청은
+일반 사용자에게 게시 권한을 주거나 관리자가 개인 감상 내용을 열람하게 하라는 요구가 아니다.
+이 단계는 요구 구체화 계획이며 즉시 방송 공개나 개인 행동 수집을 시작하지 않는다.
+
+### 29.5 보존하는 낮은 우선순위와 독립 backlog
+
+| ID/요구 | 현재 상태 | 다음 조치 |
+| --- | --- | --- |
+| LATER-CREDIT / FR-045·ADM-031 | 제작 참여 저장·공식 근거 검증·관리 UI·만든 곡 미구현 | 낮음. 기존 가창 participant와 별개로 추후 구현 |
+| LATER-PIN / FR-047·ADM-032 | 관리자 대표곡 pin·순서 지정 미구현 | 낮음. 초기 member page는 최근 공개 목록 사용 |
+| LATER-CORRECTION / FR-048·ADM-037 | 참여 정보 정정·승인/거절 미구현 | 낮음. 제작 참여 권위가 생긴 뒤 연결 |
+| ADM-009 | 관리자 가창 병합 UI/API/명령 없음 | 독립 보완. source·proposal/candidate 참조·직접 링크·감사·revision의 안전한 이관 설계 필요 |
+| FR-021 | 현재 재생 패널에 원곡 가수 표시 없음, 복원 performance 응답에도 해당 필드 없음 | 독립 보완. track/공개 DTO·복원·표시를 함께 수정 |
+| 운영 canary·공개/rollback | 과거 문서에 잔여 검증으로 기록 | 실제 운영 readback으로 별도 재확인. 기능 미구현으로 계산하지 않음 |
+
+ADM-009·FR-021의 미충족 근거는 `admin-catalog-repository.ts`의 create/update/delete/transition 명령,
+`now-playing-panel.tsx`와 `OtwPlayPublicPerformanceResponseDto`다. 전 기능 런타임 감사나
+운영 상태 재검증 결과로 확대 해석하지 않는다.
+
+### 29.6 착수 체크리스트와 closeout 인계
+
+- [x] 사용자 우선순위 DEC-079 및 사용자용 내부 탭 답변을 요구사항에 기록.
+- [x] 기존 DEC-052/058·P1A~C 전달 순서와 신규 요구의 충돌을 해소.
+- [x] NEXT-SEO와 NEXT-CUR의 실제 결과·초기 범위·파일 경계·완료 기준 정리.
+- [x] 낮은 기능과 후속 탭, 독립 미충족·운영 검증을 분리하고 기존 기록 보존.
+- [x] 관련 문서 5개의 local 문서 링크, 28/29절 앵커, DEC-079 우선순위·사용자 탭 범위,
+  신규 DEC/FR/TBD 정의 중복과 문서 외 변경 유무를 확인. `git diff --check` 통과.
+- [ ] 구현 착수 시 Git 상태/현재 코드와 실제 catalog 분포·flag를 다시 확인.
+- [x] NEXT-SEO: member 역할·count·공개 노출 계약을 DTO/쿼리에 명시하고 D1·HTTP 대표 사례 확인. 공개 실제 재생 검증의 제한은 30절 참조.
+- [ ] NEXT-CUR: 최초 템플릿·곡/페이지/후보 상한을 권장안과 실제 자료로 확정.
+- [ ] 변경 경계에 따라 worker-api-change → 필요 시 db-migration → release-ops 스킬 적용.
+- [ ] 실제 기능 구현·회귀·UI/HTTP/권위 readback 검증 및 별도 기능 closeout.
+
+다음 작업은 29.2 또는 29.3을 시작점으로 삼는다. 브랜치/PR을 만들 경우 저장소 기준에
+따라 변경을 격리하고 현재 문서 변경을 보존한다. 이 문서 closeout은 구현 실행·원격 DB
+변경·공개 flag 전환·배포·Git commit/push/merge를 자동 수행하라는 명령이 아니다.
+
+문서 검증은 링크/앵커·요구 ID·우선순위 일치·diff 공백 오류 확인으로 수행한다. 빌드·
+테스트·UI·운영 검증은 문서만 변경한 이번 closeout에서 실행한 것으로 보고하지 않는다.
+
+Closeout 결과: 2026-09-08 문서 재정리와 다음 개발 준비 완료. 수정 대상은 제품 요구사항,
+구현 가이드, 시스템 설계, UI/UX 설계, 멤버 노래책 조사 문서 5개다. 작업 트리에 문서
+변경을 보존했으며 기능 코드·DB·공개 설정·배포는 변경하지 않았다. commit/push/PR/merge는
+수행하지 않았다. 다음 구현은 NEXT-SEO 또는 NEXT-CUR의 실제 흐름 완성으로 이어간다.
+
+
+## 30. 개인 프로필·Play 멤버 SEO 통합 구현 — 2026-09-08
+
+### 30.1 확정 요구사항과 구현 경계
+
+- `/profile/{code}`: 멤버 소개와 공식 채널. 활성 프로필은 Play 공개 여부와 곡 수에 관계없이
+  `200`, `index,follow`, 사이트맵 포함이다. 미등록·비활성은 `404`, `noindex,nofollow`다.
+- `/play/members/{memberCode}`: 기존 Play shell 안의 가창 탐색 페이지다. 공개곡 0개도
+  `200` 빈 목록이며 0~2개는 `noindex,follow`, 3개 이상은 공개 읽기·내비게이션 flag와
+  catalog/read-model revision 일치 시 `index,follow`, 사이트맵·일반 링크를 허용한다.
+- 프로필과 Play 페이지는 각각 자기 URL을 canonical로 사용한다. 추적·검색·역할·정렬·cursor
+  query는 canonical에서 제외한다. 저장된 code 대소문자와 후행 slash를 정규화한다.
+- 메인 보컬·피처링의 distinct song 수와 distinct published performance 수가 기본 집계다.
+  가창은 `published` + `official_mv|official_video`, 곡은 미보관·미병합, 참여 entity는 미보관,
+  멤버는 활성 조건을 사용한다. 영상 재생 불가는 공개 철회와 구분한다.
+- 오리지널·커버는 각 가창의 relation이다. 한 곡의 서로 다른 가창이 양쪽 목록에 나올 수 있다.
+  협업은 `duet|unit|group|external_collab`이다. 코러스 필터는 기본 집계를 바꾸지 않는다.
+- 제작 참여·대표곡·정정·큐레이션·방송 가창·개인 감상은 이번 구현에서 제외했다.
+
+### 30.2 API·조회·화면
+
+| API | 응답 data | query / 캐시 |
+| --- | --- | --- |
+| `GET /api/play/members` | `members[]`: uid/code/name/oshiMark/unitName/imageUrl/songCount/performanceCount/pageEligible | query 없음, `no-store`, ETag 없음 |
+| `GET /api/play/members/:code/songbook` | `member`, 기존 public song summary `items[]` | q/category/participantRole/sort/limit/cursor만 허용, `no-store`, ETag 없음 |
+
+공통 envelope은 `data`, `nextCursor`, `catalogRevision`, `generatedAt`이다. category는
+`all|original|cover|collaboration`, 역할은 기본 보컬·피처링 또는 명시적
+`vocal|featured_vocal|chorus`, 정렬은 `recent|title`, limit은 기본 24·최대 60이다.
+query의 member override·알 수 없는 필드·중복 필드는 400이다. cursor는 경로 멤버·필터·정렬·
+revision에 귀속되며 변경되면 재사용할 수 없다. UI는 오래된 cursor 오류에서 처음 목록으로
+복구한다. 필터·검색·다음 목록을 URL로 관리하고 브라우저 뒤로가기로 복원한다.
+
+기존 DB 관계·인덱스를 재사용했으며 migration은 없다. 멤버 목록·사이트맵용 집계는 일괄
+SQL 조회이며 멤버 상세 API 반복 호출이 없다. 집계와 목록 조회 후 revision·공개 flag를
+재확인해 혼합 snapshot을 거절한다. 신규 멤버 HTML도 `no-store`다.
+
+발견 rail과 프로필의 `OTW Play에서 노래 듣기` 링크는 응답의 `pageEligible`을 사용한다.
+연결 상태 조회 실패 시 프로필 표시·SEO는 그대로 제공하고 Play 링크를 숨긴다. 프로필
+feature와 Play feature의 순환 의존을 피하기 위해 프로필 route에서 링크 UI를 주입한다.
+Play 페이지는 프로필 링크와 기존 곡 상세·버전·재생·다음 재생·마지막 추가를 제공한다.
+같은 Play shell의 player provider를 재사용하며 프로필 이동은 기존 provider 이탈 정리를 따른다.
+
+### 30.3 SEO와 검증 기록
+
+- 공통 `contracts/site-seo.ts` 생성 함수를 Worker HTML과 클라이언트가 사용한다.
+  프로필은 정렬된 첫 이미지/기존 webp fallback, 정규화된 소개/default 설명, h1을 제공한다.
+  OG·Twitter image는 절대 URL이며 이동 시 중복·이전 멤버 이미지가 남지 않는다.
+- D1·HTTP 회귀: 0/1/2/3곡, 동일 곡 다중 버전, 보컬·피처링·코러스, draft/withdrawn/broadcast/
+  archived 제외, 역할·협업·검색·정렬·cursor, 3→2곡과 revision 변경, 비활성·미등록을 검증했다.
+- SEO HTTP 회귀: 멤버 GET/HEAD·필터 없는 canonical·조건별 sitemap, 프로필의 Play 실패 독립성,
+  code/slash 301·이미지 fallback·public/navigation off를 검증했다.
+- UI/DOM 회귀: 분류·역할·정렬·검색·페이지 이동과 cursor 복구, 프로필↔Play metadata 교체를 확인했다.
+- 실제 로컬 데이터 revision 27은 공개 읽기·내비게이션이 모두 꺼져 있다. flag를 변경하지 않았다.
+  실제 프로필 GET/HEAD 200, 대소문자+slash 301, 미등록 404, Play 멤버 준비 HTML 200/noindex,
+  프로필 사이트맵 유지·Play 멤버 사이트맵 제외를 확인했다. 브라우저의 프로필 h1·소개·대표 이미지·
+  canonical·robots가 HTTP와 일치하고 OG/Twitter image는 각각 한 개임을 확인했다.
+- 기존 로컬 관리자 로그인 세션으로 preview에 진입했다. 공개 flag를 변경하지 않고 나츠키
+  페이지의 실제 공개 곡 1곡·가창 1개와 `QWER - BAD HABIT`을 확인했다. 코러스 필터에서는
+  `팬서비스 (ファンサ)`가 나타나고 상단/SEO count는 1곡으로 유지됐다.
+- 실제 YouTube 재생을 확인했다. 멤버 페이지 → 곡 상세 → 브라우저 뒤로가기에서 진행 시간이
+  0:15 → 0:24 → 0:47로 이어지고 큐가 유지됐다. 코러스 곡을 마지막 추가했을 때 큐가 2곡으로
+  늘고 기존 재생을 유지했다. 프로필 링크를 클릭하면 YouTube iframe이 제거되고 프로필
+  index/metadata가 복구됐다. 검증 중 추가한 큐 항목은 UI에서 모두 정리했다.
+- 모바일 폭 브라우저에서 필터·정렬·뒤로가기를 확인했다. 실제 발견한 필터 교체 시 포커스
+  유실을 수정했다. 같은 멤버의 요청 대기 중에는 header/controls를 유지하고 이전 목록은
+  inert로 표시한다. 다른 멤버·다른 공개/preview audience의 자료는 placeholder로 재사용하지 않는다.
+  수정 후 키보드 Home/End/Enter로 역할·정렬 변경 시 SELECT 포커스와 URL 선택값이 유지됐다.
+  390×844 화면에서 검색 입력을 독립 행으로 배치해 약 314px의 입력 폭을 확보했고 문서 가로
+  폭은 390px로 overflow가 없었다. 검증 후 viewport override를 복원했다.
+- 로컬 D1의 동일 공개 predicate로 직접 읽은 권위 집계는 나츠키 vocal 1곡/1가창,
+  chorus 1곡/1가창이다. 기본 노래책·SEO 1곡과 코러스 필터 결과가 실제 데이터와 일치했다.
+- 관리자 preview의 robots는 `noindex,nofollow`다. 익명 공개 상태의 프로필/발견 → 멤버 링크는
+  로컬 공개 flag가 꺼져 있어 실제로 열어 확인하지 않았다. 3곡 이상 공개 조건의 링크·사이트맵은
+  D1/HTTP·코드 검증으로 확인했으며 승인된 공개 환경의 최종 진입 확인을 운영 항목으로 남긴다.
+- 전체 preflight의 최종 결과는 아래 closeout에 기록한다. 원격 배포·공개 flag 변경은 수행하지 않는다.
+  검색 엔진의 실제 색인 반영은 배포 후 별도 운영 확인이다.
+
+
+### 30.4 구현 closeout과 다음 작업
+
+2026-09-08, `f692d83` 기반 작업 디렉터리에서 개인 프로필·Play 멤버 SEO 코드 구현과
+로컬 관리자 preview 검증을 완료했다. 기존 문서 변경을 보존했다. 커밋·PR·병합·원격 배포나
+공개 flag 변경은 수행하지 않았다. 새 테이블·migration도 없다.
+
+최종 Node.js 24.20.0 `pnpm preflight` PASS:
+
+- architecture check, test/Worker typecheck, lint 통과.
+- 단위·D1 통합을 포함한 267개 파일, 1,941개 테스트 통과.
+- 통합 coverage: statements 81.97%, branches 69.28%, functions 85.65%, lines 83.54%.
+- 애플리케이션/Worker build 및 SEO asset 생성 통과.
+- local D1 doctor 통과: catalog/read-model revision 27 일치, 공개 flag `0/0` 유지.
+- agent/cursor mirror 16개 파일 일치, drift 0. `git diff --check` 통과.
+
+테스트는 확정된 사용자 가창·공개 정책을 검증한다. 실제 필터 포커스 문제는 같은 화면에서
+수정·재검증했고 기존 곡 상세·단일 player 흐름을 우회하는 별도 실행 경로를 만들지 않았다.
+공개 노출은 기존 flag가 권위이며 테스트 통과를 공개 승인으로 해석하지 않는다.
+
+남은 작업:
+
+1. 운영 확인: 승인된 공개 환경에서 3곡 이상 멤버의 프로필/발견 진입 링크, 배포된 HTTP와
+   사이트맵, 검색 엔진 실제 색인 반영을 확인한다. 현재 구현의 공개 전환·배포는 별도 작업이다.
+2. 높음: `NEXT-CUR` 기본 큐레이션 — 발견의 멤버와 최근 곡 사이, 템플릿 선택 시 기존
+   대기열 마지막 일괄 추가와 결과 피드백. 개인 편집·저장은 후속 확장이다.
+3. 후속 구체화: 사용자용 OTW Play 내부의 방송 가창·개인 감상 탭.
+4. 낮음: 멤버 제작 참여·대표곡 지정·참여 정보 정정.
+5. 독립 backlog: 가창 병합, 재생 패널 원곡 가수 표시 및 기존 운영 canary.

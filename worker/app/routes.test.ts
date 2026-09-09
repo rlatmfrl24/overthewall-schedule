@@ -264,6 +264,18 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [OTW_PLAY_CATALOG_GET],
   },
   {
+    id: "otw-play.members",
+    owner: "otw-play",
+    path: "/api/play/members",
+    methods: [PUBLIC_GET],
+  },
+  {
+    id: "otw-play.memberSongbook",
+    owner: "otw-play",
+    path: "/api/play/members/:code/songbook",
+    methods: [PUBLIC_GET],
+  },
+  {
     id: "otw-play.facets",
     owner: "otw-play",
     path: "/api/play/facets",

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRoutes } from "@contracts/api-routes";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import {
+  fetchOtwPlayMembers,
+  fetchOtwPlayMemberSongbook,
   fetchOtwPlayCatalog,
   fetchOtwPlayConfig,
   fetchOtwPlayFacets,
@@ -26,6 +28,15 @@ describe("OTW Play public API client", () => {
       catalogRevision: 0,
       generatedAt: "1970-01-01T00:00:00.000Z",
     });
+  });
+
+  it("uses the member path and only songbook query fields in public and preview requests", async () => {
+    await fetchOtwPlayMembers();
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members", { auth: "omit" });
+    await fetchOtwPlayMemberSongbook("Alpha", { category: "collaboration", participantRole: "chorus", cursor: "next", limit: 60 });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook?category=collaboration&participantRole=chorus&limit=60&cursor=next", { auth: "omit" });
+    await fetchOtwPlayMemberSongbook("Alpha", {}, { adminPreview: true });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/play/members/Alpha/songbook", { auth: "required", headers: { [OTW_PLAY_ADMIN_PREVIEW_HEADER]: "1" } });
   });
 
   it("member 반복값과 parameter를 결정적으로 canonicalize한다", () => {

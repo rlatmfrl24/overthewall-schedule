@@ -112,6 +112,7 @@ export class PublicCatalogQueryError extends Error {
 }
 
 export interface PublicCatalogQuery {
+  collaborationOnly?: boolean;
   normalizedQuery: string | null;
   memberUids: readonly number[];
   memberMode: PublicCatalogMemberMode;
@@ -348,6 +349,7 @@ export const canonicalizePublicCatalogQuery = (
   options: { includeCursor?: boolean } = {},
 ) => {
   const output: string[] = [];
+  if (query.collaborationOnly) appendCanonical(output, "category", "collaboration");
   if (query.normalizedQuery !== null) {
     appendCanonical(output, "q", query.normalizedQuery);
   }

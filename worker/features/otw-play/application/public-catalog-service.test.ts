@@ -82,6 +82,7 @@ const parse = (query = "") =>
 
 const makeReader = (meta: PublicCatalogMeta = META_ON) => {
   const reader = {
+    readMemberSummaries: vi.fn(async () => []),
     readMeta: vi.fn(async (): Promise<PublicCatalogMeta> => meta),
     readCatalog: vi.fn(
       async (): Promise<PublicCatalogReaderPage> => ({
@@ -444,5 +445,18 @@ describe("OTW Play public catalog service", () => {
       catalogRevision: META_ON.revision,
     });
     expect(cache.write).not.toHaveBeenCalled();
+  });
+});
+
+describe("member snapshot policy", () => {
+  it("does not use a shared cache and rejects a revision that changes during member reads", async () => {
+    const reader = makeReader();
+    const cache = makeCache();
+    const service = new PublicCatalogService(reader, cache);
+    await service.readMembers({ allowSharedCache: true });
+    expect(cache.read).not.toHaveBeenCalled();
+    expect(cache.write).not.toHaveBeenCalled();
+    reader.readMeta.mockResolvedValueOnce(META_ON).mockResolvedValueOnce({ ...META_ON, revision: 13, readModelRevision: 13 });
+    await expect(service.readMembers({ allowSharedCache: false })).rejects.toThrow(PublicCatalogServiceError);
   });
 });

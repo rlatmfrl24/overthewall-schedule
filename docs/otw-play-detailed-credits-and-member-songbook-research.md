@@ -1,6 +1,20 @@
 # OTW Play 상세 크레딧·멤버별 노래책 조사 및 확장 요구사항
 
-상태: 2026-08-21 멤버 중심 범위 채택, 구현 전
+> 2026-09-08 구현 갱신: `/profile/{code}`와 `/play/members/{memberCode}`의 SEO를 함께 구현했다.
+> 기본 목록·상단 집계·SEO는 메인 보컬(`vocal`)·피처링(`featured_vocal`)만 포함한다.
+> 코러스는 별도 역할 필터이며 기본 집계에서 제외한다. 개인 프로필은 Play 공개·곡 수와 무관하게
+> 독립적으로 index/sitemap을 유지한다. 세부 API·노출 정책·실제 검증과 제한은
+> [구현 가이드 30절](otw-play-implementation-guide.md#30-개인-프로필play-멤버-seo-통합-구현--2026-09-08)을 따른다.
+> 기본 큐레이션은 다음 높은 우선순위, 제작 참여·대표곡·정정은 낮은 우선순위로 유지한다.
+
+
+상태: 2026-09-08 개인 프로필·Play 멤버 SEO 구현, 제작 참여·pin·정정 낮음·미구현
+
+> DEC-079가 아래 과거 P1A~C 전달 순서를 대체한다. 멤버 페이지 SEO는 기존 가창
+> participant 기반 실제 페이지와 함께 다음 개발에 포함한다. 제작 참여 schema·대표곡 pin·
+> 정정 제안은 낮은 우선순위이며 SEO의 선행 조건이 아니다. 방송 가창·개인 감상은
+> 사용자용 OTW Play 내부 탭으로 후속 구체화한다. 최신 착수 기준은
+> [구현 가이드 29절](./otw-play-implementation-guide.md#29-다음-개발-우선순위와-문서-closeout)이다.
 
 조사일: 2026-08-20
 
@@ -412,7 +426,7 @@ empty/noindex를 제공하되 공개 navigation에서 숨긴다.
 
 권장 tab:
 
-- `부른 곡`: vocal/featured/chorus 등 가창 참여
+- `부른 곡`: 기본 vocal/featured 가창 참여. chorus는 별도 역할 필터이며 기본 집계·SEO 제외
 - `오리지널`: 멤버 참여 + `is_otw_original=1`
 - `커버`: relation `cover`
 - `협업`: duet/unit/group/external collaboration
@@ -523,12 +537,13 @@ public DTO에는 관리자 note, candidate contribution, reviewer identity와 �
 
 | slice | 기능 | 결과 |
 | --- | --- | --- |
-| P1A | 기존 participant 기반 `/play/members/{code}` 노래책과 queue | 부른 곡·오리지널·커버·협업 탐색·재생 |
-| P1B | 최소 song/performance member contribution schema·관리자 편집·곡 상세 | 멤버의 작사·작곡·편곡·연주·제작 참여 표시 |
-| P1C | member contribution 정정 제안, navigation·SEO·sitemap | 근거 기반 정정과 3곡 이상 current member 검색 노출 |
+| 높음 · NEXT-SEO | 기존 participant 기반 `/play/members/{code}` 실제 페이지 + navigation·SEO·sitemap | 부른 곡·오리지널·커버·협업 탐색·재생, 정확한 count와 노출 정책 |
+| 낮음 · LATER-CREDIT | 최소 song/performance member contribution schema·관리자 편집·곡 상세 | 멤버의 작사·작곡·편곡·연주·제작 참여 표시 |
+| 낮음 · LATER-PIN | 대표 오리지널곡 최대 5곡 pin·정렬 | 관리자 수동 지정. 초기 페이지의 필수 요소가 아님 |
+| 낮음 · LATER-CORRECTION | member contribution 정정 제안과 검수 | 근거 기반 정정. SEO와 분리 |
 
-P1A는 새 범용 credit schema 없이 기존 participant로 시작한다. `만든 곡`과
-`전체 참여`는 P1B verified member contribution projection 뒤 활성화한다. 외부
+NEXT-SEO는 새 범용 credit schema 없이 기존 participant로 시작한다. `만든 곡`과
+`전체 참여`는 낮은 우선순위의 verified member contribution projection 뒤 활성화한다. 외부
 contributor page, album/release와 source/video production credit slice는 계획하지 않는다.
 
 ## 13. 수용 기준

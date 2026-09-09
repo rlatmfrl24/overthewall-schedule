@@ -30,3 +30,7 @@ export { OtwPlayCatalogPage } from "./ui/public/catalog-page";
 export { OtwPlayHomePage } from "./ui/public/home-page";
 export { OtwPlayShell } from "./ui/public/play-shell";
 export { OtwPlaySongDetailPage } from "./ui/public/song-detail-page";
+
+export { OtwPlayMemberSongbookPage } from "./ui/public/member-songbook-page";
+export { OtwPlayMemberProfileLink } from "./ui/public/member-profile-link";
+export { validateMemberSongbookSearch } from "./model/member-songbook-search";

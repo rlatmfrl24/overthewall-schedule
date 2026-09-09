@@ -1,3 +1,4 @@
+import { ApiError } from "@/shared/api/client";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +11,7 @@ import type {
 import type { MemberProfileLink } from "../model/member";
 import { buildProfileBackgroundImageSourceSets } from "../model/profile-background-images";
 import { useMemberProfile } from "../queries/use-member-profile";
-import { buildProfileSiteSeo } from "@contracts/site-seo";
+import { buildNotFoundSiteSeo, buildProfileSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
 import { Button } from "@/shared/ui/button";
 import {
@@ -425,7 +426,10 @@ const ProfileAiImageNotice = ({ className }: { className?: string }) => {
   );
 };
 
-export function MemberProfilePage({ code }: { code: string }) {
+export function MemberProfilePage({ code, renderPlayLink }: {
+  code: string;
+  renderPlayLink?: (memberCode: string) => ReactNode;
+}) {
   const [activeBackgroundLoadKey, setActiveBackgroundLoadKey] = useState<
     string | null
   >(null);
@@ -445,10 +449,11 @@ export function MemberProfilePage({ code }: { code: string }) {
     PROFILE_BACKGROUND_MEDIA_QUERY,
   );
   const memberQuery = useMemberProfile(code);
-  const member = memberQuery.data ?? null;
+  const member = memberQuery.isError ? null : memberQuery.data ?? null;
+  const missingMember = memberQuery.error instanceof ApiError && memberQuery.error.status === 404;
   const profileSeo = useMemo(
-    () => (member ? buildProfileSiteSeo(member) : null),
-    [member],
+    () => member ? buildProfileSiteSeo(member) : missingMember ? buildNotFoundSiteSeo(`/profile/${encodeURIComponent(code)}`) : null,
+    [member, missingMember, code],
   );
   useSiteSeo(profileSeo);
   const loading = memberQuery.isLoading;
@@ -982,9 +987,10 @@ export function MemberProfilePage({ code }: { code: string }) {
             )}
 
             <div className="flex flex-wrap items-end gap-3">
-              <h2 className="break-keep text-4xl font-black leading-[1.04] tracking-normal drop-shadow-[0_8px_22px_rgba(0,0,0,0.42)] sm:whitespace-nowrap sm:text-5xl lg:text-7xl xl:text-[4.8rem]">
+              <h1 className="break-keep text-4xl font-black leading-[1.04] tracking-normal drop-shadow-[0_8px_22px_rgba(0,0,0,0.42)] sm:whitespace-nowrap sm:text-5xl lg:text-7xl xl:text-[4.8rem]">
                 {member.name}
-              </h2>
+              </h1>
+              {renderPlayLink?.(member.code)}
             </div>
 
             {activeImage && (

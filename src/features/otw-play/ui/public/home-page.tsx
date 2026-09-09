@@ -13,6 +13,7 @@ import { Button } from "@/shared/ui/button";
 import {
   useOtwPlayCatalog,
   useOtwPlayFacets,
+  useOtwPlayMembers,
 } from "../../queries/use-public-catalog";
 import {
   OtwPlayPerformanceActions,
@@ -33,6 +34,7 @@ export function OtwPlayHomePage() {
   const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
   const latest = useOtwPlayCatalog({ limit: 24 });
   const facets = useOtwPlayFacets();
+  const members = useOtwPlayMembers();
   const featuredSongs = latest.data?.pages[0]?.data.items.slice(0, 8) ?? [];
   const carousel = useFeaturedCarousel(featuredSongs.length);
   const {
@@ -277,10 +279,9 @@ export function OtwPlayHomePage() {
               {facets.data?.data.members.map((member) => (
                 <Link
                   key={member.memberUid}
-                  to="/play/songs"
-                  search={{
-                    member: String(member.memberUid),
-                  }}
+                  {...(!members.isError && members.data?.data.members.some(item => item.uid === member.memberUid && item.pageEligible)
+                    ? { to: "/play/members/$memberCode" as const, params: { memberCode: member.code }, search: {} }
+                    : { to: "/play/songs" as const, search: { member: String(member.memberUid) } })}
                   className="play-member-link group flex w-20 shrink-0 flex-col items-center gap-2 text-center sm:w-24"
                   aria-label={`${member.displayName} 메인 보컬·피처링 곡 보기`}
                 >
