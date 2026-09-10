@@ -39,5 +39,5 @@ export function parsePlaylistQuery(params: URLSearchParams, revision: number): P
 }
 
 export function playlistCursor(query: PlaylistPerformanceQuery, revision: number, last: { id: string; releasedAt: number | null }) {
-  return encodeURIComponent(JSON.stringify({ revision, identity: JSON.stringify([query.q, query.member, query.relation]), ...last }));
+  return encodeURIComponent(JSON.stringify({ revision, identity: JSON.stringify([query.q, query.member, query.relation]), id: last.id, releasedAt: last.releasedAt }));
 }

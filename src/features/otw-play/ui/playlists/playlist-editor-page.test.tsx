@@ -25,6 +25,37 @@ const saved = { id: "private-1", title: "저장 목록", description: "", perfor
 beforeEach(() => { vi.stubGlobal("React", React); vi.clearAllMocks(); mocks.saved = saved; mocks.invalidate.mockResolvedValue(undefined); });
 afterEach(cleanup);
 describe("playlist editor persistence", () => {
+  it("recovers a lost create response with the original payload before saving edited input", async () => {
+    mocks.saved = undefined;
+    mocks.create.mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ data: { ...saved, version: 0 } });
+    mocks.save.mockResolvedValueOnce({ data: { ...saved, title: "다시 수정", performanceIds: ["b", "a"], version: 1 } });
+    mocks.read.mockResolvedValueOnce({ data: { ...saved, title: "다시 수정", performanceIds: ["b", "a"], version: 1 } });
+    render(<OtwPlayPlaylistEditorPage />);
+    fireEvent.change(screen.getByLabelText("제목"), { target: { value: "최초 저장" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("저장하지 못했습니다"));
+    fireEvent.change(screen.getByLabelText("제목"), { target: { value: "다시 수정" } });
+    fireEvent.click(screen.getByRole("button", { name: "1번 아래로 이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("저장했습니다."));
+    expect(mocks.create.mock.calls[1]).toEqual(mocks.create.mock.calls[0]);
+    expect(mocks.create.mock.calls[1][0]).toMatchObject({ title: "최초 저장", performanceIds: ["a", "b"] });
+    expect(mocks.save).toHaveBeenCalledWith(saved.id, expect.objectContaining({ title: "다시 수정", performanceIds: ["b", "a"] }), 0, {});
+    expect(mocks.read).toHaveBeenCalledWith(saved.id, {});
+  });
+  it("allows corrected input after a definitive create validation rejection", async () => {
+    mocks.saved = undefined;
+    mocks.create.mockRejectedValueOnce(new ApiError("invalid", 400)).mockResolvedValueOnce({ data: { ...saved, version: 0 } });
+    mocks.read.mockResolvedValueOnce({ data: saved });
+    render(<OtwPlayPlaylistEditorPage />);
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("저장하지 못했습니다"));
+    fireEvent.change(screen.getByLabelText("제목"), { target: { value: "수정된 요청" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("저장했습니다."));
+    expect(mocks.create.mock.calls[1][0].title).toBe("수정된 요청");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("retains input and ordering when a concurrent save is rejected", async () => {
     mocks.save.mockRejectedValue(new ApiError("conflict", 409));
     render(<OtwPlayPlaylistEditorPage playlistId="private-1" />);

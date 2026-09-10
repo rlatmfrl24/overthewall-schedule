@@ -47,6 +47,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
   const dirty = JSON.stringify(draft) !== baseline;
   const discard = useUnsavedChanges(dirty);
   const requestId = useRef(crypto.randomUUID());
+  const pendingCreate = useRef<PlayPlaylistWrite | null>(null);
   const [dragging, setDragging] = useState(false);
   const request = usePublicRequestOptions(), client = useQueryClient(), defaults = usePlaylistDefaults();
   const listing = usePlaylistPerformances({ q: search || undefined, member: member ? Number(member) : undefined, relation: relation || undefined });
@@ -61,14 +62,31 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
   });
   const save = async () => {
     setBusy(true); setMessage("");
+    const recoveringCreate = pendingCreate.current !== null;
     try {
-      const response = persisted ? await saveMyPlaylist(persisted.id, draft, persisted.version, request) : await createMyPlaylist(draft, requestId.current, request);
+      let response;
+      if (persisted) {
+        response = await saveMyPlaylist(persisted.id, draft, persisted.version, request);
+      } else {
+        // Replay the original payload after an uncertain response before saving later edits.
+        const submitted = pendingCreate.current ?? { ...draft, performanceIds: [...draft.performanceIds] };
+        pendingCreate.current = submitted;
+        response = await createMyPlaylist(submitted, requestId.current, request);
+        setPersisted(response.data);
+        pendingCreate.current = null;
+        if (JSON.stringify(submitted) !== JSON.stringify(draft)) {
+          response = await saveMyPlaylist(response.data.id, draft, 0, request);
+        }
+      }
       setPersisted(response.data);
       const readback = await fetchMyPlaylist(response.data.id, request);
       const next: PlayPlaylistWrite = { title: readback.data.title, description: readback.data.description, originDefaultId: readback.data.originDefaultId, performanceIds: readback.data.performanceIds };
       setPersisted(readback.data); setDraft(next); setBaseline(JSON.stringify(next));
       await client.invalidateQueries({ queryKey: ["otw-play-private"] }); setMessage("저장했습니다.");
     } catch (error) {
+      if (!recoveringCreate && error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        pendingCreate.current = null;
+      }
       setMessage(error instanceof ApiError && error.status === 409 ? "목록이 다른 곳에서 변경되었습니다. 입력은 유지됩니다. 서버 목록을 다시 불러오거나 현재 내용을 확인해 주세요." : "저장하지 못했습니다. 입력을 유지했으니 다시 시도해 주세요.");
     } finally { setBusy(false); }
   };

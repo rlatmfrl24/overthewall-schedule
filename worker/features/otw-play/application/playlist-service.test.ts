@@ -7,7 +7,7 @@ import type { PlaylistCatalogReader, PlaylistRepository } from "./ports/playlist
 
 const state = { publicReadEnabled: true, revision: 8, readModelRevision: 8 };
 const readPublicState = vi.fn(async () => state);
-const reader = { readPlaylistDefaults: vi.fn(async () => []), readPlaylistPerformances: vi.fn(async () => []),
+const reader = { readPlaylistDefaults: vi.fn(async () => []), readPlaylistPerformances: vi.fn(async (): Promise<PublicCatalogPerformanceDetail[]> => []),
   resolvePlaylistPerformances: vi.fn(async (ids: string[]) => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)) } satisfies PlaylistCatalogReader;
 const original: PlayPlaylist = { id: "one", title: "목록", description: "", version: 2, itemCount: 1, performanceIds: ["withdrawn"], originDefaultId: null, createdAt: 1, updatedAt: 1 };
 const repo = { list: vi.fn(async () => []), read: vi.fn(async (): Promise<PlayPlaylist | null> => original),
@@ -17,6 +17,22 @@ const context = { allowDisabledRead: false, allowSharedCache: false };
 beforeEach(() => { vi.clearAllMocks(); readPublicState.mockResolvedValue(state); repo.read.mockResolvedValue(original); repo.save.mockResolvedValue(true);
   reader.resolvePlaylistPerformances.mockImplementation(async ids => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)); });
 describe("playlist authority and persistence", () => {
+  it("roundtrips a page boundary with rich performance metadata without embedding it in the cursor", async () => {
+    const rows = Array.from({ length: 61 }, (_, index) => ({ performance: {
+      id: `performance-${index}`, releasedAt: 1000 - index,
+      participants: Array.from({ length: 8 }, (_, creditOrder) => ({ displayName: "가창 멤버".repeat(40), creditOrder })),
+      sources: [{ title: "영상 제목".repeat(100), thumbnailUrl: "https://example.com/image.jpg" }],
+    } }) as PublicCatalogPerformanceDetail);
+    reader.readPlaylistPerformances.mockResolvedValueOnce(rows);
+    const first = await service.browse(context, new URLSearchParams("relation=cover"));
+    expect(first.data.items).toHaveLength(60);
+    expect(Object.keys(JSON.parse(decodeURIComponent(first.nextCursor!))).sort()).toEqual(["id", "identity", "releasedAt", "revision"]);
+    reader.readPlaylistPerformances.mockResolvedValueOnce([rows[60]]);
+    const second = await service.browse(context, new URLSearchParams({ relation: "cover", cursor: first.nextCursor! }));
+    expect(reader.readPlaylistPerformances).toHaveBeenLastCalledWith(expect.objectContaining({ after: { id: "performance-59", releasedAt: 941 } }));
+    expect(second.data.items).toEqual([rows[60]]);
+    expect(second.nextCursor).toBeNull();
+  });
   it("does not let member ownership bypass the public flag", async () => {
     readPublicState.mockResolvedValue({ ...state, publicReadEnabled: false });
     await expect(service.list(context, "member")).rejects.toMatchObject({ status: 404 });
