@@ -15,6 +15,14 @@ const item = (id: string, performanceId = id): OtwPlayQueueItem => ({
 });
 
 describe("OTW Play queue", () => {
+  it("appends a batch without starting playback or changing existing queue state", () => {
+    const idle = reduceOtwPlayQueue(createEmptyOtwPlayQueue(), { type: "enqueue_batch", items: [item("a"), item("a-copy", "a")] });
+    expect(idle.currentIndex).toBeNull();
+    expect(idle.items.map(row => row.id)).toEqual(["a"]);
+    const playing = { ...idle, currentIndex: 0, repeat: "one" as const, shuffled: true };
+    const next = reduceOtwPlayQueue(playing, { type: "enqueue_batch", items: [item("duplicate", "a"), item("b")] });
+    expect(next).toEqual({ ...playing, items: [item("a"), item("b")] });
+  });
   it("keeps one queue item per performance", () => {
     let state = createEmptyOtwPlayQueue();
     state = reduceOtwPlayQueue(state, { type: "enqueue", item: item("a", "p") });

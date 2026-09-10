@@ -299,6 +299,9 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
     });
   }
   if (path === "/play" || path.startsWith("/play/")) {
+    if (path === "/play/playlists" || path.startsWith("/play/playlists/")) {
+      return define({ path, title: "플레이리스트 | OTW Play", description: "오리지널, 커버와 멤버별 가창을 모아 듣고 나만의 플레이리스트를 만들어 보세요.", robots: "noindex,nofollow", sitemap: false, ogType: "website" });
+    }
     if (path === "/play") return buildPlayHomeSiteSeo("noindex,nofollow");
     if (path === "/play/songs") {
       return buildPlaySongsSiteSeo("noindex,nofollow");

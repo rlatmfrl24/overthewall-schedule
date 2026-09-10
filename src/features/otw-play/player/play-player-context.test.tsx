@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
   createPlayer: vi.fn(),
   fetchPerformance: vi.fn(),
+  resolvePerformances: vi.fn(),
   controller: {
     load: vi.fn(),
     play: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("./youtube-iframe-api", () => ({
 vi.mock("../api/public", () => ({
   fetchOtwPlayPerformance: mocks.fetchPerformance,
 }));
+vi.mock("../api/playlists", () => ({ resolvePlaylistPerformances: mocks.resolvePerformances }));
 
 import {
   OtwPlayPlayerProvider,
@@ -129,6 +131,8 @@ function Consumer() {
       <button type="button" onClick={() => player.play({ ...track, source: alternateSource })}>play alternate</button>
       <button type="button" onClick={player.pause}>pause</button>
       <button type="button" onClick={() => player.enqueue(track)}>enqueue</button>
+      <button type="button" onClick={() => player.enqueueBatch([track], 0, true)}>add playlist</button>
+      <button type="button" onClick={() => player.enqueueBatch([], 0, true)}>add empty playlist</button>
       <button type="button" onClick={() => player.playNext(track)}>play next</button>
       <button
         type="button"
@@ -204,6 +208,20 @@ describe("OtwPlayPlayerProvider", () => {
     expect(mocks.controller.destroy).toHaveBeenCalledOnce();
   });
 
+  it("plays the first playlist item and restarts it on repeated addition without duplicates", async () => {
+    render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "add empty playlist" }));
+    expect(mocks.createPlayer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "add playlist" }));
+    await waitFor(() => expect(mocks.controller.load).toHaveBeenCalledWith({ videoId: track.source.externalId, startSeconds: 0 }));
+    fireEvent.click(screen.getByRole("button", { name: "pause" }));
+    mocks.controller.play.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "add playlist" }));
+    expect(mocks.controller.seekTo).toHaveBeenCalledWith(0);
+    expect(mocks.controller.play).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("queue-size").textContent).toBe("1");
+  });
+
   it("resumes the paused current song from a catalog play action without reloading or duplicating it", async () => {
     render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     fireEvent.click(screen.getByRole("button", { name: "play" }));
@@ -256,11 +274,11 @@ describe("OtwPlayPlayerProvider", () => {
         shuffled: false,
       }),
     );
-    mocks.fetchPerformance.mockResolvedValue({
-      data: {
+    mocks.resolvePerformances.mockResolvedValue({
+      data: { items: [{
         song: track.song,
         performance: { ...track.performance, sources: [track.source] },
-      },
+      }], unavailableIds: [] },
       nextCursor: null,
       catalogRevision: 1,
       generatedAt: "2026-08-18T00:00:00.000Z",
@@ -268,9 +286,9 @@ describe("OtwPlayPlayerProvider", () => {
 
     render(<OtwPlayPlayerProvider adminPreview><Consumer /></OtwPlayPlayerProvider>);
     await waitFor(() =>
-      expect(mocks.fetchPerformance).toHaveBeenCalledWith("performance-1", {
+      expect(mocks.resolvePerformances).toHaveBeenCalledWith(["performance-1"], expect.objectContaining({
         adminPreview: true,
-      }),
+      })),
     );
     expect(mocks.createPlayer).not.toHaveBeenCalled();
     expect(mocks.controller.load).not.toHaveBeenCalled();
@@ -336,27 +354,27 @@ describe("OtwPlayPlayerProvider", () => {
         shuffled: false,
       }),
     );
-    mocks.fetchPerformance.mockRejectedValueOnce(new Error("temporary failure"));
+    mocks.resolvePerformances.mockRejectedValueOnce(new Error("temporary failure"));
 
     render(<OtwPlayPlayerProvider><Consumer /></OtwPlayPlayerProvider>);
     await waitFor(() =>
       expect(screen.getByTestId("retryable-size").textContent).toBe("1"),
     );
     expect(screen.getByTestId("unavailable-size").textContent).toBe("0");
-    expect(mocks.fetchPerformance).toHaveBeenCalledTimes(1);
+    expect(mocks.resolvePerformances).toHaveBeenCalledTimes(1);
 
-    mocks.fetchPerformance.mockResolvedValue({
-      data: {
+    mocks.resolvePerformances.mockResolvedValue({
+      data: { items: [{
         song: track.song,
         performance: { ...track.performance, sources: [track.source] },
-      },
+      }], unavailableIds: [] },
       nextCursor: null,
       catalogRevision: 1,
       generatedAt: "2026-08-18T00:00:00.000Z",
     });
     fireEvent.click(screen.getByRole("button", { name: "retry current" }));
 
-    await waitFor(() => expect(mocks.fetchPerformance).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.resolvePerformances).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(screen.getByTestId("retryable-size").textContent).toBe("0"),
     );

@@ -1,7 +1,7 @@
 import { QueryState } from "@/shared/ui/query-state";
 import { Input } from "@/shared/ui/input";
 import { SignInButton, useUser } from "@clerk/clerk-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Eye,
   LoaderCircle,
@@ -193,13 +193,14 @@ function OtwPlayExperience({
   adminPreview?: boolean;
   children: ReactNode;
 }) {
+  const editing = useRouterState({ select: state => state.location.pathname === "/play/playlists/new" || /^\/play\/playlists\/[^/]+\/edit$/.test(state.location.pathname) });
   return (
-    <OtwPlayPlayerProvider adminPreview={adminPreview}>
+    <OtwPlayPlayerProvider adminPreview={adminPreview} playbackDisabled={editing}>
       <OtwPlayFrame
         search={<PlayHeaderSearch />}
         status={
           adminPreview ? (
-            <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 2xl:inline-flex dark:text-amber-300">
+            <span className="hidden items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 min-[1800px]:inline-flex dark:text-amber-300">
               <Eye className="size-3.5" /> 관리자 미리보기 · 공개 비활성
             </span>
           ) : undefined
@@ -209,11 +210,11 @@ function OtwPlayExperience({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main
             data-testid="otw-play-content-scroll"
-            className="play-content min-w-0 flex-1 overflow-y-auto overscroll-contain"
+            className={`play-content min-w-0 flex-1 overscroll-contain ${editing ? "overflow-hidden" : "overflow-y-auto"}`}
           >
             {children}
           </main>
-          <OtwPlayPlayerQueuePanel />
+          <OtwPlayPlayerQueuePanel editing={editing} />
         </div>
       </OtwPlayFrame>
     </OtwPlayPlayerProvider>

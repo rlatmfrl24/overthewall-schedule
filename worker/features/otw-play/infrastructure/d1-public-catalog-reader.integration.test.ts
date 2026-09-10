@@ -421,6 +421,31 @@ describe("D1PublicCatalogReader", () => {
     await cleanup();
   });
 
+  it("lists every playlist performance across pages and keeps vocal roles scoped to the same performance", async () => {
+    await seedIdentityAndChannels();
+    await db.batch([...insertSong("playlist-song"),
+      ...Array.from({ length: 65 }, (_, index) => insertPerformance(`playlist-${String(index).padStart(3, "0")}`, "playlist-song")),
+      insertPerformance("playlist-original", "playlist-song", { relation: "original" }),
+      insertPerformance("playlist-hidden", "playlist-song", { status: "draft" }),
+      insertParticipant("playlist-000", "entity-current-a", 0, "vocal"),
+      insertParticipant("playlist-001", "entity-current-a", 0, "featured_vocal"),
+      insertParticipant("playlist-002", "entity-current-a", 0, "chorus"),
+    ]);
+    const reader = new D1PublicCatalogReader(db);
+    const query = { q: null, member: null, relation: "cover" as const, limit: 60, after: null };
+    const first = await reader.readPlaylistPerformances(query);
+    expect(first).toHaveLength(61);
+    const second = await reader.readPlaylistPerformances({ ...query, after: { id: first[59].performance.id, releasedAt: first[59].performance.releasedAt } });
+    expect(second).toHaveLength(5);
+    expect(new Set([...first.slice(0, 60), ...second].map(item => item.performance.id)).size).toBe(65);
+    expect((await reader.readPlaylistPerformances({ ...query, member: 1 })).map(item => item.performance.id)).toEqual(["playlist-000", "playlist-001"]);
+    expect((await reader.readPlaylistPerformances({ ...query, q: "current a" })).map(item => item.performance.id)).toEqual(["playlist-000", "playlist-001"]);
+    const defaults = await reader.readPlaylistDefaults();
+    expect(defaults.find(item => item.id === "cover")).toMatchObject({ songCount: 1, performanceCount: 65 });
+    expect(defaults.find(item => item.id === "member-3")).toMatchObject({ songCount: 0, performanceCount: 0 });
+    expect(await reader.resolvePlaylistPerformances(["playlist-hidden", "missing"])).toEqual([]);
+  });
+
   it("serves member songbooks from D1 with stable counts, role filters and revision cursors", async () => {
     await seedIdentityAndChannels();
     const reader = new D1PublicCatalogReader(db);

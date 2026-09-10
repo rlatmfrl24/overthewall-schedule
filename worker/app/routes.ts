@@ -28,6 +28,9 @@ import {
 } from "../features/members";
 import {
   CloudflarePublicCatalogCache,
+  D1PlaylistRepository,
+  PlaylistService,
+  createPlaylistHandler,
   CloudflarePlayObservabilityReader,
   CloudflarePlayTelemetryWriter,
   createAdminCatalogHandler,
@@ -191,6 +194,10 @@ const handleMembers = createHandleMembers(
   (env) => new D1MemberReader(getDb(env), env.ASSET_BUCKET),
 );
 const publicCatalogCache = new CloudflarePublicCatalogCache();
+const handleOtwPlayPlaylists = createPlaylistHandler(env => {
+  const reader = new D1PublicCatalogReader(env.otw_db);
+  return new PlaylistService(new PublicCatalogService(reader, publicCatalogCache), reader, new D1PlaylistRepository(env.otw_db));
+});
 const resolvePlayTelemetry = (env: Parameters<typeof getDb>[0]) =>
   new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS);
 const handleOtwPlayPublicCatalog = createPublicCatalogHandler(
@@ -562,6 +569,43 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.playlists.defaults",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.playlistDefaults.pattern,
+    methods: methods(get(PUBLIC_NO_STORE)),
+    handler: handleOtwPlayPlaylists,
+  },
+  {
+    id: "otw-play.performances",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.performances.pattern,
+    methods: methods(get(PUBLIC_NO_STORE)),
+    handler: handleOtwPlayPlaylists,
+  },
+  {
+    id: "otw-play.performances.resolve",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.resolvePerformances.pattern,
+    methods: methods(post(PUBLIC_NO_STORE)),
+    handler: handleOtwPlayPlaylists,
+  },
+  {
+    id: "otw-play.playlists.mine",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.myPlaylists.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 }), post({ auth: "member-policy", cache: "no-store", successStatus: 201 })),
+    handler: handleOtwPlayPlaylists,
+  },
+  {
+    id: "otw-play.playlists.owned",
+    owner: "otw-play",
+    path: apiRoutes.otwPlay.myPlaylist.pattern,
+    methods: methods(get({ auth: "member-policy", cache: "no-store", successStatus: 200 }),
+      { method: "PUT", auth: "member-policy", cache: "no-store", successStatus: 200 },
+      { method: "DELETE", auth: "member-policy", cache: "no-store", successStatus: 200 }),
+    handler: handleOtwPlayPlaylists,
   },
   {
     id: "otw-play.performance",

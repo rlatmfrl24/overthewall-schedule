@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   useCatalog: vi.fn(),
   useFacets: vi.fn(),
 }));
+vi.mock("../playlists/playlists-page", () => ({ OtwPlayPlaylistDiscovery: () => <section aria-label="플레이리스트">플레이리스트</section> }));
+vi.mock("../../queries/use-member-colors", () => ({ useOtwPlayMemberColors: () => ({ data: new Map([[1, "#ff6699"]]) }) }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -190,13 +192,13 @@ describe("OTW Play discover layout", () => {
     render(<OtwPlayHomePage />);
 
     expect(screen.getByRole("heading", { name: "첫 번째 노래" })).toBeTruthy();
-    expect(screen.getAllByLabelText("커버 영상 라벨").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("라이브").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("커버 영상 라벨")).toBeNull();
+    expect(screen.queryByText("라이브")).toBeNull();
     expect(screen.getByRole("heading", { name: "오버더월 NOW PLAY ON OTW PLAY" })).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
     const heroMedia = screen.getByTestId("otw-play-hero-media");
     const loadedArtwork = Array.from(heroMedia.querySelectorAll("img"));
-    expect(loadedArtwork).toHaveLength(4);
+    expect(loadedArtwork).toHaveLength(2);
     expect(heroMedia.querySelectorAll("img:not(.play-spotlight-backdrop)")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
@@ -230,8 +232,8 @@ describe("OTW Play discover layout", () => {
     expect(within(recent).getAllByRole("article")).toHaveLength(2);
     expect(within(recent).getByRole("link", { name: "첫 번째 노래 곡 상세" })).toBeTruthy();
     expect(within(recent).getByRole("button", { name: "첫 번째 노래 재생" })).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "첫 번째 노래" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "두 번째 노래" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "첫 번째 노래 곡 상세" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "두 번째 노래 곡 상세" }).length).toBeGreaterThan(0);
   });
 
   it("rotates after seven seconds and resumes only after hover and focus leave", () => {
@@ -297,7 +299,7 @@ describe("OTW Play discover layout", () => {
 
     render(<OtwPlayHomePage />);
 
-    expect(screen.getAllByRole("link", { name: "9번째 노래" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "9번째 노래 곡 상세" }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "9번째 추천곡 보기" })).toBeNull();
     expect(observedTarget).not.toBeNull();
 

@@ -18,6 +18,7 @@ vi.mock("@tanstack/react-router", () => ({
     ({ children, to, ...props }, ref) => <a ref={ref} href={to} {...props}>{children}</a>,
   ),
   useNavigate: () => mocks.navigate,
+  useRouterState: () => false,
 }));
 vi.mock("@clerk/clerk-react", () => ({
   SignInButton: ({ children }: { children: React.ReactNode }) => <>{children}</>,

@@ -77,6 +77,9 @@ export { D1ChannelMonitorRepository } from "./infrastructure/d1-channel-monitor-
 export { D1IngestionRepository } from "./infrastructure/d1-ingestion-repository";
 export { D1MemberSubmissionRepository } from "./infrastructure/d1-member-submission-repository";
 export { D1PublicCatalogReader } from "./infrastructure/d1-public-catalog-reader";
+export { D1PlaylistRepository } from "./infrastructure/d1-playlist-repository";
+export { PlaylistService } from "./application/playlist-service";
+export { createPlaylistHandler } from "./http/playlist-handler";
 export { D1ReleaseRepository } from "./infrastructure/d1-release-repository";
 export { D1SourceHealthRepository } from "./infrastructure/d1-source-health-repository";
 export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-reader";

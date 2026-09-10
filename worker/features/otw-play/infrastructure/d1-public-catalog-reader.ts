@@ -1,4 +1,6 @@
 import type { OtwPlayMemberSummary } from "@contracts/otw-play-members";
+import type { PlayDefaultPlaylist } from "@contracts/otw-play-playlists";
+import type { PlaylistPerformanceQuery } from "../application/ports/playlist-repository";
 import type {
   PublicCatalogEntity,
   PublicCatalogFacets,
@@ -1744,6 +1746,83 @@ export class D1PublicCatalogReader
       navigationVisible: Boolean(row.navigation_visible),
       updatedAt: Number(row.updated_at),
     };
+  }
+
+  async readPlaylistDefaults(): Promise<PlayDefaultPlaylist[]> {
+    const members = await this.readMemberSummaries();
+    const totals = await this.all<{ relation: "original" | "cover"; songs: number; performances: number }>(`
+      SELECT performance.relation_type AS relation, COUNT(DISTINCT song.id) AS songs, COUNT(*) AS performances
+      FROM music_performances AS performance JOIN music_songs AS song ON song.id = performance.song_id
+      WHERE ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE} GROUP BY performance.relation_type`);
+    const defaults: PlayDefaultPlaylist[] = [];
+    for (const relation of ["original", "cover"] as const) {
+      const count = totals.find(row => row.relation === relation);
+      const first = await this.readPlaylistPerformances({ q: null, member: null, relation, limit: 1, after: null });
+      defaults.push({ id: relation, version: 1, title: relation === "original" ? "오리지널 모음" : "커버곡 모음",
+        description: relation === "original" ? "우리의 목소리로 시작된 노래" : "익숙한 노래, 새로운 목소리",
+        imageUrl: first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
+        songCount: Number(count?.songs ?? 0), performanceCount: Number(count?.performances ?? 0), query: { relation } });
+    }
+    return [...defaults, ...members.map(member => ({ id: `member-${member.uid}`, version: 1,
+      title: `${member.name} 가창곡`, description: "메인 보컬 · 피처링으로 함께한 모든 가창",
+      imageUrl: member.imageUrl, songCount: member.songCount, performanceCount: member.performanceCount,
+      query: { member: member.uid } }))];
+  }
+
+  async readPlaylistPerformances(query: PlaylistPerformanceQuery): Promise<PublicCatalogPerformanceDetail[]> {
+    const conditions: string[] = [];
+    const binds: SqlBind[] = [];
+    if (query.relation) { conditions.push("performance.relation_type = ?"); binds.push(query.relation); }
+    if (query.member !== null) {
+      conditions.push(`EXISTS (SELECT 1 FROM music_performance_participants AS participant
+        JOIN music_entities AS entity ON entity.id = participant.entity_id
+        JOIN members AS member ON member.uid = entity.member_uid
+        WHERE participant.performance_id = performance.id AND entity.archived_at IS NULL
+          AND COALESCE(member.is_deprecated, 0) = 0 AND entity.member_uid = ?
+          AND participant.participant_role IN ('vocal', 'featured_vocal'))`);
+      binds.push(query.member);
+    }
+    if (query.q) {
+      conditions.push(`(instr(song.normalized_title, ?) > 0 OR EXISTS
+        (SELECT 1 FROM music_search_terms AS term WHERE term.song_id = song.id
+        AND term.term_kind <> 'participant' AND instr(term.normalized_term, ?) > 0)
+        OR EXISTS (SELECT 1 FROM music_performance_participants AS participant
+          JOIN music_entities AS entity ON entity.id = participant.entity_id
+          WHERE participant.performance_id = performance.id AND entity.archived_at IS NULL
+          AND participant.participant_role IN ('vocal', 'featured_vocal') AND instr(entity.normalized_name, ?) > 0))`);
+      binds.push(query.q, query.q, query.q);
+    }
+    if (query.after) {
+      if (query.after.releasedAt === null) {
+        conditions.push("performance.released_at IS NULL AND performance.id > ?"); binds.push(query.after.id);
+      } else {
+        conditions.push("(performance.released_at < ? OR performance.released_at IS NULL OR (performance.released_at = ? AND performance.id > ?))");
+        binds.push(query.after.releasedAt, query.after.releasedAt, query.after.id);
+      }
+    }
+    const rows = await this.playlistRows(conditions, [...binds, query.limit + 1], `ORDER BY ${PUBLIC_PERFORMANCE_ORDER} LIMIT ?`);
+    return this.hydratePlaylistRows(rows);
+  }
+
+  async resolvePlaylistPerformances(ids: string[]): Promise<PublicCatalogPerformanceDetail[]> {
+    if (!ids.length) return [];
+    return this.hydratePlaylistRows(await this.playlistRows([`performance.id IN (${placeholders(ids.length)})`], ids));
+  }
+
+  private playlistRows(conditions: string[], binds: SqlBind[], suffix = "") {
+    return this.all<CandidateRow>(`SELECT song.id AS song_id, song.slug, song.title, song.normalized_title,
+      song.is_otw_original, song.original_release_date, song.original_release_precision,
+      performance.id AS performance_id, performance.relation_type, performance.release_type,
+      performance.participation_type, performance.released_at, 1 AS published_performance_count,
+      NULL AS relevance_rank, NULL AS normalized_participant, NULL AS search_phase
+      FROM music_performances AS performance JOIN music_songs AS song ON song.id = performance.song_id
+      WHERE ${PUBLIC_PERFORMANCE_PREDICATE} AND ${PUBLIC_SONG_PREDICATE}
+      ${conditions.map(condition => `AND (${condition})`).join(" ")} ${suffix}`, binds);
+  }
+
+  private async hydratePlaylistRows(rows: CandidateRow[]): Promise<PublicCatalogPerformanceDetail[]> {
+    const songs = await this.hydrateCatalogRows(rows);
+    return songs.map(song => ({ song, performance: song.representativePerformance }));
   }
 
   async readMemberSummaries(): Promise<OtwPlayMemberSummary[]> {

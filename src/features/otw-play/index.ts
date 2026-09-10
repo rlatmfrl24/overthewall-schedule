@@ -34,3 +34,6 @@ export { OtwPlaySongDetailPage } from "./ui/public/song-detail-page";
 export { OtwPlayMemberSongbookPage } from "./ui/public/member-songbook-page";
 export { OtwPlayMemberProfileLink } from "./ui/public/member-profile-link";
 export { validateMemberSongbookSearch } from "./model/member-songbook-search";
+export { OtwPlayPlaylistsPage } from "./ui/playlists/playlists-page";
+export { OtwPlayDefaultPlaylistPage, OtwPlayPersonalPlaylistPage } from "./ui/playlists/playlist-detail-page";
+export { OtwPlayPlaylistEditorPage } from "./ui/playlists/playlist-editor-page";

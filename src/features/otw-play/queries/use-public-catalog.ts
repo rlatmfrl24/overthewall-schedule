@@ -48,7 +48,7 @@ export function OtwPlayCatalogRequestProvider({
   );
 }
 
-const usePublicRequestOptions = (options: PublicQueryOptions) => {
+export const usePublicRequestOptions = (options: PublicQueryOptions = {}) => {
   const context = useContext(OtwPlayCatalogRequestContext);
   const adminPreview = options.adminPreview ?? context.adminPreview;
   return {

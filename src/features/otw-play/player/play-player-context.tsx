@@ -16,6 +16,7 @@ import type {
 } from "@contracts/otw-play";
 import { ApiError } from "@/shared/api/client";
 import { fetchOtwPlayPerformance } from "../api/public";
+import { resolvePlaylistPerformances } from "../api/playlists";
 import {
   OTW_PLAY_QUEUE_STORAGE_KEY,
   createEmptyOtwPlayQueue,
@@ -65,6 +66,7 @@ type PlayPlayerContextValue = {
   setPlaybackSurfaceActive: (active: boolean) => void;
   play: (track: OtwPlayTrack) => void;
   enqueue: (track: OtwPlayTrack) => void;
+  enqueueBatch: (tracks: OtwPlayTrack[], unavailableCount?: number, playFirst?: boolean) => string;
   playNext: (track: OtwPlayTrack) => void;
   select: (index: number) => void;
   remove: (itemId: string) => void;
@@ -141,12 +143,19 @@ const isAuthoritativelyUnavailable = (error: unknown) =>
 
 export function OtwPlayPlayerProvider({
   adminPreview = false,
+  playbackDisabled = false,
   children,
 }: {
   adminPreview?: boolean;
+  playbackDisabled?: boolean;
   children: ReactNode;
 }) {
-  const [queue, dispatch] = useReducer(reduceOtwPlayQueue, undefined, initialQueue);
+  const [queue, reactDispatch] = useReducer(reduceOtwPlayQueue, undefined, initialQueue);
+  const queueRef = useRef(queue);
+  const dispatch = useCallback((action: OtwPlayQueueAction) => {
+    queueRef.current = reduceOtwPlayQueue(queueRef.current, action);
+    reactDispatch(action);
+  }, []);
   const [tracks, setTracks] = useState<ReadonlyMap<string, OtwPlayTrack>>(
     () => new Map(),
   );
@@ -160,7 +169,8 @@ export function OtwPlayPlayerProvider({
   const [hostVisible, setHostVisible] = useState(false);
   const [hasPlaybackIntent, setHasPlaybackIntent] = useState(false);
   const [playbackIntentVersion, setPlaybackIntentVersion] = useState(0);
-  const [playbackSurfaceActive, setPlaybackSurfaceActive] = useState(false);
+  const [surfaceActive, setPlaybackSurfaceActive] = useState(false);
+  const playbackSurfaceActive = surfaceActive && !playbackDisabled;
   const [playerReadyVersion, setPlayerReadyVersion] = useState(0);
   const [status, setStatus] = useState<PlayerStatus>("idle");
   const [volume, setVolumeState] = useState(100);
@@ -253,39 +263,23 @@ export function OtwPlayPlayerProvider({
   }, [currentItem?.id, currentTrack]);
 
   useEffect(() => {
-    const pending = queue.items.filter(
+    const pending = [...queue.items].sort((a, b) => Number(b.id === currentItem?.id) - Number(a.id === currentItem?.id)).filter(
       ({ id }) =>
         !tracks.has(id) &&
         !unavailableItemIds.has(id) &&
         !retryableItemIds.has(id),
-    );
+    ).slice(0, 60);
     if (pending.length === 0) return;
     let cancelled = false;
-    void Promise.all(
-      pending.map(async (item) => {
-        try {
-          const response = adminPreview
-            ? await fetchOtwPlayPerformance(item.performanceId, {
-                adminPreview: true,
-              })
-            : await fetchOtwPlayPerformance(item.performanceId);
-          const track = trackFromPerformance(item, response);
-          return {
-            item,
-            status: track ? "loaded" : "unavailable",
-            track,
-          } as const;
-        } catch (error) {
-          return {
-            item,
-            status: isAuthoritativelyUnavailable(error)
-              ? "unavailable"
-              : "retryable",
-            track: null,
-          } as const;
-        }
-      }),
-    ).then((resolved) => {
+    const controller = new AbortController();
+    void resolvePlaylistPerformances(pending.map(item => item.performanceId), { adminPreview, signal: controller.signal }).then(response => {
+      const byId = new Map(response.data.items.map(item => [item.performance.id, item]));
+      return pending.map(item => {
+        const detail = byId.get(item.performanceId);
+        const track = detail ? trackFromPerformance(item, { ...response, data: detail }) : null;
+        return { item, track, status: track ? "loaded" : "unavailable" };
+      });
+    }, () => pending.map(item => ({ item, track: null as OtwPlayTrack | null, status: "retryable" }))).then((resolved) => {
       if (cancelled) return;
       setTracks((current) => {
         const next = new Map(current);
@@ -322,9 +316,12 @@ export function OtwPlayPlayerProvider({
     });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     adminPreview,
+    currentItem?.id,
+    dispatch,
     queue.items,
     retryableItemIds,
     tracks,
@@ -375,7 +372,7 @@ export function OtwPlayPlayerProvider({
       }
       requestPlayback();
     },
-    [currentTrack, queue, requestPlayback, tracks, unavailableItemIds],
+    [currentTrack, dispatch, queue, requestPlayback, tracks, unavailableItemIds],
   );
   selectPlayableRef.current = selectPlayable;
 
@@ -480,7 +477,7 @@ export function OtwPlayPlayerProvider({
     } finally {
       playbackErrorInFlightKeysRef.current.delete(errorKey);
     }
-  }, [adminPreview, currentItem, currentTrack]);
+  }, [adminPreview, currentItem, currentTrack, dispatch]);
   playbackErrorRef.current = (code) => {
     void handlePlaybackError(code);
   };
@@ -569,7 +566,7 @@ export function OtwPlayPlayerProvider({
   }, [hostElement]);
 
   useEffect(() => {
-    if (playerReadyVersion === 0 || !playerRef.current || !currentItem || !currentTrack) return;
+    if (playbackDisabled || playerReadyVersion === 0 || !playerRef.current || !currentItem || !currentTrack) return;
     const key = `${currentItem.id}:${currentTrack.source.sourceId}`;
     if (loadedKeyRef.current === key) return;
     loadedKeyRef.current = key;
@@ -582,7 +579,7 @@ export function OtwPlayPlayerProvider({
         : { endSeconds: currentTrack.source.endSeconds }),
     });
     setAnnouncement(`${currentTrack.song.title} 재생을 시작합니다.`);
-  }, [currentItem, currentTrack, playerReadyVersion]);
+  }, [currentItem, currentTrack, playbackDisabled, playerReadyVersion]);
 
   useEffect(() => {
     updatePlaybackProgress();
@@ -636,7 +633,7 @@ export function OtwPlayPlayerProvider({
       failedSourceIdsRef.current.delete(item.id);
     }
     dispatch(action);
-  }, []);
+  }, [dispatch]);
 
   const play = useCallback((track: OtwPlayTrack) => {
     const existingIndex = queue.items.findIndex(
@@ -694,6 +691,38 @@ export function OtwPlayPlayerProvider({
     );
   }, [queue.currentIndex, queue.items, register]);
 
+  const enqueueBatch = useCallback((incoming: OtwPlayTrack[], unavailableCount = 0, playFirst = false) => {
+    const seen = new Set(queueRef.current.items.map(item => item.performanceId));
+    const additions: { item: OtwPlayQueueItem; track: OtwPlayTrack }[] = [];
+    for (const track of incoming) {
+      if (seen.has(track.performance.id)) continue;
+      seen.add(track.performance.id);
+      additions.push({ item: queueItemForTrack(track), track });
+    }
+    setTracks(current => {
+      const next = new Map(current);
+      for (const { item, track } of additions) next.set(item.id, track);
+      return next;
+    });
+    dispatch({ type: "enqueue_batch", items: additions.map(entry => entry.item) });
+    const first = playFirst && !playbackDisabled ? incoming[0] : undefined;
+    if (first) {
+      const queued = queueRef.current.items.find(item => item.performanceId === first.performance.id);
+      if (queued) {
+        setTracks(current => new Map(current).set(queued.id, first));
+        dispatch({ type: "play", item: { ...queued, sourceId: first.source.sourceId } });
+        requestPlayback();
+        if (loadedKeyRef.current === `${queued.id}:${first.source.sourceId}`) {
+          playerRef.current?.seekTo(first.source.startSeconds);
+          playerRef.current?.play();
+        }
+      }
+    }
+    const summary = `${additions.length}개 가창 추가 · 중복 ${incoming.length - additions.length}개 · 재생 불가 ${unavailableCount}개 제외`;
+    setAnnouncement(summary);
+    return summary;
+  }, [dispatch, playbackDisabled, requestPlayback]);
+
   const value = useMemo<PlayPlayerContextValue>(() => ({
     queue,
     currentItem,
@@ -715,6 +744,7 @@ export function OtwPlayPlayerProvider({
     setPlaybackSurfaceActive,
     play,
     enqueue,
+    enqueueBatch,
     playNext,
     select(index) {
       dispatch({ type: "select", index });
@@ -819,6 +849,8 @@ export function OtwPlayPlayerProvider({
       playerRef.current?.setMuted(nextMuted);
     },
   }), [
+    dispatch,
+    enqueueBatch,
     announcement,
     currentItem,
     currentTrack,
