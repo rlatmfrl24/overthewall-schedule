@@ -126,6 +126,23 @@ export class D1MemberPostsPort implements MemberPostsPort {
     return this.xFeed.isApiError(error);
   }
 
+  async readFeedUpdatedAt(xPostIds: string[], cafePostIds: string[]) {
+    // Bound reads to the authorized posts actually returned by the source readers.
+    const queries = [];
+    for (const [table, ids] of [["x_posts", xPostIds], ["naver_cafe_posts", cafePostIds]] as const) {
+      const unique = [...new Set(ids)];
+      for (let offset = 0; offset < unique.length; offset += 80) {
+        const chunk = unique.slice(offset, offset + 80);
+        queries.push(this.env.otw_db.prepare(
+          `SELECT MAX(fetched_at) AS updated_at FROM ${table} WHERE id IN (${chunk.map(() => "?").join(",")})`,
+        ).bind(...chunk).first<{ updated_at: number | null }>());
+      }
+    }
+    const rows = await Promise.all(queries);
+    const timestamps = rows.map(row => Number(row?.updated_at)).filter(value => value > 0 && Number.isFinite(value) && !Number.isNaN(new Date(value).getTime()));
+    return timestamps.length ? new Date(Math.max(...timestamps)).toISOString() : null;
+  }
+
   readNaverCafePosts(sources: NaverCafeSourceRecord[], size: number) {
     return this.readNaverCafe(sources, {
       cacheDb: this.env.otw_db,

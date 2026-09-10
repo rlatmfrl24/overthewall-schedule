@@ -1,203 +1,27 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import type { CSSProperties } from "react";
+import SourceIcon from "@/assets/icon_naver_cafe.svg";
+import { cn } from "@/shared/lib/utils";
 import type { MemberDto } from "@contracts/members";
 import type { NaverCafePostDto } from "@contracts/naver-cafe";
-import { Button } from "@/shared/ui/button";
-import { cn } from "@/shared/lib/utils";
-import {
-  Coffee,
-  ExternalLink,
-  Eye,
-  Heart,
-  MessageCircle,
-} from "lucide-react";
+import { Eye, Heart, MessageCircle } from "lucide-react";
+import { PostActions, PostHeader, PostMedia, PostText } from "@/shared/ui/post-content";
 
-interface NaverCafePostCardProps {
-  post: NaverCafePostDto;
-  member?: MemberDto;
-  compactTime?: string;
-  openPostOnCardClick?: boolean;
-  showExternalLinkButton?: boolean;
-}
+interface NaverCafePostCardProps { post: NaverCafePostDto; member?: MemberDto; compactTime?: string; appearance?: "card" | "feed" }
+const formatMetric = (value: number) => new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 
-const numberFormatter = new Intl.NumberFormat("ko-KR", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-
-const formatMetric = (value: number) => numberFormatter.format(value);
-
-const formatRelativeDate = (dateString: string) => {
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return "";
-
-  const diffMs = Date.now() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffMinutes < 1) return "방금 전";
-  if (diffMinutes < 60) return `${diffMinutes}분 전`;
-  if (diffHours < 24) return `${diffHours}시간 전`;
-  if (diffDays < 7) return `${diffDays}일 전`;
-
-  return date.toLocaleDateString("ko-KR", {
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const shouldIgnoreCardNavigation = (target: EventTarget | null) =>
-  target instanceof HTMLElement &&
-  Boolean(target.closest("a, button, input, select, textarea, [role='button']"));
-
-const openExternalUrl = (url: string) => {
-  window.open(url, "_blank", "noopener,noreferrer");
-};
-
-export const NaverCafePostCard = ({
-  post,
-  member,
-  compactTime,
-  openPostOnCardClick = false,
-  showExternalLinkButton = true,
-}: NaverCafePostCardProps) => {
-  const profileSrc = member ? `/profile/${member.code}.webp` : null;
-  const accentColor = member?.main_color || "#03c75a";
-  const authorName = member?.name ?? post.sourceName;
-  const navigableProps = openPostOnCardClick
-    ? {
-        "aria-label": `${authorName} 네이버 카페 원문 게시글 열기`,
-        onClick: (event: MouseEvent<HTMLElement>) => {
-          if (shouldIgnoreCardNavigation(event.target)) return;
-          openExternalUrl(post.url);
-        },
-        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-          if (shouldIgnoreCardNavigation(event.target)) return;
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          openExternalUrl(post.url);
-        },
-        role: "link",
-        tabIndex: 0,
-      }
-    : {};
-
-  return (
-    <article
-      {...navigableProps}
-      className={cn(
-        "group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-foreground/25 hover:shadow-md sm:p-4",
-        openPostOnCardClick &&
-          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      )}
-    >
-      <span
-        className="absolute inset-y-0 left-0 w-1"
-        style={{ backgroundColor: accentColor }}
-        aria-hidden="true"
-      />
-
-      <div className="flex min-w-0 items-start justify-between gap-3 pl-1">
-        <div className="flex min-w-0 items-center gap-3">
-          {profileSrc ? (
-            <img
-              src={profileSrc}
-              alt={authorName}
-              className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
-            />
-          ) : (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-sm font-semibold text-emerald-700">
-              N
-            </div>
-          )}
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: accentColor }}
-              />
-              <h2 className="truncate text-sm font-semibold text-foreground">
-                {authorName}
-              </h2>
-              {post.isNew ? (
-                <span className="shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                  N
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                aria-label="네이버 카페 게시글"
-                title="네이버 카페 게시글"
-                className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-emerald-600"
-              >
-                <Coffee className="h-3.5 w-3.5" />
-              </span>
-              <span className="truncate">
-                {post.sourceName} ·{" "}
-                {compactTime ?? formatRelativeDate(post.createdAt)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {showExternalLinkButton ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 gap-1.5 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"
-          >
-            <a href={post.url} target="_blank" rel="noopener noreferrer">
-              <span className="hidden sm:inline">카페에서 보기</span>
-              <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="space-y-2 pl-1">
-        <h3 className="break-words text-sm font-semibold leading-6 text-foreground">
-          {post.title}
-        </h3>
-        {post.summary ? (
-          <p className="line-clamp-3 whitespace-pre-wrap break-all text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
-            {post.summary}
-          </p>
-        ) : null}
-      </div>
-
-      {post.thumbnailUrl ? (
-        <a
-          href={post.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-1 block overflow-hidden rounded-lg border border-border/70 bg-muted"
-        >
-          <img
-            src={post.thumbnailUrl}
-            alt=""
-            className="aspect-video w-full object-cover transition-transform duration-200 group-hover:scale-[1.01]"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        </a>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <MessageCircle className="h-3.5 w-3.5" />
-          {formatMetric(post.metrics.commentCount)}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Eye className="h-3.5 w-3.5" />
-          {formatMetric(post.metrics.readCount)}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Heart className="h-3.5 w-3.5" />
-          {formatMetric(post.metrics.likeCount)}
-        </span>
-      </div>
-    </article>
-  );
+export const NaverCafePostCard = ({ post, member, compactTime, appearance = "card" }: NaverCafePostCardProps) => {
+  const name = member?.name ?? post.sourceName;
+  const title = `${name}의 카페 게시글`;
+  const accent = member?.main_color || "#03c75a";
+  return <article aria-label={title} className={cn("relative min-w-0 overflow-hidden", appearance === "feed" ? "space-y-1.5 border-b border-border/60 bg-background px-3.5 py-2.5 sm:px-[18px]" : "space-y-2.5 rounded-lg border border-border/70 bg-card p-3 shadow-sm sm:p-4", appearance === "feed" ? "after:pointer-events-none after:absolute after:inset-y-0 after:left-1 after:w-[3px] after:rounded-full after:bg-[var(--post-accent)]" : "border-l-4")} style={{ "--post-accent": accent, borderLeftColor: appearance === "card" ? accent : undefined } as CSSProperties}>
+    <PostHeader appearance={appearance} name={name} profileSrc={member ? `/profile/${member.code}.webp` : undefined} accent={accent} source="카페" sourceIcon={<img src={SourceIcon} alt="네이버 카페" className="size-4 object-contain" />} time={compactTime ?? new Date(post.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} dateTime={post.createdAt} newPost={post.isNew} />
+    <h4 className="break-words text-[15px] font-semibold leading-6">{post.title}</h4>
+    {post.summary && <PostText lines={3}>{post.summary}</PostText>}
+    {post.thumbnailUrl && <PostMedia title={post.title} url={post.url} items={[{ src: post.thumbnailUrl, alt: `${post.title} 첨부 이미지`, kind: "photo" }]} />}
+    <PostActions appearance={appearance} title={title} url={post.url} text={post.title}>
+      <span className="inline-flex items-center gap-1.5" aria-label={`댓글 ${post.metrics.commentCount}개`}><MessageCircle className="size-3.5" />{formatMetric(post.metrics.commentCount)}</span>
+      <span className="inline-flex items-center gap-1.5" aria-label={`조회 ${post.metrics.readCount}회`}><Eye className="size-3.5" />{formatMetric(post.metrics.readCount)}</span>
+      <span className="inline-flex items-center gap-1.5" aria-label={`좋아요 ${post.metrics.likeCount}개`}><Heart className="size-3.5" />{formatMetric(post.metrics.likeCount)}</span>
+    </PostActions>
+  </article>;
 };

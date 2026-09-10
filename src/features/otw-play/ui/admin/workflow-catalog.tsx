@@ -72,6 +72,7 @@ import {
   type SelectedSubject,
 } from "./catalog-entry-dialog";
 import { SongTagPicker } from "../song-tag-picker";
+import { CatalogSearchInput } from "./catalog-search-input";
 
 type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];
@@ -269,7 +270,7 @@ export function WorkflowCatalog({
   return (
     <>
       <div role="search" aria-label="카탈로그 필터" className="flex flex-wrap items-center gap-2">
-        <Input aria-label="곡명·원곡 가수 검색" placeholder="곡명·원곡 가수 검색" className="min-w-0 flex-1 basis-48" value={consoleSearch.q ?? ""} onChange={(event) => updateConsole({ q: event.target.value, page: 1 })} />
+        <CatalogSearchInput value={consoleSearch.q ?? ""} onSearch={(q) => updateConsole({ q, page: 1 })} />
         <SelectField aria-label="게시 상태" value={consoleSearch.state ?? ""} onValueChange={(value) => updateConsole({ state: value, page: 1 })} options={[{ value: "", label: "모든 게시 상태" }, { value: "draft", label: "임시 저장만" }, { value: "published", label: "게시됨" }, { value: "withdrawn", label: "철회된 가창" }]} />
         <SelectField aria-label="곡 분류" value={consoleSearch.category ?? ""} onValueChange={(value) => updateConsole({ category: value, page: 1 })} options={[{ value: "", label: "모든 분류" }, ...[...new Set(activeSongs.flatMap((song) => song.tags ?? []))].sort().map((tag) => ({ value: tag, label: tag }))]} />
         <span className="ml-auto text-sm">{filteredSongs.length}곡 · {page}/{totalPages}</span>

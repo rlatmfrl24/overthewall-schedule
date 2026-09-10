@@ -133,6 +133,7 @@ export function useMemberPosts(
   return {
     posts: data.posts,
     updatedAt: data.updatedAt || null,
+    feedUpdatedAt: data.feedUpdatedAt || null,
     loading: enabled ? query.isFetching || reloadMutation.isPending : false,
     error,
     hasLoaded: enabled ? query.isFetched : true,

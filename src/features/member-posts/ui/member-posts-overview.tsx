@@ -1,524 +1,85 @@
-import { MemberFilter } from "@/features/members";
-import { type ReactNode, useMemo, useState } from "react";
-import {
-  AlertCircle,
-  Coffee,
-  MessageSquareText,
-  Twitter,
-} from "lucide-react";
+import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, MessageSquareText } from "lucide-react";
+import { useScheduleData } from "@/features/schedule-board";
+import { getMembersWithXHandles, XPostCard } from "@/features/x-posts";
+import { NaverCafePostCard } from "@/features/naver-cafe";
 import { ContentPageShell } from "@/shared/ui/content-page-shell";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { useMemberPosts } from "../queries/use-member-posts";
-import { useScheduleData } from "@/features/schedule-board";
-import { getMembersWithXHandles } from "@/features/x-posts";
-import type {
-  MemberPostSourcePolicy,
-  UnifiedMemberPost,
-} from "../api/member-posts-api";
-import type { MemberDto } from "@contracts/members";
-import { cn } from "@/shared/lib/utils";
-import { NaverCafePostCard } from "@/features/naver-cafe";
-import { XPostCard } from "@/features/x-posts";
+import { filterFeed, groupFeed } from "../model/feed-filters";
+import { FeedMemberList, FeedUpdatedAt } from "./feed-navigation";
 
-type MemberPostSource = {
-  member: MemberDto;
-  xCount: number;
-  cafeCount: number;
-};
+export function MemberPostsOverview({ loadX, loadCafe, footer }: {
+  loadX: boolean; loadCafe: boolean; footer?: ReactNode;
+}) {
+  const [memberUid, setMemberUid] = useState<number | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const resetScroll = useRef(false);
+  const { members, loading: membersLoading, hasLoaded: membersLoaded } = useScheduleData();
+  const state = useMemberPosts({ includeX: loadX, includeNaverCafe: loadCafe, maxResults: 10, size: 10 });
+  const xAllowed = loadX && state.x.policy.accessible;
+  const cafeAllowed = loadCafe && state.naverCafe.policy.accessible;
+  const memberMap = useMemo(() => new Map(members.map(member => [member.uid, member])), [members]);
+  const xMembers = useMemo(() => getMembersWithXHandles(members), [members]);
+  const xNames = useMemo(() => new Map(xMembers.map(({ member, handle }) => [handle.toLowerCase(), member.name])), [xMembers]);
+  const filterMembers = useMemo(() => {
+    const uids = new Set<number>();
+    if (xAllowed) for (const { member } of xMembers) uids.add(member.uid);
+    if (cafeAllowed) for (const item of state.naverCafe.sources) if (item.enabled && item.memberUid) uids.add(item.memberUid);
+    return members.filter(member => uids.has(member.uid)).sort((a, b) => a.uid - b.uid);
+  }, [members, xAllowed, cafeAllowed, xMembers, state.naverCafe.sources]);
+  const accessiblePosts = useMemo(() => state.posts.filter(post => post.kind === "x" ? xAllowed : cafeAllowed), [state.posts, xAllowed, cafeAllowed]);
+  const filtered = useMemo(() => filterFeed(accessiblePosts, memberUid, "all"), [accessiblePosts, memberUid]);
+  const groups = useMemo(() => groupFeed(filtered), [filtered]);
+  useLayoutEffect(() => {
+    if (!resetScroll.current) return;
+    resetScroll.current = false;
+    const scroll = scrollRef.current;
+    const result = resultsRef.current;
+    if (!scroll || !result) return;
+    const toolbar = scroll.querySelector('[data-testid="feed-toolbar"]');
+    const besideResults = toolbar && getComputedStyle(toolbar).position === "sticky";
+    // Keep keyboard-operated filters visible when the mobile toolbar scrolls away.
+    if (!besideResults && document.activeElement?.matches(":focus-visible") && toolbar?.contains(document.activeElement)) return;
+    scroll.scrollTop = Math.max(0, scroll.scrollTop + result.getBoundingClientRect().top - scroll.getBoundingClientRect().top);
+  }, [memberUid]);
 
-type MemberPostsOverviewProps = {
-  loadX: boolean;
-  loadCafe: boolean;
-};
+  const selectMember = (uid: number | null) => { resetScroll.current = true; setMemberUid(uid); };
+  const retry = () => { void state.reload().catch(() => undefined); };
+  const loading = !membersLoaded || membersLoading || (!state.hasLoaded && !state.posts.length);
+  const blocked = !loading && !state.error && !xAllowed && !cafeAllowed;
+  const toolbar = <div data-testid="feed-toolbar" role="group" aria-label="게시글 필터" className="min-w-0 space-y-3 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:self-start lg:overflow-y-auto">
+    <div role="group" aria-label="멤버" className="min-w-0">
+      <FeedMemberList members={filterMembers} selected={memberUid} onSelect={selectMember} />
+    </div>
+  </div>;
 
-const formatUpdatedAt = (value: string | null) => {
-  if (!value) return "아직 없음";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "확인 불가";
-
-  const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60_000);
-  if (diffMinutes < 1) return "방금 전";
-  if (diffMinutes < 60) return `${diffMinutes}분 전`;
-
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const formatGroupDate = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return { key: "unknown", label: "날짜 없음", subLabel: "" };
-  }
-
-  const today = new Date();
-  const startOfToday = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const startOfDate = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  const diffDays = Math.floor(
-    (startOfToday.getTime() - startOfDate.getTime()) / 86_400_000,
-  );
-  const label =
-    diffDays === 0 ? "오늘" : diffDays === 1 ? "어제" : `${diffDays}일 전`;
-  const subLabel = date.toLocaleDateString("ko-KR", {
-    month: "numeric",
-    day: "numeric",
-    weekday: "short",
-  });
-
-  return { key: startOfDate.toISOString(), label, subLabel };
-};
-
-const formatPostTime = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const groupPostsByDate = (posts: UnifiedMemberPost[]) => {
-  const groups = new Map<
-    string,
-    { label: string; subLabel: string; posts: UnifiedMemberPost[] }
-  >();
-
-  for (const post of posts) {
-    const dateInfo = formatGroupDate(post.createdAt);
-    const group = groups.get(dateInfo.key);
-    if (group) {
-      group.posts.push(post);
-    } else {
-      groups.set(dateInfo.key, {
-        label: dateInfo.label,
-        subLabel: dateInfo.subLabel,
-        posts: [post],
-      });
-    }
-  }
-
-  return Array.from(groups.values());
-};
-
-const groupVisiblePostsByDate = (
-  posts: UnifiedMemberPost[],
-  selectedMemberUidSet: Set<number> | null,
-) => {
-  if (!selectedMemberUidSet) {
-    return { groups: groupPostsByDate(posts), postCount: posts.length };
-  }
-
-  const visiblePosts: UnifiedMemberPost[] = [];
-  for (const post of posts) {
-    if (post.memberUid === null || !selectedMemberUidSet.has(post.memberUid)) {
-      continue;
-    }
-    visiblePosts.push(post);
-  }
-
-  return {
-    groups: groupPostsByDate(visiblePosts),
-    postCount: visiblePosts.length,
-  };
-};
-
-const MEMBER_POST_FEED_WIDTH_CLASS = "w-full max-w-[1040px]";
-
-const MemberPostsSkeleton = () => (
-  <div className="flex w-full flex-col gap-4">
-    {Array.from({ length: 4 }).map((_, index) => (
-      <div
-        key={index}
-        className="flex flex-col gap-4 rounded-lg border border-border/70 bg-card p-4 shadow-sm sm:p-5"
-      >
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-12 w-12 rounded-full" />
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-3 w-36" />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-5/6" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-        <Skeleton className="aspect-video w-full rounded-lg" />
+  return <ContentPageShell title="멤버 게시글" leadingIcon={<MessageSquareText className="size-4.5" />}
+    headerPlacement="scroll" scrollRef={scrollRef} footer={footer}
+    headerInnerClassName="max-w-none px-3 sm:px-4 lg:px-4 xl:px-4 [&>div]:flex-row [&>div]:flex-wrap [&>div]:items-center [&>div]:justify-between" contentClassName="max-w-none px-3 pt-3 pb-3 sm:px-4 lg:px-4 xl:px-4"
+    actions={<FeedUpdatedAt value={state.feedUpdatedAt} loading={state.loading} />}>
+    <div data-testid="member-post-content-layout" className="grid min-w-0 items-start gap-3 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-4">
+      {toolbar}
+      <div ref={resultsRef} role="region" tabIndex={0} aria-label="멤버 게시글 목록"
+        className="min-w-0 bg-background outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:border-x lg:border-border/60" aria-busy={loading}>
+        {loading ? <div aria-label="게시글 불러오는 중" className="space-y-3 p-4">{[0, 1, 2].map(index => <Skeleton key={index} className="h-48 w-full rounded-lg" />)}</div> : blocked ?
+          <div className="p-6 text-sm text-muted-foreground">{[state.x.policy, state.naverCafe.policy].filter(policy => policy.requested).map(policy => <p key={policy.source}>{policy.source === "x" ? "X 게시글" : "네이버 카페 최신글"}{policy.status === "disabled" ? " 표시가 비활성화되어 있습니다." : policy.status === "private" ? "은 비공개 상태입니다." : "에 접근할 수 없습니다."}</p>)}</div> : !filtered.length ?
+          <div role="status" className="space-y-3 px-4 py-12 text-center text-sm text-muted-foreground">
+            <p>{state.error ? "게시글을 불러오지 못했습니다." : "조건에 맞는 게시글이 없습니다."}</p>
+            {state.error && <Button variant="outline" className="min-h-11" onClick={retry}>다시 시도</Button>}
+          </div> : groups.map(group => <section key={group.key} className="min-w-0">
+            <h2 className="flex items-center gap-2 bg-background px-3.5 py-3 text-sm font-medium text-muted-foreground sm:px-[18px]"><CalendarDays aria-hidden="true" className="size-3.5 shrink-0" /><span className="shrink-0 text-foreground">{group.label}</span><span aria-hidden="true" className="ml-1 h-px min-w-0 flex-1 bg-border/60" /></h2>
+            <div data-testid="member-post-feed-list" className="flex min-w-0 flex-col">{group.posts.map(item => {
+              const member = item.memberUid === null ? undefined : memberMap.get(item.memberUid);
+              const time = new Date(item.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+              return item.kind === "x"
+                ? <XPostCard key={item.id} appearance="feed" post={{ ...item.post, replyTargetMemberName: xNames.get(item.post.reply?.targetUsername?.toLowerCase() ?? "") }} member={member} compactTime={time} />
+                : <NaverCafePostCard key={item.id} appearance="feed" post={item.post} member={member} compactTime={time} />;
+            })}</div>
+          </section>)}
       </div>
-    ))}
-  </div>
-);
-
-const SourceUpdateBadge = ({
-  icon,
-  label,
-  updatedAt,
-  loading,
-}: {
-  icon: ReactNode;
-  label: string;
-  updatedAt: string | null;
-  loading: boolean;
-}) => {
-  const value = loading ? "불러오는 중" : formatUpdatedAt(updatedAt);
-
-  return (
-    <div
-      aria-label={`${label} 마지막 업데이트 ${value}`}
-      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 text-xs text-muted-foreground"
-    >
-      {icon}
-      <span className="font-medium text-foreground">{label}</span>
-      <span>{value}</span>
     </div>
-  );
-};
-
-const MemberPostContentLayout = ({
-  filterItems,
-  selectedUids,
-  onFilterChange,
-  children,
-}: {
-  filterItems: MemberPostSource[];
-  selectedUids: number[] | null;
-  onFilterChange: (value: number[] | null) => void;
-  children: ReactNode;
-}) => {
-  const hasFilters = filterItems.length > 0;
-
-  return (
-    <div
-      data-testid="member-post-content-layout"
-      className={cn(
-        "mx-auto w-full min-w-0",
-        hasFilters
-          ? "grid max-w-[1320px] gap-5 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]"
-          : MEMBER_POST_FEED_WIDTH_CLASS,
-      )}
-    >
-      {hasFilters ? (
-        <aside
-          data-testid="member-post-filter-sidebar"
-          className="hidden min-w-0 lg:block"
-        >
-          <div className="sticky top-5 rounded-lg border border-border/70 bg-card/80 p-2 shadow-sm">
-            <MemberFilter
-              deselectOnRepeat={false}
-              members={filterItems.map(({ member }) => member)}
-              selectedUids={selectedUids}
-              onChange={onFilterChange}
-              layout="vertical"
-            />
-          </div>
-        </aside>
-      ) : null}
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-};
-
-const getPolicyNoticeMessage = (
-  sources: Array<{ policy: MemberPostSourcePolicy; hasSource: boolean }>,
-) => {
-  const blockedPolicies = sources
-    .map((source) => source.policy)
-    .filter(
-      (policy) =>
-      policy.requested &&
-      (policy.status === "private" || policy.status === "disabled"),
-    );
-  const hasAccessibleSource = sources.some(
-    ({ policy, hasSource }) =>
-      hasSource &&
-      policy.requested &&
-      policy.accessible &&
-      policy.status !== "private" &&
-      policy.status !== "disabled",
-  );
-
-  if (blockedPolicies.length === 0 || hasAccessibleSource) return null;
-
-  return blockedPolicies
-    .map((policy) => {
-      if (policy.source === "x") return "X 게시글은 비공개 상태입니다.";
-      if (policy.status === "disabled") {
-        return "네이버 카페 최신글 표시가 비활성화되어 있습니다.";
-      }
-      return "네이버 카페 최신글은 비공개 상태입니다.";
-    })
-    .join(" ");
-};
-
-export const MemberPostsOverview = ({
-  loadX,
-  loadCafe,
-}: MemberPostsOverviewProps) => {
-  const [selectedMemberUids, setSelectedMemberUids] = useState<number[] | null>(
-    null,
-  );
-  const {
-    members,
-    loading: membersLoading,
-    hasLoaded: membersLoaded,
-  } = useScheduleData();
-
-  const membersWithXHandles = useMemo(
-    () => (loadX ? getMembersWithXHandles(members) : []),
-    [loadX, members],
-  );
-  const membersWithX = useMemo(
-    () => membersWithXHandles.map(({ member }) => member),
-    [membersWithXHandles],
-  );
-  const memberMap = useMemo(
-    () => new Map(members.map((member) => [member.uid, member])),
-    [members],
-  );
-  const xMemberNames = useMemo(
-    () => new Map(membersWithXHandles.map(({ member, handle }) => [handle.toLowerCase(), member.name])),
-    [membersWithXHandles],
-  );
-
-  const memberPostsState = useMemberPosts({
-    includeX: loadX,
-    includeNaverCafe: loadCafe,
-    maxResults: 10,
-    size: 10,
-  });
-  const xState = memberPostsState.x;
-  const cafeState = memberPostsState.naverCafe;
-
-  const cafeSourceCount = useMemo(
-    () => cafeState.sources.filter((source) => source.enabled).length,
-    [cafeState.sources],
-  );
-  const memberSources = useMemo(() => {
-    const byUid = new Map<number, { xCount: number; cafeCount: number }>();
-    for (const { member } of membersWithXHandles) {
-      const current = byUid.get(member.uid) ?? { xCount: 0, cafeCount: 0 };
-      current.xCount += 1;
-      byUid.set(member.uid, current);
-    }
-    for (const source of cafeState.sources) {
-      if (!source.memberUid || !source.enabled) continue;
-      const current = byUid.get(source.memberUid) ?? {
-        xCount: 0,
-        cafeCount: 0,
-      };
-      current.cafeCount += 1;
-      byUid.set(source.memberUid, current);
-    }
-
-    return Array.from(byUid.entries())
-      .map(([memberUid, counts]) => {
-        const member = memberMap.get(memberUid);
-        return member ? { member, ...counts } : null;
-      })
-      .filter((item): item is MemberPostSource => item !== null)
-      .sort((a, b) => a.member.uid - b.member.uid);
-  }, [cafeState.sources, memberMap, membersWithXHandles]);
-
-  const unifiedPosts = memberPostsState.posts;
-  const selectedMemberUidSet = useMemo(
-    () =>
-      selectedMemberUids && selectedMemberUids.length > 0
-        ? new Set(selectedMemberUids)
-        : null,
-    [selectedMemberUids],
-  );
-  const { groups: timelineGroups, postCount: timelinePostCount } = useMemo(
-    () => groupVisiblePostsByDate(unifiedPosts, selectedMemberUidSet),
-    [selectedMemberUidSet, unifiedPosts],
-  );
-
-  const error = memberPostsState.error;
-  const hasXSource = membersWithX.length > 0;
-  const hasCafeSource = cafeSourceCount > 0;
-  const policyNotice = getPolicyNoticeMessage([
-    { policy: xState.policy, hasSource: hasXSource },
-    { policy: cafeState.policy, hasSource: hasCafeSource },
-  ]);
-  const hasAnySource = hasXSource || hasCafeSource;
-  const xLoading = loadX && !xState.hasLoaded && hasXSource;
-  const cafeLoading = loadCafe && !cafeState.hasLoaded;
-  const postsLoading = memberPostsState.loading;
-  const showInitialLoading =
-    membersLoading ||
-    !membersLoaded ||
-    xLoading ||
-    cafeLoading ||
-    (postsLoading && unifiedPosts.length === 0);
-
-  const headerActions = (
-    <div className="flex flex-wrap items-center gap-2">
-      {loadX && hasXSource ? (
-        <SourceUpdateBadge
-          icon={<Twitter className="h-3.5 w-3.5" />}
-          label="X"
-          updatedAt={xState.updatedAt}
-          loading={xState.loading}
-        />
-      ) : null}
-      {loadCafe && hasCafeSource ? (
-        <SourceUpdateBadge
-          icon={<Coffee className="h-3.5 w-3.5 text-emerald-600" />}
-          label="네이버 카페"
-          updatedAt={cafeState.updatedAt}
-          loading={cafeState.loading}
-        />
-      ) : null}
-    </div>
-  );
-
-  return (
-    <ContentPageShell
-      title="멤버 게시글"
-      leadingIcon={<MessageSquareText className="h-4.5 w-4.5 text-foreground" />}
-      actions={headerActions}
-      controls={
-        memberSources.length > 0 ? (
-          <div
-            data-testid="member-post-filter-top"
-            className="border-t border-border/60 pt-2 lg:hidden"
-          >
-            <MemberFilter
-              deselectOnRepeat={false}
-              members={memberSources.map(({ member }) => member)}
-              selectedUids={selectedMemberUids}
-              onChange={setSelectedMemberUids}
-            />
-          </div>
-        ) : null
-      }
-    >
-      <MemberPostContentLayout
-        filterItems={memberSources}
-        selectedUids={selectedMemberUids}
-        onFilterChange={setSelectedMemberUids}
-      >
-        {showInitialLoading ? (
-          <MemberPostsSkeleton />
-        ) : policyNotice ? (
-          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
-            <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
-            <p className="max-w-sm text-sm font-medium text-muted-foreground">
-              {policyNotice}
-            </p>
-          </div>
-        ) : !hasAnySource ? (
-          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
-            <MessageSquareText className="h-10 w-10 text-muted-foreground/70" />
-            <p className="text-sm font-medium text-muted-foreground">
-              등록된 X 계정 또는 네이버 카페 게시판이 없습니다.
-            </p>
-          </div>
-        ) : timelinePostCount === 0 ? (
-          <div className="flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/20 px-4 py-10 text-center">
-            {error ? (
-              <AlertCircle className="h-10 w-10 text-muted-foreground/70" />
-            ) : loadCafe && !loadX ? (
-              <Coffee className="h-10 w-10 text-muted-foreground/70" />
-            ) : (
-              <Twitter className="h-10 w-10 text-muted-foreground/70" />
-            )}
-            <p className="text-sm font-medium text-muted-foreground">
-              {error
-                ? "멤버 게시글을 불러오지 못했습니다."
-                : selectedMemberUids && selectedMemberUids.length > 0
-                  ? "선택한 멤버의 게시글이 없습니다."
-                  : "표시할 멤버 게시글이 없습니다."}
-            </p>
-            {error ? (
-              <p className="max-w-sm text-xs text-muted-foreground">
-                자동 수집이 재시도되면 최신 게시글이 갱신됩니다.
-              </p>
-            ) : selectedMemberUids && selectedMemberUids.length > 0 ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="rounded-full"
-                onClick={() => setSelectedMemberUids(null)}
-              >
-                전체 보기
-              </Button>
-            ) : null}
-          </div>
-        ) : (
-          <div
-            className={cn(MEMBER_POST_FEED_WIDTH_CLASS, "min-w-0 space-y-6")}
-          >
-            {error ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800 dark:text-amber-200">
-                {error}
-              </div>
-            ) : null}
-
-            {timelineGroups.map((group) => (
-              <section
-                key={`${group.label}-${group.subLabel}`}
-                className="min-w-0 space-y-3"
-              >
-                <div className="flex min-w-0 items-center gap-3 rounded-lg border border-border/70 bg-card/80 px-3 py-2 shadow-sm">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold text-foreground">
-                    {group.posts.length}
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-foreground">
-                      {group.label}
-                    </h2>
-                    <p className="text-xs text-muted-foreground">
-                      {group.subLabel} · {group.posts.length}건
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  data-testid="member-post-feed-list"
-                  className="flex min-w-0 flex-col gap-3"
-                >
-                  {group.posts.map((item) => {
-                    const member = item.memberUid
-                      ? memberMap.get(item.memberUid)
-                      : undefined;
-                    return item.kind === "x" ? (
-                      <XPostCard
-                        key={item.id}
-                        post={{ ...item.post, replyTargetMemberName: xMemberNames.get(item.post.reply?.targetUsername?.toLowerCase() ?? "") }}
-                        compactTime={formatPostTime(item.createdAt)}
-                        member={member}
-                        openPostOnCardClick
-                        showExternalLinkButton={false}
-                      />
-                    ) : (
-                      <NaverCafePostCard
-                        key={item.id}
-                        post={item.post}
-                        compactTime={formatPostTime(item.createdAt)}
-                        member={member}
-                        openPostOnCardClick
-                        showExternalLinkButton={false}
-                      />
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </MemberPostContentLayout>
-    </ContentPageShell>
-  );
-};
+  </ContentPageShell>;
+}

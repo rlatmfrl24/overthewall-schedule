@@ -15,7 +15,7 @@ import type { NaverCafePostsVisibility } from "@contracts/naver-cafe";
 import type { XPostsVisibility } from "@contracts/x-posts";
 import { buildFeedSiteSeo, isFeedPublic } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { MemberPostsOverview } from "./member-posts-overview";
 
 const isAccessible = (
@@ -28,18 +28,21 @@ const requiresLogin = (
   isSignedIn: boolean,
 ) => visibility === "members" && !isSignedIn;
 
-export function MemberPostsPage() {
+export function MemberPostsPage({ footer }: { footer?: ReactNode }) {
+  const frame = (content: ReactNode) => <div className="flex min-h-0 flex-1 flex-col overflow-y-auto"><div className="flex flex-1 flex-col">{content}</div>{footer}</div>;
   const { isLoaded, isSignedIn } = useUser();
   const {
     visibility: xVisibility,
     loading: xLoading,
     error: xError,
+    reload: reloadXConfig,
   } = useXPostsConfig();
   const {
     enabled: cafeEnabled,
     visibility: cafeVisibility,
     loading: cafeLoading,
     error: cafeError,
+    reload: reloadCafeConfig,
   } = useNaverCafePostsConfig();
 
   const seo = useMemo(
@@ -75,7 +78,7 @@ export function MemberPostsPage() {
     xLoading || cafeLoading || (!isLoaded && shouldWaitForAuth);
 
   if (configLoading) {
-    return (
+    return frame(
       <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 sm:px-5 lg:px-7">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
@@ -83,8 +86,14 @@ export function MemberPostsPage() {
   }
 
   if (!xCanLoad && !cafeCanLoad) {
+    if (xError || cafeError) {
+      return frame(<div role="alert" className="m-auto max-w-md space-y-3 p-6 text-sm">
+        <p>{xError || cafeError}</p>
+        <Button variant="outline" className="min-h-11" onClick={() => void Promise.allSettled([reloadXConfig(), reloadCafeConfig()])}>다시 시도</Button>
+      </div>);
+    }
     if (xLoginRequired || cafeLoginRequired) {
-      return (
+      return frame(
         <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 py-10 sm:px-5 lg:px-7">
           <Card className="w-full max-w-md shadow-sm">
             <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
@@ -109,7 +118,7 @@ export function MemberPostsPage() {
       );
     }
 
-    return (
+    return frame(
       <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-background px-3 py-10 sm:px-5 lg:px-7">
         <Card className="w-full max-w-md shadow-sm">
           <CardHeader className="flex flex-col items-center gap-2 space-y-0 text-center">
@@ -135,5 +144,5 @@ export function MemberPostsPage() {
     );
   }
 
-  return <MemberPostsOverview loadX={xCanLoad} loadCafe={cafeCanLoad} />;
+  return <MemberPostsOverview loadX={xCanLoad} loadCafe={cafeCanLoad} footer={footer} />;
 }

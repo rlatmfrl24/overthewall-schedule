@@ -1,9 +1,12 @@
 import {
   ChevronDown,
   FilterX,
+  LayoutGrid,
+  LayoutList,
   LoaderCircle,
   Search,
   SlidersHorizontal,
+  TableProperties,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,6 +17,8 @@ import {
 } from "../../model/catalog-route-search";
 import { useOtwPlayCatalog, useOtwPlayFacets } from "../../queries/use-public-catalog";
 import { Button } from "@/shared/ui/button";
+import { ApiError } from "@/shared/api/client";
+import { ButtonGroup } from "@/shared/ui/button-group";
 import { FilterChip } from "@/shared/ui/filter-chip";
 import { QueryState } from "@/shared/ui/query-state";
 import { Badge } from "@/shared/ui/badge";
@@ -27,7 +32,9 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { Separator } from "@/shared/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { OtwPlaySongRow } from "./catalog-components";
+import { OtwPlaySongGrid, OtwPlaySongTable } from "./catalog-result-views";
 import { OtwPlayQueryError } from "./public-query-state";
 
 type Props = {
@@ -35,13 +42,51 @@ type Props = {
   onSearchChange: (next: OtwPlayCatalogRouteSearch, replace?: boolean) => void;
 };
 
+type CatalogView = "card" | "table" | "grid";
+const VIEW_STORAGE_KEY = "otw-play:catalog-view:v1";
+const readCatalogView = (): CatalogView => {
+  try {
+    const value = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return value === "table" || value === "grid" ? value : "card";
+  } catch {
+    return "card";
+  }
+};
+
 export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
   const [searchInput, setSearchInput] = useState(search.q ?? "");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [view, setView] = useState<CatalogView>(readCatalogView);
+  const changeView = (next: CatalogView) => {
+    setView(next);
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // Browsers may deny storage; the current page remains usable.
+    }
+  };
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const query = useMemo(() => catalogQueryFromRouteSearch(search), [search]);
   const catalog = useOtwPlayCatalog(query);
   const facets = useOtwPlayFacets();
+  const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
+  const { fetchNextPage, hasNextPage, isFetching, isFetchNextPageError } = catalog;
+  useEffect(() => {
+    if (!loadMoreTarget || !hasNextPage || isFetching || isFetchNextPageError ||
+      typeof IntersectionObserver === "undefined") return;
+    let requested = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting || requested) return;
+      requested = true;
+      observer.unobserve(loadMoreTarget);
+      void fetchNextPage({ cancelRefetch: false });
+    }, { rootMargin: "320px 0px" });
+    observer.observe(loadMoreTarget);
+    return () => {
+      requested = true;
+      observer.disconnect();
+    };
+  }, [loadMoreTarget, fetchNextPage, hasNextPage, isFetching, isFetchNextPageError]);
   const memberUids = query.member ?? [];
 
   useEffect(() => setSearchInput(search.q ?? ""), [search.q]);
@@ -318,42 +363,70 @@ export function OtwPlayCatalogPage({ search, onSearchChange }: Props) {
 
       </div>
 
+      <section className="space-y-2" aria-label="검색 결과">
+        <ButtonGroup aria-label="보기 방식">
+          {([
+            { value: "card", label: "카드", icon: LayoutList },
+            { value: "table", label: "표 리스트", icon: TableProperties },
+            { value: "grid", label: "그리드", icon: LayoutGrid },
+          ] as const).map(({ value, label, icon: Icon }) => (
+            <Tooltip key={value}>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={view === value ? "default" : "outline"}
+                  className="max-sm:size-11"
+                  aria-label={label}
+                  aria-pressed={view === value}
+                  onClick={() => changeView(value)}
+                >
+                  <Icon aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{label}</TooltipContent>
+            </Tooltip>
+          ))}
+        </ButtonGroup>
+
       {catalog.isPending ? (
         <QueryState state="loading" title="곡 목록 불러오는 중" className="min-h-40" />
-      ) : catalog.isError ? (
+      ) : catalog.isError && songs.length === 0 ? (
         <OtwPlayQueryError error={catalogError} retry={retryCatalog} />
       ) : songs.length === 0 ? (
         <QueryState state="empty" title="조건에 맞는 곡이 없습니다."
           className="rounded-xl border border-dashed p-10" action={{ label: "필터 초기화", onClick: resetSearch, icon: null }} />
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            현재 {songs.length}곡을 불러왔습니다{catalog.hasNextPage ? " · 다음 페이지 있음" : " · 마지막 페이지"}
-          </p>
-          <div className="space-y-3">
-            {songs.map((song) => <OtwPlaySongRow key={song.id} song={song} />)}
-          </div>
+          {view === "table" ? (
+            <OtwPlaySongTable songs={songs} />
+          ) : view === "grid" ? (
+            <OtwPlaySongGrid songs={songs} />
+          ) : (
+            <div className="space-y-3">
+              {songs.map((song) => <OtwPlaySongRow key={song.id} song={song} />)}
+            </div>
+          )}
           {catalog.hasNextPage ? (
-            <div className="flex justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={catalog.isFetchingNextPage}
-                onClick={() => void catalog.fetchNextPage()}
-              >
-                {catalog.isFetchingNextPage ? <LoaderCircle className="animate-spin" /> : null}
-                더 보기
-              </Button>
+            <div ref={setLoadMoreTarget} className="flex min-h-1 justify-center" aria-label="다음 곡 불러오기">
+              {catalog.isFetchingNextPage ? (
+                <span role="status" className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                  <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> 곡 불러오는 중
+                </span>
+              ) : null}
             </div>
           ) : null}
           {catalog.isFetchNextPageError ? (
             <OtwPlayQueryError
               error={catalogError}
-              retry={retryCatalog}
+              retry={catalogError instanceof ApiError &&
+                (catalogError.status === 409 || catalogError.code === "PLAY_CURSOR_STALE")
+                ? retryCatalog : () => void fetchNextPage({ cancelRefetch: false })}
             />
           ) : null}
         </>
       )}
+      </section>
     </div>
   );
 }

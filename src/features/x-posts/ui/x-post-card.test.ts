@@ -120,6 +120,9 @@ describe("XPostCard", () => {
     expect(
       screen.getByRole("link", { name: "Example Title 열기" }).getAttribute("href"),
     ).toBe("https://example.com/full");
+    fireEvent.error(screen.getByRole("img", { name: "링크 미리보기" }));
+    expect(screen.getByText("이미지를 불러오지 못했습니다")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Example Title 열기" }).getAttribute("href")).toBe("https://example.com/full");
   });
 
   it("연결된 X 게시글 작성자와 본문, 미디어를 렌더링한다", () => {
@@ -220,7 +223,7 @@ describe("XPostCard", () => {
           }),
         },
       }),
-      { openPostOnCardClick: true },
+      {},
     );
 
     expect(screen.queryByText("인용")).toBeNull();
@@ -242,7 +245,7 @@ describe("XPostCard", () => {
     expect(container.querySelectorAll("a a")).toHaveLength(0);
   });
 
-  it("답글 대상을 본문보다 먼저 작게 표시하고 선두 멘션만 제거한다", () => {
+  it("답글 맥락은 접혀 있고 펼치면 원문을 표시하며 선두 멘션만 제거한다", () => {
     const replyToPostId = "2059529979700846500";
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     const { container } = renderCard(
@@ -272,15 +275,17 @@ describe("XPostCard", () => {
           }),
         },
       }),
-      { openPostOnCardClick: true },
+      {},
     );
 
+    expect(screen.queryByText("parent post body")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "대화 보기" }));
     const parentText = screen.getByText("parent post body");
     const replyText = screen.getByText((content, element) =>
-      element?.tagName === "P" && content.includes("실제 답글"),
+      element?.tagName === "DIV" && content.includes("실제 답글"),
     );
     expect(
-      parentText.compareDocumentPosition(replyText) & Node.DOCUMENT_POSITION_FOLLOWING,
+      replyText.compareDocumentPosition(parentText) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(parentText.className).toContain("line-clamp-2");
     expect(screen.queryByRole("link", { name: "@second" })).toBeNull();
@@ -302,19 +307,40 @@ describe("XPostCard", () => {
     expect(screen.queryByRole("button", { name: /관련 트윗/ })).toBeNull();
   });
 
+  it("피드에서는 확보된 답글 원문을 바로 보여주고 접기 전환을 두지 않는다", () => {
+    const parent = makeLinkedPost({ text: "함께 읽는 답글 원문" });
+    const { container } = renderCard(makePost({ replyTargetMemberName: "답글 멤버",
+      reply: { postId: parent.id, conversationId: null, post: parent } }), { appearance: "feed" });
+    expect(screen.getByText("답글 멤버에게 답글")).toBeTruthy();
+    expect(screen.getByText("함께 읽는 답글 원문")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /대화 보기|대화 접기/ })).toBeNull();
+    const parentLink = screen.getByRole("link", { name: "Linked Member 답글 원문 열기" });
+    expect(parentLink.getAttribute("href")).toBe(parent.url);
+    expect(parentLink.getAttribute("target")).toBe("_blank");
+    expect(container.querySelectorAll("a a")).toHaveLength(0);
+  });
+
   it("작성자 정보가 없어도 확보된 답글 원문과 직접 링크를 표시한다", () => {
     const parent = makeLinkedPost({ username: "i", name: null, text: "확보된 원문", url: "https://x.com/i/web/status/9876543210" });
     renderCard(makePost({ reply: { postId: parent.id, conversationId: null, post: parent } }));
+    fireEvent.click(screen.getByRole("button", { name: "대화 보기" }));
     expect(screen.getByText("작성자 정보 없음")).toBeTruthy();
     expect(screen.getByText("확보된 원문")).toBeTruthy();
     expect(screen.queryByText("@i")).toBeNull();
     expect(screen.getByRole("link", { name: "작성자 정보 없음 답글 원문 열기" }).getAttribute("href")).toBe(parent.url);
   });
 
+  it("답글 원문의 이름이 없으면 계정명을 한 번만 표시한다", () => {
+    const parent = makeLinkedPost({ name: null, username: "parent" });
+    renderCard(makePost({ reply: { postId: parent.id, conversationId: null, post: parent } }), { appearance: "feed" });
+    expect(screen.getAllByText("@parent")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "@parent 답글 원문 열기" })).toBeTruthy();
+  });
+
   it.each([
-    [undefined, undefined, "다른 트윗에 대한 답글"],
-    ["external", undefined, "@external의 트윗에 대한 답글"],
-    ["parent_member", "멤버 이름", "멤버 이름님의 트윗에 대한 답글"],
+    [undefined, undefined, "다른 게시글에 답글"],
+    ["external", undefined, "@external에게 답글"],
+    ["parent_member", "멤버 이름", "멤버 이름에게 답글"],
   ])("미확보 답글은 관계와 직접 대상 링크로 정상 표시한다 (%s)", (targetUsername, replyTargetMemberName, label) => {
     renderCard(makePost({ replyTargetMemberName,
       reply: { postId: "parent", conversationId: "thread-root", targetUsername, post: null } }));
@@ -323,6 +349,12 @@ describe("XPostCard", () => {
       .toBe("https://x.com/i/web/status/parent");
     expect(screen.queryByRole("button", { name: "저장된 원문 다시 확인" })).toBeNull();
     expect(screen.queryByText(/준비되지/)).toBeNull();
+  });
+
+  it("미디어로 표시되는 URL만 있는 본문도 중복 링크를 되살리지 않는다", () => {
+    renderCard(makePost({ id: "123456789", text: "https://t.co/photo", links: [{ url: "https://t.co/photo", expandedUrl: "https://x.com/otw/status/123456789/photo/1", displayUrl: null }], media: [{ mediaKey: "photo", type: "photo", url: "https://example.com/photo.jpg", previewImageUrl: null, width: 100, height: 100, altText: "사진" }] }));
+    expect(screen.queryByText("https://t.co/photo")).toBeNull();
+    expect(screen.getByRole("button", { name: /이미지 1 확대/ })).toBeTruthy();
   });
 
   it("멘션과 해시태그를 X 링크로 만들고 헤더에 정확한 작성 시각을 노출한다", () => {
@@ -359,23 +391,17 @@ describe("XPostCard", () => {
     );
 
     const article = container.querySelector("article");
-    const accent = article?.querySelector(":scope > span.absolute") as
-      | HTMLElement
-      | null;
     const footer = screen.getByLabelText("답글 0개").parentElement;
     expect(article?.className).toContain("p-3");
     expect(article?.className).toContain("sm:p-4");
-    expect(accent?.className).toContain("w-1");
-    expect(accent?.style.backgroundColor).toBe("rgb(18, 52, 86)");
+    expect(article?.className).toContain("border-l-4");
+    expect(article?.style.borderLeftColor).toBe("rgb(18, 52, 86)");
     expect(footer?.className).toContain("flex");
-    expect(footer?.className).toContain("gap-x-4");
-    expect(footer?.className).toContain("pl-1");
     expect(footer?.className).not.toContain("grid-cols-4");
-    expect(footer?.parentElement).toBe(article);
     expect(screen.getByLabelText("답글 0개").textContent).toBe("");
     expect(screen.getByLabelText("재게시 5개").textContent).toBe("5");
     expect(screen.getByLabelText("좋아요 7개").textContent).toBe("7");
-    expect(screen.getByRole("button", { name: "공유" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /공유$/ })).toBeTruthy();
   });
 
   it("공유 버튼은 카드 이동 없이 Web Share를 사용한다", async () => {
@@ -386,14 +412,14 @@ describe("XPostCard", () => {
       value: share,
     });
     const post = makePost();
-    const { container } = renderCard(post, { openPostOnCardClick: true });
+    const { container } = renderCard(post, {});
 
-    fireEvent.click(screen.getByRole("button", { name: "공유" }).querySelector("svg")!);
+    fireEvent.click(screen.getByRole("button", { name: /공유$/ }).querySelector("svg")!);
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     expect(open).not.toHaveBeenCalled();
 
     fireEvent.click(container.querySelector("article")!);
-    expect(open).toHaveBeenCalledWith(post.url, "_blank", "noopener,noreferrer");
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("Web Share가 없으면 같은 공유 버튼에서 링크 복사로 대체한다", async () => {
@@ -404,11 +430,11 @@ describe("XPostCard", () => {
       value: { writeText },
     });
     const post = makePost();
-    renderCard(post, { openPostOnCardClick: true });
+    renderCard(post, {});
 
-    fireEvent.click(screen.getByRole("button", { name: "공유" }));
+    fireEvent.click(screen.getByRole("button", { name: /공유$/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(post.url));
-    expect(screen.getByRole("button", { name: "링크 복사됨" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("링크 복사됨");
     expect(open).not.toHaveBeenCalled();
   });
 });

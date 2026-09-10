@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Member } from "@/features/members";
@@ -68,7 +69,7 @@ const offlineSource: MultiviewSource = {
   channelId: CHANNEL_B,
   member: memberB,
   isLive: false,
-  liveStatus: null,
+  liveStatus: { status: "CLOSE" } as MultiviewSource["liveStatus"],
 };
 
 const getMulLiveFrame = () =>
@@ -94,182 +95,193 @@ describe("MultiviewPage", () => {
     vi.clearAllMocks();
   });
 
-  it("renders a compact header toggle above a full-height Mul.Live iframe", () => {
-    render(React.createElement(MultiviewPage));
+  const renderPage = () => render(React.createElement(MultiviewPage));
+  const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
+  const enter = () => { click("라이브 멤버 선택"); click("이 화면에서 보기"); };
 
-    expect(screen.getByTestId("multiview-root").className).toContain(
-      "overflow-hidden",
-    );
-    const header = screen
-      .getByRole("heading", { name: "오버더월 멀티뷰" })
-      .closest("section");
-    expect(header?.className).toContain("h-16");
-    expect(header?.firstElementChild?.className).toContain("h-full");
-    expect(
-      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
-    ).toBeTruthy();
-    expect(
-      screen.getAllByRole("button", { name: "라이브 멤버 선택" })[0],
-    ).toBeTruthy();
-    expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
-  });
-
-  it("opens the member overlay on entry and updates the Mul.Live iframe and URL", async () => {
-    render(React.createElement(MultiviewPage));
-    const initialFrame = getMulLiveFrame();
-
-    expect(screen.getByLabelText("멀티뷰 멤버 목록")).toBeTruthy();
-    expect(screen.getByText("라이브 리스트")).toBeTruthy();
-    expect(screen.getByText("멤버 목록")).toBeTruthy();
+  it("starts with unique live/offline choices and no iframe or enabled watch actions", () => {
+    renderPage();
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "방송 중" })).getByRole("button", { name: "라이브 멤버 선택" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "방송 중이 아닌 멤버" })).getByRole("button", { name: "오프라인 멤버 선택" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "라이브 멤버 선택" })).toHaveLength(1);
     expect(screen.getByText("테스트 라이브")).toBeTruthy();
     expect(screen.getByText("1,234명 시청 중")).toBeTruthy();
-    expect(screen.queryByText("현재 방송 없음")).toBeNull();
-
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "라이브 멤버 선택" })[0],
-    );
-    expect(getMulLiveFrame().getAttribute("src")).toBe(
-      `https://mul.live/${CHANNEL_A}`,
-    );
-    expect(getMulLiveFrame()).toBe(initialFrame);
-    await waitFor(() => {
-      expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([
-        CHANNEL_A,
-      ]);
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "오프라인 멤버 선택" }));
-    expect(getMulLiveFrame().getAttribute("src")).toBe(
-      `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
-    );
-    expect(getMulLiveFrame()).toBe(initialFrame);
-
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
-    );
-    expect(screen.queryByLabelText("멀티뷰 멤버 목록")).toBeNull();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "멀티뷰 멤버 목록 열기" }),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "초기화" }));
-    expect(getMulLiveFrame().getAttribute("src")).toBe("https://mul.live/");
-    expect(getMulLiveFrame()).toBe(initialFrame);
-    await waitFor(() => {
-      expect(new URLSearchParams(window.location.search).getAll("c")).toEqual(
-        [],
-      );
-    });
+    expect((screen.getByRole("button", { name: "이 화면에서 보기" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Mul.Live에서 보기/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("라이브 상태 갱신과 멤버 패널 조작으로 Mul.Live iframe을 재마운트하지 않는다", () => {
-    const view = render(React.createElement(MultiviewPage));
-    const initialFrame = getMulLiveFrame();
-
-    useMultiviewSourcesMock.mockReturnValue({
-      sources: [
-        {
-          ...liveSource,
-          liveStatus: {
-            ...liveSource.liveStatus,
-            concurrentUserCount: 5678,
-          },
-        },
-        offlineSource,
-      ],
-      loading: false,
-      hasLoaded: true,
-      reload: vi.fn(),
-    });
-    view.rerender(React.createElement(MultiviewPage));
-
-    expect(screen.getByText("5,678명 시청 중")).toBeTruthy();
-    expect(getMulLiveFrame()).toBe(initialFrame);
-
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "멀티뷰 멤버 목록 닫기" })[0],
-    );
-    expect(getMulLiveFrame()).toBe(initialFrame);
+  it("updates selection URL and external link without loading an iframe", async () => {
+    renderPage();
+    click("라이브 멤버 선택");
+    click("오프라인 멤버 선택");
+    const link = screen.getByRole("link", { name: /Mul.Live에서 보기/ });
+    expect(link.getAttribute("href")).toBe(`https://mul.live/${CHANNEL_A}/${CHANNEL_B}`);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    // Prevent jsdom navigation while checking that the external action leaves selection intact.
+    link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(link);
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    await waitFor(() => expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([CHANNEL_A, CHANNEL_B]));
+    click("초기화");
+    expect(screen.queryByRole("link", { name: /Mul.Live에서 보기/ })).toBeNull();
+    expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([]);
   });
 
-  it("restores selected channels from URL state", () => {
-    window.history.replaceState(
-      null,
-      "",
-      `/multiview?c=${CHANNEL_A}&c=${CHANNEL_B}`,
-    );
-
-    render(React.createElement(MultiviewPage));
-
-    expect(getMulLiveFrame().getAttribute("src")).toBe(
-      `https://mul.live/${CHANNEL_A}/${CHANNEL_B}`,
-    );
-    expect(
-      screen.getAllByRole("button", { name: "라이브 멤버 선택 해제" })[0],
-    ).toBeTruthy();
+  it("restores shared URLs and re-entry as selection, with unknown channels removable", () => {
+    const unknown = "f".repeat(32);
+    window.history.replaceState(null, "", `/multiview?c=${CHANNEL_A}&c=${unknown}`);
+    const page = renderPage();
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "목록에 없는 선택 채널" })).toBeTruthy();
+    click(`${unknown} 선택 해제`);
+    click("이 화면에서 보기");
+    expect(getMulLiveFrame().getAttribute("src")).toBe(`https://mul.live/${CHANNEL_A}`);
+    page.unmount();
+    renderPage();
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
   });
 
-  it("limits URL and UI selection to the supported channel count", async () => {
-    const channelIds = Array.from(
-      { length: MAX_MULTIVIEW_CHANNELS + 2 },
-      (_, index) => (index + 1).toString(16).padStart(32, "0"),
-    );
-    const members = channelIds.map((channelId, index) =>
-      makeMember(100 + index, `${index + 1}번째 멤버`, channelId),
-    );
-    const sources = members.map(
-      (member, index): MultiviewSource => ({
-        channelId: channelIds[index],
-        member,
-        liveStatus: null,
-        isLive: false,
-      }),
-    );
-    const params = new URLSearchParams();
-    channelIds.forEach((channelId) => params.append("c", channelId));
-    window.history.replaceState(null, "", `/multiview?${params.toString()}`);
-    useScheduleDataMock.mockReturnValue({ members, loading: false });
-    useMultiviewSourcesMock.mockReturnValue({
-      sources,
-      loading: false,
-      hasLoaded: true,
-      reload: vi.fn(),
-    });
+  it("keeps the iframe and URL unchanged until applying an edit", async () => {
+    renderPage();
+    enter();
+    const frame = getMulLiveFrame();
+    click("멤버 변경");
+    click("오프라인 멤버 선택");
+    expect(frame.getAttribute("src")).toBe(`https://mul.live/${CHANNEL_A}`);
+    expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([CHANNEL_A]);
+    click("취소");
+    expect(getMulLiveFrame()).toBe(frame);
+    click("멤버 변경");
+    expect(screen.getByRole("button", { name: "오프라인 멤버 선택" }).getAttribute("aria-pressed")).toBe("false");
+    click("오프라인 멤버 선택");
+    click("적용");
+    expect(getMulLiveFrame()).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(`https://mul.live/${CHANNEL_A}/${CHANNEL_B}`);
+    expect(new URLSearchParams(window.location.search).getAll("c")).toEqual([CHANNEL_A, CHANNEL_B]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "멤버 변경" })).toBe(document.activeElement));
+    click("선택 화면으로");
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(screen.getByRole("button", { name: "오프라인 멤버 선택 해제" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "오버더월 멀티뷰" })).toBe(document.activeElement);
+  });
 
-    render(React.createElement(MultiviewPage));
-    const initialFrame = getMulLiveFrame();
-    const acceptedIds = channelIds.slice(0, MAX_MULTIVIEW_CHANNELS);
+  it("discards edits on Escape and close, and prevents applying zero channels", () => {
+    renderPage();
+    enter();
+    const frame = getMulLiveFrame();
+    click("멤버 변경");
+    click("초기화");
+    expect((screen.getByRole("button", { name: "적용" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    click("멤버 변경");
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    click("오프라인 멤버 선택");
+    click("멤버 변경 닫기");
+    expect(getMulLiveFrame()).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(`https://mul.live/${CHANNEL_A}`);
+  });
 
-    expect(initialFrame.getAttribute("src")).toBe(
-      `https://mul.live/${acceptedIds.join("/")}`,
-    );
-    expect(
-      screen.getByText(`선택 ${MAX_MULTIVIEW_CHANNELS}/${MAX_MULTIVIEW_CHANNELS}`),
-    ).toBeTruthy();
+  it("does not remount or change playback when live status refreshes or a stream ends", () => {
+    const page = renderPage();
+    enter();
+    const frame = getMulLiveFrame();
+    useMultiviewSourcesMock.mockReturnValue({ sources: [{ ...liveSource, isLive: false, liveStatus: { status: "CLOSE" } }, offlineSource], loading: false, hasLoaded: true, reload: vi.fn() });
+    page.rerender(React.createElement(MultiviewPage));
+    click("멤버 변경");
+    expect(within(screen.getByRole("region", { name: "방송 중이 아닌 멤버" })).getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    click("취소");
+    expect(getMulLiveFrame()).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(`https://mul.live/${CHANNEL_A}`);
+  });
 
-    const blockedButton = screen.getByRole("button", {
-      name: `${MAX_MULTIVIEW_CHANNELS + 1}번째 멤버 선택 불가 (최대 ${MAX_MULTIVIEW_CHANNELS}개)`,
-    }) as HTMLButtonElement;
-    expect(blockedButton.disabled).toBe(true);
+  it("distinguishes loading and failed/missing status from offline and permits selection/retry", () => {
+    const reload = vi.fn();
+    useMultiviewSourcesMock.mockReturnValue({ sources: [{ ...liveSource, isLive: false, liveStatus: null }], loading: true, hasLoaded: false, isError: false, reload });
+    const page = renderPage();
+    expect(screen.getByRole("region", { name: "상태 확인 중" })).toBeTruthy();
+    click("라이브 멤버 선택");
+    useMultiviewSourcesMock.mockReturnValue({ sources: [{ ...liveSource, isLive: false, liveStatus: null }], loading: false, hasLoaded: true, isError: true, reload });
+    page.rerender(React.createElement(MultiviewPage));
+    expect(screen.getByRole("region", { name: "상태 확인 불가" })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "방송 중이 아닌 멤버" })).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    click("상태 다시 확인");
+    expect(reload).toHaveBeenCalledOnce();
+  });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "1번째 멤버 선택 해제" }),
-    );
-    expect(blockedButton.disabled).toBe(false);
-    fireEvent.click(blockedButton);
+  it("marks cached OPEN/CLOSE states unknown after failure and restores them without changing playback", () => {
+    const reload = vi.fn();
+    const refresh = (isError: boolean, loading = false) => {
+      useMultiviewSourcesMock.mockReturnValue({ sources: [liveSource, offlineSource], loading, hasLoaded: true, isError, reload });
+      page.rerender(React.createElement(MultiviewPage));
+    };
+    const assertUnknown = () => {
+      const unknown = screen.getByRole("region", { name: "상태 확인 불가" });
+      expect(within(unknown).getAllByRole("button")).toHaveLength(2);
+      expect(within(unknown).getAllByText("상태 확인 불가")).toHaveLength(3);
+      expect(screen.queryByText("LIVE")).toBeNull();
+      expect(screen.queryByText("테스트 라이브")).toBeNull();
+      expect(screen.queryByText("1,234명 시청 중")).toBeNull();
+      expect(screen.queryByText("방송 중이 아닙니다")).toBeNull();
+      expect(screen.queryByText("현재 방송 중인 멤버가 없습니다.")).toBeNull();
+      expect(within(screen.getByRole("region", { name: "방송 중이 아닌 멤버" })).queryByRole("button")).toBeNull();
+    };
+    const page = renderPage();
+    click("라이브 멤버 선택");
+    refresh(true);
+    assertUnknown();
+    expect(screen.getByRole("button", { name: "라이브 멤버 선택 해제" })).toBeTruthy();
+    click("이 화면에서 보기");
+    const frame = getMulLiveFrame();
+    const src = frame.getAttribute("src");
+    const search = window.location.search;
+    click("멤버 변경");
+    assertUnknown();
+    click("오프라인 멤버 선택");
+    click("상태 다시 확인");
+    expect(reload).toHaveBeenCalledOnce();
+    refresh(true, true);
+    assertUnknown();
+    expect((screen.getByRole("button", { name: "상태 다시 확인" }) as HTMLButtonElement).disabled).toBe(true);
+    refresh(false);
+    expect(screen.queryByRole("region", { name: "상태 확인 불가" })).toBeNull();
+    expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "방송 중이 아닌 멤버" })).getByRole("button", { name: "오프라인 멤버 선택 해제" })).toBeTruthy();
+    click("취소");
+    expect(getMulLiveFrame()).toBe(frame);
+    expect(frame.getAttribute("src")).toBe(src);
+    expect(window.location.search).toBe(search);
+  });
 
-    expect(getMulLiveFrame()).toBe(initialFrame);
-    expect(getMulLiveFrame().getAttribute("src")).toBe(
-      `https://mul.live/${[
-        ...acceptedIds.slice(1),
-        channelIds[MAX_MULTIVIEW_CHANNELS],
-      ].join("/")}`,
-    );
-    await waitFor(() => {
-      expect(new URLSearchParams(window.location.search).getAll("c")).toHaveLength(
-        MAX_MULTIVIEW_CHANNELS,
-      );
-    });
+  it("limits shared URLs and UI selection to eight channels and deduplicates member cards", () => {
+    const channelIds = Array.from({ length: 10 }, (_, index) => (index + 1).toString(16).padStart(32, "0"));
+    const sources = channelIds.map((id, index) => ({ channelId: id, member: makeMember(index, `${index + 1}번째 멤버`, id), isLive: false, liveStatus: { status: "CLOSE" } }));
+    useMultiviewSourcesMock.mockReturnValue({ sources: [...sources, sources[0]], loading: false, hasLoaded: true, reload: vi.fn() });
+    window.history.replaceState(null, "", `/multiview?${channelIds.map((id) => `c=${id}`).join("&")}`);
+    renderPage();
+    expect(screen.getAllByRole("button", { name: "1번째 멤버 선택 해제" })).toHaveLength(1);
+    expect(new URLSearchParams(window.location.search).getAll("c")).toHaveLength(MAX_MULTIVIEW_CHANNELS);
+    const blocked = screen.getByRole("button", { name: "9번째 멤버 선택 불가 (최대 8개)" }) as HTMLButtonElement;
+    expect(blocked.disabled).toBe(true);
+    click("1번째 멤버 선택 해제");
+    expect(blocked.disabled).toBe(false);
+    fireEvent.click(blocked);
+    click("이 화면에서 보기");
+    expect(getMulLiveFrame().getAttribute("src")).toBe(`https://mul.live/${[...channelIds.slice(1, 8), channelIds[8]].join("/")}`);
+  });
+
+  it("returns to selection when browser history restores another channel combination", () => {
+    renderPage();
+    enter();
+    window.history.replaceState(null, "", `/multiview?c=${CHANNEL_B}`);
+    fireEvent.popState(window);
+    expect(screen.queryByTestId("multiview-mullive-frame")).toBeNull();
+    expect(screen.getByRole("button", { name: "오프라인 멤버 선택 해제" })).toBeTruthy();
   });
 });

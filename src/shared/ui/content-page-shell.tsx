@@ -1,8 +1,13 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "@/shared/lib/utils";
 
 type ContentPageShellProps = {
   title: string;
+  headerPlacement?: "fixed" | "scroll";
+  stickyControls?: ReactNode;
+  stickyControlsClassName?: string;
+  footer?: ReactNode;
+  scrollRef?: Ref<HTMLDivElement>;
   leadingIcon?: ReactNode;
   actions?: ReactNode;
   controls?: ReactNode;
@@ -14,6 +19,11 @@ type ContentPageShellProps = {
 };
 
 export function ContentPageShell({
+  headerPlacement = "fixed",
+  stickyControls,
+  stickyControlsClassName,
+  footer,
+  scrollRef,
   title,
   leadingIcon,
   actions,
@@ -24,13 +34,7 @@ export function ContentPageShell({
   headerInnerClassName,
   contentClassName,
 }: ContentPageShellProps) {
-  return (
-    <main
-      className={cn(
-        "flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-background",
-        className,
-      )}
-    >
+  const header = (
       <header
         className={cn(
           "z-20 flex min-h-16 shrink-0 border-b border-sidebar-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:h-16",
@@ -65,8 +69,19 @@ export function ContentPageShell({
           {controls}
         </div>
       </header>
+  );
+  return (
+    <main
+      className={cn(
+        "flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-background",
+        className,
+      )}
+    >
+      {headerPlacement === "fixed" && header}
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div ref={scrollRef} data-slot="content-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {headerPlacement === "scroll" && header}
+        {stickyControls && <div data-slot="sticky-controls" className={cn("sticky top-0 z-20 border-b bg-background", stickyControlsClassName)}>{stickyControls}</div>}
         <div
           className={cn(
             "mx-auto flex min-w-0 w-full max-w-screen-2xl flex-col gap-5 px-3 pb-10 pt-5 sm:px-5 lg:px-7 xl:px-8",
@@ -75,6 +90,7 @@ export function ContentPageShell({
         >
           {children}
         </div>
+        {footer}
       </div>
     </main>
   );

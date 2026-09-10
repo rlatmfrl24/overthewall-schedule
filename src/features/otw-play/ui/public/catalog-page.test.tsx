@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +33,10 @@ vi.mock("../../queries/use-public-catalog", () => ({
 }));
 vi.mock("./catalog-components", () => ({
   OtwPlaySongRow: () => null,
+}));
+vi.mock("./catalog-result-views", () => ({
+  OtwPlaySongTable: ({ songs }: { songs: { id: string }[] }) => <div aria-label="곡 표 리스트">{songs.map(song => song.id).join(",")}</div>,
+  OtwPlaySongGrid: ({ songs }: { songs: { id: string }[] }) => <div aria-label="곡 그리드">{songs.map(song => song.id).join(",")}</div>,
 }));
 
 import { OtwPlayCatalogPage } from "./catalog-page";
@@ -69,10 +73,26 @@ const chooseSelectOption = (label: string, option: string) => {
   fireEvent.click(screen.getByRole("option", { name: option }));
 };
 
+let intersect: (visible: boolean) => void;
+const disconnect = vi.fn();
+
 describe("OtwPlayCatalogPage", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     vi.useFakeTimers();
     vi.clearAllMocks();
+    intersect = () => undefined;
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) {
+        intersect = (visible) => callback(
+          [{ isIntersecting: visible } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      observe() {}
+      unobserve() {}
+      disconnect = disconnect;
+    });
     mocks.useCatalog.mockReturnValue(catalogResult);
     mocks.useFacets.mockReturnValue({
       data: { data: { members: [], groups: [], originalArtists: [] } },
@@ -81,7 +101,97 @@ describe("OtwPlayCatalogPage", () => {
   });
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("loads near the list end once, waits for fetching, and stops at the final page", () => {
+    const result = {
+      ...catalogResult,
+      data: { pages: [{ data: { items: [{ id: "first" }] } }] },
+      hasNextPage: true,
+      isFetching: false,
+    };
+    mocks.useCatalog.mockReturnValue(result);
+    const page = render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    act(() => intersect(false));
+    expect(catalogResult.fetchNextPage).not.toHaveBeenCalled();
+    act(() => { intersect(true); intersect(true); });
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledTimes(1);
+    mocks.useCatalog.mockReturnValue({ ...result, isFetching: true });
+    page.rerender(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    act(() => intersect(true));
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledTimes(1);
+    mocks.useCatalog.mockReturnValue(result);
+    page.rerender(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    act(() => intersect(true));
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledTimes(2);
+    mocks.useCatalog.mockReturnValue({ ...result, hasNextPage: false });
+    page.rerender(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    act(() => intersect(true));
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledTimes(2);
+    expect(screen.queryByLabelText("다음 곡 불러오기")).toBeNull();
+    expect(disconnect).toHaveBeenCalled();
+  });
+
+  it("keeps loaded songs on pagination failure and retries only on request", () => {
+    window.localStorage.setItem("otw-play:catalog-view:v1", "table");
+    mocks.useCatalog.mockReturnValue({
+      ...catalogResult,
+      data: { pages: [{ data: { items: [{ id: "first" }] } }] },
+      hasNextPage: true, isError: true, isFetchNextPageError: true,
+      error: new Error("network error"),
+    });
+    render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    expect(screen.getByLabelText("곡 표 리스트").textContent).toBe("first");
+    act(() => intersect(true));
+    expect(catalogResult.fetchNextPage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /다시/ }));
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledWith({ cancelRefetch: false });
+    expect(catalogResult.refetch).not.toHaveBeenCalled();
+  });
+
+  it("remembers the view while preserving filters, loaded pages and query inputs", () => {
+    mocks.useCatalog.mockReturnValue({
+      ...catalogResult,
+      data: { pages: [{ data: { items: [{ id: "first" }] } }, { data: { items: [{ id: "second" }] } }] },
+      hasNextPage: true,
+    });
+    const onSearchChange = vi.fn();
+    const page = render(<OtwPlayCatalogPage search={{ q: "노래", sort: "title" }} onSearchChange={onSearchChange} />);
+    expect(screen.getByRole("button", { name: "카드" }).getAttribute("aria-pressed")).toBe("true");
+    const query = mocks.useCatalog.mock.lastCall?.[0];
+    fireEvent.click(screen.getByRole("button", { name: "표 리스트" }));
+    expect(screen.getByLabelText("곡 표 리스트").textContent).toBe("first,second");
+    fireEvent.click(screen.getByRole("button", { name: "그리드" }));
+    expect(screen.getByLabelText("곡 그리드").textContent).toBe("first,second");
+    expect(mocks.useCatalog.mock.lastCall?.[0]).toBe(query);
+    expect(catalogResult.refetch).not.toHaveBeenCalled();
+    expect(onSearchChange).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("otw-play:catalog-view:v1")).toBe("grid");
+    fireEvent.click(screen.getByRole("button", { name: "모두 초기화" }));
+    expect(onSearchChange).toHaveBeenCalledWith({}, true);
+    page.rerender(<OtwPlayCatalogPage search={{}} onSearchChange={onSearchChange} />);
+    expect(screen.getByRole("button", { name: "그리드" }).getAttribute("aria-pressed")).toBe("true");
+    act(() => intersect(true));
+    expect(catalogResult.fetchNextPage).toHaveBeenCalledOnce();
+    page.unmount();
+    render(<OtwPlayCatalogPage search={{}} onSearchChange={onSearchChange} />);
+    expect(screen.getByRole("button", { name: "그리드" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("uses cards for invalid storage and switches even when storage access fails", () => {
+    window.localStorage.setItem("otw-play:catalog-view:v1", "invalid");
+    const page = render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "카드" }).getAttribute("aria-pressed")).toBe("true");
+    page.unmount();
+    vi.spyOn(window.Storage.prototype, "getItem").mockImplementation(() => { throw new Error("denied"); });
+    vi.spyOn(window.Storage.prototype, "setItem").mockImplementation(() => { throw new Error("denied"); });
+    render(<OtwPlayCatalogPage search={{}} onSearchChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "카드" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "표 리스트" }));
+    expect(screen.getByRole("button", { name: "표 리스트" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("keeps catalog results reachable while reporting and retrying a failed filter query", () => {
@@ -98,7 +208,7 @@ describe("OtwPlayCatalogPage", () => {
 
     expect(screen.getByRole("alert").textContent).toContain("필터를 불러오지 못했습니다.");
     expect(screen.queryByText("조건에 맞는 곡이 없습니다.")).toBeNull();
-    expect(screen.getByText(/현재 1곡을 불러왔습니다/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "검색 결과" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "필터 다시 불러오기" }));
     expect(refetchFacets).toHaveBeenCalledOnce();
     expect(catalogResult.refetch).not.toHaveBeenCalled();
@@ -116,7 +226,7 @@ describe("OtwPlayCatalogPage", () => {
 
     expect(screen.queryByText("곡 목록 불러오는 중")).toBeNull();
     expect(screen.getByText("필터 불러오는 중")).toBeTruthy();
-    expect(screen.getByText(/현재 1곡을 불러왔습니다/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "검색 결과" })).toBeTruthy();
   });
 
   it("syncs search after 250ms but Enter applies immediately", () => {
@@ -237,7 +347,7 @@ describe("OtwPlayCatalogPage", () => {
     );
 
     openFilters();
-    fireEvent.click(screen.getByRole("button", { pressed: true }));
+    fireEvent.click(within(screen.getByRole("region", { name: "카탈로그 필터" })).getByRole("button", { pressed: true }));
     expect(onSearchChange).toHaveBeenCalledWith(
       {
         member: undefined,

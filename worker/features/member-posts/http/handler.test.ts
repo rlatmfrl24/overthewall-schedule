@@ -13,6 +13,9 @@ const requireAdminUserMock = vi.hoisted(() =>
 );
 const fetchXPostsForHandlesMock = vi.hoisted(() => vi.fn());
 const readStoredNaverCafePostsForSourcesMock = vi.hoisted(() => vi.fn());
+const feedTimestampMock = vi.hoisted(() => vi.fn());
+const timestampBindingsMock = vi.hoisted(() => vi.fn<(...ids: string[]) => { first: typeof feedTimestampMock }>(() => ({ first: feedTimestampMock })));
+const timestampQueryMock = vi.hoisted(() => vi.fn<(query: string) => { bind: typeof timestampBindingsMock }>(() => ({ bind: timestampBindingsMock })));
 const fakeState = vi.hoisted(() => ({
   members: [] as Array<{ uid: number; url_twitter: string | null }>,
   cafeSources: [] as Array<{
@@ -66,7 +69,7 @@ const makeEnv = (): Env =>
   ({
     YOUTUBE_API_KEY: "",
     X_BEARER_TOKEN: "token",
-    otw_db: {} as D1Database,
+    otw_db: { prepare: timestampQueryMock } as unknown as D1Database,
   }) as Env;
 
 const handleMemberPosts = createMemberPostsHandler({
@@ -161,6 +164,9 @@ const mockNaverCafePosts = (createdAt = "2026-05-28T01:00:00Z") => {
 
 describe("member-posts aggregate worker route", () => {
   beforeEach(() => {
+    feedTimestampMock.mockReset().mockResolvedValue({ updated_at: null });
+    timestampBindingsMock.mockClear();
+    timestampQueryMock.mockClear();
     getSettingMock.mockReset();
     authenticateRequestMock.mockClear();
     requireAdminUserMock.mockClear();
@@ -190,6 +196,31 @@ describe("member-posts aggregate worker route", () => {
       };
       return values[key] ?? null;
     });
+  });
+
+  it("반환하는 게시글의 저장된 갱신 시각만 조회하며 compact 응답에도 보존한다", async () => {
+    mockXPosts(); mockNaverCafePosts();
+    feedTimestampMock.mockResolvedValueOnce({ updated_at: Date.parse("2026-05-25T01:00:00Z") })
+      .mockResolvedValueOnce({ updated_at: Date.parse("2026-05-26T02:00:00Z") });
+    const response = await handleMemberPosts(new Request("https://example.com/api/member-posts?compact=1"), makeEnv());
+    const body = await response.json() as { feedUpdatedAt: string; updatedAt: string; x: { posts: unknown[] } };
+    expect(body.feedUpdatedAt).toBe("2026-05-26T02:00:00.000Z");
+    expect(body.feedUpdatedAt).not.toBe(body.updatedAt);
+    expect(body.x.posts).toEqual([]);
+    expect(timestampBindingsMock.mock.calls).toEqual([["x1"], ["cafe1"]]);
+    expect(timestampQueryMock.mock.calls.every(([query]) => /^SELECT MAX\(fetched_at\).*WHERE id IN/.test(String(query)))).toBe(true);
+  });
+
+  it("저장된 시각이 없거나 조회에 실패해도 현재 시각을 대신 표시하지 않는다", async () => {
+    mockXPosts(); mockNaverCafePosts();
+    const response = await handleMemberPosts(new Request("https://example.com/api/member-posts"), makeEnv());
+    expect((await response.json() as { feedUpdatedAt: null }).feedUpdatedAt).toBeNull();
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockXPosts(); mockNaverCafePosts(); feedTimestampMock.mockRejectedValueOnce(new Error("D1 unavailable"));
+    const failed = await handleMemberPosts(new Request("https://example.com/api/member-posts"), makeEnv());
+    const body = await failed.json() as { feedUpdatedAt: null; posts: unknown[] };
+    expect(body.feedUpdatedAt).toBeNull(); expect(body.posts).toHaveLength(2);
+    error.mockRestore();
   });
 
   it("X와 네이버 카페 게시글을 단일 최신순 타임라인으로 반환한다", async () => {
@@ -468,6 +499,7 @@ describe("member-posts aggregate worker route", () => {
     expect(response.status).toBe(200);
     expect(fetchXPostsForHandlesMock).not.toHaveBeenCalled();
     expect(body.x.error).toBe("X posts are private");
+    expect(timestampQueryMock).not.toHaveBeenCalled();
     expect(body.x.policy).toMatchObject({
       status: "private",
       accessible: false,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createElement } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NaverCafePostDto } from "@contracts/naver-cafe";
 import { NaverCafePostCard } from "./naver-cafe-post-card";
 
@@ -34,12 +34,27 @@ describe("NaverCafePostCard", () => {
     expect(screen.getByText(post.title)).toBeTruthy();
     expect(screen.getByText(post.summary)).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /카페에서 보기/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /원문 보기/ }).getAttribute("href"),
     ).toBe(post.url);
     expect(
       container
         .querySelector('img[src="https://example.com/thumb.jpg"]')
         ?.getAttribute("referrerpolicy"),
     ).toBe("no-referrer");
+    expect(screen.getByText("새 글")).toBeTruthy();
+    expect(screen.getByLabelText("댓글 10개")).toBeTruthy();
+    expect(screen.getByLabelText("조회 199회")).toBeTruthy();
+    expect(screen.getByLabelText("좋아요 76개")).toBeTruthy();
+  });
+
+  it("카드·본문은 이동하지 않고 썸네일은 내부 이미지 뷰어를 연다", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    render(createElement(NaverCafePostCard, { post }));
+    fireEvent.click(screen.getByRole("article"));
+    fireEvent.click(screen.getByText(post.summary));
+    fireEvent.click(screen.getByRole("button", { name: /이미지 1 확대/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 });

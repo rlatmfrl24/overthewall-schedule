@@ -47,6 +47,7 @@ export type XPostsContent = {
 };
 
 export interface MemberPostsPort {
+  readFeedUpdatedAt(xPostIds: string[], cafePostIds: string[]): Promise<string | null>;
   readConfigs(): Promise<MemberPostsConfigs>;
   listActiveMembers(): Promise<MemberRow[]>;
   listNaverCafeSources(): Promise<NaverCafeSourceRecord[]>;

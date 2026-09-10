@@ -96,6 +96,7 @@ export function useMultiviewSources(members: Member[]) {
   return {
     sources,
     loading: query.isFetching,
+    isError: query.isError,
     hasLoaded: membersWithChzzk.length === 0 ? true : query.isFetched,
     reload: query.refetch,
   };

@@ -289,9 +289,16 @@ export class GetMemberPosts {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
+    let feedUpdatedAt: string | null = null;
+    try {
+      feedUpdatedAt = await this.port.readFeedUpdatedAt(x.posts.map(post => post.id), naverCafe.posts.map(post => post.id));
+    } catch (error) {
+      console.error("Failed to read persisted feed update time", error);
+    }
     return {
       body: {
         updatedAt: new Date().toISOString(),
+        feedUpdatedAt,
         posts,
         x: compact
           ? {

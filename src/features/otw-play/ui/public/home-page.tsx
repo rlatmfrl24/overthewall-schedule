@@ -183,6 +183,7 @@ export function OtwPlayHomePage() {
                   data-active={song.id === featured.id}
                   aria-hidden={song.id !== featured.id}
                 >
+                  <SongImage song={song} eager backdrop />
                   <SongImage song={song} eager natural />
                 </div>
               ))}
@@ -369,10 +370,12 @@ function SongImage({
   song,
   eager = false,
   natural = false,
+  backdrop = false,
 }: {
   song: OtwPlayPublicSongSummaryDto;
   eager?: boolean;
   natural?: boolean;
+  backdrop?: boolean;
 }) {
   const source = song.representativePerformance.selectedSource;
   return source ? (
@@ -382,14 +385,14 @@ function SongImage({
       width={960}
       height={540}
       loading={eager ? "eager" : "lazy"}
-      className={natural ? "block h-auto w-full" : "absolute inset-0 h-full w-full object-contain"}
-      fallback={
+      className={backdrop ? "play-spotlight-backdrop" : natural ? "block h-auto w-full" : "absolute inset-0 h-full w-full object-contain"}
+      fallback={backdrop ? null :
         <div className="flex aspect-video w-full items-center justify-center bg-muted text-sm text-muted-foreground">
           썸네일 없음
         </div>
       }
     />
-  ) : (
+  ) : backdrop ? null : (
     <div className="flex aspect-video w-full items-center justify-center bg-muted text-sm text-muted-foreground">
       썸네일 없음
     </div>

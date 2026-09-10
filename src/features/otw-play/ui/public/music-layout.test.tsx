@@ -196,7 +196,8 @@ describe("OTW Play discover layout", () => {
     expect(screen.getAllByRole("link", { name: "곡 검색" }).length).toBeGreaterThan(0);
     const heroMedia = screen.getByTestId("otw-play-hero-media");
     const loadedArtwork = Array.from(heroMedia.querySelectorAll("img"));
-    expect(loadedArtwork).toHaveLength(2);
+    expect(loadedArtwork).toHaveLength(4);
+    expect(heroMedia.querySelectorAll("img:not(.play-spotlight-backdrop)")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "다음 추천곡" }));
     expect(screen.getByRole("heading", { name: "두 번째 노래" })).toBeTruthy();
     // Keep decoded images mounted when changing songs instead of restarting image loading.

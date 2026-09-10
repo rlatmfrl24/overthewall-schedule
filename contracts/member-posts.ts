@@ -48,6 +48,8 @@ export interface MemberPostSourcePolicyDto {
 
 export interface MemberPostsAggregateResponseDto {
   updatedAt: string;
+  /** Latest persisted refresh of the returned feed data, not response generation. */
+  feedUpdatedAt?: string | null;
   posts: UnifiedMemberPostDto[];
   x: {
     posts: XPostDto[];

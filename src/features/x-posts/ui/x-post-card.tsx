@@ -1,6 +1,6 @@
+import type { CSSProperties } from "react";
+import SourceIcon from "@/assets/icon_x.svg";
 import {
-  type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
   useMemo,
   useState,
@@ -12,6 +12,7 @@ import type {
 } from "@contracts/x-posts";
 import type { XPostViewModel } from "../model/types";
 import IconX from "@/assets/icon_x.svg";
+import { PostActions, PostHeader, PostImage, PostMedia, PostText } from "@/shared/ui/post-content";
 import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 import {
@@ -20,15 +21,14 @@ import {
   ImageOff,
   MessageCircle,
   Repeat2,
-  Share2,
+  CornerDownRight,
 } from "lucide-react";
 
 interface XPostCardProps {
   post: XPostViewModel;
   member?: MemberDto;
   compactTime?: string;
-  openPostOnCardClick?: boolean;
-  showExternalLinkButton?: boolean;
+  appearance?: "card" | "feed";
 }
 
 const numberFormatter = new Intl.NumberFormat("ko-KR", {
@@ -72,56 +72,13 @@ const formatAbsoluteDate = (dateString: string) => {
   });
 };
 
-const XMediaGrid = ({ post }: { post: XPostViewModel }) => {
-  const media = post.media
-    .map((item) => ({
-      ...item,
-      src: item.url ?? item.previewImageUrl,
-    }))
-    .filter((item) => item.src);
-
-  if (media.length === 0) return null;
-
-  return (
-    <div
-      className={cn(
-        "grid overflow-hidden rounded-lg border border-border/70 bg-muted/30",
-        media.length === 1 ? "grid-cols-1" : "grid-cols-2",
-      )}
-    >
-      {media.slice(0, 4).map((item, index) => (
-        <div
-          key={`${item.mediaKey}-${index}`}
-          className={cn(
-            "relative min-h-0 bg-muted",
-            media.length === 1 ? "aspect-video" : "aspect-[4/3]",
-          )}
-        >
-          {item.src ? (
-            <img
-              src={item.src}
-              alt={item.altText || "X post media"}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <ImageOff className="h-8 w-8 text-muted-foreground/60" />
-            </div>
-          )}
-          {index === 3 && media.length > 4 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-lg font-semibold text-white">
-              +{media.length - 4}
-            </div>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const shouldClampText = (text: string) =>
-  text.length > 220 || text.split("\n").length > 7;
+const XMediaGrid = ({ post }: { post: XPostViewModel }) => <PostMedia
+  title={`${post.username}의 게시글`} url={post.url}
+  items={post.media.map(item => {
+    const src = item.type === "photo" ? item.url ?? item.previewImageUrl : item.previewImageUrl ?? item.url;
+    return { src: src ?? "", alt: item.altText || `${post.username}의 첨부 이미지`, kind: item.type === "photo" ? "photo" as const : "video" as const };
+  })}
+/>;
 
 const CONTENT_TOKEN_PATTERN =
   /https?:\/\/[^\s<>"']+|@[A-Za-z0-9_]{1,15}|#[\p{L}\p{N}_]+/gu;
@@ -243,13 +200,20 @@ const isPreviewRenderable = (link: XPostLinkDto) => {
 const shouldShowLinkPreview = (link: XPostLinkDto) =>
   isPreviewRenderable(link) || isXStatusLink(link);
 
+const isOwnDisplayedMedia = (post: XPostViewModel, link: XPostLinkDto) =>
+  post.media.some(item => item.url || item.previewImageUrl) &&
+  [link.resolvedUrl, link.expandedUrl, link.url].some(value => {
+    const url = toUrl(value);
+    return url && extractXStatusId(value) === post.id && /\/(photo|video)\/\d+\/?$/.test(url.pathname);
+  });
+
 const getPreviewLinks = (post: XPostViewModel) => {
   const seen = new Set<string>();
   const links: XPostLinkDto[] = [];
 
   for (const link of post.links ?? []) {
     const href = getLinkHref(link);
-    if (isLinkForPostId(link, post.quote?.postId)) continue;
+    if (isLinkForPostId(link, post.quote?.postId) || isOwnDisplayedMedia(post, link)) continue;
     if (!shouldShowLinkPreview(link)) continue;
 
     const key = href.toLowerCase();
@@ -328,11 +292,9 @@ const XEmbeddedPostCard = ({
               )}
             >
               {item.src ? (
-                <img
-                  src={item.src}
-                  alt={item.altText || ""}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
+                <PostImage
+                  item={{ src: item.src, alt: item.altText || "인용 이미지", kind: "photo" }}
+                  className="h-full w-full object-contain"
                 />
               ) : (
                 <div className="flex h-full w-full items-center justify-center">
@@ -354,10 +316,14 @@ const XEmbeddedPostCard = ({
 
 const XReplyPreviewCard = ({
   post,
+  embedded = false,
 }: {
   post: NonNullable<NonNullable<XPostViewModel["reply"]>["post"]>;
+  embedded?: boolean;
 }) => {
   const href = post.url;
+  const handle = post.username === "i" ? null : `@${post.username}`;
+  const author = handle ? post.name || handle : "작성자 정보 없음";
   const previewMedia = post.media
     .map((item) => ({ ...item, src: item.url ?? item.previewImageUrl }))
     .find((item) => Boolean(item.src));
@@ -367,8 +333,8 @@ const XReplyPreviewCard = ({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={`${post.username === "i" ? "작성자 정보 없음" : post.name ?? `@${post.username}`} 답글 원문 열기`}
-      className="flex min-w-0 items-start gap-2.5 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={`${author} 답글 원문 열기`}
+      className={cn("flex min-h-11 min-w-0 items-start gap-2.5 p-2.5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", embedded ? "pt-0" : "rounded-xl border border-border/70 bg-muted/15")}
     >
       {post.profileImageUrl ? (
         <img
@@ -385,11 +351,9 @@ const XReplyPreviewCard = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex min-w-0 items-center gap-1.5 text-xs">
           <span className="truncate font-semibold text-foreground">
-            {post.username === "i" ? "작성자 정보 없음" : post.name ?? `@${post.username}`}
+            {author}
           </span>
-          <span className="truncate text-muted-foreground">
-            {post.username === "i" ? "" : `@${post.username}`}
-          </span>
+          {handle && author !== handle && <span className="truncate text-muted-foreground">{handle}</span>}
           {post.createdAt ? (
             <>
               <span className="shrink-0 text-muted-foreground" aria-hidden="true">
@@ -425,48 +389,29 @@ const XReplyPreviewCard = ({
   );
 };
 
-const XReplyRelationCard = ({
-  memberName,
-  reply,
-}: {
-  memberName?: string;
-  reply: NonNullable<XPostViewModel["reply"]>;
-}) => {
-  const href = `https://x.com/i/web/status/${reply.postId}`;
-  return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/15 p-2.5 text-xs text-muted-foreground">
-      <MessageCircle className="h-4 w-4 shrink-0" />
-      <span className="min-w-32 flex-1">
-        {memberName ? `${memberName}님의 트윗에 대한 답글`
-          : reply.targetUsername && reply.targetUsername !== "i" ? `@${reply.targetUsername}의 트윗에 대한 답글`
-          : "다른 트윗에 대한 답글"}
-      </span>
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="답글 원문 열기"
-        className="inline-flex h-7 items-center gap-1 rounded-full px-2.5 transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        X에서 열기
-        <ExternalLink className="h-3.5 w-3.5" />
-      </a>
+const XReplyContextCard = ({ memberName, reply, appearance }: { memberName?: string; reply: NonNullable<XPostViewModel["reply"]>; appearance?: "card" | "feed" }) => {
+  const [expanded, setExpanded] = useState(false);
+  const author = memberName || (reply.targetUsername && reply.targetUsername !== "i" ? `@${reply.targetUsername}` : reply.post?.username !== "i" ? reply.post?.name || reply.post?.username : null);
+  if (appearance === "feed") return <div className="ml-1 flex min-w-0 gap-2.5">
+    <CornerDownRight aria-hidden="true" className="mt-3 size-4 shrink-0 text-muted-foreground" />
+    <div className="min-w-0 flex-1 overflow-hidden rounded-lg border border-border/60 bg-muted/20">
+      <div className="flex min-h-9 items-center justify-between gap-2 px-3 text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate">{author ? `${author}에게 답글` : "다른 게시글에 답글"}</span>
+        {!reply.post && <a href={`https://x.com/i/web/status/${reply.postId}`} target="_blank" rel="noopener noreferrer" aria-label="답글 원문 열기" className="inline-flex min-h-11 shrink-0 items-center gap-1">대화 보기 <ExternalLink className="size-3" /></a>}
+      </div>
+      {reply.post && <XReplyPreviewCard embedded post={reply.post} />}
     </div>
-  );
+  </div>;
+  return <div className="text-xs text-muted-foreground">
+    <div className="flex min-w-0 items-center gap-1">
+      <MessageCircle className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{author ? `${author}에게 답글` : "다른 게시글에 답글"}</span>
+      {reply.post ? <Button type="button" variant="ghost" className="min-h-11 shrink-0 px-2 text-xs" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "대화 접기" : "대화 보기"}</Button> :
+        <a href={`https://x.com/i/web/status/${reply.postId}`} target="_blank" rel="noopener noreferrer" aria-label="답글 원문 열기" className="inline-flex min-h-11 shrink-0 items-center gap-1 px-2">대화 보기 <ExternalLink className="size-3.5" /></a>}
+    </div>
+    {expanded && reply.post && <XReplyPreviewCard post={reply.post} />}
+  </div>;
 };
-
-const XReplyContextCard = ({
-  memberName,
-  reply,
-}: {
-  memberName?: string;
-  reply: NonNullable<XPostViewModel["reply"]>;
-}) =>
-  reply.post ? (
-    <XReplyPreviewCard post={reply.post} />
-  ) : (
-    <XReplyRelationCard memberName={memberName} reply={reply} />
-  );
 
 const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
   const href = getLinkHref(link);
@@ -524,11 +469,9 @@ const XLinkPreviewCard = ({ link }: { link: XPostLinkDto }) => {
     >
       {link.imageUrl ? (
         <div className="h-auto w-20 shrink-0 bg-muted sm:w-28">
-          <img
-            src={link.imageUrl}
-            alt=""
+          <PostImage
+            item={{ src: link.imageUrl, alt: "링크 미리보기", kind: "photo" }}
             className="h-full min-h-16 w-full object-cover"
-            loading="lazy"
           />
         </div>
       ) : null}
@@ -597,7 +540,7 @@ const stripReplyMentionPrefix = (post: XPostViewModel) => {
 
 const renderPostText = (post: XPostViewModel, text = post.text) => {
   const linksByUrl = new Map(
-    (post.links ?? []).map((link) => [link.url, link]),
+    (post.links ?? []).flatMap((link) => [link.url, link.expandedUrl, link.resolvedUrl].filter((url): url is string => Boolean(url)).map(url => [url, link] as const)),
   );
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
@@ -623,25 +566,8 @@ const renderPostText = (post: XPostViewModel, text = post.text) => {
     if (isUrl) {
       const { url, trailing } = trimUrlMatch(rawMatch);
       const link = linksByUrl.get(url);
-      if (!link || !isLinkForPostId(link, post.quote?.postId)) {
-        nodes.push(
-          link && shouldShowLinkPreview(link) ? (
-            <span key={`${url}-${startIndex}`} className="text-muted-foreground">
-              {url}
-            </span>
-          ) : (
-            <a
-              key={`${url}-${startIndex}`}
-              href={getLinkHref(link)}
-              title={link?.displayUrl ?? getLinkHref(link)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
-            >
-              {url}
-            </a>
-          ),
-        );
+      if (!link || !(isLinkForPostId(link, post.quote?.postId) || isOwnDisplayedMedia(post, link) || shouldShowLinkPreview(link))) {
+        nodes.push(<a key={`${url}-${startIndex}`} href={link ? getLinkHref(link) : url} title={link?.displayUrl ?? url} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4">{url}</a>);
       }
       if (trailing) nodes.push(trailing);
     } else {
@@ -669,33 +595,7 @@ const renderPostText = (post: XPostViewModel, text = post.text) => {
     nodes.push(text.slice(lastIndex));
   }
 
-  return nodes.length > 0 ? nodes : text;
-};
-
-const shouldIgnoreCardNavigation = (target: EventTarget | null) =>
-  target instanceof Element &&
-  Boolean(target.closest("a, button, input, select, textarea, [role='button']"));
-
-const openExternalUrl = (url: string) => {
-  window.open(url, "_blank", "noopener,noreferrer");
-};
-
-const copyText = async (value: string) => {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand("copy");
-  textarea.remove();
-  if (!copied) throw new Error("Clipboard copy failed");
+  return nodes;
 };
 
 const XMetricItem = ({
@@ -717,201 +617,21 @@ const XMetricItem = ({
   </span>
 );
 
-export const XPostCard = ({
-  post,
-  member,
-  compactTime,
-  openPostOnCardClick = false,
-  showExternalLinkButton = true,
-}: XPostCardProps) => {
-  const [expanded, setExpanded] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<
-    "idle" | "copied" | "error"
-  >("idle");
-  const profileSrc = member ? `/profile/${member.code}.webp` : null;
-  const accentColor = member?.main_color ?? undefined;
+export const XPostCard = ({ post, member, compactTime, appearance = "card" }: XPostCardProps) => {
   const displayText = useMemo(() => stripReplyMentionPrefix(post), [post]);
-  const canExpand = useMemo(() => shouldClampText(displayText), [displayText]);
-  const repostCount = post.metrics.repostCount + post.metrics.quoteCount;
-  const handleCopy = async () => {
-    try {
-      await copyText(post.url);
-      setCopyStatus("copied");
-    } catch {
-      setCopyStatus("error");
-    }
-  };
-  const handleShare = async () => {
-    if (!navigator.share) {
-      await handleCopy();
-      return;
-    }
-    try {
-      await navigator.share({
-        title: `${member?.name ?? post.username}의 X 게시글`,
-        text: post.text,
-        url: post.url,
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      await handleCopy();
-    }
-  };
-  const shareLabel =
-    copyStatus === "copied"
-      ? "링크 복사됨"
-      : copyStatus === "error"
-        ? "링크 복사 실패"
-        : "공유";
-  const navigableProps = openPostOnCardClick
-    ? {
-        "aria-label": `${member?.name ?? post.username} X 원문 게시글 열기`,
-        onClick: (event: MouseEvent<HTMLElement>) => {
-          if (shouldIgnoreCardNavigation(event.target)) return;
-          openExternalUrl(post.url);
-        },
-        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-          if (shouldIgnoreCardNavigation(event.target)) return;
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          openExternalUrl(post.url);
-        },
-        role: "link",
-        tabIndex: 0,
-      }
-    : {};
-
-  return (
-    <article
-      {...navigableProps}
-      className={cn(
-        "group relative flex flex-col gap-2.5 overflow-hidden rounded-lg border border-border/70 bg-card p-3 shadow-sm transition-colors duration-200 hover:border-foreground/25 sm:p-4",
-        openPostOnCardClick &&
-          "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      )}
-    >
-      {accentColor ? (
-        <span
-          className="absolute inset-y-0 left-0 w-1"
-          style={{ backgroundColor: accentColor }}
-          aria-hidden="true"
-        />
-      ) : null}
-
-      {post.reply ? (
-        <XReplyContextCard memberName={post.replyTargetMemberName} reply={post.reply} />
-      ) : null}
-
-      <div className="grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3">
-        {profileSrc ? (
-          <img
-            src={profileSrc}
-            alt={member?.name ?? post.username}
-            className="h-10 w-10 shrink-0 rounded-full border-2 border-border object-cover"
-            style={accentColor ? { borderColor: accentColor } : undefined}
-          />
-        ) : (
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-border bg-muted text-sm font-semibold"
-            style={accentColor ? { borderColor: accentColor } : undefined}
-          >
-            X
-          </div>
-        )}
-
-        <div className="min-w-0 space-y-2.5">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            <h2 className="truncate font-semibold text-foreground">
-              {member?.name ?? post.username}
-            </h2>
-            <span className="truncate text-xs text-muted-foreground sm:text-sm">
-              @{post.username}
-            </span>
-            <span className="shrink-0 text-muted-foreground" aria-hidden="true">
-              ·
-            </span>
-            <time
-              dateTime={post.createdAt}
-              title={formatAbsoluteDate(post.createdAt)}
-              className="shrink-0 text-xs text-muted-foreground sm:text-sm"
-            >
-              {compactTime ?? formatRelativeDate(post.createdAt)}
-            </time>
-            {showExternalLinkButton ? (
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="ml-auto h-8 w-8 shrink-0 rounded-full p-0 text-muted-foreground hover:text-foreground"
-              >
-                <a
-                  href={post.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="X에서 원문 보기"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-            ) : null}
-          </div>
-
-          {displayText ? (
-            <p
-              className={cn(
-                "whitespace-pre-wrap break-words text-sm leading-5 text-foreground",
-                canExpand && !expanded && "line-clamp-5",
-              )}
-            >
-              {renderPostText(post, displayText)}
-            </p>
-          ) : null}
-
-          {canExpand ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 w-fit rounded-full px-2.5 text-xs text-muted-foreground"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? "접기" : "더보기"}
-            </Button>
-          ) : null}
-
-          <XQuotePostCard post={post} />
-          <XLinkPreviewList post={post} />
-          <XMediaGrid post={post} />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border/70 pl-1 pt-2 text-xs text-muted-foreground">
-        <XMetricItem
-          icon={<MessageCircle className="h-3.5 w-3.5" />}
-          label="답글"
-          value={post.metrics.replyCount}
-        />
-        <XMetricItem
-          icon={<Repeat2 className="h-3.5 w-3.5" />}
-          label="재게시"
-          value={repostCount}
-        />
-        <XMetricItem
-          icon={<Heart className="h-3.5 w-3.5" />}
-          label="좋아요"
-          value={post.metrics.likeCount}
-        />
-        <button
-          type="button"
-          aria-label={shareLabel}
-          title={shareLabel}
-          className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => void handleShare()}
-        >
-          <Share2 className="h-3.5 w-3.5" />
-          <span className="sr-only">{shareLabel}</span>
-        </button>
-      </div>
-    </article>
-  );
+  const name = member?.name ?? post.username;
+  const title = `${name}의 X 게시글`;
+  return <article aria-label={title} className={cn("relative min-w-0 overflow-hidden", appearance === "feed" ? "space-y-1.5 border-b border-border/60 bg-background px-3.5 py-2.5 sm:px-[18px]" : "space-y-2.5 rounded-lg border border-border/70 bg-card p-3 shadow-sm sm:p-4", appearance === "feed" ? "after:pointer-events-none after:absolute after:inset-y-0 after:left-1 after:w-[3px] after:rounded-full after:bg-[var(--post-accent)]" : "border-l-4")} style={{ "--post-accent": member?.main_color ?? "transparent", borderLeftColor: appearance === "card" ? member?.main_color ?? "transparent" : undefined } as CSSProperties}>
+    <PostHeader appearance={appearance} name={name} profileSrc={member ? `/profile/${member.code}.webp` : undefined} accent={member?.main_color ?? undefined} source="X" sourceIcon={<img src={SourceIcon} alt="X" className="size-4 object-contain dark:invert" />} secondary={`@${post.username}`} time={compactTime ?? formatRelativeDate(post.createdAt)} dateTime={post.createdAt} />
+    {displayText && <PostText>{renderPostText(post, displayText)}</PostText>}
+    {post.reply && <XReplyContextCard appearance={appearance} memberName={post.replyTargetMemberName} reply={post.reply} />}
+    <XQuotePostCard post={post} />
+    <XLinkPreviewList post={post} />
+    <XMediaGrid post={post} />
+    <PostActions appearance={appearance} url={post.url} title={title} text={post.text}>
+      <XMetricItem icon={<MessageCircle className="size-3.5" />} label="답글" value={post.metrics.replyCount} />
+      <XMetricItem icon={<Repeat2 className="size-3.5" />} label="재게시" value={post.metrics.repostCount + post.metrics.quoteCount} />
+      <XMetricItem icon={<Heart className="size-3.5" />} label="좋아요" value={post.metrics.likeCount} />
+    </PostActions>
+  </article>;
 };
