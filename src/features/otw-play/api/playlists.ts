@@ -1,6 +1,6 @@
 import { apiRoutes, withRouteSearch } from "@contracts/api-routes";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER, type OtwPlayPublicEnvelope, type OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
-import type { PlayDefaultPlaylist, PlayPerformanceQuery, PlayPlaylist, PlayPlaylistSummary, PlayPlaylistWrite, PlayResolvedPerformances } from "@contracts/otw-play-playlists";
+import type { PlayAdminDefaultPlaylist, PlayDefaultPlaylistWrite, PlayDefaultPlaylist, PlayPerformanceQuery, PlayPlaylist, PlayPlaylistSummary, PlayPlaylistWrite, PlayResolvedPerformances } from "@contracts/otw-play-playlists";
 import { apiFetch } from "@/shared/api/client";
 
 export interface PlaylistRequestOptions { adminPreview?: boolean; signal?: AbortSignal }
@@ -28,3 +28,11 @@ export const saveMyPlaylist = (id: string, input: PlayPlaylistWrite, expectedVer
   apiFetch<{ data: PlayPlaylist }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request, true), method: "PUT", json: { ...input, expectedVersion } });
 export const deleteMyPlaylist = (id: string, expectedVersion: number, request: PlaylistRequestOptions = {}) =>
   apiFetch<{ data: { deleted: true } }>(apiRoutes.otwPlay.myPlaylist.build(id), { ...options(request, true), method: "DELETE", json: { expectedVersion } });
+
+export const fetchAdminDefaultPlaylists = (signal?: AbortSignal) =>
+  apiFetch<{ data: PlayAdminDefaultPlaylist[] }>(apiRoutes.otwPlay.admin.playlistDefaults.build(), { auth: "required", signal });
+export const fetchAdminDefaultPlaylist = (id: string, signal?: AbortSignal) =>
+  apiFetch<{ data: PlayAdminDefaultPlaylist }>(apiRoutes.otwPlay.admin.playlistDefault.build(id), { auth: "required", signal });
+export const saveAdminDefaultPlaylist = (id: string, input: PlayDefaultPlaylistWrite, expectedVersion: number) =>
+  apiFetch<{ data: PlayAdminDefaultPlaylist }>(apiRoutes.otwPlay.admin.playlistDefault.build(id),
+    { auth: "required", method: "PUT", json: { ...input, expectedVersion } });

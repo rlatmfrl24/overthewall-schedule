@@ -1,0 +1,60 @@
+.elastic-slider {
+  width: 100%;
+  min-width: 0;
+  /* Reserve room for the original zoom within the player's volume controls. */
+  padding-inline: 12px;
+}
+.elastic-slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  user-select: none;
+}
+.elastic-slider-root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  touch-action: none;
+  cursor: grab;
+}
+.elastic-slider-root:active { cursor: grabbing; }
+.elastic-slider-root[data-keyboard-focus] {
+  outline: 2px solid var(--elastic-slider-color, #888);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.elastic-slider-track-wrapper { display: flex; width: 100%; pointer-events: none; }
+.elastic-slider-track {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: rgb(128 128 128 / 40%);
+}
+.elastic-slider-range { height: 100%; border-radius: inherit; background: var(--elastic-slider-color, #888); }
+.elastic-slider-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: inherit;
+  touch-action: none;
+}
+.elastic-slider-icon { display: flex; flex: none; align-items: center; justify-content: center; width: 24px; color: inherit; }
+.elastic-slider-icon svg { width: 16px; height: 16px; }
+.elastic-slider-icon-button { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; cursor: pointer; }
+.elastic-slider-icon-button:focus-visible { outline: 2px solid var(--elastic-slider-color, #888); outline-offset: 2px; }
+.elastic-slider-icon-button:disabled { cursor: not-allowed; }
+.elastic-slider-value { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); margin: 0; text-align: center; font-size: 0.75rem; line-height: 1; font-weight: 500; font-variant-numeric: tabular-nums; color: #888; pointer-events: none; }
+.elastic-slider[data-disabled] { opacity: 0.5; }
+.elastic-slider[data-disabled] .elastic-slider-root { cursor: not-allowed; }
+@media (pointer: coarse) {
+  .elastic-slider-root { height: 44px; }
+}

@@ -37,3 +37,5 @@ export { validateMemberSongbookSearch } from "./model/member-songbook-search";
 export { OtwPlayPlaylistsPage } from "./ui/playlists/playlists-page";
 export { OtwPlayDefaultPlaylistPage, OtwPlayPersonalPlaylistPage } from "./ui/playlists/playlist-detail-page";
 export { OtwPlayPlaylistEditorPage } from "./ui/playlists/playlist-editor-page";
+
+export { OtwPlayDefaultPlaylistManager } from "./ui/playlists/default-playlist-manager";

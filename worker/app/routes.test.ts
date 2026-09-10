@@ -288,6 +288,15 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [OTW_PLAY_DETAIL_GET],
   },
   {
+    id: "otw-play.admin.playlists.defaults", owner: "otw-play", path: "/api/play/admin/playlists/defaults",
+    methods: [{ method: "GET", auth: "admin", cache: "no-store", successStatus: 200 }],
+  },
+  {
+    id: "otw-play.admin.playlists.default", owner: "otw-play", path: "/api/play/admin/playlists/defaults/:playlistKey",
+    methods: [{ method: "GET", auth: "admin", cache: "no-store", successStatus: 200 },
+      { method: "PUT", auth: "admin", cache: "no-store", successStatus: 200 }],
+  },
+  {
     id: "otw-play.playlists.defaults", owner: "otw-play", path: "/api/play/playlists/defaults",
     methods: [{ method: "GET", auth: "public", cache: "no-store", successStatus: 200 }],
   },

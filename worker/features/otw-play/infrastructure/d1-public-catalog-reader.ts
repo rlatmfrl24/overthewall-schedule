@@ -1760,11 +1760,13 @@ export class D1PublicCatalogReader
       const first = await this.readPlaylistPerformances({ q: null, member: null, relation, limit: 1, after: null });
       defaults.push({ id: relation, version: 1, title: relation === "original" ? "오리지널 모음" : "커버곡 모음",
         description: relation === "original" ? "우리의 목소리로 시작된 노래" : "익숙한 노래, 새로운 목소리",
+        representativePerformanceId: null,
         imageUrl: first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
         songCount: Number(count?.songs ?? 0), performanceCount: Number(count?.performances ?? 0), query: { relation } });
     }
     return [...defaults, ...members.map(member => ({ id: `member-${member.uid}`, version: 1,
       title: `${member.name} 가창곡`, description: "메인 보컬 · 피처링으로 함께한 모든 가창",
+      representativePerformanceId: null,
       imageUrl: member.imageUrl, songCount: member.songCount, performanceCount: member.performanceCount,
       query: { member: member.uid } }))];
   }

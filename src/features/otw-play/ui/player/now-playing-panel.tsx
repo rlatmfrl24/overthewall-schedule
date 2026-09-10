@@ -17,12 +17,11 @@ import {
   Trash2,
   UserRound,
   UsersRound,
-  Volume1,
-  Volume2,
   VolumeX,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/shared/ui/button";
+import ElasticSlider from "@/shared/ui/elastic-slider/ElasticSlider";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 import { cn } from "@/shared/lib/utils";
@@ -201,12 +200,6 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
     }
   };
 
-  const VolumeIcon =
-    player.muted || player.volume === 0
-      ? VolumeX
-      : player.volume < 50
-        ? Volume1
-        : Volume2;
 
   return (
     <>
@@ -458,16 +451,15 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
                     </Button>
                   </div>
                   <div className="ml-1 flex min-w-0 flex-1 items-center gap-1" role="group" aria-label="볼륨 컨트롤">
-                    <Button type="button" variant={player.muted ? "secondary" : "ghost"} size="icon-sm"
-                      aria-label={player.muted ? "음소거 해제" : "음소거"} aria-pressed={player.muted}
-                      onClick={player.toggleMuted}><VolumeIcon /></Button>
-                    <input id="otw-play-volume" type="range" min="0" max="100" step="1"
+                    <ElasticSlider id="otw-play-volume" startingValue={0} maxValue={100} isStepped stepSize={1}
+                      leftIcon={player.muted ? <VolumeX /> : undefined}
+                      onLeftIconClick={player.toggleMuted}
+                      leftIconLabel={player.muted ? "음소거 해제" : "음소거"}
+                      leftIconPressed={player.muted}
                       value={player.muted ? 0 : player.volume} aria-label="재생 볼륨" aria-orientation="horizontal"
-                      onChange={event => player.setVolume(Number(event.currentTarget.value))}
-                      className="h-6 min-w-0 flex-1 cursor-pointer accent-[var(--otw-3)]" />
-                    <output htmlFor="otw-play-volume" className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-muted-foreground">
-                      {player.muted ? 0 : player.volume}%
-                    </output>
+                      aria-valuetext={`${player.muted ? 0 : player.volume}%`}
+                      onValueChange={player.setVolume}
+                      className="min-w-0 flex-1 [--elastic-slider-color:var(--otw-3)]" />
                   </div>
                 </div>
 
@@ -652,14 +644,14 @@ function PlaybackProgress({ player }: { player: OtwPlayPlayerContext }) {
     >
       <input
         type="range"
-        min="0"
+        min={0}
         max={Math.max(1, duration)}
-        step="1"
+        step={1}
         value={position}
         disabled={duration === 0}
         aria-label="재생 위치"
         aria-valuetext={`${formatPlaybackTime(position)} 재생, ${formatPlaybackTime(remaining)} 남음`}
-        onChange={(event) => player.seek(Number(event.currentTarget.value))}
+        onChange={event => player.seek(Number(event.currentTarget.value))}
         className="block h-4 w-full cursor-pointer accent-[var(--otw-2)] disabled:cursor-not-allowed disabled:opacity-50"
       />
       <div className="mt-0.5 flex items-center justify-between font-mono text-[11px] tabular-nums text-muted-foreground">

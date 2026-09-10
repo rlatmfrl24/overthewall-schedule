@@ -27,6 +27,9 @@ describe("canonical runtime prerequisites", () => {
 });
 
 const MUSIC_TABLES = [
+  "music_playlists",
+  "music_playlist_items",
+  "music_default_playlist_settings",
   "music_entities",
   "music_entity_aliases",
   "music_songs",

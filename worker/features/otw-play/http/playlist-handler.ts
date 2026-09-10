@@ -1,6 +1,7 @@
-import { PLAY_PLAYLIST_MAX_ITEMS, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
+import { PLAY_PLAYLIST_MAX_ITEMS, type PlayDefaultPlaylistWrite, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
+import { getActorInfo } from "../../../platform/http-helpers";
 import type { Env } from "../../../platform/types";
 import { PlaylistService } from "../application/playlist-service";
 import { PlaylistError } from "../application/ports/playlist-repository";
@@ -19,11 +20,20 @@ function version(value: unknown): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) return invalid();
   return value;
 }
+export function parseDefaultPlaylistWrite(value: Record<string, unknown>): PlayDefaultPlaylistWrite {
+  if ((value.title !== null && (typeof value.title !== "string" || !value.title.trim() || value.title.trim().length > 120)) ||
+    (value.description !== null && (typeof value.description !== "string" || value.description.length > 2000)) ||
+    (value.representativePerformanceId !== null && !identifier(value.representativePerformanceId))) return invalid();
+  return { title: typeof value.title === "string" ? value.title.trim() : null,
+    description: typeof value.description === "string" ? value.description.trim() : null,
+    representativePerformanceId: value.representativePerformanceId as string | null };
+}
 export function parsePlaylistWrite(value: Record<string, unknown>): PlayPlaylistWrite {
   if (typeof value.title !== "string" || !value.title.trim() || value.title.trim().length > 120 ||
     typeof value.description !== "string" || value.description.length > 2000 ||
     (value.originDefaultId !== null && !identifier(value.originDefaultId))) return invalid();
-  return { title: value.title.trim(), description: value.description.trim(), performanceIds: ids(value.performanceIds), originDefaultId: value.originDefaultId };
+  if (value.representativePerformanceId !== undefined && value.representativePerformanceId !== null && !identifier(value.representativePerformanceId)) return invalid();
+  return { ...(value.representativePerformanceId !== undefined ? { representativePerformanceId: value.representativePerformanceId as string | null } : {}), title: value.title.trim(), description: value.description.trim(), performanceIds: ids(value.performanceIds), originDefaultId: value.originDefaultId };
 }
 async function body(request: Request): Promise<Record<string, unknown>> {
   if (Number(request.headers.get("Content-Length")) > 1_000_000) throw new PlaylistError(413, "PLAY_PLAYLIST_TOO_LARGE");
@@ -36,6 +46,21 @@ async function body(request: Request): Promise<Record<string, unknown>> {
 export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) => async (request: Request, env: Env) => {
   try {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/play/admin/playlists/defaults")) {
+      const admin = await requireAdminUser(request, env);
+      if (!admin.ok) return json({ error: { code: "PLAY_ADMIN_AUTH_REQUIRED" } }, admin.response.status);
+      const match = url.pathname.match(/^\/api\/play\/admin\/playlists\/defaults(?:\/([a-zA-Z0-9_-]+))?$/);
+      if (!match || url.searchParams.size) return invalid();
+      const service = resolve(env), id = match[1];
+      if (request.method === "GET") {
+        const rows = await service.adminDefaults(id);
+        return json({ data: id ? rows[0] : rows });
+      }
+      if (request.method !== "PUT" || !id) return json({ error: { code: "PLAY_METHOD_NOT_ALLOWED" } }, 405);
+      const input = await body(request), actor = getActorInfo(request, admin.user);
+      return json({ data: await service.saveDefault(id, parseDefaultPlaylistWrite(input), version(input.expectedVersion),
+        { userId: admin.user.id, displayName: actor.actorName, ipAddress: actor.actorIp }) });
+    }
     const preview = request.headers.get(OTW_PLAY_ADMIN_PREVIEW_HEADER) === "1";
     if (preview) { const admin = await requireAdminUser(request, env); if (!admin.ok) return json({ error: { code: "PLAY_AUTH_REQUIRED", message: "관리자 미리보기 권한이 필요합니다." } }, admin.response.status); }
     const context = { allowDisabledRead: preview, allowSharedCache: false };

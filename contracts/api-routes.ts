@@ -140,6 +140,9 @@ export const apiRoutes = {
       ),
     },
     admin: {
+      playlistDefaults: staticRoute("/api/play/admin/playlists/defaults"),
+      playlistDefault: dynamicRoute("/api/play/admin/playlists/defaults/:playlistKey",
+        (playlistKey: string) => `/api/play/admin/playlists/defaults/${encodeURIComponent(playlistKey)}` as const),
       playlistImportPreflight: staticRoute(
         "/api/play/admin/imports/playlist/preflight",
       ),

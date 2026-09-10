@@ -42,6 +42,9 @@ Use Node.js 24 LTS (the tested patch is recorded in `.node-version`) and
 with `NODE_VERSION=24.20.0`; the deployed Worker still runs on workerd.
 `pnpm preflight` runs the unit and Worker integration suites once through the
 combined coverage project.
+`pnpm test` uses the same unit/Worker project list without coverage;
+`pnpm test:unit` and `pnpm test:worker-integration` run an individual project.
+See [Testing](docs/testing.md) for focused commands, isolation rules, and coverage scope.
 
 ```bash
 pnpm dev

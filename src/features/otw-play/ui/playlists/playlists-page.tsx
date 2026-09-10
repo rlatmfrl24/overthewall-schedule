@@ -14,7 +14,7 @@ export function OtwPlayPlaylistsPage() {
     <section className="space-y-4"><h2 className="text-xl font-semibold">내 플레이리스트</h2>
       {!isSignedIn ? <p className="text-muted-foreground">로그인하고 나만의 목록을 만들어 보세요.</p> : mine.isPending ? <p role="status">내 목록 불러오는 중…</p> : mine.isError ? <Button onClick={() => void mine.refetch()}>내 목록 다시 불러오기</Button> :
         mine.data.data.length ? <div className="playlist-grid">{mine.data.data.map(playlist => <Link className="playlist-saved-card playlist-card-main" key={playlist.id} to="/play/playlists/$playlistId" params={{ playlistId: playlist.id }}>
-          <div className="playlist-art"><img src="/images/otw-play/glass-note.png" alt="" loading="lazy" /></div>
+          <div className="playlist-art"><img src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} loading="lazy" /></div>
           <div className="playlist-card-copy"><span className="playlist-card-kicker">MY PLAYLIST</span>
             <div className="playlist-card-title"><h3>{playlist.title}</h3><p className="line-clamp-2">{playlist.description || "나만의 노래 모음"}</p></div>
             <div className="playlist-card-footer"><span>가창 {playlist.itemCount}개 · 비공개</span><span>목록 보기</span></div></div></Link>)}</div> : <p className="playlist-empty">아직 저장한 플레이리스트가 없습니다.</p>}

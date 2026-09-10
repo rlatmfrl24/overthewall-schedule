@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Link, Outlet, RouterProvider } from "@tanstack/react-router";
 import { InteractionProvider } from "./interaction-provider";
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useConfirmation } from "@/shared/lib/confirmation";
 
-afterEach(cleanup);
+// jsdom has no viewport scrolling; keep the actual router/navigation behavior.
+beforeEach(() => { vi.spyOn(window, "scrollTo").mockImplementation(() => {}); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function renderApp(Page: () => React.JSX.Element) {
   const root = createRootRoute({ component: () => <InteractionProvider><Outlet /></InteractionProvider> });

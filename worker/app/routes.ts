@@ -29,6 +29,7 @@ import {
 import {
   CloudflarePublicCatalogCache,
   D1PlaylistRepository,
+  D1DefaultPlaylistSettingsRepository,
   PlaylistService,
   createPlaylistHandler,
   CloudflarePlayObservabilityReader,
@@ -196,7 +197,7 @@ const handleMembers = createHandleMembers(
 const publicCatalogCache = new CloudflarePublicCatalogCache();
 const handleOtwPlayPlaylists = createPlaylistHandler(env => {
   const reader = new D1PublicCatalogReader(env.otw_db);
-  return new PlaylistService(new PublicCatalogService(reader, publicCatalogCache), reader, new D1PlaylistRepository(env.otw_db));
+  return new PlaylistService(new PublicCatalogService(reader, publicCatalogCache), reader, new D1PlaylistRepository(env.otw_db), new D1DefaultPlaylistSettingsRepository(env.otw_db));
 });
 const resolvePlayTelemetry = (env: Parameters<typeof getDb>[0]) =>
   new CloudflarePlayTelemetryWriter(env.OTW_PLAY_ANALYTICS);
@@ -569,6 +570,17 @@ const routeDefinitions: readonly WorkerRouteDefinition[] = [
       }),
     ),
     handler: handleOtwPlayPublicCatalog,
+  },
+  {
+    id: "otw-play.admin.playlists.defaults", owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistDefaults.pattern,
+    methods: methods(get({ auth: "admin", cache: "no-store", successStatus: 200 })), handler: handleOtwPlayPlaylists,
+  },
+  {
+    id: "otw-play.admin.playlists.default", owner: "otw-play",
+    path: apiRoutes.otwPlay.admin.playlistDefault.pattern,
+    methods: methods(get({ auth: "admin", cache: "no-store", successStatus: 200 }),
+      { method: "PUT", auth: "admin", cache: "no-store", successStatus: 200 }), handler: handleOtwPlayPlaylists,
   },
   {
     id: "otw-play.playlists.defaults",
