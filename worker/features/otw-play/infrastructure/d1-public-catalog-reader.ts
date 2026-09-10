@@ -1760,7 +1760,10 @@ export class D1PublicCatalogReader
       const first = await this.readPlaylistPerformances({ q: null, member: null, relation, limit: 1, after: null });
       defaults.push({ id: relation, version: 1, title: relation === "original" ? "오리지널 모음" : "커버곡 모음",
         description: relation === "original" ? "우리의 목소리로 시작된 노래" : "익숙한 노래, 새로운 목소리",
-        imageUrl: first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
+        // Curated artwork: STARDAYS — 마음의 상호작용 (Interaction), official MV.
+        imageUrl: relation === "original"
+          ? "https://i.ytimg.com/vi/PFcPopYxft4/hqdefault.jpg"
+          : first[0]?.performance.sources[0]?.thumbnailUrl ?? null,
         songCount: Number(count?.songs ?? 0), performanceCount: Number(count?.performances ?? 0), query: { relation } });
     }
     return [...defaults, ...members.map(member => ({ id: `member-${member.uid}`, version: 1,
