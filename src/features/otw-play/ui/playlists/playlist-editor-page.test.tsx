@@ -3,8 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import React, { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/shared/api/client";
+import { PLAY_PLAYLIST_MAX_ITEMS } from "@contracts/otw-play-playlists";
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), save: vi.fn(), read: vi.fn(), invalidate: vi.fn(), saved: undefined as unknown }));
+// Exercise the UI boundary without rendering a thousand animated rows in jsdom.
+vi.mock("@contracts/otw-play-playlists", async importOriginal => ({
+  ...await importOriginal<typeof import("@contracts/otw-play-playlists")>(), PLAY_PLAYLIST_MAX_ITEMS: 3,
+}));
 const tracks = ["a", "b"].map(id => ({ song: { id: `song-${id}`, title: `노래 ${id}` }, performance: { id, participants: [], releasedAt: null } }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: { items: tracks } }), useQueryClient: () => ({ invalidateQueries: mocks.invalidate }) }));
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children }: { children: ReactNode }) => <a>{children}</a> }));
@@ -25,6 +30,16 @@ const saved = { id: "private-1", title: "저장 목록", description: "", perfor
 beforeEach(() => { vi.stubGlobal("React", React); vi.clearAllMocks(); mocks.saved = saved; mocks.invalidate.mockResolvedValue(undefined); });
 afterEach(cleanup);
 describe("playlist editor persistence", () => {
+  it("keeps oversized saved lists intact and permits saving after enough items are removed", () => {
+    mocks.saved = { ...saved, performanceIds: Array.from({ length: PLAY_PLAYLIST_MAX_ITEMS + 1 }, (_, i) => `p-${i}`) };
+    render(<OtwPlayPlaylistEditorPage playlistId="private-1" />);
+    expect(screen.getByRole("note").textContent).toContain("항목을 제거한 뒤 저장");
+    expect((screen.getByRole("button", { name: "저장" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByRole("button", { name: "추가" }).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "1번 삭제" }));
+    expect((screen.getByRole("button", { name: "저장" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("heading", { name: `현재 플레이리스트 · ${PLAY_PLAYLIST_MAX_ITEMS}개 가창` })).toBeTruthy();
+  });
   it("recovers a lost create response with the original payload before saving edited input", async () => {
     mocks.saved = undefined;
     mocks.create.mockRejectedValueOnce(new TypeError("response lost")).mockResolvedValueOnce({ data: { ...saved, version: 0 } });

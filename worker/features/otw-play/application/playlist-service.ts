@@ -1,4 +1,4 @@
-import type { PlayPlaylistWrite } from "@contracts/otw-play-playlists";
+import { PLAY_PLAYLIST_MAX_ITEMS, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import { PlaylistError, type PlaylistCatalogReader, type PlaylistRepository } from "./ports/playlist-repository";
 import { PublicCatalogService, type PublicCatalogReadContext } from "./public-catalog-service";
 import { parsePlaylistQuery, playlistCursor } from "../domain/playlist-query";
@@ -57,6 +57,7 @@ export class PlaylistService {
   }
   async write(context: PublicCatalogReadContext, owner: string, input: PlayPlaylistWrite,
     command: { id: string; expectedVersion: number } | { requestId: string }) {
+    if (input.performanceIds.length > PLAY_PLAYLIST_MAX_ITEMS) throw new PlaylistError(400, "PLAY_PLAYLIST_ITEM_LIMIT");
     const revision = await this.revision(context);
     const existing = "id" in command ? await this.read(context, owner, command.id) : null;
     if (existing && "expectedVersion" in command && existing.version !== command.expectedVersion) throw new PlaylistError(409, "PLAY_PLAYLIST_CONFLICT");

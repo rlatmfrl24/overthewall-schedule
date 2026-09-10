@@ -965,3 +965,5 @@ production WebSub 설정으로 해결되었다.
 - Musicdex: https://github.com/HolodexNet/Musicdex
 - VTuber Songlist: https://vtuber.song-db.com/
 - 과거 검토 기록: archive/music-player-member-mvp-review.md
+
+개인 플레이리스트는 최대 1,000개 가창을 저장할 수 있다. 초과 저장 요청은 개별 가창 조회 전에 거부한다. 편집 화면은 한도를 안내하고 초과 항목을 임의로 삭제하지 않으며, 사용자가 항목을 제거한 뒤 저장할 수 있다. 기본 목록 탐색과 대기열 전체 추가에는 이 개인 저장 한도를 적용하지 않는다.

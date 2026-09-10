@@ -1,4 +1,4 @@
-import type { PlayPlaylistWrite } from "@contracts/otw-play-playlists";
+import { PLAY_PLAYLIST_MAX_ITEMS, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import { OTW_PLAY_ADMIN_PREVIEW_HEADER } from "@contracts/otw-play";
 import { authenticateRequest, requireAdminUser } from "../../../platform/auth";
 import type { Env } from "../../../platform/types";
@@ -9,8 +9,10 @@ import { toPerformanceResponse } from "./public-catalog-handler";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store", Vary: "Authorization, Cookie" } });
 const invalid = () => { throw new PlaylistError(400, "PLAY_PLAYLIST_INVALID_INPUT"); };
 const identifier = (value: unknown): value is string => typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
-function ids(value: unknown): string[] {
-  if (!Array.isArray(value) || !value.every(identifier) || new Set(value).size !== value.length) return invalid();
+function ids(value: unknown, limit = PLAY_PLAYLIST_MAX_ITEMS): string[] {
+  if (!Array.isArray(value)) return invalid();
+  if (value.length > limit) throw new PlaylistError(400, "PLAY_PLAYLIST_ITEM_LIMIT");
+  if (!value.every(identifier) || new Set(value).size !== value.length) return invalid();
   return value;
 }
 function version(value: unknown): number {
@@ -47,7 +49,7 @@ export const createPlaylistHandler = (resolve: (env: Env) => PlaylistService) =>
       return json({ ...result, data: { items: result.data.items.map(toPerformanceResponse) } });
     }
     if (url.pathname === "/api/play/performances/resolve") {
-      const input = await body(request), requested = ids(input.performanceIds);
+      const input = await body(request), requested = ids(input.performanceIds, 60);
       if (requested.length > 60 || url.searchParams.size) return invalid();
       const result = await service.resolve(context, requested);
       return json({ ...result, data: { ...result.data, items: result.data.items.map(toPerformanceResponse) } });

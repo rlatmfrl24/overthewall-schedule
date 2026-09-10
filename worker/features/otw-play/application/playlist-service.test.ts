@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlayPlaylist } from "@contracts/otw-play-playlists";
+import { PLAY_PLAYLIST_MAX_ITEMS } from "@contracts/otw-play-playlists";
 import { PlaylistService } from "./playlist-service";
 import type { PublicCatalogService } from "./public-catalog-service";
 import type { PublicCatalogPerformanceDetail } from "./ports/public-catalog-reader";
@@ -17,6 +18,15 @@ const context = { allowDisabledRead: false, allowSharedCache: false };
 beforeEach(() => { vi.clearAllMocks(); readPublicState.mockResolvedValue(state); repo.read.mockResolvedValue(original); repo.save.mockResolvedValue(true);
   reader.resolvePlaylistPerformances.mockImplementation(async ids => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)); });
 describe("playlist authority and persistence", () => {
+  it.each([{ requestId: "large" }, { id: "one", expectedVersion: 2 }])("rejects oversized writes before any database work: %j", async command => {
+    const input = { ...original, performanceIds: Array.from({ length: PLAY_PLAYLIST_MAX_ITEMS + 1 }, (_, index) => `p-${index}`) };
+    await expect(service.write(context, "owner", input, command)).rejects.toMatchObject({ status: 400, code: "PLAY_PLAYLIST_ITEM_LIMIT" });
+    expect(readPublicState).not.toHaveBeenCalled();
+    expect(reader.resolvePlaylistPerformances).not.toHaveBeenCalled();
+    expect(repo.read).not.toHaveBeenCalled();
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
   it("roundtrips a page boundary with rich performance metadata without embedding it in the cursor", async () => {
     const rows = Array.from({ length: 61 }, (_, index) => ({ performance: {
       id: `performance-${index}`, releasedAt: 1000 - index,

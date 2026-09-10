@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowLeft, ArrowUp, GripVertical, X } from "lucide-react";
-import type { PlayPlaylist, PlayPlaylistWrite } from "@contracts/otw-play-playlists";
+import { PLAY_PLAYLIST_MAX_ITEMS, type PlayPlaylist, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import type { OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
 import { resolveSiteSeo } from "@contracts/site-seo";
 import { useSiteSeo } from "@/shared/seo/use-site-seo";
@@ -53,7 +53,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
   const listing = usePlaylistPerformances({ q: search || undefined, member: member ? Number(member) : undefined, relation: relation || undefined });
   const add = (item: OtwPlayPublicPerformanceResponseDto) => {
     setTrackMap(current => new Map(current).set(item.performance.id, item));
-    setDraft(current => current.performanceIds.includes(item.performance.id) ? current : { ...current, performanceIds: [...current.performanceIds, item.performance.id] });
+    setDraft(current => current.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS || current.performanceIds.includes(item.performance.id) ? current : { ...current, performanceIds: [...current.performanceIds, item.performance.id] });
   };
   const move = (id: string, target: number) => setDraft(current => {
     const next = [...current.performanceIds], index = next.indexOf(id);
@@ -61,6 +61,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
     next.splice(index, 1); next.splice(target, 0, id); return { ...current, performanceIds: next };
   });
   const save = async () => {
+    if (draft.performanceIds.length > PLAY_PLAYLIST_MAX_ITEMS) return;
     setBusy(true); setMessage("");
     const recoveringCreate = pendingCreate.current !== null;
     try {
@@ -107,8 +108,9 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
         : <Link to="/play/playlists" aria-label="뒤로 가기" title="뒤로 가기"><ArrowLeft /></Link>}</Button>
       <h1>플레이리스트 편집</h1>
       <span className="playlist-editor-private">비공개</span>
-      <Button size="sm" className="ml-auto shrink-0" disabled={busy || dragging || !draft.title.trim()} onClick={() => void save()}>{busy ? "저장 확인 중…" : "저장"}</Button>
+      <Button size="sm" className="ml-auto shrink-0" disabled={busy || dragging || !draft.title.trim() || draft.performanceIds.length > PLAY_PLAYLIST_MAX_ITEMS} onClick={() => void save()}>{busy ? "저장 확인 중…" : "저장"}</Button>
     </header>
+    {draft.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS && <p role="note" className="text-xs text-muted-foreground">개인 목록은 최대 {PLAY_PLAYLIST_MAX_ITEMS.toLocaleString()}개 가창까지 저장할 수 있습니다.{draft.performanceIds.length > PLAY_PLAYLIST_MAX_ITEMS && " 항목을 제거한 뒤 저장해 주세요."}</p>}
     <div className={message || dirty ? "playlist-editor-status" : "sr-only"}>
       <p role="status">{message || (dirty ? "저장하지 않은 변경사항이 있습니다." : "")}</p>
       {message && persisted && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void reload()}>서버 목록 다시 불러오기</Button>}
@@ -121,7 +123,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
         <div className="flex flex-wrap gap-2"><label>멤버 <select value={member} onChange={event => setMember(event.target.value)}><option value="">전체 멤버</option>{defaults.data?.data.items.filter(item => item.query.member).map(item => <option key={item.id} value={item.query.member}>{item.title}</option>)}</select></label>
           <label>분류 <select value={relation} onChange={event => setRelation(event.target.value as typeof relation)}><option value="">전체</option><option value="original">오리지널</option><option value="cover">커버</option></select></label></div>
         {listing.isPending ? <p role="status">검색 중…</p> : listing.isError ? <Button onClick={() => void listing.refetch()}>검색 다시 시도</Button> : <div className="playlist-editor-results">{listing.data.pages.flatMap(page => page.data.items).map(item =>
-          <PerformanceRow key={item.performance.id} item={item} compact><Button size="sm" variant="outline" disabled={busy || draft.performanceIds.includes(item.performance.id)} onClick={() => add(item)}>{draft.performanceIds.includes(item.performance.id) ? "추가됨" : "추가"}</Button></PerformanceRow>)}</div>}
+          <PerformanceRow key={item.performance.id} item={item} compact><Button size="sm" variant="outline" disabled={busy || draft.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS || draft.performanceIds.includes(item.performance.id)} onClick={() => add(item)}>{draft.performanceIds.includes(item.performance.id) ? "추가됨" : "추가"}</Button></PerformanceRow>)}</div>}
         {listing.isSuccess && !listing.data.pages[0].data.items.length && <p className="playlist-empty">검색 결과가 없습니다.</p>}
         {listing.hasNextPage && <Button disabled={listing.isFetching} onClick={() => void listing.fetchNextPage()}>더 보기</Button>}
       </section>

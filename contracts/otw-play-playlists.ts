@@ -1,5 +1,7 @@
 import type { OtwPlayPublicPerformanceResponseDto } from "./otw-play";
 
+export const PLAY_PLAYLIST_MAX_ITEMS = 1000;
+
 export interface PlayPerformanceQuery {
   q?: string;
   member?: number;
