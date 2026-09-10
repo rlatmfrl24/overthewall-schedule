@@ -253,7 +253,7 @@ const toSongDetail = (
   };
 };
 
-const toPerformanceResponse = (
+export const toPerformanceResponse = (
   detail: PublicCatalogPerformanceDetail,
 ): OtwPlayPublicPerformanceResponseDto => ({
   song: {

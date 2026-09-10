@@ -1878,39 +1878,21 @@ vocabulary는 enum으로 고정하지 않는다. 통합 등록·가창 생성/�
 read model은 song `tags`와 performance `tags`를 각각 반환하며, 공개 목록 hydration과
 song/performance detail 조회도 published performance의 태그만 해당 performance에 결합한다.
 
-## 22. 큐레이션 설계 방향 — 2026-09-08, 미구현
+## 22. 플레이리스트 — 2026-09-10 구현
 
-확정 요구사항은 발견의 멤버·최근 곡 사이 배치, 클릭 시 기존 큐 끝에 추가, 기본 템플릿
-이후 사용자 편집이다. 아래는 이를 구현하기 위한 권장 설계이며, 상세 결정과 작업 목록의
-단일 기준은 구현 가이드 28절이다.
+기본 모음과 회원 비공개 편집·저장의 단일 계약은 구현 가이드 28절이다. 이전 24개 대표 가창 권장안은 전체 가창 조회로 대체한다.
 
-- 기본 템플릿은 안정적 ID/version과 선정 조건·정렬·최대 수를 갖는다. 조건형 우선은
-  TBD-020의 권장안이다. 곡 metadata나 영상 URL을 템플릿의 권위 데이터로 복제하지 않는다.
-- 기존 catalog API의 필터·대표 performance·source 선택을 사용한다. frontend는
-  template → catalog 조회 → 순서 있는 실행 목록 → queue batch 추가를 조합한다.
-  API 결과의 `catalogRevision`과 public/admin-preview 구분을 보존한다.
-- 조회 중인 실행 목록과 실제 큐를 분리하고, 조회 성공/명시적 상한 도달 후 최신 큐에
-  한 번 반영한다. 조회 실패/revision 충돌은 무반영이다. 상한 도달은 전체 조회 완료가 아니다.
-- queue reducer는 performance 중복을 제거하고 기존 항목·현재 곡·순서를 보존한다.
-  player context는 track과 queue 등록 및 실제 결과 집계를 함께 소유한다. 개별 enqueue를
-  반복 호출하며 중간 상태·여러 안내를 만드는 방식으로 batch 계약을 대신하지 않는다.
-- 조건형을 코드에서 제공할 때는 새 DB/API가 필수는 아니며 템플릿 수정은 배포를 요구한다.
-  운영자가 배포 없이 고정 선곡을 수정해야 한다면 저장·관리·공개 조회를 최초 전달에 포함한다.
-- 후속 사용자 큐레이션은 template ID/version을 출처로 갖는 독립 사본을 권장한다.
-  `sessionStorage` queue와 별도 aggregate이며 performance 참조와 순서를 저장한다.
-  source는 실행 시 현재 공개 정책으로 선택하고 원본 갱신은 개인 사본에 자동 전파하지 않는다.
-- 계정 저장을 채택하면 인증된 소유자 검증, version CAS, 항목 순서 원자성, 삭제/참조 정책,
-  본인 저장 후 권위 재조회, 개인 캐시 분리를 동일 전달에서 완성한다. 테이블명과 endpoint는
-  TBD-022/023 후속 분석에서 확정하고 미사용 저장 계층을 선행 구현하지 않는다.
-- 태그/분위기 필터는 현재 public query에서 지원하지 않는다. song/performance 권위,
-  ANY/ALL, 분류 품질·인덱스·조회 비용을 검토한 뒤 contracts→Worker→frontend를 함께 확장한다.
+- 기존 곡 중심 catalog API는 유지하고, 가창 단위 cursor/resolve/default API를 추가한다. 명시적 vocal/featured_vocal·relation·기존 공개 자격과 소스 선택을 재사용한다. 페이지/묶음은 최대 60이고 동일 revision의 전체 페이지를 수집한다.
+- 준비 중 목록과 실제 큐를 분리한다. 모든 조회가 끝난 뒤 최신 큐에 performanceId 중복을 제거해 한 번 반영한다. 기존 순서·repeat/shuffle을 유지하고 전체 추가 완료 후 해당 목록의 첫 재생 가능한 곡을 처음부터 재생한다. 이미 큐에 있는 첫 곡도 선택하며 재생 가능한 곡이 없으면 재생 상태를 유지한다. 실패·revision 충돌·취소·이탈은 부분 반영하지 않는다.
+- 개인 목록은 D1 music_playlists/music_playlist_items에 소유자·제목·설명·version·원본 기본 목록 ID·가창 참조와 순서를 저장한다. 기본 조건 변경이 사본에 전파되지 않으며 영상 소스는 실행 때 해석한다. 철회 참조는 유지하지만 비공개 가창 정보는 반환하지 않는다.
+- owner/request ID 생성 멱등성, expectedVersion CAS와 write_token으로 header와 항목의 D1 batch 원자성을 보호한다. 동일 owner의 서버 재조회 이후 저장 성공을 알린다. 개인 응답 no-store·페이지 noindex·계정 전환 캐시/편집 상태 초기화를 적용한다.
+- 기존 shell/provider와 큐는 유지하지만 편집에서는 플레이어를 숨기고 재생을 비활성화한다. 비동기 영상 초기화 중 편집에 진입해도 새 영상을 로드하지 않는다. 모바일도 동일하다.
 
-공개 자격·preview·소스 선택·현재 큐의 의미를 우회하는 별도 추천 경로는 만들지 않는다.
-이 절은 아키텍처 계획 추가 기록이며 schema 변경·API 구현·운영 배포의 완료 증거가 아니다.
+로컬 migration과 실제 로그인 편집·저장·재방문, 재생 중 상세/편집 전환을 확인했다. 운영 공개 변경·원격 migration·배포는 이번 실행 범위가 아니다. 공유·공동 편집·운영자 고정 선곡은 후속이다.
 
 ## 23. 멤버 페이지 SEO와 후속 사용자 탭 — DEC-079
 
-2026-09-08 설계 인계 후 개인 프로필·Play 멤버 SEO를 구현했다. 기본 큐레이션은 다음 구현이며 서로 독립적이다.
+2026-09-08 설계 인계 후 개인 프로필·Play 멤버 SEO를 구현했다. 기본/개인 플레이리스트는 2026-09-10 별도 구현했다.
 낮은 제작 참여·pin·정정 모델을 SEO의 필수 의존성으로 도입하지 않는다.
 
 - 멤버 페이지는 기존 member/participant/published catalog로 구성하고 같은 관계에서

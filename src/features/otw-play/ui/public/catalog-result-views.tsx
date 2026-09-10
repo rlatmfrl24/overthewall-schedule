@@ -6,6 +6,8 @@ import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { OtwPlayPerformanceActions, relationLabel } from "./catalog-components";
 import { presentOtwPlayParticipants } from "./participant-presentation";
 
+import { OtwPlayParticipantAvatarGroup } from "./participant-avatar-group";
+
 type SongProps = { song: OtwPlayPublicSongSummaryDto };
 
 function Artwork({ song }: SongProps) {
@@ -19,11 +21,12 @@ function Artwork({ song }: SongProps) {
   );
 }
 
-function SongIdentity({ song }: SongProps) {
+function SongIdentity({ song, overlay = false }: SongProps & { overlay?: boolean }) {
   return (
     <div className="min-w-0">
       <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}
-        className="line-clamp-2 break-words font-semibold hover:underline" title={song.title}>
+        className={overlay ? "play-grid-detail-link line-clamp-2 break-words font-bold" : "line-clamp-2 break-words font-semibold hover:underline"}
+        aria-label={overlay ? `${song.title} 곡 상세` : undefined} title={song.title}>
         {song.title}
       </Link>
       <p className="mt-1 truncate text-xs text-muted-foreground"
@@ -40,16 +43,17 @@ function Participants({ song }: SongProps) {
   return <span className="line-clamp-2 break-words" title={names}>{names || "참여자 정보 없음"}</span>;
 }
 
-function Actions({ song }: SongProps) {
+
+function Actions({ song, grid = false }: SongProps & { grid?: boolean }) {
   return (
-    <div className="play-result-actions flex items-center gap-1">
+    <div className={`${grid ? "play-grid-actions" : "play-result-actions"} flex items-center gap-1`}>
       <OtwPlayPerformanceActions song={song} performance={song.representativePerformance} compact iconOnly className="flex-nowrap gap-1" />
-      <Button asChild variant="outline" size="icon-sm">
+      {!grid && <Button asChild variant="outline" size="icon-sm">
         <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}
           aria-label={`${song.title} 곡 상세`} title="곡 상세">
           <ArrowRight aria-hidden="true" />
         </Link>
-      </Button>
+      </Button>}
     </div>
   );
 }
@@ -58,14 +62,15 @@ export function OtwPlaySongGrid({ songs }: { songs: OtwPlayPublicSongSummaryDto[
   return (
     <div className="play-result-grid" aria-label="곡 그리드">
       {songs.map(song => (
-        <article key={song.id} className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3">
+        <article key={song.id} className="play-grid-card">
           <Artwork song={song} />
-          <SongIdentity song={song} />
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <Participants song={song} />
-            <span>{relationLabel[song.representativePerformance.relation]}</span>
+          <div className="play-grid-copy">
+            <div className="play-grid-metadata">
+            <SongIdentity song={song} overlay />
+            <OtwPlayParticipantAvatarGroup participants={song.representativePerformance.participants} />
+            </div>
+            <Actions song={song} grid />
           </div>
-          <div className="mt-auto pt-1"><Actions song={song} /></div>
         </article>
       ))}
     </div>

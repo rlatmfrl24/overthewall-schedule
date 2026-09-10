@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { OtwPlayPlaylistDiscovery } from "../playlists/playlists-page";
 import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react";
 import {
   useEffect,
@@ -17,19 +18,19 @@ import {
 } from "../../queries/use-public-catalog";
 import {
   OtwPlayPerformanceActions,
-  OtwPlayPerformanceMetadata,
-  OtwPlayPerformanceTags,
-  OtwPlaySongTags,
 } from "./catalog-components";
 import { OtwPlayQueryError } from "./public-query-state";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
-import { presentOtwPlayParticipants } from "./participant-presentation";
+import { OtwPlaySongGrid } from "./catalog-result-views";
+import { OtwPlayParticipantAvatarGroup } from "./participant-avatar-group";
+import { useOtwPlayMemberColors } from "../../queries/use-member-colors";
 import { useFeaturedCarousel } from "./use-featured-carousel";
 
 const pageItems = (query: ReturnType<typeof useOtwPlayCatalog>) =>
   query.data?.pages.flatMap((page) => page.data.items) ?? [];
 
 export function OtwPlayHomePage() {
+  const memberColors = useOtwPlayMemberColors();
   const dragStartX = useRef<number | null>(null);
   const [loadMoreTarget, setLoadMoreTarget] = useState<HTMLDivElement | null>(null);
   const latest = useOtwPlayCatalog({ limit: 24 });
@@ -183,7 +184,6 @@ export function OtwPlayHomePage() {
                   data-active={song.id === featured.id}
                   aria-hidden={song.id !== featured.id}
                 >
-                  <SongImage song={song} eager backdrop />
                   <SongImage song={song} eager natural />
                 </div>
               ))}
@@ -196,31 +196,14 @@ export function OtwPlayHomePage() {
                       <p className="play-kicker">New on OTW Play</p>
                       <div className="play-spotlight-identity">
                         <h2 id={song.id === featured.id ? "play-home-featured" : undefined}>{song.title}</h2>
-                        <p className="text-sm text-muted-foreground">
-                          {presentOtwPlayParticipants(song.representativePerformance.participants).primaryNames || "참여자 정보 없음"}
-                        </p>
-                      </div>
-                      <div className="play-spotlight-classification">
-                        {song.tags.length > 0 || song.representativePerformance.tags.length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <OtwPlaySongTags tags={song.tags} />
-                            <OtwPlayPerformanceTags tags={song.representativePerformance.tags} />
-                          </div>
-                        ) : null}
-                        <OtwPlayPerformanceMetadata performance={song.representativePerformance} />
+                        <OtwPlayParticipantAvatarGroup participants={song.representativePerformance.participants} />
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />
-                  <Button asChild variant="outline" size="sm">
-                    <Link to="/play/songs/$songSlug" params={{ songSlug: featured.slug }} search={{ performance: undefined }}>
-                      곡 상세 <ArrowRight />
-                    </Link>
-                  </Button>
-                </div>
               </div>
+              <div className="play-spotlight-footer">
+                <OtwPlayPerformanceActions song={featured} performance={featured.representativePerformance} compact />
               {featuredSongs.length > 1 ? (
                 <div className="play-carousel-controls">
                   <div className="play-carousel-dots" aria-label={(activeIndex + 1) + " / " + featuredSongs.length}>
@@ -235,14 +218,17 @@ export function OtwPlayHomePage() {
                       />
                     ))}
                   </div>
+                  <div className="play-carousel-arrows">
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="이전 추천곡" onClick={() => moveFeatured(-1)}>
                     <ArrowLeft />
                   </Button>
                   <Button type="button" variant="ghost" size="icon-sm" aria-label="다음 추천곡" onClick={() => moveFeatured(1)}>
                     <ArrowRight />
                   </Button>
+                  </div>
                 </div>
               ) : null}
+              </div>
             </div>
           </article>
         </section>
@@ -254,7 +240,7 @@ export function OtwPlayHomePage() {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-6">
-        <section aria-labelledby="play-home-members" className="min-w-0 space-y-3">
+        <section aria-labelledby="play-home-members" className="min-w-0 space-y-2">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -292,6 +278,7 @@ export function OtwPlayHomePage() {
                     width={80}
                     height={80}
                     className="size-14 rounded-full object-cover ring-1 ring-border sm:size-16"
+                    style={{ borderColor: memberColors.data?.get(member.memberUid) || "var(--border)" }}
                   />
                   <span className="line-clamp-2 min-h-8 w-full break-keep text-xs font-medium leading-4">
                     {member.oshiMark ? (
@@ -305,9 +292,11 @@ export function OtwPlayHomePage() {
           </div>
         </section>
 
+        <OtwPlayPlaylistDiscovery />
+
         {songs.length > 0 ? (
           <section aria-labelledby="play-home-latest" className="min-w-0">
-            <div className="flex items-center justify-between gap-4">
+            <div className="mb-2 flex items-center justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Songs
@@ -322,7 +311,7 @@ export function OtwPlayHomePage() {
                 </Link>
               </Button>
             </div>
-            <RecentSongCards songs={songs} />
+            <OtwPlaySongGrid songs={songs} />
             <div
               ref={setLoadMoreTarget}
               className="flex min-h-14 items-center justify-center pt-3"
@@ -395,42 +384,6 @@ function SongImage({
   ) : backdrop ? null : (
     <div className="flex aspect-video w-full items-center justify-center bg-muted text-sm text-muted-foreground">
       썸네일 없음
-    </div>
-  );
-}
-
-function RecentSongCards({ songs }: { songs: OtwPlayPublicSongSummaryDto[] }) {
-  return (
-    <div className="play-recent-grid">
-      {songs.map((song) => {
-        const performance = song.representativePerformance;
-        const participants = presentOtwPlayParticipants(performance.participants);
-        return (
-          <article key={song.id} className="play-recent-card" aria-label={song.title}>
-            <Link
-              to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }}
-              className="play-recent-artwork relative block aspect-video overflow-hidden bg-muted"
-              aria-label={`${song.title} 곡 상세`}
-            >
-              <SongImage song={song} />
-            </Link>
-            <div className="play-recent-copy">
-              <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }} className="play-song-title line-clamp-2 font-bold hover:underline">
-                {song.title}
-              </Link>
-              <p className="text-sm text-muted-foreground">{participants.primaryNames || "참여자 정보 없음"}</p>
-              <div className="flex flex-wrap gap-1.5">
-                <OtwPlaySongTags tags={song.tags} />
-                <OtwPlayPerformanceTags tags={performance.tags} />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {performance.releasedAt ? `${new Date(performance.releasedAt).toLocaleDateString("ko-KR")} 공개` : "공개일 미상"}
-              </p>
-              <OtwPlayPerformanceActions song={song} performance={performance} compact className="mt-auto pt-2" />
-            </div>
-          </article>
-        );
-      })}
     </div>
   );
 }

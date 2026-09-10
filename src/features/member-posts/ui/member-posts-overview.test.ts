@@ -251,15 +251,16 @@ describe("MemberPostsOverview", () => {
     expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  it("최신순 목록과 스크롤 내부 제목·푸터를 유지한다", () => {
+  it("최신순 카드 목록과 고정 제목·스크롤 내부 푸터를 유지한다", () => {
     const { container } = mount();
     const scroll = container.querySelector('[data-slot="content-scroll"]')!;
-    expect(scroll.contains(screen.getByRole("heading", { name: "멤버 게시글" }))).toBe(true);
+    expect(scroll.contains(screen.getByRole("heading", { name: "멤버 게시글" }))).toBe(false);
+    expect(within(screen.getByRole("banner")).getByRole("heading", { name: "멤버 게시글" })).toBeTruthy();
     expect(scroll.contains(screen.getByText("팬 운영 안내"))).toBe(true);
     expect(screen.getAllByText("팬 운영 안내")).toHaveLength(1);
     expect(screen.getByText(cafePost.title).compareDocumentPosition(screen.getByText(xPost.text)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByRole("article")).toHaveLength(2);
-    expect(screen.getAllByRole("article").every(article => !article.className.includes("shadow"))).toBe(true);
+    expect(screen.getAllByRole("article").every(article => article.className.includes("bg-card"))).toBe(true);
     expect(screen.getAllByRole("link", { name: /원문 보기/ }).every(link => link.getAttribute("target") === "_blank")).toBe(true);
   });
 
@@ -293,13 +294,13 @@ describe("MemberPostsOverview", () => {
     expect(within(members).getByRole("button", { name: "테스트 멤버2" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("출처 필터 없이 카드 아이콘으로 출처를 구분하며 멤버만 필터링한다", () => {
+  it("출처 필터 없이 카드 배지로 출처를 구분하며 멤버만 필터링한다", () => {
     const state = makeMemberPostsState();
     useMemberPostsMock.mockReturnValue(state);
     mount();
     expect(screen.queryByRole("tablist")).toBeNull();
-    expect(screen.getByRole("img", { name: "X" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "네이버 카페" })).toBeTruthy();
+    expect(screen.getByText("X", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("카페", { selector: "span" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "멤버 게시글 목록" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "테스트 멤버2" }));
     expect(screen.queryByText(xPost.text)).toBeNull();

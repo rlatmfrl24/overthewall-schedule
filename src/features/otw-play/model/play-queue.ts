@@ -20,6 +20,7 @@ export interface OtwPlayQueueState {
 export type OtwPlayQueueAction =
   | { type: "play"; item: OtwPlayQueueItem }
   | { type: "enqueue"; item: OtwPlayQueueItem }
+  | { type: "enqueue_batch"; items: OtwPlayQueueItem[] }
   | { type: "play_next"; item: OtwPlayQueueItem }
   | { type: "remove"; itemId: string }
   | { type: "move"; itemId: string; direction: -1 | 1 }
@@ -74,6 +75,14 @@ export const reduceOtwPlayQueue = (
   state: OtwPlayQueueState,
   action: OtwPlayQueueAction,
 ): OtwPlayQueueState => {
+  if (action.type === "enqueue_batch") {
+    const seen = new Set(state.items.map(item => item.performanceId));
+    const added = action.items.filter(item => {
+      if (seen.has(item.performanceId)) return false;
+      seen.add(item.performanceId); return true;
+    });
+    return added.length ? { ...state, items: [...state.items, ...added] } : state;
+  }
   if (action.type === "play") {
     const existingIndex = findMatchingPerformanceIndex(
       state.items,

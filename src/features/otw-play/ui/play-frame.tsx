@@ -15,6 +15,7 @@ import {
 const catalogTabs = [
   { label: "발견", to: "/play" as const, search: undefined },
   { label: "곡 검색", to: "/play/songs" as const, search: {} },
+  { label: "플레이리스트", to: "/play/playlists" as const, search: undefined },
 ];
 
 export function OtwPlayFrame({
@@ -71,7 +72,7 @@ function OtwPlayHeader({
           <span className="hidden sm:inline">OTW Play</span>
         </Link>
         {search ?? <span aria-hidden="true" />}
-        <div className="flex min-w-0 items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2">
           {status}
           {showCatalogTabs ? (
             <SectionNavigation label="OTW Play 탐색" className="play-tabs flex min-w-0 gap-1 overflow-x-auto">
@@ -80,7 +81,7 @@ function OtwPlayHeader({
                   key={`${tab.label}:${JSON.stringify(tab.search)}`}
                   to={tab.to}
                   search={tab.search}
-                  activeOptions={{ exact: true, includeSearch: false }}
+                  activeOptions={{ exact: tab.to !== "/play/playlists", includeSearch: false }}
                   activeProps={{
                     "aria-current": "page",
                     className: "play-tab-active",

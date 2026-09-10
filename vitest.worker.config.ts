@@ -234,6 +234,7 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
+            OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => name === "0087_burly_midnight.sql"),
             SETTINGS_MIGRATIONS: migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)
             ),

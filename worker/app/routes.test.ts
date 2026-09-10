@@ -288,6 +288,26 @@ const expectedRouteManifest: readonly WorkerRouteManifestEntry[] = [
     methods: [OTW_PLAY_DETAIL_GET],
   },
   {
+    id: "otw-play.playlists.defaults", owner: "otw-play", path: "/api/play/playlists/defaults",
+    methods: [{ method: "GET", auth: "public", cache: "no-store", successStatus: 200 }],
+  },
+  {
+    id: "otw-play.performances", owner: "otw-play", path: "/api/play/performances",
+    methods: [{ method: "GET", auth: "public", cache: "no-store", successStatus: 200 }],
+  },
+  {
+    id: "otw-play.performances.resolve", owner: "otw-play", path: "/api/play/performances/resolve",
+    methods: [{ method: "POST", auth: "public", cache: "no-store", successStatus: 200 }],
+  },
+  {
+    id: "otw-play.playlists.mine", owner: "otw-play", path: "/api/play/me/playlists",
+    methods: [{ method: "GET", auth: "member-policy", cache: "no-store", successStatus: 200 }, { method: "POST", auth: "member-policy", cache: "no-store", successStatus: 201 }],
+  },
+  {
+    id: "otw-play.playlists.owned", owner: "otw-play", path: "/api/play/me/playlists/:id",
+    methods: [{ method: "GET", auth: "member-policy", cache: "no-store", successStatus: 200 }, { method: "PUT", auth: "member-policy", cache: "no-store", successStatus: 200 }, { method: "DELETE", auth: "member-policy", cache: "no-store", successStatus: 200 }],
+  },
+  {
     id: "otw-play.performance",
     owner: "otw-play",
     path: "/api/play/performances/:id",

@@ -98,6 +98,11 @@ export const apiRoutes = {
     ),
   },
   otwPlay: {
+    playlistDefaults: staticRoute("/api/play/playlists/defaults"),
+    performances: staticRoute("/api/play/performances"),
+    resolvePerformances: staticRoute("/api/play/performances/resolve"),
+    myPlaylists: staticRoute("/api/play/me/playlists"),
+    myPlaylist: dynamicRoute("/api/play/me/playlists/:id", (id: string) => `/api/play/me/playlists/${encodeURIComponent(id)}` as const),
     config: staticRoute("/api/play/config"),
     catalog: staticRoute("/api/play/catalog"),
     facets: staticRoute("/api/play/facets"),

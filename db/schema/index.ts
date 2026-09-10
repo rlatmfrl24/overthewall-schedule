@@ -11,6 +11,36 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const musicPlaylists = sqliteTable("music_playlists", {
+  id: text().primaryKey(),
+  owner_user_id: text().notNull(),
+  title: text().notNull(),
+  description: text().notNull().default(""),
+  version: integer().notNull().default(0),
+  origin_default_id: text(),
+  create_request_id: text().notNull(),
+  create_payload: text().notNull(),
+  write_token: text().notNull(),
+  created_at: integer().notNull(),
+  updated_at: integer().notNull(),
+}, table => [
+  uniqueIndex("uq_music_playlists_owner_request").on(table.owner_user_id, table.create_request_id),
+  index("idx_music_playlists_owner_updated").on(table.owner_user_id, table.updated_at),
+  check("music_playlists_title_check", sql`length(trim(${table.title})) BETWEEN 1 AND 120`),
+  check("music_playlists_version_check", sql`${table.version} >= 0`),
+]);
+
+export const musicPlaylistItems = sqliteTable("music_playlist_items", {
+  playlist_id: text().notNull().references(() => musicPlaylists.id, { onDelete: "cascade" }),
+  // Keep the reference when a catalog performance is deleted; readback returns an unavailable slot.
+  performance_id: text().notNull(),
+  position: integer().notNull(),
+}, table => [
+  primaryKey({ columns: [table.playlist_id, table.performance_id] }),
+  uniqueIndex("uq_music_playlist_items_position").on(table.playlist_id, table.position),
+  check("music_playlist_items_position_check", sql`${table.position} >= 0`),
+]);
+
 import type {
   OtwPlayCatalogEventActorKind,
   OtwPlayChannelRole,

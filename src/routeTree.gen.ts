@@ -46,8 +46,13 @@ import { Route as PlayCatalogSongsRouteImport } from './routes/play/_catalog/son
 import { Route as PlayMemberSubmissionsRouteImport } from './routes/play/_member/submissions'
 import { Route as PlayMemberSubmitRouteImport } from './routes/play/_member/submit'
 import { Route as PlayCatalogMembersMemberCodeRouteImport } from './routes/play/_catalog/members/$memberCode'
+import { Route as PlayCatalogPlaylistsIndexRouteImport } from './routes/play/_catalog/playlists/index'
+import { Route as PlayCatalogPlaylistsNewRouteImport } from './routes/play/_catalog/playlists/new'
 import { Route as PlayCatalogSongsIndexRouteImport } from './routes/play/_catalog/songs/index'
 import { Route as PlayCatalogSongsSongSlugRouteImport } from './routes/play/_catalog/songs/$songSlug'
+import { Route as PlayCatalogPlaylistsPlaylistIdIndexRouteImport } from './routes/play/_catalog/playlists/$playlistId/index'
+import { Route as PlayCatalogPlaylistsPlaylistIdEditRouteImport } from './routes/play/_catalog/playlists/$playlistId/edit'
+import { Route as PlayCatalogPlaylistsDefaultsPlaylistKeyRouteImport } from './routes/play/_catalog/playlists/defaults/$playlistKey'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -233,6 +238,17 @@ const PlayCatalogMembersMemberCodeRoute =
     path: '/members/$memberCode',
     getParentRoute: () => PlayCatalogRoute,
   } as any)
+const PlayCatalogPlaylistsIndexRoute =
+  PlayCatalogPlaylistsIndexRouteImport.update({
+    id: '/playlists/',
+    path: '/playlists/',
+    getParentRoute: () => PlayCatalogRoute,
+  } as any)
+const PlayCatalogPlaylistsNewRoute = PlayCatalogPlaylistsNewRouteImport.update({
+  id: '/playlists/new',
+  path: '/playlists/new',
+  getParentRoute: () => PlayCatalogRoute,
+} as any)
 const PlayCatalogSongsIndexRoute = PlayCatalogSongsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -243,6 +259,24 @@ const PlayCatalogSongsSongSlugRoute =
     id: '/$songSlug',
     path: '/$songSlug',
     getParentRoute: () => PlayCatalogSongsRoute,
+  } as any)
+const PlayCatalogPlaylistsPlaylistIdIndexRoute =
+  PlayCatalogPlaylistsPlaylistIdIndexRouteImport.update({
+    id: '/playlists/$playlistId/',
+    path: '/playlists/$playlistId/',
+    getParentRoute: () => PlayCatalogRoute,
+  } as any)
+const PlayCatalogPlaylistsPlaylistIdEditRoute =
+  PlayCatalogPlaylistsPlaylistIdEditRouteImport.update({
+    id: '/playlists/$playlistId/edit',
+    path: '/playlists/$playlistId/edit',
+    getParentRoute: () => PlayCatalogRoute,
+  } as any)
+const PlayCatalogPlaylistsDefaultsPlaylistKeyRoute =
+  PlayCatalogPlaylistsDefaultsPlaylistKeyRouteImport.update({
+    id: '/playlists/defaults/$playlistKey',
+    path: '/playlists/defaults/$playlistKey',
+    getParentRoute: () => PlayCatalogRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -281,8 +315,13 @@ export interface FileRoutesByFullPath {
   '/play/submit': typeof PlayMemberSubmitRoute
   '/play/': typeof PlayCatalogIndexRoute
   '/play/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
+  '/play/playlists/new': typeof PlayCatalogPlaylistsNewRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/playlists/': typeof PlayCatalogPlaylistsIndexRoute
   '/play/songs/': typeof PlayCatalogSongsIndexRoute
+  '/play/playlists/$playlistId/edit': typeof PlayCatalogPlaylistsPlaylistIdEditRoute
+  '/play/playlists/defaults/$playlistKey': typeof PlayCatalogPlaylistsDefaultsPlaylistKeyRoute
+  '/play/playlists/$playlistId/': typeof PlayCatalogPlaylistsPlaylistIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -316,8 +355,13 @@ export interface FileRoutesByTo {
   '/play/submissions': typeof PlayMemberSubmissionsRoute
   '/play/submit': typeof PlayMemberSubmitRoute
   '/play/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
+  '/play/playlists/new': typeof PlayCatalogPlaylistsNewRoute
   '/play/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/playlists': typeof PlayCatalogPlaylistsIndexRoute
   '/play/songs': typeof PlayCatalogSongsIndexRoute
+  '/play/playlists/$playlistId/edit': typeof PlayCatalogPlaylistsPlaylistIdEditRoute
+  '/play/playlists/defaults/$playlistKey': typeof PlayCatalogPlaylistsDefaultsPlaylistKeyRoute
+  '/play/playlists/$playlistId': typeof PlayCatalogPlaylistsPlaylistIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -358,8 +402,13 @@ export interface FileRoutesById {
   '/play/_member/submit': typeof PlayMemberSubmitRoute
   '/play/_catalog/': typeof PlayCatalogIndexRoute
   '/play/_catalog/members/$memberCode': typeof PlayCatalogMembersMemberCodeRoute
+  '/play/_catalog/playlists/new': typeof PlayCatalogPlaylistsNewRoute
   '/play/_catalog/songs/$songSlug': typeof PlayCatalogSongsSongSlugRoute
+  '/play/_catalog/playlists/': typeof PlayCatalogPlaylistsIndexRoute
   '/play/_catalog/songs/': typeof PlayCatalogSongsIndexRoute
+  '/play/_catalog/playlists/$playlistId/edit': typeof PlayCatalogPlaylistsPlaylistIdEditRoute
+  '/play/_catalog/playlists/defaults/$playlistKey': typeof PlayCatalogPlaylistsDefaultsPlaylistKeyRoute
+  '/play/_catalog/playlists/$playlistId/': typeof PlayCatalogPlaylistsPlaylistIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -399,8 +448,13 @@ export interface FileRouteTypes {
     | '/play/submit'
     | '/play/'
     | '/play/members/$memberCode'
+    | '/play/playlists/new'
     | '/play/songs/$songSlug'
+    | '/play/playlists/'
     | '/play/songs/'
+    | '/play/playlists/$playlistId/edit'
+    | '/play/playlists/defaults/$playlistKey'
+    | '/play/playlists/$playlistId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -434,8 +488,13 @@ export interface FileRouteTypes {
     | '/play/submissions'
     | '/play/submit'
     | '/play/members/$memberCode'
+    | '/play/playlists/new'
     | '/play/songs/$songSlug'
+    | '/play/playlists'
     | '/play/songs'
+    | '/play/playlists/$playlistId/edit'
+    | '/play/playlists/defaults/$playlistKey'
+    | '/play/playlists/$playlistId'
   id:
     | '__root__'
     | '/'
@@ -475,8 +534,13 @@ export interface FileRouteTypes {
     | '/play/_member/submit'
     | '/play/_catalog/'
     | '/play/_catalog/members/$memberCode'
+    | '/play/_catalog/playlists/new'
     | '/play/_catalog/songs/$songSlug'
+    | '/play/_catalog/playlists/'
     | '/play/_catalog/songs/'
+    | '/play/_catalog/playlists/$playlistId/edit'
+    | '/play/_catalog/playlists/defaults/$playlistKey'
+    | '/play/_catalog/playlists/$playlistId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -755,6 +819,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlayCatalogMembersMemberCodeRouteImport
       parentRoute: typeof PlayCatalogRoute
     }
+    '/play/_catalog/playlists/': {
+      id: '/play/_catalog/playlists/'
+      path: '/playlists'
+      fullPath: '/play/playlists/'
+      preLoaderRoute: typeof PlayCatalogPlaylistsIndexRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
+    '/play/_catalog/playlists/new': {
+      id: '/play/_catalog/playlists/new'
+      path: '/playlists/new'
+      fullPath: '/play/playlists/new'
+      preLoaderRoute: typeof PlayCatalogPlaylistsNewRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
     '/play/_catalog/songs/': {
       id: '/play/_catalog/songs/'
       path: '/'
@@ -768,6 +846,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/play/songs/$songSlug'
       preLoaderRoute: typeof PlayCatalogSongsSongSlugRouteImport
       parentRoute: typeof PlayCatalogSongsRoute
+    }
+    '/play/_catalog/playlists/$playlistId/': {
+      id: '/play/_catalog/playlists/$playlistId/'
+      path: '/playlists/$playlistId'
+      fullPath: '/play/playlists/$playlistId/'
+      preLoaderRoute: typeof PlayCatalogPlaylistsPlaylistIdIndexRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
+    '/play/_catalog/playlists/$playlistId/edit': {
+      id: '/play/_catalog/playlists/$playlistId/edit'
+      path: '/playlists/$playlistId/edit'
+      fullPath: '/play/playlists/$playlistId/edit'
+      preLoaderRoute: typeof PlayCatalogPlaylistsPlaylistIdEditRouteImport
+      parentRoute: typeof PlayCatalogRoute
+    }
+    '/play/_catalog/playlists/defaults/$playlistKey': {
+      id: '/play/_catalog/playlists/defaults/$playlistKey'
+      path: '/playlists/defaults/$playlistKey'
+      fullPath: '/play/playlists/defaults/$playlistKey'
+      preLoaderRoute: typeof PlayCatalogPlaylistsDefaultsPlaylistKeyRouteImport
+      parentRoute: typeof PlayCatalogRoute
     }
   }
 }
@@ -829,12 +928,25 @@ interface PlayCatalogRouteChildren {
   PlayCatalogSongsRoute: typeof PlayCatalogSongsRouteWithChildren
   PlayCatalogIndexRoute: typeof PlayCatalogIndexRoute
   PlayCatalogMembersMemberCodeRoute: typeof PlayCatalogMembersMemberCodeRoute
+  PlayCatalogPlaylistsNewRoute: typeof PlayCatalogPlaylistsNewRoute
+  PlayCatalogPlaylistsIndexRoute: typeof PlayCatalogPlaylistsIndexRoute
+  PlayCatalogPlaylistsPlaylistIdEditRoute: typeof PlayCatalogPlaylistsPlaylistIdEditRoute
+  PlayCatalogPlaylistsDefaultsPlaylistKeyRoute: typeof PlayCatalogPlaylistsDefaultsPlaylistKeyRoute
+  PlayCatalogPlaylistsPlaylistIdIndexRoute: typeof PlayCatalogPlaylistsPlaylistIdIndexRoute
 }
 
 const PlayCatalogRouteChildren: PlayCatalogRouteChildren = {
   PlayCatalogSongsRoute: PlayCatalogSongsRouteWithChildren,
   PlayCatalogIndexRoute: PlayCatalogIndexRoute,
   PlayCatalogMembersMemberCodeRoute: PlayCatalogMembersMemberCodeRoute,
+  PlayCatalogPlaylistsNewRoute: PlayCatalogPlaylistsNewRoute,
+  PlayCatalogPlaylistsIndexRoute: PlayCatalogPlaylistsIndexRoute,
+  PlayCatalogPlaylistsPlaylistIdEditRoute:
+    PlayCatalogPlaylistsPlaylistIdEditRoute,
+  PlayCatalogPlaylistsDefaultsPlaylistKeyRoute:
+    PlayCatalogPlaylistsDefaultsPlaylistKeyRoute,
+  PlayCatalogPlaylistsPlaylistIdIndexRoute:
+    PlayCatalogPlaylistsPlaylistIdIndexRoute,
 }
 
 const PlayCatalogRouteWithChildren = PlayCatalogRoute._addFileChildren(
