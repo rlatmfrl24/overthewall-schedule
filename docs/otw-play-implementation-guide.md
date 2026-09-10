@@ -1609,12 +1609,20 @@ readback → `1/1` 순으로 진행한다.
 | POST `/api/play/performances/resolve` | 최대 60 ID의 현재 공개 정보와 소스 선택 |
 | GET/POST `/api/play/me/playlists` | 본인 목록/생성 |
 | GET/PUT/DELETE `/api/play/me/playlists/:id` | 본인 조회/전체 저장/삭제 |
+| GET `/api/play/admin/playlists/defaults` | 관리자 기본 목록 설정 조회 |
+| GET/PUT `/api/play/admin/playlists/defaults/:playlistKey` | 관리자 기본 목록 설정 조회/저장 |
 
 공개 flag와 readmodel revision을 확인하며 관리자 preview는 별도 인증한다. 개인 응답은 no-store, 페이지는 noindex이고 다른 계정의 ID는 찾을 수 없음으로 응답한다. 계정 전환·로그아웃 시 개인 Query와 편집 상태를 제거한다.
 
 `0087_burly_midnight.sql`은 Drizzle 생성 migration이다. `music_playlists`는 소유자·메타데이터·version·생성 요청 ID·원본 기본 목록 ID, `music_playlist_items`는 순서와 가창 참조를 저장한다. 가창은 tombstone 보존을 위해 논리 참조이며 영상 URL은 저장하지 않는다. 소유자/request ID, 목록/performance ID, 목록/position 고유 제약을 둔다.
 
 D1 batch의 header version CAS와 요청별 write_token 조건이 항목 삭제/삽입을 함께 보호한다. 패자는 항목도 변경하지 않으며 실패는 전체 rollback이다. 생성 재시도는 같은 request ID와 payload로 원래 목록을 반환한다. 기존 철회 항목은 유지할 수 있지만 새 비공개 ID 추가는 거부한다.
+
+생성이 확인된 이후 대표이미지 재조회가 실패하면 `503 PLAY_PLAYLIST_CREATE_UNCONFIRMED`를 반환한다. 편집기는 최초 요청 ID와 payload를 보존하여 생성 결과를 다시 확인한 뒤 수정한 초안을 저장한다. 생성 전 입력 검증의 4xx 응답과 구분하며, 일반 조회의 공개 접근·revision 정책은 유지한다.
+
+2026-09-11 대표이미지 관리: `0088_friendly_photon.sql`은 개인 목록의 nullable `representative_performance_id`와 `music_default_playlist_settings`를 추가한다. 개인 목록은 포함된 가창 중 대표곡을 선택하며, 미지정·이용 불가 시 순서상 첫 이용 가능한 썸네일로 대체한다. 철회된 지정 ID는 보존하고 편집 화면에서 교체 필요 상태를 알린다. 수정 요청의 대표곡 필드 생략은 유지, 명시적 null은 해제다. 생성 응답 유실 복구에도 최초 대표곡 payload를 유지한다.
+
+`/admin/otw-play?tab=playlists`에서 기본 목록의 이름·설명·대표곡을 편집한다. 후보는 기존 자동 선정 조건으로 페이지 탐색하며, 조건·순서는 변경하지 않는다. 기본 설정 복원은 초안에 적용한 뒤 저장한다. 설정 버전은 카탈로그 revision과 분리하고, 감사 기록과 CAS 저장을 같은 D1 batch로 처리한다. 이미지 URL은 저장하지 않으며 현재 공개·소스 정책으로 서버에서 일괄 계산한다. 특정 곡의 썸네일을 고정하는 코드는 제거했다. 88개 전체 migration chain 및 로컬 migration, 실제 로그인 저장·재방문·모바일 흐름을 확인했으며 원격 migration과 배포는 수행하지 않았다.
 
 ### 28.3 대기열과 복원
 

@@ -12,6 +12,7 @@ decision records that are no longer the source of truth into `docs/archive/`.
 | `../Design.md`                                         | Current UI design system and screen-level implementation guidance.                                 |
 | `../AGENTS.md`                                         | Agent configuration entrypoint and `.agent` / `.cursor` mirror policy.                             |
 | `architecture.md`                                      | Current system diagrams, capability flows, dependency direction, and architecture gates.           |
+| `testing.md`                                           | Current test entry points, coverage scope, isolation, and regression maintenance.                   |
 | `architecture-refactoring-verification.md`             | Completion evidence and original-purpose audit for the architecture refactor.                      |
 | `cloudflare-production-account-migration.md`           | Production-account isolation, runtime consolidation, cutover, verification, and rollback baseline. |
 | `auto-update.md`                                       | Admin-approved CHZZK VOD based schedule auto-update flow.                                          |

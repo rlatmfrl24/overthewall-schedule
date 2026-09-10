@@ -13,7 +13,7 @@ export default tseslint.config([
     "worker-configuration.d.ts",
   ]),
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,jsx}"],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -26,7 +26,7 @@ export default tseslint.config([
     },
   },
   {
-    files: ["src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx,jsx}"],
     rules: {
       "no-restricted-imports": [
         "error",

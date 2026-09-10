@@ -4,6 +4,7 @@ import {
 } from "@cloudflare/vitest-pool-workers";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
+import { testAliases, testMaxWorkers } from "./vitest.shared";
 
 const OTW_PLAY_CATALOG_MIGRATION_PREFIX = "0046_";
 const OTW_PLAY_PROPOSAL_SEARCH_MIGRATION_NAMES = [
@@ -76,12 +77,7 @@ const SCHEDULED_OPERATIONS_MIGRATION_NAME = "0068_fixed_amazoness.sql";
 const SCHEDULED_OPERATIONS_PARTIAL_MIGRATION_NAME = "0071_gifted_romulus.sql";
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      "@contracts": path.resolve(__dirname, "./contracts"),
-      "@db": path.resolve(__dirname, "./db"),
-    },
-  },
+  resolve: { alias: testAliases },
   plugins: [
     cloudflareTest(async () => {
       const migrations = await readD1Migrations(
@@ -234,7 +230,7 @@ export default defineConfig({
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["otw_db"],
           bindings: {
-            OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => name === "0087_burly_midnight.sql"),
+            OTW_PLAY_PLAYLIST_MIGRATIONS: migrations.filter(({ name }) => ["0038_misty_speed_demon.sql", "0087_burly_midnight.sql", "0088_friendly_photon.sql"].includes(name)),
             SETTINGS_MIGRATIONS: migrations.filter(({ name }) =>
               /^(0011_|0038_|0086_)/.test(name)
             ),
@@ -286,6 +282,7 @@ export default defineConfig({
   ],
   test: {
     name: "worker-integration",
+    maxWorkers: testMaxWorkers,
     include: ["worker/**/*.integration.test.ts"],
   },
 });

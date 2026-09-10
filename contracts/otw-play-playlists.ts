@@ -16,6 +16,7 @@ export interface PlayDefaultPlaylist {
   title: string;
   description: string;
   imageUrl: string | null;
+  representativePerformanceId: string | null;
   songCount: number;
   performanceCount: number;
   query: PlayPerformanceQuery;
@@ -30,6 +31,8 @@ export interface PlayPlaylistSummary {
   originDefaultId: string | null;
   createdAt: number;
   updatedAt: number;
+  representativePerformanceId: string | null;
+  imageUrl: string | null;
 }
 
 export interface PlayPlaylist extends PlayPlaylistSummary {
@@ -41,6 +44,20 @@ export interface PlayPlaylistWrite {
   description: string;
   performanceIds: string[];
   originDefaultId: string | null;
+  /** Omitted on legacy updates: preserve the current choice. Null: automatic artwork. */
+  representativePerformanceId?: string | null;
+}
+
+export interface PlayDefaultPlaylistWrite {
+  title: string | null;
+  description: string | null;
+  representativePerformanceId: string | null;
+}
+
+export interface PlayAdminDefaultPlaylist extends PlayDefaultPlaylist {
+  defaults: { title: string; description: string; imageUrl: string | null };
+  overrides: PlayDefaultPlaylistWrite;
+  representativeAvailable: boolean;
 }
 
 export interface PlayResolvedPerformances {

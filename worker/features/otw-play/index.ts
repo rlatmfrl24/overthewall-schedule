@@ -86,3 +86,5 @@ export { YouTubeOtwPlayMetadataReader } from "./infrastructure/youtube-metadata-
 
 export { readAdminReviewSummary } from "./infrastructure/admin-review-summary";
 export { readOtwPlayAutomationPaused } from "./infrastructure/play-automation-settings";
+
+export { D1DefaultPlaylistSettingsRepository } from "./infrastructure/d1-default-playlist-settings-repository";

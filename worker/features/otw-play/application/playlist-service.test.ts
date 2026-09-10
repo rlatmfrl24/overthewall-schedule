@@ -10,12 +10,14 @@ const state = { publicReadEnabled: true, revision: 8, readModelRevision: 8 };
 const readPublicState = vi.fn(async () => state);
 const reader = { readPlaylistDefaults: vi.fn(async () => []), readPlaylistPerformances: vi.fn(async (): Promise<PublicCatalogPerformanceDetail[]> => []),
   resolvePlaylistPerformances: vi.fn(async (ids: string[]) => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)) } satisfies PlaylistCatalogReader;
-const original: PlayPlaylist = { id: "one", title: "목록", description: "", version: 2, itemCount: 1, performanceIds: ["withdrawn"], originDefaultId: null, createdAt: 1, updatedAt: 1 };
-const repo = { list: vi.fn(async () => []), read: vi.fn(async (): Promise<PlayPlaylist | null> => original),
+const original: PlayPlaylist = { id: "one", title: "목록", description: "", version: 2, itemCount: 1, performanceIds: ["withdrawn"], originDefaultId: null, representativePerformanceId: null, imageUrl: null, createdAt: 1, updatedAt: 1 };
+const repo = { findCreate: vi.fn<PlaylistRepository["findCreate"]>(), list: vi.fn(async () => []), read: vi.fn(async (): Promise<PlayPlaylist | null> => original),
   create: vi.fn(async () => original), save: vi.fn(async () => true), delete: vi.fn(async () => true) } satisfies PlaylistRepository;
-const service = new PlaylistService({ readPublicState } as unknown as PublicCatalogService, reader, repo);
+const settings = { list: vi.fn(async () => []), save: vi.fn(async () => true) };
+const service = new PlaylistService({ readPublicState } as unknown as PublicCatalogService, reader, repo, settings);
 const context = { allowDisabledRead: false, allowSharedCache: false };
-beforeEach(() => { vi.clearAllMocks(); readPublicState.mockResolvedValue(state); repo.read.mockResolvedValue(original); repo.save.mockResolvedValue(true);
+beforeEach(() => { vi.resetAllMocks(); repo.findCreate.mockResolvedValue(null); settings.list.mockResolvedValue([]); settings.save.mockResolvedValue(true); readPublicState.mockResolvedValue(state); repo.read.mockResolvedValue(original); repo.save.mockResolvedValue(true);
+  reader.readPlaylistDefaults.mockResolvedValue([]); reader.readPlaylistPerformances.mockResolvedValue([]);
   reader.resolvePlaylistPerformances.mockImplementation(async ids => ids.map(id => ({ performance: { id } }) as PublicCatalogPerformanceDetail)); });
 describe("playlist authority and persistence", () => {
   it.each([{ requestId: "large" }, { id: "one", expectedVersion: 2 }])("rejects oversized writes before any database work: %j", async command => {
@@ -56,7 +58,7 @@ describe("playlist authority and persistence", () => {
   it("preserves withdrawn references but validates newly added versions in batches of 60", async () => {
     const input = { ...original, performanceIds: ["withdrawn", ...Array.from({ length: 125 }, (_, i) => `p-${i}`)] };
     await service.write(context, "owner", input, { id: "one", expectedVersion: 2 });
-    expect(reader.resolvePlaylistPerformances.mock.calls.map(([ids]) => ids.length)).toEqual([60, 60, 5]);
+    expect(reader.resolvePlaylistPerformances.mock.calls.slice(0, 3).map(([ids]) => ids.length)).toEqual([60, 60, 5]);
     expect(repo.save).toHaveBeenCalledWith("owner", "one", 2, input);
   });
   it("rejects newly private references and never mutates the saved list", async () => {

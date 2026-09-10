@@ -2,7 +2,7 @@ import { motion, Reorder, useDragControls, useReducedMotion } from "motion/react
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, GripVertical, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, GripVertical, Star, X } from "lucide-react";
 import { PLAY_PLAYLIST_MAX_ITEMS, type PlayPlaylist, type PlayPlaylistWrite } from "@contracts/otw-play-playlists";
 import type { OtwPlayPublicPerformanceResponseDto } from "@contracts/otw-play";
 import { resolveSiteSeo } from "@contracts/site-seo";
@@ -13,8 +13,10 @@ import { Input } from "@/shared/ui/input";
 import { ApiError } from "@/shared/api/client";
 import { createMyPlaylist, fetchMyPlaylist, saveMyPlaylist } from "../../api/playlists";
 import { collectPlaylist } from "../../use-cases/resolve-playlist";
-import { usePublicRequestOptions } from "../../queries/use-public-catalog";
+import { usePublicRequestOptions, useOtwPlayMembers } from "../../queries/use-public-catalog";
 import { useMyPlaylist, usePlaylistDefaults, usePlaylistOwner, usePlaylistPerformances } from "../../queries/use-playlists";
+import { performanceArtwork } from "../../model/playlist-artwork";
+import { PlaylistArtworkPreview } from "./playlist-artwork-preview";
 import { PerformanceRow, PlaylistLoginGate } from "./playlist-components";
 
 export function OtwPlayPlaylistEditorPage({ playlistId, from }: { playlistId?: string; from?: string }) {
@@ -33,6 +35,7 @@ function EditorLoader({ playlistId, from }: { playlistId?: string; from?: string
   if (from && defaults.isSuccess && !template) return <p className="playlist-empty">기본 목록을 찾을 수 없습니다.</p>;
   if ((playlistId && !saved.data) || !prepared.data) return <p className="playlist-empty" role="status">전체 가창 목록을 준비하고 있습니다…</p>;
   const initial: PlayPlaylistWrite = saved.data?.data ?? { title: template ? `${template.title} — 내 목록` : "새 플레이리스트", description: "",
+    representativePerformanceId: template?.representativePerformanceId && prepared.data.items.some(item => item.performance.id === template.representativePerformanceId) ? template.representativePerformanceId : null,
     originDefaultId: template?.id ?? null, performanceIds: prepared.data.items.map(item => item.performance.id) };
   return <PlaylistEditor initial={initial} saved={saved.data?.data} tracks={prepared.data.items} />;
 }
@@ -44,12 +47,15 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
   const [q, setQ] = useState(""), [search, setSearch] = useState("");
   const [member, setMember] = useState(""), [relation, setRelation] = useState<"" | "original" | "cover">("");
   const [tab, setTab] = useState("search"), [busy, setBusy] = useState(false), [message, setMessage] = useState("");
+  const representative = trackMap.get(draft.representativePerformanceId ?? "");
+  const automatic = draft.performanceIds.map(id => trackMap.get(id)).find(item => performanceArtwork(item));
+  const artwork = performanceArtwork(representative) ?? performanceArtwork(automatic);
   const dirty = JSON.stringify(draft) !== baseline;
   const discard = useUnsavedChanges(dirty);
   const requestId = useRef(crypto.randomUUID());
   const pendingCreate = useRef<PlayPlaylistWrite | null>(null);
   const [dragging, setDragging] = useState(false);
-  const request = usePublicRequestOptions(), client = useQueryClient(), defaults = usePlaylistDefaults();
+  const request = usePublicRequestOptions(), client = useQueryClient(), members = useOtwPlayMembers();
   const listing = usePlaylistPerformances({ q: search || undefined, member: member ? Number(member) : undefined, relation: relation || undefined });
   const add = (item: OtwPlayPublicPerformanceResponseDto) => {
     setTrackMap(current => new Map(current).set(item.performance.id, item));
@@ -81,7 +87,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
       }
       setPersisted(response.data);
       const readback = await fetchMyPlaylist(response.data.id, request);
-      const next: PlayPlaylistWrite = { title: readback.data.title, description: readback.data.description, originDefaultId: readback.data.originDefaultId, performanceIds: readback.data.performanceIds };
+      const next: PlayPlaylistWrite = { title: readback.data.title, description: readback.data.description, representativePerformanceId: readback.data.representativePerformanceId, originDefaultId: readback.data.originDefaultId, performanceIds: readback.data.performanceIds };
       setPersisted(readback.data); setDraft(next); setBaseline(JSON.stringify(next));
       await client.invalidateQueries({ queryKey: ["otw-play-private"] }); setMessage("저장했습니다.");
     } catch (error) {
@@ -97,7 +103,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
     try {
       const response = await fetchMyPlaylist(persisted.id, request);
       const resolved = await collectPlaylist(response.data.performanceIds, request);
-      const next: PlayPlaylistWrite = { title: response.data.title, description: response.data.description, originDefaultId: response.data.originDefaultId, performanceIds: response.data.performanceIds };
+      const next: PlayPlaylistWrite = { title: response.data.title, description: response.data.description, representativePerformanceId: response.data.representativePerformanceId, originDefaultId: response.data.originDefaultId, performanceIds: response.data.performanceIds };
       setPersisted(response.data); setDraft(next); setBaseline(JSON.stringify(next)); setTrackMap(new Map(resolved.items.map(item => [item.performance.id, item]))); setMessage("서버 목록을 불러왔습니다.");
     } catch { setMessage("서버 목록을 불러오지 못했습니다."); } finally { setBusy(false); }
   };
@@ -120,7 +126,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
     <div className="playlist-editor-columns" aria-busy={busy}>
       <section className="playlist-editor-search" aria-label="카탈로그에서 찾기" tabIndex={0} data-active={tab === "search"}><h2 className="text-lg font-semibold">카탈로그에서 찾기</h2>
         <form onSubmit={event => { event.preventDefault(); setSearch(q.trim()); }} className="flex gap-2"><Input aria-label="플레이리스트 곡 검색" value={q} maxLength={80} onChange={event => setQ(event.target.value)} placeholder="곡명 · 원곡 가수 · 참여자" /><Button type="submit">검색</Button></form>
-        <div className="flex flex-wrap gap-2"><label>멤버 <select value={member} onChange={event => setMember(event.target.value)}><option value="">전체 멤버</option>{defaults.data?.data.items.filter(item => item.query.member).map(item => <option key={item.id} value={item.query.member}>{item.title}</option>)}</select></label>
+        <div className="flex flex-wrap gap-2"><label>멤버 <select value={member} onChange={event => setMember(event.target.value)}><option value="">전체 멤버</option>{members.data?.data.members.map(item => <option key={item.uid} value={item.uid}>{item.name}</option>)}</select></label>
           <label>분류 <select value={relation} onChange={event => setRelation(event.target.value as typeof relation)}><option value="">전체</option><option value="original">오리지널</option><option value="cover">커버</option></select></label></div>
         {listing.isPending ? <p role="status">검색 중…</p> : listing.isError ? <Button onClick={() => void listing.refetch()}>검색 다시 시도</Button> : <div className="playlist-editor-results">{listing.data.pages.flatMap(page => page.data.items).map(item =>
           <PerformanceRow key={item.performance.id} item={item} compact><Button size="sm" variant="outline" disabled={busy || draft.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS || draft.performanceIds.includes(item.performance.id)} onClick={() => add(item)}>{draft.performanceIds.includes(item.performance.id) ? "추가됨" : "추가"}</Button></PerformanceRow>)}</div>}
@@ -130,15 +136,22 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
       <motion.section layoutScroll className="playlist-editor-list" aria-label="현재 플레이리스트" tabIndex={0} data-active={tab === "list"}><h2 className="text-lg font-semibold">현재 플레이리스트 · {draft.performanceIds.length}개 가창</h2>
         <label className="grid gap-1">제목<Input value={draft.title} maxLength={120} disabled={busy} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
         <label className="grid gap-1">설명<textarea className="rounded-md border bg-background p-2" value={draft.description} maxLength={2000} disabled={busy} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
+        <PlaylistArtworkPreview item={performanceArtwork(representative) ? representative : automatic} imageUrl={artwork}
+          unavailable={Boolean(draft.representativePerformanceId && !performanceArtwork(representative))}>
+        {draft.representativePerformanceId && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDraft(current => ({ ...current, representativePerformanceId: null }))}>자동 이미지 사용</Button>}
+        </PlaylistArtworkPreview>
         <Reorder.Group as="ol" axis="y" values={draft.performanceIds} onReorder={performanceIds => {
           if (!busy) setDraft(current => ({ ...current, performanceIds }));
         }}>{draft.performanceIds.map((id, index) => { const item = trackMap.get(id); return <PlaylistReorderItem key={id} id={id} index={index} disabled={busy} onDraggingChange={setDragging}>
           {handle => <>
-          <div className="playlist-edit-item-info">{handle}<span className="shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={item?.song.title}>{item?.song.title ?? "이용할 수 없는 항목"}</p>
+          <div className="playlist-edit-item-info">{handle}<span className="shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium" title={item?.song.title}>{draft.representativePerformanceId === id && <span className="mr-1 text-xs text-primary">대표곡</span>}{item?.song.title ?? "이용할 수 없는 항목"}</p>
             {item && <p className="truncate text-xs text-muted-foreground" title={item.performance.participants.map(p => p.displayName).join(" · ")}>{item.performance.participants.map(p => p.displayName).join(" · ")} · {item.performance.releasedAt?.slice(0, 10)}</p>}</div></div>
-          <div className="playlist-edit-item-actions"><Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 위로 이동`} disabled={busy || index === 0} onClick={() => move(id, index - 1)}><ArrowUp /></Button>
+          <div className="playlist-edit-item-actions"><Button size="icon-sm" variant="ghost" title={draft.representativePerformanceId === id ? "대표곡" : "대표곡 지정"}
+            aria-label={`${index + 1}번 대표곡 지정`} aria-pressed={draft.representativePerformanceId === id}
+            disabled={busy || !performanceArtwork(item)} onClick={() => setDraft(current => ({ ...current, representativePerformanceId: id }))}>
+              <Star className={draft.representativePerformanceId === id ? "fill-current text-primary" : ""} /><span className="sr-only">{draft.representativePerformanceId === id ? "대표곡" : "대표곡 지정"}</span></Button><Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 위로 이동`} disabled={busy || index === 0} onClick={() => move(id, index - 1)}><ArrowUp /></Button>
             <Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 아래로 이동`} disabled={busy || index === draft.performanceIds.length - 1} onClick={() => move(id, index + 1)}><ArrowDown /></Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 삭제`} disabled={busy} onClick={() => setDraft(current => ({ ...current, performanceIds: current.performanceIds.filter(value => value !== id) }))}><X /></Button></div></>}
+            <Button size="icon-sm" variant="ghost" aria-label={`${index + 1}번 삭제`} disabled={busy} onClick={() => setDraft(current => ({ ...current, representativePerformanceId: current.representativePerformanceId === id ? null : current.representativePerformanceId, performanceIds: current.performanceIds.filter(value => value !== id) }))}><X /></Button></div></>}
         </PlaylistReorderItem>; })}</Reorder.Group>
         {!draft.performanceIds.length && <p className="playlist-empty">왼쪽에서 노래를 찾아 추가해 주세요.</p>}
       </motion.section>

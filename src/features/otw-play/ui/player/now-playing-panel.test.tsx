@@ -298,6 +298,7 @@ describe("OTW Play player and queue rail", () => {
     const identityActions = screen.getByTestId("otw-play-identity-actions");
     expect(screen.queryByTestId("otw-play-track-metadata")).toBeNull();
     const progress = screen.getByTestId("otw-play-playback-progress");
+    expect(progress.querySelector('.elastic-slider')).toBeNull();
     const transportControls = screen.getByTestId("otw-play-transport-controls");
     expect(title.compareDocumentPosition(identityActions)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -315,13 +316,20 @@ describe("OTW Play player and queue rail", () => {
       name: "재생 볼륨",
     });
     expect(volumeSlider.getAttribute("aria-orientation")).toBe("horizontal");
-    expect(volumeSlider.className).toContain("flex-1");
+    expect(volumeSlider.closest('.elastic-slider')).not.toBeNull();
+    expect(volumeSlider.getAttribute("aria-valuetext")).toBe("100%");
+    expect(volumeControls.querySelectorAll('.elastic-slider-icon')).toHaveLength(2);
+    const volumeValue = volumeControls.querySelector('output');
+    expect(volumeValue?.textContent).toBe('100');
+    expect(volumeValue?.parentElement).toBe(volumeSlider.parentElement);
+    expect(volumeValue?.getAttribute('for')).toBe(volumeSlider.id);
     fireEvent.change(volumeSlider, { target: { value: "42" } });
     expect(actions.setVolume).toHaveBeenCalledWith(42);
     fireEvent.click(
       within(volumeControls).getByRole("button", { name: "음소거" }),
     );
     expect(actions.toggleMuted).toHaveBeenCalledOnce();
+    expect(within(volumeControls).getByRole('button', { name: '음소거' }).closest('.elastic-slider-icon')).not.toBeNull();
     expect(screen.getByRole("slider", { name: "재생 볼륨" })).toBeTruthy();
     expect(
       within(identityActions).getByRole("link", { name: "YouTube에서 열기" }),

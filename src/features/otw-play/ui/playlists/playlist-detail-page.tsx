@@ -22,7 +22,7 @@ export function OtwPlayDefaultPlaylistPage({ playlistKey }: { playlistKey: strin
   const actions = usePlaylistActions();
   if (!playlist) return <div className="playlist-page"><p>{defaults.isPending ? "목록 불러오는 중…" : defaults.isError ? "목록을 불러오지 못했습니다." : "플레이리스트를 찾을 수 없습니다."}</p>
     {defaults.isError && <Button onClick={() => void defaults.refetch()}>다시 시도</Button>}<PlaylistBackButton /></div>;
-  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading"><div><p>기본 플레이리스트</p><h1>{playlist.title}</h1>
+  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading"><img className="h-16 w-24 shrink-0 rounded object-cover" src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /><div><p>기본 플레이리스트</p><h1>{playlist.title}</h1><p>{playlist.description}</p>
     <p>{playlist.songCount}곡 · 가창 {playlist.performanceCount}개 · 최신순</p></div><div className="flex flex-wrap gap-2">
       <Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.query, true)}>전체 대기열에 추가</Button>
       <Button variant="outline" asChild><Link to="/play/playlists/new" search={{ from: playlist.id }}>내 목록으로 편집</Link></Button></div></header>
@@ -54,7 +54,7 @@ function PersonalPlaylist({ playlistId }: { playlistId: string }) {
   };
   if (!playlist) return <div className="playlist-page"><p>{saved.isPending ? "내 목록 불러오는 중…" : "목록을 찾을 수 없거나 접근할 수 없습니다."}</p>{saved.isError && <Button onClick={() => void saved.refetch()}>다시 시도</Button>}<PlaylistBackButton /></div>;
   const byId = new Map(resolved.data?.items.map(item => [item.performance.id, item]));
-  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading"><div><p>나만 볼 수 있는 플레이리스트</p><h1>{playlist.title}</h1><p>{playlist.description}</p><p>가창 {playlist.itemCount}개</p></div>
+  return <div className="playlist-page playlist-detail"><PlaylistBackButton /><header className="playlist-heading"><img className="h-16 w-24 shrink-0 rounded object-cover" src={playlist.imageUrl || "/images/otw-play/glass-note.png"} alt="" onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /><div><p>나만 볼 수 있는 플레이리스트</p><h1>{playlist.title}</h1><p>{playlist.description}</p><p>가창 {playlist.itemCount}개</p></div>
     <div className="flex flex-wrap gap-2"><Button disabled={actions.pending.includes(playlist.id)} onClick={() => actions.add(playlist.id, playlist.performanceIds, true)}>대기열에 추가</Button>
       <Button asChild variant="outline"><Link to="/play/playlists/$playlistId/edit" params={{ playlistId }}>편집</Link></Button>
       <Button variant="ghost" disabled={deleting} onClick={() => void remove()}>삭제</Button></div></header>

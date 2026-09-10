@@ -24,7 +24,7 @@ export function PlaylistFeedback({ actions }: { actions: ReturnType<typeof usePl
 }
 export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylist }) {
   const member = !playlist.query.relation;
-  const title = member ? playlist.title.replace(/ 가창곡$/, "") : playlist.title;
+  const title = playlist.title;
   return <article className={`playlist-card ${playlist.query.relation ? "playlist-card-featured" : ""}`}>
     <Link className="playlist-card-main" to="/play/playlists/defaults/$playlistKey"
       params={{ playlistKey: playlist.id }} aria-label={`${playlist.title} 목록 보기`}>
@@ -32,7 +32,7 @@ export function DefaultPlaylistCard({ playlist }: { playlist: PlayDefaultPlaylis
         onError={event => { if (!event.currentTarget.src.endsWith("/images/otw-play/glass-note.png")) event.currentTarget.src = "/images/otw-play/glass-note.png"; }} /></div>
       <div className="playlist-card-copy">
         <span className="playlist-card-kicker">{member ? "멤버 가창곡" : "OTW PLAY COLLECTION"}</span>
-        <div className="playlist-card-title"><h3>{title}</h3>{!member && <p>{playlist.description}</p>}</div>
+        <div className="playlist-card-title"><h3>{title}</h3><p>{playlist.description}</p></div>
         <div className="playlist-card-footer"><span>{playlist.songCount}곡 · 가창 {playlist.performanceCount}개</span>
           <strong><span className="sr-only">목록 보기</span><ArrowUpRight aria-hidden="true" className="size-5" /></strong></div>
       </div>

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { RootNotFound } from "./root-not-found";
 
-afterEach(cleanup);
+beforeEach(() => { vi.spyOn(window, "scrollTo").mockImplementation(() => {}); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 it("중첩 경로의 404에서도 공통 안내와 홈 복귀를 제공한다", async () => {
   const root = createRootRoute({ component: Outlet });

@@ -10,7 +10,7 @@ vi.mock("../player/play-player-context", () => ({ useOtwPlayPlayer: () => ({ enq
 vi.mock("@clerk/clerk-react", () => ({ useUser: () => ({ user: mocks.owner ? { id: mocks.owner } : null }) }));
 import { usePlaylistActions, usePlaylistOwner } from "./use-playlists";
 const empty = { items: [], unavailableIds: [] };
-beforeEach(() => { vi.clearAllMocks(); mocks.owner = "first"; });
+beforeEach(() => { vi.resetAllMocks(); mocks.owner = "first"; mocks.append.mockReturnValue("추가 완료"); });
 afterEach(cleanup);
 describe("playlist asynchronous actions", () => {
   it("passes the explicit playback request only after the whole playlist resolves", async () => {

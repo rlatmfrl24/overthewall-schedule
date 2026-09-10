@@ -1,4 +1,7 @@
 export const REQUIRED_D1_COLUMNS = {
+  music_playlists: ["id", "owner_user_id", "title", "description", "version", "representative_performance_id", "origin_default_id", "create_request_id", "create_payload", "write_token", "created_at", "updated_at"],
+  music_playlist_items: ["playlist_id", "performance_id", "position"],
+  music_default_playlist_settings: ["playlist_key", "title", "description", "representative_performance_id", "version", "updated_by", "updated_at", "write_token"],
   pending_schedules: ["id", "vod_started_at", "vod_duration_seconds", "vod_thumbnail_url", "processed_reset_at"],
   members: ["uid", "code", "name", "youtube_channel_id", "is_deprecated"],
   ddays: ["id", "title", "date", "type", "created_at"],

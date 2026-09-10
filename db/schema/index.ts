@@ -18,6 +18,7 @@ export const musicPlaylists = sqliteTable("music_playlists", {
   description: text().notNull().default(""),
   version: integer().notNull().default(0),
   origin_default_id: text(),
+  representative_performance_id: text(),
   create_request_id: text().notNull(),
   create_payload: text().notNull(),
   write_token: text().notNull(),
@@ -232,6 +233,21 @@ export const settings = sqliteTable("settings", {
   value: text(),
   updated_at: numeric("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const musicDefaultPlaylistSettings = sqliteTable("music_default_playlist_settings", {
+  playlist_key: text().primaryKey(),
+  title: text(),
+  description: text(),
+  representative_performance_id: text(),
+  version: integer().notNull().default(1),
+  updated_by: text().notNull(),
+  updated_at: integer().notNull(),
+  write_token: text().notNull(),
+}, table => [
+  check("music_default_playlist_title_check", sql`${table.title} IS NULL OR length(trim(${table.title})) BETWEEN 1 AND 120`),
+  check("music_default_playlist_description_check", sql`${table.description} IS NULL OR length(${table.description}) <= 2000`),
+  check("music_default_playlist_version_check", sql`${table.version} >= 1`),
+]);
 
 export type Setting = typeof settings.$inferSelect;
 export type NewSetting = typeof settings.$inferInsert;
