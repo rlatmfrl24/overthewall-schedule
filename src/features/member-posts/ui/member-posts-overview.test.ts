@@ -8,7 +8,7 @@ import {
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   MemberPostSourcePolicy,
   UnifiedMemberPost,
@@ -216,9 +216,10 @@ const makeMemberPostsState = ({
   xPolicy?: MemberPostSourcePolicy;
   cafePolicy?: MemberPostSourcePolicy;
 } = {}) => {
-  const reload = vi.fn();
+  const reload = vi.fn().mockResolvedValue(undefined);
   return {
     posts: makeUnifiedPosts(xPosts, cafePosts),
+    feedUpdatedAt: "2026-05-28T01:05:00Z",
     updatedAt: "2026-05-28T01:05:00Z",
     loading: false,
     error: null,
@@ -229,235 +230,125 @@ const makeMemberPostsState = ({
   };
 };
 
+const replyPost: XPostViewModel = { ...xPost, reply: { postId: "10", conversationId: "9", targetUsername: "OTW_MEMBER", post: null } };
+const mount = (props = { loadX: true, loadCafe: true }) => renderWithQueryClient(createElement(MemberPostsOverview, { ...props, footer: createElement("footer", null, "팬 운영 안내") }));
+
 describe("MemberPostsOverview", () => {
-  afterEach(() => {
-    cleanup();
-    useMemberPostsMock.mockReset();
-  });
-
-  it("aggregate 피드에서도 기존 멤버 정보로 답글 대상 이름과 직접 링크를 표시한다", () => {
-    useMemberPostsMock.mockReturnValue(makeMemberPostsState({ xPosts: [{ ...xPost,
-      reply: { postId: "10", conversationId: "9", targetUsername: "OTW_MEMBER", post: null } }], cafePosts: [] }));
-    renderWithQueryClient(createElement(MemberPostsOverview, { loadX: true, loadCafe: false }));
-    expect(screen.getByText("테스트 멤버님의 트윗에 대한 답글")).toBeTruthy();
-    expect(screen.queryByText(/원문 준비 중/)).toBeNull();
-    expect(screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href"))
-      .toBe("https://x.com/i/web/status/10");
-  });
-
-  it("X 게시글과 네이버 카페 게시글을 한 타임라인에 최신순으로 표시한다", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", { getItem: vi.fn(() => "false"), setItem: vi.fn() });
     useMemberPostsMock.mockReturnValue(makeMemberPostsState());
+  });
+  afterEach(() => { cleanup(); useMemberPostsMock.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
-    );
-
-    expect(screen.getByText("멤버 게시글")).toBeTruthy();
-    expect(screen.getByLabelText(/X 마지막 업데이트/)).toBeTruthy();
-    expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "새로고침" })).toBeNull();
+  it("답글 전환과 이전 저장값을 사용하지 않고 답글을 표시한다", () => {
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState({ xPosts: [replyPost], cafePosts: [] }));
+    mount();
     expect(screen.getByText(xPost.text)).toBeTruthy();
-    expect(screen.getByText(cafePost.title)).toBeTruthy();
-    expect(screen.getByLabelText("네이버 카페 게시글")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: /X에서 보기/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: /카페에서 보기/ })).toBeNull();
-    expect(
-      screen.getByRole("link", {
-        name: "테스트 멤버 X 원문 게시글 열기",
-      }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("link", {
-        name: "테스트 멤버2 네이버 카페 원문 게시글 열기",
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText("피드 상태")).toBeNull();
-    expect(screen.queryByText("등록된 소스")).toBeNull();
-    expect(screen.getByTestId("member-post-filter-top").className).toContain(
-      "lg:hidden",
-    );
-    expect(
-      screen.getByTestId("member-post-filter-sidebar").className,
-    ).toContain("lg:block");
-    expect(screen.getByTestId("member-post-content-layout").className).toContain(
-      "lg:grid-cols-[220px_minmax(0,1fr)]",
-    );
-    const topFilterControls =
-      screen.getByTestId("member-post-filter-top").firstElementChild;
-    expect(topFilterControls?.className).toContain("flex-wrap");
-    expect(topFilterControls?.className).not.toContain("overflow-x-auto");
-    const feedList = screen.getAllByTestId("member-post-feed-list")[0];
-    expect(feedList.className).toContain("flex-col");
-    expect(feedList.className).not.toContain("grid-cols");
-    expect(
-      within(
-        within(screen.getByTestId("member-post-filter-top")).getByRole(
-          "button",
-          { name: "테스트 멤버" },
-        ),
-      ).queryByText("X"),
-    ).toBeNull();
-    expect(
-      within(
-        within(screen.getByTestId("member-post-filter-top")).getByRole(
-          "button",
-          { name: "테스트 멤버2" },
-        ),
-      ).queryByText("카페"),
-    ).toBeNull();
-    expect(
-      screen.getByText(cafePost.title).compareDocumentPosition(
-        screen.getByText(xPost.text),
-      ) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(screen.getByText("테스트 멤버에게 답글")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "답글 원문 열기" }).getAttribute("href")).toBe("https://x.com/i/web/status/10");
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(localStorage.getItem).not.toHaveBeenCalled();
+    expect(localStorage.setItem).not.toHaveBeenCalled();
   });
 
-  it("카드 클릭은 원문을 열고 X 본문 내부 링크 클릭은 내부 링크로 유지한다", () => {
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockImplementation(() => null);
-    const linkedXPost: XPostViewModel = {
-      ...xPost,
-      text: "본문 링크 https://example.com/inside",
-      links: [
-        {
-          url: "https://example.com/inside",
-          expandedUrl: "https://example.com/inside",
-          displayUrl: "example.com/inside",
-          previewStatus: "skipped",
-        },
-      ],
-    };
-    useMemberPostsMock.mockReturnValue(
-      makeMemberPostsState({ xPosts: [linkedXPost], cafePosts: [] }),
-    );
-
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
-    );
-
-    fireEvent.click(
-      screen.getByRole("link", {
-        name: "테스트 멤버 X 원문 게시글 열기",
-      }),
-    );
-
-    expect(openSpy).toHaveBeenCalledWith(
-      linkedXPost.url,
-      "_blank",
-      "noopener,noreferrer",
-    );
-
-    openSpy.mockClear();
-    const innerLink = screen.getByRole("link", {
-      name: "https://example.com/inside",
-    });
-    expect(innerLink.getAttribute("href")).toBe("https://example.com/inside");
-
-    fireEvent.click(innerLink);
-
-    expect(openSpy).not.toHaveBeenCalled();
-    openSpy.mockRestore();
+  it("최신순 목록과 스크롤 내부 제목·푸터를 유지한다", () => {
+    const { container } = mount();
+    const scroll = container.querySelector('[data-slot="content-scroll"]')!;
+    expect(scroll.contains(screen.getByRole("heading", { name: "멤버 게시글" }))).toBe(true);
+    expect(scroll.contains(screen.getByText("팬 운영 안내"))).toBe(true);
+    expect(screen.getAllByText("팬 운영 안내")).toHaveLength(1);
+    expect(screen.getByText(cafePost.title).compareDocumentPosition(screen.getByText(xPost.text)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.getAllByRole("article").every(article => !article.className.includes("shadow"))).toBe(true);
+    expect(screen.getAllByRole("link", { name: /원문 보기/ }).every(link => link.getAttribute("target") === "_blank")).toBe(true);
   });
 
-  it("카페 게시글 카드 클릭은 카페 원문을 연다", () => {
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockImplementation(() => null);
-    useMemberPostsMock.mockReturnValue(
-      makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
-    );
-
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
-    );
-
-    fireEvent.click(
-      screen.getByRole("link", {
-        name: "테스트 멤버2 네이버 카페 원문 게시글 열기",
-      }),
-    );
-
-    expect(openSpy).toHaveBeenCalledWith(
-      cafePost.url,
-      "_blank",
-      "noopener,noreferrer",
-    );
-    openSpy.mockRestore();
+  it("날짜·초·KST를 포함한 실제 피드 데이터 갱신 시각을 표시한다", () => {
+    const { container } = mount();
+    expect(screen.getByText("피드 업데이트")).toBeTruthy();
+    expect(screen.getByText(/2026\. 05\. 28\. 10:05:00 KST/)).toBeTruthy();
+    expect(container.querySelector('time[datetime="2026-05-28T01:05:00.000Z"]')).toBeTruthy();
+    expect(screen.getByTitle(/마지막으로 수집·갱신된 시각/)).toBeTruthy();
   });
 
-  it("멤버 칩은 단일 선택으로 X와 카페 게시글을 함께 필터링한다", () => {
-    useMemberPostsMock.mockReturnValue(makeMemberPostsState());
+  it("본문과 빈 공간은 이동하지 않고 본문 링크를 보존한다", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState({ xPosts: [{ ...xPost, text: "본문 https://example.com/inside" }] }));
+    mount();
+    for (const article of screen.getAllByRole("article")) fireEvent.click(article);
+    fireEvent.click(screen.getByText(cafePost.summary));
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "https://example.com/inside" }).getAttribute("href")).toBe("https://example.com/inside");
+  });
 
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: true, loadCafe: true }),
-    );
-
-    const topFilter = screen.getByTestId("member-post-filter-top");
-
-    fireEvent.click(
-      within(topFilter).getByRole("button", { name: "테스트 멤버2" }),
-    );
-
+  it("모든 멤버를 Dialog나 숨김 없이 단일 선택 목록에 표시한다", () => {
+    mount();
+    const members = screen.getByRole("navigation", { name: "멤버 선택" });
+    expect(within(members).getAllByRole("button")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "선택 멤버 변경" })).toBeNull();
+    expect(screen.getByTestId("feed-toolbar").contains(members)).toBe(true);
+    fireEvent.click(within(members).getByRole("button", { name: "테스트 멤버2" }));
     expect(screen.queryByText(xPost.text)).toBeNull();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
-
-    fireEvent.click(
-      within(topFilter).getByRole("button", { name: "테스트 멤버" }),
-    );
-
-    expect(screen.getByText(xPost.text)).toBeTruthy();
-    expect(screen.queryByText(cafePost.title)).toBeNull();
+    expect(within(members).getByRole("button", { name: "테스트 멤버2" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("접근 가능한 소스만 로드한다", () => {
-    useMemberPostsMock.mockReturnValue(
-      makeMemberPostsState({ xPosts: [], cafePosts: [cafePost] }),
-    );
-
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
-    );
-
-    expect(useMemberPostsMock).toHaveBeenCalledWith({
-      includeX: false,
-      includeNaverCafe: true,
-      maxResults: 10,
-      size: 10,
-    });
-    expect(screen.queryByLabelText(/X 마지막 업데이트/)).toBeNull();
-    expect(screen.getByLabelText(/네이버 카페 마지막 업데이트/)).toBeTruthy();
-    expect(screen.queryByText("X 최신 게시글입니다.")).toBeNull();
+  it("출처 필터 없이 카드 아이콘으로 출처를 구분하며 멤버만 필터링한다", () => {
+    const state = makeMemberPostsState();
+    useMemberPostsMock.mockReturnValue(state);
+    mount();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("img", { name: "X" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "네이버 카페" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "멤버 게시글 목록" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "테스트 멤버2" }));
+    expect(screen.queryByText(xPost.text)).toBeNull();
     expect(screen.getByText(cafePost.title)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /초기화/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "전체 멤버" }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(state.reload).not.toHaveBeenCalled();
+    expect(useMemberPostsMock.mock.calls.every(([args]) => JSON.stringify(args) === JSON.stringify({ includeX: true, includeNaverCafe: true, maxResults: 10, size: 10 }))).toBe(true);
   });
 
-  it("정책상 표시할 수 없는 소스는 빈 소스가 아니라 정책 안내로 표시한다", () => {
-    useMemberPostsMock.mockReturnValue(
-      makeMemberPostsState({
-        xPosts: [],
-        cafePosts: [],
-        xPolicy: makePolicy("x", {
-          requested: false,
-          accessible: false,
-          status: "not_requested",
-        }),
-        cafePolicy: makePolicy("naver-cafe", {
-          enabled: false,
-          accessible: false,
-          status: "disabled",
-        }),
-      }),
-    );
+  it("출처 지연·오류 상세를 표시하지 않고 기존 글을 유지한다", () => {
+    const state = { ...makeMemberPostsState(), error: "조회 실패 상세 사유" };
+    useMemberPostsMock.mockReturnValue(state);
+    const { container } = mount();
+    expect(screen.queryByText(/출처 업데이트 지연|조회 실패 상세 사유|이전 글 표시/)).toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "다시 시도" })).toBeNull();
+  });
 
-    renderWithQueryClient(
-      createElement(MemberPostsOverview, { loadX: false, loadCafe: true }),
-    );
+  it("피드 갱신 시각이 없으면 요청 시각으로 대체하지 않는다", () => {
+    useMemberPostsMock.mockReturnValue({ ...makeMemberPostsState(), feedUpdatedAt: null });
+    mount();
+    expect(screen.getByText("시각 확인 불가")).toBeTruthy();
+    expect(screen.queryByText(/2026\. 05\. 28\. 10:05:00 KST/)).toBeNull();
+  });
 
-    expect(
-      screen.getByText("네이버 카페 최신글 표시가 비활성화되어 있습니다."),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText("등록된 X 계정 또는 네이버 카페 게시판이 없습니다."),
-    ).toBeNull();
+  it("백그라운드 갱신은 스크롤을 초기화하지 않는다", () => {
+    const { container, rerender } = mount();
+    const scroll = container.querySelector('[data-slot="content-scroll"]')!;
+    scroll.scrollTop = 600;
+    useMemberPostsMock.mockReturnValue({ ...makeMemberPostsState(), loading: true });
+    rerender(createElement(MemberPostsOverview, { loadX: true, loadCafe: true }));
+    expect(scroll.scrollTop).toBe(600);
+  });
+
+  it("초기 로딩을 빈 결과로 표시하지 않는다", () => {
+    useMemberPostsMock.mockReturnValue({ ...makeMemberPostsState({ xPosts: [], cafePosts: [] }), hasLoaded: false, loading: true });
+    mount();
+    expect(screen.getByLabelText("게시글 불러오는 중")).toBeTruthy();
+    expect(screen.queryByText("조건에 맞는 게시글이 없습니다.")).toBeNull();
+  });
+
+  it("접근 불가 출처는 탭에서 제외하고 정책 안내를 유지한다", () => {
+    useMemberPostsMock.mockReturnValue(makeMemberPostsState({ xPosts: [], cafePosts: [], xPolicy: makePolicy("x", { requested: false, accessible: false, status: "not_requested" }), cafePolicy: makePolicy("naver-cafe", { enabled: false, accessible: false, status: "disabled" }) }));
+    mount({ loadX: false, loadCafe: true });
+    expect(screen.queryByRole("tab", { name: "X" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "네이버 카페" })).toBeNull();
+    expect(screen.getByText("네이버 카페 최신글 표시가 비활성화되어 있습니다.")).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -16,8 +16,8 @@ vi.mock("../../player/play-player-context", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, search, params }: { children: React.ReactNode; search?: unknown; params?: { songSlug: string } }) => (
-    <a href={params ? `/play/songs/${params.songSlug}` : "/play/songs"} data-search={JSON.stringify(search)}>{children}</a>
+  Link: ({ children, search, params, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { search?: unknown; params?: { songSlug: string }; to?: string }) => (
+    <a {...props} href={params ? `/play/songs/${params.songSlug}` : "/play/songs"} data-search={JSON.stringify(search)}>{children}</a>
   ),
 }));
 
@@ -27,6 +27,7 @@ import {
   OtwPlayParticipantSummary,
   OtwPlaySongRow,
 } from "./catalog-components";
+import { OtwPlaySongGrid, OtwPlaySongTable } from "./catalog-result-views";
 
 const base = {
   entityId: "entity-1",
@@ -34,6 +35,71 @@ const base = {
   displayName: "Singer",
   role: "vocal" as const,
   creditOrder: 0,
+};
+
+const song: OtwPlayPublicSongSummaryDto = {
+  id: "song-1",
+  slug: "song-1",
+  title: "검색 결과 노래",
+  isOtwOriginal: false,
+  originalReleaseDate: null,
+  originalReleasePrecision: "unknown",
+  originalArtists: [
+    {
+      entityId: "artist-1",
+      slug: "yorushika",
+      displayName: "요루시카",
+      kind: "group",
+    },
+  ],
+  tags: ["J-POP"],
+  representativePerformance: {
+    id: "performance-1",
+    relation: "cover",
+    releaseType: "official_video",
+    participation: "solo",
+    releasedAt: "2026-08-18T00:00:00.000Z",
+    tags: ["어쿠스틱"],
+    participants: [
+      {
+        ...base,
+        entityId: "member-1",
+        slug: "member-1",
+        displayName: "참여 멤버",
+        kind: "current_member",
+        uid: 1,
+        code: "member-1",
+        oshiMark: null,
+        unitName: null,
+      },
+    ],
+    selectedSource: {
+      sourceId: "source-1",
+      provider: "youtube",
+      externalId: "video-1",
+      title: "공식 영상",
+      thumbnailUrl: "https://example.com/thumbnail.jpg",
+      durationSeconds: 180,
+      providerPublishedAt: null,
+      availability: "playable",
+      sourceRole: "official",
+      startSeconds: 0,
+      endSeconds: null,
+      priority: 0,
+      isPrimary: true,
+      playable: true,
+      channel: {
+        id: "channel-1",
+        displayName: "공식 채널",
+        role: "member_main",
+      },
+    },
+    sourceCount: 1,
+    playable: true,
+    usingFallback: false,
+  },
+  performanceCount: 1,
+  playable: true,
 };
 
 describe("OtwPlayParticipantChip", () => {
@@ -48,6 +114,27 @@ describe("OtwPlayParticipantChip", () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it.each([OtwPlaySongGrid, OtwPlaySongTable])("preserves playback commands and disabled states in %s", (View) => {
+    const page = render(<View songs={[song]} />);
+    const player = mocks.usePlayer();
+    fireEvent.click(screen.getByRole("button", { name: `${song.title} 재생` }));
+    expect(player.play).toHaveBeenCalledWith(expect.objectContaining({ performance: song.representativePerformance, source: song.representativePerformance.selectedSource }));
+    fireEvent.click(screen.getByRole("button", { name: `${song.title} 마지막에 추가` }));
+    expect(player.enqueue).toHaveBeenCalledOnce();
+    expect(screen.getByRole("link", { name: `${song.title} 곡 상세` }).getAttribute("href")).toBe(`/play/songs/${song.slug}`);
+    expect(screen.queryByText("J-POP")).toBeNull();
+    expect(screen.queryByText("어쿠스틱")).toBeNull();
+    player.queue.items = [{ performanceId: song.representativePerformance.id }];
+    page.rerender(<View songs={[song]} />);
+    expect(screen.getByRole("button", { name: `${song.title} 플레이큐에 있음` })).toHaveProperty("disabled", true);
+    player.queue.items = [];
+    page.rerender(<View songs={[{ ...song, playable: false, representativePerformance: { ...song.representativePerformance, selectedSource: null } }]} />);
+    expect(screen.getByText("현재 재생 불가")).toBeTruthy();
+    expect(screen.getByText("썸네일 없음")).toBeTruthy();
+    expect(screen.getByRole("button", { name: `${song.title} 재생` })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: `${song.title} 마지막에 추가` })).toHaveProperty("disabled", true);
   });
 
   it.each([
@@ -71,71 +158,6 @@ describe("OtwPlayParticipantChip", () => {
   });
 
   it("presents title and artist before catalog metadata and playback actions", () => {
-    const song: OtwPlayPublicSongSummaryDto = {
-      id: "song-1",
-      slug: "song-1",
-      title: "검색 결과 노래",
-      isOtwOriginal: false,
-      originalReleaseDate: null,
-      originalReleasePrecision: "unknown",
-      originalArtists: [
-        {
-          entityId: "artist-1",
-          slug: "yorushika",
-          displayName: "요루시카",
-          kind: "group",
-        },
-      ],
-      tags: ["J-POP"],
-      representativePerformance: {
-        id: "performance-1",
-        relation: "cover",
-        releaseType: "official_video",
-        participation: "solo",
-        releasedAt: "2026-08-18T00:00:00.000Z",
-        tags: ["어쿠스틱"],
-        participants: [
-          {
-            ...base,
-            entityId: "member-1",
-            slug: "member-1",
-            displayName: "참여 멤버",
-            kind: "current_member",
-            uid: 1,
-            code: "member-1",
-            oshiMark: null,
-            unitName: null,
-          },
-        ],
-        selectedSource: {
-          sourceId: "source-1",
-          provider: "youtube",
-          externalId: "video-1",
-          title: "공식 영상",
-          thumbnailUrl: "https://example.com/thumbnail.jpg",
-          durationSeconds: 180,
-          providerPublishedAt: null,
-          availability: "playable",
-          sourceRole: "official",
-          startSeconds: 0,
-          endSeconds: null,
-          priority: 0,
-          isPrimary: true,
-          playable: true,
-          channel: {
-            id: "channel-1",
-            displayName: "공식 채널",
-            role: "member_main",
-          },
-        },
-        sourceCount: 1,
-        playable: true,
-        usingFallback: false,
-      },
-      performanceCount: 1,
-      playable: true,
-    };
-
     render(<OtwPlaySongRow song={song} />);
 
     const metadata = screen.getByLabelText("가창 및 공개 정보");
