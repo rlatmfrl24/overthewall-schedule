@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
+import { ko } from "date-fns/locale";
 import { cn } from "@/shared/lib/utils";
 import type { ScheduleItem } from "@/features/schedules";
 import { useScheduleBoard } from "../../../queries/use-schedule-board";
@@ -95,7 +96,7 @@ export const SnapshotSchedule = ({
         style={{ fontFamily: fontMode === "web" ? SNAPSHOT_FONT_FAMILY : SYSTEM_FONT_FAMILY }}
         className={cn(
           "inline-block bg-background text-foreground",
-          mode === "timeline" ? "p-3" : "p-5",
+          mode === "timeline" ? "bg-zinc-50 p-3 dark:bg-zinc-950" : "p-5",
         )}
       >
         <div
@@ -103,14 +104,24 @@ export const SnapshotSchedule = ({
           style={{ width: snapshotWidth }}
         >
           <SnapshotHeader
-            dateLabel={format(currentDate, "yyyy년 M월 d일")}
+            dateLabel={format(
+              currentDate,
+              mode === "timeline" ? "yyyy년 M월 d일 EEEE" : "yyyy년 M월 d일",
+              { locale: ko },
+            )}
             dateValue={date}
             mode={mode}
             updatedAt={board?.updatedAt}
           />
 
           {mode === "timeline" ? (
-            <SnapshotTimeline members={members} schedules={schedules} />
+            <>
+              <SnapshotTimeline members={members} schedules={schedules} />
+              <footer className="flex items-center justify-between gap-3 px-1 pt-1 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+                <span>한국시간(KST) 기준 · 일정은 변경될 수 있습니다</span>
+                <span className="shrink-0 font-semibold">otw-schedule.info</span>
+              </footer>
+            </>
           ) : (
             <div className="grid grid-cols-3 items-start gap-4">
               {members.map((member) => {
@@ -143,23 +154,53 @@ function SnapshotHeader({
   mode: "grid" | "timeline";
   updatedAt: string | null | undefined;
 }) {
+  if (mode === "timeline") {
+    return (
+      <header className="rounded-2xl border border-zinc-200 border-t-4 border-t-teal-600 bg-white px-5 py-4 dark:border-zinc-800 dark:border-t-teal-400 dark:bg-zinc-900">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-[22px] font-bold leading-tight tracking-tight text-zinc-950 dark:text-zinc-50">
+            오늘의 편성표
+          </h1>
+          <img
+            src="/logo_otw.svg"
+            width={76}
+            height={25}
+            alt="오버더월"
+            className="h-auto w-[76px] shrink-0"
+          />
+        </div>
+        <p
+          className="mt-3 text-[20px] font-bold leading-snug tracking-tight text-teal-800 dark:text-teal-200"
+          aria-label={`편성표 날짜 ${dateLabel}`}
+        >
+          <time dateTime={dateValue}>{dateLabel}</time>
+        </p>
+        <ScheduleUpdatedAt
+          updatedAt={updatedAt}
+          label="최종 편집"
+          className="mt-2 justify-start text-[11px] text-zinc-600 dark:text-zinc-400"
+        />
+      </header>
+    );
+  }
+
   return (
     <header
       className={cn(
         "overflow-hidden border border-zinc-200/80 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-zinc-950 dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]",
-        mode === "timeline" ? "rounded-[20px] p-3" : "rounded-[22px] p-3.5",
+        "rounded-[22px] p-3.5",
       )}
     >
       <div
         className={cn(
           "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center",
-          mode === "timeline" ? "gap-3" : "gap-4",
+          "gap-4",
         )}
       >
         <div
           className={cn(
             "flex shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-white/15",
-            mode === "timeline" ? "h-11 w-[76px]" : "h-12 w-[84px]",
+            "h-12 w-[84px]",
           )}
         >
           <img
@@ -169,7 +210,7 @@ function SnapshotHeader({
             alt="오버더월"
             className={cn(
               "h-auto shrink-0",
-              mode === "timeline" ? "w-16" : "w-[72px]",
+              "w-[72px]",
             )}
           />
         </div>
@@ -177,16 +218,16 @@ function SnapshotHeader({
           <h1
             className={cn(
               "max-w-full break-keep font-black leading-tight text-zinc-950 [overflow-wrap:anywhere] dark:text-zinc-50",
-              mode === "timeline" ? "text-[1.5rem]" : "text-[1.9rem]",
+              "text-[1.9rem]",
             )}
           >
             오늘의 편성표
           </h1>
-          <div className={cn(mode === "timeline" ? "mt-1" : "mt-1.5")}>
+          <div className={cn("mt-1.5")}>
             <SnapshotDateText
               value={dateLabel}
               dateTime={dateValue}
-              compact={mode === "timeline"}
+              compact={false}
             />
           </div>
         </div>
@@ -196,7 +237,7 @@ function SnapshotHeader({
           stacked
           className={cn(
             "shrink-0 justify-self-end gap-1 text-zinc-600 dark:text-zinc-300",
-            mode === "timeline" ? "text-[11px]" : "text-[12px]",
+            "text-[12px]",
           )}
         />
       </div>

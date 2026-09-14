@@ -172,7 +172,7 @@ export function KirinukiChannelFormDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {initialValues ? "키리누키 채널 수정" : "새 키리누키 채널 등록"}
+            {initialValues ? "방송 클립 채널 수정" : "새 방송 클립 채널 등록"}
           </DialogTitle>
           <DialogDescription>
             {initialValues

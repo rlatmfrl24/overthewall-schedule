@@ -222,6 +222,9 @@ export class AdminCatalogService {
       eventId: string;
     },
   ) {
+    if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
+    else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
+
     validateVersion(input.expectedCatalogRevision);
     if (input.registrationMode === "medley_segment") {
       if (input.relationType !== "cover") {
@@ -538,6 +541,9 @@ export class AdminCatalogService {
     input: OtwPlayAdminCreatePerformanceRequest,
     actor: AdminCatalogActor,
   ) {
+    if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
+    else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
+
     const sources = await this.verifyPerformanceSources(input);
     const performanceId = this.createId();
     const result = await this.repository.createPerformance({
@@ -563,6 +569,9 @@ export class AdminCatalogService {
     input: OtwPlayAdminUpdatePerformanceRequest,
     actor: AdminCatalogActor,
   ) {
+    if (input.releaseType === "broadcast") input = { ...input, relationType: "singing_clip" };
+    else if (input.relationType === "singing_clip") throw new AdminCatalogServiceError("invalid_request", "Singing clips require a broadcast release");
+
     validateVersion(input.expectedVersion);
     const entityIds: Record<string, string> = {};
     const entityEventIds: Record<string, string> = {};

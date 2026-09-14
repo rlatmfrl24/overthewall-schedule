@@ -1,8 +1,9 @@
+import { BroadcastFields, EMPTY_BROADCAST } from "./broadcast-fields";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { SelectField } from "@/shared/ui/select-field"
 import { useUnsavedChanges } from "@/shared/lib/unsaved-changes";
 import { useConsoleSearch } from "@/shared/lib/admin-console-search";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
   OtwPlayAdminCatalogDto,
@@ -78,7 +79,7 @@ type Run = (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 const EMPTY_MEMBERS: Member[] = [];
 const CATALOG_BATCH_SIZE = 25;
 
-const relationLabel = (value: string) => (value === "original" ? "오리지널" : "커버");
+const relationLabel = (value: string) => (value === "singing_clip" ? "노래 클립" : value === "original" ? "오리지널" : "커버");
 const publicationLabel = (value: string) =>
   value === "published" ? "게시됨" : value === "withdrawn" ? "철회됨" : "임시 저장";
 const releaseLabel = (value: string) => ({
@@ -123,18 +124,22 @@ function PerformanceSourceSummary({
 }
 
 export function WorkflowCatalog({
+  scope = "official",
   catalog,
   saving,
   run,
   onPublishDrafts,
   onAddPerformance,
 }: {
+  scope?: "official" | "broadcast" | "all";
   catalog: OtwPlayAdminCatalogDto;
   saving: string | null;
   run: Run;
   onPublishDrafts: (performances: OtwPlayAdminPerformanceDto[]) => Promise<void>;
   onAddPerformance: (songId: string) => void;
 }) {
+  const scopedPerformances = catalog.performances.filter(performance => scope === "all" || (scope === "broadcast" ? performance.releaseType === "broadcast" : performance.releaseType !== "broadcast"));
+  const scopedSongIds = new Set(scopedPerformances.map(performance => performance.songId));
   const [consoleSearch, updateConsole] = useConsoleSearch();
   const expanded = new Set(consoleSearch.selected ? [consoleSearch.selected] : []);
   const [editSong, setEditSong] = useState<OtwPlayAdminSongDto | null>(null);
@@ -146,12 +151,12 @@ export function WorkflowCatalog({
     confirmLabel?: string;
     action: () => Promise<void>;
   } | null>(null);
-  const activeSongs = catalog.songs.filter((song) => song.archivedAt === null);
+  const activeSongs = catalog.songs.filter(song => scopedSongIds.has(song.id) || (scope !== "broadcast" && !catalog.performances.some(performance => performance.songId === song.id))).filter((song) => song.archivedAt === null);
   const filteredSongs = activeSongs.filter((song) => {
     const text = [song.title, ...song.originalArtists.map((artist) => artist.displayName)].join(" ").toLocaleLowerCase();
     return (!consoleSearch.q || text.includes(consoleSearch.q.toLocaleLowerCase())) &&
       (!consoleSearch.category || song.tags?.includes(consoleSearch.category)) &&
-      (!consoleSearch.state || catalog.performances.some((item) => item.songId === song.id && item.publicationStatus === consoleSearch.state));
+      (!consoleSearch.state || scopedPerformances.some((item) => item.songId === song.id && item.publicationStatus === consoleSearch.state));
   });
   const filterKey = JSON.stringify([consoleSearch.q, consoleSearch.category, consoleSearch.state, consoleSearch.page]);
   // Old page links still reveal their results, now together with preceding rows.
@@ -186,10 +191,10 @@ export function WorkflowCatalog({
     };
   }, [loadMoreTarget, hasMore, showMore]);
   const activeSongIds = new Set(activeSongs.map((song) => song.id));
-  const draftPerformances = catalog.performances.filter(
+  const draftPerformances = scopedPerformances.filter(
     (performance) =>
       performance.publicationStatus === "draft" &&
-      performance.releaseType !== "broadcast" &&
+      (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) &&
       activeSongIds.has(performance.songId),
   );
   const draftSongCount = new Set(
@@ -221,15 +226,15 @@ export function WorkflowCatalog({
           <RefreshCw className="h-3.5 w-3.5" /> source 재확인
         </Button>
       )}
-      {performance.publicationStatus === "draft" && performance.releaseType !== "broadcast" && (
+      {performance.publicationStatus === "draft" && (performance.releaseType !== "broadcast" || Boolean(performance.broadcast?.extent)) && (
         <Button size="sm" disabled={saving !== null} onClick={() => setConfirmation({
           title: "가창을 게시할까요?",
-          description: "승인된 공식 채널과 metadata를 다시 확인한 뒤 공개 상태로 전환합니다.",
+          description: "승인 채널, 가창 정보와 재생 구간을 다시 확인한 뒤 공개 상태로 전환합니다.",
           action: async () => { await run("가창 게시", () => publishOtwPlayPerformance(performance.id, { expectedVersion: performance.version })); },
         })}>게시</Button>
       )}
       {performance.publicationStatus === "draft" && performance.releaseType === "broadcast" && (
-        <Badge variant="outline">비공개 검수 draft</Badge>
+        <Badge variant="outline">{performance.broadcast?.extent ? "검수 완료" : "완곡 여부 확인 필요"}</Badge>
       )}
       {(performance.publicationStatus === "draft" || performance.publicationStatus === "withdrawn") && (
         <Button
@@ -347,7 +352,7 @@ export function WorkflowCatalog({
               <TableHeader><TableRow><TableHead className="w-10" /><TableHead>곡</TableHead><TableHead>원곡 가수</TableHead><TableHead>가창</TableHead><TableHead>분류</TableHead><TableHead className="text-right">작업</TableHead></TableRow></TableHeader>
               <TableBody>
                 {visibleSongs.flatMap((song) => {
-                  const performances = catalog.performances.filter((item) => item.songId === song.id);
+                  const performances = scopedPerformances.filter((item) => item.songId === song.id);
                   const open = expanded.has(song.id);
                   const rows = [
                     <TableRow key={song.id} className="bg-muted/20">
@@ -380,7 +385,7 @@ export function WorkflowCatalog({
 
           <div className="space-y-3 md:hidden">
             {visibleSongs.map((song) => {
-              const performances = catalog.performances.filter((item) => item.songId === song.id);
+              const performances = scopedPerformances.filter((item) => item.songId === song.id);
               return <Card key={song.id}><CardContent className="space-y-3 p-3"><div className="flex items-start justify-between gap-2"><div><div className="font-semibold">{song.title}</div><div className="text-sm text-muted-foreground">{song.originalArtists.map((artist) => artist.displayName).join(", ")}</div></div><Badge variant="outline">{performances.length} 가창</Badge></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => onAddPerformance(song.id)}><Plus className="h-3.5 w-3.5" /> 가창 추가</Button><Button size="sm" variant="ghost" onClick={() => setEditSong(song)}>곡 수정</Button>{songDeleteAction(song, performances)}</div><div className="space-y-2">{performances.map((performance) => <div key={performance.id} className="rounded-lg border bg-muted/20 p-3"><div className="flex items-center justify-between gap-2"><div className="font-medium">{performance.participants.map((item) => item.displayName).join(", ") || "참여자 미입력"}</div><Badge variant="outline">{publicationLabel(performance.publicationStatus)}</Badge></div><div className="mt-1 text-xs text-muted-foreground">{relationLabel(performance.relationType)} · {releaseLabel(performance.releaseType)} · {participationLabel(performance.participationType)}</div>{(performance.tags?.length ?? 0) > 0 ? <div className="mt-2 flex flex-wrap gap-1">{performance.tags?.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div> : null}<PerformanceSourceSummary catalog={catalog} performance={performance} /><div className="mt-2">{performanceActions(performance)}</div></div>)}</div></CardContent></Card>;
             })}
           </div>
@@ -503,6 +508,9 @@ function PerformanceEditDialog({
   onOpenChange: (open: boolean) => void;
   run: Run;
 }) {
+  const initializedPerformance = useRef<OtwPlayAdminPerformanceDto | null>(null);
+  const [sameSingingConfirmed, setSameSingingConfirmed] = useState(false);
+  const [broadcast, setBroadcast] = useState(EMPTY_BROADCAST);
   const [songId, setSongId] = useState("");
   const [relation, setRelation] = useState<OtwPlayRelationType>("cover");
   const [releaseType, setReleaseType] =
@@ -524,7 +532,11 @@ function PerformanceEditDialog({
   const members = membersQuery.data ?? EMPTY_MEMBERS;
 
   useEffect(() => {
-    if (!performance) return;
+    if (!performance) { initializedPerformance.current = null; return; }
+    if (initializedPerformance.current === performance) return;
+    initializedPerformance.current = performance;
+    setSameSingingConfirmed(false);
+    setBroadcast(performance.broadcast ?? EMPTY_BROADCAST);
     setSongId(performance.songId);
     setRelation(performance.relationType);
     setReleaseType(performance.releaseType);
@@ -646,7 +658,7 @@ function PerformanceEditDialog({
     performance !== null &&
     songId.length > 0 &&
     participants.length > 0 &&
-    validSources;
+    validSources && (releaseType !== "broadcast" || !sources.some(source => source.key.startsWith("new-")) || sameSingingConfirmed);
 
   const updateSource = (
     key: string,
@@ -663,6 +675,7 @@ function PerformanceEditDialog({
   });
 
   const canDiscard = useUnsavedChanges(Boolean(performance && (
+    JSON.stringify(broadcast) !== JSON.stringify(performance.broadcast ?? EMPTY_BROADCAST) ||
     songId !== performance.songId || relation !== performance.relationType ||
     releaseType !== performance.releaseType || participation !== performance.participationType ||
     quality !== performance.qualityStatus || releasedAt !== toDateTimeLocal(performance.releasedAt) ||
@@ -691,6 +704,7 @@ function PerformanceEditDialog({
         </DialogHeader>
         {performance && (
           <div className="space-y-3">
+            {catalog.performances.find(item => item.id === performance.id)?.version !== performance.version && <p role="status" className="rounded-lg border border-amber-500 p-3 text-sm">다른 수정이 먼저 저장되었습니다. 입력값은 유지하고 있습니다. 변경 내용을 확인한 뒤 이 창을 닫고 최신 가창을 다시 열어 주세요.</p>}
             <p className="text-sm text-muted-foreground">
               게시 상태 변경은 목록의 게시·철회 작업을 사용합니다. 이 화면에서는
               연결된 곡, 참여자와 source를 포함한 가창 정보를 수정합니다.
@@ -715,7 +729,7 @@ function PerformanceEditDialog({
               </div>
               <div className="space-y-1.5">
                 <Label>곡 관계</Label>
-                <Select
+                {releaseType === "broadcast" ? <p className="text-sm font-medium">노래 클립</p> : <Select
                   value={relation}
                   onValueChange={(value) =>
                     setRelation(value as OtwPlayRelationType)
@@ -728,7 +742,7 @@ function PerformanceEditDialog({
                     <SelectItem value="original">오리지널</SelectItem>
                     <SelectItem value="cover">공식 커버</SelectItem>
                   </SelectContent>
-                </Select>
+                </Select>}
               </div>
               <div className="space-y-1.5">
                 <Label>공개 형태</Label>
@@ -742,9 +756,7 @@ function PerformanceEditDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="official_video">공식 영상</SelectItem>
-                    <SelectItem value="official_mv">공식 MV</SelectItem>
-                    <SelectItem value="broadcast">방송 가창</SelectItem>
+                    {performance.releaseType === "broadcast" ? <SelectItem value="broadcast">노래 클립</SelectItem> : <><SelectItem value="official_video">공식 영상</SelectItem><SelectItem value="official_mv">공식 MV</SelectItem></>}
                   </SelectContent>
                 </Select>
               </div>
@@ -880,7 +892,7 @@ function PerformanceEditDialog({
                 <div>
                   <h3 className="text-sm font-semibold">영상 source</h3>
                   <p className="text-xs text-muted-foreground">
-                    위에서부터 재생 우선순위가 적용되며 대표 source는 정확히 하나여야 합니다.
+                    위에서부터 재생 우선순위가 적용되며 대표 영상은 정확히 하나여야 합니다. 방송 클립은 같은 방송의 같은 가창을 편집한 영상만 추가하세요. 다른 방송에서 부른 노래는 새 가창으로 등록합니다.
                   </p>
                 </div>
                 <Button
@@ -903,6 +915,7 @@ function PerformanceEditDialog({
                   <Plus /> source 추가
                 </Button>
               </div>
+              {releaseType === "broadcast" && sources.some(source => source.key.startsWith("new-")) && <label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={sameSingingConfirmed} onChange={event => setSameSingingConfirmed(event.target.checked)} />추가하는 영상이 같은 방송의 같은 가창임을 확인했습니다.</label>}
               {sources.map((source, index) => (
                 <div key={source.key} className="space-y-3 rounded-xl border p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -965,7 +978,7 @@ function PerformanceEditDialog({
                       <Label>영상 채널</Label>
                       <Select value={source.channelId} onValueChange={(channelId) => updateSource(source.key, { channelId })}>
                         <SelectTrigger aria-label={`source ${index + 1} 채널`}><SelectValue placeholder="채널 선택" /></SelectTrigger>
-                        <SelectContent>{catalog.channels.map((channel) => (
+                        <SelectContent>{catalog.channels.filter(channel => releaseType === "broadcast" ? channel.channelRole === "approved_kirinuki" : channel.channelRole !== "approved_kirinuki").map((channel) => (
                           <SelectItem key={channel.id} value={channel.id}>{channel.displayName} · {channel.verificationStatus} · {channel.active ? " 활성" : " 비활성"}</SelectItem>
                         ))}</SelectContent>
                       </Select>
@@ -976,7 +989,7 @@ function PerformanceEditDialog({
                       <Label>source 역할</Label>
                       <Select value={source.sourceRole} onValueChange={(sourceRole) => updateSource(source.key, { sourceRole: sourceRole as EditablePerformanceSource["sourceRole"] })}>
                         <SelectTrigger aria-label={`source ${index + 1} 역할`}><SelectValue /></SelectTrigger>
-                        <SelectContent><SelectItem value="official">공식 source</SelectItem><SelectItem value="kirinuki">키리누키 source</SelectItem><SelectItem value="alternate">대체 source</SelectItem></SelectContent>
+                        <SelectContent>{releaseType === "broadcast" ? <SelectItem value="kirinuki">노래 클립 영상</SelectItem> : <><SelectItem value="official">공식 영상</SelectItem><SelectItem value="alternate">대체 영상</SelectItem></>}</SelectContent>
                       </Select>
                     </div>
                   </div>
@@ -995,6 +1008,7 @@ function PerformanceEditDialog({
             </section>
           </div>
         )}
+        {releaseType === "broadcast" && <BroadcastFields value={broadcast} onChange={setBroadcast} />}
         <DialogFooter>
           <Button variant="outline" onClick={() => void close(false)}>
             취소
@@ -1011,7 +1025,8 @@ function PerformanceEditDialog({
                   id: performance.id,
                   expectedVersion: performance.version,
                   songId,
-                  relationType: relation,
+                  ...(releaseType === "broadcast" ? { broadcast } : {}),
+                  relationType: releaseType === "broadcast" ? "singing_clip" : relation,
                   releaseType,
                   participationType: participation,
                   qualityStatus: quality,

@@ -164,7 +164,7 @@ describe("playlist HTTP boundary with the real application service", () => {
     expect(readPublicState).not.toHaveBeenCalled();
     const response = await handler(request("/api/play/performances/resolve", "POST", { performanceIds: input(60).performanceIds }), env);
     expect(response.status).toBe(200);
-    expect(reader.resolvePlaylistPerformances).toHaveBeenCalledWith(input(60).performanceIds);
+    expect(reader.resolvePlaylistPerformances).toHaveBeenCalledWith(input(60).performanceIds, "all");
     expect(auth.authenticateRequest).not.toHaveBeenCalled();
   });
 

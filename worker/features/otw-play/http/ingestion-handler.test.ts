@@ -35,6 +35,35 @@ describe("OTW Play ingestion handler", () => {
     expect(resolveService).not.toHaveBeenCalled();
   });
 
+  it("serves an authenticated filtered review inbox and rejects invalid filters", async () => {
+    const listReviewItems = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const handler = createIngestionHandler(() => ({ listReviewItems }) as unknown as IngestionService);
+    const response = await handler(new Request("https://example.com/api/play/admin/review-items?candidateKind=singing_clip&source=playlist&status=ready&jobId=job-a"), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(listReviewItems).toHaveBeenCalledWith(expect.objectContaining({ candidateKind: "singing_clip", source: "playlist", status: "ready", jobId: "job-a" }));
+    for (const query of ["jobId=", "jobId=a&jobId=b", "jobId=a&source=user", "jobId=%20a", `jobId=${"a".repeat(201)}`]) {
+      expect((await handler(new Request(`https://example.com/api/play/admin/review-items?${query}`), env)).status).toBe(400);
+    }
+    expect((await handler(new Request("https://example.com/api/play/admin/review-items?candidateKind=unknown"), env)).status).toBe(400);
+    expect((await handler(new Request("https://example.com/api/play/admin/review-items?source=user&source=playlist"), env)).status).toBe(400);
+  });
+
+  it("deletes history with the authenticated actor and rejects active jobs", async () => {
+    const deleteJobHistory = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new IngestionRepositoryError("stale_write", "Running import"));
+    const handler = createIngestionHandler(() => ({ deleteJobHistory }) as unknown as IngestionService);
+    const request = () => new Request("https://example.com/api/play/admin/imports/job-1", { method: "DELETE" });
+    const response = await handler(request(), env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ data: { deleted: true } });
+    expect(deleteJobHistory).toHaveBeenCalledWith("job-1", "admin-1");
+    expect((await handler(request(), env)).status).toBe(409);
+    requireAdminUserMock.mockResolvedValueOnce({ ok: false, response: new Response("denied", { status: 403 }) });
+    expect((await handler(request(), env)).status).toBe(403);
+    expect(deleteJobHistory).toHaveBeenCalledTimes(2);
+  });
+
   it("preflights and creates persisted imports with no-store authority responses", async () => {
     const preflight = vi.fn(async () => ({ playlistId: "PL1234567890" }));
     const createJob = vi.fn(async () => ({ id: "job-1", status: "queued" }));

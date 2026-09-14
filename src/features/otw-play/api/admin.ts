@@ -81,6 +81,12 @@ export const fetchOtwPlayImportJob = (jobId: string) =>
     apiRoutes.otwPlay.admin.importJob.build(jobId),
   ).then((response) => response.data);
 
+export const deleteOtwPlayImportHistory = (jobId: string) =>
+  adminRequest<{ data: { deleted: true } }>(
+    apiRoutes.otwPlay.admin.importJob.build(jobId),
+    { method: "DELETE" },
+  ).then((response) => response.data);
+
 export const fetchOtwPlayImportJobs = () =>
   adminRequest<{ data: OtwPlayIngestionJobDto[] }>(
     withRouteSearch(
@@ -398,3 +404,9 @@ export const approveOtwPlayProposal = (
     apiRoutes.otwPlay.admin.approveSubmission.build(id),
     { method: "POST", json },
   );
+
+export const fetchOtwPlayReviewItems = (filters: import("@contracts/otw-play").OtwPlayReviewFilters = {}) => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
+  return adminRequest<{ data: import("@contracts/otw-play").OtwPlayReviewPageDto }>(withRouteSearch(apiRoutes.otwPlay.admin.reviewItems.build(), params)).then(response => response.data);
+};

@@ -18,6 +18,7 @@ import {
   UserRound,
   UsersRound,
   VolumeX,
+  X,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/shared/ui/button";
@@ -29,6 +30,15 @@ import { useOtwPlayPlayer } from "../../player/play-player-context";
 import { OtwPlayThumbnail } from "../otw-play-thumbnail";
 import { presentOtwPlayParticipants } from "../public/participant-presentation";
 
+
+const miniPlayerStatusLabel = {
+  idle: "재생 대기",
+  loading: "로딩 중",
+  playing: "재생 중",
+  paused: "일시정지",
+  blocked: "재생 대기",
+  error: "재생 오류",
+} as const;
 
 const repeatLabel = {
   off: "반복 꺼짐",
@@ -261,6 +271,51 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
                 </span>
               </header>
 
+              {miniPlayerActive ? (
+                <div
+                  data-testid="otw-play-mini-player-controls"
+                  className="play-mini-header hidden shrink-0 items-center gap-0.5 border-b px-2 [@media_(min-width:640px)_and_(max-width:1279px)]:grid"
+                >
+                  <p role="status" aria-atomic="true" className="min-w-0 whitespace-nowrap text-xs font-semibold leading-none" title={current.song.title}>
+                    {miniPlayerStatusLabel[player.status]}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="play-mini-header-button rounded-md text-muted-foreground hover:text-foreground"
+                    aria-label={player.status === "playing" ? "미니 플레이어 일시정지" : "미니 플레이어 재생"}
+                    onClick={player.status === "playing" ? player.pause : player.resume}
+                  >
+                    {player.status === "playing" ? <Pause className="size-3" /> : <Play className="size-3" />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="play-mini-header-button rounded-md text-muted-foreground hover:text-foreground"
+                    aria-label="전체 Now Playing 열기"
+                    onClick={expandMiniPlayer}
+                  >
+                    <Maximize2 className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="play-mini-header-button rounded-md text-muted-foreground hover:text-foreground"
+                    aria-label="소형 플레이어 끄기"
+                    title="소형 플레이어 끄기"
+                    onClick={() => {
+                      player.pause();
+                      setMobilePresentation("launcher");
+                    }}
+                  >
+                    <X className="size-3" aria-hidden="true" />
+                  </Button>
+                </div>
+              ) : null}
+
               <YouTubePlayerHost
                 setHostElement={player.setHostElement}
                 source={current.source}
@@ -271,35 +326,6 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
                     : "sm:mx-auto sm:mt-4 sm:max-w-2xl sm:rounded-xl",
                 )}
               />
-
-              {miniPlayerActive ? (
-                <div
-                  data-testid="otw-play-mini-player-controls"
-                  className="hidden h-12 shrink-0 items-center gap-1 border-t px-2 [@media_(min-width:640px)_and_(max-width:1279px)]:flex"
-                >
-                  <p className="min-w-0 flex-1 truncate text-xs font-semibold">
-                    {current.song.title}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={player.status === "playing" ? "미니 플레이어 일시정지" : "미니 플레이어 재생"}
-                    onClick={player.status === "playing" ? player.pause : player.resume}
-                  >
-                    {player.status === "playing" ? <Pause /> : <Play />}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="전체 Now Playing 열기"
-                    onClick={expandMiniPlayer}
-                  >
-                    <Maximize2 />
-                  </Button>
-                </div>
-              ) : null}
 
               <Tabs value={shortRailView} onValueChange={value => setShortRailView(value as "player" | "queue")}
                 className="hidden shrink-0 px-2 py-1 [@media_(min-width:1280px)_and_(max-height:559px)]:flex">
@@ -322,6 +348,7 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
               >
                 <h2
                   data-testid="otw-play-track-title"
+                  title={current.song.title}
                   className="break-words text-2xl font-bold leading-tight xl:line-clamp-2 xl:text-lg [@media_(min-width:1280px)_and_(max-height:719px)]:line-clamp-1"
                 >
                   {current.song.title}
@@ -344,7 +371,7 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
                     </Button>
                     <Button asChild variant="outline" size="sm">
                       <Link
-                        to="/play/songs/$songSlug"
+                        to={current.performance.releaseType === "broadcast" ? "/play/clips/$songSlug" : "/play/songs/$songSlug"}
                         params={{ songSlug: current.song.slug }}
                         search={{ performance: current.performance.id }}
                       >
@@ -450,7 +477,7 @@ export function OtwPlayPlayerQueuePanel({ editing = false }: { editing?: boolean
                       <SkipForward />
                     </Button>
                   </div>
-                  <div className="ml-1 flex min-w-0 flex-1 items-center gap-1" role="group" aria-label="볼륨 컨트롤">
+                  <div className="ml-1 flex min-w-0 max-w-60 flex-1 items-center gap-1" role="group" aria-label="볼륨 컨트롤">
                     <ElasticSlider id="otw-play-volume" startingValue={0} maxValue={100} isStepped stepSize={1}
                       leftIcon={player.muted ? <VolumeX /> : undefined}
                       onLeftIconClick={player.toggleMuted}

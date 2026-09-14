@@ -45,7 +45,7 @@ export class PlaylistService {
   }
   resolve(context: PublicCatalogReadContext, ids: string[]) {
     return this.consistent(context, async () => {
-      const items = await this.reader.resolvePlaylistPerformances(ids);
+      const items = await this.reader.resolvePlaylistPerformances(ids, "all");
       const found = new Set(items.map(item => item.performance.id));
       return { items, unavailableIds: ids.filter(id => !found.has(id)) };
     });

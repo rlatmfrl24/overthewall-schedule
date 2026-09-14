@@ -8,7 +8,7 @@ import {
   Search,
   ShieldAlert,
 } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useAdminStatus } from "@/features/auth";
 import { Button } from "@/shared/ui/button";
 import {
@@ -21,6 +21,7 @@ import {
 import {
   OtwPlayCatalogRequestProvider,
   useOtwPlayConfig,
+  useOtwPlayCatalog,
 } from "../../queries/use-public-catalog";
 import { OtwPlayPlayerProvider } from "../../player/play-player-context";
 import { OtwPlayFrame } from "../play-frame";
@@ -224,9 +225,23 @@ function OtwPlayExperience({
 function PlayHeaderSearch() {
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
+  const [focused, setFocused] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const [search, setSearch] = useState("");
+  const trimmed = query.trim();
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(trimmed), 250);
+    return () => window.clearTimeout(timer);
+  }, [trimmed]);
+  const results = useOtwPlayCatalog({ q: search, limit: 6 }, { enabled: focused && Boolean(search) });
+  const open = focused && Boolean(trimmed);
+  const loading = trimmed !== search || results.isPending || results.isPlaceholderData;
+  const songs = results.data?.pages[0]?.data.items ?? [];
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (composing) return;
+    setFocused(false);
     const q = query.trim();
     void navigate({ to: "/play/songs", search: q ? { q } : {} });
   };
@@ -236,7 +251,31 @@ function PlayHeaderSearch() {
       role="search"
       aria-label="OTW Play 빠른 검색"
       onSubmit={submit}
-      className="play-header-search mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
+      onKeyDown={(event) => {
+        if (composing || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        const input = event.currentTarget.querySelector("input");
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          input?.focus();
+          setFocused(false);
+          return;
+        }
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        if (!trimmed) return;
+        event.preventDefault();
+        setFocused(true);
+        const targets = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-quick-search-target]"));
+        const index = targets.indexOf(document.activeElement as HTMLElement);
+        const next = event.key === "ArrowDown" ? index + 1 : index < 0 ? targets.length - 1 : index - 1;
+        if (next < 0 || next >= targets.length) input?.focus();
+        else {
+          targets[next].focus();
+          targets[next].scrollIntoView({ block: "nearest" });
+        }
+      }}
+      className="play-header-search relative mx-auto hidden h-10 w-full max-w-xl items-center gap-2 rounded-lg border bg-muted/40 px-3 md:flex"
     >
       <Search className="size-4 shrink-0 text-muted-foreground" />
       <label htmlFor="otw-play-header-search" className="sr-only">
@@ -245,13 +284,30 @@ function PlayHeaderSearch() {
       <Input
         id="otw-play-header-search"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        autoComplete="off"
+        onFocus={() => setFocused(true)}
+        onKeyDown={(event) => { if (event.key === "Enter" && (composing || event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault(); }}
+        onCompositionStart={() => setComposing(true)}
+        onCompositionEnd={() => setComposing(false)}
+        aria-controls={open ? "otw-play-quick-results" : undefined}
+        onChange={(event) => { setQuery(event.target.value); setFocused(true); }}
         placeholder="곡, 원곡 가수, 참여자 검색"
         className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm shadow-none outline-none focus-visible:ring-0 placeholder:text-muted-foreground"
       />
       <Button type="submit" variant="ghost" size="icon-sm" aria-label="곡 검색 실행">
         <Search />
       </Button>
+      {open && <div id="otw-play-quick-results" className="absolute inset-x-0 top-full z-50 mt-2 max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-xl border bg-popover p-2 text-popover-foreground shadow-lg">
+        {loading ? <div role="status" aria-label="노래 검색 중" className="space-y-2 p-2">{[0, 1, 2].map(key => <div key={key} className="h-10 animate-pulse rounded bg-muted motion-reduce:animate-none" />)}</div>
+          : results.isError ? <div role="alert" className="p-2 text-sm">검색 결과를 불러오지 못했습니다.<Button type="button" size="sm" variant="ghost" onClick={() => void results.refetch()}>다시 시도</Button></div>
+          : songs.length ? <ul aria-label="빠른 곡 검색 결과">{songs.map(song => <li key={song.id}>
+            <Link to="/play/songs/$songSlug" params={{ songSlug: song.slug }} search={{ performance: undefined }} data-quick-search-target onClick={() => setFocused(false)} className="block rounded-lg px-3 py-2 hover:bg-accent focus-visible:bg-accent focus-visible:outline-none">
+              <span className="block truncate text-sm font-medium">{song.title}</span>
+              <span className="block truncate text-xs text-muted-foreground">{song.originalArtists.map(artist => artist.displayName).join(" · ")}</span>
+            </Link>
+          </li>)}</ul> : <p role="status" className="p-3 text-sm text-muted-foreground">검색된 곡이 없습니다.</p>}
+        <button type="submit" data-quick-search-target className="mt-1 block w-full rounded px-3 py-2 text-left text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">전체 검색 결과 보기</button>
+      </div>}
     </form>
   );
 }

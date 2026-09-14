@@ -113,12 +113,13 @@ export function useOtwPlayFacets(options: PublicQueryOptions = {}) {
 export function useOtwPlaySong(
   slug: string,
   options: PublicQueryOptions = {},
+  scope: "official" | "all" = "official",
 ) {
   const request = usePublicRequestOptions(options);
   return useQuery({
-    queryKey: queryKeys.otwPlay.song(slug, request.audience),
+    queryKey: [...queryKeys.otwPlay.song(slug, request.audience), scope],
     queryFn: () =>
-      fetchOtwPlaySong(slug, { adminPreview: request.adminPreview }),
+      scope === "all" ? fetchOtwPlaySong(slug, { adminPreview: request.adminPreview }, scope) : fetchOtwPlaySong(slug, { adminPreview: request.adminPreview }),
     enabled: (options.enabled ?? true) && slug.trim().length > 0,
     staleTime: PUBLIC_QUERY_STALE_TIME_MS,
   });

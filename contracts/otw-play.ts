@@ -114,6 +114,7 @@ export type OtwPlayIngestionConversionOutcome =
 export type OtwPlayPlaylistImportMode = "all_new" | "recent";
 
 export interface OtwPlayPlaylistPreflightRequest {
+  candidateKind?: OtwPlayIngestionCandidateKind;
   playlistUrl: string;
   mode: OtwPlayPlaylistImportMode;
   recentLimit?: number;
@@ -122,6 +123,7 @@ export interface OtwPlayPlaylistPreflightRequest {
 }
 
 export interface OtwPlayPlaylistPreflightDto {
+  candidateKind?: OtwPlayIngestionCandidateKind;
   playlistId: string;
   canonicalUrl: string;
   title: string;
@@ -166,6 +168,7 @@ export interface OtwPlayIngestionJobCountsDto {
 }
 
 export interface OtwPlayIngestionJobDto {
+  candidateKind?: OtwPlayIngestionCandidateKind;
   id: string;
   playlistId: string;
   playlistTitle: string | null;
@@ -315,6 +318,7 @@ export interface OtwPlayChannelMonitorReconcileDto {
 }
 
 export interface OtwPlayIngestionCandidateItemDto {
+  candidateKind?: OtwPlayIngestionCandidateKind;
   originId: string;
   candidateId: string;
   candidateVersion: number;
@@ -366,6 +370,7 @@ export interface OtwPlayIngestionItemFilters {
 }
 
 export interface OtwPlayIngestionReviewInput {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   song: OtwPlayAdminCatalogSongDecision;
   performanceTags?: string[];
   participants: OtwPlayAdminCatalogParticipantInput[];
@@ -381,6 +386,7 @@ export interface OtwPlayIngestionReviewInput {
 }
 
 export type OtwPlayUpdateIngestionCandidateRequest =
+  | { expectedVersion: number; action: "change_kind"; candidateKind: OtwPlayIngestionCandidateKind }
   | {
       expectedVersion: number;
       expectedReviewInput?: OtwPlayIngestionReviewInput | null;
@@ -481,7 +487,7 @@ export const OTW_PLAY_DATE_PRECISIONS = [
 export type OtwPlayDatePrecision =
   (typeof OTW_PLAY_DATE_PRECISIONS)[number];
 
-export const OTW_PLAY_RELATION_TYPES = ["original", "cover"] as const;
+export const OTW_PLAY_RELATION_TYPES = ["original", "cover", "singing_clip"] as const;
 
 export type OtwPlayRelationType =
   (typeof OTW_PLAY_RELATION_TYPES)[number];
@@ -684,7 +690,7 @@ export type OtwPlayPublicParticipantDto =
 export interface OtwPlayPublicChannelDto {
   id: string;
   displayName: string;
-  role: OtwPlayPublicChannelRole;
+  role: OtwPlayPublicChannelRole | "approved_kirinuki";
 }
 
 export interface OtwPlayPublicSourceDto {
@@ -696,7 +702,7 @@ export interface OtwPlayPublicSourceDto {
   durationSeconds: number | null;
   providerPublishedAt: string | null;
   availability: OtwPlaySourceAvailabilityStatus;
-  sourceRole: Extract<OtwPlaySourceRole, "official" | "alternate">;
+  sourceRole: Extract<OtwPlaySourceRole, "official" | "alternate" | "kirinuki">;
   startSeconds: number;
   endSeconds: number | null;
   priority: number;
@@ -705,11 +711,19 @@ export interface OtwPlayPublicSourceDto {
   channel: OtwPlayPublicChannelDto;
 }
 
+export interface OtwPlayBroadcastMetadata {
+  performedOn: string | null;
+  dateEvidence: string | null;
+  originalUrl: string | null;
+  extent: "full" | "partial" | null;
+}
+
 export interface OtwPlayPublicPerformanceSummaryDto {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   tags: string[];
   relation: OtwPlayRelationType;
-  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video">;
+  releaseType: Extract<OtwPlayReleaseType, "official_mv" | "official_video" | "broadcast">;
   participation: OtwPlayParticipationType;
   releasedAt: string | null;
   participants: OtwPlayPublicParticipantDto[];
@@ -1166,6 +1180,7 @@ export type OtwPlayAdminSourceRecheckResponse =
   };
 
 export interface OtwPlayAdminPerformanceDto {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   id: string;
   songId: string;
   tags: string[];
@@ -1332,6 +1347,7 @@ export interface OtwPlayAdminCatalogEntryPreflightDto {
 }
 
 export interface OtwPlayAdminCreateCatalogEntryRequest {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   expectedCatalogRevision: number;
   youtubeUrl: string;
   startSeconds: number;
@@ -1401,6 +1417,7 @@ export interface OtwPlayAdminPerformanceSourceInput {
 }
 
 export interface OtwPlayAdminPerformanceWriteInput {
+  broadcast?: OtwPlayBroadcastMetadata | null;
   songId: string;
   tags?: string[];
   relationType: OtwPlayRelationType;
@@ -1484,4 +1501,29 @@ export interface OtwPlayAdminUpdateChannelRequest
 export interface OtwPlayAdminCommandResponse<T> {
   data: T;
   catalogRevision: number;
+}
+
+export interface OtwPlayReviewFilters {
+  jobId?: string;
+  candidateKind?: OtwPlayIngestionCandidateKind;
+  source?: "playlist" | "automatic" | "user";
+  status?: "pending" | "ready" | "completed";
+  cursor?: string;
+}
+export interface OtwPlayReviewItemDto {
+  id: string;
+  kind: "candidate" | "proposal";
+  candidateKind: OtwPlayIngestionCandidateKind;
+  sources: Array<"playlist" | "automatic" | "user">;
+  title: string | null;
+  status: string;
+  version: number;
+  createdAt: number;
+  channelId: string | null;
+  candidate: OtwPlayChannelMonitorCandidateDto | null;
+  pendingProposalId?: string | null;
+}
+export interface OtwPlayReviewPageDto {
+  items: OtwPlayReviewItemDto[];
+  nextCursor: string | null;
 }

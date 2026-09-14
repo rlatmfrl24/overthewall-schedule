@@ -1,5 +1,7 @@
 # OTW Play UI/UX 설계
 
+> 2026-09-14 노래 클립 상세안: DEC-081에 따라 관리자 공식 곡/노래 클립 작업 영역과 사용자 노래 클립 탭을 분리하고, 공통 곡 상세·player·큐로 연결한다. [요구사항과 화면 흐름](otw-play-singing-clips-requirements-and-plan.md#4-화면과-주요-사용자-흐름)이 7.8절의 방송 가창 방향을 구체화한다. 클립 단위 탐색을 먼저 전달하고 방송별 setlist는 후속 범위로 제안한다. 탭 이름은 노래 클립, 경로는 `/play/clips`로 확정했다. 노래 클립 채널과 VOD 방송 클립 채널은 각각 등록·설정하며 서로 영향을 주지 않는다.
+
 > 2026-09-09 현행 운영: `Cron → Workflow → Outbox → Queue → 수집기`. 승인된 활성 채널의 uploads playlist를 시간당 조회한다. Play 자동화 중지와 공개 flag는 유지한다. WebSub 구독·갱신·해제 작업은 종료됐으며 callback은 HTTP 410이다. 구형 직접 스케줄러와 테스트 전용 소스 선택·상태 전이 정책은 사용하지 않는다. 저장된 대표 소스와 사용 가능한 대체 소스, 실제 서비스의 승인·철회·CAS가 권위다. [현행 수집 계약](operations/channel-upload-polling.md), [정리 적용 계약](operations/retired-implementation-cleanup.md)을 따른다. 아래 과거 PR·단계별 구현 및 WebSub 설명은 당시 이력이며 재구현·secret 설정·구독 재개 지침이 아니다.
 
 > 2026-09-08 구현 갱신: `/profile/{code}`와 `/play/members/{memberCode}`의 SEO를 함께 구현했다.
@@ -402,6 +404,10 @@ card row로 표시한다. card 상단에는 음악 태그, 곡 관계, 공개 �
 - 기존 player는 페이지 이동에도 유지한다. 폐기된 하단 콘솔·전체 3개 화면 개편은 재개하지 않는다.
 
 ### 7.8 방송 가창·개인 감상 — 사용자용 OTW Play 내부 탭
+
+2026-09-14 노래 클립 문서화 이후 방송 가창의 첫 구현 기준안과 수용 기준은
+[노래 클립 상세안](otw-play-singing-clips-requirements-and-plan.md)을 따른다.
+아래 setlist는 전체 확장 방향이며 첫 클립 공개의 선행 구현 조건으로 삼지 않는다.
 
 사용자가 관리자 화면이 아닌 **사용자용 OTW Play 내부 탭**을 지정했다. 제안 라벨은
 `방송 가창`, `내 감상`이며 최종 라벨·URL·순서는 후속 구체화 대상이다.
@@ -1043,3 +1049,8 @@ iframe을 생성하지 않는다. 전체 화면에는 `role=dialog`, modal seman
 | 2026-09-03 | 발견 화면을 폭 기준 16:9 hero, 전체 현재 멤버 가로 rail, 24곡 cursor 무한 스크롤 순서로 재구성했다. 멤버 진입을 메인 보컬 검색으로 고정하고, 곡 검색 필터를 모든 viewport의 기본 접힘 고밀도 disclosure로 통합했다. |
 | 2026-09-03 | 곡 검색 card와 우측 player의 관계·공개 형태·참여 형태·게시일을 개별 chip으로 통일하고 card의 원곡 가수 접두 문구를 제거했다. 380px player rail에서는 transport와 volume row를 분리해 slider의 실사용 폭을 확보했다. |
 | 2026-09-03 | 별도 volume row를 제거하고 volume trigger를 재생 기능 행에 통합했다. 클릭 시 위로 열리는 popover에서 세로 slider, 현재 수치와 음소거를 제공하며 키보드와 touch에서도 동일하게 접근한다. |
+
+> 2026-09-14 확정: 원본·방송일 미확인 허용, 완곡/일부 구분, 승인 YouTube 키리누키, `/play/clips`, 현재 대기열 혼합·개인 저장 후속, noindex·공식 집계 제외. 노래 클립 채널과 방송 클립 채널의 개별 등록·삭제·수집 설정을 분리한다. 구현·검증과 운영 공개 상태는 [상세 기록](otw-play-singing-clips-requirements-and-plan.md#11-구현검증-기록)을 따른다.
+
+
+> 2026-09-14 후속 확정: 관리자 작업별 5개 탭과 OTW Play 채널 통합, 노래 클립 플레이리스트 일괄 임시 등록을 적용한다. 이전 채널 탭 분리 안내보다 [관리자 작업 흐름 통합 기록](otw-play-admin-workflow-integration.md)을 우선한다. 일반 방송 클립 채널의 독립 관리는 유지한다.

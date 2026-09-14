@@ -1,3 +1,6 @@
+import { ReviewInbox } from "./review-inbox";
+import { ChannelCollectionSettings } from "./channel-collection-settings";
+import { PlayAutomationControl } from "./play-automation-control";
 import { TabsList } from "@/shared/ui/tabs-list";
 import { LabeledField as Field } from "@/shared/ui/labeled-field";
 import { useConfirmation } from "@/shared/lib/confirmation";
@@ -56,6 +59,7 @@ import {
   Video,
 } from "lucide-react";
 import {
+  deleteOtwPlayChannel,
   createOtwPlayChannel,
   deleteOtwPlayEntity,
   lookupOtwPlayChannel,
@@ -67,6 +71,7 @@ import {
   updateOtwPlayEntity,
 } from "../../api/admin";
 import {
+  useOtwPlayChannelMonitors,
   useOtwPlayAdminCatalog,
   useOtwPlayAdminObservability,
   useOtwPlayAdminProposals,
@@ -79,11 +84,13 @@ import { WorkflowCatalog } from "./workflow-catalog";
 import { SourceHealthSection } from "./source-health-section";
 import { OperationsSection } from "./operations-section";
 import { IngestionSection } from "./ingestion-section";
-import { ChannelMonitorSection } from "./channel-monitor-section";
+
 
 export type Section =
   | "catalog"
   | "import"
+  | "clips"
+  | "clip-channels"
   | "channels"
   | "automatic-review"
   | "review"
@@ -91,11 +98,8 @@ export type Section =
   | "operations";
 
 const SECTIONS: Array<{ value: Section; label: string }> = [
-  { value: "catalog", label: "카탈로그" },
-  { value: "import", label: "가져오기" },
-  { value: "channels", label: "채널 관리" },
-  { value: "review", label: "영상 검토" },
-  { value: "operations", label: "재생·공개 관리" },
+  { value: "catalog", label: "카탈로그" }, { value: "import", label: "가져오기/검수" },
+  { value: "channels", label: "채널" }, { value: "operations", label: "운영" },
 ];
 
 const channelRoleLabels: Record<OtwPlayChannelRole, string> = {
@@ -161,14 +165,24 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const [localSection, setLocalSection] = useState<Section>("catalog");
   const requestedSection = activeSection ?? localSection;
   const section = requestedSection === "source-health" ? "operations"
-    : requestedSection === "automatic-review" ? monitorMode === "review" ? "review" : "channels"
-    : requestedSection;
+    : requestedSection === "automatic-review" ? (monitorMode === "sources" ? "channels" : "import")
+    : requestedSection === "clip-channels" ? "channels" : requestedSection === "clips" ? "catalog"
+    : requestedSection === "review" ? "import" : requestedSection;
   const [reviewSearch, updateReviewSearch] = useConsoleSearch();
-  const isReview = section === "review";
-  const reviewSource = reviewSearch.source === "all" || reviewSearch.source === "automatic" || reviewSearch.source === "user"
-    ? reviewSearch.source
-    : reviewSearch.tab === "automatic-review" ? "automatic" : "all";
+  const catalogScope = reviewSearch.kind ?? (requestedSection === "clips" || reviewSearch.tab === "clips" ? "broadcast" : "official");
+  const importView = reviewSearch.view ?? (reviewSearch.category && reviewSearch.tab === "import" ? "jobs" : "inbox");
+  const openChannel = (id: string, kind: "official_video" | "singing_clip" = "singing_clip") => {
+    if (!activeSection) setLocalSection("channels");
+    updateReviewSearch({ tab: "channels", view: "channel-edit", channel: id, channelKind: kind, from: "play-review" }, false);
+  };
+  const returnToReview = () => {
+    if (!activeSection) setLocalSection("import");
+    updateReviewSearch({ tab: "import", view: "review", channel: undefined, channelKind: undefined, from: undefined }, false);
+  };
+  const [importVisited, setImportVisited] = useState(section === "import");
+  useEffect(() => { if (section === "import") setImportVisited(true); }, [section]);
   const setSection = onSectionChange ?? setLocalSection;
+  const openCatalog = (kind?: "official" | "broadcast" | "all") => { setSection("catalog"); updateReviewSearch({ tab: "catalog", kind: kind ?? reviewSearch.kind ?? "all", view: undefined, category: undefined, selected: undefined, state: undefined, q: undefined }); };
   const sourceHealthQuery = useOtwPlayAdminSourceHealth(
     section === "operations",
   );
@@ -183,6 +197,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   const catalog = catalogQuery.data;
   const refresh = async () => {
     await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["otw-play-review-inbox"] }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.otwPlay.adminCatalog(),
       }),
@@ -299,7 +314,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
   };
 
   const catalogSection =
-    section === "catalog" || section === "import" || section === "channels" || section === "review";
+    section === "catalog" || section === "import" || section === "channels";
   const readModelReady = catalog
     ? catalog.revision === catalog.readModelRevision
     : false;
@@ -309,11 +324,11 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
     <div className="otw-play-admin min-w-0 space-y-3">
       <AdminSectionHeader
         title={activeSection ? SECTIONS.find((item) => item.value === section)?.label ?? "OTW Play" : "OTW Play 카탈로그"}
-        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "review" ? "자동 수집과 사용자 제안을 출처별로 확인하고 검토합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
+        description={section === "import" ? "가져온 영상의 검토 대상을 선택하고, 근거를 확인해 카탈로그에 임시 저장합니다." : section === "channels" ? "채널 수집 감시, 승인 상태와 연결된 인물·그룹을 함께 관리합니다." : section === "operations" ? "공개 설정, 영상 재생 상태와 서비스 지표를 함께 확인합니다." : "곡과 가창을 검색하고 등록·공개 상태를 관리합니다."}
         metadata={catalogSection ? <><QueryReadback className="m-0" updatedAt={catalogQuery.dataUpdatedAt} fetching={catalogQuery.isFetching} error={catalogQuery.isError && Boolean(catalog)} />{catalog && section === "catalog" ? <span>곡 {catalog.songs.length} · 가창 {catalog.performances.length}</span> : null}</> : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
-            {catalog && section === "catalog" && (
+            {catalog && (section === "catalog") && (
               <Button
                 size="sm"
                 onClick={() => {
@@ -321,7 +336,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
                   setRegistrationOpen(true);
                 }}
               >
-                <Video className="h-4 w-4" /> 새 영상 등록
+                <Video className="h-4 w-4" /> {catalogScope === "broadcast" ? "새 노래 클립 등록" : "새 영상 등록"}
               </Button>
             )}
             <Button
@@ -369,81 +384,25 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
         </div>
       )}
 
-      {isReview && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="수집 출처 필터">
-            <span className="text-xs font-medium text-muted-foreground">수집 출처</span>
-            {([{ value: "all", label: "전체" }, { value: "automatic", label: "자동 수집" }, { value: "user", label: "사용자 제안" }] as const).map((item) => (
-              <Button key={item.value} size="sm" variant={reviewSource === item.value ? "secondary" : "ghost"} aria-pressed={reviewSource === item.value} onClick={() => updateReviewSearch({ source: item.value }, false)}>{item.label}</Button>
-            ))}
-          </div>
-          {reviewSource !== "user" && (
-            <section aria-label="자동 수집 후보" className="space-y-2">
-              <h3 className="text-sm font-semibold">자동 수집</h3>
-              <ChannelMonitorSection mode="review" catalog={catalog ?? null} catalogLoading={catalogQuery.isLoading} onOpenCatalog={() => setSection("catalog")} />
-            </section>
-          )}
-          {reviewSource !== "automatic" && catalog && (
-            <section aria-label="사용자 제안 검토" className="space-y-2">
-              <h3 className="text-sm font-semibold">사용자 제안</h3>
-              <ProposalSection
-                catalog={catalog}
-                proposals={proposalsQuery.data ?? []}
-                loading={proposalsQuery.isLoading}
-                fetching={proposalsQuery.isFetching}
-                error={proposalsQuery.error}
-                refetch={proposalsQuery.refetch}
-                saving={effectiveSaving}
-                run={run}
-              />
-            </section>
-          )}
-        </div>
-      )}
-      {section === "import" && catalog && (
-        <IngestionSection
-          catalog={catalog}
-          onOpenCatalog={() => setSection("catalog")}
-        />
-      )}
-      {section === "channels" && (
-        <section aria-label="채널 감시" className="space-y-2">
-          <h2 className="text-base font-semibold">채널 감시</h2>
-          <ChannelMonitorSection
-            mode="sources"
-            catalog={catalog ?? null}
-            catalogLoading={catalogQuery.isLoading}
-            onOpenCatalog={() => setSection("catalog")}
-          />
-        </section>
-      )}
-      {section === "channels" && catalog && (
-        <ChannelSection
-          items={catalog.channels}
-          entities={catalog.entities}
-          referencedEntityIds={new Set([
-            ...catalog.songs.flatMap((song) =>
-              song.originalArtists.map((artist) => artist.entityId)
-            ),
-            ...catalog.performances.flatMap((performance) =>
-              performance.participants.map((participant) => participant.entityId)
-            ),
-            ...catalog.channels.flatMap((channel) => channel.entityIds),
-            ...(proposalsQuery.data ?? []).flatMap((proposal) => [
-              ...proposal.participants.flatMap((participant) =>
-                participant.resolvedEntityId ? [participant.resolvedEntityId] : []
-              ),
-              ...proposal.originalArtists.flatMap((artist) =>
-                artist.resolvedEntityId ? [artist.resolvedEntityId] : []
-              ),
-            ]),
-          ])}
-          saving={effectiveSaving}
-          run={run}
-        />
-      )}
-      {section === "catalog" && catalog && (
+      {catalog && section === "catalog" && <div className="flex flex-wrap gap-2">
+        <Button variant={reviewSearch.view !== "entities" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: undefined })}>곡·가창</Button>
+        <Button variant={reviewSearch.view === "entities" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "entities" })}>인물·그룹</Button>
+        {reviewSearch.view !== "entities" && <select aria-label="카탈로그 영상 종류" className="rounded-md border bg-background p-2 text-sm" value={catalogScope} onChange={event => updateReviewSearch({ kind: event.target.value as "official" | "broadcast" | "all", selected: undefined })}><option value="official">공식 곡</option><option value="broadcast">노래 클립</option><option value="all">전체</option></select>}
+      </div>}
+      {catalog && section === "catalog" && reviewSearch.view === "entities" && <EntitySection items={catalog.entities.filter(entity => entity.memberUid === null)} referencedEntityIds={new Set([...catalog.songs.flatMap(song => song.originalArtists.map(artist => artist.entityId)), ...catalog.performances.flatMap(performance => performance.participants.map(participant => participant.entityId)), ...catalog.channels.flatMap(channel => channel.entityIds)])} saving={effectiveSaving} run={run} />}
+      {(importVisited || section === "import") && <div hidden={section !== "import"} className="space-y-3">
+        <div className="flex flex-wrap gap-2"><Button variant={importView !== "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "inbox", selected: undefined })}>검수 목록</Button><Button variant={importView === "jobs" ? "secondary" : "outline"} onClick={() => updateReviewSearch({ view: "jobs" })}>새 가져오기·이력</Button></div>
+        <div hidden={importView === "jobs" || section !== "import"}><ReviewInbox active={section === "import" && importView !== "jobs"} catalog={catalog ?? null} onManageChannel={openChannel} onOpenCatalog={openCatalog} onProposal={id => updateReviewSearch({ proposal: id })} /></div>
+        <div hidden={importView !== "jobs" || section !== "import"}><IngestionSection active={section === "import" && importView === "jobs"} /></div>
+        {catalog && reviewSearch.proposal && <ProposalSection catalog={catalog} proposals={proposalsQuery.data ?? []} loading={proposalsQuery.isLoading} fetching={proposalsQuery.isFetching} error={proposalsQuery.error} refetch={proposalsQuery.refetch} saving={effectiveSaving} run={run} />}
+      </div>}
+      {section === "channels" && catalog && <div className="space-y-3">
+        {reviewSearch.from === "play-review" && <Button variant="outline" disabled={effectiveSaving !== null} onClick={returnToReview}>작성 중인 검수로 돌아가기</Button>}
+        <ChannelSection initialExternalChannelId={reviewSearch.channel} initialChannelRole={reviewSearch.channelKind === "official_video" ? "member_music" : "approved_kirinuki"} items={catalog.channels} entities={catalog.entities} saving={effectiveSaving} run={run} />
+      </div>}
+      {(section === "catalog") && reviewSearch.view !== "entities" && catalog && (
         <WorkflowCatalog
+          scope={catalogScope}
           catalog={catalog}
           saving={effectiveSaving}
           run={run}
@@ -482,6 +441,7 @@ export function OtwPlayCatalogManager({ activeSection, onSectionChange, monitorM
       </div>
       {catalog && (
         <CatalogEntryDialog
+          clip={catalogScope === "broadcast"}
           open={registrationOpen}
           onOpenChange={setRegistrationOpen}
           catalog={catalog}
@@ -1574,24 +1534,39 @@ function EntitySection({
 }
 
 function ChannelSection({
+  clipOnly = false,
   items,
   entities,
-  referencedEntityIds,
+  initialExternalChannelId,
+  initialChannelRole = "approved_kirinuki",
   saving,
   run,
 }: {
+  clipOnly?: boolean;
+  initialExternalChannelId?: string;
+  initialChannelRole?: OtwPlayChannelRole;
   items: OtwPlayAdminChannelDto[];
   entities: OtwPlayAdminEntityDto[];
-  referencedEntityIds: ReadonlySet<string>;
   saving: string | null;
   run: (label: string, task: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const confirm = useConfirmation();
   const [search, updateSearch] = useConsoleSearch();
-  const visibleChannels = items.filter((item) => !search.q || [item.displayName, ...item.entityIds.map((id) => entities.find((entity) => entity.id === id)?.displayName ?? "")].join(" ").toLocaleLowerCase().includes(search.q.toLocaleLowerCase()));
+  const focusedEditor = search.view === "channel-edit" && Boolean(initialExternalChannelId);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [focusRevision, setFocusRevision] = useState(0);
+  useEffect(() => { if (focusedEditor) editorRef.current?.focus(); }, [focusedEditor]);
+  const monitorsQuery = useOtwPlayChannelMonitors();
+  const [roleFilter, setRoleFilter] = useState(search.tab === "clip-channels" || search.tab === "play-monitor" ? "clips" : "all");
+  const [approvalFilter, setApprovalFilter] = useState("all");
+  const [collectionFilter, setCollectionFilter] = useState("all");
+  const monitors = monitorsQuery.data ?? [];
+  const filteredItems = items.filter(item => (roleFilter === "all" || (roleFilter === "clips" ? item.channelRole === "approved_kirinuki" : item.channelRole !== "approved_kirinuki")) && (approvalFilter === "all" || item.verificationStatus === approvalFilter) && (!monitorsQuery.data || collectionFilter === "all" || (monitors.find(monitor => monitor.channelId === item.id)?.status ?? "none") === collectionFilter));
+  const visibleChannels = filteredItems.filter((item) => !search.q || [item.displayName, ...item.entityIds.map((id) => entities.find((entity) => entity.id === id)?.displayName ?? "")].join(" ").toLocaleLowerCase().includes(search.q.toLocaleLowerCase()));
   const empty = {
-    externalChannelId: "",
+    externalChannelId: focusedEditor ? initialExternalChannelId! : "",
     displayName: "",
-    channelRole: "member_music" as OtwPlayChannelRole,
+    channelRole: (focusedEditor ? initialChannelRole : clipOnly ? "approved_kirinuki" : "member_music") as OtwPlayChannelRole,
     verificationStatus: "pending" as const,
     active: false,
     entityIds: [] as string[],
@@ -1618,6 +1593,17 @@ function ChannelSection({
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [verifiedChannelId, setVerifiedChannelId] = useState<string | null>(null);
   const lookupRequestRef = useRef(0);
+  const initializedExternalId = useRef<string | null>(null);
+  const targetExternalId = initialExternalChannelId ?? (["play-monitor", "clip-channels"].includes(search.tab ?? "") ? monitors.find(monitor => monitor.id === search.category)?.externalChannelId : undefined);
+  useEffect(() => {
+    if (!targetExternalId || initializedExternalId.current === targetExternalId) return;
+    initializedExternalId.current = targetExternalId;
+    const channel = items.find(item => item.externalChannelId === targetExternalId);
+    if (channel) {
+      setEditing(channel); setForm({ externalChannelId: channel.externalChannelId, displayName: channel.displayName, channelRole: channel.channelRole, verificationStatus: channel.verificationStatus, active: channel.active, entityIds: channel.entityIds });
+      setVerifiedChannelId(channel.externalChannelId); setLookupStatus("verified");
+    } else setForm(current => ({ ...current, externalChannelId: targetExternalId, channelRole: initialChannelRole }));
+  }, [targetExternalId, initialChannelRole, items, focusRevision]);
   const lookupChannel = async () => {
     const externalChannelId = form.externalChannelId.trim();
     if (!/^UC[A-Za-z0-9_-]{22}$/u.test(externalChannelId)) return;
@@ -1645,7 +1631,7 @@ function ChannelSection({
     const core = {
       externalChannelId: form.externalChannelId.trim(),
       displayName: form.displayName,
-      channelRole: form.channelRole,
+      channelRole: clipOnly ? "approved_kirinuki" as const : form.channelRole,
       entityIds: editing ? form.entityIds : [],
     };
     const succeeded = await run(editing ? "채널 수정" : "채널 등록", () =>
@@ -1660,6 +1646,12 @@ function ChannelSection({
         : createOtwPlayChannel(core),
     );
     if (!succeeded) return;
+    if (focusedEditor) {
+      initializedExternalId.current = null;
+      setFocusRevision(current => current + 1);
+      setConfirmingEntityChange(false);
+      return;
+    }
     setEditing(null);
     setForm(empty);
     setLookupStatus("idle");
@@ -1704,7 +1696,7 @@ function ChannelSection({
       <CardHeader className="border-b px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base"><h2 id="approved-channels-title">승인 채널·외부 주체 관리</h2></CardTitle>
+            <CardTitle className="text-base"><h2 id="approved-channels-title">Play 채널</h2></CardTitle>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
             <Badge variant="outline">전체 {items.length}</Badge>
@@ -1718,6 +1710,14 @@ function ChannelSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 p-3">
+        {!focusedEditor && <PlayAutomationControl monitors={monitors} />}
+        {monitorsQuery.isError && <p role="alert" className="text-sm">수집 상태를 불러오지 못했습니다. 채널 정보는 유지되며 수집 상태 필터는 잠시 사용할 수 없습니다.</p>}
+        {!focusedEditor && <>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="채널 용도 필터" className="rounded border bg-background p-2" value={roleFilter} onChange={event => setRoleFilter(event.target.value)}><option value="all">모든 용도</option><option value="official">공식 채널</option><option value="clips">노래 클립 채널</option></select>
+          <select aria-label="채널 승인 필터" className="rounded border bg-background p-2" value={approvalFilter} onChange={event => setApprovalFilter(event.target.value)}><option value="all">모든 승인 상태</option><option value="pending">검수 대기</option><option value="approved">승인됨</option><option value="revoked">철회됨</option></select>
+          <select disabled={monitorsQuery.isError || monitorsQuery.isLoading} aria-label="채널 수집 필터" className="rounded border bg-background p-2" value={collectionFilter} onChange={event => setCollectionFilter(event.target.value)}><option value="all">모든 수집 상태</option><option value="active">수집 중</option><option value="paused">수집 중지</option><option value="none">수집 미설정</option></select>
+        </div>
         <div className="flex flex-wrap items-center gap-2"><Input aria-label="Play 승인 채널 검색" placeholder="채널명·연결 주체 검색" className="max-w-sm" value={search.q ?? ""} onChange={(event) => updateSearch({q: event.target.value})}/><a href="#play-channel-editor" className="text-sm underline">채널 등록·수정 ↓</a></div>
         <div className="space-y-2">
           <div className="text-sm font-medium">등록된 채널</div>
@@ -1791,24 +1791,27 @@ function ChannelSection({
           </div>
         </div>
 
-        <div id="play-channel-editor" className="space-y-3 rounded-xl border bg-muted/20 p-3">
+        </>}
+        <div id="play-channel-editor" ref={editorRef} tabIndex={-1} className={focusedEditor ? "space-y-5 outline-none" : "space-y-3 rounded-xl border bg-muted/20 p-3"}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="font-medium">{editing ? `${editing.displayName} 수정` : "채널 등록"}</div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                신규 채널은 검수 대기로 생성됩니다. 등록 후 아래 목록에서 승인 상태와 활성 여부를 확정하세요.
+                신규 채널은 검수 대기로 생성됩니다. 등록 후 승인 상태와 활성 여부를 확인하세요.
               </p>
             </div>
             {editing && <Badge variant="outline">version {editing.version}</Badge>}
           </div>
-          <div className="grid gap-3 lg:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-2">
           <Field
+            className="min-w-0 lg:col-span-2"
             label="YouTube 채널 ID"
             htmlFor="advanced-channel-id"
             description="UC로 시작하는 channel ID를 입력한 뒤 조회하세요."
           >
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 sm:flex-nowrap">
               <Input
+                className="min-w-0 w-full sm:flex-1"
                 id="advanced-channel-id"
                 aria-label="YouTube channel ID"
                 value={form.externalChannelId}
@@ -1978,6 +1981,11 @@ function ChannelSection({
                 variant="outline"
                 disabled={saving !== null}
                 onClick={() => {
+                  if (focusedEditor) {
+                    initializedExternalId.current = null;
+                    setFocusRevision(current => current + 1);
+                    return;
+                  }
                   lookupRequestRef.current += 1;
                   setEditing(null);
                   setForm(empty);
@@ -2004,12 +2012,7 @@ function ChannelSection({
             </Button>
           </div>
         </div>
-        <EntitySection
-          items={entities.filter((item) => item.memberUid === null)}
-          referencedEntityIds={referencedEntityIds}
-          saving={saving}
-          run={run}
-        />
+        {editing && <><ChannelCollectionSettings channel={items.find(item => item.id === editing.id) ?? editing} /><Button variant="destructive" disabled={saving !== null} onClick={async () => { if (!await confirm({ title: "채널을 삭제할까요?", description: "가창·영상 또는 수집 설정이 연결되어 있으면 삭제할 수 없습니다. 방송 클립용 채널은 유지됩니다.", confirmLabel: "채널 삭제" })) return; if (await run("채널 삭제", () => deleteOtwPlayChannel(editing.id, { expectedVersion: editing.version }))) { setEditing(null); setForm(empty); setVerifiedChannelId(null); } }}>채널 삭제</Button></>}
       </CardContent>
       <ConfirmActionDialog
         open={confirmingEntityChange}

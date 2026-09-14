@@ -308,13 +308,14 @@ export class PublicCatalogService {
     slug: string,
     context: PublicCatalogReadContext,
     preloadedMeta?: PublicCatalogMeta,
+    scope: "official" | "all" = "official",
   ): Promise<PublicCatalogDetailResult<PublicCatalogSongDetail>> {
     return this.readCachedDetail(
       "song",
-      `songs/${encodeURIComponent(slug)}`,
+      `songs/${encodeURIComponent(slug)}${scope === "all" ? "?scope=all" : ""}`,
       "song_not_found",
       context,
-      () => this.reader.readSongBySlug(slug),
+      () => scope === "all" ? this.reader.readSongBySlug(slug, scope) : this.reader.readSongBySlug(slug),
       preloadedMeta,
     );
   }
@@ -328,7 +329,7 @@ export class PublicCatalogService {
       "performance",
       `performances/${encodeURIComponent(performanceId)}`,
       "performance_not_found",
-      context,
+      { ...context, allowSharedCache: false },
       () => this.reader.readPerformanceById(performanceId),
       preloadedMeta,
     );

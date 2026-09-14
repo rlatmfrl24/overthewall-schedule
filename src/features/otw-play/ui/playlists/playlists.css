@@ -94,3 +94,16 @@
 .playlist-track-compact > img { width: 56px; height: 32px; object-fit: cover; }
 .playlist-track-compact > svg { width: 24px; height: 24px; margin: 4px 16px; }
 .playlist-track-compact > [data-slot=button] { flex-shrink: 0; }
+
+/* Anchor detail copy to the artwork instead of distributing three flex items. */
+.playlist-detail-heading { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; }
+.playlist-detail-copy { min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.playlist-detail-actions { grid-column: 1 / -1; justify-content: flex-start; }
+@container (min-width: 720px) {
+  .playlist-detail-heading { grid-template-columns: 96px minmax(0, 1fr) auto; }
+  .playlist-detail-actions { grid-column: auto; justify-content: flex-end; }
+}
+
+@keyframes playlist-add-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.playlist-add-indeterminate { animation: playlist-add-progress 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .playlist-add-indeterminate { animation: none; width: 100%; opacity: .6; } }

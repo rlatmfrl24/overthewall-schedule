@@ -92,6 +92,11 @@ describe("OTW Play admin input", () => {
         performanceTags: ["어쿠스틱", "2026 버전"],
       },
     });
+    for (const relationType of ["original", "cover", "singing_clip"]) {
+      expect(parseCreateCatalogEntry({ ...command, relationType, releaseType: "broadcast", publicationTarget: "draft" }))
+        .toMatchObject({ ok: true, value: { relationType: "singing_clip", releaseType: "broadcast" } });
+    }
+    expect(parseCreateCatalogEntry({ ...command, relationType: "singing_clip" })).toMatchObject({ ok: false });
     const fromVideo = parseCreateCatalogEntry({
       ...command,
       song: { kind: "from_video", title: "client-supplied title" },

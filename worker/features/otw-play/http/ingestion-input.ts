@@ -47,6 +47,7 @@ const parseBase = (
   const rangeLimit = value.rangeLimit;
   const hasRange = rangeStart !== undefined || rangeLimit !== undefined;
   if (
+    (value.candidateKind !== undefined && value.candidateKind !== "official_video" && value.candidateKind !== "singing_clip") ||
     !playlistUrl ||
     !mode ||
     (mode === "recent" &&
@@ -72,6 +73,7 @@ const parseBase = (
     ok: true,
     value: {
       playlistUrl,
+      ...(value.candidateKind !== undefined ? { candidateKind: value.candidateKind as "official_video" | "singing_clip" } : {}),
       mode,
       ...(mode === "recent" ? { recentLimit: Number(recentLimit) } : {}),
       ...(hasRange
@@ -88,6 +90,7 @@ export const parsePlaylistPreflight = (
   value: unknown,
 ): IngestionInputResult<OtwPlayPlaylistPreflightRequest> =>
   parseBase(value, [
+    "candidateKind",
     "playlistUrl",
     "mode",
     "recentLimit",
@@ -99,6 +102,7 @@ export const parseCreatePlaylistImport = (
   value: unknown,
 ): IngestionInputResult<OtwPlayCreatePlaylistImportRequest> => {
   const parsed = parseBase(value, [
+    "candidateKind",
     "playlistUrl",
     "mode",
     "recentLimit",
@@ -132,6 +136,7 @@ const parseCandidateReviewInput = (
       "startSeconds",
       "endSeconds",
       "internalNote",
+      "broadcast",
     ])
   ) {
     return { ok: false, fields: { input: "invalid_shape" } };
@@ -158,6 +163,7 @@ const parseCandidateReviewInput = (
     startSeconds,
     endSeconds,
     internalNote,
+    broadcast,
   } = parsed.value;
   return {
     ok: true,
@@ -171,6 +177,7 @@ const parseCandidateReviewInput = (
       ...(value.startSeconds !== undefined ? { startSeconds } : {}),
       ...(value.endSeconds !== undefined ? { endSeconds } : {}),
       internalNote,
+      ...(broadcast === undefined ? {} : { broadcast }),
     },
   };
 };
@@ -195,6 +202,10 @@ export const parseUpdateIngestionCandidate = (
   const expectedVersion = value.expectedVersion;
   if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0) {
     return { ok: false, fields: { expectedVersion: "invalid" } };
+  }
+  if (value.action === "change_kind") {
+    if (!hasExactKeys(value, ["expectedVersion", "action", "candidateKind"]) || (value.candidateKind !== "official_video" && value.candidateKind !== "singing_clip")) return { ok: false, fields: { candidateKind: "invalid" } };
+    return { ok: true, value: { action: "change_kind", expectedVersion: Number(expectedVersion), candidateKind: value.candidateKind } };
   }
   if (value.action === "save") {
     if (!hasExactKeys(value, [

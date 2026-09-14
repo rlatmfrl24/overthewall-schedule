@@ -196,8 +196,13 @@ export function OtwPlayPlayerProvider({
   const currentTrackRef = useRef<OtwPlayTrack | null>(null);
   const failedSourceIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const playbackErrorInFlightKeysRef = useRef<Set<string>>(new Set());
+  const playbackRequestedRef = useRef(false);
+  const pendingClipKeyRef = useRef<string | null>(null);
+  const playbackSurfaceActiveRef = useRef(playbackSurfaceActive);
+  playbackSurfaceActiveRef.current = playbackSurfaceActive;
 
   const requestPlayback = useCallback(() => {
+    playbackRequestedRef.current = true;
     setHasPlaybackIntent(true);
     setPlaybackIntentVersion((version) => version + 1);
   }, []);
@@ -359,6 +364,11 @@ export function OtwPlayPlayerProvider({
       }
       if (index === queue.currentIndex) {
         if (currentTrack && playerRef.current) {
+          if (currentTrack.performance.releaseType === "broadcast" && currentItemRef.current) {
+            loadedKeyRef.current = null;
+            const itemId = currentItemRef.current.id;
+            setTracks(current => new Map(current).set(itemId, { ...currentTrack }));
+          } else {
           playerRef.current.load({
             videoId: currentTrack.source.externalId,
             startSeconds: currentTrack.source.startSeconds,
@@ -366,6 +376,7 @@ export function OtwPlayPlayerProvider({
               ? {}
               : { endSeconds: currentTrack.source.endSeconds }),
           });
+          }
         }
       } else {
         dispatch({ type: "select", index });
@@ -571,6 +582,54 @@ export function OtwPlayPlayerProvider({
     if (loadedKeyRef.current === key) return;
     loadedKeyRef.current = key;
     setStatus("loading");
+    if (currentTrack.performance.releaseType === "broadcast") {
+      let cancelled = false;
+      let settled = false;
+      pendingClipKeyRef.current = key;
+      playerRef.current.pause();
+      void fetchOtwPlayPerformance(currentTrack.performance.id, { adminPreview }).then(response => {
+        if (cancelled) return;
+        pendingClipKeyRef.current = null;
+        if (!playbackRequestedRef.current || !playbackSurfaceActiveRef.current) {
+          settled = true;
+          loadedKeyRef.current = null;
+          return;
+        }
+        const fresh = trackFromPerformance(currentItem, response);
+        if (!fresh) {
+          setStatus("error");
+          setUnavailableItemIds(current => new Set(current).add(currentItem.id));
+          setAnnouncement("이 노래 클립은 더 이상 재생할 수 없습니다.");
+          settled = true;
+          return;
+        }
+        settled = true;
+        loadedKeyRef.current = `${currentItem.id}:${fresh.source.sourceId}`;
+        playerRef.current?.load({ videoId: fresh.source.externalId, startSeconds: fresh.source.startSeconds,
+          ...(fresh.source.endSeconds === null ? {} : { endSeconds: fresh.source.endSeconds }) });
+        setTracks(current => new Map(current).set(currentItem.id, fresh));
+        setAnnouncement(`${fresh.song.title} 재생을 시작합니다.`);
+      }).catch(error => {
+        if (cancelled) return;
+        settled = true;
+        pendingClipKeyRef.current = null;
+        loadedKeyRef.current = null;
+        if (!playbackRequestedRef.current || !playbackSurfaceActiveRef.current) return;
+        if (isAuthoritativelyUnavailable(error)) {
+          setStatus("error");
+          setUnavailableItemIds(current => new Set(current).add(currentItem.id));
+          setAnnouncement("이 노래 클립은 더 이상 공개되어 있지 않습니다.");
+        } else {
+          setStatus("error");
+          setAnnouncement("노래 클립의 공개 상태를 확인하지 못했습니다. 다시 시도해 주세요.");
+        }
+      });
+      return () => {
+        cancelled = true;
+        if (pendingClipKeyRef.current === key) pendingClipKeyRef.current = null;
+        if (!settled && loadedKeyRef.current === key) loadedKeyRef.current = null;
+      };
+    }
     playerRef.current.load({
       videoId: currentTrack.source.externalId,
       startSeconds: currentTrack.source.startSeconds,
@@ -579,7 +638,7 @@ export function OtwPlayPlayerProvider({
         : { endSeconds: currentTrack.source.endSeconds }),
     });
     setAnnouncement(`${currentTrack.song.title} 재생을 시작합니다.`);
-  }, [currentItem, currentTrack, playbackDisabled, playerReadyVersion]);
+  }, [adminPreview, currentItem, currentTrack, playbackDisabled, playbackIntentVersion, playerReadyVersion]);
 
   useEffect(() => {
     updatePlaybackProgress();
@@ -617,7 +676,7 @@ export function OtwPlayPlayerProvider({
   const register = useCallback((track: OtwPlayTrack, action: OtwPlayQueueAction) => {
     const item = "item" in action ? action.item : null;
     if (item) {
-      setTracks((current) => new Map(current).set(item.id, track));
+      setTracks((current) => new Map(current).set(item.id, track.performance.releaseType === "broadcast" ? { ...track } : track));
       setUnavailableItemIds((current) => {
         if (!current.has(item.id)) return current;
         const next = new Set(current);
@@ -636,6 +695,7 @@ export function OtwPlayPlayerProvider({
   }, [dispatch]);
 
   const play = useCallback((track: OtwPlayTrack) => {
+    if (track.performance.releaseType === "broadcast") loadedKeyRef.current = null;
     const existingIndex = queue.items.findIndex(
       ({ performanceId }) => performanceId === track.performance.id,
     );
@@ -647,7 +707,7 @@ export function OtwPlayPlayerProvider({
     register(track, { type: "play", item });
     requestPlayback();
     if (
-      existingIndex === queue.currentIndex &&
+      track.performance.releaseType !== "broadcast" && existingIndex === queue.currentIndex &&
       loadedKeyRef.current === `${item.id}:${track.source.sourceId}`
     ) {
       playerRef.current?.play();
@@ -820,6 +880,7 @@ export function OtwPlayPlayerProvider({
       setPanelExpanded(false);
     },
     pause() {
+      playbackRequestedRef.current = false;
       playerRef.current?.pause();
       setStatus("paused");
     },
@@ -828,7 +889,7 @@ export function OtwPlayPlayerProvider({
     },
     resume() {
       requestPlayback();
-      playerRef.current?.play();
+      if (!pendingClipKeyRef.current && loadedKeyRef.current !== null) playerRef.current?.play();
     },
     seek,
     setVolume(nextVolume) {

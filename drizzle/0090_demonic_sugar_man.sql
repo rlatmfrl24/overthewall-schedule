@@ -1,0 +1,1 @@
+ALTER TABLE `music_ingestion_jobs` ADD `candidate_kind` text DEFAULT 'official_video' NOT NULL;

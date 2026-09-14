@@ -509,6 +509,62 @@ describe("OTW Play player and queue rail", () => {
     expect(screen.getByLabelText("YouTube 영상 플레이어")).toBe(playerHost);
   });
 
+  it("shows actual mini playback status and preserves the full title", () => {
+    createMatchMediaController({
+      [MINI_PLAYER_QUERY]: true,
+      [PHONE_PLAYER_QUERY]: false,
+      [DESKTOP_PLAYER_QUERY]: false,
+    });
+    const player = {
+      ...emptyPlayer,
+      queue: { items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }], currentIndex: 0, repeat: "off", shuffled: false },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      currentTrack: track, playbackIntentVersion: 1, trackForItem: () => track,
+    };
+    mocks.usePlayer.mockReturnValue({ ...player, status: "paused" });
+    const { rerender } = render(<OtwPlayPlayerQueuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
+    const controls = screen.getByTestId("otw-play-mini-player-controls");
+    for (const [status, label] of Object.entries({ playing: "재생 중", paused: "일시정지", loading: "로딩 중", error: "재생 오류", idle: "재생 대기", blocked: "재생 대기" })) {
+      mocks.usePlayer.mockReturnValue({ ...player, status });
+      rerender(<OtwPlayPlayerQueuePanel />);
+      const indicator = controls.querySelector('[role="status"]')!;
+      expect(indicator.textContent).toBe(label);
+      expect(indicator.getAttribute("title")).toBe(track.song.title);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "전체 Now Playing 열기" }));
+    expect(screen.getByTestId("otw-play-track-title").textContent).toBe(track.song.title);
+  });
+
+  it("closes the mini player without removing the queue and allows reopening", () => {
+    createMatchMediaController({
+      [MINI_PLAYER_QUERY]: true,
+      [PHONE_PLAYER_QUERY]: false,
+      [DESKTOP_PLAYER_QUERY]: false,
+    });
+    mocks.usePlayer.mockReturnValue({
+      ...emptyPlayer,
+      queue: {
+        items: [{ id: "item-1", performanceId: "performance-1", sourceId: "source-1" }],
+        currentIndex: 0, repeat: "off", shuffled: false,
+      },
+      currentItem: { id: "item-1", performanceId: "performance-1", sourceId: "source-1" },
+      currentTrack: track,
+      playbackIntentVersion: 1,
+      status: "playing",
+      trackForItem: () => track,
+    });
+    render(<OtwPlayPlayerQueuePanel />);
+    fireEvent.click(screen.getByRole("button", { name: "카탈로그로 돌아가기" }));
+    actions.pause.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "소형 플레이어 끄기" }));
+    expect(actions.pause).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("OTW Play 재생 플레이어").getAttribute("data-player-presentation")).toBe("launcher");
+    expect(actions.setPlaybackSurfaceActive).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Now Playing 화면 열기" }));
+    expect(screen.getByLabelText("OTW Play 재생 플레이어").getAttribute("data-player-presentation")).toBe("full");
+  });
+
   it("reopens the full player if a visible mini player crosses below 640px", () => {
     const media = createMatchMediaController({
       [MINI_PLAYER_QUERY]: true,

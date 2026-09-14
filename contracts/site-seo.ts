@@ -225,6 +225,9 @@ export const buildPlaySongPlaceholderSeo = (
     ogType: "website",
   });
 
+export const buildPlayClipsSiteSeo = (path: string): SiteSeoMetadata =>
+  define({ path, title: "노래 클립 | OTW Play", description: "멤버가 방송에서 부른 노래 클립을 찾아 듣습니다.", robots: "noindex,follow", sitemap: false, ogType: "website" });
+
 export const buildPlayPrivateSiteSeo = (path: string): SiteSeoMetadata =>
   define({
     path,
@@ -299,6 +302,7 @@ export const resolveSiteSeo = (rawPath: string): SiteSeoMetadata => {
     });
   }
   if (path === "/play" || path.startsWith("/play/")) {
+    if (path === "/play/clips" || /^\/play\/clips\/[^/]+$/.test(path)) return buildPlayClipsSiteSeo(path);
     if (path === "/play/playlists" || path.startsWith("/play/playlists/")) {
       return define({ path, title: "플레이리스트 | OTW Play", description: "오리지널, 커버와 멤버별 가창을 모아 듣고 나만의 플레이리스트를 만들어 보세요.", robots: "noindex,nofollow", sitemap: false, ogType: "website" });
     }

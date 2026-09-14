@@ -45,7 +45,7 @@ describe('ElasticSlider', () => {
     expect(root.hasAttribute('data-keyboard-focus')).toBe(false);
   });
 
-  it('uses the React Bits zoom, edge deformation and spring rebound', async () => {
+  it('restores two-axis zoom with width-bounded edge stretch and spring rebound', async () => {
     render(<ElasticSlider />);
     const { input, root } = track();
     const visual = root.querySelector('.elastic-slider-track-wrapper') as HTMLElement;
@@ -57,7 +57,8 @@ describe('ElasticSlider', () => {
       expect(visual.style.height).toBe('12px');
       const stretch = Number(visual.style.transform.match(/scaleX\(([^)]+)\)/)?.[1]);
       expect(stretch).toBeGreaterThan(1);
-      expect(stretch).toBeGreaterThan(1.1);
+      expect((stretch - 1) * 200).toBeGreaterThan(8);
+      expect((stretch - 1) * 200).toBeLessThanOrEqual(20);
     });
     fireEvent.pointerUp(root, { pointerId: 1 });
     // Release must start a spring, not immediately remove the deformation.

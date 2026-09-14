@@ -1715,12 +1715,24 @@ export const musicPerformances = sqliteTable(
       .notNull()
       .default("ok"),
     released_at: integer("released_at"),
+    broadcast_metadata: text("broadcast_metadata"),
+    catalog_published_at: integer("catalog_published_at"),
     internal_note: text("internal_note"),
     version: integer().notNull().default(0),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
   },
   (table) => [
+    check("music_performances_broadcast_metadata_check", sql`${table.broadcast_metadata} IS NULL OR CASE WHEN json_valid(${table.broadcast_metadata}) THEN coalesce((
+      json_type(${table.broadcast_metadata}) = 'object'
+      AND json_type(${table.broadcast_metadata}, '$.performedOn') IN ('text', 'null')
+      AND json_type(${table.broadcast_metadata}, '$.dateEvidence') IN ('text', 'null')
+      AND json_type(${table.broadcast_metadata}, '$.originalUrl') IN ('text', 'null')
+      AND (json_type(${table.broadcast_metadata}, '$.extent') = 'null' OR json_extract(${table.broadcast_metadata}, '$.extent') IN ('full', 'partial'))) , 0)
+      ELSE 0 END`),
+    check("music_performances_catalog_published_at_check", sql`${table.catalog_published_at} IS NULL OR (typeof(${table.catalog_published_at}) = 'integer' AND ${table.catalog_published_at} >= 0)`),
+    index("idx_music_performances_broadcast_published").on(table.catalog_published_at, table.id)
+      .where(sql`${table.publication_status} = 'published' AND ${table.release_type} = 'broadcast'`),
     uniqueIndex("uidx_music_performances_dedupe_key").on(table.dedupe_key),
     uniqueIndex("uidx_music_performances_id_song_id").on(
       table.id,
@@ -1749,7 +1761,7 @@ export const musicPerformances = sqliteTable(
       .where(sql`${table.publication_status} = 'published'`),
     check(
       "music_performances_relation_type_check",
-      sql`${table.relation_type} IN ('original', 'cover')`,
+      sql`${table.relation_type} IN ('original', 'cover', 'singing_clip')`,
     ),
     check(
       "music_performances_release_type_check",
@@ -2310,6 +2322,7 @@ export const musicIngestionJobs = sqliteTable(
   {
     id: text().primaryKey(),
     source_kind: text("source_kind").notNull().default("playlist_import"),
+    candidate_kind: text("candidate_kind", { enum: ["official_video", "singing_clip"] }).notNull().default("official_video"),
     source_external_id: text("source_external_id").notNull(),
     source_url: text("source_url").notNull(),
     source_title: text("source_title"),

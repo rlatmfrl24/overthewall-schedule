@@ -1,3 +1,4 @@
+import { PlaylistDetailSkeleton, PlaylistTracksSkeleton } from "./playlist-skeletons";
 import { motion, Reorder, useDragControls, useReducedMotion } from "motion/react";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -33,7 +34,7 @@ function EditorLoader({ playlistId, from }: { playlistId?: string; from?: string
   if (((playlistId && saved.isError && !saved.data) || (!prepared.data && ((playlistId && saved.isError) || (from && defaults.isError) || prepared.isError)))) return <div className="playlist-page"><p role="alert">편집할 목록을 불러오지 못했습니다.</p>
     <Button onClick={() => { void saved.refetch(); void defaults.refetch(); void prepared.refetch(); }}>다시 시도</Button></div>;
   if (from && defaults.isSuccess && !template) return <p className="playlist-empty">기본 목록을 찾을 수 없습니다.</p>;
-  if ((playlistId && !saved.data) || !prepared.data) return <p className="playlist-empty" role="status">전체 가창 목록을 준비하고 있습니다…</p>;
+  if ((playlistId && !saved.data) || !prepared.data) return <div className="playlist-page"><PlaylistDetailSkeleton /></div>;
   const initial: PlayPlaylistWrite = saved.data?.data ?? { title: template ? `${template.title} — 내 목록` : "새 플레이리스트", description: "",
     representativePerformanceId: template?.representativePerformanceId && prepared.data.items.some(item => item.performance.id === template.representativePerformanceId) ? template.representativePerformanceId : null,
     originDefaultId: template?.id ?? null, performanceIds: prepared.data.items.map(item => item.performance.id) };
@@ -128,7 +129,7 @@ function PlaylistEditor({ initial, saved, tracks }: { initial: PlayPlaylistWrite
         <form onSubmit={event => { event.preventDefault(); setSearch(q.trim()); }} className="flex gap-2"><Input aria-label="플레이리스트 곡 검색" value={q} maxLength={80} onChange={event => setQ(event.target.value)} placeholder="곡명 · 원곡 가수 · 참여자" /><Button type="submit">검색</Button></form>
         <div className="flex flex-wrap gap-2"><label>멤버 <select value={member} onChange={event => setMember(event.target.value)}><option value="">전체 멤버</option>{members.data?.data.members.map(item => <option key={item.uid} value={item.uid}>{item.name}</option>)}</select></label>
           <label>분류 <select value={relation} onChange={event => setRelation(event.target.value as typeof relation)}><option value="">전체</option><option value="original">오리지널</option><option value="cover">커버</option></select></label></div>
-        {listing.isPending ? <p role="status">검색 중…</p> : listing.isError ? <Button onClick={() => void listing.refetch()}>검색 다시 시도</Button> : <div className="playlist-editor-results">{listing.data.pages.flatMap(page => page.data.items).map(item =>
+        {listing.isPending ? <PlaylistTracksSkeleton compact /> : listing.isError ? <Button onClick={() => void listing.refetch()}>검색 다시 시도</Button> : <div className="playlist-editor-results">{listing.data.pages.flatMap(page => page.data.items).map(item =>
           <PerformanceRow key={item.performance.id} item={item} compact><Button size="sm" variant="outline" disabled={busy || draft.performanceIds.length >= PLAY_PLAYLIST_MAX_ITEMS || draft.performanceIds.includes(item.performance.id)} onClick={() => add(item)}>{draft.performanceIds.includes(item.performance.id) ? "추가됨" : "추가"}</Button></PerformanceRow>)}</div>}
         {listing.isSuccess && !listing.data.pages[0].data.items.length && <p className="playlist-empty">검색 결과가 없습니다.</p>}
         {listing.hasNextPage && <Button disabled={listing.isFetching} onClick={() => void listing.fetchNextPage()}>더 보기</Button>}

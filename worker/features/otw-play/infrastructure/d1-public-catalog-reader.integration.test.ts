@@ -27,8 +27,18 @@ const PUBLIC_MIGRATION_NAMES = [
   "0056_moaning_killmonger.sql",
   "0057_numerous_luminals.sql",
   "0058_awesome_lorna_dane.sql",
+  "0059_demonic_luke_cage.sql",
+  "0060_ancient_cardiac.sql",
+  "0061_otw-play-member-entity-backfill.sql",
+  "0062_colorful_magma.sql",
+  "0063_youthful_jamie_braddock.sql",
   "0064_loud_black_tom.sql",
+  "0065_otw_play_authority_retention.sql",
+  "0066_otw_play_integrity_drift.sql",
   "0070_otw-play-performance-tags.sql",
+  "0089_ambitious_titania.sql",
+  "0090_demonic_sugar_man.sql",
+  "0091_tranquil_luke_cage.sql",
 ] as const;
 
 type PublicCatalogTestEnv = Env & {
@@ -250,7 +260,7 @@ const insertPerformance = (
       id,
       songId,
       `${id}-dedupe`,
-      options.relation ?? "cover",
+      options.releaseType === "broadcast" ? "singing_clip" : options.relation ?? "cover",
       options.releaseType ?? "official_video",
       options.participation ?? "solo",
       options.status ?? "published",

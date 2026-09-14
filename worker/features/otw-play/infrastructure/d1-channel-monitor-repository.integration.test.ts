@@ -1,3 +1,5 @@
+import { getDb } from "../../../platform/db";
+import { createD1KirinukiRepository } from "../../youtube/infrastructure/d1-kirinuki-repository";
 import { readAdminReviewSummary } from "./admin-review-summary";
 import { applyD1Migrations, env } from "cloudflare:test";
 import type { D1Migration } from "cloudflare:test";
@@ -5,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { D1ChannelMonitorRepository } from "./d1-channel-monitor-repository";
 
 type TestEnv = Env & {
+  OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS: D1Migration[];
   OTW_PLAY_INGESTION_MIGRATIONS: D1Migration[];
   OTW_PLAY_POLLING_MIGRATIONS: D1Migration[];
 };
@@ -106,6 +109,32 @@ beforeEach(async () => {
 });
 
 describe("D1ChannelMonitorRepository", () => {
+  it("keeps VOD registration, deletion and Play collection independent for the same YouTube channel", async () => {
+    await applyD1Migrations(db, testEnv.OTW_PLAY_CHANNEL_SEPARATION_MIGRATIONS);
+    const vod = createD1KirinukiRepository(getDb(testEnv));
+    const repository = new D1ChannelMonitorRepository(db);
+    const externalId = "UCmmmmmmmmmmmmmmmmmmmmmm";
+    const vodInput = { channel_name: "방송 클립", channel_url: `https://youtube.com/channel/${externalId}`, youtube_channel_id: externalId };
+    await vod.create(vodInput);
+    const row = (await vod.list()).find(item => item.youtube_channel_id === externalId)!;
+    const channel = await repository.findEligibleChannel(externalId);
+    const monitor = await repository.create({ id: "monitor-separated", eventId: "separated-create", approvalEventId: "separated-approval",
+      channel: channel!, uploadsPlaylistId: "UUmmmmmmmmmmmmmmmmmmmmmm", lastSeenVideoId: "AAAAAAAAAAA", approval, actorUserId: "admin-1", now: NOW });
+    const paused = await repository.updateStatus({ id: monitor.id, expectedVersion: monitor.version, status: "paused", actorUserId: "admin-1", eventId: "separated-pause", now: NOW + 1 });
+    expect((await vod.list()).find(item => item.id === row.id)).toEqual(row);
+    await vod.update({ ...row, channel_name: "방송 클립 이름 수정" });
+    expect((await repository.get(monitor.id)).status).toBe("paused");
+    await vod.delete(row.id);
+    expect((await repository.get(monitor.id)).version).toBe(paused.version);
+    await vod.create(vodInput);
+    await repository.remove({ id: monitor.id, expectedVersion: paused.version, actorUserId: "admin-1", eventId: "separated-delete", now: NOW + 2 });
+    expect((await vod.list()).find(item => item.youtube_channel_id === externalId)).toBeTruthy();
+    const onlyVodId = "UCvvvvvvvvvvvvvvvvvvvvvv";
+    await vod.create({ ...vodInput, youtube_channel_id: onlyVodId });
+    expect(await repository.findEligibleChannel(onlyVodId)).toBeNull();
+    expect(await repository.listDueIds(NOW + 60 * 60_000, 10)).toEqual([]);
+  });
+
   it("migrates to hourly polling while preserving pause, watermark, candidates and retired subscription history", async () => {
     const repository = new D1ChannelMonitorRepository(db);
     const channel = await repository.findEligibleChannel("UCmmmmmmmmmmmmmmmmmmmmmm");

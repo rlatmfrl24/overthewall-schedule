@@ -67,6 +67,9 @@ const repository = () => ({
     message: { schemaVersion: 1 as const, jobId: "job-1", idempotencyKey: "message-1" },
   })),
   getJob: vi.fn(async () => job()),
+  listReviewItems: vi.fn(),
+  changeCandidateKind: vi.fn(),
+  deleteJobHistory: vi.fn(async () => {}),
   listJobs: vi.fn(async () => [job()]),
   listItems: vi.fn(async () => ({ page: { items: [], nextCursor: null }, hasMore: false })),
   readMessage: vi.fn(async () => ({

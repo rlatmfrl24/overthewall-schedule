@@ -63,7 +63,6 @@ import { useScheduleBoard } from "../../queries/use-schedule-board";
 import { useAdminLiveScheduleAutoFill } from "../../use-cases/use-admin-live-schedule-auto-fill";
 import { queryKeys } from "@/shared/query/query-keys";
 import { useScheduleSaveFeedback } from "../../queries/use-schedule-save-feedback";
-import { ScheduleSaveNotice } from "../components/schedule-save-notice";
 import { ScheduleUpdatedAt } from "../components/schedule-updated-at";
 import { readSnapshotFonts, forceSystemSnapshotFonts } from "./snapshot/snapshot-fonts";
 
@@ -465,9 +464,9 @@ export const DailySchedule = ({
                       onClick={handleToggleView}
                     >
                       {viewMode === "grid" ? (
-                        <CalendarDays className="w-6 h-6 text-indigo-600" />
+                        <CalendarDays className="size-6 text-indigo-600" />
                       ) : (
-                        <List className="w-6 h-6 text-indigo-600" />
+                        <List className="size-6 text-indigo-600" />
                       )}
                     </Button>
                   </TooltipTrigger>
@@ -652,8 +651,6 @@ export const DailySchedule = ({
             </div>
           )}
 
-          <ScheduleSaveNotice feedback={scheduleSave.feedback} members={members}
-            onView={setCurrentDate} onDismiss={scheduleSave.dismiss} onRetry={scheduleSave.retryRefresh} />
 
           {/* D-Day & Notice Row */}
           {hasDailyContextRow && (

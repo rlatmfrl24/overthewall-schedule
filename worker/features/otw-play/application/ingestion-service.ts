@@ -142,6 +142,7 @@ export class IngestionService {
     const rangeEndExclusive = rangeStartPosition + count;
     return {
       playlistId,
+      candidateKind: input.candidateKind ?? "official_video",
       canonicalUrl: canonicalYouTubePlaylistUrl(playlistId),
       title: summary.title,
       ownerChannelId: summary.ownerChannelId,
@@ -159,7 +160,7 @@ export class IngestionService {
       requiresSplit:
         input.mode === "all_new" && input.rangeStart === undefined &&
         summary.itemCount > PLAYLIST_HARD_CAP,
-      previousImport: await this.repository.findPreviousImport(playlistId),
+      previousImport: await this.repository.findPreviousImport(playlistId, input.candidateKind ?? "official_video"),
     };
   }
 
@@ -199,6 +200,12 @@ export class IngestionService {
   getJob(jobId: string) {
     return this.repository.getJob(jobId);
   }
+
+  deleteJobHistory(jobId: string, actorUserId: string) {
+    return this.repository.deleteJobHistory(jobId, actorUserId, this.clock());
+  }
+
+  listReviewItems(filters: import("@contracts/otw-play").OtwPlayReviewFilters) { return this.repository.listReviewItems(filters); }
 
   listJobs(limit = 100) {
     return this.repository.listJobs(Math.max(1, Math.min(100, limit)));
@@ -346,6 +353,7 @@ export class IngestionService {
       eventId: this.createId(),
       now: this.clock(),
     };
+    if (input.action === "change_kind") return this.repository.changeCandidateKind({ ...command, candidateKind: input.candidateKind });
     if (input.action === "save") {
       const catalogMaterialization = this.createReviewCatalogMaterialization(
         input.input,

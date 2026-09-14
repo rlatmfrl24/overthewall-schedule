@@ -84,6 +84,20 @@ const reviewFixture = () => {
 };
 
 describe("SingingClipReviewDialog", () => {
+  it("preserves unfinished input across channel approval readback and saves without conversion in inbox mode", async () => {
+    const { candidate, catalog, reviewInput } = reviewFixture();
+    const props = { candidate, catalog, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: vi.fn(async () => {}) };
+    const view = render(createElement(SingingClipReviewDialog, props), { wrapper: createQueryWrapper() });
+    fireEvent.change(screen.getByLabelText("시작 위치(초)"), { target: { value: "45" } });
+    view.rerender(createElement(SingingClipReviewDialog, { ...props, candidate: { ...candidate }, catalog: Object.assign({}, catalog) }));
+    expect((screen.getByLabelText("시작 위치(초)") as HTMLInputElement).value).toBe("45");
+    updateCandidateMock.mockResolvedValueOnce({ id: candidate.candidateId, version: 4, status: "ready", reviewInput: { ...reviewInput, startSeconds: 45 } });
+    fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+    await waitFor(() => expect(props.onOpenChange).toHaveBeenCalledWith(false));
+    expect(updateCandidateMock).toHaveBeenCalledWith(candidate.candidateId, expect.objectContaining({ input: expect.objectContaining({ startSeconds: 45, releaseType: "broadcast", relationType: "singing_clip" }) }));
+    expect(convertCandidateMock).not.toHaveBeenCalled();
+  });
+
   it("restores, adds, and removes labels for a new song before saving", async () => {
     const { reviewInput, candidate, catalog } = reviewFixture();
     const createSongReviewInput = {
@@ -140,7 +154,7 @@ describe("SingingClipReviewDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "J-POP 제거" }));
 
     const saveButton = screen.getByRole("button", {
-      name: "검수 완료 후 draft 생성",
+      name: "검수 완료 후 임시 등록",
     });
     await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(saveButton);
@@ -213,7 +227,7 @@ describe("SingingClipReviewDialog", () => {
     expect(screen.getByText(/현재 멤버 🌙 · 테스트 유닛/)).toBeTruthy();
 
     const saveButton = screen.getByRole("button", {
-      name: "검수 완료 후 draft 생성",
+      name: "검수 완료 후 임시 등록",
     });
     await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(saveButton);
@@ -262,11 +276,11 @@ describe("SingingClipReviewDialog", () => {
       { wrapper: createQueryWrapper() },
     );
 
-    expect(screen.getByText("비공개 방송 가창 draft이며 자동 게시되지 않습니다.", {
+    expect(screen.getByText("가창 임시 항목이며 자동 게시되지 않습니다.", {
       exact: false,
     })).toBeTruthy();
     const saveButton = screen.getByRole("button", {
-      name: "검수 완료 후 draft 생성",
+      name: "검수 완료 후 임시 등록",
     });
     await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(saveButton);
@@ -278,7 +292,7 @@ describe("SingingClipReviewDialog", () => {
         expectedReviewInput: reviewInput,
         expectedReviewStatus: "needs_input",
         action: "save",
-        input: reviewInput,
+        input: { ...reviewInput, relationType: "singing_clip", broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: null } },
       },
     ));
     expect(convertCandidateMock).toHaveBeenCalledWith(candidate.candidateId, {
@@ -304,7 +318,7 @@ describe("SingingClipReviewDialog", () => {
       { wrapper: createQueryWrapper() },
     );
     const saveButton = screen.getByRole("button", {
-      name: "검수 완료 후 draft 생성",
+      name: "검수 완료 후 임시 등록",
     });
     await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
 
@@ -345,7 +359,7 @@ describe("SingingClipReviewDialog", () => {
       { wrapper: createQueryWrapper() },
     );
     const saveButton = screen.getByRole("button", {
-      name: "검수 완료 후 draft 생성",
+      name: "검수 완료 후 임시 등록",
     });
     await waitFor(() => expect(saveButton.hasAttribute("disabled")).toBe(false));
     fireEvent.click(saveButton);
@@ -359,8 +373,28 @@ describe("SingingClipReviewDialog", () => {
       expectedReviewInput: reviewInput,
       expectedReviewStatus: "ready",
       action: "save",
-      input: reviewInput,
+      input: { ...reviewInput, relationType: "singing_clip", broadcast: { performedOn: null, dateEvidence: null, originalUrl: null, extent: null } },
     });
     await waitFor(() => expect(onConverted).toHaveBeenCalledWith("performance-1"));
   });
+});
+
+it("reconciles materialized references before reopening a saved review", async () => {
+  const { reviewInput, candidate, catalog } = reviewFixture();
+  const createInput = { ...reviewInput, song: {
+    kind: "create" as const, title: "New Song", isOtwOriginal: false,
+    originalReleaseDate: null, originalReleasePrecision: "unknown" as const,
+    aliases: [], tags: [], originalArtists: [{ subject: { kind: "entity" as const, entityId: "entity-1" }, creditOrder: 0, isPrimary: true }],
+  }, participants: [{ ...reviewInput.participants[0]!, subject: { kind: "new_external" as const, clientKey: "new-singer", displayName: "Singer", entityKind: "person" as const } }] };
+  const savedInput = { ...reviewInput, song: { kind: "existing" as const, songId: "song-2" }, participants: [{ ...reviewInput.participants[0]!, subject: { kind: "entity" as const, entityId: "entity-2" } }] };
+  updateCandidateMock.mockResolvedValue({ version: 4, status: "ready", reviewInput: savedInput });
+  const props = { candidate: { ...candidate, reviewInput: createInput }, catalog, presentation: "page" as const, reviewOnly: true, onOpenChange: vi.fn(), onConverted: vi.fn(), onReviewStateChanged: vi.fn(async () => {}) };
+  const view = render(createElement(SingingClipReviewDialog, props), { wrapper: createQueryWrapper() });
+  fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+  await waitFor(() => expect(props.onOpenChange).toHaveBeenCalledWith(false));
+  view.rerender(createElement(SingingClipReviewDialog, { ...props, candidate: { ...candidate, candidateVersion: 4, status: "ready", reviewInput: savedInput } }));
+  fireEvent.change(screen.getByLabelText("검수 메모"), { target: { value: "updated note" } });
+  fireEvent.click(screen.getByRole("button", { name: "검수 저장 · 등록 준비 완료" }));
+  await waitFor(() => expect(updateCandidateMock).toHaveBeenCalledTimes(2));
+  expect(updateCandidateMock.mock.calls[1]![1].input).toMatchObject({ song: savedInput.song, participants: savedInput.participants, internalNote: "updated note" });
 });
